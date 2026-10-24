@@ -30,7 +30,11 @@
 //! the page's requests, URL and load states in its events
 //! (`page_events`), `page.wait_for_function` by running its function until
 //! it is truthy (`page_functions`), and the locator waits through the
-//! guard's check, each under the Run's `timeout.wait`.
+//! guard's check, each under the Run's `timeout.wait`. Every document a
+//! navigation reached is judged by its Page check (`recovery`), and a page
+//! that blocking may have broken is loaded once more with blocking off
+//! (`blocking_off`, ADR 0047), the Product's classifier telling its Block
+//! cause (`blocks`).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -38,6 +42,7 @@ use std::sync::Arc;
 use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::{self, Navigator};
+use goodfetch_engine::events::Events;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -75,11 +80,14 @@ use goodfetch_protocol::page::{
 };
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
 
+use crate::blocks::{BlockClassifier, NoBlocks};
 use crate::browser_fetch;
 use crate::dialogs::{self, Dialogs};
 use crate::driver::{Arrived, Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
-use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
+use crate::interception::{
+    self, Answer, Fulfillment, Interception, Lists, Overrides, Reply, Scope,
+};
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Injections, Pending, Registered};
 use crate::page_value::{HandlerPages, ProgramPages};
@@ -88,6 +96,7 @@ use crate::sessions::{self, OpenPage, PageEvent, Sessions};
 use crate::trace;
 use crate::url_pattern::UrlPattern;
 
+mod blocking_off;
 mod clean_up;
 mod waits;
 
@@ -98,16 +107,22 @@ mod waits;
 /// locator actions, and of the routes and their answers, whose browsers
 /// come from `pins`, the builds the Product version pins.
 /// Every page it opens carries an empty value and registers no response
-/// observer, as a Collie program's pages do.
+/// observer, as a Collie program's pages do, and no document has a Block
+/// cause.
 pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
-    contribution_with(pins, Arc::new(ProgramPages))
+    contribution_with(pins, Arc::new(ProgramPages), Arc::new(NoBlocks))
 }
 
 /// What the page crate adds to the engine, as [`contribution`], each page
 /// it opens taking its value and its response observer from `hooks` (ADR
 /// 0087): the hook through which Foxhound sets them on the pages it hands
-/// to handlers.
-pub fn contribution_with(pins: Vec<PinnedArtifact>, hooks: Arc<dyn HandlerPages>) -> Contribution {
+/// to handlers; `blocks` tells a page's Block cause, from the Product's
+/// rules (ADR 0035).
+pub fn contribution_with(
+    pins: Vec<PinnedArtifact>,
+    hooks: Arc<dyn HandlerPages>,
+    blocks: Arc<dyn BlockClassifier>,
+) -> Contribution {
     let interception = Interception::default();
     let events = page_events::Table::default();
     let dialogs = Dialogs::default();
@@ -123,6 +138,7 @@ pub fn contribution_with(pins: Vec<PinnedArtifact>, hooks: Arc<dyn HandlerPages>
         events,
         dialogs,
         hooks,
+        blocks,
         init_scripts: InitScripts::default(),
         injections: Injections::default(),
     };
@@ -637,6 +653,33 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
         ))
 }
 
+/// A document loaded with blocking on that blocking may have broken.
+struct Failed<'a> {
+    response: &'a PageResponse,
+    reason: blocking_off::Reason,
+}
+
+/// The Page check's judgement of the document `page`'s navigation to
+/// `destination` reached.
+fn judging<'a>(
+    page: &'a OpenPage,
+    page_id: &'a PageId,
+    destination: Destination<'a>,
+) -> Judging<'a> {
+    Judging {
+        run: &page.run,
+        session: &page.session,
+        page_id,
+        driver: &page.driver,
+        declared: page.page_check.as_deref(),
+        requested: match destination {
+            Destination::Url(url) => Some(url),
+            Destination::Reload | Destination::Back | Destination::Forward => None,
+        },
+        operation: destination.operation(),
+    }
+}
+
 /// The engine's pages, which every call of every Connection shares.
 #[derive(Clone)]
 struct Pages {
@@ -649,6 +692,8 @@ struct Pages {
     /// The Product's hook, which also serves the pages its fetch tiers
     /// opened from a document.
     hooks: Arc<dyn HandlerPages>,
+    /// The Product's Block classification.
+    blocks: Arc<dyn BlockClassifier>,
     /// Each page's init scripts on their way in or out, which its
     /// navigations wait for.
     init_scripts: InitScripts,
@@ -703,6 +748,7 @@ impl Pages {
             .reads_files()
             .then(|| self.interception.allow_files(page_id, navigator));
         let events = context.events();
+        let blocked_before = self.interception.lists_blocked(page_id);
         let navigated = page
             .life
             .call(
@@ -716,27 +762,129 @@ impl Pages {
         if let Some(failure) = self.left_failure(page_id) {
             return Err(failure);
         }
-        match navigated? {
-            Arrived::Document(response) => {
-                // Every document a Session's navigation reached is judged
-                // by its Page check (ADRs 0006 and 0092).
-                if let Some(response) = &response {
-                    let judging = Judging {
-                        run: &page.run,
-                        session: &page.session,
-                        page_id,
-                        driver: &page.driver,
-                        declared: page.page_check.as_deref(),
-                        requested: match destination {
-                            Destination::Url(url) => Some(url),
-                            Destination::Reload | Destination::Back | Destination::Forward => None,
-                        },
-                        operation: destination.operation(),
+        let Some(response) = self.arrived(page_id, navigated?, events).await else {
+            return Ok(Navigated { response: None });
+        };
+        // Every document a Session's navigation reached is judged by its
+        // Page check (ADRs 0006 and 0092).
+        let judged = recovery::judge(&judging(&page, page_id, destination), &response).await;
+        match self.interception.lists_for(page_id, &response.url) {
+            Lists::On => {
+                let touched = self.interception.lists_blocked(page_id) > blocked_before;
+                let reason = blocking_off::reason(
+                    &page.driver,
+                    self.blocks.as_ref(),
+                    &response,
+                    &judged,
+                    touched,
+                )
+                .await;
+                if let Some(reason) = reason {
+                    let failed = Failed {
+                        response: &response,
+                        reason,
                     };
-                    recovery::judge(&judging, response).await?;
+                    return self
+                        .again_without_lists(
+                            &page,
+                            page_id,
+                            destination,
+                            wait_until,
+                            failed,
+                            events,
+                        )
+                        .await;
                 }
-                Ok(Navigated { response })
             }
+            Lists::LearnedOff => {
+                let domain = interception::domain_key(&response.url);
+                let loaded = blocking_off::Loaded {
+                    page_id,
+                    session: &page.session,
+                    url: &response.url,
+                    domain: domain.as_deref(),
+                };
+                trace::provenance(&page.run, &loaded.learned()).await;
+            }
+            Lists::Off => {}
+        }
+        judged?;
+        Ok(Navigated {
+            response: Some(response),
+        })
+    }
+
+    /// Loads the page `page_id` once more with its Filter lists off, after
+    /// `failed` (ADR 0047): to the URL `destination` names, or else its
+    /// document again. Blocking is learned off for the first document's
+    /// domain only when this load passes; Provenance records it, and its
+    /// outcome answers the call.
+    async fn again_without_lists(
+        &self,
+        page: &OpenPage,
+        page_id: &PageId,
+        destination: Destination<'_>,
+        wait_until: WaitUntil,
+        failed: Failed<'_>,
+        events: &Events,
+    ) -> Result<Navigated, CallError> {
+        let again = match destination {
+            Destination::Url(url) => Destination::Url(url),
+            Destination::Reload | Destination::Back | Destination::Forward => Destination::Reload,
+        };
+        let lists_off = self.interception.lists_off(page_id);
+        let navigated = page
+            .life
+            .call(PageEvent::Goto, page.driver.navigate(again, wait_until))
+            .await;
+        if let Some(failure) = self.left_failure(page_id) {
+            return Err(failure);
+        }
+        let response = self.arrived(page_id, navigated?, events).await;
+        let (judged, passed) = match &response {
+            Some(response) => {
+                let judged = recovery::judge(&judging(page, page_id, again), response).await;
+                let passed = blocking_off::passed(
+                    failed.reason,
+                    &page.driver,
+                    self.blocks.as_ref(),
+                    response,
+                    &judged,
+                )
+                .await;
+                (judged, passed)
+            }
+            None => (Ok(()), false),
+        };
+        drop(lists_off);
+        let url = &failed.response.url;
+        let domain = if passed {
+            self.interception.learn_off(page_id, url)
+        } else {
+            interception::domain_key(url)
+        };
+        let loaded = blocking_off::Loaded {
+            page_id,
+            session: &page.session,
+            url,
+            domain: domain.as_deref(),
+        };
+        trace::provenance(&page.run, &loaded.retried(failed.reason, passed)).await;
+        judged?;
+        Ok(Navigated { response })
+    }
+
+    /// The document's response a navigation of the page `page_id` arrived
+    /// at; none for a document without one, and for a download, which is
+    /// published on `events`.
+    async fn arrived(
+        &self,
+        page_id: &PageId,
+        arrived: Arrived,
+        events: &Events,
+    ) -> Option<PageResponse> {
+        match arrived {
+            Arrived::Document(response) => response,
             Arrived::Download {
                 url,
                 suggested_filename,
@@ -752,7 +900,7 @@ impl Pages {
                         },
                     )
                     .await;
-                Ok(Navigated { response: None })
+                None
             }
         }
     }

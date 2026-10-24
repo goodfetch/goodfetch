@@ -18,6 +18,8 @@ goodfetch-engine.workspace = true
 goodfetch-extractor.workspace = true
 goodfetch-protocol.workspace = true
 jiff.workspace = true
+# A domain as ADR 0004 keys it, which blocking is learned off for (ADR 0047).
+psl.workspace = true
 regex.workspace = true
 regex-syntax.workspace = true
 rusqlite.workspace = true

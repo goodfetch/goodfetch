@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705 and #710;
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710 and #716;
 # spec #580, ticket #783): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "21"
+version = "22"
 
 [[capability]]
 name = "sessions.default"
@@ -261,6 +261,21 @@ name = "clean_up.never_block"
 [[capability.case]]
 id = "challenge-and-anti-bot-scripts-load-over-the-filter-lists-and-block-resources"
 covers = ["story:5-95", "setting:browser.block_resources"]
+
+[[capability]]
+name = "clean_up.blocking_off"
+
+[[capability.case]]
+id = "a-page-whose-content-a-listed-script-renders-passes-its-retry-with-blocking-off-which-is-learned-off"
+covers = ["story:5-99", "setting:session.page_check", "operation:run.new_session", "operation:session.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-page-failing-its-page-check-for-another-reason-is-retried-once-and-raises-page-check-failed"
+covers = ["story:5-99", "setting:session.page_check", "error:page_check_failed"]
+
+[[capability.case]]
+id = "a-challenge-the-filter-lists-blocked-a-request-of-is-retried-once-with-blocking-off"
+covers = ["story:5-99", "operation:page.evaluate"]
 
 [[capability]]
 name = "clean_up.block_resources"

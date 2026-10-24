@@ -48,6 +48,13 @@
 //! `page.request` does through the browser-fetch tier, passes steps 3 to 8
 //! as the page's Session chose them ([`Interception::engine_requests`]), never a
 //! route.
+//!
+//! Step 4's Filter lists are off for a page while it loads once more with
+//! blocking off, and for every page's requests from a document on a domain
+//! its Run learned blocking off for (ADR 0047), keyed as ADR 0004 keys a
+//! domain; the never-block list and `browser.block_resources` stay. Each
+//! page counts the requests the lists blocked, which tell a navigation the
+//! lists touched.
 #![expect(
     clippy::disallowed_types,
     reason = "routes are armed and answers delivered as their call arrives, before any `.await`: each lock guards one table or map for one operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -62,7 +69,8 @@ mod routes;
 mod steps;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
@@ -79,8 +87,8 @@ use goodfetch_protocol::page::{
     BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, NAVIGATION_FAILED, NavigationFailedDetails,
     PageId, SessionId,
 };
-use goodfetch_protocol::run::RunWarning;
 use goodfetch_protocol::run::warning::BLOCK_RESOURCES_VISIBLE;
+use goodfetch_protocol::run::{RunId, RunWarning};
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails};
 use tokio_util::sync::CancellationToken;
 
@@ -126,6 +134,66 @@ struct Shared {
     answers: Answers,
     /// The Clean-up rules step 4 matches, loaded once for every Session.
     clean_up: CleanUp,
+    /// The domains each live Run learned blocking off for, while any of its
+    /// pages holds them.
+    learned: Mutex<BTreeMap<RunId, Weak<Learned>>>,
+}
+
+impl Shared {
+    /// The domains `run` learned blocking off for, which its pages share.
+    fn learned(&self, run: &RunId) -> Arc<Learned> {
+        let mut learned = lock(&self.learned);
+        if let Some(held) = learned.get(run).and_then(Weak::upgrade) {
+            return held;
+        }
+        learned.retain(|_, held| held.strong_count() > 0);
+        let held = Arc::new(Learned::default());
+        learned.insert(run.clone(), Arc::downgrade(&held));
+        held
+    }
+}
+
+/// The domains a Run learned blocking off for (ADR 0047), each keyed as
+/// ADR 0004 keys a domain.
+#[derive(Default)]
+struct Learned(Mutex<BTreeSet<String>>);
+
+impl Learned {
+    /// Whether blocking was learned off for the domain of `url`.
+    fn holds(&self, url: &str) -> bool {
+        let learned = lock(&self.0);
+        !learned.is_empty() && domain_key(url).is_some_and(|domain| learned.contains(&domain))
+    }
+}
+
+/// The domain of `url` as ADR 0004 keys it: the registrable domain of its
+/// host under the full Public Suffix List, private entries included, or
+/// its address; none for a URL without a host.
+pub(crate) fn domain_key(url: &str) -> Option<String> {
+    let url = url::Url::parse(url).ok()?;
+    Some(match url.host()? {
+        url::Host::Domain(host) => {
+            let host = host.trim_end_matches('.').to_ascii_lowercase();
+            match psl::domain(host.as_bytes()) {
+                Some(domain) => String::from_utf8_lossy(domain.as_bytes()).into_owned(),
+                None => host,
+            }
+        }
+        url::Host::Ipv4(address) => address.to_string(),
+        url::Host::Ipv6(address) => address.to_string(),
+    })
+}
+
+/// What step 4's Filter lists do for a page's document (ADR 0047).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Lists {
+    /// No Filter list is on for its Session.
+    Off,
+    /// Its Session's lists are on, but its Run learned blocking off for the
+    /// document's domain.
+    LearnedOff,
+    /// Its Session's lists are on.
+    On,
 }
 
 #[derive(Default)]
@@ -156,6 +224,14 @@ pub(super) struct PageState {
     /// Who asked for the navigation call going on, while it may load a
     /// `file:` URL.
     files: Mutex<Option<Navigator>>,
+    /// Whether its Session turns any Filter list on.
+    lists_on: bool,
+    /// Whether it is loading once more with blocking off.
+    retrying: AtomicBool,
+    /// How many of its requests the Filter lists blocked.
+    lists_blocked: AtomicU64,
+    /// The domains its Run learned blocking off for.
+    learned: Arc<Learned>,
 }
 
 /// Steps 3 to 8 of a page's pipeline, as its Session chose them, for a
@@ -200,16 +276,18 @@ impl EngineRequests {
         };
         match steps::send_on(&request, &self.policy, &self.blocking, true) {
             Ok(steps::Sent::Continue(command)) => Ok(command),
-            Ok(steps::Sent::StandIn(_)) | Err(steps::Stopped::Blocked) => Err(CallError::new(
-                &NAVIGATION_FAILED,
-                format!(
-                    "{url} was blocked by the Session's Filter lists or `browser.block_resources`"
-                ),
-                &NavigationFailedDetails {
-                    url: url.to_owned(),
-                    error: Some(BLOCKED_BY_CLIENT.to_owned()),
-                },
-            )),
+            Ok(steps::Sent::StandIn(_)) | Err(steps::Stopped::Blocked { .. }) => {
+                Err(CallError::new(
+                    &NAVIGATION_FAILED,
+                    format!(
+                        "{url} was blocked by the Session's Filter lists or `browser.block_resources`"
+                    ),
+                    &NavigationFailedDetails {
+                        url: url.to_owned(),
+                        error: Some(BLOCKED_BY_CLIENT.to_owned()),
+                    },
+                ))
+            }
             Err(steps::Stopped::Refused(refused)) => Err(refused.error()),
         }
     }
@@ -243,6 +321,29 @@ impl PageState {
     /// call on the page, unless an earlier failure waits already.
     fn leave(&self, error: CallError) {
         lock(&self.failure).get_or_insert(error);
+    }
+
+    /// Whether step 4's Filter lists are off for a request sent from the
+    /// document at `source`: while the page loads once more with blocking
+    /// off, or on a domain its Run learned blocking off for.
+    fn lists_off(&self, source: &str) -> bool {
+        self.lists_on && (self.retrying.load(Ordering::Acquire) || self.learned.holds(source))
+    }
+
+    /// Counts a request the Filter lists blocked.
+    fn blocked_by_lists(&self) {
+        self.lists_blocked.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
+/// A page loading with blocking off, until it goes (ADR 0047).
+pub(crate) struct ListsOff(Option<Arc<PageState>>);
+
+impl Drop for ListsOff {
+    fn drop(&mut self) {
+        if let Some(state) = &self.0 {
+            state.retrying.store(false, Ordering::Release);
+        }
     }
 }
 
@@ -343,6 +444,10 @@ impl Interception {
                 pending,
                 failure: Mutex::new(None),
                 files: Mutex::new(None),
+                lists_on: blocking.lists.is_some(),
+                retrying: AtomicBool::new(false),
+                lists_blocked: AtomicU64::new(0),
+                learned: self.shared.learned(run.id()),
                 cosmetic: clean_up.cosmetic.clone(),
                 engine_requests: EngineRequests {
                     policy: policy.clone(),
@@ -462,6 +567,10 @@ impl Interception {
                     pending,
                     failure: Mutex::new(None),
                     files: Mutex::new(None),
+                    lists_on: blocking.lists.is_some(),
+                    retrying: AtomicBool::new(false),
+                    lists_blocked: AtomicU64::new(0),
+                    learned: shared.learned(run.id()),
                     cosmetic: None,
                     engine_requests: EngineRequests {
                         policy: policy.clone(),
@@ -488,6 +597,50 @@ impl Interception {
                 true
             })
         })
+    }
+
+    /// What step 4's Filter lists do for the page `page_id`'s document at
+    /// `url`; [`Lists::Off`] for a page the interception does not hold.
+    pub(crate) fn lists_for(&self, page_id: &PageId, url: &str) -> Lists {
+        let Some(state) = lock(&self.shared.tables).pages.get(page_id).cloned() else {
+            return Lists::Off;
+        };
+        if !state.lists_on {
+            Lists::Off
+        } else if state.learned.holds(url) {
+            Lists::LearnedOff
+        } else {
+            Lists::On
+        }
+    }
+
+    /// How many of the page `page_id`'s requests the Filter lists blocked
+    /// so far.
+    pub(crate) fn lists_blocked(&self, page_id: &PageId) -> u64 {
+        lock(&self.shared.tables)
+            .pages
+            .get(page_id)
+            .map_or(0, |state| state.lists_blocked.load(Ordering::Acquire))
+    }
+
+    /// Turns the Filter lists off for every request of the page `page_id`,
+    /// as it loads once more with blocking off, until the [`ListsOff`]
+    /// answered goes.
+    pub(crate) fn lists_off(&self, page_id: &PageId) -> ListsOff {
+        let state = lock(&self.shared.tables).pages.get(page_id).cloned();
+        if let Some(state) = &state {
+            state.retrying.store(true, Ordering::Release);
+        }
+        ListsOff(state)
+    }
+
+    /// Learns blocking off for the domain of `url` for every page of the
+    /// page `page_id`'s Run (ADR 0047), and answers that domain.
+    pub(crate) fn learn_off(&self, page_id: &PageId, url: &str) -> Option<String> {
+        let domain = domain_key(url)?;
+        let state = lock(&self.shared.tables).pages.get(page_id).cloned()?;
+        lock(&state.learned.0).insert(domain.clone());
+        Some(domain)
     }
 
     /// The cosmetic rules of the page `page_id`'s Session, when any of its

@@ -9,11 +9,14 @@
 //! from are declared in `block_detection/third-party.toml` for the notice
 //! inventory. It never produces `decoy`, Foxhound's alone (ADR 0095). It
 //! classifies a response as the site's: a proxy's own refusal is told where
-//! an engine module sees the proxy's answer (ADR 0127).
+//! an engine module sees the proxy's answer (ADR 0127). [`Detector`] gives
+//! it to the page crate, whose pages ask it for a document's Block cause.
 
 mod rules;
 
+use goodfetch_page::blocks::{Block, BlockClassifier};
 use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::page::PageResponse;
 
 use rules::{HeaderMarker, RULES, Rule};
 
@@ -54,6 +57,28 @@ pub(crate) struct Evidence {
     pub(crate) headers: Vec<HeaderMarker>,
     /// The markers it found in the document, one per group of its markers.
     pub(crate) markers: Vec<&'static str>,
+}
+
+/// Collie's Block classification, as the page crate asks for it.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Detector;
+
+impl BlockClassifier for Detector {
+    fn classify(&self, response: &PageResponse, markup: &str) -> Option<Block> {
+        let headers: Vec<(&str, &str)> = response
+            .headers
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect();
+        let response = Response {
+            status: response.status,
+            headers: &headers,
+        };
+        classify(&response, &Document { markup }).map(|classification| Block {
+            cause: classification.cause,
+            rule: classification.evidence.rule,
+        })
+    }
 }
 
 /// The Block cause of a response with `document`, if a rule decides one.

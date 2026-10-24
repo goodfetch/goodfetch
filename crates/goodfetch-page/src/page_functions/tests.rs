@@ -1,7 +1,7 @@
 use rstest::rstest;
 use serde_json::json;
 
-use super::init_script;
+use super::{error_message, init_script};
 
 /// A source that is one function, comments and a closing `;` around it
 /// allowed, is called with its argument: it takes one, which the script
@@ -41,4 +41,27 @@ fn a_function_is_called_with_its_argument(#[case] source: &str) {
 fn a_script_runs_as_it_is_and_takes_no_argument(#[case] source: &str) {
     assert_eq!(init_script(source, None).ok().as_deref(), Some(source));
     assert!(init_script(source, Some(&json!(1))).is_err());
+}
+
+/// An error's message is its description's first line past its name, with
+/// or without one, and none for the name alone.
+#[rstest]
+#[case::named(
+    Some("TypeError"),
+    "TypeError: the page said no\n    at <anonymous>:1:7",
+    "the page said no"
+)]
+#[case::name_alone(Some("Error"), "Error\n    at <anonymous>:1:7", "")]
+#[case::other_name(
+    Some("RangeError"),
+    "SyntaxError: Unexpected token",
+    "SyntaxError: Unexpected token"
+)]
+#[case::no_name(None, "Uncaught 42", "Uncaught 42")]
+fn an_errors_message_is_its_first_line_past_its_name(
+    #[case] name: Option<&str>,
+    #[case] description: &str,
+    #[case] message: &str,
+) {
+    assert_eq!(error_message(name, description), message);
 }

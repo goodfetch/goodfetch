@@ -176,24 +176,29 @@ fn not_run(details: &runtime::ExceptionDetails) -> Thrown {
     let exception = details.exception.as_ref();
     let description = exception.and_then(|exception| exception.description.clone());
     let name = exception.and_then(|exception| exception.class_name.clone());
-    let message = description
-        .as_deref()
-        .and_then(|description| description.lines().next())
-        .map_or_else(
-            || details.text.clone(),
-            |line| {
-                name.as_deref()
-                    .and_then(|name| line.strip_prefix(name))
-                    .and_then(|rest| rest.strip_prefix(": "))
-                    .unwrap_or(line)
-                    .to_owned()
-            },
-        );
+    let message = description.as_deref().map_or_else(
+        || details.text.clone(),
+        |description| error_message(name.as_deref(), description),
+    );
     Thrown {
         name,
         message,
         stack: description,
     }
+}
+
+/// An error's message from its V8 description, `<name>: <message>` then
+/// its stack: the first line, past its name `name` when it starts so, or
+/// none when it is the name alone.
+pub(crate) fn error_message(name: Option<&str>, description: &str) -> String {
+    let first = description.lines().next().unwrap_or_default();
+    name.and_then(|name| first.strip_prefix(name))
+        .and_then(|rest| {
+            rest.strip_prefix(": ")
+                .or_else(|| rest.is_empty().then_some(""))
+        })
+        .unwrap_or(first)
+        .to_owned()
 }
 
 /// `page_function_failed` for what the page threw; a `ReferenceError`'s

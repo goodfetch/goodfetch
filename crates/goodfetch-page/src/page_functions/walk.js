@@ -12,6 +12,18 @@
 /* eslint-disable unicorn/consistent-function-scoping -- CDP sends the function alone */
 // eslint-disable-next-line no-unused-vars -- the engine's expression calls it
 async function walk(thunk, argument, given) {
+  // What a thrown value says: an error of any realm by its name, message
+  // and stack, any other value as its text.
+  const thrownOf = (error) => {
+    const named = error instanceof Error || (error && typeof error.name === "string");
+    return {
+      thrown: {
+        name: named ? String(error.name) : null,
+        message: named ? String(error.message) : String(error),
+        stack: named && typeof error.stack === "string" ? error.stack : null,
+      },
+    };
+  };
   let value;
   try {
     value = thunk();
@@ -23,14 +35,7 @@ async function walk(thunk, argument, given) {
       value = await value;
     }
   } catch (error) {
-    const thrown = error instanceof Error || (error && typeof error.name === "string");
-    return {
-      thrown: {
-        name: thrown ? String(error.name) : null,
-        message: thrown ? String(error.message) : String(error),
-        stack: thrown && typeof error.stack === "string" ? error.stack : null,
-      },
-    };
+    return thrownOf(error);
   }
   const tag = (found) => Object.prototype.toString.call(found).slice(8, -1);
   const constructorOf = (found) => {
@@ -168,13 +173,6 @@ async function walk(thunk, argument, given) {
     }
     return copied === undefined ? {} : { value: copied };
   } catch (error) {
-    const thrown = error instanceof Error;
-    return {
-      thrown: {
-        name: thrown ? error.name : null,
-        message: thrown ? error.message : String(error),
-        stack: thrown && typeof error.stack === "string" ? error.stack : null,
-      },
-    };
+    return thrownOf(error);
   }
 }

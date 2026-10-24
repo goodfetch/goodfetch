@@ -303,6 +303,22 @@ fn thrown(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
             },
         ),
     );
+    let answer = evaluate(
+        connection,
+        &page,
+        "() => { const frame = document.createElement('iframe'); document.body.append(frame); const Thrown = frame.contentWindow.RangeError; return { get read() { throw new Thrown('another realm said no'); } }; }",
+        None,
+        "main",
+    )?;
+    checks.check(
+        "an error of another realm thrown while the result is read keeps its name",
+        details::<PageFunctionFailedDetails>(&answer, PAGE_FUNCTION_FAILED.name).is_some_and(
+            |details| {
+                details.name.as_deref() == Some("RangeError")
+                    && details.message == "another realm said no"
+            },
+        ),
+    );
     let answer = evaluate(connection, &page, "document.title", Some(json!(1)), "main")?;
     checks.check(
         format!(

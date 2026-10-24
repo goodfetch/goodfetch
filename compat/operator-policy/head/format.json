@@ -131,6 +131,25 @@
             },
             "type": "object"
           },
+          "audit": {
+            "additionalProperties": false,
+            "properties": {
+              "retention": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
           "browser_cache": {
             "additionalProperties": false,
             "properties": {
@@ -729,6 +748,29 @@
                   }
                 ],
                 "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset, and a run already going takes a tightened cap at its next admission."
+              }
+            },
+            "type": "object"
+          },
+          "audit": {
+            "additionalProperties": false,
+            "properties": {
+              "otlp": {
+                "description": "Whether an engine process also sends each new Audit log entry, the hash with it, as an OpenTelemetry event to the OTLP/HTTP collector `otlp.logs_endpoint` names: off by default, and nothing is sent while `otlp.logs_endpoint` is unset. Read when the process starts; set in user configuration or an Operator policy only.",
+                "type": "boolean"
+              },
+              "retention": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
               }
             },
             "type": "object"
@@ -1392,6 +1434,17 @@
           "otlp": {
             "additionalProperties": false,
             "properties": {
+              "logs_endpoint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The OTLP/HTTP endpoint an engine process sends its OpenTelemetry events to, such as `http://localhost:4318/v1/logs`: today the Audit log's entries, while `audit.otlp` is on. Unset, the default, sends nothing, and nothing leaves the machine. Read when the process starts; set in user configuration or an Operator policy only."
+              },
               "metrics_endpoint": {
                 "anyOf": [
                   {
@@ -2693,6 +2746,29 @@
             },
             "type": "object"
           },
+          "audit": {
+            "additionalProperties": false,
+            "properties": {
+              "otlp": {
+                "description": "Whether an engine process also sends each new Audit log entry, the hash with it, as an OpenTelemetry event to the OTLP/HTTP collector `otlp.logs_endpoint` names: off by default, and nothing is sent while `otlp.logs_endpoint` is unset. Read when the process starts; set in user configuration or an Operator policy only.",
+                "type": "boolean"
+              },
+              "retention": {
+                "anyOf": [
+                  {
+                    "description": "A duration in milliseconds.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
           "browser": {
             "additionalProperties": false,
             "properties": {
@@ -3352,6 +3428,17 @@
           "otlp": {
             "additionalProperties": false,
             "properties": {
+              "logs_endpoint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The OTLP/HTTP endpoint an engine process sends its OpenTelemetry events to, such as `http://localhost:4318/v1/logs`: today the Audit log's entries, while `audit.otlp` is on. Unset, the default, sends nothing, and nothing leaves the machine. Read when the process starts; set in user configuration or an Operator policy only."
+              },
               "metrics_endpoint": {
                 "anyOf": [
                   {

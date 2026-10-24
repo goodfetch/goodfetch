@@ -88,6 +88,17 @@
       ]
     },
     {
+      "id": "command:audit.export",
+      "kind": "command",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:audit.verify",
       "kind": "command",
       "area": 4,
@@ -2371,6 +2382,17 @@
       "id": "format:user-configuration",
       "kind": "format",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:audit.export",
+      "kind": "operation",
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -5285,6 +5307,28 @@
       ]
     },
     {
+      "id": "setting:audit.otlp",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:audit.retention",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:browser.block_resources",
       "kind": "setting",
       "area": 5,
@@ -6050,6 +6094,17 @@
     },
     {
       "id": "setting:ops.address",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:otlp.logs_endpoint",
       "kind": "setting",
       "area": 3,
       "milestone": null,

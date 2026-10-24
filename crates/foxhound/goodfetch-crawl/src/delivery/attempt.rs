@@ -21,11 +21,14 @@
 //! read here and applied by the gate of #883.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use std::collections::BTreeSet;
 
+use goodfetch_engine::CallError;
 use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
+use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch};
@@ -111,8 +114,14 @@ pub(super) struct Gating {
 
 impl Gating {
     /// Hands the Run's pages over to the attempt of `leased` holding
-    /// `lease`, while its handler runs.
-    async fn hand_over(&self, run: &Run, leased: &Leased, lease: &WorkItemLease) -> HandedOver {
+    /// `lease`, while its handler runs; `in_flight` names its waits.
+    async fn hand_over(
+        &self,
+        run: &Run,
+        leased: &Leased,
+        lease: &WorkItemLease,
+        in_flight: &SharedInFlight,
+    ) -> HandedOver {
         let politeness = share_robots_txt(run).await;
         let settings = run.settings().map(|settings| settings.resolved().clone());
         let domain_delay = settings
@@ -133,8 +142,73 @@ impl Gating {
                     .map(str::to_owned)
             }),
             domain_delay,
-            lease: Arc::new(lease.clone()),
+            lease: Arc::new(HandlerLease {
+                lease: lease.clone(),
+                run: run.clone(),
+                request_id: leased.crawl_request.id.clone(),
+                in_flight: Arc::clone(in_flight),
+                waits: Arc::default(),
+            }),
         })
+    }
+}
+
+/// The lease check of an attempt's handler pages: the attempt's lease,
+/// renewed while a page waits for a navigation gate's permit, the wait
+/// named in the Run's live status, so a handler waiting for a permit is not
+/// timed out meanwhile (ADR 0093).
+#[derive(Clone, Debug)]
+struct HandlerLease {
+    lease: WorkItemLease,
+    run: Run,
+    request_id: String,
+    in_flight: SharedInFlight,
+    /// How many of its pages' waits are under way.
+    waits: Arc<AtomicUsize>,
+}
+
+/// How often a permit's wait renews its lease, as a share of its length.
+const RENEWALS_PER_LENGTH: u32 = 4;
+
+impl LeaseCheck for HandlerLease {
+    fn check(&self) -> Result<(), LeaseEnded> {
+        self.lease.check()
+    }
+
+    fn withheld(&self, ended: LeaseEnded, method: &str) -> CallError {
+        self.lease.withheld(ended, method)
+    }
+
+    fn permit_wait(&self, _url: &str) -> PermitWait {
+        let (stop, mut stopped) = oneshot::channel::<()>();
+        let waiting = self.clone();
+        self.waits.fetch_add(1, Ordering::SeqCst);
+        self.run.spawn(async move {
+            let id = &waiting.request_id;
+            waiting.in_flight.lock().await.went_on(
+                &waiting.run,
+                id,
+                InFlightPhase::WaitingForPermit,
+            );
+            let (length, clock) = (waiting.lease.length(), waiting.run.clock());
+            loop {
+                waiting.lease.renew(length);
+                tokio::select! {
+                    _ = &mut stopped => break,
+                    () = clock.sleep(length / RENEWALS_PER_LENGTH) => {}
+                }
+            }
+            // The handler's timeout runs again from the wait's end.
+            waiting.lease.renew(length);
+            if waiting.waits.fetch_sub(1, Ordering::SeqCst) == 1 {
+                waiting
+                    .in_flight
+                    .lock()
+                    .await
+                    .went_on(&waiting.run, id, InFlightPhase::Handling);
+            }
+        });
+        PermitWait::holding(stop)
     }
 }
 
@@ -276,7 +350,7 @@ pub(super) async fn attempt(
                 tier: document.as_ref().map(|_| FetchTier::Http),
                 page_id: document.clone(),
             };
-            let handed_over = gating.hand_over(&run, &leased, &lease).await;
+            let handed_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
             let answer = handled(&run, &client, &params, &lease).await;
             drop(handed_over);
             if let (Some(fetch), Some(page_id)) = (&fetching, &document) {

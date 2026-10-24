@@ -28,12 +28,17 @@ pub(crate) struct Attached {
 
 impl Attached {
     pub(crate) fn start(env: &TestEnv) -> Self {
-        Self::start_with(env, |_| {})
+        Self::start_with(env, None, |_| {})
     }
 
     /// [`Attached::start`], `prepare` setting the engine's command first,
-    /// such as the browsers' folder its pages launch from.
-    pub(crate) fn start_with(env: &TestEnv, prepare: impl FnOnce(&mut Command)) -> Self {
+    /// such as the browsers' folder its pages launch from, and each wait
+    /// for its output bounded by `deadline` when given.
+    pub(crate) fn start_with(
+        env: &TestEnv,
+        deadline: Option<Duration>,
+        prepare: impl FnOnce(&mut Command),
+    ) -> Self {
         env.log_level("trace");
         let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-foxhound"));
         command.arg("attached-engine").stderr(Stdio::piped());
@@ -41,6 +46,10 @@ impl Attached {
         let process = env.spawn(&mut command).unwrap();
         let stdin = process.child().stdin.take();
         let stdout = StrictStdout::of(&process).unwrap();
+        let stdout = match deadline {
+            Some(deadline) => stdout.within(deadline),
+            None => stdout,
+        };
         let mut engine = Self {
             process,
             stdin,

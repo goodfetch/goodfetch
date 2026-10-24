@@ -33,7 +33,8 @@ const ROBOTS_HOST: &str = "1.access-policy.test";
 /// An engine whose pages launch Chrome for Testing from the test's cache.
 fn engine(env: &TestEnv) -> Attached {
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
-    Attached::start_with(env, |command| {
+    // A navigation may wait out its domain's delay with nothing to say.
+    Attached::start_with(env, Some(Duration::from_secs(60)), |command| {
         command.env(BROWSERS_PATH_VARIABLE, &cache);
     })
 }
@@ -278,6 +279,90 @@ fn every_navigation_of_a_handlers_pages_takes_a_permit_of_its_domain() {
             (Vec::new(), Vec::new(), Vec::new()),
         ),
         "{history:?} {edge:?} {popup:?}"
+    );
+}
+
+/// The answer to the call `id` `engine` sends next, the requests and
+/// replies before it kept in `others`.
+fn answer_to(engine: &mut Attached, id: &str, others: &mut Vec<Value>) -> Value {
+    loop {
+        let message = engine.next().expect("the engine answers");
+        if message["id"] == id {
+            return message;
+        }
+        others.push(message);
+    }
+}
+
+/// A handler whose `goto` waits for its domain's delay between starts is
+/// not timed out meanwhile: the wait lasts longer than the attempt's lease
+/// was granted for, the lease is renewed through it, the Run's live status
+/// names it, and the attempt then commits, never sent again.
+///
+/// Covers: story:5-134, setting:timeout.handler, setting:politeness.domain.delay, operation:run.progress
+#[test]
+fn a_handler_waiting_for_a_permit_is_not_timed_out_and_its_wait_is_named() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    // A lease of 1 s plus the 10 s margin, shorter than the delay.
+    let more = json!({
+        "timeout": { "handler": 1_000 },
+        "politeness": { "domain": { "delay": 12_000 } },
+    });
+
+    let (mut phases, mut went, mut others) = (Vec::new(), None, Vec::new());
+    let mut handled = 0;
+    let report = crawl_with(
+        &mut engine,
+        "waits",
+        &[json!({ "url": proving_ground.url(ROBOTS_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            handled += 1;
+            if handled > 1 {
+                return json!({ "result": { "records": [] } });
+            }
+            let page_id = new_page(inside, handle);
+            let url = proving_ground.url(ROBOTS_HOST, "/catalog/3");
+            let engine = inside.engine();
+            engine.send(&json!({
+                "jsonrpc": "2.0", "id": "goto", "method": "page.goto",
+                "params": { "page_id": page_id, "url": url },
+            }));
+            std::thread::sleep(Duration::from_secs(2));
+            engine.send(&json!({
+                "jsonrpc": "2.0", "id": "progress", "method": "run.progress",
+                "params": { "run_id": handle["run_id"] },
+            }));
+            let progress = answer_to(engine, "progress", &mut others);
+            phases = progress["result"]["in_flight"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|request| request["phase"].clone())
+                .collect();
+            went = Some(answer_to(engine, "goto", &mut others));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            handled,
+            phases,
+            went.map(|went| went["result"]["response"]["status"].clone()),
+            others,
+        ),
+        (
+            &json!("finished"),
+            1,
+            vec![json!("waiting_for_permit")],
+            Some(json!(200)),
+            Vec::<Value>::new(),
+        )
     );
 }
 

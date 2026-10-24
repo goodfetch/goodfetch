@@ -228,6 +228,19 @@ impl ProvingGround {
             .map_err(|error| ProvingGroundError::Observations(error.to_string()))
     }
 
+    /// `PUT /time-step` on its own address: the time step its pages answer
+    /// at from now on, such as the `pacing` family's latency.
+    ///
+    /// # Errors
+    ///
+    /// `Oracle` when it gave no answer.
+    pub fn set_time_step(&self, step: u64) -> Result<(), ProvingGroundError> {
+        ureq::put(format!("http://{}/time-step", self.address))
+            .send_json(serde_json::json!({ "step": step }))
+            .map(drop)
+            .map_err(|error| ProvingGroundError::Oracle(error.to_string()))
+    }
+
     /// The client certificate its hosts that require mutual TLS accept,
     /// from `GET /client-certificate` and `GET /client-key`: the
     /// certificate written beside the certificate authority's file, the key

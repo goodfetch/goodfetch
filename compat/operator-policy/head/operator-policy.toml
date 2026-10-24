@@ -203,6 +203,7 @@ max_requests = 4
 max_url_length = 4
 max_path_segments = 4
 max_segment_repeats = 4
+path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
 
 [settings.crawl.retry]
 max = 4
@@ -218,6 +219,11 @@ exclude = ["example"]
 
 [settings.fetch]
 tier = "auto"
+coalesce = true
+
+[settings.fetch.hedge]
+enabled = true
+max_percent = 4
 
 [settings.paid_fetch]
 domains = ["example"]
@@ -431,6 +437,7 @@ max_requests = 4
 max_url_length = 4
 max_path_segments = 4
 max_segment_repeats = 4
+path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
 
 [lock.crawl.retry]
 max = 4
@@ -446,6 +453,11 @@ exclude = ["example"]
 
 [lock.fetch]
 tier = "auto"
+coalesce = true
+
+[lock.fetch.hedge]
+enabled = true
+max_percent = 4
 
 [lock.paid_fetch]
 domains = ["example"]
@@ -560,6 +572,9 @@ max = 4
 
 [cap.crawl.handler]
 concurrency = 4
+
+[cap.fetch.hedge]
+max_percent = 4
 
 [cap.session.pool]
 max_size = 4

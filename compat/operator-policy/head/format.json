@@ -319,6 +319,23 @@
             },
             "type": "object"
           },
+          "fetch": {
+            "additionalProperties": false,
+            "properties": {
+              "hedge": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_percent": {
+                    "description": "The most hedges a run sends, as a whole percentage of the crawl requests its HTTP tier sent: 5 by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
           "governor": {
             "additionalProperties": false,
             "properties": {
@@ -1035,6 +1052,29 @@
                 ],
                 "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
               },
+              "path_budgets": {
+                "description": "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_requests": {
+                      "description": "How many requests whose URL the pattern matches first the crawl admits.",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "pattern": {
+                      "description": "A glob read as Playwright reads one, such as `/shop?*`, matched in the engine against a URL's path and query.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pattern",
+                    "max_requests"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "retry": {
                 "additionalProperties": false,
                 "properties": {
@@ -1152,6 +1192,25 @@
           "fetch": {
             "additionalProperties": false,
             "properties": {
+              "coalesce": {
+                "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
+                "type": "boolean"
+              },
+              "hedge": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "description": "Whether the HTTP tier hedges a crawl request: once a GET or HEAD from a work item that declares no Effect has not answered within its route's 95th-percentile latency, a second copy is sent on a new connection through the Session's own exit, and the first answer wins, the other cancelled. Both copies hold per-domain slots and count in Usage; a Paid fetch is never hedged. Off by default; a crawl that switches it on while `politeness.domain.concurrency` is 1 is refused with `setting_not_applicable`.",
+                    "type": "boolean"
+                  },
+                  "max_percent": {
+                    "description": "The most hedges a run sends, as a whole percentage of the crawl requests its HTTP tier sent: 5 by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "tier": {
                 "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
                 "enum": [
@@ -3029,6 +3088,29 @@
                 ],
                 "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
               },
+              "path_budgets": {
+                "description": "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_requests": {
+                      "description": "How many requests whose URL the pattern matches first the crawl admits.",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "pattern": {
+                      "description": "A glob read as Playwright reads one, such as `/shop?*`, matched in the engine against a URL's path and query.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pattern",
+                    "max_requests"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "retry": {
                 "additionalProperties": false,
                 "properties": {
@@ -3146,6 +3228,25 @@
           "fetch": {
             "additionalProperties": false,
             "properties": {
+              "coalesce": {
+                "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
+                "type": "boolean"
+              },
+              "hedge": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "description": "Whether the HTTP tier hedges a crawl request: once a GET or HEAD from a work item that declares no Effect has not answered within its route's 95th-percentile latency, a second copy is sent on a new connection through the Session's own exit, and the first answer wins, the other cancelled. Both copies hold per-domain slots and count in Usage; a Paid fetch is never hedged. Off by default; a crawl that switches it on while `politeness.domain.concurrency` is 1 is refused with `setting_not_applicable`.",
+                    "type": "boolean"
+                  },
+                  "max_percent": {
+                    "description": "The most hedges a run sends, as a whole percentage of the crawl requests its HTTP tier sent: 5 by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "tier": {
                 "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
                 "enum": [

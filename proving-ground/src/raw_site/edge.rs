@@ -215,6 +215,8 @@ fn refresh(rest: &str) -> Option<Page> {
 /// `/retry-after/<status>/<form>`: on its first request, the status with a
 /// `Retry-After` of 2 s, in seconds or as an HTTP-date in one of RFC 9110's
 /// three formats (§5.6.7) against a `Date` an hour behind; a page after.
+/// `/long` after the form asks for an hour instead, so a client that did
+/// not wait is never mistaken for a slow one.
 /// `/retry-after/503/long` and `/retry-after/429/long` always answer their
 /// status and ask for an hour.
 fn retry_after(rest: &str, first: bool, path: &str) -> Answer {
@@ -229,10 +231,13 @@ fn retry_after(rest: &str, first: bool, path: &str) -> Answer {
             Page::text(status, "unavailable").with("retry-after", LONG_RETRY_SECONDS.to_string()),
         );
     }
+    let (form, wait) = form
+        .strip_suffix("/long")
+        .map_or((form, RETRY_SECONDS), |form| (form, LONG_RETRY_SECONDS));
     let now = clock::unix_seconds();
     let skewed = now.saturating_sub(SKEW_SECONDS);
     let (date, value) = match form {
-        "seconds" => (http_date(now, Form::ImfFixdate), RETRY_SECONDS.to_string()),
+        "seconds" => (http_date(now, Form::ImfFixdate), wait.to_string()),
         "imf-fixdate" | "rfc850" | "asctime" => {
             let form = match form {
                 "imf-fixdate" => Form::ImfFixdate,
@@ -241,7 +246,7 @@ fn retry_after(rest: &str, first: bool, path: &str) -> Answer {
             };
             (
                 http_date(skewed, Form::ImfFixdate),
-                http_date(skewed + RETRY_SECONDS, form),
+                http_date(skewed + wait, form),
             )
         }
         _ => return not_found(),

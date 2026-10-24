@@ -53,12 +53,21 @@ pub struct Event {
 }
 
 impl Event {
-    /// Its params as `E`'s, when it is `E`.
+    /// Its params as `E`'s, when it is `E`; params that do not read as
+    /// `E`'s, which only a browser the bindings do not match sends, are
+    /// logged at `warn` with the method, never with the params.
     pub fn read<E: crate::Event>(&self) -> Option<E> {
         if self.method != E::METHOD {
             return None;
         }
-        E::deserialize(&self.params).ok()
+        E::deserialize(&self.params)
+            .inspect_err(|_| {
+                tracing::warn!(
+                    cdp.method = E::METHOD,
+                    "the browser sent an event whose params do not read as the bindings say"
+                );
+            })
+            .ok()
     }
 }
 

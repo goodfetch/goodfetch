@@ -360,3 +360,53 @@ fn each_command_is_a_span_that_records_its_method_alone() {
         )]
     );
 }
+
+/// Sends the fields of each `warn` its subscriber sees.
+struct Warned(std::sync::mpsc::Sender<String>);
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Warned {
+    fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
+        struct Fields(Vec<String>);
+        impl tracing::field::Visit for Fields {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                self.0.push(format!("{}={value:?}", field.name()));
+            }
+        }
+        if *event.metadata().level() == tracing::Level::WARN {
+            let mut fields = Fields(Vec::new());
+            event.record(&mut fields);
+            let _ = self.0.send(fields.0.join(" "));
+        }
+    }
+}
+
+/// An event whose params do not read as its type's is logged at `warn`
+/// with its method, so a wait that then times out has its cause logged.
+#[test]
+fn an_event_whose_params_do_not_read_is_logged_at_warn_with_its_method() {
+    use tracing_subscriber::layer::SubscriberExt as _;
+
+    let (warned, warnings) = std::sync::mpsc::channel();
+    let subscriber = tracing_subscriber::registry().with(Warned(warned));
+    let event = super::Event {
+        method: "Page.loadEventFired".to_owned(),
+        params: json!({ "timestamp": "not a time" }),
+    };
+
+    let read = tracing::subscriber::with_default(subscriber, || {
+        event.read::<crate::generated::page::LoadEventFiredEvent>()
+    });
+
+    let warnings: Vec<String> = warnings.try_iter().collect();
+    assert_eq!(
+        (
+            read.is_none(),
+            warnings
+                .iter()
+                .filter(|warning| warning.contains("cdp.method=\"Page.loadEventFired\""))
+                .count()
+        ),
+        (true, 1),
+        "{warnings:?}"
+    );
+}

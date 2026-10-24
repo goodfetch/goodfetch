@@ -279,6 +279,10 @@ covers = ["story:5-40", "operation:route.fetch", "operation:route.fulfill"]
 id = "a-session-route-keeps-serving-its-other-pages-once-one-closes"
 covers = ["story:5-40", "operation:session.route", "operation:route.fulfill"]
 
+[[capability.case]]
+id = "a-fetch-whose-page-closes-before-its-response-raises-closed-and-the-run-finishes"
+covers = ["story:5-40", "operation:route.fetch", "error:closed"]
+
 [[capability]]
 name = "routes.interception_order"
 

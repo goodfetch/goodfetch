@@ -89,8 +89,9 @@ pub(super) struct PageContext {
     observing: Option<Observing>,
     run: Run,
     /// The requests a `fetch` sent on, waiting for their response to be
-    /// paused, by the interception's ID.
-    responses: Mutex<BTreeMap<fetch::RequestId, oneshot::Sender<fetch::RequestPausedEvent>>>,
+    /// paused, by the interception's ID, each with its network ID: a
+    /// request that fails first, or a target that goes, drops its waiter.
+    responses: Mutex<BTreeMap<fetch::RequestId, Fetching>>,
     /// The URL of the main frame's document last sent on: the source the
     /// Filter lists judge a request without a `Referer` by.
     document: Mutex<String>,
@@ -109,6 +110,13 @@ pub(super) struct PageContext {
     /// which the engine resolves each request's host itself and judges its
     /// answers, since no relay is under that browser (ADR 0056).
     lookups: Option<Arc<Resolve>>,
+}
+
+/// A request a `fetch` sent on: its network ID, and where its paused
+/// response goes.
+struct Fetching {
+    network_id: Option<network::RequestId>,
+    response: oneshot::Sender<fetch::RequestPausedEvent>,
 }
 
 /// The latest requests the Session's proxy credentials were given for, so a
@@ -241,6 +249,9 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
             continue;
         }
         if let Some(failed) = event.read::<network::LoadingFailedEvent>() {
+            // A request a `fetch` sent on that fails gets no response.
+            lock(&context.responses)
+                .retain(|_, fetching| fetching.network_id.as_ref() != Some(&failed.request_id));
             let mut permit = lock(&context.permit);
             if permit
                 .as_ref()
@@ -264,7 +275,7 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
         let at_response =
             paused.response_status_code.is_some() || paused.response_error_reason.is_some();
         if at_response && let Some(waiting) = lock(&context.responses).remove(&paused.request_id) {
-            let _ = waiting.send(paused);
+            let _ = waiting.response.send(paused);
             continue;
         }
         let context = Arc::clone(&context);
@@ -279,6 +290,8 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
             }
         });
     }
+    // The target went: no `fetch` it sent on gets a response now.
+    lock(&context.responses).clear();
 }
 
 /// A paused request as it goes: as the page sent it, with the overrides of
@@ -519,17 +532,31 @@ impl PageContext {
             (Answer::Fetch(overrides), Stage::Unanswered) => {
                 held.apply(overrides);
                 let (response, responded) = oneshot::channel();
-                lock(&self.responses).insert(id.clone(), response);
+                let network_id = held.paused.network_id.clone();
+                lock(&self.responses).insert(
+                    id.clone(),
+                    Fetching {
+                        network_id,
+                        response,
+                    },
+                );
                 if let Err(refused) = self.send_on(held, true).await {
                     lock(&self.responses).remove(&id);
                     return (Err(refused), Some(Routed::Ended));
                 }
-                match responded.await {
-                    Ok(paused) => {
+                // Its response pauses, or its waiter goes with the request
+                // or the target; the Run's end stops the wait too.
+                let paused = tokio::select! {
+                    paused = responded => paused.ok(),
+                    () = self.run.cancellation().cancelled() => None,
+                };
+                lock(&self.responses).remove(&id);
+                match paused {
+                    Some(paused) => {
                         *stage = Stage::Fetched;
                         (self.fetched(&paused).await, None)
                     }
-                    Err(_) => (Err(gone(held.url())), Some(Routed::Ended)),
+                    None => (Err(gone(held.url())), Some(Routed::Ended)),
                 }
             }
             (Answer::Fulfill(fulfillment), _) => {
@@ -649,7 +676,8 @@ impl PageContext {
     ///
     /// `egress_refused` when the domain policy refuses it: the request is
     /// failed carrying the refusal, and the navigation waiting on it raises
-    /// it, or else the Run trace records it.
+    /// it, or else the Run trace records it; for a `fetch`, `closed` when
+    /// the request went before it was sent on.
     async fn send_on(&self, held: &Held, fetch: bool) -> Result<(), CallError> {
         let id = &held.paused.request_id;
         let source = if held.navigation {
@@ -732,6 +760,10 @@ impl PageContext {
         }
         if let Err(failure) = self.driver.command(&command).await {
             tracing::debug!(?failure, "a paused request went before it was sent on");
+            // A `fetch` whose request was never sent on gets no response.
+            if fetch {
+                return Err(gone(held.url()));
+            }
         }
         Ok(())
     }
@@ -1238,12 +1270,12 @@ fn abort_reason(reason: AbortReason) -> network::ErrorReason {
     }
 }
 
-/// `closed` for a fetched request whose response never came: its page
-/// went first.
+/// `closed` for a fetched request whose response never came: its page,
+/// its request or its Run went first.
 fn gone(url: &str) -> CallError {
     CallError::new(
         &CLOSED,
-        format!("the page closed before the response to {url} came"),
+        format!("the response to {url} never came: its page, its request or its Run went first"),
         &serde_json::json!({ "url": url }),
     )
 }

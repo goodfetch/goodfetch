@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 
 use data_encoding::BASE64;
+use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::connection::{CALL_CANCELLED, CANCEL};
 use goodfetch_protocol::egress::EGRESS_REFUSED;
 use goodfetch_protocol::page::route::{
@@ -17,6 +18,7 @@ use goodfetch_protocol::page::route::{
 };
 use goodfetch_protocol::page::tabs::PAGE_CLOSE;
 use goodfetch_protocol::page::{NAVIGATION_FAILED, PAGE_GOTO, PageOpened};
+use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 
 use super::navigation::{answered, url_on};
@@ -40,6 +42,7 @@ pub(crate) enum Case {
     StepOrder,
     Cache,
     SiblingClosed,
+    FetchPageClosed,
 }
 
 impl Case {
@@ -61,6 +64,9 @@ impl Case {
             }
             "adding-a-route-leaves-the-browsers-cache-serving-a-cached-response" => Self::Cache,
             "a-session-route-keeps-serving-its-other-pages-once-one-closes" => Self::SiblingClosed,
+            "a-fetch-whose-page-closes-before-its-response-raises-closed-and-the-run-finishes" => {
+                Self::FetchPageClosed
+            }
             _ => return None,
         })
     }
@@ -82,6 +88,7 @@ impl Case {
             Self::StepOrder => order_of_steps(connection, site, checks),
             Self::Cache => cache_kept(connection, site, checks),
             Self::SiblingClosed => sibling_closed(connection, site, checks),
+            Self::FetchPageClosed => fetch_page_closed(connection, site, checks),
         }
     }
 }
@@ -169,6 +176,20 @@ impl Routes {
             let message = connection.next_within(BROWSER_DEADLINE)?;
             self.take(connection, message)?;
         }
+    }
+
+    /// Serves every `route.handle` request that comes until `holds` is
+    /// true of what the harness served and called.
+    fn until(
+        &mut self,
+        connection: &mut Connection,
+        holds: impl Fn(&Self) -> bool,
+    ) -> Result<(), Gone> {
+        while !holds(self) {
+            let message = connection.next_within(BROWSER_DEADLINE)?;
+            self.take(connection, message)?;
+        }
+        Ok(())
     }
 
     /// The answers to the calls the handler made, in order, each read once
@@ -1010,4 +1031,54 @@ fn sibling_closed(
             && received(site, "scope.test", target_of(&again)) == 0,
     );
     finish_run(connection, run_id)
+}
+
+/// A handler inside `route.fetch` whose page closes before the response
+/// comes is not left waiting: `route.fetch` raises `closed`, and the Run
+/// still finishes. The incidents family's sixth host answers its second
+/// page only after 8 seconds, so the page closes first.
+fn fetch_page_closed(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-route-fetch-page-closed";
+    let (Some(url), Some(page)) = (
+        site.start_url("incidents/6")
+            .map(|start| start.replace("/catalog/1", "/catalog/2")),
+        page(connection, site, run_id, &json!({}), checks)?,
+    ) else {
+        return finish_run(connection, run_id);
+    };
+    let mut routes = Routes::new(|_| vec![Act::FetchThenFulfill(with_header)]);
+    Routes::route(
+        connection,
+        PAGE_ROUTE.name,
+        &json!({ "page_id": page.page_id, "url": glob("**/catalog/2") }),
+    )?;
+    connection.request(
+        PAGE_GOTO.name,
+        &json!({ "page_id": page.page_id, "url": url }),
+    )?;
+    routes.until(connection, |routes| !routes.made.is_empty())?;
+    let closed = routes.call(
+        connection,
+        PAGE_CLOSE.name,
+        &json!({ "page_id": page.page_id }),
+    )?;
+    checks.check(
+        "the page closes while its route's handler is inside `route.fetch`",
+        closed.get("result").is_some(),
+    );
+    let made = routes.made(connection)?;
+    checks.check(
+        format!("`route.fetch` raises `{}`", CLOSED.name),
+        made.first().is_some_and(|(method, answer)| {
+            *method == ROUTE_FETCH.name && code_of(answer) == &json!(CLOSED.name)
+        }),
+    );
+    let finished = connection.request(RUN_FINISH.name, &json!({ "run_id": run_id }))?;
+    let finished = connection.browser_answer(finished)?.message;
+    checks.check("the Run finishes", finished.get("result").is_some());
+    Ok(())
 }

@@ -883,7 +883,7 @@ impl Session<'_> {
                 ProtocolFailure::InvalidRequest,
                 "`$/cancel` is a notification",
             ))
-        } else if self.in_flight.contains_key(&id) {
+        } else if self.still_in_flight(&id) {
             Some(CallError::protocol(
                 ProtocolFailure::InvalidRequest,
                 format!("a call with the id {id:?} is already in flight"),
@@ -1014,9 +1014,23 @@ impl Session<'_> {
                 }
             };
             drop(span);
-            let _ = outgoing.send(line).await;
+            // Ended before its answer is sent: the Client may reuse the id
+            // as soon as the answer arrives, and `still_in_flight` then
+            // finds this end waiting.
             let _ = completed.send(id).await;
+            let _ = outgoing.send(line).await;
         });
+    }
+
+    /// Whether the call `id` names is still in flight, once every call that
+    /// ended was taken out: a call ends before its answer is sent, so the
+    /// id of a call whose answer the Client read is free again (JSON-RPC
+    /// 2.0), however the session's loop was scheduled.
+    fn still_in_flight(&mut self, id: &RequestId) -> bool {
+        while let Ok(ended) = self.completions.try_recv() {
+            self.in_flight.remove(&ended);
+        }
+        self.in_flight.contains_key(id)
     }
 
     fn notification(&self, notification: &Notification) {

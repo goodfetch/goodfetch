@@ -316,7 +316,7 @@ fn tunnel_failure(error: FetchError, proxy: &UpstreamProxy, url: &str) -> String
 #[case::a_proxy_that_refuses_every_tunnel("refusing_tunnels", Err("proxy_unavailable"))]
 #[case::a_proxy_that_wants_credentials("datacenter", Err("proxy_auth_failed"))]
 #[case::a_proxy_nothing_answers_on("down", Err("proxy_unavailable"))]
-fn the_proxys_answer_to_the_tunnel_request_is_its_own_failure(
+fn a_refused_tunnel_request_is_a_failure_of_the_proxy_itself(
     #[case] name: &str,
     #[case] expected: Result<u16, &str>,
 ) {

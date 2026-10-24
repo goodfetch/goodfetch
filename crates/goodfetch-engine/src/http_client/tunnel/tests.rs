@@ -57,7 +57,7 @@ fn a_2xx_answer_opens_the_tunnel(#[case] head: &[u8]) {
     ProxyFailure::Unrecognized(Unrecognized { answer: "SSH-2.0-OpenSSH_9.6".to_owned() }),
     "proxy_unavailable"
 )]
-fn a_refused_tunnel_is_the_proxys_own_typed_failure(
+fn a_refused_tunnel_is_a_typed_failure_of_the_proxy(
     #[case] head: &[u8],
     #[case] failure: ProxyFailure,
     #[case] error_code: &str,

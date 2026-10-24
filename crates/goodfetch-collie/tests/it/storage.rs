@@ -46,7 +46,7 @@ use serde_json::{Value, json};
 
 use crate::attached::{Attached, hello};
 use crate::daemon::RawClient;
-use crate::daemon_run::{Foreground, free_address};
+use crate::daemon_run::{ANY_PORT, Foreground};
 use crate::ops::{get, series};
 use crate::tmpfs::{fill, free, inside, mounted_home};
 
@@ -96,10 +96,7 @@ impl<'env> Engine<'env> {
                 engine
             }
             Mode::Daemon => {
-                env.user_configuration(&format!(
-                    "{settings}daemon.address = \"{}\"\n",
-                    free_address()
-                ));
+                env.user_configuration(&format!("{settings}daemon.address = \"{ANY_PORT}\"\n"));
                 let mut command = mounted_home(env, SIZE, COLLIE);
                 command.args(["daemon", "run"]);
                 let mut daemon = Foreground::spawned(env, &mut command);
@@ -396,8 +393,7 @@ type Storage = BTreeMap<(String, String), String>;
 /// ready; and where its ops listener listens, and its ops token.
 fn daemon_with_ops(env: &TestEnv) -> (Foreground, SocketAddr, String) {
     env.user_configuration(&format!(
-        "{LEVELS}daemon.address = \"{}\"\nops.address = \"127.0.0.1:0\"\n",
-        free_address()
+        "{LEVELS}daemon.address = \"{ANY_PORT}\"\nops.address = \"127.0.0.1:0\"\n"
     ));
     let mut command = mounted_home(env, SIZE, COLLIE);
     command

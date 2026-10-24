@@ -29,8 +29,8 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::Metric;
 use goodfetch_protocol::entries::MODULES;
 use goodfetch_test_support::{
-    AuditUnreadable, Endpoint, EndpointRunner, Listener, ListenerKind, Rule, TestEnv,
-    browser_cache, cli,
+    AuditUnreadable, DaemonEndpoint, Endpoint, EndpointRunner, Listener, ListenerKind, Rule,
+    TestEnv, browser_cache, cli,
 };
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use prost::Message as _;
@@ -38,7 +38,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::daemon::validate;
-use crate::daemon_run::{Foreground, free_address, opened, token};
+use crate::daemon_run::{ANY_PORT, Foreground, opened, token};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -74,8 +74,7 @@ fn browsers_path(env: &TestEnv, browsers: Browsers) -> PathBuf {
 /// browsers `browsers`; and where its ops listener listens.
 fn with_ops(env: &TestEnv, browsers: Browsers) -> (Foreground, SocketAddr) {
     env.user_configuration(&format!(
-        "daemon.address = \"{}\"\nops.address = \"127.0.0.1:0\"\n",
-        free_address()
+        "daemon.address = \"{ANY_PORT}\"\nops.address = \"127.0.0.1:0\"\n"
     ));
     let path = browsers_path(env, browsers);
     let mut daemon = Foreground::start(
@@ -323,8 +322,7 @@ fn with_otlp_metrics_endpoint_set_the_collector_receives_the_runtimes_metrics() 
     let env = TestEnv::new();
     let (collector, exports) = collector();
     env.user_configuration(&format!(
-        "daemon.address = \"{}\"\notlp.metrics_endpoint = \"http://{collector}/v1/metrics\"\n",
-        free_address()
+        "daemon.address = \"{ANY_PORT}\"\notlp.metrics_endpoint = \"http://{collector}/v1/metrics\"\n"
     ));
     let mut daemon = Foreground::start(&env, COLLIE, &[]);
     let endpoint = daemon.serving();
@@ -391,7 +389,12 @@ fn daemon_health_answers_whether_the_foreground_daemon_is_ready_or_live(
 ) {
     let env = TestEnv::new();
     let (mut daemon, _) = with_ops(&env, browsers);
-    daemon.serving();
+    let DaemonEndpoint::Tcp(serving) = daemon.serving() else {
+        panic!("`daemon run` listens on TCP");
+    };
+    // `daemon health` reaches the foreground Daemon at `daemon.address`,
+    // which now names the port the Daemon took.
+    env.user_configuration(&format!("daemon.address = \"{serving}\"\n"));
 
     let (code, printed) = health(&env, arguments);
 
@@ -416,7 +419,7 @@ fn daemon_health_answers_whether_the_foreground_daemon_is_ready_or_live(
 #[test]
 fn daemon_health_fails_when_no_daemon_answers() {
     let env = TestEnv::new();
-    env.user_configuration(&format!("daemon.address = \"{}\"\n", free_address()));
+    env.user_configuration(&format!("daemon.address = \"{ANY_PORT}\"\n"));
 
     let answered = health(&env, &[]);
 

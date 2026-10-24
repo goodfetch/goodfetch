@@ -271,8 +271,17 @@ fn with_redaction_off_a_resolved_credential_stays_only_in_the_run_trace() {
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
+    let weakened: Vec<&Value> = received
+        .iter()
+        .filter_map(|message| message["result"]["weakened"].as_array())
+        .flatten()
+        .map(|weakened| &weakened["key"])
+        .collect();
     assert_eq!(
-        in_the_trace,
-        vec!["/home/1/runs/masked/trace/requests.jsonl".to_owned()]
+        (in_the_trace, weakened),
+        (
+            vec!["/home/1/runs/masked/trace/requests.jsonl".to_owned()],
+            vec![&json!("security.redaction")]
+        )
     );
 }

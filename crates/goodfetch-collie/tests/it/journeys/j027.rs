@@ -52,6 +52,10 @@ fn entries_of(exported: &[Value], run_id: &str) -> Vec<Value> {
 
 /// Covers: story:4-69, story:4-70, story:4-71, story:4-74, row:compliance-security-privacy
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "a Journey variant is one test of its every step and check, in its file's order (TESTING.md, Journeys)"
+)]
 fn cli() {
     let mut run = JourneyRun::start("J-027", "cli", Path::new(COLLIE), ResultDocument::journey)
         .expect("J-027's cli variant starts");

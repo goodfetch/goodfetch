@@ -158,6 +158,12 @@ pub(crate) struct Inside<'a> {
 }
 
 impl Inside<'_> {
+    /// The engine itself, for a handler that sends calls of its own while
+    /// another is in flight.
+    pub(crate) fn engine(&mut self) -> &mut Attached {
+        self.engine
+    }
+
     /// Calls `method` and answers its reply; with one request in flight,
     /// nothing else comes meanwhile.
     pub(crate) fn call(&mut self, method: &str, params: &Value) -> Value {

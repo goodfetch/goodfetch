@@ -12,6 +12,7 @@
 //! names a Foxhound type.
 
 pub mod blocks;
+mod borrowed;
 mod browser_fetch;
 mod clean_up_versions;
 mod consent;

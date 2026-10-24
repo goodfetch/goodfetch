@@ -12,6 +12,8 @@ mod audit;
 #[cfg(unix)]
 mod background_traffic;
 #[cfg(unix)]
+mod borrowed_browser;
+#[cfg(unix)]
 mod browser_pool;
 mod browsers;
 mod certs;

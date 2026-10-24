@@ -2031,6 +2031,7 @@ name = "goodfetch-page"
 version = "0.0.0"
 dependencies = [
  "data-encoding",
+ "futures-util",
  "goodfetch-cdp",
  "goodfetch-clean-up-rules",
  "goodfetch-engine",
@@ -2053,6 +2054,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-tungstenite",
  "tokio-util",
  "tracing",
  "url",

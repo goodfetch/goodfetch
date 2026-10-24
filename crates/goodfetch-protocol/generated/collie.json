@@ -12007,6 +12007,42 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": {},
+      "description": "Client certificates for mutual TLS by domain: a host or a registrable domain with its subdomains, mapped to a table of `certificate`, the file of the certificate and its chain (PEM or DER), and `key`, the Secret reference of its private key, such as `env:CLIENT_KEY`, resolved only when a handshake with a host of that domain starts; a key given as a value is refused with `setting_invalid`. The certificate goes to the domain's hosts and nowhere else, and never to a host reached through an exception of `tls.accept_invalid_certs`. Set from every layer, a Recipe and a run included; nothing is installed on the machine.",
+      "name": "tls.client_certificates",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": {
+          "additionalProperties": false,
+          "properties": {
+            "certificate": {
+              "description": "The file of the client certificate and its chain, PEM or DER.",
+              "type": "string"
+            },
+            "key": {
+              "description": "The Secret reference of the certificate's private key, such as `env:CLIENT_KEY`, resolved at the handshake.",
+              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "certificate",
+            "key"
+          ],
+          "type": "object"
+        },
+        "type": "object"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "configuration",
       "clearable": false,
       "default": {},

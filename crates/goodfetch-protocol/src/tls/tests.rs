@@ -3,11 +3,16 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use serde_json::json;
+use rstest::rstest;
+use serde_json::{Value, json};
 
-use super::{CertificateFailure, CertificateInvalidDetails, KnownCertificateFailure};
+use super::{
+    CertificateFailure, CertificateInvalidDetails, ClientCertificateConfiguration,
+    KnownCertificateFailure, TLS_CLIENT_CERTIFICATES,
+};
 use crate::catalog::ValueKind;
 use crate::entries::MODULES;
+use crate::secret_reference::SecretReference;
 use crate::settings::DEPLOYMENT_VARIABLES;
 
 /// Words that name turning certificate checks off, in a setting's key.
@@ -95,5 +100,63 @@ fn no_setting_or_deployment_variable_switches_certificate_verification_off() {
     assert_eq!(
         (not_per_domain, switches, variables),
         (Vec::<&str>::new(), Vec::<&str>::new(), Vec::<&str>::new())
+    );
+}
+
+/// A raw private key, as a person might paste one in place of its
+/// reference.
+const RAW_KEY: &str = "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgc4n4ryk3y\n-----END PRIVATE KEY-----\n";
+
+/// Story 4-34: a domain's client certificate is a certificate file and the
+/// Secret reference of its key, and nothing else.
+/// Covers: story:4-34, setting:tls.client_certificates
+#[test]
+fn a_client_certificate_is_a_file_and_the_secret_reference_of_its_key() {
+    let entry = json!({ "certificate": "client.pem", "key": "env:CLIENT_KEY" });
+
+    let read = ClientCertificateConfiguration::read(&entry);
+    let checked = TLS_CLIENT_CERTIFICATES
+        .kind
+        .check(&json!({ "mtls.example": entry }));
+
+    assert_eq!(
+        (read, checked),
+        (
+            Ok(ClientCertificateConfiguration {
+                certificate: "client.pem".to_owned(),
+                key: SecretReference::parse("env:CLIENT_KEY").unwrap(),
+            }),
+            Ok(())
+        )
+    );
+}
+
+/// Story 4-34: a key given as a raw value, or an entry that is not a
+/// certificate file and a Secret reference, is refused, and the refusal,
+/// which a `setting_invalid` message carries, never repeats the value.
+/// Covers: story:4-34, setting:tls.client_certificates, error:setting_invalid
+#[rstest]
+#[case::a_raw_key(json!({ "certificate": "client.pem", "key": RAW_KEY }), "`key`")]
+#[case::a_key_that_is_no_text(json!({ "certificate": "client.pem", "key": [RAW_KEY] }), "`key`")]
+#[case::no_key(json!({ "certificate": "client.pem" }), "`key`")]
+#[case::no_certificate(json!({ "key": "env:CLIENT_KEY" }), "`certificate`")]
+#[case::an_unknown_field(
+    json!({ "certificate": "client.pem", "key": "env:CLIENT_KEY", "password": RAW_KEY }),
+    "`password`"
+)]
+#[case::the_key_in_place_of_the_entry(json!(RAW_KEY), "a table")]
+fn a_client_certificate_that_is_no_file_and_reference_is_refused_without_its_value(
+    #[case] entry: Value,
+    #[case] named: &str,
+) {
+    let refused = TLS_CLIENT_CERTIFICATES
+        .kind
+        .check(&json!({ "mtls.example": entry }))
+        .unwrap_err();
+
+    assert!(refused.contains(named), "{refused}");
+    assert!(
+        !refused.contains("MIGHAgEA"),
+        "the refusal repeats the key: {refused}"
     );
 }

@@ -59,7 +59,12 @@ const SCREENS: readonly Screen[] = [
     name: msg`Needs you`,
     inMenu: true,
     content: ({ needsYou, readOnly }) => (
-      <NeedsYou state={needsYou.state} readOnly={readOnly} dismiss={needsYou.dismiss} />
+      <NeedsYou
+        state={needsYou.state}
+        readOnly={readOnly}
+        dismiss={needsYou.dismiss}
+        allowConsentDomain={needsYou.allowConsentDomain}
+      />
     ),
   },
   {
@@ -97,10 +102,11 @@ function screenAt(
   return undefined;
 }
 
-/** "Needs you" as the shell holds it: the list now, and how to dismiss an item. */
+/** "Needs you" as the shell holds it: the list now, and how to dismiss an item or answer a consent wall. */
 interface ShellNeedsYou {
   readonly state: NeedsYouState;
   readonly dismiss: (id: string) => Promise<boolean>;
+  readonly allowConsentDomain: (domain: string) => Promise<boolean>;
 }
 
 /** "Needs you" over `client`, kept current while the shell shows. */
@@ -117,6 +123,8 @@ function useNeedsYou(client: ConsoleClient | undefined): ShellNeedsYou {
   return {
     state,
     dismiss: async (id) => (store === undefined ? false : store.dismiss(id)),
+    allowConsentDomain: async (domain) =>
+      store === undefined ? false : store.allowConsentDomain(domain),
   };
 }
 

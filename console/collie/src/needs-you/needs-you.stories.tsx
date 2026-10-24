@@ -1,7 +1,8 @@
 // Each state of "Needs you" (TESTING.md, Components): reading the list,
 // nothing waiting, a filesystem at the low storage level, one at the
-// critical level beside the run it stopped, a kind this build has no
-// renderer for, the Console read-only, and the engine's refusal.
+// critical level beside the run it stopped, a domain that showed a consent
+// wall, with and without a Connection, a kind this build has no renderer
+// for, the Console read-only, and the engine's refusal.
 import type { NeedsYouItem } from "@goodfetch/collie-client/generated";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NeedsYouView } from "./needs-you.tsx";
@@ -33,10 +34,20 @@ const stopped: NeedsYouItem = {
   details: { folder: `${FOLDER}/1/runs/nightly` },
 };
 
+const wall: NeedsYouItem = {
+  id: "consent_wall:walled.example",
+  kind: "consent_wall",
+  since: "2026-10-24T09:10:00Z",
+  run: "nightly",
+  summary: "walled.example showed a consent wall.",
+  actions: ["needs_you.allow_consent_domain", "needs_you.dismiss"],
+  details: { domain: "walled.example" },
+};
+
 const meta: Meta<typeof NeedsYouView> = {
   title: "Needs you",
   component: NeedsYouView,
-  args: { onDismiss: (): void => {} },
+  args: { onDismiss: (): void => {}, onAllowConsentDomain: (): void => {} },
 };
 
 export default meta;
@@ -55,6 +66,14 @@ export const StorageLow: Story = { args: { state: { kind: "listed", items: [low]
 /** A filesystem at the critical level, and the run it stopped, which a person may dismiss. */
 export const StorageCritical: Story = {
   args: { state: { kind: "listed", items: [critical, stopped] } },
+};
+
+/** A domain that showed a consent wall, offered for `consent.domains` alone or as `*`, each beside its warning. */
+export const ConsentWall: Story = { args: { state: { kind: "listed", items: [wall] } } };
+
+/** The same with no Connection: both offers are disabled. */
+export const ConsentWallReadOnly: Story = {
+  args: { state: { kind: "listed", items: [wall] }, readOnly: true },
 };
 
 /** A kind this build has no renderer for, such as a newer engine's: shown by its summary. */

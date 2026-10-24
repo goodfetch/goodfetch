@@ -280,7 +280,7 @@ async fn answered(mut client: Client) -> ([Value; 3], Value, Vec<Value>, Vec<Val
 /// records nothing. Writing `*` warns that it accepts every domain's wall
 /// and that an Agent no longer asks first, and takes every other wall off.
 ///
-/// Covers: story:12-26, story:12-114, operation:needs_you.allow_consent_domain, event:needs_you.changed, operation:config.explain
+/// Covers: story:12-26, operation:needs_you.allow_consent_domain, event:needs_you.changed, operation:config.explain
 #[test]
 fn a_persons_answer_writes_consent_domains_records_its_warning_and_resolves_the_item() {
     let env = TestEnv::new();

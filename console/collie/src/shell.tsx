@@ -238,8 +238,11 @@ export function Shell({ client, route, address = NO_ADDRESS }: ShellProps): Reac
             <MenuLink key={candidate.route} route={candidate.route} current={candidate === screen}>
               {i18n._(candidate.name)}
               {candidate.route === NEEDS_YOU && waiting > 0 ? (
-                <span className="ml-1.5 rounded-full bg-primary px-1.5 text-sm text-primary-foreground">
-                  {formatCount(waiting, i18n.locale)}
+                <span
+                  className="ms-1.5 rounded-full bg-primary px-1.5 text-sm text-primary-foreground"
+                  translate="no"
+                >
+                  {formatCount(waiting)}
                 </span>
               ) : null}
             </MenuLink>

@@ -4,7 +4,7 @@
 // Live view time Limit understood, a row only Foxhound carries and one a
 // newer engine wrote), no Limit at all, the engine's refusal; and a run's
 // Usage, its replayed responses apart from the requests it fetched.
-import type { LimitUsage } from "@goodfetch/collie-client/generated";
+import { RunStateUnavailableError, type LimitUsage } from "@goodfetch/collie-client/generated";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RunUsageView } from "./run-usage.tsx";
 import { UsageView } from "./usage-section.tsx";
@@ -135,7 +135,10 @@ export const Failed: Story = {
   args: {
     read: {
       kind: "failed",
-      message: "the Usage ledger cannot be read or written: database disk image is malformed",
+      error: new RunStateUnavailableError(
+        "the Usage ledger cannot be read or written: database disk image is malformed",
+        { details: { operation: "usage.list", path: "/srv/goodfetch/1/usage-ledger.sqlite" } },
+      ),
     },
   },
 };

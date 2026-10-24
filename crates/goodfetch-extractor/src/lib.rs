@@ -10,5 +10,7 @@
 mod formats;
 mod main_content;
 mod markdown;
+mod signature;
 
 pub use formats::{Context, Document, formats, fuzz_formats, main_content_length};
+pub use signature::page_signature;

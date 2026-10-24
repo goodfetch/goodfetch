@@ -5,7 +5,8 @@
 # `cargo fuzz run json_rpc_framing fuzz/json_rpc_framing/seeds
 # -- -dict=fuzz/json_rpc_framing/dictionary.dict`, and likewise
 # `settings_file`, `checkpoint`, `secret_reference`, `address_classification`,
-# `certificate_file`, `console_sign_in` and `console_post_fallback`.
+# `certificate_file`, `console_sign_in`, `console_post_fallback` and
+# `robots_txt`.
 [package]
 name = "goodfetch-engine-fuzz"
 version = "0.0.0"
@@ -80,6 +81,13 @@ bench = false
 [[bin]]
 name = "console_post_fallback"
 path = "fuzz_targets/console_post_fallback.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "robots_txt"
+path = "fuzz_targets/robots_txt.rs"
 test = false
 doc = false
 bench = false

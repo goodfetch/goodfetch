@@ -75,7 +75,7 @@ use crate::errors::{
 };
 use crate::launch::launch;
 use crate::page_value::{self, PageValue};
-use crate::proxy::{Answer, Party, SessionProxy, party, proxy_error};
+use crate::proxy::{Answer, PROXY_STATUS, Party, ProxyPermit, SessionProxy, party, proxy_error};
 use crate::trace::CommandLog;
 use identity::Identity;
 
@@ -91,10 +91,6 @@ pub(crate) const GUARD_WORLD: &str = "goodfetch-guard";
 /// What the guard's world holds before the guard does: a marker, which no
 /// page script can read, as the Proving ground's CDP probe checks.
 const GUARD_MARKER: &str = "globalThis.__goodfetch_guard__ = true;";
-
-/// The header an intermediary names its own errors in (RFC 9209), as the
-/// browser gives a response's headers, lower-cased.
-const PROXY_STATUS: &str = "proxy-status";
 
 /// A browser's CDP connection as the driver uses it.
 #[derive(Clone)]
@@ -860,10 +856,12 @@ impl PageDriver {
 
     /// The page carrying `value`, its Run reading time from `clock`: its
     /// commands from now on ask its lease check first, and its navigations'
-    /// deadlines leave out its waits for its gate's permits.
+    /// deadlines leave out its waits for its gate's permits and for its
+    /// Session's proxy's.
     pub(crate) fn with_value(mut self, value: PageValue, clock: Clock) -> Self {
         self.browser.lease = value.lease().cloned();
-        self.waits = value.gate().map(|_| PermitWaits::new(clock));
+        self.waits =
+            (value.gate().is_some() || self.proxy.is_some()).then(|| PermitWaits::new(clock));
         self.value = value;
         self
     }
@@ -896,6 +894,19 @@ impl PageDriver {
         let admitted = gate.admit(navigation).await;
         drop((holding, waiting));
         admitted.map(Some)
+    }
+
+    /// A Permit for one hop of a navigation through its Session's proxy,
+    /// once the proxy's limits admit it (ADRs 0053 and 0088); none on a
+    /// page without a proxy. The wait counts against no deadline of the
+    /// page, and its lease check holds the lease through it.
+    pub(crate) async fn proxy_permit(&self, url: &str) -> Option<ProxyPermit> {
+        let proxy = self.proxy.as_deref()?;
+        let waiting = self.waits.as_ref().map(PermitWaits::begin);
+        let holding = self.value.lease().map(|lease| lease.permit_wait(url));
+        let permit = proxy.permit().await;
+        drop((holding, waiting));
+        permit
     }
 
     /// Whether a navigation call waits on the page now.

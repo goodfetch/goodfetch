@@ -8,15 +8,19 @@
 //! ordering requests within a domain only; and the per-domain Politeness
 //! their keys follow in the per-user Politeness file, shared by every run of
 //! the user (the per-domain cap, delay, backoff, `Retry-After` and 429
-//! halving). Its own crate under `crates/foxhound/`, since only Foxhound
+//! halving); and the rules it learns from the pages a crawl fetched
+//! (ADR 0005): query parameters with no effect, trap paths and cursor
+//! pagination preferred to offset. Its own crate under `crates/foxhound/`, since only Foxhound
 //! links it (STYLE.md, reason 2).
 
 mod admit;
 mod bounds;
 mod domain_key;
 mod identity;
+mod learn;
 mod politeness;
 mod queues;
+mod rules;
 mod scope;
 pub mod seeds;
 mod url;
@@ -31,8 +35,12 @@ pub use domain_key::DomainKeys;
 pub use identity::{
     Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, url_key,
 };
+pub use learn::{PageSeen, learn};
 pub use politeness::{longest_wait, refuse_second_copies};
 pub use queues::DomainQueues;
+pub use rules::{
+    TABLES as RULES_TABLES, completeness_reasons as learned_completeness_reasons, learned_rules,
+};
 pub use scope::{Narrowing, Patterns, Scope, Strategy as ScopeStrategy, TABLES as SCOPE_TABLES};
 pub use url::document_base;
 
@@ -52,6 +60,7 @@ pub fn contribution() -> Contribution {
         .with_run_state_tables(identity::TABLES)
         .with_run_state_tables(scope::TABLES)
         .with_run_state_tables(bounds::TABLES)
+        .with_run_state_tables(rules::TABLES)
         .with_politeness_tables(politeness::TABLES)
         .with_admission_gates(Arc::new(queues::DomainGates))
 }

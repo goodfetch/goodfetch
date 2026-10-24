@@ -50,6 +50,7 @@ use crate::page_value::{
     DocumentResponse, Kept, Navigation, NavigationKind, ObservedResponse, Permit, Refusal,
     ResponseObserver,
 };
+use crate::proxy::{self, PROXY_STATUS, ProxyPermit};
 
 /// Whose requests a pipeline holds.
 pub(crate) enum Sender {
@@ -100,6 +101,10 @@ pub(super) struct PageContext {
     /// held until the next hop, the navigation's failure or the page's
     /// `load` event.
     permit: Mutex<Option<(Option<network::RequestId>, Permit)>>,
+    /// The Permit the Session's proxy's limits gave the main frame's
+    /// navigation for its latest hop, a program's own included, and that
+    /// navigation's network ID, held as `permit` is (ADRs 0053 and 0088).
+    proxy_permit: Mutex<Option<(Option<network::RequestId>, ProxyPermit)>>,
     /// On a Borrowed browser, the Run's `network.resolve` mapping, through
     /// which the engine resolves each request's host itself and judges its
     /// answers, since no relay is under that browser (ADR 0056).
@@ -165,6 +170,7 @@ impl PageContext {
             document: Mutex::new(String::new()),
             authenticated: Mutex::new(Authenticated::default()),
             permit: Mutex::new(None),
+            proxy_permit: Mutex::new(None),
             lookups: None,
         }
     }
@@ -204,6 +210,7 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
         if event.read::<page::LoadEventFiredEvent>().is_some() {
             // The navigation's last hop ends with the page's `load`.
             drop(lock(&context.permit).take());
+            drop(lock(&context.proxy_permit).take());
             if let Some(page_id) = context.sender.page_id() {
                 context.state.pending.ended(page_id);
             }
@@ -241,6 +248,8 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
             {
                 drop(permit.take());
             }
+            drop(permit);
+            context.proxy_hop_failed(&failed);
             continue;
         }
         if let Some(required) = event.read::<fetch::AuthRequiredEvent>() {
@@ -764,13 +773,94 @@ impl PageContext {
         }
     }
 
+    /// Admits `held`, a hop of the main frame's navigation: by the page's
+    /// navigation gate, then by its Session's proxy's limits.
+    async fn admit(&self, held: &Held) -> Result<(), Refusal> {
+        self.admit_by_gate(held).await?;
+        self.admit_through_proxy(held).await;
+        Ok(())
+    }
+
+    /// Takes a Permit of the Session's proxy's limits for `held`, a hop of
+    /// the main frame's navigation, a program's own included, keeping it
+    /// until the hop ends, once the limits admit it (ADRs 0053 and 0088):
+    /// the hop before gives its Permit back first. The wait counts against
+    /// no deadline of the page. A page without a proxy goes at once.
+    async fn admit_through_proxy(&self, held: &Held) {
+        if self.driver.proxy().is_none() {
+            return;
+        }
+        let network_id = held.paused.network_id.clone();
+        drop(lock(&self.proxy_permit).take());
+        if let Some(permit) = self.driver.proxy_permit(held.url()).await {
+            *lock(&self.proxy_permit) = Some((network_id, permit));
+        }
+    }
+
+    /// The Permit of the Session's proxy's limits the main frame's
+    /// navigation holds for the hop the network ID `network_id` names, or
+    /// for its latest hop when `network_id` is `None`, taken off the page.
+    fn proxy_hop(&self, network_id: Option<&network::RequestId>) -> Option<ProxyPermit> {
+        let mut held = lock(&self.proxy_permit);
+        let matches = held.as_ref().is_some_and(|(id, _)| {
+            network_id.is_none_or(|network_id| id.as_ref() == Some(network_id))
+        });
+        if matches {
+            held.take().map(|(_, permit)| permit)
+        } else {
+            None
+        }
+    }
+
+    /// Ends the hop of the main frame's navigation that `failed` failed:
+    /// its proxy's Permit goes back as the proxy's refusal when the proxy
+    /// refused the tunnel, lowering the proxy's ceiling, and as a request
+    /// that ended otherwise.
+    fn proxy_hop_failed(&self, failed: &network::LoadingFailedEvent) {
+        let Some(permit) = self.proxy_hop(Some(&failed.request_id)) else {
+            return;
+        };
+        if proxy::refusal(
+            proxy::Answer::Failure {
+                error: &failed.error_text,
+            },
+            None,
+        ) {
+            self.run.spawn(permit.refused());
+        }
+    }
+
+    /// Gives back, as the proxy's refusal, the proxy's Permit of the hop
+    /// whose document's response, paused at `paused` with `status`, the
+    /// Session's proxy gave itself with a 429 or a 502 (the proxy-or-site
+    /// rule), before the response goes on, so the proxy's ceiling is
+    /// lowered by the time the navigation's call answers. A site's
+    /// response, of any status, leaves the Permit to its hop's end.
+    async fn proxy_answered(&self, paused: &fetch::RequestPausedEvent, status: u16) {
+        if self.driver.proxy().is_none() {
+            return;
+        }
+        let proxy_status = paused
+            .response_headers
+            .iter()
+            .flatten()
+            .find(|header| header.name.eq_ignore_ascii_case(PROXY_STATUS))
+            .map(|header| header.value.as_str());
+        if !proxy::refusal(proxy::Answer::Response { proxy_status }, Some(status)) {
+            return;
+        }
+        if let Some(permit) = self.proxy_hop(paused.network_id.as_ref()) {
+            permit.refused().await;
+        }
+    }
+
     /// Asks the page's navigation gate to admit `held`, a hop of the main
     /// frame's navigation, keeping its permit until the hop ends: the
     /// permit of the hop before is released first, since its 3xx or its
     /// refresh stub ended it. The wait counts against no deadline of the
     /// page, and its lease check holds the lease through it. A page with no
     /// gate admits it at once.
-    async fn admit(&self, held: &Held) -> Result<(), Refusal> {
+    async fn admit_by_gate(&self, held: &Held) -> Result<(), Refusal> {
         if self.driver.value().gate().is_none() {
             return Ok(());
         }
@@ -900,6 +990,9 @@ impl PageContext {
             .response_status_code
             .and_then(|status| u16::try_from(status).ok())
             .unwrap_or_default();
+        if document {
+            self.proxy_answered(paused, status).await;
+        }
         if let Some(refused) = hops::redirect(
             &paused.request.url,
             status,

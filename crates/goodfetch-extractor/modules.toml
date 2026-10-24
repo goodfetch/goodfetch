@@ -3,3 +3,4 @@
 formats = ["main_content", "markdown"]
 main_content = []
 markdown = []
+signature = ["formats", "main_content"]

@@ -32,6 +32,25 @@ CREATE TABLE domains (
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
 CREATE TABLE key_values (key TEXT NOT NULL PRIMARY KEY, value TEXT, content BLOB, content_type TEXT, file INTEGER, CHECK ((value IS NULL) <> (content_type IS NULL)), CHECK (content_type IS NULL OR ((content IS NULL) <> (file IS NULL)))) STRICT;
+CREATE TABLE learned_identities (
+            identity TEXT NOT NULL PRIMARY KEY,
+            rule INTEGER NOT NULL,
+            crawl_request TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE learned_merges (
+            rule INTEGER NOT NULL REFERENCES learned_rules (id),
+            url TEXT NOT NULL,
+            UNIQUE (rule, url)
+        ) STRICT;
+CREATE TABLE learned_rules (
+            id INTEGER NOT NULL PRIMARY KEY,
+            kind TEXT NOT NULL,
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            evidence TEXT NOT NULL,
+            UNIQUE (kind, host, path, parameter)
+        ) STRICT;
 CREATE TABLE outcomes (
             position INTEGER NOT NULL PRIMARY KEY,
             work_item TEXT NOT NULL,
@@ -62,6 +81,64 @@ CREATE TABLE records (
             data TEXT NOT NULL,
             PRIMARY KEY (dataset, number)
         ) STRICT;
+CREATE TABLE rules_offset_values (
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            value INTEGER NOT NULL,
+            url TEXT NOT NULL,
+            PRIMARY KEY (host, path, parameter, value)
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE rules_offsets (
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            anchor INTEGER NOT NULL,
+            step INTEGER NOT NULL,
+            low INTEGER NOT NULL,
+            high INTEGER NOT NULL,
+            count INTEGER NOT NULL,
+            paged INTEGER NOT NULL,
+            PRIMARY KEY (host, path, parameter)
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE rules_pages (
+            crawl_request TEXT NOT NULL PRIMARY KEY,
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            query TEXT NOT NULL,
+            url TEXT NOT NULL,
+            signature BLOB NOT NULL
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE rules_pairs (
+            host TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            one TEXT NOT NULL,
+            other TEXT NOT NULL,
+            matching INTEGER NOT NULL,
+            UNIQUE (host, parameter, one, other)
+        ) STRICT;
+CREATE TABLE rules_patterns (
+            host TEXT NOT NULL,
+            pattern TEXT NOT NULL,
+            streak INTEGER NOT NULL,
+            first TEXT,
+            PRIMARY KEY (host, pattern)
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE rules_residues (
+            crawl_request TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            residue TEXT NOT NULL,
+            url TEXT NOT NULL,
+            signature BLOB NOT NULL,
+            PRIMARY KEY (crawl_request, parameter)
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE rules_signatures (
+            host TEXT NOT NULL,
+            signature BLOB NOT NULL,
+            PRIMARY KEY (host, signature)
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE run (
         run_id TEXT NOT NULL PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -85,7 +162,7 @@ CREATE TABLE run (
         nothing_done TEXT,
         report TEXT
     ) STRICT;
-INSERT INTO "run" VALUES('paused','collie','collie','os_user',1,'{}','stopped','{"kind":"pause"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'[]',10,'{"kind":"browser_host","browser_host":"laptop"}','6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b',0,'Waiting for the next page','{"reason":"nothing_pending"}','{"run_id":"paused","lifecycle":"stopped","stop_reason":{"kind":"pause"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: paused."}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":4096,"proxy_bytes_by_kind":[{"kind":"datacenter","bytes":4096}],"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":995,"set_by":"client"}]},"warnings":[{"code":"clean_up_rules_fallback","message":"The Run''s Clean-up rules are not the version asked for: the Run''s recorded Clean-up rules, 6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b, is gone from this machine: it holds to the embedded part, sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9, instead."},{"code":"storage_low","message":"The run folder''s filesystem met the `low` storage level.","sessions":["laptop"],"folder":"runs/paused"}],"nothing_done":{"reason":"nothing_pending"}}');
+INSERT INTO "run" VALUES('paused','collie','collie','os_user',1,'{}','stopped','{"kind":"pause"}','verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z',NULL,'[]',10,'{"kind":"browser_host","browser_host":"laptop"}','6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b',0,'Waiting for the next page','{"reason":"nothing_pending"}','{"run_id":"paused","lifecycle":"stopped","stop_reason":{"kind":"pause"},"verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"stopped","message":"It stopped early: paused."}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":4096,"proxy_bytes_by_kind":[{"kind":"datacenter","bytes":4096}],"requests":0,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":986,"set_by":"client"}]},"warnings":[{"code":"clean_up_rules_fallback","message":"The Run''s Clean-up rules are not the version asked for: the Run''s recorded Clean-up rules, 6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b, is gone from this machine: it holds to the embedded part, sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9, instead."},{"code":"storage_low","message":"The run folder''s filesystem met the `low` storage level.","sessions":["laptop"],"folder":"runs/paused"}],"nothing_done":{"reason":"nothing_pending"}}');
 CREATE TABLE run_file_chunks (sha256 TEXT NOT NULL, offset INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sha256, offset)) STRICT;
 INSERT INTO "run_file_chunks" VALUES('a5413d351b5da27721fae2446832bdbb181cf8c62f5131ba4101d4f47bcb8f56',0,X'7469746C652C70726963650A44756E652C392E39390A');
 CREATE TABLE run_files (position INTEGER NOT NULL PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL) STRICT;
@@ -166,6 +243,9 @@ CREATE TABLE work_items (
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (position)
             WHERE retired_because IS NULL;
+CREATE INDEX rules_pages_by_query ON rules_pages (host, path, query);
+CREATE INDEX rules_residues_by_residue
+            ON rules_residues (host, path, residue, parameter);
 CREATE INDEX scope_seeds_by_domain ON scope_seeds (domain);
 CREATE INDEX work_items_by_domain
             ON work_items (status, domain_key, forefront DESC, priority DESC, position);

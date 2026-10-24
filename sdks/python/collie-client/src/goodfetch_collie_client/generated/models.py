@@ -881,6 +881,19 @@ class ModelUsage(BaseModel):
     """The tokens, input and output."""
 
 
+class NeedsYouAllowConsentDomainParams(BaseModel):
+    """What `needs_you.allow_consent_domain` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str
+    """
+    The registrable domain whose consent walls the next runs accept, as
+    a `consent_wall` item names it, or `*` for every domain.
+    """
+
+
 class NeedsYouDismissParams(BaseModel):
     """What `needs_you.dismiss` takes."""
 
@@ -962,6 +975,12 @@ class NotAddedReason(StrEnum):
     """
     A segment of its URL's path repeats more than
     `crawl.max_segment_repeats`.
+    """
+    trap_path = "trap_path"
+    """
+    Its URL's path falls under a trap the Frontier learned and closed
+    (ADR 0005): a path pattern whose pages brought no new page and no
+    URL outside it, which leaves a finished Run `unverified`.
     """
 
 
@@ -2831,6 +2850,28 @@ class ConfigExplainParams(BaseModel):
     """
 
 
+class ConsentDomainAllowed(BaseModel):
+    """What `needs_you.allow_consent_domain` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    added: bool
+    """
+    Whether it was added: false when user configuration listed it
+    already, which then changed nothing and recorded nothing.
+    """
+    domain: str
+    """The domain, as `consent.domains` now lists it."""
+    layer: SettingsLayer
+    """The layer written: user configuration."""
+    warning: str
+    """
+    What the person takes on, in plain words, as the Console showed it
+    beside the answer and the Audit log records it.
+    """
+
+
 class ConsoleMessage(BaseModel):
     """What `page.console` reports: a message the page wrote to its console."""
 
@@ -3446,7 +3487,8 @@ class NeedsYouItem(BaseModel):
     Its kind's own fields, which the kind's value in the catalog names:
     for `storage_level`, `level` and `folder`; for
     `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
-    `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`.
+    `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
+    `consent_wall`, `domain`.
     """
     id: str
     """

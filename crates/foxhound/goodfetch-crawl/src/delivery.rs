@@ -58,7 +58,7 @@ use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, CompletenessReason, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{FetchTiers, HttpTier};
-use goodfetch_frontier::{Bounds, completeness_reasons};
+use goodfetch_frontier::{Bounds, completeness_reasons, learned_completeness_reasons};
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
     RESPONSE_UNAVAILABLE, WORK_ITEM_RETRIED,
@@ -448,7 +448,6 @@ async fn lease_to_servers(
                 .write(move |connection| changes.write(connection))
                 .await?;
         }
-        let second_copies = admission.second_copies();
         for (leased, session) in served {
             let lease = run_leases.grant(
                 &leased.crawl_request.id,
@@ -483,7 +482,7 @@ async fn lease_to_servers(
                     server.client.clone(),
                     (leased, session, leased_count(run)),
                     lease,
-                    pooled.fetching.served(&second_copies),
+                    pooled.fetching.served(&admission.second_copies()),
                     std::sync::Arc::clone(&pooled.fetching.in_flight),
                 ),
             ));
@@ -542,11 +541,13 @@ async fn drained(
 }
 
 /// Why the finished crawl of the run file `connection` holds does not
-/// cover its scope: what its bounds and caps refused (ADRs 0093 and 0120)
-/// and, when requests `failed` with `response_unavailable`, that (ADR
+/// cover its scope: what its bounds and caps refused (ADRs 0093 and 0120),
+/// what its learned traps refused and its listings paged only by an offset
+/// (ADR 0005) and, when requests `failed` with `response_unavailable`, that (ADR
 /// 0118), in the order of their codes.
 fn short_of_scope(connection: &Connection) -> rusqlite::Result<Vec<CompletenessReason>> {
     let mut reasons = completeness_reasons(connection)?;
+    reasons.extend(learned_completeness_reasons(connection)?);
     if work_items::any_failed_with(connection, RESPONSE_UNAVAILABLE.name)? {
         reasons.push(CompletenessReason::incomplete(unavailable_reason()));
     }

@@ -24,7 +24,8 @@
 //! VFS named by a value (ADR 0060). Its format is of the Usage ledger's
 //! family (ADR 0066): its major never changes and newer minors only add. A
 //! Run with `politeness.sharing = run` takes its Permits from a file of its
-//! own in memory, under the same rules.
+//! own in memory, under the same rules, its waiters woken within the
+//! engine.
 //!
 //! Size: one file's protocol, its Permits, waiters, wakes and reclaim, each
 //! in one transaction, kept whole so the rules that guard the count in
@@ -57,6 +58,10 @@ const WAKE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The wake endpoint's name in its folder.
 const WAKE_SOCKET: &str = "wake.sock";
+
+/// The endpoint a Politeness file of one Run's own, in memory, names for
+/// its waiters: every one is in this engine, woken without a socket.
+const IN_MEMORY_ENDPOINT: &str = "in-memory";
 
 /// The engine's own tables, which every Politeness file holds.
 const SCHEMA: &[&str] = &[
@@ -422,10 +427,17 @@ impl Politeness {
         let context = Context {
             path,
             engine: String::new(),
-            endpoint: None,
+            endpoint: Some(IN_MEMORY_ENDPOINT.to_owned()),
             holder_gone: |_, _| false,
         };
-        Self::start(connection, context, wakes, None, None, owner)
+        Self::start(
+            connection,
+            context,
+            wakes,
+            Some(IN_MEMORY_ENDPOINT.to_owned()),
+            None,
+            owner,
+        )
     }
 
     fn start(

@@ -2695,6 +2695,17 @@
       ]
     },
     {
+      "id": "operation:needs_you.allow_consent_domain",
+      "kind": "operation",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:needs_you.dismiss",
       "kind": "operation",
       "area": 12,
@@ -6187,6 +6198,28 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:politeness.proxy.concurrency",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:politeness.proxy.rate",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -11465,6 +11498,28 @@
       ]
     },
     {
+      "id": "story:12-132",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-133",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:12-14",
       "kind": "story",
       "area": 12,
@@ -11532,6 +11587,17 @@
     },
     {
       "id": "story:12-25",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-26",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",
@@ -17650,6 +17716,16 @@
       ]
     },
     {
+      "id": "story:6-216",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-22",
       "kind": "story",
       "area": 6,
@@ -17867,6 +17943,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-310",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

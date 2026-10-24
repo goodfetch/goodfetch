@@ -18,14 +18,17 @@ use goodfetch_engine::client::{Client, ClientRequestError, Sent};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{FetchTiers, HttpTier, Requester};
+use goodfetch_frontier::PageSeen;
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
     LEASE_LOST, WORK_ITEM_LEASED,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_protocol::foxhound::frontier::HttpBody;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
+use goodfetch_protocol::page::PageId;
 use goodfetch_session_pool::Effect;
 use serde_json::{Map, Value};
 
@@ -134,6 +137,9 @@ pub(super) async fn attempt(
     let answer = match fetched {
         Err(answer) => answer,
         Ok(document) => {
+            if let (Some(fetch), Some(page_id)) = (&fetching, &document) {
+                learn(&run, &fetch.tiers, page_id, &leased).await;
+            }
             if document.is_some() {
                 in_flight.lock().await.went_on(
                     &run,
@@ -164,6 +170,39 @@ pub(super) async fn attempt(
         session,
         lease,
         answer,
+    }
+}
+
+/// Hands the Frontier the page `page_id` the tiers fetched for `leased`'s
+/// crawl request, with its page signature, before its handler runs, so the
+/// links the handler then enqueues count against what the page taught
+/// (ADR 0005). A run file that cannot take it loses only what the page
+/// would have taught.
+async fn learn(run: &Run, tiers: &FetchTiers, page_id: &PageId, leased: &Leased) {
+    let Some((url, signature)) = tiers.signature(page_id).await else {
+        return;
+    };
+    let Ok(url) = goodfetch_frontier::Url::parse(&url) else {
+        return;
+    };
+    let request = leased.crawl_request.clone();
+    let learned = run
+        .state()
+        .write(move |connection| {
+            goodfetch_frontier::learn(
+                connection,
+                PageSeen {
+                    crawl_request: &request.id,
+                    url: &url,
+                    method: &request.method,
+                    body: request.body.as_ref().map(HttpBody::bytes),
+                    signature,
+                },
+            )
+        })
+        .await;
+    if let Err(error) = learned {
+        tracing::warn!(%error, run_id = %run.id(), "the Frontier could not learn from a fetched page");
     }
 }
 

@@ -1902,6 +1902,7 @@ dependencies = [
  "prometheus",
  "proptest",
  "proptest-state-machine",
+ "psl",
  "rcgen",
  "rstest",
  "rusqlite",
@@ -1944,6 +1945,7 @@ dependencies = [
  "proptest",
  "rstest",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1956,6 +1958,7 @@ dependencies = [
  "dom_query",
  "flate2",
  "goodfetch-engine",
+ "goodfetch-extractor",
  "goodfetch-frontier",
  "goodfetch-page",
  "goodfetch-protocol",
@@ -1993,6 +1996,7 @@ dependencies = [
  "goodfetch-fetch-tier",
  "goodfetch-foxhound",
  "goodfetch-frontier",
+ "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-session-pool",
  "goodfetch-test-support",

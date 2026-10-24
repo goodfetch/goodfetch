@@ -11,7 +11,7 @@
 use proptest::prelude::*;
 use rstest::rstest;
 
-use super::{Answer, Party, party};
+use super::{Answer, Party, party, refusal};
 
 /// An RFC 9209 proxy name or a parameter's token.
 fn token() -> impl Strategy<Value = String> {
@@ -129,4 +129,22 @@ fn a_failure_comes_from_the_proxy_when_chromium_names_its_answer(
     #[case] expected: Party,
 ) {
     assert_eq!(party(Answer::Failure { error }), expected);
+}
+
+/// Covers: story:5-90
+#[rstest]
+#[case::its_own_429(Answer::Response { proxy_status: Some("proving-ground; error=http_request_denied") }, Some(429), true)]
+#[case::its_own_502(Answer::Response { proxy_status: Some("squid; error=connection_refused") }, Some(502), true)]
+#[case::a_tunnel_it_refused(Answer::Failure { error: "net::ERR_TUNNEL_CONNECTION_FAILED" }, None, true)]
+#[case::its_own_403(Answer::Response { proxy_status: Some("proving-ground; error=destination_ip_prohibited") }, Some(403), false)]
+#[case::a_sites_429(Answer::Response { proxy_status: None }, Some(429), false)]
+#[case::a_sites_502_through_it(Answer::Response { proxy_status: Some("squid; received-status=502") }, Some(502), false)]
+#[case::it_is_down(Answer::Failure { error: "net::ERR_PROXY_CONNECTION_FAILED" }, None, false)]
+#[case::the_site_is_down(Answer::Failure { error: "net::ERR_CONNECTION_REFUSED" }, None, false)]
+fn only_the_proxy_itself_answering_429_502_or_refusing_a_tunnel_is_a_refusal_that_lowers_its_ceiling(
+    #[case] answer: Answer<'_>,
+    #[case] status: Option<u16>,
+    #[case] expected: bool,
+) {
+    assert_eq!(refusal(answer, status), expected);
 }

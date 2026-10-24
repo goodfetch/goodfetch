@@ -218,6 +218,30 @@ impl FetchTiers {
         Ok(page_id)
     }
 
+    /// The URL and the page signature of the served page `page_id`, which
+    /// the Frontier learns from (ADR 0005), read on its Run's blocking
+    /// owner; `None` once the page closed.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the signature; the page stays open.
+    pub async fn signature(&self, page_id: &PageId) -> Option<(String, [u8; 32])> {
+        let served = self.document(page_id)?;
+        let run = served.run.clone();
+        let url = served.url.clone();
+        let signature = run
+            .owner()
+            .blocking(move || {
+                goodfetch_extractor::page_signature(&goodfetch_extractor::Document {
+                    html: &served.html,
+                    url: &served.url,
+                    base_url: &served.base_url,
+                })
+            })
+            .await;
+        Some((url, signature))
+    }
+
     /// Closes the served page `page_id`: later calls on it answer
     /// `closed`.
     pub fn close(&self, page_id: &PageId) {

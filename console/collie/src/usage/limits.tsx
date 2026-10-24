@@ -140,7 +140,11 @@ export function UsageKind({
 
 /** When the period starts again, shown on the browser's clock. */
 function Reset({ at }: { readonly at: PointInTime }): ReactNode {
-  return <time dateTime={at}>{formatInstant(at)}</time>;
+  return (
+    <time dateTime={at} translate="no">
+      {formatInstant(at)}
+    </time>
+  );
 }
 
 /** A period's length in its time zone. */
@@ -208,36 +212,36 @@ export function LimitsTable({
   const { i18n } = useLingui();
   const ledger = rows.some((row) => row.ledger !== undefined);
   return (
-    <table className="w-full border-collapse text-left text-sm">
+    <table className="w-full border-collapse text-start text-sm">
       <caption className="sr-only">{caption}</caption>
       <thead className="border-b">
         <tr>
-          <th scope="col" className="py-2 pr-4 font-medium">
+          <th scope="col" className="py-2 pe-4 font-medium">
             <Trans>Scope</Trans>
           </th>
-          <th scope="col" className="py-2 pr-4 font-medium">
+          <th scope="col" className="py-2 pe-4 font-medium">
             <Trans>Usage kind</Trans>
           </th>
-          <th scope="col" className="py-2 pr-4 font-medium">
+          <th scope="col" className="py-2 pe-4 font-medium">
             <Trans>Period</Trans>
           </th>
-          <th scope="col" className="py-2 pr-4 font-medium">
+          <th scope="col" className="py-2 pe-4 font-medium">
             <Trans>Limit</Trans>
           </th>
           {ledger ? (
             <>
-              <th scope="col" className="py-2 pr-4 font-medium">
+              <th scope="col" className="py-2 pe-4 font-medium">
                 <Trans>Charged</Trans>
               </th>
-              <th scope="col" className="py-2 pr-4 font-medium">
+              <th scope="col" className="py-2 pe-4 font-medium">
                 <Trans>Held by live runs</Trans>
               </th>
             </>
           ) : null}
-          <th scope="col" className="py-2 pr-4 font-medium">
+          <th scope="col" className="py-2 pe-4 font-medium">
             <Trans>Left</Trans>
           </th>
-          <th scope="col" className="py-2 pr-4 font-medium">
+          <th scope="col" className="py-2 pe-4 font-medium">
             <Trans>Set by</Trans>
           </th>
           {ledger ? (
@@ -251,34 +255,34 @@ export function LimitsTable({
         {byScope(rows).map((row, index) => (
           // A ledger may hold two rows alike but for their setter; their order is stable.
           <tr key={index} className="border-b align-top">
-            <th scope="row" className="py-2 pr-4 font-normal">
+            <th scope="row" className="py-2 pe-4 font-normal">
               <Scope scope={row.scope} />
             </th>
-            <td className="py-2 pr-4">
+            <td className="py-2 pe-4">
               <UsageKind row={row} />
             </td>
-            <td className="py-2 pr-4">
+            <td className="py-2 pe-4">
               <PeriodOf period={row.period} resetsAt={row.resetsAt} />
             </td>
-            <td className="py-2 pr-4 tabular-nums">
+            <td className="py-2 pe-4 tabular-nums">
               <Amount row={row} amount={row.amount} />
             </td>
             {ledger ? (
               <>
-                <td className="py-2 pr-4 tabular-nums">
+                <td className="py-2 pe-4 tabular-nums">
                   {row.ledger === undefined ? null : (
                     <Amount row={row} amount={row.ledger.charged} />
                   )}
                 </td>
-                <td className="py-2 pr-4 tabular-nums">
+                <td className="py-2 pe-4 tabular-nums">
                   {row.ledger === undefined ? null : <Amount row={row} amount={row.ledger.held} />}
                 </td>
               </>
             ) : null}
-            <td className="py-2 pr-4 tabular-nums">
+            <td className="py-2 pe-4 tabular-nums">
               <Amount row={row} amount={row.left} />
             </td>
-            <td className="py-2 pr-4">{i18n._(SETTERS[row.setBy])}</td>
+            <td className="py-2 pe-4">{i18n._(SETTERS[row.setBy])}</td>
             {ledger ? (
               <td className="py-2">
                 {row.ledger === undefined

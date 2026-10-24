@@ -234,6 +234,10 @@ pub enum NotAddedReason {
     /// A segment of its URL's path repeats more than
     /// `crawl.max_segment_repeats`.
     MaxSegmentRepeats,
+    /// Its URL's path falls under a trap the Frontier learned and closed
+    /// (ADR 0005): a path pattern whose pages brought no new page and no
+    /// URL outside it, which leaves a finished Run `unverified`.
+    TrapPath,
 }
 
 /// The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a

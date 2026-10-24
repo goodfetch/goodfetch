@@ -8,7 +8,8 @@
 //!   navigation and each `page.request` before it leaves, and its
 //!   [`LeaseCheck`], asked before each outgoing browser or network command
 //!   of the page. Both are empty on every page a program opens: nothing a
-//!   Collie program does is refused, delayed or counted.
+//!   Collie program does is refused, delayed or counted by them (its
+//!   Session's proxy's limits alone hold its navigation, ADR 0088).
 //! - **The response observer** ([`ResponseObserver`]), no part of the
 //!   value, receives the responses the engine observes on a page, a
 //!   service worker's included, whose URLs its patterns match, each body up

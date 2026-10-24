@@ -305,7 +305,9 @@ function runner({ autoconsent, heuristics, rules, worlds }) {
         return false;
       }
     }
-    if (where === "main")
+    // The main world is reached only to answer a prompt: a runner that only
+    // looks never goes there.
+    if (where === "main" && answering)
       return (await request({ kind: "eval", snippet, code: message.code })) === true;
     return false;
   };

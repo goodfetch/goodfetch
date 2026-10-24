@@ -32,9 +32,10 @@
 //!   which raises it as `blocked` with `consent_required` (`walls`).
 //!
 //! With `consent.handling` off the runner still starts, to run the wall
-//! test, but only looks: it clicks, hides and runs nothing. A prompt with
-//! no refusal that leaves the content readable and asks for no payment is
-//! hidden; any other in the top frame is a consent wall. The Decision
+//! test, but only looks: it clicks nothing, hides nothing and runs nothing
+//! in the main world. A prompt with no refusal that leaves the content
+//! readable and asks for no payment is hidden while the runner answers;
+//! any other in the top frame is a consent wall. The Decision
 //! provider (area 9's) is not here yet, nor `consent.on_wall: ask`, which
 //! needs the Human pause to take a person's answer (A05-38) and opens no
 //! page meanwhile. Firefox and `WebKit`'s route is A05-45's.

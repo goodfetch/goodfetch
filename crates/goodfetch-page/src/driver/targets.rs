@@ -19,6 +19,17 @@ impl PageDriver {
         &self.session
     }
 
+    /// This page's driver with its commands and events on `session`, an
+    /// out-of-process iframe's target: everything else, its main frame, its
+    /// proxy, its navigation gate and lease check among them, stays the
+    /// page's.
+    pub(crate) fn on_iframe(&self, session: TargetSession) -> Self {
+        Self {
+            session,
+            ..self.clone()
+        }
+    }
+
     /// The events of `session`, the page's or one of its frames' targets,
     /// from when this answers.
     pub(crate) async fn events_on(&self, session: &TargetSession) -> Subscription {

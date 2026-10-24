@@ -30,6 +30,7 @@ mod ending;
 mod functions;
 mod gestures;
 mod identity;
+mod iframes;
 
 mod navigation;
 mod permit_waits;
@@ -64,6 +65,7 @@ pub(crate) use self::carry::{Carried, Origins};
 use self::encoding::{encoding_of, encoding_read, isolated_world};
 pub(crate) use self::ending::Lost;
 use self::functions::{evaluation, page_function_world};
+pub(crate) use self::iframes::{Iframe, Iframes, OnIframe};
 pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use self::permit_waits::PermitWaits;

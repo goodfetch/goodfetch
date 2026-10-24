@@ -102,11 +102,50 @@ use self::pipeline::{Observing, PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
 use crate::clean_up_versions::Versions;
-use crate::driver::{OnServiceWorker, PageDriver, ServiceWorkers};
+use crate::driver::{Iframe, Iframes, OnIframe, OnServiceWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
 use crate::page_value::ResponseObserver;
 use crate::proxy::SessionProxy;
 use crate::url_pattern::UrlPattern;
+
+/// What a page, whose pipeline is `page`, does with each of its
+/// out-of-process iframes before it runs: the iframe's requests pause and
+/// pass the page's pipeline, its routes, domain policy, Filter lists and
+/// `browser.block_resources` included, until the iframe goes. An iframe
+/// whose requests could not be paused never runs.
+fn iframes_of(page: &Arc<PageContext>) -> OnIframe {
+    let page = Arc::clone(page);
+    Arc::new(move |iframe: Iframe| {
+        let page = Arc::clone(&page);
+        Box::pin(async move {
+            let Iframe {
+                driver, url, gone, ..
+            } = iframe;
+            let events = driver.events().await;
+            let enabled = driver
+                .command(&fetch::EnableParams {
+                    patterns: Some(patterns(page.observes())),
+                    handle_auth_requests: driver
+                        .proxy()
+                        .is_some_and(SessionProxy::answers_authentication)
+                        .then_some(true),
+                })
+                .await;
+            if let Err(failure) = enabled {
+                tracing::debug!(%failure, "an out-of-process iframe's requests could not be paused");
+                return false;
+            }
+            let context = Arc::new(page.for_iframe(driver, url));
+            page.run().spawn(async move {
+                tokio::select! {
+                    () = gone.cancelled() => {}
+                    () = pipeline::dispatch(events, context) => {}
+                }
+            });
+            true
+        })
+    })
+}
 
 /// `browser.service_workers`'s value that keeps every service worker from
 /// running.
@@ -390,7 +429,8 @@ impl Interception {
     /// rules chosen by `own`, the Session's own settings, over the Run's,
     /// each refusal left in `refusals` for the request's failure to carry,
     /// each response `observer` keeps passed to it, a service worker's of
-    /// the Session included. It answers what the Session chose of the
+    /// the Session included, and each of its out-of-process iframes' as
+    /// `iframes` attaches them. It answers what the Session chose of the
     /// Clean-up rules beside its requests' blocking.
     ///
     /// # Errors
@@ -415,6 +455,7 @@ impl Interception {
         own: &Values,
         refusals: Refusals,
         observer: Option<Arc<dyn ResponseObserver>>,
+        iframes: &Iframes,
     ) -> Result<PageCleanUp, CallError> {
         let policy = match run.settings() {
             Some(settings) => Policy::of(settings.resolved()),
@@ -475,10 +516,9 @@ impl Interception {
         };
         let events = driver.events().await;
         let observing = observer.map(Observing::of);
-        let patterns = patterns(observing.is_some());
         driver
             .opening_command(&fetch::EnableParams {
-                patterns: Some(patterns),
+                patterns: Some(patterns(observing.is_some())),
                 // An HTTP or HTTPS proxy's 407 reaches the engine, which
                 // answers it with the Session's credentials (SA-22).
                 handle_auth_requests: driver
@@ -516,6 +556,7 @@ impl Interception {
             )
             .with_lookups(lookups),
         );
+        iframes.on_attach(iframes_of(&context));
         run.spawn(pipeline::dispatch(events, context));
         Ok(clean_up)
     }

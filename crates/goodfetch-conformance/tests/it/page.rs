@@ -221,7 +221,7 @@ fn the_page_suite_proves_events_against_collies_attached_engine() {
     prove(EVENTS);
 }
 
-/// Covers: operation:run.new_session, operation:page.route, operation:session.route, error:egress_refused, event:page.request, event:page.response, story:5-49, story:5-50, setting:browser.service_workers
+/// Covers: operation:run.new_session, operation:page.route, operation:session.route, event:page.request, event:page.response, story:5-49, story:5-50, setting:browser.service_workers
 #[test]
 fn the_page_suite_proves_page_states_against_collies_attached_engine() {
     prove(PAGE_STATES);

@@ -17,7 +17,10 @@
 //! and 0067) and a sign-in's cookie; the Daemon serves each as a
 //! Connection whose `hello` needs no token. Each refusal is logged under
 //! the protocol's refusal target with the listener `console` and the
-//! endpoint table's reason, never with the token or the cookie.
+//! endpoint table's reason, never with the token or the cookie. Where
+//! a proxy refuses `WebSocket`s, the page carries its Connection over
+//! Server-Sent Events plus `POST` instead (`event_stream`), each `POST`
+//! with its sign-in's CSRF token.
 //!
 //! A Run's files are fetched by handle: `GET /bodies/<run_id>/<body>`
 //! answers a signed-in request with the file's bytes, as an attachment no
@@ -33,7 +36,7 @@ use std::sync::Arc;
 
 use goodfetch_protocol::run::RunId;
 
-use http_body_util::{BodyExt as _, Full, Limited};
+use http_body_util::{BodyExt as _, Either, Full, Limited};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{self, HeaderMap, HeaderValue};
 use hyper::upgrade::OnUpgrade;
@@ -48,14 +51,24 @@ use crate::composition::ConsoleBuild;
 use crate::content_origin::{BODIES, ContentFile, ContentKey, Shown};
 use crate::daemon::ContentOrigin;
 use crate::people::{SignInDriver, SignInFailure, SignInRefused, sign_in_id};
-use crate::rpc::{Authorities, CONSOLE_LISTENER, ConsoleSocket, REFUSAL_TARGET, Refusal};
+use crate::rpc::event_stream::EventStreamBody;
+use crate::rpc::{
+    Authorities, CONSOLE_LISTENER, ConsoleConnection, ConsoleSocket, REFUSAL_TARGET, Refusal,
+};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
 use crate::transport::{ConsoleListener, ConsoleStream};
 
 mod content;
+mod event_stream;
 
 use content::{Asked, CONTENT_LISTENER, Content};
+use event_stream::{EVENTS, MESSAGES, Streams};
+
+pub use event_stream::fuzz_post_fallback;
+
+/// What the Console answers: bytes, or the event stream of a Connection.
+type Answered = Either<Full<Bytes>, EventStreamBody>;
 
 /// The production Content Security Policy (ADR 0031): the Console's own
 /// scripts, styles, images, fonts and connections only; no inline code and
@@ -117,8 +130,9 @@ pub(crate) struct Served {
     /// its own Console and accounts store (ADR 0030), and a sign-in
     /// outlives a restart that moves the Console to another port.
     pub(crate) cookie: String,
-    /// Where each WebSocket opened goes, for the Daemon to serve.
-    pub(crate) sockets: mpsc::Sender<ConsoleSocket>,
+    /// Where each Connection opened goes, a WebSocket or an event stream,
+    /// for the Daemon to serve.
+    pub(crate) connections: mpsc::Sender<ConsoleConnection>,
     /// Where a Run's files are.
     pub(crate) runs: Runs,
     /// The wall time content addresses are signed and checked at.
@@ -145,7 +159,9 @@ struct Site {
     authorities: Authorities,
     /// The sign-in cookie's name.
     cookie: String,
-    sockets: mpsc::Sender<ConsoleSocket>,
+    connections: mpsc::Sender<ConsoleConnection>,
+    /// The event streams open, where each `POST` of the fallback goes.
+    streams: Streams,
     runs: Runs,
     clock: Clock,
     /// The content origin, if it started.
@@ -167,7 +183,7 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
         listener,
         sign_ins,
         cookie,
-        sockets,
+        connections,
         runs,
         clock,
         content,
@@ -190,7 +206,8 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
         sign_ins,
         authorities,
         cookie,
-        sockets,
+        connections,
+        streams: Streams::default(),
         runs,
         clock,
         content,
@@ -323,9 +340,34 @@ impl Site {
         }
     }
 
-    /// What the Console answers `request`; a WebSocket handshake it accepts
+    /// What the Console answers `request`: its event stream at
+    /// `/protocol/events`, else bytes; a WebSocket handshake it accepts
     /// leaves its upgrade in `upgrade`.
     async fn answer(
+        &self,
+        request: Request<Incoming>,
+        from: IpAddr,
+        reached: Side,
+        upgrade: &Mutex<Option<OnUpgrade>>,
+    ) -> Response<Answered> {
+        let host = request
+            .headers()
+            .get(header::HOST)
+            .and_then(|value| value.to_str().ok());
+        let content_takes = self
+            .content
+            .as_ref()
+            .is_some_and(|content| content.takes(host));
+        if reached == Side::Console && !content_takes && request.uri().path() == EVENTS {
+            return self.event_stream(&request).await;
+        }
+        self.answer_bytes(request, from, reached, upgrade)
+            .await
+            .map(Either::Left)
+    }
+
+    /// What the Console answers `request` with bytes.
+    async fn answer_bytes(
         &self,
         mut request: Request<Incoming>,
         from: IpAddr,
@@ -354,6 +396,7 @@ impl Site {
                 }
                 answered
             }
+            path if path.starts_with(MESSAGES) => self.post_messages(request).await,
             path if path.starts_with(CONTENT_ADDRESS) => self.content_address(&request).await,
             path if path.starts_with(BODIES) => self.body(&request).await,
             path => answer(self.build, request.method(), path, &self.policy),
@@ -718,7 +761,8 @@ impl Site {
         match opened.await {
             Ok(upgraded) => {
                 let socket = ConsoleSocket::opened(TokioIo::new(upgraded)).await;
-                if self.sockets.send(socket).await.is_err() {
+                let opened = ConsoleConnection::WebSocket(socket);
+                if self.connections.send(opened).await.is_err() {
                     tracing::debug!("the Daemon stopped before it served a Console's WebSocket");
                 }
             }
@@ -891,7 +935,7 @@ fn refused_method(allowed: &[&'static str], policy: &HeaderValue) -> Response<Fu
 }
 
 /// `response` with the headers every answer of the Console carries.
-fn secured(mut response: Response<Full<Bytes>>, policy: &HeaderValue) -> Response<Full<Bytes>> {
+fn secured<B>(mut response: Response<B>, policy: &HeaderValue) -> Response<B> {
     let headers = response.headers_mut();
     headers.insert(header::CONTENT_SECURITY_POLICY, policy.clone());
     headers.insert(

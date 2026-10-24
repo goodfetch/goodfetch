@@ -49,9 +49,9 @@ use crate::transition::{
 };
 use crate::transport::{Connection, DaemonListener, Network, TransportError};
 
-/// How many `WebSocket`s the Console's server opened wait for the Daemon to
+/// How many Connections the Console's server opened wait for the Daemon to
 /// serve them before it waits too.
-const CONSOLE_SOCKETS: usize = 16;
+const CONSOLE_CONNECTIONS: usize = 16;
 
 /// An engine of one Product, composed and ready to serve.
 #[derive(Clone)]
@@ -222,7 +222,8 @@ impl Engine {
             options.install.take(),
             console_url,
         );
-        let (opened_sockets, console_sockets) = tokio::sync::mpsc::channel(CONSOLE_SOCKETS);
+        let (opened_connections, console_connections) =
+            tokio::sync::mpsc::channel(CONSOLE_CONNECTIONS);
         let (console, sign_ins) = match (
             self.console,
             std::mem::replace(&mut options.console, DaemonConsole::Absent),
@@ -255,7 +256,7 @@ impl Engine {
                             "goodfetch_console_{}",
                             major_name(&self.identity().product_version)
                         ),
-                        sockets: opened_sockets,
+                        connections: opened_connections,
                         runs: runs.clone(),
                         clock,
                         content,
@@ -276,7 +277,7 @@ impl Engine {
                 events,
                 clock,
                 console,
-                console_sockets,
+                console_connections,
                 metrics: self.metrics.clone(),
                 sign_ins,
             },

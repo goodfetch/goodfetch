@@ -104,7 +104,8 @@ pub(crate) fn check_and_arm(count: usize) -> usize {
                         seen,
                         check::Seen::Ready {
                             x: Some(_),
-                            y: Some(_)
+                            y: Some(_),
+                            ..
                         }
                     ) {
                         ready += 1;

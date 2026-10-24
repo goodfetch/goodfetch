@@ -44,6 +44,8 @@ export interface EngineSettingsViewProps {
   readonly explained: Explained;
   /** Why the last request sent nothing, if it did not. */
   readonly refusal?: ExplainRefusal | undefined;
+  /** Whether the Console has no Connection now, which disables explaining. */
+  readonly readOnly?: boolean | undefined;
   readonly onExplain: (request: ExplainRequest) => void;
 }
 
@@ -91,6 +93,7 @@ function Explanation({ explained }: { readonly explained: Explained }): ReactNod
 export function EngineSettingsView({
   explained,
   refusal,
+  readOnly = false,
   onExplain,
 }: EngineSettingsViewProps): ReactNode {
   const { t } = useLingui();
@@ -153,7 +156,8 @@ export function EngineSettingsView({
           </div>
           <button
             type="submit"
-            className="self-start rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+            disabled={readOnly}
+            className="self-start rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
           >
             <Trans>Explain</Trans>
           </button>
@@ -224,6 +228,7 @@ export function EngineSettings({ client }: { readonly client: ConsoleClient }): 
       <EngineSettingsView
         explained={explained}
         refusal={refusal}
+        readOnly={state !== "connected"}
         onExplain={(request) => {
           void explain(request);
         }}

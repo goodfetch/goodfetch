@@ -38,6 +38,11 @@ const TOO_MANY_REDIRECTS: &str = "net::ERR_TOO_MANY_REDIRECTS";
 /// The error text of a body whose listed content coding did not decode.
 const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
 
+/// The error text of a navigation whose response, an error status with an
+/// empty body, the browser shows as an error page of its own: the response
+/// is still the navigation's answer, whole, as a proxy's own `429` is.
+const RESPONSE_CODE_FAILURE: &str = "net::ERR_HTTP_RESPONSE_CODE_FAILURE";
+
 /// The event of a target whose renderer crashed.
 pub(super) const CRASHED: &str = "Inspector.targetCrashed";
 
@@ -309,6 +314,11 @@ impl Navigation {
             let error_page = error != ABORTED && !superseded;
             if error_page && !self.stopped && !self.reached(loader, wait_until) {
                 return None;
+            }
+            if error == RESPONSE_CODE_FAILURE
+                && let Some(response) = self.responses.get(loader)
+            {
+                return Some(Ok(Arrived::Document(Some(response.clone()))));
             }
             return Some(Err(self.ended(loader, error, superseded)));
         }

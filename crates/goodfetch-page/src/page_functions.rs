@@ -295,7 +295,7 @@ fn value_invalid(invalid: Invalid) -> CallError {
 /// with its argument, or the script as it is; a script given an argument
 /// is refused before anything is sent.
 pub(crate) fn init_script(function: &str, arg: Option<&Value>) -> Result<String, CallError> {
-    if is_function(function) {
+    if let Some(function) = only_function(function) {
         let text = arg.map_or_else(|| "null".to_owned(), Value::to_string);
         let literal = Value::String(text).to_string();
         return Ok(format!(
@@ -308,47 +308,98 @@ pub(crate) fn init_script(function: &str, arg: Option<&Value>) -> Result<String,
     Ok(function.to_owned())
 }
 
-/// Whether `source` parses as a function: `function …`, an arrow function,
-/// either maybe `async`, its parameters' parentheses balanced.
-fn is_function(source: &str) -> bool {
-    let source = source.trim_start();
-    let source = source
+/// The function `source` is, when it is one function and nothing else:
+/// `function …` or an arrow function, either maybe `async`, comments around
+/// it and a closing `;` allowed, which the function answered leaves out. A
+/// statement before or after it makes the source a script, such as a
+/// declaration followed by its call.
+fn only_function(source: &str) -> Option<&str> {
+    let source = after_trivia(source);
+    let after_async = source
         .strip_prefix("async")
-        .filter(|rest| rest.starts_with(|c: char| c.is_whitespace() || c == '('))
-        .map_or(source, str::trim_start);
-    if let Some(rest) = source.strip_prefix("function") {
-        return rest.starts_with(|c: char| c.is_whitespace() || c == '(' || c == '*');
+        .filter(|rest| rest.starts_with(|c: char| c.is_whitespace() || c == '(' || c == '/'))
+        .map_or(source, after_trivia);
+    let rest = match after_async.strip_prefix("function") {
+        Some(rest) => function_end(rest)?,
+        None => arrow_end(after_async)?,
+    };
+    let after = after_trivia(rest);
+    after_trivia(after.strip_prefix(';').unwrap_or(after))
+        .is_empty()
+        .then(|| &source[..source.len() - rest.len()])
+}
+
+/// What follows the function whose `function` keyword `rest` follows, when
+/// it reads as one: an optional `*` and name, its parameters, its body.
+fn function_end(rest: &str) -> Option<&str> {
+    if !rest.starts_with(|c: char| c.is_whitespace() || c == '(' || c == '*' || c == '/') {
+        return None;
     }
-    let after_parameters = if source.starts_with('(') {
-        closing(source).map(|end| &source[end..])
+    let rest = &rest[rest.find('(')?..];
+    let rest = after_trivia(&rest[closing(rest)?..]);
+    if !rest.starts_with('{') {
+        return None;
+    }
+    Some(&rest[closing(rest)?..])
+}
+
+/// What follows the arrow function `source` starts with, when it is one:
+/// its parameters, `=>`, and its body, a block or an expression running to
+/// the first `;` outside brackets, strings and comments.
+fn arrow_end(source: &str) -> Option<&str> {
+    let rest = if source.starts_with('(') {
+        &source[closing(source)?..]
     } else {
         let end = source
             .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
             .unwrap_or(source.len());
-        (end > 0).then(|| &source[end..])
+        if end == 0 {
+            return None;
+        }
+        &source[end..]
     };
-    after_parameters.is_some_and(|rest| rest.trim_start().starts_with("=>"))
+    let body = after_trivia(after_trivia(rest).strip_prefix("=>")?);
+    if body.starts_with('{') {
+        return Some(&body[closing(body)?..]);
+    }
+    let mut depth = 0_usize;
+    for (at, c) in code(body) {
+        match c {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.checked_sub(1)?,
+            ';' if depth == 0 => return Some(&body[at..]),
+            _ => {}
+        }
+    }
+    Some(&body[body.trim_end().len()..])
 }
 
-/// The byte offset just past the parenthesis that closes the one `source`
-/// starts with, strings and template literals skipped.
+/// `source` past its leading white space and comments.
+fn after_trivia(source: &str) -> &str {
+    let mut rest = source.trim_start();
+    loop {
+        if let Some(comment) = rest.strip_prefix("//") {
+            rest = comment
+                .find('\n')
+                .map_or("", |end| &comment[end..])
+                .trim_start();
+        } else if let Some(comment) = rest.strip_prefix("/*") {
+            rest = comment
+                .find("*/")
+                .map_or("", |end| &comment[end + 2..])
+                .trim_start();
+        } else {
+            return rest;
+        }
+    }
+}
+
+/// The byte offset just past the bracket that closes the one `source`
+/// starts with, strings, template literals and comments skipped.
 fn closing(source: &str) -> Option<usize> {
     let mut depth = 0_usize;
-    let mut quote = None;
-    let mut escaped = false;
-    for (at, c) in source.char_indices() {
-        if let Some(open) = quote {
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == open {
-                quote = None;
-            }
-            continue;
-        }
+    for (at, c) in code(source) {
         match c {
-            '\'' | '"' | '`' => quote = Some(c),
             '(' | '[' | '{' => depth += 1,
             ')' | ']' | '}' => {
                 depth = depth.checked_sub(1)?;
@@ -360,6 +411,47 @@ fn closing(source: &str) -> Option<usize> {
         }
     }
     None
+}
+
+/// The characters of `source` outside its strings, template literals and
+/// comments, with their byte offsets. A regular expression literal is read
+/// as code, so one holding an unbalanced bracket misreads the source.
+fn code(source: &str) -> impl Iterator<Item = (usize, char)> + '_ {
+    let mut characters = source.char_indices().peekable();
+    std::iter::from_fn(move || {
+        while let Some((at, c)) = characters.next() {
+            let next = characters.peek().map(|(_, next)| *next);
+            match (c, next) {
+                ('\'' | '"' | '`', _) => {
+                    let mut escaped = false;
+                    for (_, inner) in characters.by_ref() {
+                        if escaped {
+                            escaped = false;
+                        } else if inner == '\\' {
+                            escaped = true;
+                        } else if inner == c {
+                            break;
+                        }
+                    }
+                }
+                ('/', Some('/')) => {
+                    let _ = characters.by_ref().find(|(_, inner)| *inner == '\n');
+                }
+                ('/', Some('*')) => {
+                    characters.next();
+                    let mut star = false;
+                    for (_, inner) in characters.by_ref() {
+                        if star && inner == '/' {
+                            break;
+                        }
+                        star = inner == '*';
+                    }
+                }
+                _ => return Some((at, c)),
+            }
+        }
+        None
+    })
 }
 
 /// What marked a Session as departing from the no-injection identity.
@@ -544,3 +636,6 @@ impl Drop for Registered {
         });
     }
 }
+
+#[cfg(test)]
+mod tests;

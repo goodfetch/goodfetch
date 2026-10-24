@@ -95,6 +95,19 @@ impl std::fmt::Display for CertificateInvalid {
 
 impl std::error::Error for CertificateInvalid {}
 
+/// One scope of a [`Trust`]: the hosts a listed domain covers, or those
+/// none covers, and the authorities trusted for them beside Mozilla's
+/// roots.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrustScope {
+    /// The listed domain, `None` for the hosts no listed domain covers.
+    pub domain: Option<String>,
+    /// The authorities trusted there beside Mozilla's roots: those trusted
+    /// everywhere, then the domain's own, then its parents', the most
+    /// specific first.
+    pub authorities: Vec<CertificateDer<'static>>,
+}
+
 /// A `tls.trusted_cas` entry that names no host.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("`{domain}` names no host or domain")]
@@ -168,6 +181,38 @@ impl Trust {
     /// itself (Foxhound's HTTP fetch tier).
     pub fn client_config(&self) -> rustls::ClientConfig {
         self.config(None)
+    }
+
+    /// Each scope of this trust, for a TLS library that takes one store of
+    /// authorities per client rather than a decision per host: BoringSSL
+    /// in Foxhound's `wreq` transport, which keeps one client per scope
+    /// and sends each host to [`Trust::scope_of`]'s (ADR 0042). The scope
+    /// of no domain comes first, then each listed domain in order.
+    pub fn scopes(&self) -> Vec<TrustScope> {
+        let everywhere = TrustScope {
+            domain: None,
+            authorities: self.everywhere.clone(),
+        };
+        let listed = self.by_domain.keys().map(|domain| TrustScope {
+            domain: Some(domain.clone()),
+            authorities: self
+                .everywhere
+                .iter()
+                .chain(
+                    self.domains_of(domain)
+                        .into_iter()
+                        .flat_map(|listed| &self.by_domain[listed]),
+                )
+                .cloned()
+                .collect(),
+        });
+        std::iter::once(everywhere).chain(listed).collect()
+    }
+
+    /// The listed domain whose scope `host` is in: the most specific that
+    /// `host` is, or is a subdomain of; `None` for the scope of no domain.
+    pub fn scope_of(&self, host: &str) -> Option<&str> {
+        self.domains_of(host).first().copied()
     }
 
     /// The rustls configuration of a connection to a host listed for trust

@@ -63,6 +63,7 @@ pub(crate) fn hosts() -> Vec<String> {
     FAMILY_HOSTS
         .into_iter()
         .chain(edge::NAMED_HOSTS)
+        .chain(policy::NAMED_HOSTS)
         .map(str::to_owned)
         .collect()
 }

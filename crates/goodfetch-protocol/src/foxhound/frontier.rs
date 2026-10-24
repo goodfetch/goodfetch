@@ -11,7 +11,11 @@
 //! `crawl.scope.*` settings say which links a crawl may follow, fixed for
 //! the Run's life; `crawl.max_depth` and `crawl.max_requests` bound it, and
 //! three caps on a URL's shape end the traps no rule learned;
-//! `crawl.path_budgets` bounds sections of a site. Foxhound's own.
+//! `crawl.path_budgets` bounds sections of a site. A Payload is refused at
+//! its enqueue with `payload_invalid` when it does not fit its Label's JSON
+//! Schema or is longer than `crawl.payload.max_size`, and a resume whose
+//! Label's Payload schema changed under pending Payloads that fail it with
+//! `payload_schema_changed` (ADR 0082). Foxhound's own.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -21,8 +25,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::catalog::{
-    Authority, Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting,
-    Stability, ValueKind, ValueShape, schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, Setting, Stability, ValueKind, ValueShape, schema_of,
 };
 use crate::foxhound::crawl::Seed;
 use crate::jsonrpc::RequestId;
@@ -720,6 +724,98 @@ pub const CRAWL_PATH_BUDGETS: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `crawl.payload.max_size` (ADR 0082).
+pub const CRAWL_PAYLOAD_MAX_SIZE: Setting = Setting {
+    name: "crawl.payload.max_size",
+    description: "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+    kind: ValueKind::Count,
+    default: sixty_four_kibibytes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn sixty_four_kibibytes() -> Value {
+    Value::from(65_536)
+}
+
+/// A Payload refused at its enqueue (ADR 0082).
+pub const PAYLOAD_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "payload_invalid",
+    description: "A crawl request's Payload was refused when it was enqueued, as a seed, an added seed or a handler's enqueue: it does not fit its Label's JSON Schema, each issue named by its path, or its JSON is longer than `crawl.payload.max_size`, which `limit` names. Nothing was added. Large content goes to the Key-value store, and the Payload carries its key.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A resume refused because a Label's Payload schema changed (ADR 0082).
+pub const PAYLOAD_SCHEMA_CHANGED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "payload_schema_changed",
+    description: "The crawl now declares a Label's Payload JSON Schema that the Run did not begin with, and Payloads of that Label's pending requests fail it, so the Run was not resumed and did no work. The details name the Label, how many pending Payloads fail out of how many, and the first failure. Give the new field a default in the schema, or start a new Run: a Payload is never migrated silently.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// One way a Payload does not fit its Label's JSON Schema.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PayloadIssue {
+    /// Where in the Payload, a JSON Pointer: empty for the Payload itself.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub path: String,
+    /// What is wrong there.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub message: String,
+}
+
+/// What `payload_invalid` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PayloadInvalidDetails {
+    /// The Label the Payload was enqueued under.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub label: String,
+    /// Each way it does not fit the Label's JSON Schema; none when it is
+    /// too long.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub issues: Vec<PayloadIssue>,
+    /// The setting it is longer than, `crawl.payload.max_size`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: Option<String>,
+    /// Its JSON's length in bytes, when it is too long.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub size: Option<u64>,
+    /// The setting's value, when it is too long.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub max_size: Option<u64>,
+}
+
+/// What `payload_schema_changed` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PayloadSchemaChangedDetails {
+    /// The Label whose Payload schema changed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub label: String,
+    /// How many of its pending requests' Payloads fail the new schema.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub failing: u64,
+    /// How many of its requests are pending.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub pending: u64,
+    /// The first failing request's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub crawl_request_id: String,
+    /// How its Payload fails the new schema.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub issues: Vec<PayloadIssue>,
+}
+
 fn same_hostname() -> Value {
     Value::from("same_hostname")
 }
@@ -755,7 +851,7 @@ pub const ENTRIES: Entries = Entries {
     ],
     events: &[],
     handler_requests: &[],
-    error_codes: &[],
+    error_codes: &[PAYLOAD_INVALID, PAYLOAD_SCHEMA_CHANGED],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[
@@ -768,6 +864,7 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_MAX_PATH_SEGMENTS,
         CRAWL_MAX_SEGMENT_REPEATS,
         CRAWL_PATH_BUDGETS,
+        CRAWL_PAYLOAD_MAX_SIZE,
     ],
     hook_stages: &[],
     shared_type_values: &[],

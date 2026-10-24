@@ -83,7 +83,7 @@ impl ProxyFailure {
                     format!("the proxy {proxy} is unavailable: {cause}"),
                     &ProxyUnavailableDetails {
                         proxy,
-                        url: url.to_owned(),
+                        url: Some(url.to_owned()),
                         error: None,
                     },
                 )

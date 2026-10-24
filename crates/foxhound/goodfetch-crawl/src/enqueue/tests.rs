@@ -30,6 +30,7 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
         .chain(SCOPE_TABLES.statements)
         .chain(BOUNDS_TABLES.statements)
         .chain(goodfetch_frontier::RULES_TABLES.statements)
+        .chain(goodfetch_frontier::payload::TABLES.statements)
     {
         connection.execute(statement, []).unwrap();
     }
@@ -55,6 +56,8 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
         .unwrap();
         add(&connection, &every_host, &params, None)
             .unwrap()
+            .unwrap()
+            .map_err(|error| error.code())
             .unwrap()
     };
 

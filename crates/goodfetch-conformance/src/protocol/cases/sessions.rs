@@ -71,8 +71,8 @@ impl Case {
             Self::Source => source(connection, site, checks),
             Self::Ended => ended(connection, checks),
             Self::ClosedWithItsRun => closed_with_its_run(connection, site, checks),
-            Self::Proxy(case) => case.run(connection, site, checks),
-            Self::ProxyLimit(case) => case.run(connection, site, checks),
+            Self::Proxy(case) => case.run(connection, target, site, checks),
+            Self::ProxyLimit(case) => case.run(connection, target, site, checks),
             Self::PageCheck(case) => case.run(connection, target, site, checks),
             Self::Blocked(case) => case.run(connection, target, site, checks),
         }

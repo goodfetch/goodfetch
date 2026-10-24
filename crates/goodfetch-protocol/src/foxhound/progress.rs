@@ -192,6 +192,10 @@ pub enum InFlightPhase {
     Fetching,
     /// Its handler handles it.
     Handling,
+    /// Its handler waits for a navigation gate's permit: a navigation of
+    /// its page waits for its domain's Politeness, and its handler timeout
+    /// does not run meanwhile (ADR 0093).
+    WaitingForPermit,
 }
 
 /// A crawl's concurrency (ADRs 0040 and 0102).

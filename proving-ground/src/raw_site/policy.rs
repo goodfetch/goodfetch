@@ -7,6 +7,15 @@
 //! or the site refuses it, the only right result is a reported failure, and
 //! the Records read before it are tolerated; the paths the task must not
 //! request are judged from the Proving ground's own observations.
+//!
+//! Two named hosts belong to no task: their robots.txt files hold the
+//! product-token groups a crawl's robots.txt selection is judged on (ADRs
+//! 0086 and 0090), and every other path is a page. On
+//! `tokens.access-policy.test` a group for `Goodfetch-Foxhound` disallows
+//! `/foxhound/`, one for the operator token `operator-bot` `/operator/`,
+//! one for a bare `Foxhound` `/bare/` and the `*` group `/star/`; on
+//! `star.access-policy.test` only the bare `Foxhound` and `*` groups
+//! remain.
 
 use super::shelf::{self, Shelf};
 use crate::raw::{Answer, Page, Request};
@@ -34,6 +43,38 @@ Disallow: /*.pdf$
 Allow: /tie
 Disallow: /tie
 Crawl-delay: 2
+";
+
+/// The named host whose robots.txt names Foxhound's token, an operator's,
+/// a bare `Foxhound` and `*`.
+pub(super) const TOKENS_HOST: &str = "tokens.access-policy.test";
+
+/// The named host whose robots.txt names only a bare `Foxhound` and `*`.
+pub(super) const STAR_HOST: &str = "star.access-policy.test";
+
+/// The family's named hosts, which belong to no task.
+pub(super) const NAMED_HOSTS: [&str; 2] = [TOKENS_HOST, STAR_HOST];
+
+/// The robots.txt of [`TOKENS_HOST`].
+const TOKENS: &str = "User-agent: Goodfetch-Foxhound
+Disallow: /foxhound/
+
+User-agent: operator-bot
+Disallow: /operator/
+
+User-agent: Foxhound
+Disallow: /bare/
+
+User-agent: *
+Disallow: /star/
+";
+
+/// The robots.txt of [`STAR_HOST`].
+const STAR: &str = "User-agent: Foxhound
+Disallow: /bare/
+
+User-agent: *
+Disallow: /star/
 ";
 
 const CONTENT_SIGNAL: &str =
@@ -164,6 +205,19 @@ pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
 
 /// The answer to `request` on `host`.
 pub(super) fn answer(seed: u64, host: &str, request: &Request) -> Answer {
+    if let Some(robots) = match host {
+        TOKENS_HOST => Some(TOKENS),
+        STAR_HOST => Some(STAR),
+        _ => None,
+    } {
+        return Answer::Page(match request.path() {
+            "/robots.txt" => Page::text(200, robots),
+            path => Page::html(
+                200,
+                format!("<!doctype html><title>{path}</title><p>A page at {path}.</p>"),
+            ),
+        });
+    }
     let Some((ordinal, policy)) = super::ordinal(host).and_then(|ordinal| {
         let at = usize::try_from(ordinal.checked_sub(1)?).ok()?;
         POLICIES.get(at).map(|(policy, _)| (ordinal, *policy))

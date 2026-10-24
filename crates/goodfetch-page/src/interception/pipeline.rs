@@ -860,7 +860,8 @@ impl PageContext {
     /// the main frame's navigation, a program's own included, keeping it
     /// until the hop ends, once the limits admit it (ADRs 0053 and 0088):
     /// the hop before gives its Permit back first. The wait counts against
-    /// no deadline of the page. A page without a proxy goes at once.
+    /// no deadline of the page. A page without a proxy, and a hop
+    /// `proxy.bypass` sends around it, go at once.
     async fn admit_through_proxy(&self, held: &Held) {
         if self.driver.proxy().is_none() {
             return;
@@ -895,12 +896,15 @@ impl PageContext {
         let Some(permit) = self.proxy_hop(Some(&failed.request_id)) else {
             return;
         };
-        if proxy::refusal(
-            proxy::Answer::Failure {
-                error: &failed.error_text,
-            },
-            None,
-        ) {
+        let refused = self.driver.proxy().is_some_and(|proxy| {
+            proxy.refusal(
+                proxy::Answer::Failure {
+                    error: &failed.error_text,
+                },
+                None,
+            )
+        });
+        if refused {
             self.run.spawn(permit.refused());
         }
     }
@@ -912,16 +916,17 @@ impl PageContext {
     /// lowered by the time the navigation's call answers. A site's
     /// response, of any status, leaves the Permit to its hop's end.
     async fn proxy_answered(&self, paused: &fetch::RequestPausedEvent, status: u16) {
-        if self.driver.proxy().is_none() {
+        let Some(proxy) = self.driver.proxy() else {
             return;
-        }
+        };
         let proxy_status = paused
             .response_headers
             .iter()
             .flatten()
             .find(|header| header.name.eq_ignore_ascii_case(PROXY_STATUS))
             .map(|header| header.value.as_str());
-        if !proxy::refusal(proxy::Answer::Response { proxy_status }, Some(status)) {
+        let answer = proxy.response(&paused.request.url, proxy_status);
+        if !proxy.refusal(answer, Some(status)) {
             return;
         }
         if let Some(permit) = self.proxy_hop(paused.network_id.as_ref()) {

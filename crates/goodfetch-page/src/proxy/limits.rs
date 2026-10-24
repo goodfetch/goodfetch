@@ -10,9 +10,10 @@
 //! there by any sharing run.
 //!
 //! A refusal of the proxy itself (its own 429 or 502, or a tunnel it
-//! refused) halves the key's ceiling, from the count in flight when it had
-//! none; the ceiling grows back by one with each request that ends well
-//! after a quiet [`RECOVERY`] since it last changed. A site's answer, a 429
+//! refused) halves the key's ceiling, from the count in flight with it, or
+//! from the ceiling when that is lower; the ceiling grows back by one with
+//! each request that ends well at the ceiling, while it binds, after a
+//! quiet [`RECOVERY`] since it last changed. A site's answer, a 429
 //! included, never changes it. Each rule is a pure function of the wall
 //! time it is given (ADR 0059).
 //!
@@ -23,6 +24,7 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::politeness::{
     Ending, Hold, Holder, Permit, PermitRule, Politeness, PolitenessTables, Taken, Verdict,
     milliseconds, moment,
@@ -33,6 +35,7 @@ use goodfetch_protocol::page::proxy::ProxyServer;
 use goodfetch_protocol::politeness::{POLITENESS_PROXY_CONCURRENCY, POLITENESS_PROXY_RATE};
 use rusqlite::{Connection, OptionalExtension as _};
 use tokio::sync::broadcast::error::RecvError;
+use tokio_util::sync::CancellationToken;
 
 /// How long a lowered ceiling stays quiet before it grows back by one.
 pub(crate) const RECOVERY: Duration = Duration::from_secs(10);
@@ -42,7 +45,7 @@ pub(crate) const RECOVERY: Duration = Duration::from_secs(10);
 const RECLAIM_CHECK: Duration = Duration::from_secs(30);
 
 /// The table the rule keeps each proxy key's shared state in.
-pub const TABLES: PolitenessTables = PolitenessTables {
+pub(crate) const TABLES: PolitenessTables = PolitenessTables {
     name: "goodfetch-page",
     statements: &["CREATE TABLE IF NOT EXISTS proxy_limits (
             key TEXT NOT NULL PRIMARY KEY,
@@ -102,7 +105,7 @@ impl Limits {
 
 /// A run's rule for its Sessions' proxies, under its own settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ProxyRule {
+pub(crate) struct ProxyRule {
     /// `politeness.proxy.concurrency`.
     concurrency: Option<u64>,
     /// The least time between two starts, from `politeness.proxy.rate`.
@@ -111,14 +114,26 @@ pub struct ProxyRule {
 
 impl ProxyRule {
     /// The rule `settings` give a Session's proxy.
-    pub fn of(settings: &Resolved) -> Self {
-        Self {
-            concurrency: settings.count(POLITENESS_PROXY_CONCURRENCY.name),
+    ///
+    /// # Errors
+    ///
+    /// Why `politeness.proxy.concurrency` is refused: `0` admits no
+    /// request, so every navigation through the proxy would wait forever.
+    pub(crate) fn of(settings: &Resolved) -> Result<Self, String> {
+        let concurrency = settings.count(POLITENESS_PROXY_CONCURRENCY.name);
+        if concurrency == Some(0) {
+            return Err(
+                "it is 0, which admits no request through the proxy: it is at least 1, or unset for no cap"
+                    .to_owned(),
+            );
+        }
+        Ok(Self {
+            concurrency,
             interval: settings
                 .count(POLITENESS_PROXY_RATE.name)
                 .filter(|rate| *rate > 0)
                 .map(|rate| Duration::from_secs(1) / u32::try_from(rate).unwrap_or(u32::MAX)),
-        }
+        })
     }
 }
 
@@ -171,13 +186,19 @@ impl PermitRule for ProxyRule {
         let mut limits = Limits::read(connection, key)?;
         match ending {
             Ending::TooManyRequests(_) => {
-                let base = limits.ceiling.unwrap_or(in_flight.saturating_add(1));
+                // The proxy refused this many at once, the ending one
+                // included, whatever the ceiling allowed.
+                let tried = in_flight.saturating_add(1);
+                let base = limits.ceiling.map_or(tried, |ceiling| ceiling.min(tried));
                 limits.ceiling = Some((base / 2).max(1));
                 limits.ceiling_changed_at = Some(now);
             }
             Ending::Done | Ending::BackOff(_) | Ending::Until(_) => {
+                // Only a request that ended well at the ceiling shows the
+                // proxy takes as many: one below it teaches nothing.
                 if let (Some(ceiling), Some(changed_at)) =
                     (limits.ceiling, limits.ceiling_changed_at)
+                    && in_flight.saturating_add(1) >= ceiling
                     && now >= changed_at.saturating_add(duration_milliseconds(RECOVERY))
                 {
                     limits.ceiling = Some(ceiling.saturating_add(1));
@@ -192,7 +213,7 @@ impl PermitRule for ProxyRule {
 
 /// The key a proxy's Permits count under: its endpoint and the credential
 /// it is used with, so two accounts with one vendor are two keys.
-pub fn key(server: &ProxyServer, username: Option<&str>) -> String {
+fn key(server: &ProxyServer, username: Option<&str>) -> String {
     format!("proxy {server} {}", username.unwrap_or_default())
 }
 
@@ -219,82 +240,120 @@ impl ProxyLimits {
     /// The limits of `server` used as `username` by a Session of `run`
     /// under `settings`; none, with a warning, when the Politeness its Run
     /// shares cannot be opened, so the Session goes on unlimited.
+    ///
+    /// # Errors
+    ///
+    /// Why `settings` give no rule ([`ProxyRule::of`]).
     pub(crate) async fn open(
         settings: &Resolved,
         run: &Run,
         server: &ProxyServer,
         username: Option<&str>,
-    ) -> Option<Arc<Self>> {
-        match run.politeness(settings).await {
+    ) -> Result<Option<Arc<Self>>, String> {
+        let rule = ProxyRule::of(settings)?;
+        Ok(match run.politeness(settings).await {
             Ok((politeness, holder)) => Some(Arc::new(Self {
                 run: run.clone(),
                 politeness,
                 holder,
                 key: key(server, username),
-                rule: Arc::new(ProxyRule::of(settings)),
+                rule: Arc::new(rule),
             })),
             Err(error) => {
                 tracing::warn!(%error, "the Politeness file did not open: the Session's proxy goes unlimited");
                 None
             }
-        }
+        })
     }
 
     /// A Permit for one request through the proxy, once the rule admits
     /// it: a wait for a start's interval sleeps until then, and a wait for
     /// room until the Permit's give back wakes this Run, or the check for a
-    /// holder that died. None, with a warning, when the Politeness file
-    /// fails: the request goes unlimited.
+    /// holder that died. None once its Run is cancelled, as its end does,
+    /// and, with a warning, when the Politeness file fails: the request
+    /// goes unlimited.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave a Permit taken for no request, which
     /// its Run's end or another engine's reclaim gives back.
     pub(crate) async fn take(self: &Arc<Self>) -> Option<ProxyPermit> {
-        let clock = self.run.clock();
-        loop {
-            let mut wakes = self.politeness.wakes();
-            let wall = clock.wall();
-            let rule = Arc::clone(&self.rule);
-            match self
-                .politeness
-                .take(&self.key, &self.holder, rule, wall)
-                .await
-            {
-                Ok(Taken::Granted(permit)) => {
-                    return Some(ProxyPermit {
-                        permit: Some(permit),
-                        limits: Arc::clone(self),
-                    });
+        let permit = taken(
+            &self.politeness,
+            &self.key,
+            &self.holder,
+            &self.rule,
+            &self.run.clock(),
+            self.run.cancellation(),
+        )
+        .await?;
+        Some(ProxyPermit {
+            permit: Some(permit),
+            limits: Arc::clone(self),
+        })
+    }
+}
+
+/// A Permit under `key` for `holder` from `politeness`, once `rule` admits
+/// it: a wait for a start's interval sleeps on `clock` until then, and a
+/// wait for room until a give back wakes `holder`'s Run, or the check for a
+/// holder that died. None once `ending`, the Run's cancellation, comes, so
+/// its end never waits on another Run's request; none, with a warning, when
+/// the Politeness file fails.
+///
+/// # Cancel safety
+///
+/// Dropping the future may leave a Permit taken for no request, which its
+/// Run's end or another engine's reclaim gives back.
+async fn taken(
+    politeness: &Politeness,
+    key: &str,
+    holder: &Holder,
+    rule: &Arc<dyn PermitRule>,
+    clock: &Clock,
+    ending: &CancellationToken,
+) -> Option<Permit> {
+    loop {
+        let mut wakes = politeness.wakes();
+        let wall = clock.wall();
+        let take = politeness.take(key, holder, Arc::clone(rule), wall);
+        let taken = tokio::select! {
+            () = ending.cancelled() => return None,
+            taken = take => taken,
+        };
+        match taken {
+            Ok(Taken::Granted(permit)) => return Some(permit),
+            Ok(Taken::Wait(Some((until, _)))) => {
+                tokio::select! {
+                    () = ending.cancelled() => return None,
+                    () = clock.sleep(until.duration_since(wall).unwrap_or_default()) => {}
                 }
-                Ok(Taken::Wait(Some((until, _)))) => {
-                    clock
-                        .sleep(until.duration_since(wall).unwrap_or_default())
-                        .await;
-                }
-                Ok(Taken::Wait(None)) => {
-                    let check = clock.sleep(RECLAIM_CHECK);
-                    tokio::pin!(check);
-                    loop {
-                        tokio::select! {
-                            () = &mut check => break,
-                            wake = wakes.recv() => match wake {
-                                Ok(wake) if wake.run_id == self.holder.run_id && wake.key == self.key => break,
-                                Ok(_) => {}
-                                Err(RecvError::Lagged(_)) => break,
-                                Err(RecvError::Closed) => {
-                                    (&mut check).await;
-                                    break;
+            }
+            Ok(Taken::Wait(None)) => {
+                let check = clock.sleep(RECLAIM_CHECK);
+                tokio::pin!(check);
+                loop {
+                    tokio::select! {
+                        () = ending.cancelled() => return None,
+                        () = &mut check => break,
+                        wake = wakes.recv() => match wake {
+                            Ok(wake) if wake.run_id == holder.run_id && wake.key == key => break,
+                            Ok(_) => {}
+                            Err(RecvError::Lagged(_)) => break,
+                            Err(RecvError::Closed) => {
+                                tokio::select! {
+                                    () = ending.cancelled() => return None,
+                                    () = &mut check => break,
                                 }
-                            },
-                        }
+                            }
+                        },
                     }
                 }
-                Ok(Taken::Refused(_)) => return None,
-                Err(error) => {
-                    tracing::warn!(%error, key = %self.key, "the Politeness file refused a proxy's take: the request goes unlimited");
-                    return None;
-                }
+            }
+            Ok(Taken::Refused(_)) => return None,
+            Err(error) => {
+                tracing::warn!(%error, %key, "the Politeness file refused a proxy's take: the request goes unlimited");
+                return None;
             }
         }
     }

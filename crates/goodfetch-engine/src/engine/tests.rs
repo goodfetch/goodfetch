@@ -14,6 +14,7 @@
 mod changed_certificates;
 mod checkpoint;
 mod consent_walls;
+mod controls;
 mod daemon;
 mod discard;
 mod durability;

@@ -114,14 +114,26 @@ pub struct ProxyRule {
 
 impl ProxyRule {
     /// The rule `settings` give a Session's proxy.
-    pub fn of(settings: &Resolved) -> Self {
-        Self {
-            concurrency: settings.count(POLITENESS_PROXY_CONCURRENCY.name),
+    ///
+    /// # Errors
+    ///
+    /// Why `politeness.proxy.concurrency` is refused: `0` admits no
+    /// request, so every navigation through the proxy would wait forever.
+    pub fn of(settings: &Resolved) -> Result<Self, String> {
+        let concurrency = settings.count(POLITENESS_PROXY_CONCURRENCY.name);
+        if concurrency == Some(0) {
+            return Err(
+                "it is 0, which admits no request through the proxy: it is at least 1, or unset for no cap"
+                    .to_owned(),
+            );
+        }
+        Ok(Self {
+            concurrency,
             interval: settings
                 .count(POLITENESS_PROXY_RATE.name)
                 .filter(|rate| *rate > 0)
                 .map(|rate| Duration::from_secs(1) / u32::try_from(rate).unwrap_or(u32::MAX)),
-        }
+        })
     }
 }
 
@@ -228,25 +240,30 @@ impl ProxyLimits {
     /// The limits of `server` used as `username` by a Session of `run`
     /// under `settings`; none, with a warning, when the Politeness its Run
     /// shares cannot be opened, so the Session goes on unlimited.
+    ///
+    /// # Errors
+    ///
+    /// Why `settings` give no rule ([`ProxyRule::of`]).
     pub(crate) async fn open(
         settings: &Resolved,
         run: &Run,
         server: &ProxyServer,
         username: Option<&str>,
-    ) -> Option<Arc<Self>> {
-        match run.politeness(settings).await {
+    ) -> Result<Option<Arc<Self>>, String> {
+        let rule = ProxyRule::of(settings)?;
+        Ok(match run.politeness(settings).await {
             Ok((politeness, holder)) => Some(Arc::new(Self {
                 run: run.clone(),
                 politeness,
                 holder,
                 key: key(server, username),
-                rule: Arc::new(ProxyRule::of(settings)),
+                rule: Arc::new(rule),
             })),
             Err(error) => {
                 tracing::warn!(%error, "the Politeness file did not open: the Session's proxy goes unlimited");
                 None
             }
-        }
+        })
     }
 
     /// A Permit for one request through the proxy, once the rule admits

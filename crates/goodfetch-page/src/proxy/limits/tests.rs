@@ -38,7 +38,7 @@ fn file() -> Connection {
     connection
 }
 
-fn rule(run: Value) -> ProxyRule {
+fn rule_of(run: Value) -> Result<ProxyRule, String> {
     let Value::Object(run) = run else {
         panic!("settings are a table");
     };
@@ -47,6 +47,10 @@ fn rule(run: Value) -> ProxyRule {
         ..Layers::default()
     };
     ProxyRule::of(&resolve(&layers, Product::Collie, Product::Collie).unwrap())
+}
+
+fn rule(run: Value) -> ProxyRule {
+    rule_of(run).unwrap()
 }
 
 fn concurrency(cap: u64) -> ProxyRule {
@@ -80,6 +84,22 @@ fn a_stricter_run_waits_while_a_looser_one_goes_up_to_its_own_cap_through_one_pr
     assert_eq!(
         verdicts,
         (Verdict::Busy, Verdict::Go, Verdict::Busy, Verdict::Go)
+    );
+}
+
+/// A concurrency of 0 would admit no request through the proxy, so every
+/// navigation through it would wait forever: it is refused, and 1 is the
+/// least it takes.
+///
+/// Covers: story:5-90, setting:politeness.proxy.concurrency
+#[test]
+fn a_proxy_concurrency_of_0_is_refused() {
+    assert_eq!(
+        (
+            rule_of(json!({ "politeness": { "proxy": { "concurrency": 0 } } })).is_err(),
+            rule_of(json!({ "politeness": { "proxy": { "concurrency": 1 } } })).is_ok(),
+        ),
+        (true, true)
     );
 }
 

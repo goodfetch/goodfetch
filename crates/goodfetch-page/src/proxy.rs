@@ -40,6 +40,7 @@ use goodfetch_protocol::page::proxy::{
     PROXY_USERNAME, ProxyAuthFailedDetails, ProxyKind, ProxyProviderConfiguration, ProxyScheme,
     ProxyServer, ProxyUnavailableDetails,
 };
+use goodfetch_protocol::politeness::POLITENESS_PROXY_CONCURRENCY;
 use goodfetch_protocol::settings::{NETWORK_RESOLVE, SETTING_INVALID, SettingInvalidDetails};
 use secrecy::SecretString;
 
@@ -267,7 +268,9 @@ impl SessionProxy {
             }
             _ => None,
         };
-        let limits = ProxyLimits::open(settings, run, &server, username.as_deref()).await;
+        let limits = ProxyLimits::open(settings, run, &server, username.as_deref())
+            .await
+            .map_err(|reason| invalid(settings, POLITENESS_PROXY_CONCURRENCY.name, reason))?;
         Ok(Some(Self {
             server,
             bypass: text(PROXY_BYPASS.name),
@@ -359,8 +362,9 @@ impl SessionProxy {
         let relay = Relay::open(run, address, mode, Some(Arc::clone(&usage)))
             .await
             .map_err(|error| unavailable(&chosen.server, "", &error.to_string()))?;
-        let limits =
-            ProxyLimits::open(settings, run, &chosen.server, chosen.username.as_deref()).await;
+        let limits = ProxyLimits::open(settings, run, &chosen.server, chosen.username.as_deref())
+            .await
+            .map_err(|reason| invalid(settings, POLITENESS_PROXY_CONCURRENCY.name, reason))?;
         Ok(Self {
             limits,
             server: chosen.server.clone(),

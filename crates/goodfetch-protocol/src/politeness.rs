@@ -46,7 +46,7 @@ pub const POLITENESS_SHARING: Setting = Setting {
 /// `politeness.proxy.concurrency` (ADRs 0053, 0086 and 0088).
 pub const POLITENESS_PROXY_CONCURRENCY: Setting = Setting {
     name: "politeness.proxy.concurrency",
-    description: "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. None by default.",
+    description: "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap.",
     kind: ValueKind::Count,
     default: null,
     clearable: true,

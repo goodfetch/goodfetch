@@ -12178,7 +12178,7 @@
       "authority": "every",
       "clearable": true,
       "default": null,
-      "description": "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. None by default.",
+      "description": "How many requests may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness: a run sends one, its own navigation included, only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap.",
       "name": "politeness.proxy.concurrency",
       "product": "collie",
       "products": [

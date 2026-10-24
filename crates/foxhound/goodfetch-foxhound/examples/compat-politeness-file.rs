@@ -142,7 +142,7 @@ async fn proxy_refusal(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
             &Layers::default(),
             Product::Collie,
             Product::Collie,
-        )?));
+        )?)?);
     let key = goodfetch_page::proxy_limits_key(
         &ProxyServer::parse("http://proxy.test:3128")?,
         Some("corpus"),

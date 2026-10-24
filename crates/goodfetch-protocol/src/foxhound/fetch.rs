@@ -1,6 +1,8 @@
 //! A crawl's fetch tiers (spec #579; ADRs 0020 and 0093): `fetch.tier`,
 //! the tier that fetches a crawl request's document, and the tier
-//! `crawl_request.handle` names when the engine fetched it. Foxhound's own,
+//! `crawl_request.handle` names when the engine fetched it; and the HTTP
+//! tier's redundant requests (ADR 0040, RT-20): hedged requests,
+//! `fetch.hedge.*`, and coalescing, `fetch.coalesce`. Foxhound's own,
 //! since only a crawl's requests are fetched by a tier.
 
 use schemars::JsonSchema;
@@ -81,6 +83,54 @@ pub const FETCH_TIER: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn off() -> Value {
+    Value::Bool(false)
+}
+
+fn on() -> Value {
+    Value::Bool(true)
+}
+
+fn five() -> Value {
+    Value::from(5_u64)
+}
+
+/// `fetch.hedge.enabled` (ADRs 0040 and 0086; RT-20).
+pub const FETCH_HEDGE_ENABLED: Setting = Setting {
+    name: "fetch.hedge.enabled",
+    description: "Whether the HTTP tier hedges a crawl request: once a GET or HEAD from a work item that declares no Effect has not answered within its route's 95th-percentile latency, a second copy is sent on a new connection through the Session's own exit, and the first answer wins, the other cancelled. Both copies hold per-domain slots and count in Usage; a Paid fetch is never hedged. Off by default; a crawl that switches it on while `politeness.domain.concurrency` is 1 is refused with `setting_not_applicable`.",
+    kind: ValueKind::Boolean,
+    default: off,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `fetch.hedge.max_percent` (ADR 0040; RT-20).
+pub const FETCH_HEDGE_MAX_PERCENT: Setting = Setting {
+    name: "fetch.hedge.max_percent",
+    description: "The most hedges a run sends, as a whole percentage of the crawl requests its HTTP tier sent: 5 by default.",
+    kind: ValueKind::Count,
+    default: five,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `fetch.coalesce` (ADR 0040; RT-20).
+pub const FETCH_COALESCE: Setting = Setting {
+    name: "fetch.coalesce",
+    description: "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
+    kind: ValueKind::Boolean,
+    default: on,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -90,7 +140,12 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[FETCH_TIER],
+    settings: &[
+        FETCH_TIER,
+        FETCH_HEDGE_ENABLED,
+        FETCH_HEDGE_MAX_PERCENT,
+        FETCH_COALESCE,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

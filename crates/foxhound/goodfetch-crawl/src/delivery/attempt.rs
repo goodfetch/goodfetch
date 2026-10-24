@@ -9,12 +9,15 @@
 //! request's document on the Run's HTTP tier, under the same lease, and
 //! hands the handler the page served from it, closed once the attempt
 //! ends; a fetch that fails ends the attempt with its error, as a
-//! handler's failure would, and sends the handler nothing.
+//! handler's failure would, and sends the handler nothing. The fetch is
+//! sent from the attempt's Session, whose identical requests in flight it
+//! may share, and hedged under its domain key's room (ADR 0040).
 
+use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
-use goodfetch_fetch_tier::{FetchTiers, HttpTier};
+use goodfetch_fetch_tier::{FetchTiers, HttpTier, Requester};
 use goodfetch_frontier::PageSeen;
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
@@ -59,6 +62,26 @@ pub(super) enum Answer {
     ClientGone,
 }
 
+/// What an attempt fetches its request's document with under `fetch.tier:
+/// http`: the Run's HTTP tier, and the room its hedges take beside it.
+pub(super) struct DocumentFetch {
+    tiers: FetchTiers,
+    http: HttpTier,
+    second_copies: SecondCopies,
+}
+
+impl DocumentFetch {
+    /// The Run's `tiers` and `http` tier, its hedges taking
+    /// `second_copies`.
+    pub(super) fn of(tiers: &FetchTiers, http: &HttpTier, second_copies: &SecondCopies) -> Self {
+        Self {
+            tiers: tiers.clone(),
+            http: http.clone(),
+            second_copies: second_copies.clone(),
+        }
+    }
+}
+
 pub(super) struct Attempt {
     /// The server, by its place in the delivery's list, its request went to.
     pub(super) server: usize,
@@ -79,14 +102,27 @@ pub(super) async fn attempt(
     client: Client,
     (leased, session, counted): (Leased, ServingSession, Counted),
     lease: WorkItemLease,
-    fetching: Option<(FetchTiers, HttpTier)>,
+    fetching: Option<DocumentFetch>,
     in_flight: SharedInFlight,
 ) -> Attempt {
     let fetched = match &fetching {
         None => Ok(None),
-        Some((tiers, http)) => tokio::select! {
+        Some(fetch) => {
+            let requester = Requester {
+                request_id: &leased.crawl_request.id,
+                session: &session.id,
+                label: &leased.crawl_request.label,
+                domain_key: &leased.waiting.key,
+                second_copies: &fetch.second_copies,
+                // No work item declares an Effect before area 9's Effect
+                // journal (ADR 0106), and no crawl request is a Paid fetch
+                // before ADR 0045's.
+                declares_effect: false,
+                paid: false,
+            };
+            tokio::select! {
             biased;
-            document = tiers.serve(http, &run, &leased.crawl_request) => document
+            document = fetch.tiers.serve(&fetch.http, &run, &leased.crawl_request, &requester) => document
                 .map(Some)
                 .map_err(|error| Answer::Failed {
                     code: error.code().to_owned(),
@@ -95,13 +131,14 @@ pub(super) async fn attempt(
                     details: error.details().cloned().unwrap_or_default(),
                 }),
             _ = lease.ended() => Err(Answer::LeaseEnded),
-        },
+            }
+        }
     };
     let answer = match fetched {
         Err(answer) => answer,
         Ok(document) => {
-            if let (Some((tiers, _)), Some(page_id)) = (&fetching, &document) {
-                learn(&run, tiers, page_id, &leased).await;
+            if let (Some(fetch), Some(page_id)) = (&fetching, &document) {
+                learn(&run, &fetch.tiers, page_id, &leased).await;
             }
             if document.is_some() {
                 in_flight.lock().await.went_on(
@@ -120,8 +157,8 @@ pub(super) async fn attempt(
                 page_id: document.clone(),
             };
             let answer = handled(&run, &client, &params, &lease).await;
-            if let (Some((tiers, _)), Some(page_id)) = (&fetching, &document) {
-                tiers.close(page_id);
+            if let (Some(fetch), Some(page_id)) = (&fetching, &document) {
+                fetch.tiers.close(page_id);
             }
             answer
         }

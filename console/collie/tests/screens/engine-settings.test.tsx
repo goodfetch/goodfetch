@@ -53,6 +53,7 @@ async function engineSettings(
   answer: SettingsExplanation | ((params: ConfigExplainParams) => SettingsExplanation),
 ) {
   const adapter = createProtocolAdapter();
+  adapter.answer("needs_you.list", { items: [] });
   adapter.answer("config.explain", answer);
   adapter.answer("usage.list", { limits: [] });
   const client = createConsoleClient({

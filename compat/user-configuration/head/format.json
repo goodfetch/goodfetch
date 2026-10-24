@@ -351,6 +351,17 @@
                 },
                 "type": "array"
               },
+              "payload": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_size": {
+                    "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "retry": {
                 "additionalProperties": false,
                 "properties": {

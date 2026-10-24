@@ -74,7 +74,7 @@ struct Shared {
     /// The last dialog number given.
     given: AtomicU64,
     /// Each open dialog's slot, by its number.
-    slots: Mutex<BTreeMap<u64, mpsc::UnboundedSender<Delivered>>>,
+    slots: Mutex<BTreeMap<u64, mpsc::Sender<Delivered>>>,
 }
 
 /// One page's dialog handlers, in the order they were armed.
@@ -161,7 +161,7 @@ impl Drop for Armed {
 /// it closes.
 struct Slot {
     number: u64,
-    answers: mpsc::UnboundedReceiver<Delivered>,
+    answers: mpsc::Receiver<Delivered>,
     shared: Arc<Shared>,
 }
 
@@ -229,7 +229,8 @@ impl Dialogs {
     ///
     /// # Errors
     ///
-    /// `dialog_already_handled` when the dialog was answered or closed.
+    /// `dialog_already_handled` when the dialog was answered or closed, or
+    /// an answer to it waits already.
     pub(crate) fn answer(
         &self,
         dialog_id: &DialogId,
@@ -243,7 +244,7 @@ impl Dialogs {
         let (reply, replied) = oneshot::channel();
         let delivered = lock(&self.shared.slots)
             .get(&number)
-            .is_some_and(|slot| slot.send((answer, reply)).is_ok());
+            .is_some_and(|slot| slot.try_send((answer, reply)).is_ok());
         if !delivered {
             return Err(already_handled(dialog_id));
         }
@@ -351,7 +352,7 @@ impl Reader {
         events: &mut Subscription,
     ) -> Asked {
         let number = self.shared.given.fetch_add(1, Ordering::Relaxed) + 1;
-        let (sender, answers) = mpsc::unbounded_channel();
+        let (sender, answers) = mpsc::channel(1);
         lock(&self.shared.slots).insert(number, sender);
         let mut slot = Slot {
             number,

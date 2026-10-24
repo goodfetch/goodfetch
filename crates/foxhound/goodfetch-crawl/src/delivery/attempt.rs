@@ -24,8 +24,9 @@ use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch};
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{FetchTiers, HttpTier};
-use goodfetch_frontier::PageSeen;
+use goodfetch_frontier::{PageSeen, SharedRobotsTxt};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
@@ -35,6 +36,7 @@ use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::frontier::HttpBody;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
+use goodfetch_protocol::foxhound::settings::POLITENESS_DOMAIN_DELAY;
 use goodfetch_protocol::page::PageId;
 use goodfetch_session_pool::Effect;
 use serde_json::{Map, Value};
@@ -62,6 +64,55 @@ pub(super) struct Pacing {
     pub(super) delay: Option<Duration>,
     /// The Politeness the Run shares, when it opened.
     pub(super) politeness: Option<Politeness>,
+}
+
+/// The tiers a Run's crawl requests are fetched on: under `fetch.tier:
+/// http`, its HTTP tier; else none, and each handler is given its request
+/// alone.
+pub(super) struct Fetching<'a> {
+    pub(super) tiers: &'a FetchTiers,
+    pub(super) http: Option<&'a HttpTier>,
+    /// How a document fetched after its robots.txt is paced.
+    pub(super) pacing: Pacing,
+    /// The requests in flight, as the Run's progress shows them.
+    pub(super) in_flight: SharedInFlight,
+}
+
+impl Fetching<'_> {
+    /// What one attempt fetches its request's document with.
+    pub(super) fn served(&self) -> Option<(FetchTiers, HttpTier, Pacing)> {
+        self.http
+            .map(|http| (self.tiers.clone(), http.clone(), self.pacing.clone()))
+    }
+}
+
+/// Has the crawl's Run read robots.txt from the copy its user's runs
+/// share in the Politeness file, in place of a copy of its own (ADR
+/// 0086), and answers how a document fetched after its robots.txt is
+/// paced. A Politeness file that cannot open leaves the Run its own copy.
+pub(super) async fn share_robots_txt(run: &Run, settings: &Resolved) -> Pacing {
+    let delay = settings
+        .duration(POLITENESS_DOMAIN_DELAY.name)
+        .filter(|delay| !delay.is_zero());
+    match run.politeness(settings).await {
+        Ok((politeness, _)) => {
+            run.share_robots_txt(std::sync::Arc::new(SharedRobotsTxt::new(
+                politeness.clone(),
+                run.clock(),
+            )));
+            Pacing {
+                delay,
+                politeness: Some(politeness),
+            }
+        }
+        Err(error) => {
+            tracing::warn!(%error, run_id = %run.id(), "the shared robots.txt copy is out of reach; the crawl reads its own");
+            Pacing {
+                delay,
+                politeness: None,
+            }
+        }
+    }
 }
 
 /// Reads the robots.txt of `leased`'s origin, as the Run reads it: from

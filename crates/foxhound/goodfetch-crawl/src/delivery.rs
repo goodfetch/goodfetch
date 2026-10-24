@@ -57,16 +57,13 @@ use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, CompletenessReason, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
-use goodfetch_fetch_tier::{FetchTiers, HttpTier};
-use goodfetch_frontier::{
-    Bounds, SharedRobotsTxt, completeness_reasons, learned_completeness_reasons,
-};
+use goodfetch_fetch_tier::FetchTiers;
+use goodfetch_frontier::{Bounds, completeness_reasons, learned_completeness_reasons};
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
     RESPONSE_UNAVAILABLE, WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
-use goodfetch_protocol::foxhound::settings::POLITENESS_DOMAIN_DELAY;
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::run::{
     AxisReason, EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, StopReason,
@@ -89,7 +86,9 @@ use goodfetch_protocol::foxhound::progress::{InFlightPhase, InFlightRequest};
 mod attempt;
 mod politeness;
 
-use attempt::{Answer, Attempt, Pacing, attempt, block_cause, effect, leased_count};
+use attempt::{
+    Answer, Attempt, Fetching, attempt, block_cause, effect, leased_count, share_robots_txt,
+};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 
 /// A Connection serving the crawl's handler requests, as the delivery
@@ -166,35 +165,6 @@ pub(crate) async fn drive(
         }
     }
     crawls.close(run.id()).await;
-}
-
-/// Has the crawl's Run read robots.txt from the copy its user's runs
-/// share in the Politeness file, in place of a copy of its own (ADR
-/// 0086), and answers how a document fetched after its robots.txt is
-/// paced. A Politeness file that cannot open leaves the Run its own copy.
-async fn share_robots_txt(run: &Run, settings: &Resolved) -> Pacing {
-    let delay = settings
-        .duration(POLITENESS_DOMAIN_DELAY.name)
-        .filter(|delay| !delay.is_zero());
-    match run.politeness(settings).await {
-        Ok((politeness, _)) => {
-            run.share_robots_txt(std::sync::Arc::new(SharedRobotsTxt::new(
-                politeness.clone(),
-                run.clock(),
-            )));
-            Pacing {
-                delay,
-                politeness: Some(politeness),
-            }
-        }
-        Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), "the shared robots.txt copy is out of reach; the crawl reads its own");
-            Pacing {
-                delay,
-                politeness: None,
-            }
-        }
-    }
 }
 
 /// The delivery's loop, which returns once the Run ended or stopped.
@@ -399,26 +369,6 @@ pub(crate) async fn resume(
     let egress = resumed_domain_policy(settings.resolved(), run.id());
     let opened = crawls.open(&run, egress).await;
     drive(run, client, opened, crawls, settings, tiers).await;
-}
-
-/// The tiers a Run's crawl requests are fetched on: under `fetch.tier:
-/// http`, its HTTP tier; else none, and each handler is given its request
-/// alone.
-struct Fetching<'a> {
-    tiers: &'a FetchTiers,
-    http: Option<&'a HttpTier>,
-    /// How a document fetched after its robots.txt is paced.
-    pacing: Pacing,
-    /// The requests in flight, as the Run's progress shows them.
-    in_flight: SharedInFlight,
-}
-
-impl Fetching<'_> {
-    /// What one attempt fetches its request's document with.
-    fn served(&self) -> Option<(FetchTiers, HttpTier, Pacing)> {
-        self.http
-            .map(|http| (self.tiers.clone(), http.clone(), self.pacing.clone()))
-    }
 }
 
 /// What each attempt is given: a Session drawn from the crawl's Session

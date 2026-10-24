@@ -24,6 +24,7 @@ use goodfetch_engine::browser_cache::{
     Platform, PlatformNotice, browser_source, installed_browser,
 };
 use goodfetch_engine::children::Children;
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::http_client::Resolve;
@@ -249,11 +250,16 @@ pub(crate) async fn launch(
     let resolve = settings
         .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
         .unwrap_or_default();
+    // A policy that is no policy opens no page anyway (`setting_invalid`).
+    let proxy_script = settings
+        .and_then(|settings| Policy::of(settings).ok())
+        .and_then(|policy| policy.proxy_script());
     let built = arguments::arguments(&arguments::Launch {
         profile: &profile,
         headless,
         resolve: &resolve,
         shared_memory: shared_memory(run).await,
+        proxy_script: proxy_script.as_deref(),
     });
     for warning in &built.warnings {
         tracing::warn!(%warning, "the Run's browser launches degraded");

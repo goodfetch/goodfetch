@@ -1,8 +1,3 @@
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
-
 use encoding_rs::{Encoding, SHIFT_JIS, UTF_8, WINDOWS_1252};
 use rstest::rstest;
 

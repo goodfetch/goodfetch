@@ -42,7 +42,9 @@
 //! ([`Interception::answer`]), so a handler's answer is always read before
 //! its reply that it ended. A handler that fails leaves its failure on its
 //! page, which the call waiting on the request, or else the next call on
-//! the page, raises ([`Interception::take_failure`]).
+//! the page, raises ([`Interception::take_failure`]); one that fails on a
+//! service worker's request, which belongs to no page, leaves it on its
+//! Session, for the next call on any of its pages.
 //!
 //! A request the engine sends itself from a page's Session, as
 //! `page.request` does through the browser-fetch tier, passes steps 3 to 8
@@ -211,14 +213,28 @@ struct Tables {
     /// The Sessions on a Borrowed browser, each with the Run's
     /// `network.resolve` mapping its requests' hosts are resolved through.
     interception_only: BTreeMap<SessionId, Arc<Resolve>>,
+    /// Each Session's own failure slot: where a Session route's handler
+    /// that failed on a service worker's request leaves its failure, for
+    /// the next call on any page of the Session.
+    failures: BTreeMap<SessionId, LeftFailure>,
 }
 
-/// One page's side of the interception: its routes, its Session's, and the
-/// first failure a handler left for the next call on the page.
+/// Where a handler's failure waits for the call it blocked, or else the
+/// next call: the first one left, until a call takes it.
+pub(super) type LeftFailure = Arc<Mutex<Option<CallError>>>;
+
+/// One page's side of the interception, or one service worker's: its
+/// routes, its Session's, and the first failure a handler left for the
+/// next call on the page, or for a worker on any page of its Session.
 pub(super) struct PageState {
     routes: Arc<RouteTable>,
     session: Arc<RouteTable>,
-    failure: Mutex<Option<CallError>>,
+    /// Where its handlers' failures wait: the page's own slot, or a
+    /// worker's Session's.
+    failure: LeftFailure,
+    /// Its Session's slot, which a call on the page takes from after the
+    /// page's own.
+    session_failure: LeftFailure,
     /// The cosmetic rules its Session's Filter lists hold, when any is on.
     cosmetic: Option<Cosmetic>,
     /// Steps 3 to 8 as its Session chose them, for the engine's own
@@ -415,24 +431,7 @@ impl Interception {
         own: &Values,
         refusals: Refusals,
     ) -> Result<PageCleanUp, CallError> {
-        let policy = match run.settings() {
-            Some(settings) => Policy::of(settings.resolved()),
-            None => Policy::new(&["*"], &[] as &[&str]),
-        }
-        .map_err(|invalid| {
-            CallError::new(
-                &SETTING_INVALID,
-                format!(
-                    "`{}` holds `{}`, which is no host",
-                    invalid.setting, invalid.entry
-                ),
-                &SettingInvalidDetails {
-                    key: invalid.setting.to_owned(),
-                    layer: None,
-                    reason: format!("`{}` is no host", invalid.entry),
-                },
-            )
-        })?;
+        let policy = policy_of(run)?;
         let resolved = run.settings().map(RunSettings::resolved);
         let choices = clean_up::choices(resolved, own);
         let blocked = (!choices.block_resources.is_empty())
@@ -452,6 +451,7 @@ impl Interception {
             let mut tables = lock(&self.shared.tables);
             let lookups = tables.interception_only.get(session).cloned();
             let pending = Arc::clone(tables.pending.entry(session.clone()).or_default());
+            let session_failure = Arc::clone(tables.failures.entry(session.clone()).or_default());
             let session = Arc::clone(tables.sessions.entry(session.clone()).or_default());
             let state = Arc::new(PageState {
                 routes: Arc::default(),
@@ -461,7 +461,8 @@ impl Interception {
                     driver: driver.clone(),
                     refusals: refusals.clone(),
                 }),
-                failure: Mutex::new(None),
+                failure: LeftFailure::default(),
+                session_failure,
                 files: Mutex::new(None),
                 lists_on: blocking.lists.is_some(),
                 retrying: AtomicBool::new(false),
@@ -551,14 +552,15 @@ impl Interception {
             );
             let (policy, blocking, lookups) = (policy.clone(), blocking.clone(), lookups.clone());
             Box::pin(async move {
-                let (routes, pending) = {
-                    let tables = lock(&shared.tables);
+                let (routes, pending, session_failure) = {
+                    let mut tables = lock(&shared.tables);
                     let Some(routes) = tables.sessions.get(&session).cloned() else {
                         return false;
                     };
                     (
                         routes,
                         tables.pending.get(&session).cloned().unwrap_or_default(),
+                        Arc::clone(tables.failures.entry(session.clone()).or_default()),
                     )
                 };
                 let log = Arc::new(RequestLog::new(run.owner().child(), run.folder()));
@@ -582,7 +584,10 @@ impl Interception {
                     session: routes,
                     pending,
                     navigating: None,
-                    failure: Mutex::new(None),
+                    // A worker belongs to no page: its handlers' failures
+                    // wait on its Session.
+                    failure: Arc::clone(&session_failure),
+                    session_failure,
                     files: Mutex::new(None),
                     lists_on: blocking.lists.is_some(),
                     retrying: AtomicBool::new(false),
@@ -787,10 +792,12 @@ impl Interception {
     }
 
     /// The failure a handler left on the page `page_id` for its next call,
-    /// taken.
+    /// or else on its Session (a Session route's, on a service worker's
+    /// request), taken.
     pub(crate) fn take_failure(&self, page_id: &PageId) -> Option<CallError> {
         let state = lock(&self.shared.tables).pages.get(page_id).cloned()?;
-        lock(&state.failure).take()
+        let own = lock(&state.failure).take();
+        own.or_else(|| lock(&state.session_failure).take())
     }
 
     /// Takes the pages `pages` out of the interception, as each ends: their
@@ -818,6 +825,7 @@ impl Interception {
             table.close();
         }
         tables.pending.remove(session);
+        tables.failures.remove(session);
         tables.interception_only.remove(session);
     }
 }
@@ -851,6 +859,33 @@ fn patterns() -> Vec<fetch::RequestPattern> {
             fetch::RequestStage::Response,
         ),
     ]
+}
+
+/// The domain policy of `run`'s pages, every host's when it has no
+/// settings.
+///
+/// # Errors
+///
+/// `setting_invalid` for a domain list of the Run's that holds no host.
+fn policy_of(run: &Run) -> Result<Policy, CallError> {
+    match run.settings() {
+        Some(settings) => Policy::of(settings.resolved()),
+        None => Policy::new(&["*"], &[] as &[&str]),
+    }
+    .map_err(|invalid| {
+        CallError::new(
+            &SETTING_INVALID,
+            format!(
+                "`{}` holds `{}`, which is no host",
+                invalid.setting, invalid.entry
+            ),
+            &SettingInvalidDetails {
+                key: invalid.setting.to_owned(),
+                layer: None,
+                reason: format!("`{}` is no host", invalid.entry),
+            },
+        )
+    })
 }
 
 /// `closed` for a page or Session the interception does not hold.

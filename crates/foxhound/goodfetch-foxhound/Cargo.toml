@@ -29,9 +29,6 @@ mimalloc = { workspace = true, optional = true }
 # Its own executable, for the integration tests and the startup benchmarks
 # (CARGO_BIN_EXE_goodfetch-foxhound, ADRs 0059 and 0062).
 goodfetch-foxhound = { path = ".", features = ["executable"] }
-# The Politeness file corpus writer's proxy scenario: the page crate's rule
-# and table of a proxy's limits (examples/compat-politeness-file.rs).
-goodfetch-page.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 # The refusals' messages through the executables (tests/it/daemon.rs).

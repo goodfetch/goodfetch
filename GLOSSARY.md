@@ -382,6 +382,10 @@ _Avoid_: profile, access profile, stealth level
 The consistent set of values a Session presents to sites, such as its user agent, network and browser fingerprints, signing key, language and time zone, fixed for the Session's life.
 _Avoid_: fingerprint (alone), persona, profile (alone)
 
+**HTTP profile**:
+The part of an Identity profile a Session's HTTP-only requests present: the TLS ClientHello, HTTP/2 settings, header order and client hints of the browser it claims.
+_Avoid_: impersonation profile, TLS profile
+
 **Fingerprint method**:
 How a Session's browser comes to present its Identity profile: not changed at all, changed by page scripts, changed through the browser's debugging protocol, or changed inside the browser engine itself.
 _Avoid_: stealth engine, spoofing mode, fingerprinting
@@ -473,6 +477,10 @@ _Avoid_: element handle, query, selector (for the value)
 **Guard**:
 The engine's check of each locator action: it waits until the target is unique and actionable (visible, enabled, stable and receiving the event, as the action needs), cancels a gesture that lands on another element and replays it, until the action's timeout.
 _Avoid_: actionability check, auto-wait
+
+**Page function**:
+JavaScript source a program runs in a page with one explicit JSON argument, its result crossing back as JSON, in the page's main world by default or in an isolated world; an init script is one run before each document's own scripts.
+_Avoid_: injected code, user script
 
 **Page check**:
 A declaration by a run's code of what an expected page and a login page look like, against which every page fetched in a session is judged.

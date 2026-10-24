@@ -6,6 +6,7 @@
 //! request. The harness names the crawl's operations by their wire names,
 //! since only `goodfetch-protocol` names its Foxhound module (ADR 0099).
 //! The page is the `content-coding` family's gzip page, over plain HTTP.
+//! The fetch edge cases of the `http` tier (ADR 0118) are `edge`'s.
 
 use goodfetch_protocol::page::PAGE_FORMATS;
 use goodfetch_protocol::run::RUN_FINISH;
@@ -14,6 +15,8 @@ use serde_json::{Value, json};
 use super::{Checks, Site};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::DEADLINE;
+
+mod edge;
 
 /// `crawl.start`, Foxhound's.
 const CRAWL_START: &str = "crawl.start";
@@ -31,6 +34,9 @@ const TEXT: &str = "Content coding page 8, decoded once and as labelled.";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Case {
     HttpTierHandsTheDocumentOnAPage,
+    CutBodiesFailTheirAttempt,
+    CloseDelimitedBodyIsWhole,
+    UnprocessedRequestIsResent,
 }
 
 impl Case {
@@ -39,6 +45,15 @@ impl Case {
         match id {
             "a-request-fetched-over-http-hands-its-handler-the-document-on-a-page" => {
                 Some(Self::HttpTierHandsTheDocumentOnAPage)
+            }
+            "a-cut-body-fails-its-attempt-with-response-truncated-and-never-reaches-the-handler" => {
+                Some(Self::CutBodiesFailTheirAttempt)
+            }
+            "a-body-its-connections-close-delimits-reaches-the-handler-whole" => {
+                Some(Self::CloseDelimitedBodyIsWhole)
+            }
+            "a-request-the-site-never-processed-is-sent-once-more-and-counted-nowhere" => {
+                Some(Self::UnprocessedRequestIsResent)
             }
             _ => None,
         }
@@ -53,6 +68,9 @@ impl Case {
     ) -> Result<(), Gone> {
         match self {
             Self::HttpTierHandsTheDocumentOnAPage => http_tier(connection, site, checks),
+            Self::CutBodiesFailTheirAttempt => edge::cut_bodies(connection, site, checks),
+            Self::CloseDelimitedBodyIsWhole => edge::close_delimited(connection, site, checks),
+            Self::UnprocessedRequestIsResent => edge::resent(connection, site, checks),
         }
     }
 }

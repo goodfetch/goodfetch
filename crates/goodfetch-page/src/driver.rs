@@ -27,6 +27,7 @@
 mod carry;
 mod encoding;
 mod ending;
+mod functions;
 mod identity;
 
 mod navigation;
@@ -50,6 +51,7 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::page::functions::World;
 use goodfetch_protocol::page::{
     BrowserExit, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageResponse, WaitUntil,
 };
@@ -60,6 +62,7 @@ use tokio_util::sync::CancellationToken;
 pub(crate) use self::carry::{Carried, Origins};
 use self::encoding::{encoding_of, encoding_read, isolated_world};
 pub(crate) use self::ending::Lost;
+use self::functions::{evaluation, page_function_world};
 pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use self::permit_waits::PermitWaits;
@@ -849,6 +852,111 @@ impl PageDriver {
         Ok(called.result.value)
     }
 
+    /// Calls `function` with `argument` in the guard's isolated world of the
+    /// page's main frame, outside any gesture's turn, as
+    /// [`read_in_frame`](Self::read_in_frame) does: the locator waits'
+    /// checks. A document gone or not there yet, or a function that throws,
+    /// answers none; a failure raises the code of the operation `operation`.
+    pub(crate) async fn read_in_page(
+        &self,
+        function: &str,
+        argument: serde_json::Value,
+        operation: &'static str,
+    ) -> Result<Option<serde_json::Value>, CallError> {
+        match self.read_in_frame(&self.frame, function, argument).await {
+            Ok(value) => Ok(value),
+            Err(Failure::Refused {
+                refusal: Refusal::ContextGone,
+                ..
+            }) => Ok(None),
+            Err(failure) => Err(self
+                .browser
+                .failed(&Call::Action { operation }, &failure)
+                .await),
+        }
+    }
+
+    /// Evaluates `expression`, a page function's, in the page's main frame:
+    /// in its main world, or in the page functions' isolated world, made or
+    /// found by its name; its promise awaited and its value answered by
+    /// value, outside any gesture's turn (ADR 0085). A document replaced
+    /// under it is tried once more in the next one; a failure raises the
+    /// code of the operation `operation`.
+    pub(crate) async fn evaluate(
+        &self,
+        expression: &str,
+        world: World,
+        operation: &'static str,
+    ) -> Result<runtime::EvaluateReturns, CallError> {
+        let call = &Call::Action { operation };
+        let mut tries = 2;
+        loop {
+            tries -= 1;
+            let context = match world {
+                World::Main => None,
+                World::Isolated => Some(
+                    self.browser
+                        .send(
+                            Some(&self.session),
+                            &page_function_world(self.frame.clone()),
+                            call,
+                        )
+                        .await?
+                        .execution_context_id,
+                ),
+            };
+            match self
+                .browser
+                .try_send(Some(&self.session), &evaluation(expression, context))
+                .await
+            {
+                Ok(returned) => return Ok(returned),
+                Err(Failure::Refused {
+                    refusal: Refusal::ContextGone,
+                    ..
+                }) if tries > 0 => {}
+                Err(failure) => return Err(self.browser.failed(call, &failure).await),
+            }
+        }
+    }
+
+    /// Registers `source` to run in the main world of every document the
+    /// page loads from now on, its frames' included, before their own
+    /// scripts, answering the script's identifier; a failure raises the
+    /// code of the operation `operation`.
+    pub(crate) async fn add_init_script(
+        &self,
+        source: String,
+        operation: &'static str,
+    ) -> Result<page::ScriptIdentifier, CallError> {
+        let call = &Call::Action { operation };
+        Ok(self
+            .browser
+            .send(
+                Some(&self.session),
+                &page::AddScriptToEvaluateOnNewDocumentParams {
+                    source,
+                    world_name: None,
+                    include_command_line_api: None,
+                    run_immediately: None,
+                },
+                call,
+            )
+            .await?
+            .identifier)
+    }
+
+    /// Removes the init script `identifier`; a page gone has none left.
+    pub(crate) async fn remove_init_script(&self, identifier: page::ScriptIdentifier) {
+        let _ = self
+            .browser
+            .try_send(
+                Some(&self.session),
+                &page::RemoveScriptToEvaluateOnNewDocumentParams { identifier },
+            )
+            .await;
+    }
+
     /// Waits for the page's turn, in arrival order, for the gesture
     /// `operation`, whose failures raise its codes.
     ///
@@ -911,6 +1019,10 @@ impl PageDriver {
                         )
                         .await?;
                     match (navigated.error_text, navigated.loader_id) {
+                        // A `javascript:` URL runs in the document, which
+                        // the browser answers as an aborted navigation:
+                        // no document loads.
+                        (Some(_), None) if is_javascript(&url) => Ok(None),
                         (Some(error), loader) => navigation::refused(
                             &error,
                             loader,
@@ -981,6 +1093,21 @@ impl PageDriver {
                 &format!("no load event within `{}`", TIMEOUT_NAVIGATION.name),
             )),
         }
+    }
+
+    /// The URL of the document the main frame holds: the one it could not
+    /// reach when it shows the browser's error page.
+    pub(crate) async fn document_url(&self) -> Result<String, CallError> {
+        let tree = self
+            .browser
+            .send(
+                Some(&self.session),
+                &page::GetFrameTreeParams {},
+                &Call::Document,
+            )
+            .await?;
+        let frame = tree.frame_tree.frame;
+        Ok(frame.unreachable_url.unwrap_or(frame.url))
     }
 
     /// `proxy_unavailable` when `response`, the document's response to a
@@ -1146,3 +1273,12 @@ impl PageDriver {
         })
     }
 }
+
+/// Whether `url` is a `javascript:` URL, which runs in a frame's document.
+fn is_javascript(url: &str) -> bool {
+    url.get(..JAVASCRIPT.len())
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case(JAVASCRIPT))
+}
+
+/// The scheme of a URL that runs a script, with its colon.
+const JAVASCRIPT: &str = "javascript:";

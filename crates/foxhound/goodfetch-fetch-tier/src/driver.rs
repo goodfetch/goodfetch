@@ -6,7 +6,20 @@
 //! content codings as Chrome does (ADR 0119) and owns the transport-failure
 //! enum, [`TransportFailure`], with the Error code each variant ends an
 //! attempt with (ADR 0118). Cancelling a fetch is dropping it. Redirects,
-//! resends, retries and cookies join it with their tickets (#762, #763).
+//! retries and cookies join it with their tickets (#762).
+//!
+//! **Cut bodies (ADR 0118; pitfall H15):** once a hop's head arrived, any
+//! failure of its body, or a compressed stream that stops before its end,
+//! is `response_truncated`: retryable, and the body is never handed on. A
+//! body its connection's close delimits is whole at the close.
+//!
+//! **Resends (ADR 0118; pitfall H05):** a hop the site never processed
+//! (an HTTP/2 stream refused, `REFUSED_STREAM` or a `GOAWAY` below it, an
+//! HTTP/2 `HTTP_1_1_REQUIRED`, a 421, and for a read only a reused idle
+//! connection that closes before answering or answers 408) is sent once
+//! more on a new connection, inside the same fetch: no attempt, retry or
+//! Politeness start counts it. The resend's own failure or answer is the
+//! fetch's, never sent again.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -17,11 +30,13 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::Refused;
 use goodfetch_engine::settings::Resolved;
-use goodfetch_protocol::page::{NAVIGATION_FAILED, NavigationFailedDetails};
+use goodfetch_protocol::page::{
+    NAVIGATION_FAILED, NavigationFailedDetails, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
+};
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use url::Url;
 
-use crate::decoding;
+use crate::decoding::{self, DecodingFailed};
 
 /// One hop of a fetch: one request as it leaves.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,17 +49,37 @@ pub struct Hop {
     pub headers: Vec<(String, String)>,
     /// Its body, if any.
     pub body: Option<Bytes>,
+    /// Whether it only reads, so a site that may have seen it is sent it
+    /// again after a reused connection closed (ADR 0118): a crawl
+    /// request's hop whatever its method, which ADR 0106 makes a read, and
+    /// any other only for a method [`Hop::idempotent`] names.
+    pub read: bool,
 }
 
 impl Hop {
-    /// A `GET` of `url` with no header of its own.
+    /// A `GET` of `url` with no header of its own, a read.
     pub fn get(url: Url) -> Self {
         Self {
             url,
             method: http::Method::GET,
             headers: Vec::new(),
             body: None,
+            read: true,
         }
+    }
+
+    /// Whether `method` is idempotent, so a request of it is a read
+    /// (RFC 9110, section 9.2.2).
+    pub fn idempotent(method: &http::Method) -> bool {
+        [
+            http::Method::GET,
+            http::Method::HEAD,
+            http::Method::OPTIONS,
+            http::Method::TRACE,
+            http::Method::PUT,
+            http::Method::DELETE,
+        ]
+        .contains(method)
     }
 }
 
@@ -65,6 +100,9 @@ pub struct Sent {
     pub headers: Vec<(String, String)>,
     /// Its body, exactly as it arrives: no content coding decoded.
     pub body: Box<dyn Body>,
+    /// Whether it came on an idle connection an earlier hop left, whose
+    /// 408 means the site timed the connection out, not the request.
+    pub reused: bool,
 }
 
 impl std::fmt::Debug for Sent {
@@ -73,16 +111,30 @@ impl std::fmt::Debug for Sent {
             .debug_struct("Sent")
             .field("status", &self.status)
             .field("headers", &self.headers)
+            .field("reused", &self.reused)
             .finish_non_exhaustive()
     }
 }
 
+/// Whether a hop may go out on a network connection an earlier hop left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reuse {
+    /// On any of the transport's connections: an idle one an earlier hop
+    /// left, or a new one.
+    Allowed,
+    /// On a new connection, never one an earlier hop used: a resend's (ADR
+    /// 0118).
+    Never,
+}
+
 /// The primitive a tier that sends HTTP itself fills (ADR 0129): it sends
-/// `hop` once and answers its head. It follows no redirect, decodes no
-/// content coding and sets no timeout of its own: the driver does each.
+/// `hop` once, on a connection `reuse` allows, and answers its head. It
+/// follows no redirect, resends nothing, decodes no content coding and sets
+/// no timeout of its own: the driver does each. An origin that answered
+/// [`TransportFailure::Http11Required`] is sent HTTP/1.1 from then on.
 pub trait Transport: Send + Sync {
-    /// Sends `hop` and answers its head.
-    fn send<'a>(&'a self, hop: &'a Hop) -> Sending<'a, Sent>;
+    /// Sends `hop` on a connection `reuse` allows and answers its head.
+    fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent>;
 }
 
 /// Why a hop got no whole answer: each transport's library, TLS and HTTP
@@ -106,6 +158,17 @@ pub enum TransportFailure {
     /// The connection closed before the answer was whole
     /// (`net::ERR_CONNECTION_CLOSED`).
     ConnectionClosed,
+    /// An idle connection an earlier hop left closed or was reset before
+    /// any byte of the answer: the site never processed the request
+    /// (`net::ERR_EMPTY_RESPONSE`), which only a read is sent again for.
+    ClosedAtReuse,
+    /// The site refused the HTTP/2 stream unprocessed: `REFUSED_STREAM`, or
+    /// a `GOAWAY` whose last stream is below it
+    /// (`net::ERR_HTTP2_SERVER_REFUSED_STREAM`).
+    RefusedStream,
+    /// The site asked over HTTP/2 for HTTP/1.1 (`HTTP_1_1_REQUIRED`), having
+    /// processed nothing (`net::ERR_HTTP_1_1_REQUIRED`).
+    Http11Required,
     /// The host's certificate failed verification
     /// (`net::ERR_CERT_AUTHORITY_INVALID`).
     CertificateInvalid,
@@ -142,6 +205,9 @@ impl TransportFailure {
             Self::ConnectionTimedOut => "net::ERR_CONNECTION_TIMED_OUT",
             Self::ConnectionReset => "net::ERR_CONNECTION_RESET",
             Self::ConnectionClosed => "net::ERR_CONNECTION_CLOSED",
+            Self::ClosedAtReuse => "net::ERR_EMPTY_RESPONSE",
+            Self::RefusedStream => "net::ERR_HTTP2_SERVER_REFUSED_STREAM",
+            Self::Http11Required => "net::ERR_HTTP_1_1_REQUIRED",
             Self::CertificateInvalid => "net::ERR_CERT_AUTHORITY_INVALID",
             Self::Tls => "net::ERR_SSL_PROTOCOL_ERROR",
             Self::InvalidResponse => "net::ERR_INVALID_HTTP_RESPONSE",
@@ -169,6 +235,33 @@ impl TransportFailure {
                 error: Some(error.to_owned()),
             },
         )
+    }
+
+    /// Whether the site never processed a hop that failed so, which is
+    /// then sent once more on a new connection (ADR 0118): a refused
+    /// HTTP/2 stream and `HTTP_1_1_REQUIRED` whatever the hop, and a reused
+    /// connection's close only for a [read](Hop::read) (RFC 9110, section
+    /// 9.2.2).
+    fn unprocessed(&self, hop: &Hop) -> bool {
+        match self {
+            Self::RefusedStream | Self::Http11Required => true,
+            Self::ClosedAtReuse => hop.read,
+            _ => false,
+        }
+    }
+}
+
+/// The head of `hop`'s answer through `transport`, sent once more on a new
+/// connection when the site never processed it (ADR 0118): a failure
+/// [`TransportFailure::unprocessed`] names, a 421, or a 408 a reused
+/// connection gave a read. The resend's answer or failure is the hop's.
+async fn answer(transport: &dyn Transport, hop: &Hop) -> Result<Sent, TransportFailure> {
+    match transport.send(hop, Reuse::Allowed).await {
+        Err(failure) if !failure.unprocessed(hop) => Err(failure),
+        Ok(sent) if sent.status != 421 && !(sent.status == 408 && sent.reused && hop.read) => {
+            Ok(sent)
+        }
+        Err(_) | Ok(_) => transport.send(hop, Reuse::Never).await,
     }
 }
 
@@ -249,15 +342,17 @@ pub async fn fetch(
     let whole = async {
         let mut sent = deadlines
             .first_byte
-            .within(clock, "first_byte", transport.send(hop))
+            .within(clock, "first_byte", answer(transport, hop))
             .await?
             .map_err(|failure| failure.error(url))?;
+        let expected = content_length(&sent.headers);
         let mut body = Vec::new();
+        // Any failure once the head arrived cuts the body (ADR 0118).
         while let Some(chunk) = sent
             .body
             .chunk()
             .await
-            .map_err(|failure| failure.error(url))?
+            .map_err(|_| truncated(url, body.len(), expected))?
         {
             body.extend_from_slice(&chunk);
         }
@@ -266,8 +361,11 @@ pub async fn fetch(
             .iter()
             .filter(|(name, _)| name == "content-encoding")
             .map(|(_, value)| value.as_str());
-        let body = decoding::decode(codings, body)
-            .map_err(|_| TransportFailure::ContentDecodingFailed.error(url))?;
+        let received = body.len();
+        let body = decoding::decode(codings, body).map_err(|failed| match failed {
+            DecodingFailed::Cut => truncated(url, received, expected),
+            DecodingFailed::Corrupt => TransportFailure::ContentDecodingFailed.error(url),
+        })?;
         let content_type = sent
             .headers
             .iter()
@@ -287,4 +385,29 @@ pub async fn fetch(
         .navigation
         .within(clock, "navigation", whole)
         .await?
+}
+
+/// The length an answer's `Content-Length` declares, if it declares one.
+fn content_length(headers: &[(String, String)]) -> Option<u64> {
+    headers
+        .iter()
+        .find(|(name, _)| name == "content-length")
+        .and_then(|(_, value)| value.trim().parse().ok())
+}
+
+/// `response_truncated` for the body of `url`, which broke off after
+/// `received` bytes, as sent, of the `expected` its `Content-Length`
+/// declared (ADR 0118): retryable, and never handed to a handler.
+fn truncated(url: &str, received: usize, expected: Option<u64>) -> CallError {
+    let received = u64::try_from(received).unwrap_or(u64::MAX);
+    let of = expected.map_or_else(String::new, |expected| format!(" of {expected}"));
+    CallError::new(
+        &RESPONSE_TRUNCATED,
+        format!("The body of {url} broke off after {received} bytes{of}."),
+        &ResponseTruncatedDetails {
+            url: url.to_owned(),
+            received,
+            expected,
+        },
+    )
 }

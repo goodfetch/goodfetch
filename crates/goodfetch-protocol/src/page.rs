@@ -11,8 +11,10 @@
 //! its `events` module the page's events and its responses' bodies, its
 //! `request` module `page.request`, the request API on a page's Session,
 //! its `proxy` module a Session's proxy, its `dialog` module a page's
-//! JavaScript dialogs, and its `tabs` module a Session's pages and popups
-//! and `page.close`.
+//! JavaScript dialogs, its `tabs` module a Session's pages and popups
+//! and `page.close`, its `functions` module the page functions,
+//! `page.evaluate` and `page.add_init_script`, and its `waits` module the
+//! app-state waits, each armed when its call arrives.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -43,11 +45,13 @@ use crate::settings::SettingLimit;
 
 pub mod dialog;
 pub mod events;
+pub mod functions;
 pub mod proxy;
 pub mod request;
 pub mod route;
 pub mod session;
 pub mod tabs;
+pub mod waits;
 
 use self::dialog::{
     DIALOG_ACCEPT, DIALOG_ALREADY_HANDLED, DIALOG_DISMISS, DIALOG_HANDLE, PAGE_ON_DIALOG,
@@ -58,12 +62,19 @@ use self::events::{
     PAGE_RESPONSE, PAGE_WAIT_FOR_REQUEST_FINISHED, PAGE_WEB_SOCKET, RESPONSE_BODY,
     WEB_SOCKET_CLOSE, WEB_SOCKET_FRAME_RECEIVED, WEB_SOCKET_FRAME_SENT,
 };
+use self::functions::{
+    PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE, PAGE_FUNCTION_FAILED, PAGE_VALUE_INVALID,
+};
 use self::route::{
     PAGE_HANDLER_FAILED, PAGE_ROUTE, ROUTE_ABORT, ROUTE_ALREADY_HANDLED, ROUTE_CONTINUE,
     ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
 };
 use self::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
 use self::tabs::{PAGE_POPUP, SESSION_ON, SESSION_PAGE, SESSION_PAGES};
+use self::waits::{
+    LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_LOAD_STATE,
+    PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,
+};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -305,6 +316,42 @@ pub struct NavigationInterruptedDetails {
     pub url: String,
 }
 
+/// What judged a page: the Session's own Page check, or the built-in
+/// detector of a Session that declares none (ADR 0006).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum JudgedBy {
+    /// The Session's `session.page_check`.
+    PageCheck,
+    /// The built-in detector, whose pages are weakly checked.
+    BuiltIn,
+}
+
+/// What `page_check_failed` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PageCheckFailedDetails {
+    /// The URL of the document the navigation reached.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// Its HTTP status.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: u16,
+}
+
+/// What `logged_out` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LoggedOutDetails {
+    /// The URL of the login page the navigation reached.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// Its HTTP status.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: u16,
+    /// What judged it a login page.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub judged_by: JudgedBy,
+}
+
 /// The count of redirects a fetch follows at most, and what set it (ADR
 /// 0118).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -470,6 +517,28 @@ pub const NAVIGATION_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
 pub const NAVIGATION_INTERRUPTED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "navigation_interrupted",
     description: "Another navigation of the page started before this one committed, so this one reached no document: the page went where the other took it.",
+    group: ErrorGroup::Page,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A page that is neither its Session's expected page nor its login page
+/// (ADRs 0006 and 0079).
+pub const PAGE_CHECK_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "page_check_failed",
+    description: "The document the navigation reached is neither the expected page nor the login page of its Session's Page check, `session.page_check`, whatever its HTTP status: a page the program did not mean to reach, such as an error page or a layout the site changed. The page stays on that document. The details name its URL and status.",
+    group: ErrorGroup::Page,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A page judged a login page: the Session's login is lost (ADRs 0006 and
+/// 0092).
+pub const LOGGED_OUT: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "logged_out",
+    description: "The document the navigation reached is a login page, even one answered with a 200: the Session's login is lost, judged by its Page check's `login_page`, or by the built-in detector when it declares none. The page stays on the login page, the Session open with its cookies. The details name the URL, the status and what judged it.",
     group: ErrorGroup::Page,
     retryable: false,
     exit_code: None,
@@ -1122,6 +1191,15 @@ pub const ENTRIES: Entries = Entries {
         SESSION_ON,
         SESSION_PAGES,
         tabs::PAGE_CLOSE,
+        PAGE_EVALUATE,
+        PAGE_ADD_INIT_SCRIPT,
+        PAGE_WAIT_FOR_URL,
+        PAGE_WAIT_FOR_REQUEST,
+        PAGE_WAIT_FOR_RESPONSE,
+        PAGE_WAIT_FOR_LOAD_STATE,
+        PAGE_WAIT_FOR_FUNCTION,
+        LOCATOR_WAIT_FOR,
+        LOCATOR_WAIT_FOR_COUNT,
     ],
     events: &[
         PAGE_DOWNLOAD,
@@ -1148,6 +1226,8 @@ pub const ENTRIES: Entries = Entries {
         BODY_UNAVAILABLE,
         NAVIGATION_FAILED,
         NAVIGATION_INTERRUPTED,
+        PAGE_CHECK_FAILED,
+        LOGGED_OUT,
         TOO_MANY_REDIRECTS,
         RESPONSE_TRUNCATED,
         SITE_PREFERENCES_REFUSED,
@@ -1159,6 +1239,8 @@ pub const ENTRIES: Entries = Entries {
         PAGE_HANDLER_FAILED,
         ROUTE_ALREADY_HANDLED,
         DIALOG_ALREADY_HANDLED,
+        PAGE_FUNCTION_FAILED,
+        PAGE_VALUE_INVALID,
     ],
     plugin_kinds: &[],
     metrics: &[],

@@ -52,6 +52,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
+use super::event_stream::{EventStream, PostedReader, StreamedWriter};
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use super::websocket::{
     self, Authorities, ConsoleSocket, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
@@ -172,7 +173,8 @@ pub const CONSOLE_LISTENER: &str = "console";
 /// The endpoint table's name of a Daemon's WebSocket listener (ADR 0067).
 const WEBSOCKET_LISTENER: &str = "daemon_websocket";
 
-/// How a Connection's messages arrive: as lines, or as WebSocket messages.
+/// How a Connection's messages arrive: as lines, as WebSocket messages, or
+/// in the Console's `POST` bodies.
 enum Reading {
     Lines {
         reader: Prefixed,
@@ -180,6 +182,7 @@ enum Reading {
         chunk: Vec<u8>,
     },
     Messages(MessageReader),
+    Posted(PostedReader),
 }
 
 impl Reading {
@@ -214,14 +217,17 @@ impl Reading {
                 }
             },
             Self::Messages(messages) => messages.read(frames).await,
+            Self::Posted(posted) => posted.read(frames).await,
         }
     }
 }
 
-/// How a Connection's messages leave: as lines, or as WebSocket messages.
+/// How a Connection's messages leave: as lines, as WebSocket messages, or
+/// as the events of the Console's event stream.
 enum Writing {
     Lines(ConnectionWriter),
     Messages(MessageWriter),
+    Streamed(StreamedWriter),
 }
 
 /// How `connection`, reached through `access`, carries its messages, and
@@ -303,7 +309,16 @@ pub(crate) async fn serve(
     .await;
 }
 
-/// Serves the Console's WebSocket `socket`, a Connection of the Daemon
+/// A Connection the Console's server opened on its own origin, its sign-in
+/// already checked, which the Daemon serves (ADR 0031): a WebSocket, or,
+/// where a proxy refuses `WebSocket`s, an event stream and the page's
+/// `POST`s.
+pub(crate) enum ConsoleConnection {
+    WebSocket(ConsoleSocket),
+    EventStream(EventStream),
+}
+
+/// Serves the Console's Connection `console`, a Connection of the Daemon
 /// `daemon` reaches, until it ends, its tasks those of `owner`, lingering
 /// on `clock` after the engine closes it.
 ///
@@ -313,16 +328,26 @@ pub(crate) async fn serve(
 /// them.
 pub(crate) async fn serve_console(
     dispatch: Arc<Dispatch>,
-    socket: ConsoleSocket,
+    console: ConsoleConnection,
     owner: &TaskOwner,
     runs: Runs,
     events: Events,
     daemon: Arc<dyn DaemonSide>,
     clock: Clock,
 ) {
+    let (reading, writing) = match console {
+        ConsoleConnection::WebSocket(socket) => (
+            Reading::Messages(socket.reader),
+            Writing::Messages(socket.writer),
+        ),
+        ConsoleConnection::EventStream(stream) => (
+            Reading::Posted(stream.reader),
+            Writing::Streamed(stream.writer),
+        ),
+    };
     let carried = Carried {
-        reading: Reading::Messages(socket.reader),
-        writing: Writing::Messages(socket.writer),
+        reading,
+        writing,
         listener: CONSOLE_LISTENER,
     };
     serve_carried(
@@ -448,6 +473,7 @@ async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>) {
         let sent = match &mut writing {
             Writing::Lines(writer) => writer.write_all(&line).await.is_ok(),
             Writing::Messages(messages) => messages.feed(line).await,
+            Writing::Streamed(streamed) => streamed.feed(line).await,
         };
         if !sent {
             return;
@@ -456,6 +482,7 @@ async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>) {
             let flushed = match &mut writing {
                 Writing::Lines(writer) => writer.flush().await.is_ok(),
                 Writing::Messages(messages) => messages.flush().await,
+                Writing::Streamed(_) => true,
             };
             if !flushed {
                 return;
@@ -467,6 +494,7 @@ async fn write_lines(mut writing: Writing, mut lines: mpsc::Receiver<Vec<u8>>) {
             let _ = writer.shutdown().await;
         }
         Writing::Messages(messages) => messages.close().await,
+        Writing::Streamed(streamed) => streamed.close(),
     }
 }
 
@@ -834,6 +862,11 @@ impl Session<'_> {
                 }
                 // A Connection answers one `hello`: the first sets it.
                 let _ = self.connection.surface.set(surface);
+                // Each CLI command is a Connection of its own, and the Runs
+                // it starts on the Daemon outlive it (ADRs 0024 and 0088).
+                if surface == Surface::Cli {
+                    self.connection.runs.outlive_connection().await;
+                }
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface));
                 self.behind_gateway = accepted.behind_gateway;
                 if let Access::Attached(private_endpoint) = &self.access {
@@ -878,7 +911,7 @@ impl Session<'_> {
                 ProtocolFailure::InvalidRequest,
                 "`$/cancel` is a notification",
             ))
-        } else if self.in_flight.contains_key(&id) {
+        } else if self.still_in_flight(&id) {
             Some(CallError::protocol(
                 ProtocolFailure::InvalidRequest,
                 format!("a call with the id {id:?} is already in flight"),
@@ -1009,9 +1042,23 @@ impl Session<'_> {
                 }
             };
             drop(span);
-            let _ = outgoing.send(line).await;
+            // Ended before its answer is sent: the Client may reuse the id
+            // as soon as the answer arrives, and `still_in_flight` then
+            // finds this end waiting.
             let _ = completed.send(id).await;
+            let _ = outgoing.send(line).await;
         });
+    }
+
+    /// Whether the call `id` names is still in flight, once every call that
+    /// ended was taken out: a call ends before its answer is sent, so the
+    /// id of a call whose answer the Client read is free again (JSON-RPC
+    /// 2.0), however the session's loop was scheduled.
+    fn still_in_flight(&mut self, id: &RequestId) -> bool {
+        while let Ok(ended) = self.completions.try_recv() {
+            self.in_flight.remove(&ended);
+        }
+        self.in_flight.contains_key(id)
     }
 
     fn notification(&self, notification: &Notification) {

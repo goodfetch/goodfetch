@@ -1,7 +1,13 @@
-//! The page suite (spec #577, tickets #695, #696, #697, #698, #699, #702, #703, #706, #707, #708, #713, #715, #717 and #719; spec #580,
+//! The page suite (spec #577, tickets #695, #696, #697, #698, #699, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705 and #710; spec #580,
 //! ticket #783) against an Attached engine of Collie's executable, given by path, on
 //! the local Proving ground (ADR 0094): its browser from a Browser cache in
 //! the test's own folder, which its environment names (ADR 0059).
+//!
+//! The suite runs in parts, one test per Feature group, each on its own
+//! Proving ground copy and engine, so each part keeps well within nextest's
+//! kill on its own (ADR 0064: a longer limit is no fix). Together the parts
+//! take every capability of the suite's case list once, so each Feature is
+//! still proved by its cases, and each part keeps its own document.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -16,9 +22,101 @@ use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, TestEnv, Tool, browser_cach
 
 use crate::proving_ground::LocalCopy;
 
-/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, story:5-23, story:5-24, story:5-26, story:5-56, story:5-11, story:5-2, story:5-3, story:5-10, story:5-18, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, operation:locator.click, operation:locator.fill, operation:locator.press, error:navigation_failed, error:navigation_interrupted, story:5-29, story:5-30, story:5-31, error:too_many_redirects, error:response_truncated, event:page.download, story:6-1, story:6-8, story:6-12, operation:page.formats, story:5-40, story:5-41, story:5-42, operation:page.route, operation:session.route, operation:route.continue, operation:route.fallback, operation:route.fulfill, operation:route.abort, operation:route.fetch, error:page_handler_failed, error:route_already_handled, error:egress_refused, story:5-94, story:5-95, story:5-96, setting:filter_lists.ads, setting:filter_lists.trackers, setting:filter_lists.annoyances, setting:filter_lists.first_party_scripts, setting:browser.block_resources, error:setting_invalid, story:5-46, story:5-48, operation:page.on, operation:response.body, operation:page.wait_for_request_finished, error:body_unavailable, event:page.console, event:page.page_error, event:page.request, event:page.request_finished, event:page.request_failed, event:page.response, event:page.web_socket, event:web_socket.frame_sent, event:web_socket.frame_received, event:web_socket.close, event:page.load, event:page.dom_content_loaded, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server, story:5-98, setting:live_view.hiding, story:5-100, setting:consent.handling, story:5-49, story:5-50, setting:browser.service_workers, story:5-44, story:5-45, story:5-47, operation:page.request, story:5-52, story:5-53, story:5-55, operation:page.on_dialog, operation:dialog.accept, operation:dialog.dismiss, error:dialog_already_handled, event:page.popup, operation:session.on, event:session.page, operation:session.pages, operation:page.close, event:page.close
+/// One part of the page suite: its name, which names its kept document,
+/// and the capabilities it runs, in the case list's order.
+type Part = (&'static str, &'static [&'static str]);
+
+const SESSIONS: Part = (
+    "sessions",
+    &[
+        "sessions.default",
+        "sessions",
+        "sessions.page_check",
+        "sessions.proxy",
+    ],
+);
+const NAVIGATION: Part = (
+    "navigation",
+    &[
+        "navigation",
+        "navigation.back_forward_cache",
+        "navigation.failures",
+        "navigation.redirects",
+        "navigation.cut_documents",
+        "navigation.decoding",
+        "navigation.downloads",
+    ],
+);
+const FORMATS: Part = ("formats", &["formats"]);
+const LAUNCH: Part = ("launch", &["launch"]);
+const LOCATORS: Part = ("locators", &["locators.guard", "locators.input"]);
+const ROUTES: Part = ("routes", &["routes", "routes.interception_order"]);
+const CLEAN_UP: Part = (
+    "clean-up",
+    &[
+        "clean_up.filter_lists",
+        "clean_up.never_block",
+        "clean_up.block_resources",
+        "clean_up.hiding",
+    ],
+);
+const CONSENT: Part = ("consent", &["clean_up.consent"]);
+const EVENTS: Part = ("events", &["events", "bodies"]);
+const PAGE_STATES: Part = ("page-states", &["page_states.service_workers"]);
+const PAGE_REQUEST: Part = (
+    "page-request",
+    &[
+        "page_request",
+        "page_request.fetch_edge",
+        "page_request.decoding",
+    ],
+);
+const DIALOGS: Part = ("dialogs", &["dialogs"]);
+const POPUPS: Part = ("popups", &["popups"]);
+const PAGE_FUNCTIONS: Part = ("page-functions", &["page_functions"]);
+const WAITS: Part = ("waits", &["waits"]);
+
+/// Every part.
+const PARTS: [Part; 15] = [
+    SESSIONS,
+    NAVIGATION,
+    FORMATS,
+    LAUNCH,
+    LOCATORS,
+    ROUTES,
+    CLEAN_UP,
+    CONSENT,
+    EVENTS,
+    PAGE_STATES,
+    PAGE_REQUEST,
+    DIALOGS,
+    POPUPS,
+    PAGE_FUNCTIONS,
+    WAITS,
+];
+
 #[test]
-fn the_page_suite_is_proved_against_collies_attached_engine() {
+fn the_page_suites_parts_take_each_of_its_capabilities_once() {
+    let mut declared: Vec<String> = ProtocolSuite::page()
+        .case_list()
+        .capabilities
+        .iter()
+        .map(|capability| capability.name.clone())
+        .collect();
+    declared.sort();
+    let mut taken: Vec<&str> = PARTS
+        .iter()
+        .flat_map(|(_, capabilities)| capabilities.iter().copied())
+        .collect();
+    taken.sort_unstable();
+
+    assert_eq!(taken, declared);
+}
+
+/// Runs `part` of the page suite against Collie's Attached engine on a
+/// Proving ground copy of its own, keeps its document, and asserts that
+/// each of its capabilities, and only those, is proved.
+fn prove((name, capabilities): Part) {
     let env = TestEnv::new();
     let copy = LocalCopy::start(&env, env.seed());
     let proving_ground = ProvingGround::local(copy.address());
@@ -33,9 +131,12 @@ fn the_page_suite_is_proved_against_collies_attached_engine() {
         environment,
         folder: env.folder().to_path_buf(),
     };
+    let suite = ProtocolSuite::page()
+        .with_capabilities(capabilities)
+        .unwrap();
 
-    let document = run_protocol_suite(&ProtocolSuite::page(), &target, &proving_ground).unwrap();
-    crate::keep(&document, "page-collie-attached");
+    let document = run_protocol_suite(&suite, &target, &proving_ground).unwrap();
+    crate::keep(&document, &format!("page-collie-attached-{name}"));
 
     let cases: Vec<(&str, CaseOutcome)> = document
         .capabilities()
@@ -53,37 +154,10 @@ fn the_page_suite_is_proved_against_collies_attached_engine() {
             document.header().target.product,
         ),
         (
-            vec![
-                ("sessions.default", Outcome::Proved),
-                ("sessions", Outcome::Proved),
-                ("sessions.proxy", Outcome::Proved),
-                ("navigation", Outcome::Proved),
-                ("navigation.back_forward_cache", Outcome::Proved),
-                ("navigation.failures", Outcome::Proved),
-                ("navigation.redirects", Outcome::Proved),
-                ("navigation.cut_documents", Outcome::Proved),
-                ("navigation.decoding", Outcome::Proved),
-                ("navigation.downloads", Outcome::Proved),
-                ("formats", Outcome::Proved),
-                ("launch", Outcome::Proved),
-                ("locators.guard", Outcome::Proved),
-                ("locators.input", Outcome::Proved),
-                ("routes", Outcome::Proved),
-                ("routes.interception_order", Outcome::Proved),
-                ("clean_up.filter_lists", Outcome::Proved),
-                ("clean_up.never_block", Outcome::Proved),
-                ("clean_up.block_resources", Outcome::Proved),
-                ("events", Outcome::Proved),
-                ("bodies", Outcome::Proved),
-                ("clean_up.hiding", Outcome::Proved),
-                ("clean_up.consent", Outcome::Proved),
-                ("page_states.service_workers", Outcome::Proved),
-                ("page_request", Outcome::Proved),
-                ("page_request.fetch_edge", Outcome::Proved),
-                ("page_request.decoding", Outcome::Proved),
-                ("dialogs", Outcome::Proved),
-                ("popups", Outcome::Proved),
-            ],
+            capabilities
+                .iter()
+                .map(|capability| (*capability, Outcome::Proved))
+                .collect(),
             Some(Product::Collie),
         ),
         "{cases:?} {:?}",
@@ -98,4 +172,94 @@ fn the_page_suite_is_proved_against_collies_attached_engine() {
                 .map(|check| check.name.clone())))
             .collect::<Vec<_>>()
     );
+}
+
+/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, story:5-79, setting:session.page_check, error:logged_out, error:page_check_failed, operation:run.new_page, operation:page.goto, error:setting_invalid, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server
+#[test]
+fn the_page_suite_proves_sessions_against_collies_attached_engine() {
+    prove(SESSIONS);
+}
+
+/// Covers: story:5-61, story:5-23, story:5-24, story:5-26, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, error:navigation_failed, error:navigation_interrupted, story:5-29, story:5-30, story:5-31, error:too_many_redirects, error:response_truncated, event:page.download
+#[test]
+fn the_page_suite_proves_navigation_against_collies_attached_engine() {
+    prove(NAVIGATION);
+}
+
+/// Covers: story:6-1, story:6-8, story:6-12, operation:page.formats
+#[test]
+fn the_page_suite_proves_formats_against_collies_attached_engine() {
+    prove(FORMATS);
+}
+
+/// Covers: story:5-56, story:5-11, operation:run.new_page, operation:page.goto
+#[test]
+fn the_page_suite_proves_launch_against_collies_attached_engine() {
+    prove(LAUNCH);
+}
+
+/// Covers: story:5-2, story:5-3, story:5-10, story:5-18, operation:locator.click, operation:locator.fill, operation:locator.press
+#[test]
+fn the_page_suite_proves_locators_against_collies_attached_engine() {
+    prove(LOCATORS);
+}
+
+/// Covers: operation:page.goto, story:5-40, story:5-41, story:5-42, operation:page.route, operation:session.route, operation:route.continue, operation:route.fallback, operation:route.fulfill, operation:route.abort, operation:route.fetch, error:page_handler_failed, error:route_already_handled, error:egress_refused
+#[test]
+fn the_page_suite_proves_routes_against_collies_attached_engine() {
+    prove(ROUTES);
+}
+
+/// Covers: operation:locator.click, error:navigation_failed, operation:page.formats, story:5-42, operation:page.route, operation:route.continue, story:5-94, story:5-95, story:5-96, setting:filter_lists.ads, setting:filter_lists.trackers, setting:filter_lists.annoyances, setting:filter_lists.first_party_scripts, setting:browser.block_resources, error:setting_invalid, story:5-98, setting:live_view.hiding
+#[test]
+fn the_page_suite_proves_clean_up_against_collies_attached_engine() {
+    prove(CLEAN_UP);
+}
+
+/// Covers: story:5-100, setting:consent.handling
+#[test]
+fn the_page_suite_proves_consent_against_collies_attached_engine() {
+    prove(CONSENT);
+}
+
+/// Covers: error:response_truncated, error:egress_refused, story:5-46, story:5-48, operation:page.on, operation:response.body, operation:page.wait_for_request_finished, error:body_unavailable, event:page.console, event:page.page_error, event:page.request, event:page.request_finished, event:page.request_failed, event:page.response, event:page.web_socket, event:web_socket.frame_sent, event:web_socket.frame_received, event:web_socket.close, event:page.load, event:page.dom_content_loaded
+#[test]
+fn the_page_suite_proves_events_against_collies_attached_engine() {
+    prove(EVENTS);
+}
+
+/// Covers: operation:run.new_session, operation:page.route, operation:session.route, event:page.request, event:page.response, story:5-49, story:5-50, setting:browser.service_workers, operation:page.wait_for_response, operation:page.wait_for_load_state
+#[test]
+fn the_page_suite_proves_page_states_against_collies_attached_engine() {
+    prove(PAGE_STATES);
+}
+
+/// Covers: operation:run.new_session, operation:session.new_page, error:navigation_failed, error:too_many_redirects, error:response_truncated, error:egress_refused, error:setting_invalid, operation:response.body, story:5-44, story:5-45, story:5-47, operation:page.request
+#[test]
+fn the_page_suite_proves_page_request_against_collies_attached_engine() {
+    prove(PAGE_REQUEST);
+}
+
+/// Covers: operation:page.goto, operation:locator.click, error:page_handler_failed, story:5-52, story:5-53, operation:page.on_dialog, operation:dialog.accept, operation:dialog.dismiss, error:dialog_already_handled
+#[test]
+fn the_page_suite_proves_dialogs_against_collies_attached_engine() {
+    prove(DIALOGS);
+}
+
+/// Covers: error:closed, operation:page.on, story:5-55, event:page.popup, operation:session.on, event:session.page, operation:session.pages, operation:page.close, event:page.close
+#[test]
+fn the_page_suite_proves_popups_against_collies_attached_engine() {
+    prove(POPUPS);
+}
+
+/// Covers: operation:page.reload, story:5-34, story:5-35, operation:page.evaluate, operation:page.add_init_script, error:page_value_invalid, error:page_function_failed
+#[test]
+fn the_page_suite_proves_page_functions_against_collies_attached_engine() {
+    prove(PAGE_FUNCTIONS);
+}
+
+/// Covers: story:5-19, story:5-20, story:5-21, story:5-22, operation:page.wait_for_url, operation:page.wait_for_request, operation:page.wait_for_response, operation:page.wait_for_load_state, operation:page.wait_for_function, operation:locator.wait_for, operation:locator.wait_for_count, operation:page.evaluate, operation:locator.click, error:deadline_exceeded, setting:timeout.wait
+#[test]
+fn the_page_suite_proves_waits_against_collies_attached_engine() {
+    prove(WAITS);
 }

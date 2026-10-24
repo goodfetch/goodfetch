@@ -46,7 +46,9 @@ impl ReportPart for CrawlParts {
 
 /// How the crawl's requests ended, by each one's latest outcome, and its
 /// Records per Dataset.
-fn ended(connection: &Connection) -> rusqlite::Result<(RequestCounts, Vec<DatasetRecords>)> {
+pub(crate) fn ended(
+    connection: &Connection,
+) -> rusqlite::Result<(RequestCounts, Vec<DatasetRecords>)> {
     let mut counts = RequestCounts {
         pending: crate::work_items::left(connection)?,
         ..RequestCounts::default()

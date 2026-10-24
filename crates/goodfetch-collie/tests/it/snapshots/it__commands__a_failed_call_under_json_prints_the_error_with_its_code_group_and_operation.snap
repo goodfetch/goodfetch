@@ -15,5 +15,3 @@ exit: 3
   }
 }
 ----- stderr -----
-[INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="hello"
-[INSTANT] TRACE goodfetch::rpc::dispatch: request failed method="run.finish" error_code="run_not_found"

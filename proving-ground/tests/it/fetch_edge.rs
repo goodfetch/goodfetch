@@ -301,6 +301,25 @@ fn a_keep_alive_connection_closes_or_answers_408_as_it_is_reused() {
 }
 
 #[test]
+fn a_page_answers_421_on_its_first_request_and_its_page_after() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let misdirected = raw_clients::keep_alive(&proving_ground, HTTP1, &[("GET", "/misdirected")]);
+    let resent = raw_clients::keep_alive(&proving_ground, HTTP1, &[("GET", "/misdirected")]);
+
+    assert_eq!(
+        misdirected[0]
+            .as_ref()
+            .and_then(raw_clients::Arrived::status),
+        Some(421)
+    );
+    assert_eq!(
+        resent[0].as_ref().and_then(raw_clients::Arrived::status),
+        Some(200)
+    );
+}
+
+#[test]
 fn enhance_your_calm_is_sent_and_the_next_request_is_timed_from_it() {
     let proving_ground = ProvingGround::start(SEED);
 

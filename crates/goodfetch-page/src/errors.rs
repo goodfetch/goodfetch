@@ -7,7 +7,8 @@
 //! history it goes through, as ADR 0085 names it, `browser_launch_failed`
 //! for opening a page, `page_crashed` for reading a live page's document,
 //! which only a broken renderer refuses or leaves unanswered, and an
-//! internal error for a locator action, which has no generic code.
+//! internal error for a locator action or a page function, which have no
+//! generic code.
 
 use goodfetch_cdp::{Failure, Refusal};
 use goodfetch_engine::CallError;
@@ -48,9 +49,10 @@ pub(crate) enum Call {
     /// Reading the page's history, before a reload or a step back or
     /// forward, whose URL the history names.
     History,
-    /// A locator action's commands: the guard's checks and its input.
+    /// A locator action's commands, the guard's checks and its input, or
+    /// a page function's.
     Action {
-        /// The operation, such as `locator.click`.
+        /// The operation, such as `locator.click` or `page.evaluate`.
         operation: &'static str,
     },
 }

@@ -43,7 +43,9 @@ use goodfetch_protocol::run::RunReport;
 use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value};
 
-use crate::engine_choice::{self, Answer, CommandCall, Follower};
+use crate::engine_choice::{
+    self, Answer, Choice, CommandCall, Daemons, EngineChoice, Follower, Lifetime,
+};
 use crate::output::{ColourFlag, Human};
 use crate::settings_flags::{self, SettingsFlags};
 use crate::{exit_codes, output};
@@ -57,6 +59,14 @@ const JSON: &str = "json";
 
 /// The flag that runs a sequence, printing what it sends as it arrives.
 const FOLLOW: &str = "follow";
+
+/// The flag that runs the call on an Attached engine in this process,
+/// whatever runs (ADR 0024).
+const ATTACHED: &str = "attached";
+
+/// The flag that runs the call on the Daemon, started when none runs, whose
+/// refusal ends the command (ADRs 0024 and 0098).
+const DAEMON: &str = "daemon";
 
 /// The flag of a command that answers a Run report that exits `21` when
 /// the Run's Verdict is not `verified` (ADR 0069).
@@ -374,6 +384,19 @@ fn command(operation: &'static Operation) -> Command {
                 .long(JSON)
                 .action(ArgAction::SetTrue)
                 .help(json_help),
+        )
+        .arg(
+            Arg::new(ATTACHED)
+                .long(ATTACHED)
+                .action(ArgAction::SetTrue)
+                .conflicts_with(DAEMON)
+                .help("Runs the call on an Attached engine in this process, even when a Daemon runs"),
+        )
+        .arg(
+            Arg::new(DAEMON)
+                .long(DAEMON)
+                .action(ArgAction::SetTrue)
+                .help("Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command"),
         );
     let command = if answers_a_run_report(operation) {
         command.arg(
@@ -636,6 +659,8 @@ pub struct Call {
     /// Whether it answers a Run report, and if so whether
     /// `--require-verified` was given.
     report: Option<bool>,
+    /// The engine `--attached` or `--daemon` asks for.
+    choice: Choice,
 }
 
 impl Call {
@@ -654,13 +679,42 @@ impl Call {
             json: matches.get_flag(JSON),
             follow: offer(operation) == Some(Offer::Follow) && matches.get_flag(FOLLOW),
             report: answers_a_run_report(operation).then(|| matches.get_flag(REQUIRE_VERIFIED)),
+            choice: if matches.get_flag(ATTACHED) {
+                Choice::Attached
+            } else if matches.get_flag(DAEMON) {
+                Choice::Daemon
+            } else {
+                Choice::Auto
+            },
         }
     }
 
-    /// Calls the operation on an Attached engine in this process, `engine`
-    /// on `dependencies`, prints what it answered as `human` shows it, or
-    /// under `--follow` what it sent, and answers the exit code.
-    pub fn run(mut self, engine: &Engine, dependencies: Dependencies, human: &Human) -> ExitCode {
+    /// What its call needs of its engine: a long-lived one when its value
+    /// outlives the command, as an opener's new value or the value a
+    /// value-bound command names does (ADR 0088).
+    fn lifetime(&self) -> Lifetime {
+        let value_bound = parameters(self.operation)
+            .iter()
+            .any(|parameter| matches!(parameter.form, Form::Value));
+        if self.operation.kind == OperationKind::Opener || value_bound {
+            Lifetime::Lasting
+        } else {
+            Lifetime::Passing
+        }
+    }
+
+    /// Calls the operation on the engine its command line and its value
+    /// choose ([`engine_choice`]): the executable's Daemon, `daemons`, or
+    /// an Attached engine in this process, `engine` on `dependencies`;
+    /// prints what it answered as `human` shows it, or under `--follow`
+    /// what it sent, and answers the exit code.
+    pub fn run(
+        mut self,
+        engine: &Engine,
+        dependencies: Dependencies,
+        daemons: &dyn Daemons,
+        human: &Human,
+    ) -> ExitCode {
         let words = self.operation.name.replace('.', " ").replace('_', "-");
         if let Some(deprecated) = self.operation.deprecated {
             human.warning(&format!("`{words}`: {}", deprecation(deprecated)));
@@ -676,7 +730,14 @@ impl Call {
         // A followed call prints as it runs, so only a call that prints at
         // its end shows its words as progress until then.
         let progress = (!self.follow).then(|| human.progress(&words));
-        let answer = engine_choice::call_attached(engine, dependencies, PRODUCT, call);
+        let warn = |text: &str| human.warning(text);
+        let reach = EngineChoice {
+            choice: self.choice,
+            lifetime: self.lifetime(),
+            daemons,
+            warn: &warn,
+        };
+        let answer = engine_choice::call(engine, dependencies, PRODUCT, &reach, call);
         drop(progress);
         match answer {
             Answer::Result(result) => {

@@ -165,6 +165,16 @@ prefix = "run.discard"
 [[area]]
 number = 3
 kind = "operation"
+prefix = "run.progress"
+
+[[area]]
+number = 3
+kind = "operation"
+prefix = "run.report"
+
+[[area]]
+number = 3
+kind = "operation"
 prefix = "crawl.start"
 
 [[area]]
@@ -688,6 +698,22 @@ number = 5
 kind = "error"
 prefix = "pattern_unsupported"
 
+# The Page check and its verdicts (#710, ADRs 0006 and 0092).
+[[area]]
+number = 5
+kind = "setting"
+prefix = "session.page_check"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_check_failed"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "logged_out"
+
 # The page's and the Session's routes, their answers and their Error codes
 # (#702).
 [[area]]
@@ -715,16 +741,39 @@ number = 5
 kind = "error"
 prefix = "route_already_handled"
 
+# Page functions and init scripts, and their Error codes (#704).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.evaluate"
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.add_init_script"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_function_failed"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_value_invalid"
+
 # A page's events, its listener and its responses' bodies (#703).
 [[area]]
 number = 5
 kind = "operation"
 prefix = "page.on"
 
+# The page's app-state waits, `page.wait_for_request_finished` among them
+# (#703, #705); the locator waits fall under `locator.`.
 [[area]]
 number = 5
 kind = "operation"
-prefix = "page.wait_for_request_finished"
+prefix = "page.wait_for_"
 
 # Dialogs, popups and the page's close (#719).
 [[area]]

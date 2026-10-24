@@ -6,7 +6,7 @@ use flate2::Compression;
 use flate2::write::{DeflateEncoder, GzEncoder, ZlibEncoder};
 use rstest::rstest;
 
-use super::{decode, still_compressed};
+use super::{DecodingFailed, decode, still_compressed};
 
 /// `abc` as a Brotli stream of one uncompressed meta-block (RFC 7932),
 /// checked once with `brotli --decompress`.
@@ -84,13 +84,34 @@ fn a_body_decodes_as_chrome_decodes_its_content_codings(
 })]
 #[case::a_plain_body_labelled_brotli(&["br"], b"<!doctype html>".to_vec())]
 #[case::a_plain_body_labelled_zstd(&["zstd"], b"abc".to_vec())]
-#[case::a_cut_gzip_stream(&["gzip"], {
-    let mut body = gzip(b"abcdefghijklmnopqrstuvwxyz");
-    body.truncate(body.len() / 2);
-    body
-})]
 fn a_body_that_does_not_decode_as_labelled_fails(#[case] codings: &[&str], #[case] body: Vec<u8>) {
-    assert!(decode(codings.iter().copied(), body).is_err());
+    assert_eq!(
+        decode(codings.iter().copied(), body),
+        Err(DecodingFailed::Corrupt)
+    );
+}
+
+/// The first half of `stream`.
+fn cut(mut stream: Vec<u8>) -> Vec<u8> {
+    stream.truncate(stream.len() / 2);
+    stream
+}
+
+/// A text long enough that half of its compressed stream stops inside it.
+const ALPHABETS: &[u8] = b"abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz 0123456789";
+
+#[rstest]
+#[case::gzip(&["gzip"], cut(gzip(ALPHABETS)))]
+#[case::deflate_with_its_zlib_wrapper(&["deflate"], cut(zlib(ALPHABETS)))]
+#[case::raw_deflate(&["deflate"], cut(raw_deflate(ALPHABETS)))]
+#[case::brotli(&["br"], cut(brotli(ALPHABETS)))]
+#[case::zstd(&["zstd"], cut(zstd::stream::encode_all(ALPHABETS, 0).unwrap()))]
+#[case::the_inner_of_two_codings(&["gzip, br"], brotli(&cut(gzip(ALPHABETS))))]
+fn a_compressed_stream_ending_early_is_cut(#[case] codings: &[&str], #[case] body: Vec<u8>) {
+    assert_eq!(
+        decode(codings.iter().copied(), body),
+        Err(DecodingFailed::Cut)
+    );
 }
 
 #[rstest]

@@ -18,9 +18,12 @@
 //! valid against that schema of the committed JSON Schema bundle, read as a
 //! file; `json_lines(schema)` checks that every line of stdout is one
 //! document of that event type. The caller names the type, so test support
-//! stays on values. `mode(Mode::Daemon)` runs the command as a Client of a
-//! Daemon of the test's home, which the run starts and stops, so one rstest
-//! case per mode shares one snapshot.
+//! stays on values. `mode(Mode::Attached)` runs the command with
+//! `--attached`, on an Attached engine in the executable's own process, and
+//! `mode(Mode::Daemon)` as a Client of a Daemon of the test's home, which
+//! the run starts and stops, so one rstest case per mode shares one
+//! snapshot; with no mode, the command runs with the arguments the test
+//! gave, on the engine the executable chooses.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support runs commands and writes the command record outside any async worker (ADR 0062)"
@@ -53,6 +56,10 @@ const BUNDLE: &str = concat!(
 
 /// The flag that makes a command a Client of the Daemon (ADR 0024).
 const DAEMON_FLAG: &str = "--daemon";
+
+/// The flag that runs a command on an Attached engine in the executable's
+/// own process (ADR 0024).
+const ATTACHED_FLAG: &str = "--attached";
 
 /// The byte every ANSI escape sequence starts with.
 const ESCAPE: u8 = 0x1B;
@@ -107,17 +114,17 @@ pub struct Cli<'env> {
     stdin: Option<Vec<u8>>,
     refused: Option<CliError>,
     executable: PathBuf,
-    mode: Mode,
+    mode: Option<Mode>,
 }
 
 /// How a command reaches the engine (ADRs 0024 and 0069): every test of a
 /// command that runs the engine has one rstest case per mode, which share
 /// one snapshot.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
-    /// In the executable's own process, as the CLI runs with no Daemon:
-    /// the arguments as the test gave them, in a home where none runs.
-    #[default]
+    /// In the executable's own process: the run adds `--attached` after
+    /// the test's arguments, so even a command whose value outlives it,
+    /// which reaches the Daemon by default, starts none.
     Attached,
     /// As a Client of the Daemon of the test's home: the run starts the
     /// executable's Daemon, adds `--daemon` after the test's arguments,
@@ -141,7 +148,7 @@ pub fn cli(env: &TestEnv, executable: impl AsRef<OsStr>) -> Cli<'_> {
         stdin: None,
         refused: None,
         executable: PathBuf::from(executable.as_ref()),
-        mode: Mode::Attached,
+        mode: None,
     }
 }
 
@@ -213,10 +220,11 @@ impl Cli<'_> {
         self
     }
 
-    /// Runs the command in this mode; [`Mode::Attached`] unless set.
+    /// Runs the command in this mode; unless set, with the arguments the
+    /// test gave, on the engine the executable chooses.
     #[must_use]
     pub fn mode(mut self, mode: Mode) -> Self {
-        self.mode = mode;
+        self.mode = Some(mode);
         self
     }
 
@@ -276,8 +284,12 @@ impl Cli<'_> {
             return Err(refused);
         }
         let daemon = match self.mode {
-            Mode::Attached => None,
-            Mode::Daemon => {
+            None => None,
+            Some(Mode::Attached) => {
+                self = self.arg(ATTACHED_FLAG);
+                None
+            }
+            Some(Mode::Daemon) => {
                 self = self.arg(DAEMON_FLAG);
                 Some(Daemon::start_program(
                     self.env,

@@ -308,6 +308,31 @@ class ConsoleState(RootModel[ConsoleState1 | ConsoleState2 | Literal["absent"]])
     """
 
 
+class Count(BaseModel):
+    """
+    A count of matches, bounded on either side or both: an exact count is
+    both bounds.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    max: Annotated[int | None, Field(ge=0)] = None
+    """The most; no bound when absent."""
+    min: Annotated[int | None, Field(ge=0)] = None
+    """The fewest; no bound when absent."""
+
+
+class Counted(BaseModel):
+    """What `locator.wait_for_count` answers: how many elements matched."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """The number of matches."""
+
+
 class CpuReading(BaseModel):
     """The engine's CPU and Tokio workers, as the governor read them."""
 
@@ -463,6 +488,22 @@ class DownloadSaved(BaseModel):
     """
 
 
+class ElementState(StrEnum):
+    """A state of the element a locator matches (Playwright's `waitFor`)."""
+
+    attached = "attached"
+    """One element matches."""
+    detached = "detached"
+    """No element matches."""
+    visible = "visible"
+    """
+    One element matches, with a box of its own and `visibility:
+    visible`.
+    """
+    hidden = "hidden"
+    """No element matches, or the one that does is not visible."""
+
+
 class EndingError(BaseModel):
     """An Error code a Run's ending raises, with its message and details."""
 
@@ -488,6 +529,15 @@ class EngineInfoParams(BaseModel):
 class EngineInstance(RootModel[str]):
     root: Annotated[str, Field(min_length=1)]
     """One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only."""
+
+
+class EngineStep(StrEnum):
+    """The engine's step that raised a Human pause."""
+
+    login_recovery = "login_recovery"
+    """A login recovery (ADR 0006)."""
+    challenge_ladder = "challenge_ladder"
+    """The Challenge ladder (ADR 0035)."""
 
 
 class Enqueued1(BaseModel):
@@ -519,6 +569,19 @@ class ErrorData(BaseModel):
     """The Error code, or the name of the protocol failure."""
     retryable: bool
     """Whether the same call may succeed when made again."""
+
+
+class Evaluated(BaseModel):
+    """
+    What `page.evaluate` answers: the function's result, awaited when it is
+    a promise.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    value: Any | None = None
+    """The result as JSON; absent when it was `undefined`."""
 
 
 class Form(StrEnum):
@@ -563,6 +626,14 @@ class HttpBody(RootModel[str]):
 class HttpMethod(RootModel[str]):
     root: Annotated[str, Field(pattern="^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")]
     """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
+
+
+class InitScriptEnded(BaseModel):
+    """What an init script's subscription answers when its page closes."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
 
 
 class KeyValueStoreContent(RootModel[str]):
@@ -701,6 +772,21 @@ class LimitStanding(StrEnum):
     """
     not_understood = "not_understood"
     """It cannot evaluate it: a newer engine wrote it."""
+
+
+class LoadState(StrEnum):
+    """A state the page's document reaches (Playwright's `LoadState`)."""
+
+    domcontentloaded = "domcontentloaded"
+    """The document fired `DOMContentLoaded`."""
+    load = "load"
+    """The document fired `load`."""
+    networkidle = "networkidle"
+    """
+    The document fired `load`, and no request of the page was in flight
+    for 500 ms since, WebSocket and server-sent-event connections left
+    out.
+    """
 
 
 class LogLevel(StrEnum):
@@ -1051,6 +1137,31 @@ class PageWebSocket(BaseModel):
     """The browser's ID for the socket, which its events name."""
 
 
+class PauseOrigin1(BaseModel):
+    """The program, with `page.pause()`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    by: Literal["program"]
+
+
+class PauseOrigin2(BaseModel):
+    """The engine, at a step of its own."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    by: Literal["engine"]
+    step: EngineStep
+    """The step."""
+
+
+class PauseOrigin(RootModel[PauseOrigin1 | PauseOrigin2]):
+    root: PauseOrigin1 | PauseOrigin2
+    """Who raised a Human pause."""
+
+
 class PeriodLength(StrEnum):
     """How long a period Limit counts before it starts again (ADR 0041)."""
 
@@ -1189,6 +1300,17 @@ class ProxyKindBytes(BaseModel):
     """The bytes."""
     kind: str
     """The proxy kind, such as `residential`."""
+
+
+class Reached(BaseModel):
+    """
+    What `page.wait_for_url`, `page.wait_for_load_state` and
+    `locator.wait_for` answer once the state they waited for came.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
 
 
 class RecordingReport(BaseModel):
@@ -1401,6 +1523,22 @@ class RunParams(BaseModel):
     """The Run's ID."""
 
 
+class RunProgressParams(BaseModel):
+    """What `run.progress` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    after: Annotated[int | None, Field(ge=0)] = None
+    """
+    The position of the value the reader last read: the answer is the
+    latest value after it, once one comes. Absent, the Run's progress
+    at once.
+    """
+    run_id: RunId
+    """The Run's ID."""
+
+
 class RunResumeParams(BaseModel):
     """What `run.resume` takes."""
 
@@ -1473,6 +1611,18 @@ class RunWarning(BaseModel):
     """What it says, for people."""
     sessions: list[str] | None = None
     """The Sessions it concerns."""
+
+
+class RunWriter(StrEnum):
+    """Whether an engine works a Run (ADR 0102)."""
+
+    live = "live"
+    """An engine holds its writer lock."""
+    none = "none"
+    """
+    Nothing works it, as after a crash, until a start with its Run ID
+    resumes it.
+    """
 
 
 class SampleEchoParams(BaseModel):
@@ -2147,6 +2297,34 @@ class Verdict(StrEnum):
     """Everything else: a person reviews it."""
 
 
+class WaitForExchangeParams(BaseModel):
+    """
+    What `page.wait_for_request` and `page.wait_for_response` take: the
+    page, and the URLs of the requests they wait for; any request when none
+    is given.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    url: UrlMatcher | None = None
+    """The URLs it waits for."""
+
+
+class WaitForLoadStateParams(BaseModel):
+    """What `page.wait_for_load_state` takes: the page and the state."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    state: LoadState | None = None
+    """The state; `load` when absent."""
+
+
 class WaitForRequestFinishedParams(BaseModel):
     """
     What `page.wait_for_request_finished` takes: the page, and the URLs of
@@ -2160,6 +2338,26 @@ class WaitForRequestFinishedParams(BaseModel):
     """The page."""
     url: UrlMatcher | None = None
     """The URLs it waits for."""
+
+
+class WaitForUrlParams(BaseModel):
+    """
+    What `page.wait_for_url` takes: the page, the URL it waits for, and the
+    state a new document must reach.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    url: UrlMatcher
+    """The URL it waits for."""
+    wait_until: LoadState | None = None
+    """
+    The state a new document at that URL must reach; `load` when
+    absent. A change within the document waits for none.
+    """
 
 
 class WaitUntil(StrEnum):
@@ -2250,6 +2448,41 @@ class WebSocketFrame(BaseModel):
     """Its payload: its text, or for a binary frame its bytes in Base64."""
     web_socket_id: str
     """The socket."""
+
+
+class World(StrEnum):
+    """Where a page function runs (ADR 0085)."""
+
+    main = "main"
+    """
+    The page's own world, where its globals are, as Playwright's and
+    Puppeteer's default: the Session's Provenance marks the call.
+    """
+    isolated = "isolated"
+    """
+    A world of the engine's own in the page's document, which shares
+    its DOM but neither sees nor is seen by the page's scripts.
+    """
+
+
+class AddInitScriptParams(BaseModel):
+    """
+    What `page.add_init_script` takes: the page, and the script's source and
+    argument.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """The function's one argument, JSON; absent for none."""
+    function: str
+    """
+    The script's JavaScript source: a function, called with `arg`, or a
+    script run as it is, which takes none.
+    """
+    page_id: PageId
+    """The page."""
 
 
 class ArtifactId(BaseModel):
@@ -2634,6 +2867,28 @@ class EnqueuedBatch(BaseModel):
     """The id of the `run.add_seeds` call."""
 
 
+class EvaluateParams(BaseModel):
+    """
+    What `page.evaluate` takes: the page, the function's source, its
+    argument and its world.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """Its one argument, JSON; absent for none."""
+    function: str
+    """
+    The page function's JavaScript source: a function, called with
+    `arg`, or an expression, which takes none.
+    """
+    page_id: PageId
+    """The page."""
+    world: World | None = None
+    """Where it runs; the main world when absent."""
+
+
 class EventEnvelope(BaseModel):
     """One event of a batch."""
 
@@ -2765,6 +3020,32 @@ class HelloResult(BaseModel):
     """The engine's Product version."""
     protocol_version: ProtocolVersion
     """The protocol version the engine speaks."""
+
+
+class HumanPause(BaseModel):
+    """A Human pause waiting for a person (ADR 0092)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    deadline: PointInTime | None = None
+    """
+    When it ends unanswered: the first of `timeout.human_pause` and, in
+    a scheduled run, its pause timeout; none when it waits without
+    limit.
+    """
+    page: str
+    """The page that waits."""
+    raised_by: PauseOrigin
+    """Whether the program or the engine raised it."""
+    reason: str | None = None
+    """Why, as the program or the engine said it."""
+    session: str
+    """The Session whose page waits."""
+    since: PointInTime
+    """Since when it waits."""
+    until: str | None = None
+    """The condition that ends it by itself, as text."""
 
 
 class KeyValueStoreBytes(BaseModel):
@@ -2899,6 +3180,18 @@ class Locator(BaseModel):
     """The page it looks on."""
     selector: str
     """A CSS selector, which also matches inside open shadow roots."""
+
+
+class LocatorWaitForParams(BaseModel):
+    """What `locator.wait_for` takes: the locator and the state of its element."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    locator: Locator
+    """The locator."""
+    state: ElementState | None = None
+    """The state; `visible` when absent."""
 
 
 class LogEvent(BaseModel):
@@ -3639,6 +3932,48 @@ class UsageSetParams(BaseModel):
     """The Usage kind it caps."""
 
 
+class WaitForCountParams(BaseModel):
+    """
+    What `locator.wait_for_count` takes: the locator and the count its
+    matches must reach.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: Count
+    """The count."""
+    locator: Locator
+    """The locator."""
+
+
+class WaitForFunctionParams(BaseModel):
+    """
+    What `page.wait_for_function` takes: the page, the function's source,
+    its argument, its world, and how often it is checked.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """Its one argument, JSON; absent for none."""
+    function: str
+    """
+    The page function's JavaScript source: a function, called with
+    `arg`, or an expression, which takes none.
+    """
+    page_id: PageId
+    """The page."""
+    polling_interval: Annotated[int | None, Field(ge=0)] = None
+    """
+    The milliseconds between two checks, at least 1; absent, about one
+    frame's, 16.
+    """
+    world: World | None = None
+    """Where it runs; the main world when absent."""
+
+
 class AppliedLimit(BaseModel):
     """
     A Limit that applies to a Run (ADRs 0041 and 0101): its scope's kind and
@@ -3827,7 +4162,8 @@ class NewSessionParams(BaseModel):
     `.trackers`, `.annoyances`, `.first_party_scripts`,
     `browser.block_resources` and `live_view.hiding` choose its pages'
     Clean-up rules over the Run's, and `browser.service_workers` whether
-    a site's service workers run in them. `session.source` is refused here with `setting_not_applicable`,
+    a site's service workers run in them, and `session.page_check` the
+    Page check its pages are judged against. `session.source` is refused here with `setting_not_applicable`,
     as the call's own `source` sets it, and so is any other key, which
     only the Run sets.
     """
@@ -3888,22 +4224,48 @@ class Resync(BaseModel):
 
 
 class RunProgress(BaseModel):
-    """A Run's progress as it is now (ADR 0102): what `run.progress` reports."""
+    """
+    A Run's progress as it is now (ADR 0102): what `run.progress` answers
+    and the `run.progress` event carries.
+    """
 
     model_config = ConfigDict(
         extra="allow",
     )
+    at: PointInTime
+    """When the engine read it."""
+    checkpoint_at: PointInTime | None = None
+    """When its last Checkpoint was written, once one was."""
+    epoch: Annotated[int, Field(ge=0)]
+    """Its run epoch (ADR 0003), which a resume or a migration advances."""
+    last: bool
+    """
+    Whether it is the sequence's last value: the Run ended, or no
+    engine this one reaches works it, so nothing more comes until a
+    start with its Run ID resumes it.
+    """
     lifecycle: Lifecycle
-    """Where it is."""
+    """Where the Run is."""
     message: ProgressMessage | None = None
     """The program's own status line, once it set one."""
+    pauses: list[HumanPause]
+    """Each Human pause waiting (ADR 0092)."""
+    position: Annotated[int, Field(ge=0)]
+    """
+    Its place among the Run's progress values, which only goes up:
+    `run.progress`'s `after` takes it.
+    """
     run_id: RunId
     """The Run's ID."""
+    stop_reason: StopReason | None = None
+    """Why it stopped, once it did."""
     storage: RunStorage | None = None
     """
     The worst storage level among the filesystems the Run writes to,
-    once the Resource governor sampled them (ADR 0122).
+    once one is above `normal` (ADR 0122).
     """
+    writer: RunWriter
+    """Whether an engine works it."""
 
 
 class RunStopping(BaseModel):

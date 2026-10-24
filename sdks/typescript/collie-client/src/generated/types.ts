@@ -143,12 +143,26 @@ export type DialogType = "alert" | "confirm" | "prompt" | "beforeunload";
  */
 export type DownloadId = string;
 /**
+ * A state of the element a locator matches (Playwright's `waitFor`).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ElementState".
+ */
+export type ElementState = "attached" | "detached" | "visible" | "hidden";
+/**
  * One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "EngineInstance".
  */
 export type EngineInstance = string;
+/**
+ * The engine's step that raised a Human pause.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EngineStep".
+ */
+export type EngineStep = "login_recovery" | "challenge_ladder";
 /**
  * The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
  * value, never an error, since a request is one among many.
@@ -190,6 +204,13 @@ export type Enqueued =
        */
       url: string;
     };
+/**
+ * Where a page function runs (ADR 0085).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "World".
+ */
+export type World = "main" | "isolated";
 /**
  * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
  *
@@ -286,6 +307,13 @@ export type LimitSetter = "person" | "managed_policy" | "client";
  * via the `definition` "LimitStanding".
  */
 export type LimitStanding = "held" | "foxhound" | "not_understood";
+/**
+ * A state the page's document reaches (Playwright's `LoadState`).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LoadState".
+ */
+export type LoadState = "domcontentloaded" | "load" | "networkidle";
 /**
  * Whether the extractor found the document's main content.
  *
@@ -482,6 +510,23 @@ export type PageEventName =
  */
 export type PageId = string;
 /**
+ * Who raised a Human pause.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PauseOrigin".
+ */
+export type PauseOrigin =
+  | {
+      by: "program";
+    }
+  | {
+      by: "engine";
+      /**
+       * The step.
+       */
+      step: "login_recovery" | "challenge_ladder";
+    };
+/**
  * How long a period Limit counts before it starts again (ADR 0041).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -615,6 +660,13 @@ export type Tag = string;
  */
 export type Tags = Tag[];
 /**
+ * Whether an engine works a Run (ADR 0102).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunWriter".
+ */
+export type RunWriter = "live" | "none";
+/**
  * A Session's event a program listens to.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -705,6 +757,30 @@ export interface CollieTypes {
  * via the `definition` "Acted".
  */
 export interface Acted {}
+/**
+ * What `page.add_init_script` takes: the page, and the script's source and
+ * argument.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "AddInitScriptParams".
+ */
+export interface AddInitScriptParams {
+  /**
+   * The function's one argument, JSON; absent for none.
+   */
+  arg?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The script's JavaScript source: a function, called with `arg`, or a
+   * script run as it is, which takes none.
+   */
+  function: string;
+  /**
+   * The page.
+   */
+  page_id: string;
+}
 /**
  * A Limit that applies to a Run (ADRs 0041 and 0101): its scope's kind and
  * ID, what it caps, its period, what it allows, what is left of it and who
@@ -1308,6 +1384,35 @@ export interface ConsoleFailure1 {
   message: string;
 }
 /**
+ * A count of matches, bounded on either side or both: an exact count is
+ * both bounds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Count".
+ */
+export interface Count {
+  /**
+   * The most; no bound when absent.
+   */
+  max?: number | null;
+  /**
+   * The fewest; no bound when absent.
+   */
+  min?: number | null;
+}
+/**
+ * What `locator.wait_for_count` answers: how many elements matched.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Counted".
+ */
+export interface Counted {
+  /**
+   * The number of matches.
+   */
+  count: number;
+}
+/**
  * The engine's CPU and Tokio workers, as the governor read them.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1723,6 +1828,49 @@ export interface ErrorData {
   [k: string]: unknown;
 }
 /**
+ * What `page.evaluate` takes: the page, the function's source, its
+ * argument and its world.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EvaluateParams".
+ */
+export interface EvaluateParams {
+  /**
+   * Its one argument, JSON; absent for none.
+   */
+  arg?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The page function's JavaScript source: a function, called with
+   * `arg`, or an expression, which takes none.
+   */
+  function: string;
+  /**
+   * The page.
+   */
+  page_id: string;
+  /**
+   * Where it runs; the main world when absent.
+   */
+  world?: World | null;
+}
+/**
+ * What `page.evaluate` answers: the function's result, awaited when it is
+ * a promise.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Evaluated".
+ */
+export interface Evaluated {
+  /**
+   * The result as JSON; absent when it was `undefined`.
+   */
+  value?: {
+    [k: string]: unknown;
+  };
+}
+/**
  * What `$/events` carries: a batch of one subscription's events, in the
  * order of their positions.
  *
@@ -2048,6 +2196,61 @@ export interface PrivateEndpoint {
    */
   token_file: string;
 }
+/**
+ * A Human pause waiting for a person (ADR 0092).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HumanPause".
+ */
+export interface HumanPause {
+  /**
+   * When it ends unanswered: the first of `timeout.human_pause` and, in
+   * a scheduled run, its pause timeout; none when it waits without
+   * limit.
+   */
+  deadline?: PointInTime | null;
+  /**
+   * The page that waits.
+   */
+  page: string;
+  /**
+   * Whether the program or the engine raised it.
+   */
+  raised_by:
+    | {
+        by: "program";
+      }
+    | {
+        by: "engine";
+        /**
+         * The step.
+         */
+        step: "login_recovery" | "challenge_ladder";
+      };
+  /**
+   * Why, as the program or the engine said it.
+   */
+  reason?: string | null;
+  /**
+   * The Session whose page waits.
+   */
+  session: string;
+  /**
+   * A point in time in UTC, as RFC 3339.
+   */
+  since: string;
+  /**
+   * The condition that ends it by itself, as text.
+   */
+  until?: string | null;
+}
+/**
+ * What an init script's subscription answers when its page closes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "InitScriptEnded".
+ */
+export interface InitScriptEnded {}
 /**
  * Bytes the store holds for a key, with their content type.
  *
@@ -2432,6 +2635,32 @@ export interface Locator2 {
   selector: string;
 }
 /**
+ * What `locator.wait_for` takes: the locator and the state of its element.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LocatorWaitForParams".
+ */
+export interface LocatorWaitForParams {
+  locator: Locator3;
+  /**
+   * The state; `visible` when absent.
+   */
+  state?: ElementState | null;
+}
+/**
+ * The locator.
+ */
+export interface Locator3 {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
+}
+/**
  * What `$/log` carries: one log event of the engine.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2613,7 +2842,8 @@ export interface NewSessionParams {
    * `.trackers`, `.annoyances`, `.first_party_scripts`,
    * `browser.block_resources` and `live_view.hiding` choose its pages'
    * Clean-up rules over the Run's, and `browser.service_workers` whether
-   * a site's service workers run in them. `session.source` is refused here with `setting_not_applicable`,
+   * a site's service workers run in them, and `session.page_check` the
+   * Page check its pages are judged against. `session.source` is refused here with `setting_not_applicable`,
    * as the call's own `source` sets it, and so is any other key, which
    * only the Run sets.
    */
@@ -3203,12 +3433,12 @@ export interface PressParams {
    * Playwright's key names.
    */
   key: string;
-  locator: Locator3;
+  locator: Locator4;
 }
 /**
  * The locator.
  */
-export interface Locator3 {
+export interface Locator4 {
   /**
    * The page it looks on.
    */
@@ -3234,6 +3464,14 @@ export interface ProxyKindBytes {
    */
   kind: string;
 }
+/**
+ * What `page.wait_for_url`, `page.wait_for_load_state` and
+ * `locator.wait_for` answer once the state they waited for came.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Reached".
+ */
+export interface Reached {}
 /**
  * The Limit a Run cannot take more of: what `limit_reached` details, and
  * what a Run stopped for it names (ADR 0041).
@@ -3685,14 +3923,33 @@ export interface RunParams {
   run_id: string;
 }
 /**
- * A Run's progress as it is now (ADR 0102): what `run.progress` reports.
+ * A Run's progress as it is now (ADR 0102): what `run.progress` answers
+ * and the `run.progress` event carries.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "RunProgress".
  */
 export interface RunProgress {
   /**
-   * Where it is.
+   * A point in time in UTC, as RFC 3339.
+   */
+  at: string;
+  /**
+   * When its last Checkpoint was written, once one was.
+   */
+  checkpoint_at?: PointInTime | null;
+  /**
+   * Its run epoch (ADR 0003), which a resume or a migration advances.
+   */
+  epoch: number;
+  /**
+   * Whether it is the sequence's last value: the Run ended, or no
+   * engine this one reaches works it, so nothing more comes until a
+   * start with its Run ID resumes it.
+   */
+  last: boolean;
+  /**
+   * Where the Run is.
    */
   lifecycle: "running" | "stopped" | "finished" | "failed";
   /**
@@ -3700,14 +3957,49 @@ export interface RunProgress {
    */
   message?: ProgressMessage | null;
   /**
+   * Each Human pause waiting (ADR 0092).
+   */
+  pauses: HumanPause[];
+  /**
+   * Its place among the Run's progress values, which only goes up:
+   * `run.progress`'s `after` takes it.
+   */
+  position: number;
+  /**
    * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
   /**
+   * Why it stopped, once it did.
+   */
+  stop_reason?: StopReason | null;
+  /**
    * The worst storage level among the filesystems the Run writes to,
-   * once the Resource governor sampled them (ADR 0122).
+   * once one is above `normal` (ADR 0122).
    */
   storage?: RunStorage | null;
+  /**
+   * Whether an engine works it.
+   */
+  writer: "live" | "none";
+  [k: string]: unknown;
+}
+/**
+ * It could not take another Slice of a Limit, and stopped at its next
+ * safe point, resumable once the period starts again or a person
+ * raises the Limit (ADR 0041).
+ */
+export interface ReachedLimit1 {
+  kind: "limit";
+}
+/**
+ * A Limit flagged *must understand* that its engine cannot evaluate
+ * came to cover it when it charged, and it stopped at its next safe
+ * point, resumable by an engine that can (ADR 0041): the stop of the
+ * Error code `limit_not_understood`.
+ */
+export interface NotUnderstoodLimit1 {
+  kind: "limit_not_understood";
 }
 /**
  * The worst storage level among the filesystems a Run writes to, with
@@ -3729,6 +4021,24 @@ export interface RunStorage {
    * The level.
    */
   level: "normal" | "low" | "critical";
+}
+/**
+ * What `run.progress` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunProgressParams".
+ */
+export interface RunProgressParams {
+  /**
+   * The position of the value the reader last read: the answer is the
+   * latest value after it, once one comes. Absent, the Run's progress
+   * at once.
+   */
+  after?: number | null;
+  /**
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   */
+  run_id: string;
 }
 /**
  * What a Run states about itself when it ends (ADR 0102). A part no area
@@ -3831,23 +4141,6 @@ export interface RunReport {
    */
   weakened?: WeakenedSetting[];
   [k: string]: unknown;
-}
-/**
- * It could not take another Slice of a Limit, and stopped at its next
- * safe point, resumable once the period starts again or a person
- * raises the Limit (ADR 0041).
- */
-export interface ReachedLimit1 {
-  kind: "limit";
-}
-/**
- * A Limit flagged *must understand* that its engine cannot evaluate
- * came to cover it when it charged, and it stopped at its next safe
- * point, resumable by an engine that can (ADR 0041): the stop of the
- * Error code `limit_not_understood`.
- */
-export interface NotUnderstoodLimit1 {
-  kind: "limit_not_understood";
 }
 /**
  * An Effect a Run left uncertain (ADR 0106), until a person reconciles it.
@@ -4795,6 +5088,110 @@ export interface UsageSetParams {
   usage_kind: string;
 }
 /**
+ * What `locator.wait_for_count` takes: the locator and the count its
+ * matches must reach.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitForCountParams".
+ */
+export interface WaitForCountParams {
+  count: Count1;
+  locator: Locator5;
+}
+/**
+ * The count.
+ */
+export interface Count1 {
+  /**
+   * The most; no bound when absent.
+   */
+  max?: number | null;
+  /**
+   * The fewest; no bound when absent.
+   */
+  min?: number | null;
+}
+/**
+ * The locator.
+ */
+export interface Locator5 {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
+}
+/**
+ * What `page.wait_for_request` and `page.wait_for_response` take: the
+ * page, and the URLs of the requests they wait for; any request when none
+ * is given.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitForExchangeParams".
+ */
+export interface WaitForExchangeParams {
+  /**
+   * A page of a Run, named by the engine when it opens it.
+   */
+  page_id: string;
+  /**
+   * The URLs it waits for.
+   */
+  url?: UrlMatcher | null;
+}
+/**
+ * What `page.wait_for_function` takes: the page, the function's source,
+ * its argument, its world, and how often it is checked.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitForFunctionParams".
+ */
+export interface WaitForFunctionParams {
+  /**
+   * Its one argument, JSON; absent for none.
+   */
+  arg?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The page function's JavaScript source: a function, called with
+   * `arg`, or an expression, which takes none.
+   */
+  function: string;
+  /**
+   * A page of a Run, named by the engine when it opens it.
+   */
+  page_id: string;
+  /**
+   * The milliseconds between two checks, at least 1; absent, about one
+   * frame's, 16.
+   */
+  polling_interval?: number | null;
+  /**
+   * Where it runs; the main world when absent.
+   */
+  world?: World | null;
+}
+/**
+ * What `page.wait_for_load_state` takes: the page and the state.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitForLoadStateParams".
+ */
+export interface WaitForLoadStateParams {
+  /**
+   * A page of a Run, named by the engine when it opens it.
+   */
+  page_id: string;
+  /**
+   * The state; `load` when absent.
+   */
+  state?: LoadState | null;
+}
+/**
  * What `page.wait_for_request_finished` takes: the page, and the URLs of
  * the requests it waits for; any request when none is given.
  *
@@ -4810,6 +5207,45 @@ export interface WaitForRequestFinishedParams {
    * The URLs it waits for.
    */
   url?: UrlMatcher | null;
+}
+/**
+ * What `page.wait_for_url` takes: the page, the URL it waits for, and the
+ * state a new document must reach.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WaitForUrlParams".
+ */
+export interface WaitForUrlParams {
+  /**
+   * A page of a Run, named by the engine when it opens it.
+   */
+  page_id: string;
+  /**
+   * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
+   * one, or a regular expression in the `regex` crate's syntax. A predicate
+   * runs in the program, which routes every URL and falls back for the
+   * requests it does not match.
+   */
+  url:
+    | {
+        kind: "glob";
+        /**
+         * The glob.
+         */
+        pattern: string;
+      }
+    | {
+        kind: "regex";
+        /**
+         * The expression's source.
+         */
+        pattern: string;
+      };
+  /**
+   * The state a new document at that URL must reach; `load` when
+   * absent. A change within the document waits for none.
+   */
+  wait_until?: LoadState | null;
 }
 /**
  * What `page.page_error` reports, `WebError`: an exception the page did

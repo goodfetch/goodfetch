@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::entropy::Entropy;
-use goodfetch_engine::politeness::{Ending, PermitRule, Verdict};
+use goodfetch_engine::politeness::{Ending, Hold, PermitRule, Verdict};
 use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::SettingsLayer;
@@ -90,7 +90,7 @@ fn each_run_waits_its_own_delay_after_any_sharing_runs_last_start() {
         two_seconds.admit(&file, KEY, 0, at(11)).unwrap(),
     );
 
-    assert_eq!(verdicts, (Verdict::Go, Verdict::Until(at(12))));
+    assert_eq!(verdicts, (Verdict::Go, Verdict::Until(at(12), Hold::Delay)));
 }
 
 /// Covers: story:3-80, story:3-159
@@ -116,7 +116,7 @@ fn what_one_run_met_holds_every_run_sharing_the_key(
         (earliest..=latest).contains(&ready_at),
         "{ready_at:?} outside {earliest:?}..={latest:?}"
     );
-    assert_eq!(other, Verdict::Until(ready_at));
+    assert_eq!(other, Verdict::Until(ready_at, Hold::BackOff));
 }
 
 /// A `Retry-After` shorter than the backoff it came with adds no wait: the
@@ -204,7 +204,7 @@ fn a_retry_after_past_the_backoffs_longest_wait_holds_every_run_until_then() {
 
     let other = concurrency(8).admit(&file, KEY, 0, at(1)).unwrap();
 
-    assert_eq!(other, Verdict::Until(at(600)));
+    assert_eq!(other, Verdict::Until(at(600), Hold::BackOff));
 }
 
 /// A site that asks for an hour is past the 15 minutes a run waits by
@@ -237,8 +237,8 @@ fn a_retry_after_past_a_runs_bound_refuses_its_requests_until_the_time_is_within
         verdicts,
         (
             Verdict::Refused(at(3_600)),
-            Verdict::Until(at(3_600)),
-            Verdict::Until(at(3_600))
+            Verdict::Until(at(3_600), Hold::BackOff),
+            Verdict::Until(at(3_600), Hold::BackOff)
         )
     );
 }

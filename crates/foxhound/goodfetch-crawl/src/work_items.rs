@@ -16,6 +16,8 @@
 //! visited set, in the same run file, decides; it keeps the method and body
 //! it is sent with.
 
+use std::collections::BTreeSet;
+
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit};
@@ -617,6 +619,26 @@ pub(crate) fn release_leases(connection: &Connection) -> rusqlite::Result<()> {
         (PENDING, LEASED),
     )?;
     Ok(())
+}
+
+/// How many work items are pending, and each leased one, in flight, by its
+/// ID with its attempt.
+pub(crate) fn pending_and_leased(
+    connection: &Connection,
+) -> rusqlite::Result<(u64, BTreeSet<(String, u32)>)> {
+    let pending = connection
+        .query_row(
+            "SELECT COUNT(*) FROM work_items WHERE status = ?1",
+            [PENDING],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|pending| u64::try_from(pending).unwrap_or(0))?;
+    let mut statement =
+        connection.prepare("SELECT id, attempts FROM work_items WHERE status = ?1")?;
+    let leased = statement
+        .query_map([LEASED], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok((pending, leased))
 }
 
 /// How many work items are left to deliver: pending, or leased to an

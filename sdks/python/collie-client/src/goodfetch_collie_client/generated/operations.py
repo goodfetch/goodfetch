@@ -10,7 +10,7 @@ from typing import Any, Protocol, cast
 from pydantic import BaseModel
 from typing_extensions import deprecated
 
-from .models import Acted, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EngineInfo, EngineInfoParams, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LogLevelSet, Navigated, NewPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRequestParams, PageResponse, PageRouteParams, PressParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunParams, RunProgress, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForRequestFinishedParams
+from .models import Acted, AddInitScriptParams, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorWaitForParams, LogLevelSet, Navigated, NewPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 
 
 class AsyncCaller(Protocol):
@@ -173,6 +173,27 @@ class AsyncCollieOperations:
         """
         return Acted.model_construct(**_fields(await self._caller.call("locator.press", params)))
 
+    async def locator_wait_for(self, params: LocatorWaitForParams) -> Reached:
+        """Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past `timeout.wait`, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Reached.model_construct(**_fields(await self._caller.call("locator.wait_for", params)))
+
+    async def locator_wait_for_count(self, params: WaitForCountParams) -> Counted:
+        """Waits until the number of elements the locator matches is within the count, and answers it. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Counted.model_construct(**_fields(await self._caller.call("locator.wait_for_count", params)))
+
+    async def page_add_init_script(self, params: AddInitScriptParams) -> InitScriptEnded:
+        """Registers a script, registered when the call arrives, that runs in the main world of every document the page loads afterwards, its frames' included, before the document's own scripts: the call stays in flight, and a navigation sent after it waits until the script is registered. A function is called with its one JSON argument. The Session's Provenance marks the main-world injection. Cancelling the call, as closing its `Subscription` does, removes the script; it answers when the page closes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return InitScriptEnded.model_construct(**_fields(await self._caller.call("page.add_init_script", params)))
+
     async def page_body(self, params: PageBodyParams) -> PageBodyRead:
         """Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.
 
@@ -186,6 +207,13 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageClosed.model_construct(**_fields(await self._caller.call("page.close", params)))
+
+    async def page_evaluate(self, params: EvaluateParams) -> Evaluated:
+        """Runs a page function in the page's main frame with its one JSON argument, in the main world, where the page's globals are, or in an isolated world the page neither sees nor hooks, and answers its result, awaited, as JSON; a result of `undefined` answers no value. A value outside JSON in the result raises `page_value_invalid` naming its path and kind, and an exception thrown in the page `page_function_failed`. It is no gesture: it runs beside the page's actions. A main-world call is marked in the Session's Provenance.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Evaluated.model_construct(**_fields(await self._caller.call("page.evaluate", params)))
 
     async def page_formats(self, params: FormatsParams) -> PageFormats:
         """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
@@ -250,12 +278,47 @@ class AsyncCollieOperations:
         """
         return RouteEnded.model_construct(**_fields(await self._caller.call("page.route", params)))
 
+    async def page_wait_for_function(self, params: WaitForFunctionParams) -> Evaluated:
+        """Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Evaluated.model_construct(**_fields(await self._caller.call("page.wait_for_function", params)))
+
+    async def page_wait_for_load_state(self, params: WaitForLoadStateParams) -> Reached:
+        """Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Reached.model_construct(**_fields(await self._caller.call("page.wait_for_load_state", params)))
+
+    async def page_wait_for_request(self, params: WaitForExchangeParams) -> PageRequest:
+        """Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageRequest.model_construct(**_fields(await self._caller.call("page.wait_for_request", params)))
+
     async def page_wait_for_request_finished(self, params: WaitForRequestFinishedParams) -> PageExchange:
         """Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past `timeout.wait`, it fails with `deadline_exceeded`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageExchange.model_construct(**_fields(await self._caller.call("page.wait_for_request_finished", params)))
+
+    async def page_wait_for_response(self, params: WaitForExchangeParams) -> PageExchange:
+        """Waits, armed when the call arrives, until a request of the page whose URL matches gets its response, a redirect's included, and answers both, so a response an action triggers is caught by a waiter sent before the action, even one that arrives before the program awaits it. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageExchange.model_construct(**_fields(await self._caller.call("page.wait_for_response", params)))
+
+    async def page_wait_for_url(self, params: WaitForUrlParams) -> Reached:
+        """Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Reached.model_construct(**_fields(await self._caller.call("page.wait_for_url", params)))
 
     async def response_body(self, params: ResponseBodyParams) -> BodyHandle:
         """Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole.
@@ -354,6 +417,20 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunReport.model_construct(**_fields(await self._caller.call("run.pause", params)))
+
+    async def run_progress(self, params: RunProgressParams) -> RunProgress:
+        """Reads a Run's progress: what it does and why it waits. Without `after`, it answers at once; given `after`, the position of the value the reader last read, it waits for a change and answers the latest value, so values in between are coalesced. The value whose `last` is true ends the sequence: the Run ended, and its `lifecycle` and `stop_reason` say how, or no engine works it (`writer: none`) until a start with its Run ID resumes it. A Run another engine works is read through that engine, the owner the Run index names, and one no engine works from its committed state; a read never takes the Run's writer lock. A Run ID the Run index does not list fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunProgress.model_construct(**_fields(await self._caller.call("run.progress", params)))
+
+    async def run_report(self, params: RunParams) -> RunReport:
+        """Reads a Run's report: at once for a Run that ended, and at its end for a live one, which the read never ends. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. A Run that has no live writer and has not ended fails with `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the Run index does not list with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(await self._caller.call("run.report", params)))
 
     async def run_resume(self, params: RunResumeParams) -> RunStarted:
         """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.
@@ -589,6 +666,27 @@ class CollieOperations:
         """
         return Acted.model_construct(**_fields(self._caller.call("locator.press", params)))
 
+    def locator_wait_for(self, params: LocatorWaitForParams) -> Reached:
+        """Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past `timeout.wait`, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Reached.model_construct(**_fields(self._caller.call("locator.wait_for", params)))
+
+    def locator_wait_for_count(self, params: WaitForCountParams) -> Counted:
+        """Waits until the number of elements the locator matches is within the count, and answers it. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Counted.model_construct(**_fields(self._caller.call("locator.wait_for_count", params)))
+
+    def page_add_init_script(self, params: AddInitScriptParams) -> InitScriptEnded:
+        """Registers a script, registered when the call arrives, that runs in the main world of every document the page loads afterwards, its frames' included, before the document's own scripts: the call stays in flight, and a navigation sent after it waits until the script is registered. A function is called with its one JSON argument. The Session's Provenance marks the main-world injection. Cancelling the call, as closing its `Subscription` does, removes the script; it answers when the page closes.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return InitScriptEnded.model_construct(**_fields(self._caller.call("page.add_init_script", params)))
+
     def page_body(self, params: PageBodyParams) -> PageBodyRead:
         """Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.
 
@@ -602,6 +700,13 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageClosed.model_construct(**_fields(self._caller.call("page.close", params)))
+
+    def page_evaluate(self, params: EvaluateParams) -> Evaluated:
+        """Runs a page function in the page's main frame with its one JSON argument, in the main world, where the page's globals are, or in an isolated world the page neither sees nor hooks, and answers its result, awaited, as JSON; a result of `undefined` answers no value. A value outside JSON in the result raises `page_value_invalid` naming its path and kind, and an exception thrown in the page `page_function_failed`. It is no gesture: it runs beside the page's actions. A main-world call is marked in the Session's Provenance.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Evaluated.model_construct(**_fields(self._caller.call("page.evaluate", params)))
 
     def page_formats(self, params: FormatsParams) -> PageFormats:
         """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
@@ -666,12 +771,47 @@ class CollieOperations:
         """
         return RouteEnded.model_construct(**_fields(self._caller.call("page.route", params)))
 
+    def page_wait_for_function(self, params: WaitForFunctionParams) -> Evaluated:
+        """Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Evaluated.model_construct(**_fields(self._caller.call("page.wait_for_function", params)))
+
+    def page_wait_for_load_state(self, params: WaitForLoadStateParams) -> Reached:
+        """Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Reached.model_construct(**_fields(self._caller.call("page.wait_for_load_state", params)))
+
+    def page_wait_for_request(self, params: WaitForExchangeParams) -> PageRequest:
+        """Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageRequest.model_construct(**_fields(self._caller.call("page.wait_for_request", params)))
+
     def page_wait_for_request_finished(self, params: WaitForRequestFinishedParams) -> PageExchange:
         """Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past `timeout.wait`, it fails with `deadline_exceeded`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return PageExchange.model_construct(**_fields(self._caller.call("page.wait_for_request_finished", params)))
+
+    def page_wait_for_response(self, params: WaitForExchangeParams) -> PageExchange:
+        """Waits, armed when the call arrives, until a request of the page whose URL matches gets its response, a redirect's included, and answers both, so a response an action triggers is caught by a waiter sent before the action, even one that arrives before the program awaits it. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return PageExchange.model_construct(**_fields(self._caller.call("page.wait_for_response", params)))
+
+    def page_wait_for_url(self, params: WaitForUrlParams) -> Reached:
+        """Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past `timeout.wait`, it fails with `deadline_exceeded`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Reached.model_construct(**_fields(self._caller.call("page.wait_for_url", params)))
 
     def response_body(self, params: ResponseBodyParams) -> BodyHandle:
         """Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole.
@@ -770,6 +910,20 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunReport.model_construct(**_fields(self._caller.call("run.pause", params)))
+
+    def run_progress(self, params: RunProgressParams) -> RunProgress:
+        """Reads a Run's progress: what it does and why it waits. Without `after`, it answers at once; given `after`, the position of the value the reader last read, it waits for a change and answers the latest value, so values in between are coalesced. The value whose `last` is true ends the sequence: the Run ended, and its `lifecycle` and `stop_reason` say how, or no engine works it (`writer: none`) until a start with its Run ID resumes it. A Run another engine works is read through that engine, the owner the Run index names, and one no engine works from its committed state; a read never takes the Run's writer lock. A Run ID the Run index does not list fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunProgress.model_construct(**_fields(self._caller.call("run.progress", params)))
+
+    def run_report(self, params: RunParams) -> RunReport:
+        """Reads a Run's report: at once for a Run that ended, and at its end for a live one, which the read never ends. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. A Run that has no live writer and has not ended fails with `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the Run index does not list with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RunReport.model_construct(**_fields(self._caller.call("run.report", params)))
 
     def run_resume(self, params: RunResumeParams) -> RunStarted:
         """Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.

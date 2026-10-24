@@ -191,6 +191,8 @@ pub struct Resolved {
     settings: BTreeMap<&'static str, Effective>,
     unapplied: BTreeMap<&'static str, Unapplied>,
     policy_version: Option<String>,
+    /// Whether a Recipe's layer took part.
+    recipe_run: bool,
 }
 
 impl Resolved {
@@ -296,6 +298,11 @@ impl Resolved {
             beneath.settings.insert(name, state.effective);
         }
         Ok(beneath)
+    }
+
+    /// Whether the Run is a Recipe's.
+    pub fn recipe_run(&self) -> bool {
+        self.recipe_run
     }
 
     /// The version of the Operator policy it resolved under.
@@ -436,6 +443,7 @@ pub fn resolve(layers: &Layers, engine: Product, run: Product) -> Result<Resolve
         settings,
         unapplied: unapplied(layers),
         policy_version: layers.operator_policy.version.clone(),
+        recipe_run: layers.recipe.is_some(),
     })
 }
 

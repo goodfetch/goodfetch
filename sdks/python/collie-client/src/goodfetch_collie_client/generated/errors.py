@@ -266,6 +266,14 @@ class LimitReachedError(RefusedError):
         super().__init__(message, code="limit_reached", group="refused", retryable=False)
 
 
+class LoggedOutError(PageError):
+    """The document the navigation reached is a login page, even one answered with a 200: the Session's login is lost, judged by its Page check's `login_page`, or by the built-in detector when it declares none. The page stays on the login page, the Session open with its cookies. The details name the URL, the status and what judged it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="logged_out", group="page", retryable=False)
+
+
 class NameLookupFailedError(UnavailableError):
     """The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting."""
 
@@ -314,12 +322,28 @@ class NotInProductError(UnavailableError):
         super().__init__(message, code="not_in_product", group="unavailable", retryable=False)
 
 
+class PageCheckFailedError(PageError):
+    """The document the navigation reached is neither the expected page nor the login page of its Session's Page check, `session.page_check`, whatever its HTTP status: a page the program did not mean to reach, such as an error page or a layout the site changed. The page stays on that document. The details name its URL and status."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="page_check_failed", group="page", retryable=False)
+
+
 class PageCrashedError(UnavailableError):
     """The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="page_crashed", group="unavailable", retryable=True)
+
+
+class PageFunctionFailedError(ProgramError):
+    """A page function threw in the page, or did not parse, or is an expression given an argument, which only a function takes. The details give the error's name, its message and the page's stack. A page function sees only the page and its one argument, never the program's variables, so a `ReferenceError`'s fix names the argument: pass the value in it."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="page_function_failed", group="program", retryable=False)
 
 
 class PageHandlerFailedError(ProgramError):
@@ -336,6 +360,14 @@ class PageMemoryExceededError(UnavailableError):
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="page_memory_exceeded", group="unavailable", retryable=True)
+
+
+class PageValueInvalidError(ProgramError):
+    """A page function's result, or its argument, holds a value outside JSON, such as a DOM node, `NaN`, `Infinity`, a function, a `Map`, a `BigInt` or a cycle, which Playwright would have turned into `undefined`, silently. The details name the first such value's path from `$`, its kind and the fix: return the JSON the program needs, such as an element's text or attribute instead of the element."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="page_value_invalid", group="program", retryable=False)
 
 
 class PathNotWritableError(ProgramError):
@@ -448,6 +480,14 @@ class RunInUseError(RefusedError):
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="run_in_use", group="refused", retryable=True)
+
+
+class RunInterruptedError(UnavailableError):
+    """The Run has no live writer and has not ended, as after a crash, so it has no report and none comes: a start with its Run ID resumes it. The details name the Run."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="run_interrupted", group="unavailable", retryable=False)
 
 
 class RunKeyMismatchError(UnavailableError):
@@ -637,15 +677,19 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "format_version_unsupported": FormatVersionUnsupportedError,
     "limit_not_understood": LimitNotUnderstoodError,
     "limit_reached": LimitReachedError,
+    "logged_out": LoggedOutError,
     "name_lookup_failed": NameLookupFailedError,
     "name_not_resolved": NameNotResolvedError,
     "navigation_failed": NavigationFailedError,
     "navigation_interrupted": NavigationInterruptedError,
     "not_a_daemon": NotADaemonError,
     "not_in_product": NotInProductError,
+    "page_check_failed": PageCheckFailedError,
     "page_crashed": PageCrashedError,
+    "page_function_failed": PageFunctionFailedError,
     "page_handler_failed": PageHandlerFailedError,
     "page_memory_exceeded": PageMemoryExceededError,
+    "page_value_invalid": PageValueInvalidError,
     "path_not_writable": PathNotWritableError,
     "pattern_unsupported": PatternUnsupportedError,
     "person_required": PersonRequiredError,
@@ -660,6 +704,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "run_ended": RunEndedError,
     "run_id_invalid": RunIdInvalidError,
     "run_in_use": RunInUseError,
+    "run_interrupted": RunInterruptedError,
     "run_key_mismatch": RunKeyMismatchError,
     "run_live": RunLiveError,
     "run_not_found": RunNotFoundError,

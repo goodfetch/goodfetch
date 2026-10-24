@@ -183,7 +183,7 @@ pub(super) fn run_trace(target: &EngineTarget, run_id: &str) -> Vec<Value> {
 }
 
 /// The lines of the Run `run_id`'s Provenance log in the Run trace.
-fn provenance(target: &EngineTarget, run_id: &str) -> Vec<Value> {
+pub(super) fn provenance(target: &EngineTarget, run_id: &str) -> Vec<Value> {
     trace_lines(target, run_id, "trace/provenance.jsonl")
 }
 

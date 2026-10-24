@@ -325,9 +325,12 @@ fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
 
 /// The fetch suite against Foxhound's Attached engine: a crawl request
 /// under `fetch.tier: http` is fetched over HTTP, decoded, and handed to
-/// its handler as a page `page.formats` reads, the site seeing one request.
+/// its handler as a page `page.formats` reads, the site seeing one request;
+/// a cut body fails its attempt and never reaches the handler, a body its
+/// connection's close delimits does, and a request the site never
+/// processed is sent once more, counted nowhere.
 ///
-/// Covers: story:5-128
+/// Covers: story:5-126, story:5-127, story:5-128
 #[test]
 fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
     let env = TestEnv::new();
@@ -341,11 +344,28 @@ fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
     assert_eq!(
         (outcomes(&document), case_outcomes(&document)),
         (
-            vec![("fetch.tier.http", Outcome::Proved)],
-            vec![(
-                "a-request-fetched-over-http-hands-its-handler-the-document-on-a-page",
-                CaseOutcome::Passed
-            )]
+            vec![
+                ("fetch.tier.http", Outcome::Proved),
+                ("fetch.edge.http", Outcome::Proved)
+            ],
+            vec![
+                (
+                    "a-request-fetched-over-http-hands-its-handler-the-document-on-a-page",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-cut-body-fails-its-attempt-with-response-truncated-and-never-reaches-the-handler",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-body-its-connections-close-delimits-reaches-the-handler-whole",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-request-the-site-never-processed-is-sent-once-more-and-counted-nowhere",
+                    CaseOutcome::Passed
+                ),
+            ]
         ),
         "{}",
         serde_json::to_string_pretty(&document).unwrap()
@@ -572,5 +592,34 @@ fn a_case_id_the_harness_does_not_run_is_refused() {
     assert_eq!(
         refused.to_string(),
         "the case `engine-info-is-fast` names no exchange the harness runs"
+    );
+}
+
+#[test]
+fn a_suite_narrowed_to_some_capabilities_keeps_them_in_its_own_order() {
+    let narrowed = ProtocolSuite::embedded()
+        .with_capabilities(&["cancellation", "engine.info"])
+        .unwrap();
+
+    assert_eq!(
+        narrowed
+            .case_list()
+            .capabilities
+            .iter()
+            .map(|capability| capability.name.as_str())
+            .collect::<Vec<_>>(),
+        ["engine.info", "cancellation"]
+    );
+}
+
+#[test]
+fn a_capability_the_suite_does_not_declare_is_refused() {
+    let refused = ProtocolSuite::embedded()
+        .with_capabilities(&["engine.info", "engine.speed"])
+        .unwrap_err();
+
+    assert_eq!(
+        refused.to_string(),
+        "the suite `protocol` declares no capability `engine.speed`"
     );
 }

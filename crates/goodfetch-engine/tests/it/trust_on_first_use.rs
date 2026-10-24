@@ -141,6 +141,7 @@ impl Fixture {
                 .with_private_ranges(&[self.proving_ground.address().ip().to_string()])
                 .unwrap(),
             resolve,
+            proxy: None,
             trust: Trust::default_roots()
                 .with_trusted_cas(VERIFIED, vec![authority])
                 .unwrap(),

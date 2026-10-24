@@ -4,18 +4,24 @@
 // milliseconds pass, and answers what it saw last. A ready pointer target gets
 // the interception listener armed on the window, which cancels every event of
 // the gesture that reaches another element; a ready text target gets the
-// focus, and for `fill` its text selected. The target is a CSS selector's one
+// focus, and for `fill` its text selected. A locator wait (ADR 0080) passes a
+// state for `action` instead, `attached`, `detached`, `visible` or `hidden`,
+// or `count` with its `min` and `max`, and the check only observes the
+// matches until they are in it, answering their count for `count`. The target is a CSS selector's one
 // match, or the element another engine script handed the guard by `handle` in
 // the world's registry (the Consent prompt runner's clicks). CDP sends this one
 // function, so its helpers live inside it.
 /* eslint-disable unicorn/consistent-function-scoping -- CDP sends the function alone */
 // eslint-disable-next-line no-unused-vars -- `Runtime.callFunctionOn` calls it
-async function check({ selector, handle, action, events, slice }) {
+async function check({ selector, handle, action, events, slice, min, max }) {
   const world = globalThis;
   // The arm's key, in the guard's world's own registry, which no page sees.
   const ARM = Symbol.for("goodfetch.guard.arm");
+  // The locator waits' states, whose checks arm nothing and leave a
+  // gesture's arm in place.
+  const WAITS = ["attached", "detached", "visible", "hidden", "count"];
   // An arm a cancelled call left behind never outlives the next check.
-  world[ARM]?.disarm();
+  if (!WAITS.includes(action)) world[ARM]?.disarm();
   const end = performance.now() + slice;
   const VOID = [
     "area",
@@ -78,6 +84,10 @@ async function check({ selector, handle, action, events, slice }) {
     visit(document);
     return found;
   };
+  const shown = (element) => {
+    const box = element.getBoundingClientRect();
+    return box.width > 0 && box.height > 0 && getComputedStyle(element).visibility === "visible";
+  };
   const disabled = (element) =>
     element.matches(":disabled") || element.closest('[aria-disabled="true"]') !== null;
   const editable = (element) => {
@@ -100,6 +110,30 @@ async function check({ selector, handle, action, events, slice }) {
     if (step !== "stable") previous = null;
     return { state: "waiting", step, observed };
   };
+  // A locator wait's state, which acts on nothing.
+  const reached = (found) => {
+    const count = found.length;
+    if (action === "count") {
+      return (min === undefined || count >= min) && (max === undefined || count <= max)
+        ? { state: "ready", count }
+        : waiting("count", `${count} elements match`);
+    }
+    if (action === "detached") {
+      return count === 0 ? { state: "ready" } : waiting("detached", `${count} elements match`);
+    }
+    if (count > 1)
+      return { ...waiting("unique", `${count} elements match`), matches: found.map(describe) };
+    const element = found[0];
+    if (action === "hidden") {
+      return element === undefined || !shown(element)
+        ? { state: "ready" }
+        : waiting("hidden", `${describe(element)} is visible`);
+    }
+    if (element === undefined) return waiting("attached", "no element matches");
+    if (action === "visible" && !shown(element))
+      return waiting("visible", `${describe(element)} is not visible`);
+    return { state: "ready" };
+  };
   const observe = () => {
     let found;
     try {
@@ -107,6 +141,7 @@ async function check({ selector, handle, action, events, slice }) {
     } catch (error) {
       return { state: "invalid", message: String(error?.message ?? error) };
     }
+    if (WAITS.includes(action)) return reached(found);
     if (found.length === 0) return waiting("attached", "no element matches");
     if (found.length > 1)
       return {
@@ -114,10 +149,8 @@ async function check({ selector, handle, action, events, slice }) {
         matches: found.map(describe),
       };
     const element = found[0];
+    if (!shown(element)) return waiting("visible", `${describe(element)} is not visible`);
     let box = element.getBoundingClientRect();
-    if (!(box.width > 0 && box.height > 0) || getComputedStyle(element).visibility !== "visible") {
-      return waiting("visible", `${describe(element)} is not visible`);
-    }
     if (disabled(element)) return waiting("enabled", `${describe(element)} is disabled`);
     if (action === "fill" && !editable(element))
       return waiting("editable", `${describe(element)} is not editable`);

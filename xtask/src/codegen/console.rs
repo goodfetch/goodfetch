@@ -3,8 +3,10 @@
 //! included (a person's answers, the SDKs' own), each with its params and
 //! result in wire names, which types the Console's raw catalog call so a
 //! screen's call to an operation outside the catalog fails the type check;
-//! and each event's class, lossless or telemetry, which the Console's
-//! subscription marks its events with. The types come from Collie's client
+//! each event's class, lossless or telemetry, which the Console's
+//! subscription marks its events with; and each operation's class, read,
+//! idempotent write or Effect, which tells the Console's Client what it
+//! may send again after a reconnect. The types come from Collie's client
 //! package, whose generated layer defines every type of the projection.
 
 use std::collections::BTreeSet;
@@ -65,7 +67,16 @@ fn operations(collie: &Value) -> Result<String> {
         let params = type_name(&operation["params"])?;
         let result = type_name(&operation["result"])?;
         types.extend([params, result]);
-        rows.push((name(operation)?, params, result));
+        let class = operation
+            .get("class")
+            .and_then(Value::as_str)
+            .with_context(|| {
+                format!(
+                    "the operation `{}` has no class",
+                    name(operation).unwrap_or("?")
+                )
+            })?;
+        rows.push((name(operation)?, params, result, class));
     }
     let mut classes = Vec::new();
     for event in entries(collie, "events")? {
@@ -84,7 +95,7 @@ fn operations(collie: &Value) -> Result<String> {
         names.join(", ")
     );
     text.push_str("\n/**\n * The params and result of each operation of Collie's catalog, in wire names,\n * those kept off agent surfaces included: what the Console's raw catalog\n * call takes and answers (ADR 0099).\n */\nexport interface ConsoleOperations {\n");
-    for (operation, params, result) in &rows {
+    for (operation, params, result, _) in &rows {
         let _ = writeln!(
             text,
             "  {operation:?}: {{ params: {params}; result: {result} }};"
@@ -93,6 +104,10 @@ fn operations(collie: &Value) -> Result<String> {
     text.push_str("}\n\n/** How each of Collie's events travels: `lossless`, never missed, or `telemetry`, coalesced. */\nexport type EventClass = \"lossless\" | \"telemetry\";\n\n/** The class of each of Collie's events. */\nexport const eventClasses: Readonly<Record<keyof CollieEventPayloads, EventClass>> = {\n");
     for (event, class) in &classes {
         let _ = writeln!(text, "  {event:?}: {class:?},");
+    }
+    text.push_str("};\n\n/** What calling an operation does: `read` changes nothing, `idempotent_write` changes nothing more when called again, and `effect` acts on the world (ADR 0010). */\nexport type OperationClass = \"read\" | \"idempotent_write\" | \"effect\";\n\n/** The class of each operation of Collie's catalog, which tells the Console's Client what it may send again after a reconnect (ADR 0079). */\nexport const operationClasses: Readonly<Record<keyof ConsoleOperations, OperationClass>> = {\n");
+    for (operation, _, _, class) in &rows {
+        let _ = writeln!(text, "  {operation:?}: {class:?},");
     }
     text.push_str("};\n");
     Ok(text)
@@ -104,13 +119,13 @@ mod tests {
 
     use super::operations;
 
-    /// Covers: story:12-1
+    /// Covers: story:12-1, story:12-123
     #[test]
     fn the_consoles_map_holds_every_operation_a_persons_answer_included_and_each_events_class() {
         let collie = json!({
             "operations": [
-                { "name": "widget.spin", "params": { "$ref": "#/$defs/SpinParams" }, "result": { "$ref": "#/$defs/Spun" }, "reach": "all_surfaces" },
-                { "name": "widget.raise", "params": { "$ref": "#/$defs/RaiseParams" }, "result": { "$ref": "#/$defs/Raised" }, "reach": "person_only" },
+                { "name": "widget.spin", "class": "effect", "params": { "$ref": "#/$defs/SpinParams" }, "result": { "$ref": "#/$defs/Spun" }, "reach": "all_surfaces" },
+                { "name": "widget.raise", "class": "idempotent_write", "params": { "$ref": "#/$defs/RaiseParams" }, "result": { "$ref": "#/$defs/Raised" }, "reach": "person_only" },
             ],
             "events": [
                 { "name": "widget.spun", "class": "telemetry", "payload": { "$ref": "#/$defs/Spun" } },
@@ -129,6 +144,10 @@ mod tests {
         );
         assert!(
             text.contains("  \"widget.spun\": \"telemetry\",\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("export const operationClasses: Readonly<Record<keyof ConsoleOperations, OperationClass>> = {\n  \"widget.spin\": \"effect\",\n  \"widget.raise\": \"idempotent_write\",\n};\n"),
             "{text}"
         );
     }

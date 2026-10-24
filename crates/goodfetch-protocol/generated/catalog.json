@@ -332,6 +332,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The document the navigation reached is a login page, even one answered with a 200: the Session's login is lost, judged by its Page check's `login_page`, or by the built-in detector when it declares none. The page stays on the login page, the Session open with its cookies. The details name the URL, the status and what judged it.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "logged_out",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine's own resolver got no usable answer for the host name: its name servers timed out, refused the query, failed or could not be reached. Check the name servers of the system's resolver configuration, or map the name with the `resolve` setting.",
       "exit_code": null,
       "group": "unavailable",
@@ -392,6 +402,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The document the navigation reached is neither the expected page nor the login page of its Session's Page check, `session.page_check`, whatever its HTTP status: a page the program did not mean to reach, such as an error page or a layout the site changed. The page stays on that document. The details name its URL and status.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "page_check_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another.",
       "exit_code": null,
       "group": "unavailable",
@@ -399,6 +419,16 @@
       "name": "page_crashed",
       "product": "collie",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A page function threw in the page, or did not parse, or is an expression given an argument, which only a function takes. The details give the error's name, its message and the page's stack. A page function sees only the page and its one argument, never the program's variables, so a `ReferenceError`'s fix names the argument: pass the value in it.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "page_function_failed",
+      "product": "collie",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -419,6 +449,16 @@
       "name": "page_memory_exceeded",
       "product": "collie",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A page function's result, or its argument, holds a value outside JSON, such as a DOM node, `NaN`, `Infinity`, a function, a `Map`, a `BigInt` or a cycle, which Playwright would have turned into `undefined`, silently. The details name the first such value's path from `$`, its kind and the fix: return the JSON the program needs, such as an element's text or attribute instead of the element.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "page_value_invalid",
+      "product": "collie",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -569,6 +609,16 @@
       "name": "run_in_use",
       "product": "collie",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run has no live writer and has not ended, as after a crash, so it has no report and none comes: a start with its Run ID resumes it. The details name the Run.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "run_interrupted",
+      "product": "collie",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -1070,7 +1120,7 @@
       "arrived_in": "0.1",
       "class": "telemetry",
       "deprecated": null,
-      "description": "A Run's progress changed, such as the program's own status line. Telemetry: a newer value of the same Run replaces an unsent one.",
+      "description": "A Run's progress changed, such as the program's own status line, a Human pause beginning or ending, or its end. Telemetry: a newer value of the same Run replaces an unsent one.",
       "name": "run.progress",
       "payload": {
         "$ref": "#/$defs/RunProgress"
@@ -2070,6 +2120,63 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
+      "description": "Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past `timeout.wait`, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.",
+      "events": [],
+      "kind": "waiter",
+      "name": "locator.wait_for",
+      "params": {
+        "$ref": "#/$defs/LocatorWaitForParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Reached"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Waits until the number of elements the locator matches is within the count, and answers it. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "locator.wait_for_count",
+      "params": {
+        "$ref": "#/$defs/WaitForCountParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Counted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Registers a script, registered when the call arrives, that runs in the main world of every document the page loads afterwards, its frames' included, before the document's own scripts: the call stays in flight, and a navigation sent after it waits until the script is registered. A function is called with its one JSON argument. The Session's Provenance marks the main-world injection. Cancelling the call, as closing its `Subscription` does, removes the script; it answers when the page closes.",
+      "events": [],
+      "kind": "sequence",
+      "name": "page.add_init_script",
+      "params": {
+        "$ref": "#/$defs/AddInitScriptParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/InitScriptEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
       "description": "Reads a page body by its handle, for a Client that cannot read the handle's file: sends the body in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, then answers its size.",
       "events": [],
       "kind": "sequence",
@@ -2100,6 +2207,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageClosed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Runs a page function in the page's main frame with its one JSON argument, in the main world, where the page's globals are, or in an isolated world the page neither sees nor hooks, and answers its result, awaited, as JSON; a result of `undefined` answers no value. A value outside JSON in the result raises `page_value_invalid` naming its path and kind, and an exception thrown in the page `page_function_failed`. It is no gesture: it runs beside the page's actions. A main-world call is marked in the Session's Provenance.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.evaluate",
+      "params": {
+        "$ref": "#/$defs/EvaluateParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/Evaluated"
       },
       "stability": "experimental"
     },
@@ -2296,6 +2422,63 @@
     {
       "arrived_in": "0.1",
       "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "page.wait_for_function",
+      "params": {
+        "$ref": "#/$defs/WaitForFunctionParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/Evaluated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "page.wait_for_load_state",
+      "params": {
+        "$ref": "#/$defs/WaitForLoadStateParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Reached"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Waits, armed when the call arrives, until the page sends a request whose URL matches, and answers it, so a request an action triggers is caught by a waiter sent before the action. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "page.wait_for_request",
+      "params": {
+        "$ref": "#/$defs/WaitForExchangeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageRequest"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
       "class": "read",
       "deprecated": null,
       "description": "Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past `timeout.wait`, it fails with `deadline_exceeded`.",
@@ -2309,6 +2492,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PageExchange"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Waits, armed when the call arrives, until a request of the page whose URL matches gets its response, a redirect's included, and answers both, so a response an action triggers is caught by a waiter sent before the action, even one that arrives before the program awaits it. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "page.wait_for_response",
+      "params": {
+        "$ref": "#/$defs/WaitForExchangeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageExchange"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past `timeout.wait`, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "page.wait_for_url",
+      "params": {
+        "$ref": "#/$defs/WaitForUrlParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Reached"
       },
       "stability": "experimental"
     },
@@ -2653,6 +2874,44 @@
       ],
       "kind": "round_trip",
       "name": "run.pause",
+      "params": {
+        "$ref": "#/$defs/RunParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a Run's progress: what it does and why it waits. Without `after`, it answers at once; given `after`, the position of the value the reader last read, it waits for a change and answers the latest value, so values in between are coalesced. The value whose `last` is true ends the sequence: the Run ended, and its `lifecycle` and `stop_reason` say how, or no engine works it (`writer: none`) until a start with its Run ID resumes it. A Run another engine works is read through that engine, the owner the Run index names, and one no engine works from its committed state; a read never takes the Run's writer lock. A Run ID the Run index does not list fails with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.progress",
+      "params": {
+        "$ref": "#/$defs/RunProgressParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunProgress"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads a Run's report: at once for a Run that ended, and at its end for a live one, which the read never ends. A Run another engine works is read through that engine, and one no engine works from its committed state, never taking its writer lock. A Run that has no live writer and has not ended fails with `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the Run index does not list with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.report",
       "params": {
         "$ref": "#/$defs/RunParams"
       },
@@ -4967,6 +5226,255 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.",
+      "name": "session.page_check",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "additionalProperties": false,
+        "description": "What `session.page_check` holds (ADR 0092): the Session's login page\nand its expected page, each optional. Without a login page no page is\njudged a login page; without an expected page every other page passes.",
+        "properties": {
+          "expected_page": {
+            "anyOf": [
+              {
+                "description": "One page match (ADR 0092), named by `kind`: the document's URL against\na glob or a regular expression, as `page.route` takes them (ADR 0081),\nan element a CSS or `XPath` selector finds in it, or a text its body\nshows.",
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "description": "The document's URL matches a glob, as Playwright reads one.",
+                    "properties": {
+                      "kind": {
+                        "const": "glob",
+                        "type": "string"
+                      },
+                      "pattern": {
+                        "arrived_in": "0.1",
+                        "description": "The glob.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "pattern"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "The document's URL matches a regular expression, in the `regex`\ncrate's syntax, anywhere in it.",
+                    "properties": {
+                      "kind": {
+                        "const": "regex",
+                        "type": "string"
+                      },
+                      "pattern": {
+                        "arrived_in": "0.1",
+                        "description": "The expression's source.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "pattern"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "An element of the main frame's document matches a CSS selector.",
+                    "properties": {
+                      "kind": {
+                        "const": "css",
+                        "type": "string"
+                      },
+                      "selector": {
+                        "arrived_in": "0.1",
+                        "description": "The selector.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "selector"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "An element of the main frame's document matches an `XPath`\nexpression.",
+                    "properties": {
+                      "kind": {
+                        "const": "xpath",
+                        "type": "string"
+                      },
+                      "selector": {
+                        "arrived_in": "0.1",
+                        "description": "The expression.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "selector"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "The main frame's body shows a text, its runs of white space read as\none space, case and all.",
+                    "properties": {
+                      "kind": {
+                        "const": "text",
+                        "type": "string"
+                      },
+                      "text": {
+                        "arrived_in": "0.1",
+                        "description": "The text.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "text"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "The page the Session's navigations should reach."
+          },
+          "login_page": {
+            "anyOf": [
+              {
+                "description": "One page match (ADR 0092), named by `kind`: the document's URL against\na glob or a regular expression, as `page.route` takes them (ADR 0081),\nan element a CSS or `XPath` selector finds in it, or a text its body\nshows.",
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "description": "The document's URL matches a glob, as Playwright reads one.",
+                    "properties": {
+                      "kind": {
+                        "const": "glob",
+                        "type": "string"
+                      },
+                      "pattern": {
+                        "arrived_in": "0.1",
+                        "description": "The glob.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "pattern"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "The document's URL matches a regular expression, in the `regex`\ncrate's syntax, anywhere in it.",
+                    "properties": {
+                      "kind": {
+                        "const": "regex",
+                        "type": "string"
+                      },
+                      "pattern": {
+                        "arrived_in": "0.1",
+                        "description": "The expression's source.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "pattern"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "An element of the main frame's document matches a CSS selector.",
+                    "properties": {
+                      "kind": {
+                        "const": "css",
+                        "type": "string"
+                      },
+                      "selector": {
+                        "arrived_in": "0.1",
+                        "description": "The selector.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "selector"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "An element of the main frame's document matches an `XPath`\nexpression.",
+                    "properties": {
+                      "kind": {
+                        "const": "xpath",
+                        "type": "string"
+                      },
+                      "selector": {
+                        "arrived_in": "0.1",
+                        "description": "The expression.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "selector"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "description": "The main frame's body shows a text, its runs of white space read as\none space, case and all.",
+                    "properties": {
+                      "kind": {
+                        "const": "text",
+                        "type": "string"
+                      },
+                      "text": {
+                        "arrived_in": "0.1",
+                        "description": "The text.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "text"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "arrived_in": "0.1",
+            "description": "The page a site shows instead of the expected page once the\nSession's login is lost."
+          }
+        },
+        "type": "object"
       },
       "weakens": false
     },

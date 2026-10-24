@@ -54,6 +54,11 @@ impl RunReader {
         }
     }
 
+    /// The Run's folder.
+    pub(super) fn folder(&self) -> &std::path::Path {
+        &self.folder
+    }
+
     /// Whether more may be committed: this engine's writer still works the
     /// Run. Read it before a read, so that read sees every commit made
     /// before the answer turned `false`.

@@ -137,6 +137,43 @@ impl ProtocolSuite {
     pub fn case_list(&self) -> &CaseList {
         &self.cases
     }
+
+    /// The suite narrowed to the capabilities `names` names, each with all
+    /// its cases, in the suite's own order: a part of a long suite that a
+    /// test runs, and times out, on its own. Its document lists those
+    /// capabilities alone, under the suite's name and version, so each case
+    /// keeps its key in the Feature report.
+    ///
+    /// # Errors
+    ///
+    /// When a name is no capability the suite declares.
+    pub fn with_capabilities(&self, names: &[&str]) -> Result<Self, SuiteError> {
+        if let Some(unknown) = names.iter().find(|name| {
+            !self
+                .cases
+                .capabilities
+                .iter()
+                .any(|capability| capability.name == **name)
+        }) {
+            return Err(SuiteError::UnknownCapability {
+                suite: self.cases.suite.name.clone(),
+                capability: (*unknown).to_owned(),
+            });
+        }
+        Ok(Self {
+            product: self.product,
+            cases: CaseList {
+                suite: self.cases.suite.clone(),
+                capabilities: self
+                    .cases
+                    .capabilities
+                    .iter()
+                    .filter(|capability| names.contains(&capability.name.as_str()))
+                    .cloned()
+                    .collect(),
+            },
+        })
+    }
 }
 
 /// Why a protocol suite's case list was refused.
@@ -151,6 +188,14 @@ pub enum SuiteError {
     UnknownCase {
         /// Its ID.
         case: String,
+    },
+    /// A suite was narrowed to a capability it does not declare.
+    #[error("the suite `{suite}` declares no capability `{capability}`")]
+    UnknownCapability {
+        /// The suite's name.
+        suite: String,
+        /// The name it does not declare.
+        capability: String,
     },
 }
 

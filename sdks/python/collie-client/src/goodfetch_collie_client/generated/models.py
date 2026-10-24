@@ -963,6 +963,12 @@ class NotAddedReason(StrEnum):
     A segment of its URL's path repeats more than
     `crawl.max_segment_repeats`.
     """
+    trap_path = "trap_path"
+    """
+    Its URL's path falls under a trap the Frontier learned and closed
+    (ADR 0005): a path pattern whose pages brought no new page and no
+    URL outside it, which leaves a finished Run `unverified`.
+    """
 
 
 class NothingDone2(BaseModel):

@@ -4986,32 +4986,75 @@
       "type": "object"
     },
     "LearnedRule": {
-      "description": "A URL rule the Frontier learned (ADR 0005).",
+      "description": "A URL rule the Frontier learned from the pages it fetched (ADRs 0005\nand 0120), on one host and so never across a registrable domain, with\nits evidence and every URL it merged, so each merge can be audited.",
       "properties": {
         "evidence": {
           "arrived_in": "0.1",
-          "description": "Its evidence.",
+          "description": "What it was learned from, naming the URLs.",
           "type": "string"
+        },
+        "host": {
+          "arrived_in": "0.1",
+          "description": "The host it holds on.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/LearnedRuleKind",
+          "arrived_in": "0.1",
+          "description": "What it learned."
         },
         "merged": {
           "arrived_in": "0.1",
-          "description": "How many URLs it merged.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
+          "description": "Each URL it merged with another or refused, in the order the crawl\nmet them.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
-        "rule": {
+        "parameter": {
           "arrived_in": "0.1",
-          "description": "The rule.",
-          "type": "string"
+          "description": "The query parameter it is about: one that has no effect, or the\noffset parameter a cursor replaced; absent for a trap.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The path it holds on: a trap's path pattern, its numeric,\ndate-like and hexadecimal segments written `{number}`, `{date}` and\n`{hex}`, or the path of a listing whose cursor replaced its offset;\nabsent for a rule of the whole host.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
-        "rule",
+        "kind",
+        "host",
         "evidence",
         "merged"
       ],
       "type": "object"
+    },
+    "LearnedRuleKind": {
+      "description": "What a learned URL rule learned (ADRs 0005 and 0120).",
+      "oneOf": [
+        {
+          "const": "no_effect_parameter",
+          "description": "A query parameter has no effect on the host's pages: pairs of\nURLs differing only by it served pages of matching signatures, so a\nURL that differs from an admitted one only by it is a `duplicate`.",
+          "type": "string"
+        },
+        {
+          "const": "trap_path",
+          "description": "A path pattern is a trap: its pages brought no new page signature\nand no URL outside it, so its URLs are not added, with\n`trap_path`.",
+          "type": "string"
+        },
+        {
+          "const": "cursor_pagination",
+          "description": "A listing pages by a cursor as well as by an offset: its offset\nURLs not yet fetched are not added, with `duplicate`, and the cursor\nis followed.",
+          "type": "string"
+        }
+      ]
     },
     "Lifecycle": {
       "description": "Where a Run is (ADR 0029).",
@@ -5947,6 +5990,11 @@
         {
           "const": "max_segment_repeats",
           "description": "A segment of its URL's path repeats more than\n`crawl.max_segment_repeats`.",
+          "type": "string"
+        },
+        {
+          "const": "trap_path",
+          "description": "Its URL's path falls under a trap the Frontier learned and closed\n(ADR 0005): a path pattern whose pages brought no new page and no\nURL outside it, which leaves a finished Run `unverified`.",
           "type": "string"
         }
       ]

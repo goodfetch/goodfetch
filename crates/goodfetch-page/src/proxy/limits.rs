@@ -10,9 +10,10 @@
 //! there by any sharing run.
 //!
 //! A refusal of the proxy itself (its own 429 or 502, or a tunnel it
-//! refused) halves the key's ceiling, from the count in flight when it had
-//! none; the ceiling grows back by one with each request that ends well
-//! after a quiet [`RECOVERY`] since it last changed. A site's answer, a 429
+//! refused) halves the key's ceiling, from the count in flight with it, or
+//! from the ceiling when that is lower; the ceiling grows back by one with
+//! each request that ends well at the ceiling, while it binds, after a
+//! quiet [`RECOVERY`] since it last changed. A site's answer, a 429
 //! included, never changes it. Each rule is a pure function of the wall
 //! time it is given (ADR 0059).
 //!
@@ -173,13 +174,19 @@ impl PermitRule for ProxyRule {
         let mut limits = Limits::read(connection, key)?;
         match ending {
             Ending::TooManyRequests(_) => {
-                let base = limits.ceiling.unwrap_or(in_flight.saturating_add(1));
+                // The proxy refused this many at once, the ending one
+                // included, whatever the ceiling allowed.
+                let tried = in_flight.saturating_add(1);
+                let base = limits.ceiling.map_or(tried, |ceiling| ceiling.min(tried));
                 limits.ceiling = Some((base / 2).max(1));
                 limits.ceiling_changed_at = Some(now);
             }
             Ending::Done | Ending::BackOff(_) | Ending::Until(_) => {
+                // Only a request that ended well at the ceiling shows the
+                // proxy takes as many: one below it teaches nothing.
                 if let (Some(ceiling), Some(changed_at)) =
                     (limits.ceiling, limits.ceiling_changed_at)
+                    && in_flight.saturating_add(1) >= ceiling
                     && now >= changed_at.saturating_add(duration_milliseconds(RECOVERY))
                 {
                     limits.ceiling = Some(ceiling.saturating_add(1));

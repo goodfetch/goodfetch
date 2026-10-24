@@ -157,6 +157,57 @@ fn a_ceiling_grows_back_by_one_with_each_success_after_a_quiet_period() {
     );
 }
 
+/// A ceiling grows back only while it binds: a request that ended well
+/// with fewer in flight than the ceiling teaches nothing, so the ceiling
+/// never grows past what was tried.
+///
+/// Covers: story:5-90
+#[test]
+fn a_ceiling_that_does_not_bind_grows_no_further() {
+    let file = file();
+    unlimited()
+        .ended(&file, KEY, 7, Ending::TooManyRequests(None), at(0))
+        .unwrap();
+
+    for quiet in 1..=3 {
+        unlimited()
+            .ended(&file, KEY, 0, Ending::Done, at(quiet * 10_000))
+            .unwrap();
+    }
+
+    assert_eq!(
+        (
+            unlimited().admit(&file, KEY, 3, at(30_000)).unwrap(),
+            unlimited().admit(&file, KEY, 4, at(30_000)).unwrap(),
+        ),
+        (Verdict::Go, Verdict::Busy)
+    );
+}
+
+/// A refusal halves the ceiling from what was in flight when it came, when
+/// that is below the ceiling: the proxy refused that many, not the ceiling.
+///
+/// Covers: story:5-90
+#[test]
+fn a_refusal_halves_from_the_count_in_flight_when_it_is_below_the_ceiling() {
+    let file = file();
+    unlimited()
+        .ended(&file, KEY, 15, Ending::TooManyRequests(None), at(0))
+        .unwrap();
+
+    unlimited()
+        .ended(&file, KEY, 3, Ending::TooManyRequests(None), at(1_000))
+        .unwrap();
+
+    assert_eq!(
+        (
+            unlimited().admit(&file, KEY, 1, at(1_000)).unwrap(),
+            unlimited().admit(&file, KEY, 2, at(1_000)).unwrap(),
+        ),
+        (Verdict::Go, Verdict::Busy)
+    );
+}
+
 /// Covers: story:5-90
 #[test]
 fn a_request_that_ended_well_leaves_an_unlearned_proxy_without_a_ceiling() {

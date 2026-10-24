@@ -58,9 +58,8 @@ pub(crate) enum Sender {
     Page(PageId),
     /// An out-of-process frame's of the page `page`, whose target is not
     /// the page's: they pass the page's routes, and its page's events never
-    /// see them, so each one refused is recorded in the Run trace's request
-    /// `log` at once.
-    Frame { page: PageId, log: Arc<RequestLog> },
+    /// see them, so each one refused is recorded in the Run trace at once.
+    Frame(PageId),
     /// A site's service worker's, which belongs to no page, of the Session
     /// `session`: each one is recorded in the Run trace's request `log`
     /// (ADR 0121).
@@ -69,26 +68,24 @@ pub(crate) enum Sender {
         log: Arc<RequestLog>,
     },
     /// A shared worker's, which belongs to no page: each one refused is
-    /// recorded in the Run trace's request `log` at once.
-    SharedWorker { log: Arc<RequestLog> },
+    /// recorded in the Run trace at once.
+    SharedWorker,
 }
 
 impl Sender {
     /// The page, when a page or one of its frames sends the requests.
     fn page_id(&self) -> Option<&PageId> {
         match self {
-            Self::Page(page_id) | Self::Frame { page: page_id, .. } => Some(page_id),
-            Self::ServiceWorker { .. } | Self::SharedWorker { .. } => None,
+            Self::Page(page_id) | Self::Frame(page_id) => Some(page_id),
+            Self::ServiceWorker { .. } | Self::SharedWorker => None,
         }
     }
 
-    /// The request log a refusal is recorded in at once, when no page's
-    /// events report the sender's requests: a frame's or a shared worker's.
-    fn log(&self) -> Option<&Arc<RequestLog>> {
-        match self {
-            Self::Frame { log, .. } | Self::SharedWorker { log, .. } => Some(log),
-            Self::Page(_) | Self::ServiceWorker { .. } => None,
-        }
+    /// Whether a refusal is recorded in the Run trace at once, since no
+    /// page's events report the sender's requests: a frame's or a shared
+    /// worker's.
+    fn records_at_once(&self) -> bool {
+        matches!(self, Self::Frame(_) | Self::SharedWorker)
     }
 }
 
@@ -122,6 +119,9 @@ pub(super) struct PageContext {
     /// which the engine resolves each request's host itself and judges its
     /// answers, since no relay is under that browser (ADR 0056).
     lookups: Option<Arc<Resolve>>,
+    /// The Run trace's request log, where a refusal no page's event
+    /// reports is recorded.
+    log: Arc<RequestLog>,
 }
 
 /// The latest requests the Session's proxy credentials were given for, so a
@@ -178,12 +178,13 @@ impl PageContext {
             blocking,
             refusals,
             observing,
-            run,
             responses: Mutex::new(BTreeMap::new()),
             document: Mutex::new(String::new()),
             authenticated: Mutex::new(Authenticated::default()),
             permit: Mutex::new(None),
             lookups: None,
+            log: Arc::new(RequestLog::new(run.owner().child(), run.folder())),
+            run,
         }
     }
 
@@ -261,6 +262,10 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
             {
                 drop(permit.take());
             }
+            continue;
+        }
+        if let Some(created) = event.read::<network::WebSocketCreatedEvent>() {
+            context.web_socket(&created.url);
             continue;
         }
         if let Some(required) = event.read::<fetch::AuthRequiredEvent>() {
@@ -895,7 +900,7 @@ impl PageContext {
         let navigation = self.sender.page_id().is_some()
             && paused.resource_type == network::ResourceType::Document
             && &paused.frame_id == self.driver.main_frame();
-        if self.sender.log().is_some() {
+        if self.sender.records_at_once() {
             self.record_refusal(
                 &paused.request.url,
                 &paused.request.method,
@@ -1054,7 +1059,7 @@ impl PageContext {
     /// navigation a call waits on, which raises it. A request no page's
     /// event reports, a frame's or a worker's, is recorded refused at once.
     fn leave_refusal(&self, held: &Held, refusal: ErrorData) {
-        if self.sender.log().is_some() {
+        if self.sender.records_at_once() {
             self.record_refusal(held.url(), held.method(), refusal);
         } else if matches!(self.sender, Sender::ServiceWorker { .. }) {
             self.trace_service_worker(
@@ -1072,16 +1077,34 @@ impl PageContext {
         }
     }
 
+    /// Judges the WebSocket the page opened to `url`, whose handshake no
+    /// interception sees: the browser itself holds it to the domain policy
+    /// where it connects (`launch`'s proxy script), and the engine records
+    /// the refusal in the Run trace, as a request no call waited for that
+    /// failed. On a Borrowed browser or behind the Session's own proxy
+    /// nothing holds it, which is logged.
+    fn web_socket(&self, url: &str) {
+        let request = egress::Request {
+            url,
+            kind: RequestKind::Page,
+        };
+        let egress::Judgment::Refused(refused) = egress::judge(&request, &self.policy) else {
+            return;
+        };
+        if self.lookups.is_some() || self.driver.proxy().is_some() {
+            tracing::warn!(%refused, "a WebSocket the domain policy refuses is not held where it connects: the Session's browser or proxy is not the engine's");
+            return;
+        }
+        self.record_refusal(url, "GET", refused.failure());
+    }
+
     /// Records the request to `url` that `method` sent, refused with
     /// `refusal`, in the sender's request log, as a request that no call
     /// waited for failed, and its Error code in the Run's outcome record.
     fn record_refusal(&self, url: &str, method: &str, refusal: ErrorData) {
-        let Some(log) = self.sender.log() else {
-            return;
-        };
         self.run.record_outcome(&refusal.code);
         let (log, failed) = (
-            Arc::clone(log),
+            Arc::clone(&self.log),
             RequestFailed {
                 url: url.to_owned(),
                 method: method.to_owned(),

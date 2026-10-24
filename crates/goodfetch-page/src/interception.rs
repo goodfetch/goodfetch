@@ -601,11 +601,15 @@ impl Interception {
                     tracing::warn!(%failure, "an out-of-process frame's requests could not be paused, so it does not run");
                     return false;
                 }
-                let log = Arc::new(RequestLog::new(run.owner().child(), run.folder()));
+                // Its WebSockets, which no interception sees, are judged as
+                // they open.
+                if let Err(failure) = frame.command(&network::EnableParams::default()).await {
+                    tracing::debug!(%failure, "an out-of-process frame went before its WebSockets were followed");
+                }
                 let context = Arc::new(
                     PageContext::new(
                         frame,
-                        Sender::Frame { page: page_id, log },
+                        Sender::Frame(page_id),
                         state,
                         answers,
                         policy,
@@ -708,7 +712,7 @@ impl Interception {
                         driver,
                         match worker {
                             Worker::Service => Sender::ServiceWorker { session, log },
-                            Worker::Shared => Sender::SharedWorker { log },
+                            Worker::Shared => Sender::SharedWorker,
                         },
                         state,
                         shared.answers.clone(),

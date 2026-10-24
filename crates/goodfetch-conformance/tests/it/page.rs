@@ -206,7 +206,7 @@ fn the_page_suite_proves_locators_against_collies_attached_engine() {
     prove(LOCATORS);
 }
 
-/// Covers: operation:page.goto, story:5-40, story:5-41, story:5-42, operation:page.route, operation:session.route, operation:route.continue, operation:route.fallback, operation:route.fulfill, operation:route.abort, operation:route.fetch, error:page_handler_failed, error:route_already_handled, error:egress_refused
+/// Covers: operation:page.goto, story:5-40, story:5-41, story:5-42, operation:page.route, operation:session.route, operation:route.continue, operation:route.fallback, operation:route.fulfill, operation:route.abort, operation:route.fetch, error:page_handler_failed, error:route_already_handled, error:egress_refused, error:header_value_invalid
 #[test]
 fn the_page_suite_proves_routes_against_collies_attached_engine() {
     prove(ROUTES);
@@ -236,7 +236,7 @@ fn the_page_suite_proves_page_states_against_collies_attached_engine() {
     prove(PAGE_STATES);
 }
 
-/// Covers: operation:run.new_session, operation:session.new_page, error:navigation_failed, error:too_many_redirects, error:response_truncated, error:egress_refused, error:setting_invalid, operation:response.body, story:5-44, story:5-45, story:5-47, operation:page.request
+/// Covers: operation:run.new_session, operation:session.new_page, error:navigation_failed, error:too_many_redirects, error:response_truncated, error:egress_refused, error:setting_invalid, operation:response.body, story:5-44, story:5-45, story:5-47, operation:page.request, error:header_value_invalid, error:response_limit_exceeded
 #[test]
 fn the_page_suite_proves_page_request_against_collies_attached_engine() {
     prove(PAGE_REQUEST);

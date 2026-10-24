@@ -6,7 +6,10 @@
 // resuming after the last event it read or replacing the list with a
 // resync's snapshot. A person raises the Limit that stopped a run (ADRs
 // 0031 and 0041): an SDK script's run then waits for its script, with its
-// resume command to copy, and a Recipe's run resumes in the Daemon.
+// resume command to copy, and a Recipe's run resumes in the Daemon. A
+// domain that showed a consent wall is offered for `consent.domains`, alone
+// or as `*`, each with the warning of what the person takes on, answered in
+// one click.
 import type { LimitUsage, NeedsYouItem } from "@goodfetch/collie-client/generated";
 import {
   createProtocolAdapter,
@@ -357,7 +360,7 @@ test(
 
 test(
   "the engine's refusal to raise a Limit is shown, and the run stays listed",
-  { tags: ["story:12-100", "screen:/needs-you"] },
+  { tags: ["story:12-100", "story:12-133", "screen:/needs-you"] },
   async () => {
     const adapter = consoleAdapter();
     adapter.answer("needs_you.list", { items: [stoppedByLimit()] });
@@ -371,8 +374,117 @@ test(
     await expect
       .element(page.getByRole("alert"))
       .toHaveTextContent(
-        "The engine did not raise the Limit: The test answered usage.raise with person_required.",
+        "The engine did not raise the Limit:" +
+          "Only a person can give this answer." +
+          "Error codeperson_required",
       );
+    await expect.poll(() => items().elements().length).toBe(1);
+    client.close();
+  },
+);
+
+const WALL: NeedsYouItem = {
+  id: "consent_wall:walled.test",
+  kind: "consent_wall",
+  since: "2026-10-24T09:10:00Z",
+  run: "nightly",
+  summary: "walled.test showed a consent wall.",
+  actions: ["needs_you.allow_consent_domain", "needs_you.dismiss"],
+  details: { domain: "walled.test" },
+};
+
+/** Answers `needs_you.allow_consent_domain`, taking the wall off the list as the engine does. */
+function allowing(adapter: ConsoleAdapter): void {
+  adapter.answer("needs_you.allow_consent_domain", ({ domain }) => {
+    adapter.push(
+      { event: "needs_you.changed", data: { change: "removed", id: WALL.id, reason: "resolved" } },
+      1,
+    );
+    return { domain, added: true, layer: "user_configuration", warning: "" };
+  });
+}
+
+/** The params of each `needs_you.allow_consent_domain` call. */
+function allowed(adapter: ConsoleAdapter): unknown[] {
+  return adapter.requests
+    .filter((request) => request.method === "needs_you.allow_consent_domain")
+    .map((request) => request.params);
+}
+
+test(
+  "a domain that showed a consent wall is offered for consent.domains with what the person takes on, answered in one click",
+  { tags: ["story:12-26", "screen:/needs-you", "operation:needs_you.allow_consent_domain"] },
+  async () => {
+    const adapter = consoleAdapter();
+    adapter.answer("needs_you.list", { items: [WALL] });
+    allowing(adapter);
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    const wall = items().nth(0);
+    await expect
+      .element(wall.getByRole("heading"))
+      .toHaveTextContent("walled.test showed a consent wall");
+    await expect.element(wall).toMatchTextContent(/consent in your name/);
+    await wall
+      .getByRole("button", { name: "Accept walled.test's consent walls in later runs" })
+      .click();
+
+    await expect.poll(() => items().elements().length).toBe(0);
+    await expect.element(page.getByText("Nothing needs you now.")).toBeVisible();
+    expect(page.getByRole("alertdialog").elements()).toHaveLength(0);
+    expect(allowed(adapter)).toEqual([{ domain: "walled.test" }]);
+    client.close();
+  },
+);
+
+test(
+  "accepting consent walls on every domain shows its own warning before the one click that writes *",
+  { tags: ["story:12-26", "screen:/needs-you"] },
+  async () => {
+    const adapter = consoleAdapter();
+    adapter.answer("needs_you.list", { items: [WALL] });
+    allowing(adapter);
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    const wall = items().nth(0);
+    await expect.element(wall).toMatchTextContent(/every site that shows one/);
+    await expect.element(wall).toMatchTextContent(/no longer asks you/);
+    await wall.getByRole("button", { name: "Accept consent walls on every domain" }).click();
+
+    await expect.poll(() => items().elements().length).toBe(0);
+    expect(allowed(adapter)).toEqual([{ domain: "*" }]);
+    client.close();
+  },
+);
+
+test(
+  "an answer the engine refuses, such as under an Operator policy's lock, is said and leaves the item listed",
+  { tags: ["story:12-26", "screen:/needs-you"] },
+  async () => {
+    const adapter = consoleAdapter();
+    adapter.answer("needs_you.list", { items: [WALL] });
+    adapter.answer(
+      "needs_you.allow_consent_domain",
+      failure("setting_locked", {
+        key: "consent.domains",
+        layer: "user_configuration",
+        limit: { key: "consent.domains", value: [], layer: "operator_policy" },
+      }),
+    );
+    const client = clientOf(adapter);
+    await shown(client);
+    await subscribed(adapter);
+
+    await items()
+      .nth(0)
+      .getByRole("button", { name: "Accept walled.test's consent walls in later runs" })
+      .click();
+
+    await expect.element(page.getByRole("alert")).toMatchTextContent(/could not add the domain/);
     await expect.poll(() => items().elements().length).toBe(1);
     client.close();
   },

@@ -4,13 +4,14 @@
 // pins; and axe through the a11y addon, every violation of WCAG 2.2 AA's
 // tags and best practice failing the story's test.
 import type { Decorator, Preview } from "@storybook/react-vite";
-import { ConsoleI18n } from "#i18n.tsx";
+import { applyLocale, ConsoleI18n, i18n } from "#i18n.tsx";
 import "#styles.css";
 
-/** The colour scheme a story renders in. */
+/** The colour scheme a story renders in, in the language and direction of the catalog the browser's locale picks, as the Console's entry gives its document. */
 const withTheme: Decorator = (Story, context) => {
   const dark = context.globals["theme"] === "dark";
   document.documentElement.classList.toggle("dark", dark);
+  applyLocale(document.documentElement, i18n.locale);
   return (
     <ConsoleI18n>
       <main className="bg-background p-6 text-foreground">

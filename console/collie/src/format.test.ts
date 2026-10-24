@@ -4,7 +4,15 @@
 // zones. Formatted text is asserted here only, on Node's pinned ICU.
 import { locales, timeZones } from "@goodfetch/test-support";
 import { describe, expect, test } from "vitest";
-import { formatAmount, formatBytes, formatCount, formatInstant, parseAmount } from "./format.ts";
+import {
+  formatAmount,
+  formatBytes,
+  formatCount,
+  formatDuration,
+  formatInstant,
+  formatList,
+  parseAmount,
+} from "./format.ts";
 
 /** `text` with every kind of space as a plain one: ICU separates with no-break and narrow no-break spaces. */
 function spaced(text: string): string {
@@ -81,6 +89,46 @@ describe("a size in bytes", () => {
     { bytes: 2_500_000_000_000_000, locale: "en-US", shown: "2.5 PB" },
   ])("of $bytes reads $shown in $locale, in powers of 1,000", ({ bytes, locale, shown }) => {
     expect(spaced(formatBytes(bytes, locale))).toBe(shown);
+  });
+});
+
+describe("a duration", () => {
+  const expected: Readonly<Record<string, string>> = {
+    "en-US": "1 hr, 2 min, 3 sec",
+    "de-DE": "1 Std., 2 Min. und 3 Sek.",
+    "fr-FR": "1 h, 2 min et 3 s",
+    "tr-TR": "1 sa. 2 dk. 3 sn.",
+    "ar-EG": "١ س، و٢ د، و٣ ث",
+    "hi-IN": "1 घं॰, 2 मि॰, 3 से॰",
+    "ja-JP": "1 時間 2 分 3 秒",
+  };
+  test.each(locales())("is shown in %s's units and list", (locale) => {
+    expect(spaced(formatDuration(3_723_000, locale))).toBe(expected[locale]);
+  });
+
+  test.each([
+    { milliseconds: 0, shown: "0 sec" },
+    { milliseconds: 250, shown: "250 ms" },
+    { milliseconds: 1_500, shown: "1.5 sec" },
+    { milliseconds: 60_000, shown: "1 min" },
+    { milliseconds: 90_061_000, shown: "1 day, 1 hr, 1 min, 1 sec" },
+  ])("of $milliseconds ms reads $shown, its zero units left out", ({ milliseconds, shown }) => {
+    expect(spaced(formatDuration(milliseconds, "en-US"))).toBe(shown);
+  });
+});
+
+describe("a list", () => {
+  const expected: Readonly<Record<string, string>> = {
+    "en-US": "nightly, eu, and weekly",
+    "de-DE": "nightly, eu und weekly",
+    "fr-FR": "nightly, eu et weekly",
+    "tr-TR": "nightly, eu ve weekly",
+    "ar-EG": "nightly وeu وweekly",
+    "hi-IN": "nightly, eu, और weekly",
+    "ja-JP": "nightly、eu、weekly",
+  };
+  test.each(locales())("is joined as %s joins one", (locale) => {
+    expect(spaced(formatList(["nightly", "eu", "weekly"], locale))).toBe(expected[locale]);
   });
 });
 

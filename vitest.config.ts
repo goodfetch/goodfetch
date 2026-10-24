@@ -93,6 +93,49 @@ const componentStoriesProject = (
   },
 });
 
+// The Release suite renders every story again under each of the Console's
+// two pseudo-locales (ADR 0073; TESTING.md, Localization), the browser
+// context's locale, which the Console reads its catalog by: `en-XA`
+// (accented, longer, bracketed) and `ar-XB` (right to left). Once each
+// story ends, test support's setup fails it on clipped text, under `en-XA`
+// on visible text neither from the catalog nor inside `translate="no"`,
+// and under `ar-XB` on a document that does not run right to left. Stories
+// hold no assertion, so they render the same under any catalog, where the
+// screens' tests find their elements by their English names.
+const pseudoLocales = ["en-XA", "ar-XB"] as const;
+const pseudoLocaleStories = async (
+  locale: (typeof pseudoLocales)[number],
+): Promise<TestProjectInlineConfiguration[]> => {
+  const plugins = await storybookTest({
+    configDir: storybookConfig,
+    initialGlobals: { theme: "light" },
+  });
+  return plugins.length === 0
+    ? []
+    : [
+        {
+          extends: true,
+          plugins,
+          test: {
+            name: `component-stories-${locale}`,
+            exclude: [...outside, visualTests],
+            testTimeout: 300_000,
+            setupFiles: [
+              "@goodfetch/test-support/vitest-browser/setup",
+              "@goodfetch/test-support/vitest-browser/pseudo-locale",
+            ],
+            browser: {
+              enabled: true,
+              headless: true,
+              provider: playwright({ contextOptions: { locale } }),
+              instances: [{ browser: "chromium", name: `component-stories-${locale} (chromium)` }],
+              commands: browserCommands,
+            },
+          },
+        },
+      ];
+};
+
 // The Release suite reruns the Console's screens under WCAG's text-spacing
 // values and 200% text (ADR 0073; TESTING.md, Accessibility), a style sheet
 // test support's setup injects into each test's page, where `clippedText`
@@ -229,6 +272,9 @@ const config: ViteUserConfig = defineConfig({
         ? [...(await componentStories("light")), ...(await componentStories("dark"))]
         : []),
       ...(process.env["GOODFETCH_TEST_SUITE"] === "release" ? [componentTextSpacing] : []),
+      ...(process.env["GOODFETCH_TEST_SUITE"] === "release" && existsSync(storybookConfig)
+        ? (await Promise.all(pseudoLocales.map(pseudoLocaleStories))).flat()
+        : []),
       ...visual.projects,
     ],
   },

@@ -1902,6 +1902,7 @@ dependencies = [
  "prometheus",
  "proptest",
  "proptest-state-machine",
+ "psl",
  "rcgen",
  "rstest",
  "rusqlite",

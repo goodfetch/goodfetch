@@ -7,14 +7,15 @@ import type { LimitUsage, UsageListResult } from "@goodfetch/collie-client/gener
 import { Trans } from "@lingui/react/macro";
 import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ConsoleClient } from "#client/client.ts";
+import { ErrorMessage } from "#errors/error-message.tsx";
 import { LimitsTable, type LimitRow } from "./limits.tsx";
 
 /** Where the reading of the ledger stands. */
 export type UsageRead =
   | { readonly kind: "reading" }
   | { readonly kind: "read"; readonly usage: UsageListResult }
-  /** The engine refused; its English message, which the code's catalog message replaces once #912 maps it (ADR 0079). */
-  | { readonly kind: "failed"; readonly message: string };
+  /** The engine refused, with this error. */
+  | { readonly kind: "failed"; readonly error: unknown };
 
 /** A ledger row as the table shows it. */
 export function rowOf(usage: LimitUsage): LimitRow {
@@ -40,13 +41,13 @@ export function rowOf(usage: LimitUsage): LimitRow {
 /** Where the reading stands, shown. */
 function Read({ read }: { readonly read: UsageRead }): ReactNode {
   if (read.kind === "failed") {
-    const message = read.message;
     return (
-      <p role="alert">
-        <Trans>
-          The engine could not read the Usage ledger: <span translate="no">{message}</span>
-        </Trans>
-      </p>
+      <div role="alert">
+        <p>
+          <Trans>The engine could not read the Usage ledger:</Trans>
+        </p>
+        <ErrorMessage error={read.error} />
+      </div>
     );
   }
   if (read.kind === "reading") {
@@ -91,11 +92,6 @@ export function UsageView({ read }: { readonly read: UsageRead }): ReactNode {
   );
 }
 
-/** A refused call's message. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /** The Usage and Limits section over `client`, read each time the Client connects. */
 export function Usage({ client }: { readonly client: ConsoleClient }): ReactNode {
   const state = useSyncExternalStore(
@@ -114,7 +110,7 @@ export function Usage({ client }: { readonly client: ConsoleClient }): ReactNode
       try {
         next = { kind: "read", usage: await client.call("usage.list", {}) };
       } catch (error) {
-        next = { kind: "failed", message: messageOf(error) };
+        next = { kind: "failed", error };
       }
       if (current) {
         setRead(next);

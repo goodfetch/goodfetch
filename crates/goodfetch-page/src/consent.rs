@@ -29,7 +29,9 @@
 //! - records what it did with each prompt in the Run trace's Provenance,
 //!   an acceptance with its domain and the approval it came from, and
 //!   keeps a wall left in the page's main frame for the page's next call,
-//!   which raises it as `blocked` with `consent_required` (`walls`).
+//!   which raises it as `blocked` with `consent_required` (`walls`), and
+//!   records its domain in the Run index, which "Needs you" offers for
+//!   `consent.domains`.
 //!
 //! With `consent.handling` off the runner still starts, to run the wall
 //! test, but only looks: it clicks nothing, hides nothing and runs nothing
@@ -70,6 +72,7 @@ use self::walls::{Approval, Wall};
 use crate::driver::{GUARD_WORLD, PageDriver};
 use crate::guard::{self, Element, Readiness};
 use crate::hiding::{Part, Sheets};
+use crate::interception::domain_key;
 use crate::trace;
 
 /// How long the runner's click may wait for its target to be ready.
@@ -521,6 +524,13 @@ async fn recorded(shared: &Shared, frame: &Frame, outcome: &Outcome) {
                 shared
                     .walls
                     .put(shared.page_id.clone(), Wall { loader, rule });
+            }
+            // "Needs you" offers the domain for `consent.domains`.
+            if main
+                && let Some(domain) = domain_key(&outcome.url)
+                && let Err(error) = shared.run.record_consent_wall(domain).await
+            {
+                tracing::warn!(%error, "the Run index did not record the consent wall: \"Needs you\" does not offer its domain");
             }
         }
         Action::Refused | Action::Hidden | Action::Left | Action::Failed => {}

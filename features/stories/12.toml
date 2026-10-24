@@ -117,6 +117,14 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 26
+title = "As a user, I want \"Needs you\" to list the domains that showed a consent wall or a Wall, offering to add them to `consent_domains` or `wall_domains` for the next run with a plain warning of what I take on, never offering a domain in `wall_denied_domains` for `wall_domains` and never offering `wall_refetch_domains`; and I want a consent-wall or Wall Human pause to offer \"for this run\" or \"always for this domain\", and both \"read past\" and \"accept\" when one pause covers both, on a Daemon with accounts only the operator role giving either answer and \"always\" asking for step-up, so that I decide knowingly (ADRs 0048, 0052)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 32
 title = "As a user, I want \"Needs you\" items to disappear as they are resolved, by me, by another person or by the run, so that the list is never stale (ADR 0031)."
 milestone = "M1 Core"
@@ -224,4 +232,20 @@ title = "As a security reviewer, I want every Console route's headers checked in
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 132
+title = "As a person reading another language, I want dates, numbers, sizes, durations, lists and plurals formatted from my browser's locale and time zone, data marked so browser translation leaves it alone, and layouts that work right to left, so that the Console reads naturally (ADR 0073)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 133
+title = "As a person, I want each Error code shown with a message from the Console's catalog rendered from the error's fields (operation, target, URL, observed, `limit` with its setting, value and layer, `fix`, call log), falling back to the engine's English message, and for `handler_failed`, `hook_failed`, `<kind>_handler_failed`, `agent_tool_failed`, `success_check_threw` and `schema_validator_failed` always naming the program's exception type and message, so that an error reads well, can be translated and loses nothing (ADRs 0073, 0079, 0080, 0100, 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
 status = "active"

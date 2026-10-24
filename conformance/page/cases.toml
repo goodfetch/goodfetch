@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718 and #709;
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718, #859 and #709;
 # spec #580, ticket #783): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "25"
+version = "26"
 
 [[capability]]
 name = "sessions.default"
@@ -420,6 +420,10 @@ covers = ["story:5-101", "setting:consent.domains"]
 [[capability.case]]
 id = "a-run-widening-consent-domains-is-setting-locked-and-on-wall-ask-is-unavailable-until-the-human-pause"
 covers = ["story:5-101", "setting:consent.domains", "setting:consent.on_wall", "error:setting_locked", "error:capability_unavailable"]
+
+[[capability.case]]
+id = "a-domain-whose-consent-wall-a-run-left-is-offered-in-needs-you-for-consent-domains"
+covers = ["story:12-26", "operation:needs_you.list"]
 
 [[capability]]
 name = "page_states.service_workers"

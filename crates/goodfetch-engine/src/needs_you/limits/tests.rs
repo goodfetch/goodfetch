@@ -26,9 +26,11 @@ use tokio::sync::watch;
 use super::runs_stopped;
 use crate::clock::Clock;
 use crate::governor::StorageSample;
+use crate::home::Home;
 use crate::ledger::{Holder, Ledger, SliceSizing};
 use crate::needs_you::SourceContext;
 use crate::run_index;
+use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// When the Run stopped: 10:00 UTC on a day whose Limit resets at midnight.
@@ -150,6 +152,11 @@ fn listed(then: Then, after: Duration) -> Vec<(String, Option<String>)> {
             clock: Clock::paused(SystemTime::from(stopped_at) + after),
             storage: watch::channel(Arc::new(StorageSample::default())).1,
             run_index: index,
+            settings: Settings::new(
+                SettingsFiles::of(&Home::new(folder.path().to_owned()), &version),
+                Product::Collie,
+                owner.child(),
+            ),
             version,
             ledger,
             owner: Arc::new(owner.child()),

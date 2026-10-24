@@ -247,13 +247,36 @@ test("with no Limit in the ledger, Usage says nothing holds the runs", async () 
   client.close();
 });
 
-test("a ledger the engine cannot read shows its refusal", async () => {
-  const { client } = await usageOf(
-    failure("run_state_unavailable", { path: "/home/jb/.goodfetch/usage-ledger.sqlite" }),
-  );
+test(
+  "a ledger the engine cannot read shows its refusal in the catalog's words, its fields as data",
+  { tags: ["story:12-133"] },
+  async () => {
+    const { client } = await usageOf(
+      failure("run_state_unavailable", {
+        operation: "usage.list",
+        fix: "free some space on the disk of the Goodfetch home",
+        path: "/home/jb/.goodfetch/usage-ledger.sqlite",
+      }),
+    );
+    const alert = page.getByRole("region", { name: "Usage and Limits" }).getByRole("alert");
 
-  await expect
-    .element(page.getByRole("region", { name: "Usage and Limits" }).getByRole("alert"))
-    .toMatchTextContent(/^The engine could not read the Usage ledger: /);
-  client.close();
-});
+    await expect
+      .element(alert)
+      .toHaveTextContent(
+        "The engine could not read the Usage ledger:" +
+          "usage.list: The run's state is missing, damaged or cannot be written." +
+          "Fixfree some space on the disk of the Goodfetch home" +
+          "Error coderun_state_unavailable",
+      );
+    expect(
+      [
+        "usage.list",
+        "free some space on the disk of the Goodfetch home",
+        "run_state_unavailable",
+      ].map((value) =>
+        alert.getByText(value, { exact: true }).element().closest('[translate="no"]'),
+      ),
+    ).not.toContain(null);
+    client.close();
+  },
+);

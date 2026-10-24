@@ -183,9 +183,9 @@ fn the_answers_page_links_every_answer_an_enqueue_links_call_gives() {
     assert_eq!(pages, [200, 200, 200]);
 }
 
-/// `links.test/shift-jis/` is written in Shift_JIS, labelled so, and links
+/// `links.test/shift-jis/` is written in `Shift_JIS`, labelled so, and links
 /// `search?q=日本&k=한`, 한 written as a character reference since
-/// Shift_JIS has no 한; its search page answers any query.
+/// `Shift_JIS` has no 한; its search page answers any query.
 #[test]
 fn the_shift_jis_page_links_a_query_in_shift_jis() {
     let proving_ground = ProvingGround::start(SEED);

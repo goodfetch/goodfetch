@@ -194,7 +194,7 @@ fn an_enqueue_resolves_against_its_documents_base_and_is_answered_as_a_seed_is()
 ///
 /// A link's `href` resolves against its document's base URL with its
 /// query in the document's encoding, the URL it is fetched at and keyed
-/// by: a Shift_JIS page's link is a request apart from a handler's enqueue
+/// by: a `Shift_JIS` page's link is a request apart from a handler's enqueue
 /// of the same text, which is UTF-8, and the call's `include` narrows the
 /// scope (ADR 0120).
 ///

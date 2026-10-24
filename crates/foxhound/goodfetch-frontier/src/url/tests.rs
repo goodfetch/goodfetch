@@ -105,7 +105,7 @@ fn a_documents_base_url_is_its_base_href_resolved_against_its_own_url(
 /// HTML standard's URL parsing encodes it, a character the encoding cannot
 /// write as `&#<code point>;` percent-encoded; its path and fragment, and
 /// every part of a UTF-16 document's links, in UTF-8 (ADR 0120). The bytes
-/// are the encodings' own: 日本 is `93 FA 96 7B` in Shift_JIS, whose last
+/// are the encodings' own: 日本 is `93 FA 96 7B` in `Shift_JIS`, whose last
 /// byte is `{`, which the query's percent-encode set leaves as it is; é is
 /// `E9` and € `80` in windows-1252; 한 is U+D55C, 54620.
 ///

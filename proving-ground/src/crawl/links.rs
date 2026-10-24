@@ -18,9 +18,9 @@
 //!   (`http://[::1/`), and `2` and `3` relative to it, the last carrying
 //!   `data-isbn`: every answer an `enqueueLinks` call gives (ADR 0093).
 //!   `/answers/<n>` (1 to 3) is a page with its ID.
-//! - `links.test/shift-jis/` (no task): a page written in Shift_JIS,
+//! - `links.test/shift-jis/` (no task): a page written in `Shift_JIS`,
 //!   labelled so, linking `search?q=日本&k=한`, 한 written as the character
-//!   reference `&#54620;` since Shift_JIS has no 한, so a link's query is
+//!   reference `&#54620;` since `Shift_JIS` has no 한, so a link's query is
 //!   percent-encoded as a browser encodes it (ADR 0120);
 //!   `/shift-jis/search` answers any query.
 //!
@@ -146,7 +146,7 @@ fn answers() -> String {
     )
 }
 
-/// `html` written in Shift_JIS, a character it has none for as its
+/// `html` written in `Shift_JIS`, a character it has none for as its
 /// numeric character reference, labelled so, its `<meta>` dropped.
 fn shift_jis(html: &str) -> Page {
     let html = html.replacen("<meta charset=\"utf-8\">", "", 1);

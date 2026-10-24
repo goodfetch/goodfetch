@@ -4,8 +4,8 @@
 //! serves it: `crawl_request.links` reads each element a locator matches
 //! as a Payload function reads it, and `crawl_request.enqueue_links`
 //! answers each one added, `no_link`, `skipped_by_payload` or not added
-//! with its reason, each link taking its own Payload; a Shift_JIS page's
-//! link is fetched with its query in Shift_JIS, the bytes a browser sends;
+//! with its reason, each link taking its own Payload; a `Shift_JIS` page's
+//! link is fetched with its query in `Shift_JIS`, the bytes a browser sends;
 //! and a page's links resolve against its `<base href>` (pitfall U08).
 #![expect(
     clippy::doc_markdown,
@@ -294,8 +294,8 @@ fn one_payload_takes_every_link_include_narrows_and_a_bad_call_adds_nothing() {
     );
 }
 
-/// A Shift_JIS page's link `search?q=日本&k=한` is fetched with its query
-/// in Shift_JIS, 한 as its percent-encoded character reference: the bytes a
+/// A `Shift_JIS` page's link `search?q=日本&k=한` is fetched with its query
+/// in `Shift_JIS`, 한 as its percent-encoded character reference: the bytes a
 /// browser sends (ADR 0120).
 ///
 /// Covers: story:6-233, operation:crawl_request.enqueue_links

@@ -8,7 +8,7 @@ use rstest::rstest;
 
 use super::{Matched, SelectorInvalid, decode, matched};
 
-/// 日本 in Shift_JIS.
+/// 日本 in `Shift_JIS`.
 const NIHON: &[u8] = &[0x93, 0xFA, 0x96, 0x7B];
 
 /// A document is read in its BOM's encoding, else its `Content-Type`

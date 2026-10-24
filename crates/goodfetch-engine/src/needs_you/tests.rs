@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{EngineInstance, ProductVersion};
 use goodfetch_protocol::events::EventEnvelope;
 use goodfetch_protocol::needs_you::{
@@ -27,7 +28,9 @@ use super::{Answering, Changes, NeedsYou, NeedsYouSource, Primitives, SourceCont
 use crate::clock::Clock;
 use crate::events::{Events, EventsOptions, Subscription};
 use crate::governor::StorageSample;
+use crate::home::Home;
 use crate::ledger::Ledger;
+use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// A source the test fills: what it holds now, which a person may dismiss
@@ -99,6 +102,14 @@ async fn started(index: &Path, sources: Vec<NeedsYouSource>) -> Started {
         run_index: index.to_owned(),
         version: ProductVersion::parse("1.0.0").unwrap(),
         ledger: Ledger::at(index.with_file_name("usage.sqlite"), None),
+        settings: Settings::new(
+            SettingsFiles::of(
+                &Home::new(index.parent().unwrap().to_owned()),
+                &ProductVersion::parse("1.0.0").unwrap(),
+            ),
+            Product::Collie,
+            owner.child(),
+        ),
         owner: Arc::new(owner.child()),
     };
     let needs_you = NeedsYou::start(&sources, context, events, &owner);

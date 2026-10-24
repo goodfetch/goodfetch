@@ -1363,6 +1363,32 @@ export interface ProjectSettings {
   };
 }
 /**
+ * What `needs_you.allow_consent_domain` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ConsentDomainAllowed".
+ */
+export interface ConsentDomainAllowed {
+  /**
+   * Whether it was added: false when user configuration listed it
+   * already, which then changed nothing and recorded nothing.
+   */
+  added: boolean;
+  /**
+   * The domain, as `consent.domains` now lists it.
+   */
+  domain: string;
+  /**
+   * The layer written: user configuration.
+   */
+  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * What the person takes on, in plain words, as the Console showed it
+   * beside the answer and the Audit log records it.
+   */
+  warning: string;
+}
+/**
  * Why a Daemon's Console did not start: an Error code, its message and
  * what to do instead.
  *
@@ -2912,6 +2938,19 @@ export interface PageResponse {
   url: string;
 }
 /**
+ * What `needs_you.allow_consent_domain` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouAllowConsentDomainParams".
+ */
+export interface NeedsYouAllowConsentDomainParams {
+  /**
+   * The registrable domain whose consent walls the next runs accept, as
+   * a `consent_wall` item names it, or `*` for every domain.
+   */
+  domain: string;
+}
+/**
  * The item.
  */
 export interface NeedsYouItem {
@@ -2925,7 +2964,8 @@ export interface NeedsYouItem {
    * Its kind's own fields, which the kind's value in the catalog names:
    * for `storage_level`, `level` and `folder`; for
    * `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
-   * `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`.
+   * `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
+   * `consent_wall`, `domain`.
    */
   details?: {
     [k: string]: unknown;
@@ -3001,7 +3041,8 @@ export interface NeedsYouItem1 {
    * Its kind's own fields, which the kind's value in the catalog names:
    * for `storage_level`, `level` and `folder`; for
    * `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
-   * `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`.
+   * `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
+   * `consent_wall`, `domain`.
    */
   details?: {
     [k: string]: unknown;

@@ -1,5 +1,5 @@
-// "Needs you" (spec #591, stories 23, 25, 32 and 100; ADRs 0029, 0031, 0041
-// and 0122): every item waiting for a person, the longest waiting first,
+// "Needs you" (spec #591, stories 23, 25, 26, 32 and 100; ADRs 0029, 0031,
+// 0041, 0048, 0052 and 0122): every item waiting for a person, the longest waiting first,
 // each shown by its kind's renderer, a kind this build has none for shown by
 // the engine's summary. Collie's storage kinds: a filesystem at the `low` or
 // `critical` storage level with its folder, and a run stopped by storage,
@@ -8,8 +8,12 @@
 // (`usage.raise`, which only the Console and the interactive CLI prompt
 // offer, so an agent a Limit stopped cannot lift it): once raised, a
 // Recipe's run resumes in the Daemon (`run.resume`), and an SDK script's
-// run waits for its script, its resume command offered to copy. Items leave
-// the list as they are resolved, here, elsewhere or by their run.
+// run waits for its script, its resume command offered to copy. A domain
+// that showed a consent wall is offered for `consent.domains`, alone or as
+// `*`, each offer beside the plain warning of what the person takes on and
+// answered in one click (`needs_you.allow_consent_domain`, a person's
+// answer), with no confirmation asked. Items leave the list as they are
+// resolved, here, elsewhere or by their run.
 import type {
   LimitScope,
   NeedsYouItem,
@@ -65,6 +69,8 @@ export interface NeedsYouViewProps {
   readonly onCopy?: ((command: string) => void) | undefined;
   /** What became of the last copy. */
   readonly copied?: Copied | undefined;
+  /** Adds `domain`, or `*`, to `consent.domains` for the next runs. */
+  readonly onAllowConsentDomain?: ((domain: string) => void) | undefined;
 }
 
 /** The storage level a `storage_level` item names, and its folder. */
@@ -76,6 +82,11 @@ interface StorageLevelDetails {
 /** The folder a `run_stopped_by_storage` item names. */
 interface StoppedDetails {
   readonly folder: string;
+}
+
+/** The domain a `consent_wall` item names. */
+interface ConsentWallDetails {
+  readonly domain: string;
 }
 
 /** What a `run_stopped_by_limit` item names: the run, the Limit that stopped it, what it allows now, the Product the run needs and, for a Recipe's run, its Recipe. */
@@ -100,6 +111,12 @@ function storageLevelOf(item: NeedsYouItem): StorageLevelDetails | undefined {
 function stoppedOf(item: NeedsYouItem): StoppedDetails | undefined {
   const { folder } = item.details ?? {};
   return typeof folder === "string" ? { folder } : undefined;
+}
+
+/** The details of a `consent_wall` item, if they hold a domain. */
+function consentWallOf(item: NeedsYouItem): ConsentWallDetails | undefined {
+  const { domain } = item.details ?? {};
+  return typeof domain === "string" ? { domain } : undefined;
 }
 
 /** The member `name` of `value`, if it is an object. */
@@ -360,16 +377,87 @@ function StoppedByLimit({
   );
 }
 
+/** A domain that showed a consent wall, with its two offers, each beside what it takes on. */
+function ConsentWall({
+  details,
+  readOnly,
+  onAllow,
+}: {
+  readonly details: ConsentWallDetails;
+  readonly readOnly: boolean;
+  readonly onAllow: ((domain: string) => void) | undefined;
+}): ReactNode {
+  const domain = details.domain;
+  return (
+    <>
+      <h2 className="font-semibold">
+        <Trans>
+          <span translate="no">{domain}</span> showed a consent wall
+        </Trans>
+      </h2>
+      <p>
+        <Trans>
+          No run accepts a consent wall unless a person approved its domain, so its pages stayed at{" "}
+          <code translate="no">consent_required</code>. You may add{" "}
+          <span translate="no">{domain}</span> to <code translate="no">consent.domains</code> in
+          your configuration for the next runs.
+        </Trans>
+      </p>
+      <p className="text-sm">
+        <Trans>
+          Accepting the consent walls of <span translate="no">{domain}</span> gives consent in your
+          name: the site may load its trackers and set their cookies, and under the GDPR that
+          consent is yours. Every later run accepts them until you remove{" "}
+          <span translate="no">{domain}</span> from <code translate="no">consent.domains</code>.
+        </Trans>
+      </p>
+      <button
+        type="button"
+        disabled={readOnly}
+        onClick={() => onAllow?.(domain)}
+        className={buttonClassName}
+      >
+        <Trans>Accept {domain}'s consent walls in later runs</Trans>
+      </button>
+      <p className="text-sm">
+        <Trans>
+          Accepting consent walls on every domain gives consent in your name on every site that
+          shows one: those sites may load their trackers and set their cookies, and under the GDPR
+          that consent is yours. An Agent also no longer asks you before accepting a consent prompt
+          on any domain. Every later run accepts them until you remove <code translate="no">*</code>{" "}
+          from <code translate="no">consent.domains</code>.
+        </Trans>
+      </p>
+      <button
+        type="button"
+        disabled={readOnly}
+        onClick={() => onAllow?.("*")}
+        className={buttonClassName}
+      >
+        <Trans>Accept consent walls on every domain</Trans>
+      </button>
+    </>
+  );
+}
+
 /** What an item says, by its kind's renderer, or by the engine's summary for a kind this build has none for. */
 function Content({
   item,
   readOnly,
   onRaise,
+  onAllowConsentDomain,
 }: {
   readonly item: NeedsYouItem;
   readonly readOnly: boolean;
   readonly onRaise: NeedsYouViewProps["onRaise"];
+  readonly onAllowConsentDomain: NeedsYouViewProps["onAllowConsentDomain"];
 }): ReactNode {
+  if (item.kind === "consent_wall" && item.actions.includes("needs_you.allow_consent_domain")) {
+    const details = consentWallOf(item);
+    if (details !== undefined) {
+      return <ConsentWall details={details} readOnly={readOnly} onAllow={onAllowConsentDomain} />;
+    }
+  }
   if (item.kind === "storage_level") {
     const details = storageLevelOf(item);
     if (details !== undefined) {
@@ -403,17 +491,24 @@ function Item({
   readOnly,
   onDismiss,
   onRaise,
+  onAllowConsentDomain,
 }: {
   readonly item: NeedsYouItem;
   readonly readOnly: boolean;
   readonly onDismiss: (id: string) => void;
   readonly onRaise: NeedsYouViewProps["onRaise"];
+  readonly onAllowConsentDomain: NeedsYouViewProps["onAllowConsentDomain"];
 }): ReactNode {
   const { i18n } = useLingui();
   const since = formatInstant(item.since, i18n.locale);
   return (
     <li className="flex flex-col gap-2 rounded-lg border p-4">
-      <Content item={item} readOnly={readOnly} onRaise={onRaise} />
+      <Content
+        item={item}
+        readOnly={readOnly}
+        onRaise={onRaise}
+        onAllowConsentDomain={onAllowConsentDomain}
+      />
       <p className="text-muted-foreground text-sm">
         <Trans>
           Waiting since <time dateTime={item.since}>{since}</time>
@@ -509,6 +604,7 @@ export function NeedsYouView({
   raised = [],
   onCopy,
   copied,
+  onAllowConsentDomain,
 }: NeedsYouViewProps): ReactNode {
   const { t } = useLingui();
   return (
@@ -544,6 +640,7 @@ export function NeedsYouView({
               readOnly={readOnly}
               onDismiss={onDismiss}
               onRaise={onRaise}
+              onAllowConsentDomain={onAllowConsentDomain}
             />
           ))}
         </ul>
@@ -564,14 +661,17 @@ function FailedList({ message }: { readonly message: string }): ReactNode {
 }
 
 /** What the engine refused, and the message it gave. */
-type Failure = { readonly kind: "dismiss" | "raise"; readonly message: string };
+type Failure = {
+  readonly kind: "dismiss" | "raise" | "allow_consent_domain";
+  readonly message: string;
+};
 
 /** The message of `error`, a refusal or any other failure. */
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** "Needs you" over the shell's list, dismissing through `dismiss` and raising a run's Limit over `client`. */
+/** "Needs you" over the shell's list, dismissing through `dismiss`, and raising a run's Limit and answering a consent wall over `client`. */
 export function NeedsYou({
   client,
   state,
@@ -620,6 +720,12 @@ export function NeedsYou({
     setFailure(undefined);
     void raise(item, stop, amount);
   };
+  const onAllowConsentDomain = (domain: string): void => {
+    setFailure(undefined);
+    client.call("needs_you.allow_consent_domain", { domain }).catch((error: unknown) => {
+      setFailure({ kind: "allow_consent_domain", message: messageOf(error) });
+    });
+  };
   const onCopy = (command: string): void => {
     navigator.clipboard.writeText(command).then(
       () => setCopied("copied"),
@@ -636,6 +742,7 @@ export function NeedsYou({
         raised={raised}
         onCopy={onCopy}
         copied={copied}
+        onAllowConsentDomain={onAllowConsentDomain}
       />
       {failure === undefined ? null : (
         <p role="alert" className="text-destructive">
@@ -649,13 +756,27 @@ export function NeedsYou({
 /** What the engine refused, in words. */
 function FailureText({ failure }: { readonly failure: Failure }): ReactNode {
   const message = failure.message;
-  return failure.kind === "dismiss" ? (
-    <Trans>
-      The engine could not dismiss the item: <span translate="no">{message}</span>
-    </Trans>
-  ) : (
-    <Trans>
-      The engine did not raise the Limit: <span translate="no">{message}</span>
-    </Trans>
-  );
+  switch (failure.kind) {
+    case "dismiss":
+      return (
+        <Trans>
+          The engine could not dismiss the item: <span translate="no">{message}</span>
+        </Trans>
+      );
+    case "raise":
+      return (
+        <Trans>
+          The engine did not raise the Limit: <span translate="no">{message}</span>
+        </Trans>
+      );
+    case "allow_consent_domain":
+      return (
+        <Trans>
+          The engine could not add the domain to <code translate="no">consent.domains</code>:{" "}
+          <span translate="no">{message}</span>
+        </Trans>
+      );
+    default:
+      return failure.kind satisfies never;
+  }
 }

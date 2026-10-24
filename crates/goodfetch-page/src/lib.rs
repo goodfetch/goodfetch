@@ -7,7 +7,8 @@
 //! matcher ([`url_pattern`]) and robots.txt's group selection
 //! ([`robots_txt`]), and the interfaces Foxhound fills on the pages it
 //! hands to handlers ([`page_value`]), and the seam its Product's Block
-//! classification fills ([`blocks`]). Its own crate so that Foxhound's crates fill its
+//! classification fills ([`blocks`]), and the Run trace's Provenance log
+//! ([`provenance`]), which Foxhound's fetch tiers also write. Its own crate so that Foxhound's crates fill its
 //! interfaces without reaching its internals (STYLE.md, reason 2); it never
 //! names a Foxhound type.
 

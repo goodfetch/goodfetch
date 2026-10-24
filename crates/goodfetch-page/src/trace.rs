@@ -3,10 +3,12 @@
 //! in `trace/cdp-commands.jsonl` of the Run's folder. A blocking actor of
 //! the Run's owner appends the lines, a group at a time.
 //!
-//! Beside it, the Provenance log of the Run's pages (ADR 0047): one JSON
+//! Beside it, the Provenance log of the Run (ADR 0047): one JSON
 //! line per entry, in `trace/provenance.jsonl`, each naming its `action`
 //! and its page, such as the live hiding a page ran under, a rule the guard
-//! lifted, or what extraction-side removal took from a document.
+//! lifted, or what extraction-side removal took from a document, and what
+//! a fetch tier did, such as a hedge it sent or a response two requests
+//! shared (ADR 0040).
 #![expect(
     clippy::disallowed_methods,
     reason = "the log's actor writes its file on the tasks module's dedicated thread, never on an async worker"
@@ -26,7 +28,8 @@ pub(crate) const FILE: &str = "trace/cdp-commands.jsonl";
 /// The Provenance log's file in the Run's folder.
 pub(crate) const PROVENANCE: &str = "trace/provenance.jsonl";
 
-/// Records `entry`, one Provenance entry of a page of `run`, as a line of
+/// Records `entry`, one Provenance entry of `run`, such as of one of its
+/// pages or of a request a fetch tier sent for it, as a line of
 /// the Run trace's Provenance log, appended through the Run's blocking
 /// policy; a line that cannot be written is logged and lost.
 ///

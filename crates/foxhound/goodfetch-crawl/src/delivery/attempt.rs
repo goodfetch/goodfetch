@@ -9,7 +9,9 @@
 //! request's document on the Run's HTTP tier, under the same lease, and
 //! hands the handler the page served from it, closed once the attempt
 //! ends; a fetch that fails ends the attempt with its error, as a
-//! handler's failure would, and sends the handler nothing.
+//! handler's failure would, and sends the handler nothing. The fetch is
+//! sent from the attempt's Session, whose identical requests in flight it
+//! may share, and hedged under its domain key's room (ADR 0040).
 
 use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};

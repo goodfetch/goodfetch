@@ -8,6 +8,8 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+mod model;
+
 use std::collections::BTreeMap;
 
 use goodfetch_engine::runs::CompletenessReason;

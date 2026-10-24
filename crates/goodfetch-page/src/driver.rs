@@ -80,9 +80,10 @@ use crate::proxy::{Answer, PROXY_STATUS, Party, ProxyPermit, SessionProxy, party
 use crate::trace::CommandLog;
 use identity::Identity;
 
-/// The bound of a page function's commands: none, as Playwright's
-/// `evaluate` has none; the call ends when its Client cancels it, or with
-/// its page or its browser.
+/// No bound of a command's own: its call's deadline bounds it, such as a
+/// navigation's, or none, as Playwright's `evaluate` has none, and then
+/// the call ends when its Client cancels it, or with its page or its
+/// browser.
 const UNBOUNDED: Duration = Duration::MAX;
 
 /// The deadlines of a Run's settings that its browser's commands wait under
@@ -91,7 +92,7 @@ const UNBOUNDED: Duration = Duration::MAX;
 pub(crate) struct Deadlines {
     /// `timeout.navigation`: a navigation's, and the bound of each command
     /// of opening a page, reading its document or its history, and of the
-    /// engine's own commands.
+    /// engine's own closing commands.
     navigation: Deadline,
     /// `timeout.action`: each command of a locator action's.
     action: Deadline,
@@ -119,6 +120,21 @@ impl Deadlines {
             | Call::Navigation { .. }
             | Call::History => &self.navigation,
             Call::Action { .. } => &self.action,
+        }
+    }
+
+    /// How long one command of `call` may go unanswered: a navigation's
+    /// commands as long as the navigation goes on, since the navigation's
+    /// own deadline, which leaves out its waits for permits, bounds them;
+    /// any other's its call's deadline.
+    fn command_limit(&self, call: &Call) -> Duration {
+        match call {
+            Call::Navigation { .. } => UNBOUNDED,
+            Call::Launch { .. }
+            | Call::OpenPage { .. }
+            | Call::Document
+            | Call::History
+            | Call::Action { .. } => self.of_call(call).duration(),
         }
     }
 }
@@ -164,23 +180,24 @@ impl Browser {
         params: &C,
         call: &Call,
     ) -> Result<C::Returns, CallError> {
-        let limit = self.deadlines.of_call(call).duration();
+        let limit = self.deadlines.command_limit(call);
         match self.try_send_within(session, params, limit).await {
             Ok(returned) => Ok(returned),
             Err(failure) => Err(self.failed(call, &failure).await),
         }
     }
 
-    /// Sends `params` on `session`, recorded in the Run trace, within the
-    /// Run's `timeout.navigation`, answering the failure itself, for a
-    /// caller that acts on some failures.
+    /// Sends `params` on `session`, recorded in the Run trace, answering
+    /// the failure itself, for a caller that acts on some failures: the
+    /// caller's own deadline bounds it, such as a navigation's, which
+    /// leaves out its waits for permits while the browser holds back its
+    /// `Page.navigate`, and the connection's end ends it.
     async fn try_send<C: Command>(
         &self,
         session: Option<&TargetSession>,
         params: &C,
     ) -> Result<C::Returns, Failure> {
-        let limit = self.deadlines.navigation.duration();
-        self.try_send_within(session, params, limit).await
+        self.try_send_within(session, params, UNBOUNDED).await
     }
 
     /// Sends `params` on `session`, recorded in the Run trace, waiting for

@@ -370,6 +370,9 @@ enum ConfigCommand {
         /// of resolving in this process.
         #[arg(long)]
         daemon: bool,
+        /// Resolves in this process, as it does unless `--daemon` is given.
+        #[arg(long, conflicts_with = "daemon")]
+        attached: bool,
     },
 }
 
@@ -651,7 +654,7 @@ fn run(
         machine.record();
     }
     let command = match parsed {
-        Parsed::Generated(call) => return call.run(engine, dependencies, human),
+        Parsed::Generated(call) => return call.run(engine, dependencies, &machine, human),
         Parsed::HandWritten(command) => command,
     };
     match command {
@@ -675,6 +678,7 @@ fn run(
                     project,
                     json,
                     daemon,
+                    attached: _,
                 },
             ..
         } => config_explain(
@@ -724,9 +728,11 @@ fn run(
         }
         Command::Usage { command, .. } => {
             warn_of_a_temporary_ledger(&home, human);
-            usage_command(command, engine, dependencies, human)
+            usage_command(command, engine, dependencies, &machine, human)
         }
-        Command::Certs { command, .. } => certs::run(command, engine, dependencies, human),
+        Command::Certs { command, .. } => {
+            certs::run(command, engine, dependencies, &machine, human)
+        }
         Command::UpgradeFiles { from, json, .. } => {
             upgrade::upgrade(engine.identity(), &home, from.as_deref(), json)
         }
@@ -738,11 +744,12 @@ fn usage_command(
     command: UsageCommand,
     engine: &Engine,
     dependencies: Dependencies,
+    machine: &daemon::Machine<'_>,
     human: &Human,
 ) -> ExitCode {
     let command = match command {
         UsageCommand::Generated(joining) => {
-            return joining.call().run(engine, dependencies, human);
+            return joining.call().run(engine, dependencies, machine, human);
         }
         UsageCommand::Own(command) => command,
     };

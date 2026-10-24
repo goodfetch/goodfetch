@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use super::{
     Call, NAMESPACES, Namespace, Offer, PRODUCT, command, duration, member, members_of, offer,
 };
+use crate::engine_choice::{Choice, Lifetime};
 
 /// What the made-up operations take.
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -268,6 +269,64 @@ fn a_timeout_that_is_no_positive_duration_is_a_usage_error(#[case] timeout: &str
     assert_eq!(
         (refused.kind(), refused.exit_code()),
         (ErrorKind::ValueValidation, 2)
+    );
+}
+
+/// Collie's catalog entry `name`.
+fn collies(name: &str) -> &'static Operation {
+    operations_of(PRODUCT)
+        .find(|operation| operation.name == name)
+        .unwrap()
+}
+
+/// The call a command line gives `operation`'s command.
+fn call(operation: &'static Operation, arguments: &[&str]) -> Result<Call, clap::Error> {
+    let matches = command(operation).try_get_matches_from(
+        std::iter::once(member(operation)).chain(arguments.iter().copied()),
+    )?;
+    Ok(Call::of(operation, &matches))
+}
+
+/// An opener's new value and the value a value-bound command names outlive
+/// the command, so they need the Daemon; nothing else does (ADR 0088).
+///
+/// Covers: story:11-199
+#[rstest]
+#[case::an_opener("run.start", &[], Lifetime::Lasting)]
+#[case::a_value_bound_command("run.finish", &["first"], Lifetime::Lasting)]
+#[case::a_page_bound_command("page.reload", &["page-1"], Lifetime::Lasting)]
+#[case::a_command_with_no_value("engine.info", &[], Lifetime::Passing)]
+#[case::a_run_s_store_named_by_flag("key_value_store.get", &["--run-id", "first", "--key", "k"], Lifetime::Passing)]
+fn a_commands_lifetime_is_its_values(
+    #[case] name: &str,
+    #[case] arguments: &[&str],
+    #[case] lifetime: Lifetime,
+) {
+    assert_eq!(call(collies(name), arguments).unwrap().lifetime(), lifetime);
+}
+
+/// `--attached` and `--daemon` force either engine, and together are a
+/// usage error, before any engine call (ADR 0024).
+#[rstest]
+#[case::neither(&[], Choice::Auto)]
+#[case::attached(&["--attached"], Choice::Attached)]
+#[case::daemon(&["--daemon"], Choice::Daemon)]
+fn attached_and_daemon_choose_the_engine(#[case] arguments: &[&str], #[case] choice: Choice) {
+    assert_eq!(
+        call(&SPIN, &[&["w1"], arguments].concat()).unwrap().choice,
+        choice
+    );
+}
+
+#[test]
+fn attached_and_daemon_together_are_a_usage_error() {
+    let refused = call(&SPIN, &["w1", "--attached", "--daemon"])
+        .err()
+        .unwrap();
+
+    assert_eq!(
+        (refused.kind(), refused.exit_code()),
+        (ErrorKind::ArgumentConflict, 2)
     );
 }
 

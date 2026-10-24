@@ -20,7 +20,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use goodfetch_protocol::page::{PageOpened, TargetNotUniqueDetails};
-use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache, cli};
+use goodfetch_test_support::{
+    BROWSERS_PATH_VARIABLE, Mode, ProvingGround, TestEnv, browser_cache, cli,
+};
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
@@ -446,30 +448,36 @@ fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
 /// `locator click`, generated from the catalog: no engine holds the page
 /// it names, so it fails with `closed`.
 /// Covers: command:locator.click
-#[test]
-fn locator_click_on_a_page_no_engine_holds_fails_with_closed() {
-    fails_with_closed(&["locator", "click"]);
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn locator_click_on_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
+    fails_with_closed(&["locator", "click"], mode);
 }
 
 /// `locator fill`, generated from the catalog: no engine holds the page
 /// it names, so it fails with `closed`.
 /// Covers: command:locator.fill
-#[test]
-fn locator_fill_on_a_page_no_engine_holds_fails_with_closed() {
-    fails_with_closed(&["locator", "fill", "--value", "Goodfetch"]);
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn locator_fill_on_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
+    fails_with_closed(&["locator", "fill", "--value", "Goodfetch"], mode);
 }
 
 /// `locator press`, generated from the catalog: no engine holds the page
 /// it names, so it fails with `closed`.
 /// Covers: command:locator.press
-#[test]
-fn locator_press_on_a_page_no_engine_holds_fails_with_closed() {
-    fails_with_closed(&["locator", "press", "--key", "Enter"]);
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn locator_press_on_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
+    fails_with_closed(&["locator", "press", "--key", "Enter"], mode);
 }
 
-/// Runs the locator command `command` on a page no engine holds, and
-/// asserts that it fails with `closed`, naming its operation.
-fn fails_with_closed(command: &[&str]) {
+/// Runs the locator command `command` in `mode` on a page no engine
+/// holds, and asserts that it fails with `closed`, naming its operation.
+fn fails_with_closed(command: &[&str], mode: Mode) {
     let env = TestEnv::new();
     let mut arguments = command.to_vec();
     arguments.extend([
@@ -480,6 +488,7 @@ fn fails_with_closed(command: &[&str]) {
 
     let checked = cli(&env, COLLIE)
         .args(arguments)
+        .mode(mode)
         .json("CommandFailed")
         .unwrap();
 

@@ -156,13 +156,13 @@ fn a_command_line_with_an_unknown_flag_exits_2_before_any_engine_call() {
 fn a_run_that_ended_stopped_exits_20() {
     let env = TestEnv::new();
     let started = cli(&env, COLLIE)
-        .args(["run", "start", "--run-id", "first"])
+        .args(["run", "start", "--run-id", "first", "--attached"])
         .run()
         .unwrap();
     assert_eq!(started.exit, Some(0), "{}", started.stderr);
 
     let finished = cli(&env, COLLIE)
-        .args(["run", "finish", "first", "--json"])
+        .args(["run", "finish", "first", "--json", "--attached"])
         .json("RunReport")
         .unwrap();
 
@@ -182,13 +182,13 @@ fn a_run_that_ended_stopped_exits_20() {
 fn a_run_that_ended_stopped_resumes_by_its_run_id() {
     let env = TestEnv::new();
     let started = cli(&env, COLLIE)
-        .args(["run", "start", "--run-id", "first"])
+        .args(["run", "start", "--run-id", "first", "--attached"])
         .run()
         .unwrap();
     assert_eq!(started.exit, Some(0), "{}", started.stderr);
 
     let resumed = cli(&env, COLLIE)
-        .args(["run", "resume", "first", "--json"])
+        .args(["run", "resume", "first", "--json", "--attached"])
         .json("RunStarted")
         .unwrap();
 
@@ -209,13 +209,13 @@ fn a_run_that_ended_stopped_resumes_by_its_run_id() {
 fn a_stopped_run_exits_20_under_require_verified() {
     let env = TestEnv::new();
     let started = cli(&env, COLLIE)
-        .args(["run", "start", "--run-id", "first"])
+        .args(["run", "start", "--run-id", "first", "--attached"])
         .run()
         .unwrap();
     assert_eq!(started.exit, Some(0), "{}", started.stderr);
 
     let finished = cli(&env, COLLIE)
-        .args(["run", "finish", "first", "--require-verified"])
+        .args(["run", "finish", "first", "--require-verified", "--attached"])
         .run()
         .unwrap();
 

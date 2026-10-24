@@ -23,9 +23,10 @@ use std::process::Command;
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, CleanUp};
 use goodfetch_protocol::page::{Navigated, PageOpened};
 use goodfetch_test_support::{
-    BROWSERS_PATH_VARIABLE, CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache, cli,
-    runtime,
+    BROWSERS_PATH_VARIABLE, CHROME_FOR_TESTING_BUILD, Mode, ProvingGround, TestEnv, browser_cache,
+    cli, runtime,
 };
+use rstest::rstest;
 use serde_json::{Map, Value, json};
 
 use crate::attached::{Attached, hello};
@@ -477,17 +478,20 @@ fn a_running_browser_keeps_its_build_from_the_clean_up_until_it_exits() {
 /// the command's own Attached engine stopped as the command ended has no
 /// page to open, so the call fails typed (ADR 0099).
 /// Covers: command:run.new-page
-#[test]
-fn run_new_page_on_a_run_an_earlier_command_stopped_fails_with_run_not_found() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_new_page_on_a_run_an_earlier_command_stopped_fails_with_run_not_found(#[case] mode: Mode) {
     let env = TestEnv::new();
     let started = cli(&env, COLLIE)
-        .args(["run", "start", "--run-id", "first"])
+        .args(["run", "start", "--run-id", "first", "--attached"])
         .run()
         .unwrap();
     assert_eq!(started.exit, Some(0), "{started}");
 
     let checked = cli(&env, COLLIE)
         .args(["run", "new-page", "first", "--json"])
+        .mode(mode)
         .json("CommandFailed")
         .unwrap();
 
@@ -504,8 +508,10 @@ fn run_new_page_on_a_run_an_earlier_command_stopped_fails_with_run_not_found() {
 /// `page goto` through the command generated from the catalog: no engine
 /// holds a page the command names, so the call fails with `closed`.
 /// Covers: command:page.goto
-#[test]
-fn page_goto_of_a_page_no_engine_holds_fails_with_closed() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_goto_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
     let env = TestEnv::new();
 
     let checked = cli(&env, COLLIE)
@@ -517,6 +523,7 @@ fn page_goto_of_a_page_no_engine_holds_fails_with_closed() {
             "http://catalog.test/",
             "--json",
         ])
+        .mode(mode)
         .json("CommandFailed")
         .unwrap();
 
@@ -534,8 +541,10 @@ fn page_goto_of_a_page_no_engine_holds_fails_with_closed() {
 /// request given as JSON: no engine holds a page the command names, so the
 /// call fails with `closed`.
 /// Covers: command:page.formats
-#[test]
-fn page_formats_of_a_page_no_engine_holds_fails_with_closed() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_formats_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
     let env = TestEnv::new();
 
     let checked = cli(&env, COLLIE)
@@ -547,6 +556,7 @@ fn page_formats_of_a_page_no_engine_holds_fails_with_closed() {
             r#"{"markdown":true}"#,
             "--json",
         ])
+        .mode(mode)
         .json("CommandFailed")
         .unwrap();
 
@@ -560,12 +570,13 @@ fn page_formats_of_a_page_no_engine_holds_fails_with_closed() {
     );
 }
 
-/// Runs `page <command> page-1 --json`, which names a page no engine holds,
-/// and returns its exit status, Error code and operation.
-fn closed_page(command: &str) -> (Option<i32>, Value, Value) {
+/// Runs `page <command> page-1 --json` in `mode`, which names a page no
+/// engine holds, and returns its exit status, Error code and operation.
+fn closed_page(command: &str, mode: Mode) -> (Option<i32>, Value, Value) {
     let env = TestEnv::new();
     let checked = cli(&env, COLLIE)
         .args(["page", command, "page-1", "--json"])
+        .mode(mode)
         .json("CommandFailed")
         .unwrap();
     (
@@ -578,10 +589,12 @@ fn closed_page(command: &str) -> (Option<i32>, Value, Value) {
 /// `page reload` through the command generated from the catalog (#698): no
 /// engine holds the page it names, so the call fails with `closed`.
 /// Covers: command:page.reload
-#[test]
-fn page_reload_of_a_page_no_engine_holds_fails_with_closed() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_reload_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
     assert_eq!(
-        closed_page("reload"),
+        closed_page("reload", mode),
         (Some(3), json!("closed"), json!("page.reload"))
     );
 }
@@ -589,10 +602,12 @@ fn page_reload_of_a_page_no_engine_holds_fails_with_closed() {
 /// `page close` through the command generated from the catalog (#719): no
 /// engine holds the page it names, so the call fails with `closed`.
 /// Covers: command:page.close
-#[test]
-fn page_close_of_a_page_no_engine_holds_fails_with_closed() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_close_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
     assert_eq!(
-        closed_page("close"),
+        closed_page("close", mode),
         (Some(3), json!("closed"), json!("page.close"))
     );
 }
@@ -600,10 +615,12 @@ fn page_close_of_a_page_no_engine_holds_fails_with_closed() {
 /// `page go-back` through the command generated from the catalog (#698):
 /// no engine holds the page it names, so the call fails with `closed`.
 /// Covers: command:page.go-back
-#[test]
-fn page_go_back_of_a_page_no_engine_holds_fails_with_closed() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_go_back_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
     assert_eq!(
-        closed_page("go-back"),
+        closed_page("go-back", mode),
         (Some(3), json!("closed"), json!("page.go_back"))
     );
 }
@@ -612,10 +629,12 @@ fn page_go_back_of_a_page_no_engine_holds_fails_with_closed() {
 /// (#698): no engine holds the page it names, so the call fails with
 /// `closed`.
 /// Covers: command:page.go-forward
-#[test]
-fn page_go_forward_of_a_page_no_engine_holds_fails_with_closed() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_go_forward_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
     assert_eq!(
-        closed_page("go-forward"),
+        closed_page("go-forward", mode),
         (Some(3), json!("closed"), json!("page.go_forward"))
     );
 }

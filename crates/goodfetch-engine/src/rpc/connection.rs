@@ -834,6 +834,11 @@ impl Session<'_> {
                 }
                 // A Connection answers one `hello`: the first sets it.
                 let _ = self.connection.surface.set(surface);
+                // Each CLI command is a Connection of its own, and the Runs
+                // it starts on the Daemon outlive it (ADRs 0024 and 0088).
+                if surface == Surface::Cli {
+                    self.connection.runs.outlive_connection().await;
+                }
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface));
                 self.behind_gateway = accepted.behind_gateway;
                 if let Access::Attached(private_endpoint) = &self.access {

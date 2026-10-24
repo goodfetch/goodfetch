@@ -153,6 +153,12 @@ pub(super) fn cli_hello() -> Value {
     hello_with("collie", "0.1", "cli", Some(TOKEN))
 }
 
+/// The `hello` of an SDK program's Connection, whose Runs end with it
+/// (ADR 0078).
+fn sdk_hello() -> Value {
+    hello_with("collie", "0.1", "sdk_typescript", Some(TOKEN))
+}
+
 /// A Client that said `hello` with the token.
 pub(super) async fn opened(dialer: &InMemoryDialer, hello: Value) -> Client {
     let mut client = connect(dialer).await;
@@ -389,8 +395,8 @@ fn the_end_of_one_clients_connection_stops_only_its_runs() {
         &env,
         the_pick(),
         |dialer| async move {
-            let mut leaving = opened(&dialer, cli_hello()).await;
-            let mut staying = opened(&dialer, cli_hello()).await;
+            let mut leaving = opened(&dialer, sdk_hello()).await;
+            let mut staying = opened(&dialer, sdk_hello()).await;
             call(&mut leaving, 1, "run.start", json!({ "run_id": "left" })).await;
             call(&mut staying, 1, "run.start", json!({ "run_id": "stays" })).await;
             leaving.close().await;
@@ -409,6 +415,45 @@ fn the_end_of_one_clients_connection_stops_only_its_runs() {
             index_row(&env, "stays")["lifecycle"].clone()
         ),
         (json!(1), json!("stopped"), json!("stopped"))
+    );
+}
+
+/// Each CLI command is a Connection of its own, so the Runs a CLI
+/// Connection starts outlive it: the next command finds them live (ADRs
+/// 0024 and 0088).
+///
+/// Covers: story:11-199
+#[test]
+fn the_runs_a_cli_connection_starts_outlive_it() {
+    let env = TestEnv::new();
+
+    let (_, live) = daemon(
+        &engine(Product::Collie),
+        &env,
+        the_pick(),
+        |dialer| async move {
+            let mut starting = opened(&dialer, cli_hello()).await;
+            call(
+                &mut starting,
+                1,
+                "run.start",
+                json!({ "run_id": "lasting" }),
+            )
+            .await;
+            starting.close().await;
+            while starting.next().await.is_some() {}
+            tokio::time::sleep(MINUTE).await;
+            let mut next = opened(&dialer, cli_hello()).await;
+            let status = call(&mut next, 1, "daemon.status", json!({})).await;
+            call(&mut next, 2, "run.finish", json!({ "run_id": "lasting" })).await;
+            next.close().await;
+            status["result"]["live_runs"].clone()
+        },
+    );
+
+    assert_eq!(
+        (live, index_row(&env, "lasting")["lifecycle"].clone()),
+        (json!(1), json!("finished"))
     );
 }
 
@@ -578,7 +623,7 @@ fn a_daemon_not_the_pick_hands_over_once_only_a_console_is_left() {
         |dialer| async move {
             let mut console =
                 opened(&dialer, hello_with("collie", "0.1", "console", Some(TOKEN))).await;
-            let mut script = opened(&dialer, cli_hello()).await;
+            let mut script = opened(&dialer, sdk_hello()).await;
             call(&mut script, 1, "run.start", json!({ "run_id": "busy" })).await;
             script.close().await;
             while script.next().await.is_some() {}

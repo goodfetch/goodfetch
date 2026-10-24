@@ -9,7 +9,7 @@
 use std::process::ExitCode;
 
 use clap::Subcommand;
-use goodfetch_cli::engine_choice::{self, Answer, CommandCall};
+use goodfetch_cli::engine_choice::{self, Answer, CommandCall, Daemons};
 use goodfetch_cli::exit_codes;
 use goodfetch_cli::generated::{Joined, Joining};
 use goodfetch_cli::output::{self, Human};
@@ -69,10 +69,13 @@ pub(super) fn run(
     command: CertsCommand,
     engine: &Engine,
     dependencies: Dependencies,
+    daemons: &dyn Daemons,
     human: &Human,
 ) -> ExitCode {
     match command {
-        CertsCommand::Generated(joining) => joining.call().run(engine, dependencies, human),
+        CertsCommand::Generated(joining) => {
+            joining.call().run(engine, dependencies, daemons, human)
+        }
         CertsCommand::Own(OwnCertsCommand::Accept { host, json }) => {
             accept(engine, dependencies, &host, json, human)
         }

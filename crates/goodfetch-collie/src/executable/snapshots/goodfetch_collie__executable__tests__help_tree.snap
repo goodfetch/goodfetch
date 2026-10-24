@@ -95,6 +95,8 @@ Usage: goodfetch-collie certs list [OPTIONS]
 
 Options:
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -161,6 +163,7 @@ Options:
       --project <PROJECT>  Reads this project configuration instead of the `goodfetch.toml` found from the working folder upward
       --json               Prints the result as JSON
       --daemon             Asks the Daemon of the major, starting it if none runs, instead of resolving in this process
+      --attached           Resolves in this process, as it does unless `--daemon` is given
       --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help               Print help
 
@@ -335,6 +338,8 @@ Usage: goodfetch-collie usage list [OPTIONS]
 
 Options:
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -352,6 +357,8 @@ Options:
       --usage-kind <USAGE_KIND>  The Usage kind it caps
       --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
       --json                     Prints the result as JSON
+      --attached                 Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                   Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
   -h, --help                     Print help
 
 $ goodfetch-collie usage raise --help
@@ -399,6 +406,8 @@ Usage: goodfetch-collie engine info [OPTIONS]
 
 Options:
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -424,6 +433,8 @@ Options:
       --after <AFTER>  The last event the Client read, `{engine_instance, position}`: the subscription resumes after it, or starts with `events.resync` when the engine no longer holds it or another engine instance gave it, as after a Daemon restart. Absent, it starts with the next event
       --system-info    Whether it also takes `engine.system_info`, the Resource governor's periodic readings; false by default, so a subscription that reads only what changes sees no periodic event
       --json           Prints what the call sends as one JSON object per line
+      --attached       Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help           Print help
 
@@ -461,6 +472,8 @@ Arguments:
 
 Options:
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -477,6 +490,8 @@ Options:
       --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
       --source <SOURCE>    `session.source` for this Session alone: left out, the Run's or the connection's applies; `null`, the Session opens fresh (ADRs 0083 and 0092)
       --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help               Print help
 
@@ -492,7 +507,9 @@ Options:
       --settings <FILE|->  Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
       --tags <TAGS>        The Run's opaque tags
       --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
       --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
   -h, --help               Print help
 
 $ goodfetch-collie run finish --help
@@ -506,6 +523,8 @@ Arguments:
 Options:
       --timeout <DURATION>  How long the call waits for the Run's end, in milliseconds; past it, it fails with `deadline_exceeded` and only the wait ends. None by default for `run.finish`, which the Run's own `timeout.run` bounds; `timeout.close` by default for `run.stop`
       --json                Prints the result as JSON
+      --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --require-verified    Exits 21 when the Run ended with a Verdict other than `verified`
       --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                Print help
@@ -521,6 +540,8 @@ Arguments:
 Options:
       --timeout <DURATION>  How long the call waits for the Run's end, in milliseconds; past it, it fails with `deadline_exceeded` and only the wait ends. None by default for `run.finish`, which the Run's own `timeout.run` bounds; `timeout.close` by default for `run.stop`
       --json                Prints the result as JSON
+      --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --require-verified    Exits 21 when the Run ended with a Verdict other than `verified`
       --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                Print help
@@ -536,6 +557,8 @@ Arguments:
 Options:
       --forwarded         Set by an engine that forwards the abort to the owner the Run index names (ADR 0031): an engine that does not own the Run then answers `run_not_owned` instead of taking its writer role
       --json              Prints the result as JSON
+      --attached          Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon            Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --require-verified  Exits 21 when the Run ended with a Verdict other than `verified`
       --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help              Print help
@@ -550,6 +573,8 @@ Arguments:
 
 Options:
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -564,6 +589,8 @@ Arguments:
 Options:
       --after <AFTER>  The position of the value the reader last read: the answer is the latest value after it, once one comes. Absent, the Run's progress at once
       --json           Prints the result as JSON
+      --attached       Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help           Print help
 
@@ -577,6 +604,8 @@ Arguments:
 
 Options:
       --json              Prints the result as JSON
+      --attached          Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon            Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --require-verified  Exits 21 when the Run ended with a Verdict other than `verified`
       --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help              Print help
@@ -592,6 +621,8 @@ Arguments:
 Options:
       --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder
       --json                 Prints the result as JSON
+      --attached             Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon               Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>         When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                 Print help
 
@@ -605,6 +636,8 @@ Arguments:
 
 Options:
       --json              Prints the result as JSON
+      --attached          Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon            Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --require-verified  Exits 21 when the Run ended with a Verdict other than `verified`
       --color <WHEN>      When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help              Print help
@@ -620,6 +653,8 @@ Arguments:
 Options:
       --location <LOCATION>  Where to write the Checkpoint, a path on the engine's machine; by default where the engine keeps the Run's Checkpoints, its own folder
       --json                 Prints the result as JSON
+      --attached             Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon               Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --require-verified     Exits 21 when the Run ended with a Verdict other than `verified`
       --color <WHEN>         When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                 Print help
@@ -638,7 +673,9 @@ Options:
       --set <KEY=VALUE>          Sets a setting for this run, as `key=value`, the value read as JSON when it parses as JSON and as text otherwise, a duration as milliseconds or as `45s`, `2m` or `1h`; repeatable
       --settings <FILE|->        Reads settings for this run from a JSON object, nested by key, in FILE, or from standard input for `-`; `--set` beats it
       --json                     Prints the result as JSON
+      --attached                 Runs the call on an Attached engine in this process, even when a Daemon runs
       --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon                   Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
   -h, --help                     Print help
 
 $ goodfetch-collie session --help
@@ -665,6 +702,8 @@ Arguments:
 
 Options:
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -678,6 +717,8 @@ Arguments:
 
 Options:
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -691,6 +732,8 @@ Arguments:
 
 Options:
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -724,6 +767,8 @@ Options:
       --url <URL>                The URL
       --wait-until <WAIT_UNTIL>  When the navigation answers; `load` when absent
       --json                     Prints the result as JSON
+      --attached                 Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                   Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                     Print help
 
@@ -737,6 +782,8 @@ Arguments:
 
 Options:
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -750,6 +797,8 @@ Arguments:
 
 Options:
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -763,6 +812,8 @@ Arguments:
 
 Options:
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -777,6 +828,8 @@ Arguments:
 Options:
       --formats <FORMATS>  The formats
       --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help               Print help
 
@@ -790,6 +843,8 @@ Options:
       --body <BODY>      Its ID
       --run-id <RUN_ID>  The Run whose folder holds it
       --json             Prints what the call sends as one JSON object per line
+      --attached         Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon           Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help
 
@@ -804,6 +859,8 @@ Arguments:
 Options:
       --run-before-unload  Runs the page's `beforeunload` handlers first, whose dialog goes to the page's dialog handlers; false when absent
       --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help               Print help
 
@@ -829,6 +886,8 @@ Usage: goodfetch-collie locator click [OPTIONS] --locator <LOCATOR>
 Options:
       --locator <LOCATOR>  The locator
       --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help               Print help
 
@@ -841,6 +900,8 @@ Options:
       --locator <LOCATOR>  The locator
       --value <VALUE>      The text the field holds afterwards; an empty text clears it
       --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help               Print help
 
@@ -853,6 +914,8 @@ Options:
       --key <KEY>          A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by Playwright's key names
       --locator <LOCATOR>  The locator
       --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help               Print help
 
@@ -877,6 +940,8 @@ Options:
       --page-id <PAGE_ID>        The page
       --request-id <REQUEST_ID>  The request, by the browser's ID
       --json                     Prints the result as JSON
+      --attached                 Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                   Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                     Print help
 
@@ -906,6 +971,8 @@ Options:
       --key <KEY>        The key
       --run-id <RUN_ID>  The Run whose store it is
       --json             Prints the result as JSON
+      --attached         Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon           Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help
 
@@ -919,6 +986,8 @@ Options:
       --run-id <RUN_ID>  The Run whose store it is
       --value <VALUE>    The value: any JSON but a top-level null, which `value_invalid` refuses; a nested null is kept
       --json             Prints the result as JSON
+      --attached         Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon           Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help
 
@@ -931,6 +1000,8 @@ Options:
       --key <KEY>        The key
       --run-id <RUN_ID>  The Run whose store it is
       --json             Prints the result as JSON
+      --attached         Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon           Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help
 
@@ -945,7 +1016,9 @@ Options:
       --key <KEY>                    The key
       --run-id <RUN_ID>              The Run whose store it is
       --json                         Prints the result as JSON
+      --attached                     Runs the call on an Attached engine in this process, even when a Daemon runs
       --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon                       Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
   -h, --help                         Print help
 
 $ goodfetch-collie key-value-store delete --help
@@ -957,6 +1030,8 @@ Options:
       --key <KEY>        The key
       --run-id <RUN_ID>  The Run whose store it is
       --json             Prints the result as JSON
+      --attached         Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon           Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help
 
@@ -970,6 +1045,8 @@ Options:
       --prefix <PREFIX>  The prefix of the keys it sends; every key when left out
       --run-id <RUN_ID>  The Run whose store it is
       --json             Prints what the call sends as one JSON object per line
+      --attached         Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon           Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help
 
@@ -992,6 +1069,8 @@ Usage: goodfetch-collie audit verify [OPTIONS]
 
 Options:
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -1015,6 +1094,8 @@ Usage: goodfetch-collie sample echo [OPTIONS] --text <TEXT>
 Options:
       --text <TEXT>   The text to repeat
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 

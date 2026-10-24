@@ -103,7 +103,7 @@ fn installed_copy(env: &TestEnv) -> PathBuf {
         .join(Path::new(COLLIE).file_name().unwrap())
 }
 
-fn runtime_file(env: &TestEnv) -> PathBuf {
+pub(crate) fn runtime_file(env: &TestEnv) -> PathBuf {
     RuntimeFile::path(env.home(), VERSION)
 }
 
@@ -556,7 +556,7 @@ pub(crate) fn audited(
 
 /// Starts the Scripted engine as the Daemon of the test's home, on a script
 /// of the corpus's `daemon/` group.
-fn scripted_daemon(env: &TestEnv, script: &str) -> Process {
+pub(crate) fn scripted_daemon(env: &TestEnv, script: &str) -> Process {
     let scripted = tools()
         .unwrap()
         .path(goodfetch_test_support::Tool::ScriptedEngine)
@@ -579,7 +579,7 @@ fn stderr_snapshot(env: &TestEnv, name: &str, stderr: &str) {
     settings.bind(|| insta::assert_snapshot!(name, stderr.trim()));
 }
 
-fn regex_escape(text: &str) -> String {
+pub(crate) fn regex_escape(text: &str) -> String {
     text.chars()
         .flat_map(|character| {
             let escaped = "\\.+*?()|[]{}^$".contains(character);

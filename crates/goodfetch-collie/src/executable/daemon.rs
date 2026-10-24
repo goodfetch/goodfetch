@@ -70,6 +70,7 @@ use goodfetch_cli::{exit_codes, generated, output};
 
 use super::browsers;
 
+mod engine_choice;
 mod foreground;
 mod launched;
 #[cfg(target_os = "linux")]
@@ -155,6 +156,16 @@ impl Failure {
                 tracing::error!("{problem}");
                 ExitCode::FAILURE
             }
+        }
+    }
+}
+
+impl Failure {
+    /// What it says, for people: a refusal's message and its `fix`.
+    fn message(self) -> String {
+        match self {
+            Self::Refused { message, fix, .. } => format!("{message} {fix}"),
+            Self::Unavailable(problem) => problem,
         }
     }
 }
@@ -461,11 +472,23 @@ impl Machine<'_> {
     /// The refusal of this Client, its `fix` adding this executable's
     /// `daemon restart` (ADR 0098).
     fn refused(&self, error: &ErrorObject) -> Failure {
-        let details = &error.data.details;
-        let given = details
+        let given = error
+            .data
+            .details
             .get("fix")
             .and_then(Value::as_str)
             .unwrap_or_default();
+        Failure::Refused {
+            code: error.data.code.clone(),
+            group: generated::group(error),
+            message: error.message.clone(),
+            fix: self.fix_of(given),
+        }
+    }
+
+    /// The `fix` of a refusal whose own is `given`, adding this
+    /// executable's `daemon restart` by its path (ADR 0098).
+    fn fix_of(&self, given: &str) -> String {
         let executable = self.executable.clone().unwrap_or_default();
         let ours = refusal_fix(&RefusedClient {
             product: self.identity.product,
@@ -474,12 +497,7 @@ impl Machine<'_> {
             channel: self.identity.channel,
             would_be_pick: self.is_the_pick(),
         });
-        Failure::Refused {
-            code: error.data.code.clone(),
-            group: generated::group(error),
-            message: error.message.clone(),
-            fix: format!("{given} {ours}").trim().to_owned(),
-        }
+        format!("{given} {ours}").trim().to_owned()
     }
 
     /// Records this executable in the list of installed executables.

@@ -841,6 +841,7 @@ enum Command {
         ConnectionId,
         oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>,
     ),
+    Outlive(ConnectionId),
     LiveCount(oneshot::Sender<usize>),
     Health(oneshot::Sender<RegistryHealth>),
     Folder(RunId, oneshot::Sender<PathBuf>),
@@ -1829,6 +1830,7 @@ impl Runs {
             drivers: Arc::clone(&runs.drivers),
             machine: None,
             draining: false,
+            outliving: std::collections::BTreeSet::new(),
             found_ended: std::collections::BTreeSet::new(),
             sampled: Vec::new(),
             unrecorded: BTreeMap::new(),
@@ -2654,6 +2656,21 @@ impl Runs {
         }
     }
 
+    /// Lets every Run the Daemon's Connection of these Runs starts or
+    /// resumes go on once that Connection ends, as a CLI command's does:
+    /// each command is a Connection of its own, and a Run outlives the
+    /// command that started it (ADRs 0024 and 0088). Nothing on an
+    /// Attached engine, whose Runs end with it.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the Connection's Runs to stop with it.
+    pub(crate) async fn outlive_connection(&self) {
+        if let Some(connection) = self.connection {
+            let _ = self.commands.send(Command::Outlive(connection)).await;
+        }
+    }
+
     /// How many Runs are live; none once the registry has stopped.
     ///
     /// # Cancel safety
@@ -2824,6 +2841,9 @@ struct Registry {
     machine: Option<String>,
     /// Whether the engine drains, taking no Run (ADR 0049).
     draining: bool,
+    /// The Daemon's Connections whose Runs go on once they end: the CLI's,
+    /// one per command.
+    outliving: std::collections::BTreeSet<ConnectionId>,
     /// The Runs a start found finished: a later call that ends one did
     /// nothing, which its report says (ADR 0102).
     found_ended: std::collections::BTreeSet<RunId>,
@@ -2898,15 +2918,11 @@ impl Registry {
                     let ids: Vec<RunId> = self.live.keys().cloned().collect();
                     let _ = answer.send(self.stop_by_client(ids).await);
                 }
-                // A draining engine leaves each Run to its drain, which a
-                // Client's leaving does not abort.
-                Command::StopConnection(_, answer) if self.draining => {
-                    let _ = answer.send(Vec::new());
-                }
                 Command::StopConnection(connection, answer) => {
-                    let ids = self.runs_of(connection);
+                    let ids = self.stopping_with(connection);
                     let _ = answer.send(self.stop_by_client(ids).await);
                 }
+                Command::Outlive(connection) => _ = self.outliving.insert(connection),
                 Command::LiveCount(answer) => _ = answer.send(self.live.len()),
                 Command::Health(answer) => {
                     let _ = answer.send(self.health());
@@ -3284,6 +3300,17 @@ impl Registry {
                 self.unrecorded.insert(run_id, exhausted);
             }
         }
+    }
+
+    /// The live Runs that stop as the Daemon's Connection `connection`
+    /// ends: those its Client started or resumed, unless they outlive it,
+    /// as a CLI command's do, or the engine drains, leaving each Run to its
+    /// drain, which a Client's leaving does not abort.
+    fn stopping_with(&mut self, connection: ConnectionId) -> Vec<RunId> {
+        if self.outliving.remove(&connection) || self.draining {
+            return Vec::new();
+        }
+        self.runs_of(connection)
     }
 
     /// The live Runs that the Client of `connection` started or resumed.

@@ -26,6 +26,7 @@ mod content_origin;
 mod daemon;
 mod daemon_log;
 mod daemon_run;
+mod engine_choice;
 mod events;
 mod exit_codes;
 #[cfg(target_os = "linux")]

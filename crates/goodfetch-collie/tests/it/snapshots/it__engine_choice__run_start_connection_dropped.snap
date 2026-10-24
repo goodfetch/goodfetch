@@ -1,0 +1,8 @@
+---
+source: crates/goodfetch-collie/tests/it/engine_choice.rs
+expression: stderr.trim()
+---
+The Connection to the Daemon at [FOLDER]/home/0.0/daemon.sock dropped before it answered `run.start`, so whether the call took effect is unknown.
+code: connection_lost
+retryable: true
+fix: Check whether the call took effect, then run the command again; `daemon status` shows whether the Daemon still runs.

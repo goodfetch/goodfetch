@@ -501,7 +501,7 @@ fn the_response_observer_receives_each_kept_response_with_its_body_a_service_wor
         byte_cap: 8,
     });
     with_handler_page(&gate, Map::new(), async |program| {
-        program.goto(HISTORY, "/").await;
+        let went = program.goto(HISTORY, "/").await;
         program
             .goto("access.localhost", "/service-worker/?case=observed")
             .await;
@@ -536,8 +536,14 @@ fn the_response_observer_receives_each_kept_response_with_its_body_a_service_wor
             .map(|observed| observed.body_length);
 
         assert_eq!(
-            (observed, on_its_page, cached_length),
             (
+                went["response"]["status"].clone(),
+                observed,
+                on_its_page,
+                cached_length
+            ),
+            (
+                json!(200),
                 vec![
                     (Some("/effects.js".to_owned()), 200, false, 8),
                     (Some("/service-worker/cached.json".to_owned()), 200, true, 8),

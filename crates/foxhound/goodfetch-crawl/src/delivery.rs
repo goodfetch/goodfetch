@@ -62,6 +62,7 @@ use goodfetch_engine::client::Client;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::Refusal;
+use goodfetch_engine::mask::Scope;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
@@ -955,9 +956,17 @@ async fn settle(
             details,
         } => {
             let held = held_past_bound(&details, run.clock().wall(), longest_wait).is_some();
+            // The handler's error is kept in run state: no value the Run
+            // resolved stays in it (spec #564).
+            let masks = run.secrets().mask().masks();
+            let mut kept = Value::Object(details);
+            masks.apply_value(&mut kept, Scope::Kept);
+            let Value::Object(details) = kept else {
+                unreachable!("invariant: masking an object leaves an object")
+            };
             let failed = Failure {
                 code,
-                message,
+                message: masks.apply(&message, Scope::Kept).into_owned(),
                 details,
             };
             match block_cause(&failed.code, &failed.details) {

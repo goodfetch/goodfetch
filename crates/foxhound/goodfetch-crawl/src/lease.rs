@@ -20,10 +20,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::run_state::{RunState, RunStateError};
-use goodfetch_protocol::foxhound::crawl::PushedRecord;
+use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, PushedRecord};
 use goodfetch_protocol::run::PointInTime;
 use tokio::sync::watch;
 use tokio::time::Instant;
@@ -306,6 +307,18 @@ impl LeaseCheck for WorkItemLease {
             self.trace("expire", &held.lease, None);
         }
         Err(LeaseEnded::Lost)
+    }
+
+    /// `attempt_ended`: the handler's page sent nothing more once its
+    /// attempt's lease ended (ADRs 0003 and 0087).
+    fn withheld(&self, ended: LeaseEnded, method: &str) -> CallError {
+        CallError::new(
+            &ATTEMPT_ENDED,
+            format!(
+                "the page's attempt ended with its lease ({ended}), so it sent nothing more (`{method}` withheld)"
+            ),
+            &serde_json::json!({}),
+        )
     }
 }
 

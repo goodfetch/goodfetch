@@ -290,7 +290,9 @@ impl PageEvents {
     /// matches, or one within the document moves there. A document the
     /// navigation committed, or the page's own when it already matched, is
     /// then waited for until it reaches `wait_until`. It ends at the Run's
-    /// `timeout.wait`.
+    /// `timeout.wait`. A main-frame navigation to a URL it matches that the
+    /// navigation gate refuses, with no navigation call waiting on it,
+    /// raises its refusal from the waiter instead.
     pub(crate) fn wait_for_url(
         &self,
         pattern: UrlPattern,
@@ -298,6 +300,11 @@ impl PageEvents {
     ) -> impl Future<Output = Result<Reached, CallError>> + use<> {
         let (answer, answered) = oneshot::channel();
         let mut document = self.shared.document.subscribe();
+        let matching = pattern.clone();
+        let refused = self
+            .shared
+            .refusals
+            .refused(move |url| matching.matches(url));
         {
             let mut state = lock(&self.shared.state);
             if pattern.matches(&state.url) {
@@ -326,10 +333,16 @@ impl PageEvents {
                     }
                 }
             };
-            if deadline.within(&clock, "url", reached).await? {
-                Ok(Reached {})
-            } else {
-                Err(gone())
+            let outcome = async move {
+                tokio::select! {
+                    reached = reached => Ok(reached),
+                    refused = refused => Err(refused),
+                }
+            };
+            match deadline.within(&clock, "url", outcome).await? {
+                Ok(true) => Ok(Reached {}),
+                Ok(false) => Err(gone()),
+                Err(refused) => Err(refused),
             }
         }
     }

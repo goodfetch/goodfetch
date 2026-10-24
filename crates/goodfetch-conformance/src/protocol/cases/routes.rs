@@ -5,17 +5,24 @@
 //! the routes' handler: it answers each `route.handle` request the engine
 //! sends with the calls a case scripts, then replies that the handler ended
 //! or failed.
+//!
+//! Size: one handler harness and the cases that script it, each reading
+//! its private record of what the handler served and called.
 
 use std::collections::BTreeMap;
 
 use data_encoding::BASE64;
+use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::connection::{CALL_CANCELLED, CANCEL};
 use goodfetch_protocol::egress::EGRESS_REFUSED;
+use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::route::{
     PAGE_HANDLER_FAILED, PAGE_ROUTE, ROUTE_ABORT, ROUTE_ALREADY_HANDLED, ROUTE_CONTINUE,
     ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL, ROUTE_HANDLE, SESSION_ROUTE,
 };
+use goodfetch_protocol::page::tabs::PAGE_CLOSE;
 use goodfetch_protocol::page::{NAVIGATION_FAILED, PAGE_GOTO, PageOpened};
+use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 
 use super::navigation::{answered, url_on};
@@ -38,6 +45,9 @@ pub(crate) enum Case {
     Fetch,
     StepOrder,
     Cache,
+    SiblingClosed,
+    PostData,
+    FetchPageClosed,
 }
 
 impl Case {
@@ -58,6 +68,11 @@ impl Case {
                 Self::StepOrder
             }
             "adding-a-route-leaves-the-browsers-cache-serving-a-cached-response" => Self::Cache,
+            "a-session-route-keeps-serving-its-other-pages-once-one-closes" => Self::SiblingClosed,
+            "a-route-reads-the-body-the-page-posts" => Self::PostData,
+            "a-fetch-whose-page-closes-before-its-response-raises-closed-and-the-run-finishes" => {
+                Self::FetchPageClosed
+            }
             _ => return None,
         })
     }
@@ -78,6 +93,9 @@ impl Case {
             Self::Fetch => fetch_then_fulfill(connection, site, checks),
             Self::StepOrder => order_of_steps(connection, site, checks),
             Self::Cache => cache_kept(connection, site, checks),
+            Self::SiblingClosed => sibling_closed(connection, site, checks),
+            Self::PostData => post_data(connection, site, checks),
+            Self::FetchPageClosed => fetch_page_closed(connection, site, checks),
         }
     }
 }
@@ -165,6 +183,20 @@ impl Routes {
             let message = connection.next_within(BROWSER_DEADLINE)?;
             self.take(connection, message)?;
         }
+    }
+
+    /// Serves every `route.handle` request that comes until `holds` is
+    /// true of what the harness served and called.
+    fn until(
+        &mut self,
+        connection: &mut Connection,
+        holds: impl Fn(&Self) -> bool,
+    ) -> Result<(), Gone> {
+        while !holds(self) {
+            let message = connection.next_within(BROWSER_DEADLINE)?;
+            self.take(connection, message)?;
+        }
+        Ok(())
     }
 
     /// The answers to the calls the handler made, in order, each read once
@@ -932,5 +964,167 @@ fn cache_kept(connection: &mut Connection, site: &Site, checks: &mut Checks) -> 
         received(site, "scope.test", target_of(&with_route)) == 1,
     );
     checks.check("the route saw both loads", routes.handled.len() == 2);
+    finish_run(connection, run_id)
+}
+
+/// A Session route belongs to the Session, not to the page it first
+/// served: once one of the Session's pages closes, the route still answers
+/// the others' requests, its subscription goes on, and another Session
+/// route can still be armed.
+fn sibling_closed(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-route-sibling-closed";
+    let (Some(url), Some(again), Some(closing)) = (
+        site.named_url("scope.test", "/about?route=sibling"),
+        site.named_url("scope.test", "/again?route=sibling"),
+        page(connection, site, run_id, &json!({}), checks)?,
+    ) else {
+        return finish_run(connection, run_id);
+    };
+    let Some(open) = new_page(connection, run_id, checks)? else {
+        return finish_run(connection, run_id);
+    };
+    let session = Routes::route(
+        connection,
+        SESSION_ROUTE.name,
+        &json!({ "session_id": closing.session_id, "url": glob("**/about*") }),
+    )?;
+    let closed = connection.request(PAGE_CLOSE.name, &json!({ "page_id": closing.page_id }))?;
+    let closed = connection.browser_answer(closed)?.message;
+    checks.check(
+        "one page of the Session closes",
+        closed.get("result").is_some(),
+    );
+    let armed_after = Routes::route(
+        connection,
+        SESSION_ROUTE.name,
+        &json!({ "session_id": closing.session_id, "url": glob("**/again*") }),
+    )?;
+    let mut routes = Routes::new(|_| {
+        vec![
+            Act::Call(ROUTE_FULFILL.name, html("<p>session</p>")),
+            Act::End,
+        ]
+    });
+    let answer = goto(&mut routes, connection, &open, &url)?;
+    answered(&answer, "the other page's `goto`", &url, 200, checks);
+    let answer = goto(&mut routes, connection, &open, &again)?;
+    answered(
+        &answer,
+        "the other page's second `goto`",
+        &again,
+        200,
+        checks,
+    );
+    let asked: Vec<Value> = routes
+        .handled
+        .iter()
+        .map(|params| params["id"].clone())
+        .collect();
+    checks.check(
+        "the Session route answers the other page's request, and one armed after the close the next",
+        asked == [json!(session), json!(armed_after)],
+    );
+    checks.check(
+        "neither Session route's subscription ended",
+        !routes.answers.contains_key(&session) && !routes.answers.contains_key(&armed_after),
+    );
+    checks.check(
+        "the fulfilled requests never reached the Proving ground",
+        received(site, "scope.test", target_of(&url)) == 0
+            && received(site, "scope.test", target_of(&again)) == 0,
+    );
+    finish_run(connection, run_id)
+}
+
+/// A handler inside `route.fetch` whose page closes before the response
+/// comes is not left waiting: `route.fetch` raises `closed`, and the Run
+/// still finishes. The incidents family's sixth host answers its second
+/// page only after 8 seconds, so the page closes first.
+fn fetch_page_closed(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-route-fetch-page-closed";
+    let (Some(url), Some(page)) = (
+        site.start_url("incidents/6")
+            .map(|start| start.replace("/catalog/1", "/catalog/2")),
+        page(connection, site, run_id, &json!({}), checks)?,
+    ) else {
+        return finish_run(connection, run_id);
+    };
+    let mut routes = Routes::new(|_| vec![Act::FetchThenFulfill(with_header)]);
+    Routes::route(
+        connection,
+        PAGE_ROUTE.name,
+        &json!({ "page_id": page.page_id, "url": glob("**/catalog/2") }),
+    )?;
+    connection.request(
+        PAGE_GOTO.name,
+        &json!({ "page_id": page.page_id, "url": url }),
+    )?;
+    routes.until(connection, |routes| !routes.made.is_empty())?;
+    let closed = routes.call(
+        connection,
+        PAGE_CLOSE.name,
+        &json!({ "page_id": page.page_id }),
+    )?;
+    checks.check(
+        "the page closes while its route's handler is inside `route.fetch`",
+        closed.get("result").is_some(),
+    );
+    let made = routes.made(connection)?;
+    checks.check(
+        format!("`route.fetch` raises `{}`", CLOSED.name),
+        made.first().is_some_and(|(method, answer)| {
+            *method == ROUTE_FETCH.name && code_of(answer) == &json!(CLOSED.name)
+        }),
+    );
+    let finished = connection.request(RUN_FINISH.name, &json!({ "run_id": run_id }))?;
+    let finished = connection.browser_answer(finished)?.message;
+    checks.check("the Run finishes", finished.get("result").is_some());
+    Ok(())
+}
+
+/// A route sees the body a page posts, in Base64, as `route.request()`'s
+/// `postData()` reads it; a request with none has none.
+fn post_data(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+    let run_id = "conformance-route-post-data";
+    let (Some(url), Some(page)) = (
+        site.named_url("scope.test", "/about?route=post-data"),
+        page(connection, site, run_id, &json!({}), checks)?,
+    ) else {
+        return finish_run(connection, run_id);
+    };
+    let mut routes = Routes::new(|_| vec![Act::End]);
+    goto(&mut routes, connection, &page, &url)?;
+    Routes::route(
+        connection,
+        PAGE_ROUTE.name,
+        &json!({ "page_id": page.page_id, "url": glob("**/about*") }),
+    )?;
+    let posted = routes.call(
+        connection,
+        PAGE_EVALUATE.name,
+        &json!({
+            "page_id": page.page_id,
+            "function": "async () => (await fetch('/about?route=posted', { method: 'POST', body: 'a=1&b=2' })).status",
+        }),
+    )?;
+    checks.check(
+        "the page's POST goes on past its route and gets an answer",
+        posted["result"]["value"].is_number(),
+    );
+    checks.check(
+        "the route sees the posted body in Base64",
+        routes.handled.first().is_some_and(|params| {
+            params["request"]["method"] == json!("POST")
+                && params["request"]["post_data"] == json!(base64("a=1&b=2"))
+        }),
+    );
     finish_run(connection, run_id)
 }

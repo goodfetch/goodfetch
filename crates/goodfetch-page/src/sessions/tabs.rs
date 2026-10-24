@@ -34,7 +34,7 @@ use super::{OpenPage, Session, Sessions, action_timeout, wait_deadline};
 use crate::driver::{OnPopup, PageDriver};
 use crate::hiding::{PageHiding, Sheets};
 use crate::page_events::{PageEvents, Refusals};
-use crate::page_value::ResponseObserver;
+use crate::page_value::Observer;
 use crate::pool::InBrowser;
 use crate::recovery::Declared;
 
@@ -51,7 +51,7 @@ pub(super) struct Adopting {
     /// The engine's event stream its events go on.
     pub(super) events: Events,
     /// Its response observer, when one is registered.
-    pub(super) observer: Option<Arc<dyn ResponseObserver>>,
+    pub(super) observer: Option<Observer>,
 }
 
 /// How many calls listen to a Session's `page` event.
@@ -126,25 +126,19 @@ impl Sessions {
             refusals.clone(),
             driver.events(),
             wait_deadline(&run),
+            observer,
         );
         self.events.insert(page.clone(), events);
         self.dialogs
             .start(page.clone(), driver.clone(), &run, driver.events());
         let pages = std::slice::from_ref(&page);
-        let started = self.hold(
-            (&page, session),
-            &driver,
-            &run,
-            &open.settings,
-            refusals,
-            observer,
-        );
+        let started = self.hold((&page, session), &driver, &run, &open.settings, refusals);
         let hiding = match started.await {
             Ok(hiding) => hiding,
             Err(error) => {
                 self.events.close(pages);
                 self.dialogs.close(pages);
-                self.interception.close(pages, session);
+                self.interception.close_pages(pages);
                 return Err(error);
             }
         };
@@ -153,7 +147,7 @@ impl Sessions {
             drop(state);
             self.events.close(pages);
             self.dialogs.close(pages);
-            self.interception.close(pages, session);
+            self.interception.close_pages(pages);
             return Err(session_closed(session));
         }
         let browser = in_browser.browser();
@@ -200,11 +194,10 @@ impl Sessions {
         run: &Run,
         settings: &Values,
         refusals: Refusals,
-        observer: Option<Arc<dyn ResponseObserver>>,
     ) -> Result<Option<Arc<PageHiding>>, CallError> {
         let held = self
             .interception
-            .start(page, session, driver, run, settings, refusals, observer)
+            .start(page, session, driver, run, settings, refusals)
             .await?;
         // Live hiding and the Consent prompt runner share each document's
         // one hiding sheet.
@@ -358,12 +351,10 @@ impl Sessions {
                 page.driver.close().await;
                 // The close the engine sent is confirmed (P29).
                 let effect = page.life.end(&Ending::Destroyed)?;
-                self.page_ended(page_id, &page.session, &page.run, effect)
-                    .await;
+                self.page_ended(page_id, &page.run, effect).await;
             }
             effect => {
-                self.page_ended(page_id, &page.session, &page.run, effect)
-                    .await;
+                self.page_ended(page_id, &page.run, effect).await;
             }
         }
         Ok(())

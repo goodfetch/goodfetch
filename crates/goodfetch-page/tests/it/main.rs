@@ -12,5 +12,6 @@ mod handler_page;
 mod locator_fill;
 mod navigation_gate;
 mod page_navigation;
+mod page_request;
 mod robots_txt;
 mod url_pattern;

@@ -216,7 +216,7 @@ fn the_page_suite_proves_locators_against_collies_attached_engine() {
     prove(LOCATORS);
 }
 
-/// Covers: operation:page.goto, story:5-40, story:5-41, story:5-42, operation:page.route, operation:session.route, operation:route.continue, operation:route.fallback, operation:route.fulfill, operation:route.abort, operation:route.fetch, error:page_handler_failed, error:route_already_handled, error:egress_refused, error:header_value_invalid
+/// Covers: operation:page.goto, story:5-40, story:5-41, story:5-42, operation:page.route, operation:session.route, operation:route.continue, operation:route.fallback, operation:route.fulfill, operation:route.abort, operation:route.fetch, error:page_handler_failed, error:route_already_handled, error:egress_refused, error:header_value_invalid, error:closed
 #[test]
 fn the_page_suite_proves_routes_against_collies_attached_engine() {
     prove(ROUTES);

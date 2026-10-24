@@ -53,12 +53,25 @@ impl PageEvents {
     /// Arms a waiter for the next response, a redirect's included, to a
     /// request of the page whose URL `pattern` matches, any when none, and
     /// answers it with its request, unless the Run's `timeout.wait` passes
-    /// first.
+    /// first. A main-frame navigation to such a URL that the navigation
+    /// gate refuses, with no navigation call waiting on it, raises its
+    /// refusal from the waiter instead.
     pub(crate) fn wait_for_response(
         &self,
         pattern: Option<UrlPattern>,
     ) -> impl Future<Output = Result<PageExchange, CallError>> + use<> {
-        self.arm(|state| &mut state.response_waiters, pattern, "response")
+        let matching = pattern.clone();
+        let refused = self
+            .shared
+            .refusals
+            .refused(move |url| matching.as_ref().is_none_or(|pattern| pattern.matches(url)));
+        let responded = self.arm(|state| &mut state.response_waiters, pattern, "response");
+        async move {
+            tokio::select! {
+                responded = responded => responded,
+                refused = refused => Err(refused),
+            }
+        }
     }
 
     /// Arms a waiter in `waiters`, which `waited_for` names at its deadline.

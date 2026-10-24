@@ -42,7 +42,9 @@
 //! ([`Interception::answer`]), so a handler's answer is always read before
 //! its reply that it ended. A handler that fails leaves its failure on its
 //! page, which the call waiting on the request, or else the next call on
-//! the page, raises ([`Interception::take_failure`]).
+//! the page, raises ([`Interception::take_failure`]); one that fails on a
+//! service worker's request, which belongs to no page, leaves it on its
+//! Session, for the next call on any of its pages.
 //!
 //! A request the engine sends itself from a page's Session, as
 //! `page.request` does through the browser-fetch tier, passes steps 3 to 8
@@ -75,6 +77,8 @@ mod navigations;
 mod pipeline;
 mod routes;
 mod steps;
+#[cfg(test)]
+mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -106,14 +110,13 @@ use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
 pub(crate) use self::clean_up::SESSION_KEYS;
-use self::navigations::Pending;
-use self::pipeline::{Observing, PageContext, Sender};
+use self::navigations::{NavigatingPage, Pending};
+use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
 use crate::clean_up_versions::Versions;
 use crate::driver::{Child, ChildKind, OnChild, OnWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
-use crate::page_value::ResponseObserver;
 use crate::proxy::SessionProxy;
 use crate::url_pattern::UrlPattern;
 
@@ -228,14 +231,28 @@ struct Tables {
     /// The Sessions on a Borrowed browser, each with the Run's
     /// `network.resolve` mapping its requests' hosts are resolved through.
     interception_only: BTreeMap<SessionId, Arc<Resolve>>,
+    /// Each Session's own failure slot: where a Session route's handler
+    /// that failed on a service worker's request leaves its failure, for
+    /// the next call on any page of the Session.
+    failures: BTreeMap<SessionId, LeftFailure>,
 }
 
-/// One page's side of the interception: its routes, its Session's, and the
-/// first failure a handler left for the next call on the page.
+/// Where a handler's failure waits for the call it blocked, or else the
+/// next call: the first one left, until a call takes it.
+pub(super) type LeftFailure = Arc<Mutex<Option<CallError>>>;
+
+/// One page's side of the interception, or one service worker's: its
+/// routes, its Session's, and the first failure a handler left for the
+/// next call on the page, or for a worker on any page of its Session.
 pub(super) struct PageState {
     routes: Arc<RouteTable>,
     session: Arc<RouteTable>,
-    failure: Mutex<Option<CallError>>,
+    /// Where its handlers' failures wait: the page's own slot, or a
+    /// worker's Session's.
+    failure: LeftFailure,
+    /// Its Session's slot, which a call on the page takes from after the
+    /// page's own.
+    session_failure: LeftFailure,
     /// The cosmetic rules its Session's Filter lists hold, when any is on.
     cosmetic: Option<Cosmetic>,
     /// Steps 3 to 8 as its Session chose them, for the engine's own
@@ -243,6 +260,9 @@ pub(super) struct PageState {
     engine_requests: EngineRequests,
     /// Its Session's pending navigations.
     pending: Arc<Pending>,
+    /// What a service worker's request carrying one of its navigations is
+    /// admitted and refused through; none for a service worker's own.
+    navigating: Option<NavigatingPage>,
     /// Who asked for the navigation call going on, while it may load a
     /// `file:` URL.
     files: Mutex<Option<Navigator>>,
@@ -411,12 +431,12 @@ impl Interception {
     /// drives for `run`, under the interception: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
     /// rules chosen by `own`, the Session's own settings, over the Run's,
-    /// each refusal left in `refusals` for the request's failure to carry,
-    /// each response `observer` keeps passed to it, a service worker's of
-    /// the Session included. It answers what the Session chose of the
-    /// Clean-up rules beside its requests' blocking, and what becomes of
-    /// the page's children: each out-of-process frame's requests pass the
-    /// page's pipeline too, from before it runs.
+    /// each refusal left in `refusals` for the request's failure to carry.
+    /// It answers what the Session chose of the Clean-up rules beside its
+    /// requests' blocking, and what becomes of the page's children: each
+    /// out-of-process frame's requests pass the page's pipeline too, from
+    /// before it runs. The responses a response observer keeps are the
+    /// page's events' to pass on, never the interception's.
     ///
     /// # Errors
     ///
@@ -427,10 +447,6 @@ impl Interception {
     /// # Cancel safety
     ///
     /// Dropping the future may leave the page's requests paused unanswered.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "one value per part of the page the interception holds, each its own owner's"
-    )]
     pub(crate) async fn start(
         &self,
         page_id: &PageId,
@@ -439,7 +455,6 @@ impl Interception {
         run: &Run,
         own: &Values,
         refusals: Refusals,
-        observer: Option<Arc<dyn ResponseObserver>>,
     ) -> Result<HeldPage, CallError> {
         let policy = policy_of(run)?;
         let resolved = run.settings().map(RunSettings::resolved);
@@ -461,12 +476,18 @@ impl Interception {
             let mut tables = lock(&self.shared.tables);
             let lookups = tables.interception_only.get(session).cloned();
             let pending = Arc::clone(tables.pending.entry(session.clone()).or_default());
+            let session_failure = Arc::clone(tables.failures.entry(session.clone()).or_default());
             let session = Arc::clone(tables.sessions.entry(session.clone()).or_default());
             let state = Arc::new(PageState {
                 routes: Arc::default(),
                 session,
                 pending,
-                failure: Mutex::new(None),
+                navigating: Some(NavigatingPage {
+                    driver: driver.clone(),
+                    refusals: refusals.clone(),
+                }),
+                failure: LeftFailure::default(),
+                session_failure,
                 files: Mutex::new(None),
                 lists_on: blocking.lists.is_some(),
                 retrying: AtomicBool::new(false),
@@ -482,19 +503,7 @@ impl Interception {
             (state, lookups)
         };
         let events = driver.events();
-        let observing = observer.map(Observing::of);
-        let patterns = patterns(observing.is_some());
-        driver
-            .opening_command(&fetch::EnableParams {
-                patterns: Some(patterns),
-                // An HTTP or HTTPS proxy's 407 reaches the engine, which
-                // answers it with the Session's credentials (SA-22).
-                handle_auth_requests: driver
-                    .proxy()
-                    .is_some_and(SessionProxy::answers_authentication)
-                    .then_some(true),
-            })
-            .await?;
+        pause_requests(driver).await?;
         let workers =
             match clean_up::effective(resolved, own, BROWSER_SERVICE_WORKERS.name).as_str() {
                 Some(BLOCK) => ServiceWorkers::Block,
@@ -504,7 +513,6 @@ impl Interception {
                     run,
                     (policy.clone(), lookups.clone()),
                     blocking.clone(),
-                    observing.clone(),
                 )),
             };
         driver.shared_workers(self.workers_of(
@@ -513,7 +521,6 @@ impl Interception {
             run,
             (policy.clone(), lookups.clone()),
             blocking.clone(),
-            observing.clone(),
         ));
         // Chosen before the page loads anything, so no worker of its sites
         // runs before the interception holds it.
@@ -525,7 +532,6 @@ impl Interception {
             run,
             (policy.clone(), lookups.clone()),
             blocking.clone(),
-            observing.clone(),
         );
         let context = Arc::new(
             PageContext::new(
@@ -536,7 +542,6 @@ impl Interception {
                 policy,
                 blocking,
                 refusals,
-                observing,
                 run.clone(),
             )
             .with_lookups(lookups),
@@ -553,10 +558,6 @@ impl Interception {
     /// the page's events never see them; a frame whose requests cannot be
     /// paused never runs. A dedicated worker's requests pass its page's
     /// own pipeline already.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "one value per part of the page the interception holds, each its own owner's"
-    )]
     fn children_of(
         &self,
         page_id: &PageId,
@@ -565,7 +566,6 @@ impl Interception {
         run: &Run,
         (policy, lookups): (Policy, Option<Arc<Resolve>>),
         blocking: steps::Blocking,
-        observing: Option<Observing>,
     ) -> OnChild {
         let answers = self.shared.answers.clone();
         let (page_id, state, page, run) = (
@@ -583,12 +583,7 @@ impl Interception {
                 answers.clone(),
                 run.clone(),
             );
-            let (policy, blocking, observing, lookups) = (
-                policy.clone(),
-                blocking.clone(),
-                observing.clone(),
-                lookups.clone(),
-            );
+            let (policy, blocking, lookups) = (policy.clone(), blocking.clone(), lookups.clone());
             Box::pin(async move {
                 let Some(frame) = frame else {
                     return true;
@@ -596,7 +591,7 @@ impl Interception {
                 let events = frame.events();
                 let enabled = frame
                     .command(&fetch::EnableParams {
-                        patterns: Some(patterns(observing.is_some())),
+                        patterns: Some(patterns()),
                         handle_auth_requests: frame
                             .proxy()
                             .is_some_and(SessionProxy::answers_authentication)
@@ -621,7 +616,6 @@ impl Interception {
                         policy,
                         blocking,
                         Refusals::default(),
-                        observing,
                         run.clone(),
                     )
                     .with_lookups(lookups),
@@ -646,7 +640,6 @@ impl Interception {
         run: &Run,
         (policy, lookups): (Policy, Option<Arc<Resolve>>),
         blocking: steps::Blocking,
-        observing: Option<Observing>,
     ) -> OnWorker {
         // The browser keeps this choice, so it holds no driver of the
         // browser and nothing that must end with the Run before the
@@ -664,36 +657,23 @@ impl Interception {
                 run.clone(),
                 value.clone(),
             );
-            let (policy, blocking, observing, lookups) = (
-                policy.clone(),
-                blocking.clone(),
-                observing.clone(),
-                lookups.clone(),
-            );
+            let (policy, blocking, lookups) = (policy.clone(), blocking.clone(), lookups.clone());
             Box::pin(async move {
-                let (routes, pending) = {
-                    let tables = lock(&shared.tables);
+                let (routes, pending, session_failure) = {
+                    let mut tables = lock(&shared.tables);
                     let Some(routes) = tables.sessions.get(&session).cloned() else {
                         return false;
                     };
                     (
                         routes,
                         tables.pending.get(&session).cloned().unwrap_or_default(),
+                        Arc::clone(tables.failures.entry(session.clone()).or_default()),
                     )
                 };
                 let log = Arc::new(RequestLog::new(run.owner().child(), run.folder()));
                 let driver = driver.with_proxy(proxy).with_value(value, run.clock());
                 let events = driver.events();
-                let enabled = driver
-                    .opening_command(&fetch::EnableParams {
-                        patterns: Some(patterns(observing.is_some())),
-                        handle_auth_requests: driver
-                            .proxy()
-                            .is_some_and(SessionProxy::answers_authentication)
-                            .then_some(true),
-                    })
-                    .await;
-                if let Err(error) = enabled {
+                if let Err(error) = pause_requests(&driver).await {
                     tracing::warn!(%error, ?worker, "a worker's requests could not be paused, so it does not run");
                     return false;
                 }
@@ -701,7 +681,11 @@ impl Interception {
                     routes: Arc::default(),
                     session: routes,
                     pending,
-                    failure: Mutex::new(None),
+                    navigating: None,
+                    // A worker belongs to no page: its handlers' failures
+                    // wait on its Session.
+                    failure: Arc::clone(&session_failure),
+                    session_failure,
                     files: Mutex::new(None),
                     lists_on: blocking.lists.is_some(),
                     retrying: AtomicBool::new(false),
@@ -725,7 +709,6 @@ impl Interception {
                         policy,
                         blocking,
                         Refusals::default(),
-                        observing,
                         run.clone(),
                     )
                     .with_lookups(lookups),
@@ -910,25 +893,40 @@ impl Interception {
     }
 
     /// The failure a handler left on the page `page_id` for its next call,
-    /// taken.
+    /// or else on its Session (a Session route's, on a service worker's
+    /// request), taken.
     pub(crate) fn take_failure(&self, page_id: &PageId) -> Option<CallError> {
         let state = lock(&self.shared.tables).pages.get(page_id).cloned()?;
-        lock(&state.failure).take()
+        let own = lock(&state.failure).take();
+        own.or_else(|| lock(&state.session_failure).take())
     }
 
-    /// Takes the pages `pages` and the Session `session` out of the
-    /// interception, as their Run stops: their routes' subscriptions end.
-    pub(crate) fn close(&self, pages: &[PageId], session: &SessionId) {
+    /// Takes the pages `pages` out of the interception, as each ends: their
+    /// own routes' subscriptions end, and a navigation pending on one,
+    /// whose `load` never comes now, gives back the permit a service
+    /// worker's request took for it. Their Session's routes stay with its
+    /// other pages.
+    pub(crate) fn close_pages(&self, pages: &[PageId]) {
         let mut tables = lock(&self.shared.tables);
         for page in pages {
             if let Some(state) = tables.pages.remove(page) {
                 state.routes.close();
+                state.pending.ended(page);
             }
         }
+    }
+
+    /// Takes the Session `session` and its pages `pages` out of the
+    /// interception, as the Session or its Run ends: every route of theirs
+    /// ends its subscription.
+    pub(crate) fn close_session(&self, session: &SessionId, pages: &[PageId]) {
+        self.close_pages(pages);
+        let mut tables = lock(&self.shared.tables);
         if let Some(table) = tables.sessions.remove(session) {
             table.close();
         }
         tables.pending.remove(session);
+        tables.failures.remove(session);
         tables.interception_only.remove(session);
     }
 }
@@ -945,30 +943,46 @@ impl Drop for FilesAllowed {
     }
 }
 
-/// What a target's requests pause at: every request before it leaves, a
-/// document's response too, whose redirect the egress policy judges (a
+/// Pauses the requests of `driver`'s page or service worker at
+/// [`patterns`]: an HTTP or HTTPS proxy's 407 reaches the engine too, which
+/// answers it with the Session's credentials (SA-22).
+///
+/// # Errors
+///
+/// The code of opening a page when the browser refuses.
+async fn pause_requests(driver: &PageDriver) -> Result<(), CallError> {
+    driver
+        .opening_command(&fetch::EnableParams {
+            patterns: Some(patterns()),
+            handle_auth_requests: driver
+                .proxy()
+                .is_some_and(SessionProxy::answers_authentication)
+                .then_some(true),
+        })
+        .await
+        .map(drop)
+}
+
+/// What a target's requests pause at: every request before it leaves, and
+/// a document's response, whose redirect the egress policy judges (a
 /// `Location` to a scheme no request may use sends no request of its own)
-/// and a navigation gate judges before the page renders it, and every
-/// response for a response observer, which keeps the ones it matches.
-fn patterns(observed: bool) -> Vec<fetch::RequestPattern> {
+/// and a navigation gate judges before the page renders it.
+fn patterns() -> Vec<fetch::RequestPattern> {
     let stage = |resource_type, request_stage| fetch::RequestPattern {
         url_pattern: Some("*".to_owned()),
         resource_type,
         request_stage: Some(request_stage),
     };
-    let mut patterns = vec![stage(None, fetch::RequestStage::Request)];
-    if observed {
-        patterns.push(stage(None, fetch::RequestStage::Response));
-    } else {
-        patterns.push(stage(
+    vec![
+        stage(None, fetch::RequestStage::Request),
+        stage(
             Some(network::ResourceType::Document),
             fetch::RequestStage::Response,
-        ));
-    }
-    patterns
+        ),
+    ]
 }
 
-/// The domain policy of `run`, every host allowed for a Run without
+/// The domain policy of `run`'s pages, every host's when it has no
 /// settings.
 ///
 /// # Errors

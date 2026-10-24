@@ -8387,6 +8387,14 @@
           "description": "Its method, such as `GET`.",
           "type": "string"
         },
+        "post_data": {
+          "arrived_in": "0.1",
+          "description": "Its body, in Base64 (RFC 4648, with padding), when it has one: as\nthe page sent it, or as a route before replaced it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "resource_type": {
           "arrived_in": "0.1",
           "description": "What the page loads with it, as the browser names it, such as\n`Document`, `Script` or `XHR`.",

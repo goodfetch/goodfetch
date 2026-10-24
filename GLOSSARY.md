@@ -390,6 +390,18 @@ _Avoid_: interceptor, request handler
 The engine's one pipeline that every request of a page passes, in one written order: routes, the egress check and the domain policy, the Filter lists, the Response cache, the navigation gate and lease check, then the engine's own additions, such as the Session's cookies, which no route sees (ADR 0085).
 _Avoid_: middleware, request interception (for Playwright's routing)
 
+**Navigation gate**:
+What Foxhound sets on a crawl handler's page to admit, at the Interception's step 6, each main-frame navigation and hop, each `page.request` and each service worker's request carrying a navigation, holding one with a permit or refusing it for a site's preferences, and to judge a document once its response arrives; a page a program opens has none (ADRs 0087 and 0093).
+_Avoid_: politeness hook, admission hook, gatekeeper
+
+**Lease check**:
+What a crawl handler's page asks before each command it sends: whether its work item's Lease still holds, so a page past its Lease sends nothing more and raises the error Foxhound gives (ADRs 0003 and 0087).
+_Avoid_: lease guard, lease hook
+
+**Response observer**:
+What Foxhound registers on a crawl handler's Session to receive the responses its pages observe whose URLs its URL patterns match, each body up to a byte cap, those a service worker answered included (ADR 0110).
+_Avoid_: response hook, response listener, sniffer
+
 **Access mode**:
 How a Session presents itself to sites, fixed when it opens: standard (an ordinary browser), identified (a declared, signed agent) or stealth (masked).
 _Avoid_: profile, access profile, stealth level

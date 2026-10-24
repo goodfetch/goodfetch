@@ -4169,6 +4169,11 @@ export interface RouteRequest {
    */
   method: string;
   /**
+   * Its body, in Base64 (RFC 4648, with padding), when it has one: as
+   * the page sent it, or as a route before replaced it.
+   */
+  post_data?: string | null;
+  /**
    * What the page loads with it, as the browser names it, such as
    * `Document`, `Script` or `XHR`.
    */
@@ -4242,6 +4247,11 @@ export interface RouteRequest1 {
    * Its method, such as `GET`.
    */
   method: string;
+  /**
+   * Its body, in Base64 (RFC 4648, with padding), when it has one: as
+   * the page sent it, or as a route before replaced it.
+   */
+  post_data?: string | null;
   /**
    * What the page loads with it, as the browser names it, such as
    * `Document`, `Script` or `XHR`.

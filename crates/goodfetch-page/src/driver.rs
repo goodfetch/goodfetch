@@ -52,7 +52,7 @@ use goodfetch_engine::browser_cache::Pins;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::home::Home;
-use goodfetch_engine::lease::LeaseCheck;
+use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::functions::World;
@@ -234,8 +234,15 @@ impl Browser {
     }
 
     /// The Error code `failure` raises from `call`, naming how the browser
-    /// ended when it was lost.
+    /// ended when it was lost; a command the lease check withheld raises
+    /// the error that check gives, the Product's own (ADR 0087).
     async fn failed(&self, call: &Call, failure: &Failure) -> CallError {
+        if let Failure::Withheld { method } = failure
+            && let Some(lease) = &self.lease
+        {
+            let ended = lease.check().err().unwrap_or(LeaseEnded::Released);
+            return lease.withheld(ended, method);
+        }
         let mut exit = self.exit.clone();
         let ended = if *failure == Failure::Disconnected {
             tokio::time::timeout(
@@ -608,6 +615,8 @@ impl<B: Connect> SessionDriver<B> {
         let Ok(browser) = self.browser.connect().await else {
             return;
         };
+        // Its service workers' choice goes with it, and what that holds.
+        browser.service_workers.forget(context);
         if self.browser.borrowed() {
             for target_id in std::mem::take(&mut *self.opened.lock().await) {
                 if let Err(failure) = browser

@@ -1,13 +1,19 @@
 //! A Borrowed browser under the egress policy over stdio (spec #563's
 //! stories 14 and 15; ADRs 0017, 0056 and 0115), against a Chrome for
-//! Testing the test starts with a debugging port and the Proving ground,
-//! whose request record is the oracle. The test's browser resolves every
-//! name to this host's loopback, where the Proving ground and the stand-ins
-//! are, while the engine resolves each host itself through the Run's
-//! `network.resolve`: a name the engine finds public reaches the Proving
-//! ground, and one it finds private, or a private address, is refused at
-//! interception before the browser connects. The two resolutions are the
-//! rebinding gap Provenance records.
+//! Testing the test starts with a debugging port. The test's browser
+//! resolves every name to this host's loopback, where a stand-in site
+//! records the head of every request it receives, whatever its host, while
+//! the engine resolves each host itself through the Run's
+//! `network.resolve`: a name the engine finds public reaches the site, and
+//! one it finds private, or a private address, is refused at interception
+//! before the browser sends it. The two resolutions are the rebinding gap
+//! Provenance records.
+//!
+//! The site's record of request heads is the oracle rather than its
+//! accepted connections: the browser preconnects to a page's host as its
+//! navigation starts, before the request reaches the interception, and a
+//! Borrowed browser's preferences are never changed (ADR 0056), so a
+//! refused navigation may still open a connection that carries nothing.
 //!
 //! A `cdp_url`'s own address is judged before any connection, which a
 //! stand-in listener's count of accepted connections shows.
@@ -18,19 +24,21 @@
 #![expect(
     clippy::disallowed_methods,
     clippy::disallowed_types,
-    reason = "the tests start their own browser, read its port and the Run trace, and count a stand-in's connections on their own thread, never an async worker"
+    reason = "the tests start their own browser, read its port and the Run trace, and run their stand-ins on their own threads, never an async worker"
 )]
 
-use std::net::TcpListener;
+use std::io::{Read as _, Write as _};
+use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 use goodfetch_test_support::{
-    Answer, BROWSERS_PATH_VARIABLE, Family, Outcome, Process, ProvingGround, Refusal, SsrfCase,
-    SsrfTable, TestEnv, browser_cache, run_cases,
+    Answer, BROWSERS_PATH_VARIABLE, Family, Outcome, Process, Refusal, SsrfCase, SsrfTable,
+    TestEnv, browser_cache, run_cases,
 };
 use serde_json::{Map, Value, json};
 
@@ -39,13 +47,16 @@ use crate::background_traffic::{chrome_for_testing, reported_debugging_port};
 use crate::page::{BROWSER_DEADLINE, opened};
 use crate::run::call;
 
-/// The Proving ground's own seed for these tests.
-const SEED: u64 = 633;
-
-/// What the engine resolves every Proving ground host to: a globally
+/// What the engine resolves the site's public name to: a globally
 /// reachable address, which the test's browser never connects to, since
 /// it resolves every name to loopback itself.
 const PUBLIC: &str = "93.184.215.14";
+
+/// The site's public name.
+const SITE: &str = "site.test";
+
+/// What `cdp_url_not_allowed` asks for.
+const FIX: &str = "set the address in Operator policy or in user or project configuration, or give a public address";
 
 /// A Chrome for Testing the test started with a debugging port, which a
 /// Session borrows through its `cdp_url`.
@@ -90,6 +101,70 @@ impl Lent {
     }
 }
 
+/// A site on loopback that answers every request with a page and records
+/// the `Host` of each request head it received.
+struct Site {
+    port: u16,
+    hosts: Arc<Mutex<Vec<String>>>,
+}
+
+impl Site {
+    fn start() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let hosts = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&hosts);
+        std::thread::spawn(move || {
+            for stream in listener.incoming().map_while(Result::ok) {
+                let recorded = Arc::clone(&recorded);
+                std::thread::spawn(move || answer(stream, &recorded));
+            }
+        });
+        Self { port, hosts }
+    }
+
+    /// The hosts of the requests it received, the browser's own for an
+    /// icon included.
+    fn hosts(&self) -> Vec<String> {
+        self.hosts.lock().unwrap().clone()
+    }
+
+    /// The URL of `path` on the site's port at `host`.
+    fn url(&self, host: &str, path: &str) -> String {
+        format!("http://{host}:{}{path}", self.port)
+    }
+}
+
+/// Reads one request head from `stream`, records its `Host`, and answers a
+/// page; a preconnected socket that sends nothing records nothing.
+fn answer(mut stream: TcpStream, recorded: &Mutex<Vec<String>>) {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+    let mut head = Vec::new();
+    let mut buffer = [0; 4096];
+    while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+        match stream.read(&mut buffer) {
+            Ok(0) | Err(_) => return,
+            Ok(read) => head.extend_from_slice(&buffer[..read]),
+        }
+    }
+    let text = String::from_utf8_lossy(&head);
+    let host = text
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("host").then(|| value.trim())
+        })
+        .unwrap_or_default();
+    let host = host.rsplit_once(':').map_or(host, |(name, _)| name);
+    recorded.lock().unwrap().push(host.to_owned());
+    let body = "<html><body><h1>Borrowed</h1></body></html>";
+    let _ = write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+}
+
 /// A listener on loopback that counts the connections it accepts and
 /// closes each: where a refused `cdp_url` would have connected.
 fn stand_in() -> (u16, Arc<AtomicUsize>) {
@@ -129,8 +204,13 @@ impl<'env> Program<'env> {
         call(&mut self.engine, self.next_id, method, params)
     }
 
-    /// Starts the Run `run_id` whose `network.resolve` is `resolve`.
-    fn run(&mut self, run_id: &str, resolve: &Map<String, Value>) {
+    /// Starts the Run `run_id` whose `network.resolve` maps each of
+    /// `resolve`'s names to its answers.
+    fn run(&mut self, run_id: &str, resolve: &[(&str, &[&str])]) {
+        let resolve: Map<String, Value> = resolve
+            .iter()
+            .map(|(host, answers)| ((*host).to_owned(), json!(answers)))
+            .collect();
         let started = self.call(
             "run.start",
             &json!({ "run_id": run_id, "settings": { "network": { "resolve": resolve } } }),
@@ -162,21 +242,6 @@ impl<'env> Program<'env> {
     }
 }
 
-/// `network.resolve`, each Proving ground host mapped to [`PUBLIC`] and
-/// each of `more` to its answers.
-fn resolve(proving_ground: &ProvingGround, more: &[(&str, &[&str])]) -> Map<String, Value> {
-    let mut mapped: Map<String, Value> = proving_ground
-        .description()
-        .resolve
-        .keys()
-        .map(|host| (host.clone(), json!([PUBLIC])))
-        .collect();
-    for (host, answers) in more {
-        mapped.insert((*host).to_owned(), json!(answers));
-    }
-    mapped
-}
-
 /// The Error code of a call's error and its details.
 fn error(answer: &Value) -> (Value, Value) {
     let mut details = answer["error"]["data"].clone();
@@ -186,18 +251,6 @@ fn error(answer: &Value) -> (Value, Value) {
         details.remove("retryable");
     }
     (code, details)
-}
-
-/// The hosts of the requests the Proving ground received, the browser's
-/// own for an icon left out.
-fn hosts_requested(proving_ground: &ProvingGround) -> Vec<String> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|request| request["target"] != "/favicon.ico")
-        .map(|request| request["host"].as_str().unwrap_or_default().to_owned())
-        .collect()
 }
 
 /// The Run trace's Provenance entries of the Run `run_id`.
@@ -217,33 +270,36 @@ fn provenance(env: &TestEnv, run_id: &str) -> Vec<Value> {
 }
 
 /// A Borrowed browser asked for a name the engine resolves to a private
-/// address, or for a private address, is refused at interception, and the
-/// Proving ground never sees the request, which the browser would have
-/// sent it; a name the engine finds public reaches it (positive control).
-/// The Session's Provenance records that interception alone holds it, and
-/// the rebinding gap.
+/// address, or for a private address, is refused at interception, and no
+/// request reaches the site, where the browser would have sent it; a name
+/// the engine finds public reaches it (positive control). The Session's
+/// Provenance records that interception alone holds it, and the rebinding
+/// gap.
 ///
 /// Covers: story:4-14, error:egress_refused, operation:run.new_session
 #[test]
 fn a_borrowed_browser_is_refused_a_private_address_at_interception_and_provenance_names_the_gap() {
     let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let lent = Lent::start(&env, &cache);
+    let site = Site::start();
     let mut program = Program::start(&env, &cache, "sdk_python");
     program.run(
         "borrowed",
-        &resolve(&proving_ground, &[("internal.test", &["10.0.0.1"])]),
+        &[(SITE, &[PUBLIC]), ("internal.test", &["10.0.0.1"])],
     );
     let borrowed = program.borrow("borrowed", &lent.cdp_url);
     let session = borrowed["result"]["session_id"].clone();
     let page = program.new_page(&session);
-    let port = proving_ground.address().port();
 
-    let public = program.goto(&page, &proving_ground.url("catalog.test", "/catalog/1"));
-    let private = program.goto(&page, &proving_ground.url("internal.test", "/catalog/1"));
-    let loopback = program.goto(&page, &format!("http://127.0.0.1:{port}/catalog/1"));
-    let requested = hosts_requested(&proving_ground);
+    let public = program.goto(&page, &site.url(SITE, "/"));
+    let private = program.goto(&page, &site.url("internal.test", "/"));
+    let loopback = program.goto(&page, &site.url("127.0.0.1", "/"));
+    let requested: Vec<String> = site
+        .hosts()
+        .into_iter()
+        .filter(|host| host != SITE)
+        .collect();
     program.finish("borrowed");
     lent.stop();
 
@@ -264,7 +320,7 @@ fn a_borrowed_browser_is_refused_a_private_address_at_interception_and_provenanc
             (
                 json!("egress_refused"),
                 json!({
-                    "url": proving_ground.url("internal.test", "/catalog/1"),
+                    "url": site.url("internal.test", "/"),
                     "rule": "private_address",
                     "address": "10.0.0.1",
                     "setting": "egress.private_ranges",
@@ -273,20 +329,21 @@ fn a_borrowed_browser_is_refused_a_private_address_at_interception_and_provenanc
             (
                 json!("egress_refused"),
                 json!({
-                    "url": format!("http://127.0.0.1:{port}/catalog/1"),
+                    "url": site.url("127.0.0.1", "/"),
                     "rule": "private_address",
                     "address": "127.0.0.1",
                     "setting": "egress.private_ranges",
                 })
             ),
-            vec!["catalog.test".to_owned()],
+            Vec::<String>::new(),
             vec![json!({
                 "action": "interception_only",
                 "session_id": session,
                 "egress": "interception_only",
                 "gap": "dns_rebinding",
             })],
-        )
+        ),
+        "{borrowed}"
     );
 }
 
@@ -300,29 +357,24 @@ fn a_borrowed_browser_is_refused_a_private_address_at_interception_and_provenanc
 #[test]
 fn a_loopback_cdp_url_opens_for_the_programs_own_code_alone() {
     let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let lent = Lent::start(&env, &cache);
     let (port, accepted) = stand_in();
     let stand_in_url = format!("ws://127.0.0.1:{port}/devtools/browser/stand-in");
     let mixed_url = format!("ws://debugger.test:{port}/devtools/browser/stand-in");
-    let resolved = resolve(
-        &proving_ground,
-        &[("debugger.test", &["127.0.0.1", "10.0.0.9"])],
-    );
+    let resolve: &[(&str, &[&str])] = &[("debugger.test", &["127.0.0.1", "10.0.0.9"])];
 
     let mut program = Program::start(&env, &cache, "sdk_typescript");
-    program.run("own", &resolved);
+    program.run("own", resolve);
     let own = program.borrow("own", &lent.cdp_url);
     let mixed = program.borrow("own", &mixed_url);
     program.finish("own");
     let mut model = Program::start(&env, &cache, "mcp");
-    model.run("model", &resolved);
+    model.run("model", resolve);
     let refused = model.borrow("model", &stand_in_url);
     model.finish("model");
     lent.stop();
 
-    let fix = "set the address in Operator policy or in user or project configuration, or give a public address";
     assert_eq!(
         (
             own["result"]["session_id"].is_string(),
@@ -339,7 +391,7 @@ fn a_loopback_cdp_url_opens_for_the_programs_own_code_alone() {
                     "layer": "run",
                     "rule": "loopback",
                     "address": "127.0.0.1",
-                    "fix": fix,
+                    "fix": FIX,
                 })
             ),
             (
@@ -350,7 +402,7 @@ fn a_loopback_cdp_url_opens_for_the_programs_own_code_alone() {
                     "rule": "private_address",
                     "address": "10.0.0.9",
                     "setting": "egress.private_ranges",
-                    "fix": fix,
+                    "fix": FIX,
                 })
             ),
             0,
@@ -381,18 +433,15 @@ fn operator_policy(env: &TestEnv, url: &str, no_private: bool) {
 #[test]
 fn a_cdp_url_in_operator_policy_opens_on_a_private_address() {
     let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let lent = Lent::start(&env, &cache);
+    let site = Site::start();
     operator_policy(&env, &lent.cdp_url, false);
     let mut model = Program::start(&env, &cache, "mcp");
-    model.run("configured", &resolve(&proving_ground, &[]));
+    model.run("configured", &[(SITE, &[PUBLIC])]);
 
     let page = model.call("run.new_page", &json!({ "run_id": "configured" }));
-    let went = model.goto(
-        &opened(&page).page_id.0,
-        &proving_ground.url("catalog.test", "/catalog/1"),
-    );
+    let went = model.goto(&opened(&page).page_id.0, &site.url(SITE, "/"));
     model.finish("configured");
     lent.stop();
 
@@ -412,7 +461,7 @@ fn a_cdp_url_in_operator_policy_is_refused_a_private_address_under_no_private_en
     let url = format!("ws://127.0.0.1:{port}/devtools/browser/stand-in");
     operator_policy(&env, &url, true);
     let mut program = Program::start(&env, &cache, "sdk_python");
-    program.run("configured", &Map::new());
+    program.run("configured", &[]);
 
     let refused = program.call("run.new_page", &json!({ "run_id": "configured" }));
     program.finish("configured");
@@ -428,7 +477,7 @@ fn a_cdp_url_in_operator_policy_is_refused_a_private_address_under_no_private_en
                     "rule": "private_address",
                     "address": "127.0.0.1",
                     "setting": "egress.no_private_endpoints",
-                    "fix": "set the address in Operator policy or in user or project configuration, or give a public address",
+                    "fix": FIX,
                 })
             ),
             0
@@ -443,25 +492,24 @@ fn host_and_path(url: &str) -> (&str, &str) {
 }
 
 /// The SSRF table's thin runner on a Borrowed browser (ADR 0067), for its
-/// family: each case's URL on the Proving ground's port, its names
-/// resolved by the engine as its `lookups` say and by the browser to
-/// loopback, so a case let through reaches the Proving ground, which then
-/// stands in for its target. Positive control: a public name of the
-/// Proving ground goes through.
+/// family: each case's URL on the site's port, its names resolved by the
+/// engine as its `lookups` say and by the browser to loopback, so a case
+/// let through reaches the site, which then stands in for its target.
+/// Positive control: the site's public name goes through.
 ///
 /// Covers: story:4-14, error:egress_refused
 #[test]
 fn every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception() {
     let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let lent = Lent::start(&env, &cache);
+    let site = Site::start();
     let table = SsrfTable::committed().unwrap();
     let cases: Vec<&SsrfCase> = table.cases_of(Family::BorrowedBrowser).collect();
-    let mut resolved = resolve(&proving_ground, &[]);
+    let mut names: Vec<(String, Vec<String>)> = vec![(SITE.to_owned(), vec![PUBLIC.to_owned()])];
     for case in &cases {
         for lookup in &case.lookups {
-            let answers: Vec<String> = lookup
+            let answers = lookup
                 .answers
                 .iter()
                 .map(|answer| match answer {
@@ -469,22 +517,29 @@ fn every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception() {
                     Answer::Public => PUBLIC.to_owned(),
                 })
                 .collect();
-            resolved.insert(lookup.name.clone(), json!(answers));
+            names.push((lookup.name.clone(), answers));
         }
     }
+    let answers: Vec<Vec<&str>> = names
+        .iter()
+        .map(|(_, answers)| answers.iter().map(String::as_str).collect())
+        .collect();
+    let resolve: Vec<(&str, &[&str])> = names
+        .iter()
+        .zip(&answers)
+        .map(|((name, _), answers)| (name.as_str(), answers.as_slice()))
+        .collect();
     let mut program = Program::start(&env, &cache, "sdk_python");
-    program.run("table", &resolved);
+    program.run("table", &resolve);
     let session = program.borrow("table", &lent.cdp_url)["result"]["session_id"].clone();
-    let port = proving_ground.address().port();
     let public = PUBLIC.parse().unwrap();
 
     let mut run_case = |case: &SsrfCase| {
         let (host, path) = host_and_path(&case.url);
-        let url = format!("http://{host}:{port}{path}");
-        let before = hosts_requested(&proving_ground).len();
+        let before = site.hosts().len();
         let page = program.new_page(&session);
-        let went = program.goto(&page, &url);
-        let reached = hosts_requested(&proving_ground).len() > before;
+        let went = program.goto(&page, &site.url(host, path));
+        let reached = site.hosts().len() > before;
         let refusal = match error(&went) {
             (code, details) if code == "egress_refused" => {
                 serde_json::from_value(details["rule"].clone())
@@ -493,7 +548,7 @@ fn every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception() {
             }
             _ => None,
         };
-        let target = if host == "catalog.test" {
+        let target = if host == SITE {
             Some(public)
         } else {
             case.target_address(public)
@@ -509,7 +564,7 @@ fn every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception() {
     };
     let result = run_cases(cases.iter().copied(), public, &mut run_case);
     let control = run_case(&SsrfCase {
-        url: "http://catalog.test/catalog/1".to_owned(),
+        url: format!("http://{SITE}/"),
         ..cases[0].clone()
     });
     program.finish("table");

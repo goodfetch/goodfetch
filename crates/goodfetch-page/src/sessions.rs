@@ -434,8 +434,8 @@ impl Sessions {
     }
 
     /// Closes the Session `session`: its pages and its browser context
-    /// close, and its pages' admissions go back; a Session closed already
-    /// stays as it is.
+    /// close, and its pages' admissions go back; a Session closed already,
+    /// or ended with its Run, stays as it is (ADR 0078).
     pub(crate) async fn close(
         &self,
         session: &SessionId,
@@ -444,7 +444,9 @@ impl Sessions {
         let open = match self.session(session, context).await {
             Ok(open) => open,
             Err(error) => {
-                return if self.was_closed(session).await {
+                return if self.was_closed(session).await
+                    || ended_with_its_run(session, context).await
+                {
                     Ok(())
                 } else {
                     Err(error)
@@ -1105,6 +1107,30 @@ async fn live(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
         format!("No live Run has the Run ID `{run_id}`: {error}"),
         &details,
     ))
+}
+
+/// Whether `session` names a Session of a Run that is no longer live but
+/// whose committed state records it: the Session ended with its Run.
+async fn ended_with_its_run(session: &SessionId, context: &CallContext) -> bool {
+    let Some((run_id, position)) = parse_session_id(session) else {
+        return false;
+    };
+    if context.runs().live(run_id.clone()).await.is_ok() {
+        return false;
+    }
+    let Ok(mut reader) = context.runs().reader(run_id).await else {
+        return false;
+    };
+    reader
+        .read(move |connection| {
+            connection.query_row(
+                "SELECT count(*) FROM page_sessions WHERE position = ?1",
+                [position],
+                |row| row.get::<_, i64>(0),
+            )
+        })
+        .await
+        .is_ok_and(|recorded| recorded > 0)
 }
 
 /// Whether the Run `run_id`'s committed state says it ended `finished`.

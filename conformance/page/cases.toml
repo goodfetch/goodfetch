@@ -39,6 +39,10 @@ covers = ["story:5-62", "operation:run.new_session", "error:setting_not_applicab
 id = "new-work-on-a-finished-run-raises-run-ended"
 covers = ["operation:run.new_session", "operation:run.new_page", "error:run_ended"]
 
+[[capability.case]]
+id = "closing-a-session-whose-run-ended-changes-nothing"
+covers = ["story:5-60", "operation:run.new_session", "operation:session.close"]
+
 [[capability]]
 name = "sessions.page_check"
 

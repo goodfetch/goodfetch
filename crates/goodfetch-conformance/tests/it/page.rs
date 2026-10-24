@@ -129,7 +129,7 @@ fn prove((name, capabilities): Part) {
         .unwrap();
 
     let document = run_protocol_suite(&suite, &target, &proving_ground).unwrap();
-    crate::keep(&document, &format!("page-{name}-collie-attached"));
+    crate::keep(&document, &format!("page-collie-attached-{name}"));
 
     let cases: Vec<(&str, CaseOutcome)> = document
         .capabilities()

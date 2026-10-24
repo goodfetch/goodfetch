@@ -102,7 +102,7 @@ use self::pipeline::{Observing, PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
 use crate::clean_up_versions::Versions;
-use crate::driver::{OnServiceWorker, PageDriver, ServiceWorkers};
+use crate::driver::{Child, ChildKind, OnChild, OnWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
 use crate::page_value::ResponseObserver;
 use crate::proxy::SessionProxy;
@@ -111,6 +111,15 @@ use crate::url_pattern::UrlPattern;
 /// `browser.service_workers`'s value that keeps every service worker from
 /// running.
 const BLOCK: &str = "block";
+
+/// A kind of worker that belongs to no page.
+#[derive(Clone, Copy, Debug)]
+enum Worker {
+    /// A site's service worker (ADR 0121).
+    Service,
+    /// A site's shared worker.
+    Shared,
+}
 
 /// Whose requests a route answers.
 #[derive(Clone, Copy, Debug)]
@@ -320,6 +329,14 @@ pub(crate) struct PageCleanUp {
     pub(crate) live_hiding: String,
 }
 
+/// A page the interception holds: what its Session chose of the Clean-up
+/// rules, and what the interception does with each of its children before
+/// it runs.
+pub(crate) struct HeldPage {
+    pub(crate) clean_up: PageCleanUp,
+    pub(crate) children: OnChild,
+}
+
 impl PageState {
     /// Leaves `error` for the call waiting on the request, or else the next
     /// call on the page, unless an earlier failure waits already.
@@ -391,7 +408,9 @@ impl Interception {
     /// each refusal left in `refusals` for the request's failure to carry,
     /// each response `observer` keeps passed to it, a service worker's of
     /// the Session included. It answers what the Session chose of the
-    /// Clean-up rules beside its requests' blocking.
+    /// Clean-up rules beside its requests' blocking, and what becomes of
+    /// the page's children: each out-of-process frame's requests pass the
+    /// page's pipeline too, from before it runs.
     ///
     /// # Errors
     ///
@@ -415,25 +434,8 @@ impl Interception {
         own: &Values,
         refusals: Refusals,
         observer: Option<Arc<dyn ResponseObserver>>,
-    ) -> Result<PageCleanUp, CallError> {
-        let policy = match run.settings() {
-            Some(settings) => Policy::of(settings.resolved()),
-            None => Policy::new(&["*"], &[] as &[&str]),
-        }
-        .map_err(|invalid| {
-            CallError::new(
-                &SETTING_INVALID,
-                format!(
-                    "`{}` holds `{}`, which is no host",
-                    invalid.setting, invalid.entry
-                ),
-                &SettingInvalidDetails {
-                    key: invalid.setting.to_owned(),
-                    layer: None,
-                    reason: format!("`{}` is no host", invalid.entry),
-                },
-            )
-        })?;
+    ) -> Result<HeldPage, CallError> {
+        let policy = policy_of(run)?;
         let resolved = run.settings().map(RunSettings::resolved);
         let choices = clean_up::choices(resolved, own);
         let blocked = (!choices.block_resources.is_empty())
@@ -490,8 +492,8 @@ impl Interception {
         let workers =
             match clean_up::effective(resolved, own, BROWSER_SERVICE_WORKERS.name).as_str() {
                 Some(BLOCK) => ServiceWorkers::Block,
-                _ => ServiceWorkers::Allow(self.service_workers_of(
-                    session,
+                _ => ServiceWorkers::Allow(self.workers_of(
+                    (session, Worker::Service),
                     driver,
                     run,
                     (policy.clone(), lookups.clone()),
@@ -499,9 +501,26 @@ impl Interception {
                     observing.clone(),
                 )),
             };
+        driver.shared_workers(self.workers_of(
+            (session, Worker::Shared),
+            driver,
+            run,
+            (policy.clone(), lookups.clone()),
+            blocking.clone(),
+            observing.clone(),
+        ));
         // Chosen before the page loads anything, so no worker of its sites
         // runs before the interception holds it.
         driver.service_workers(workers).await?;
+        let children = self.children_of(
+            page_id,
+            &state,
+            driver,
+            run,
+            (policy.clone(), lookups.clone()),
+            blocking.clone(),
+            observing.clone(),
+        );
         let context = Arc::new(
             PageContext::new(
                 driver.clone(),
@@ -517,24 +536,108 @@ impl Interception {
             .with_lookups(lookups),
         );
         run.spawn(pipeline::dispatch(events, context));
-        Ok(clean_up)
+        Ok(HeldPage { clean_up, children })
     }
 
-    /// What the Session `session`, whose page `page` of `run` its context
-    /// chose for, does with each service worker of its sites before it
-    /// runs (ADR 0121): its requests pause and pass the pipeline as a
-    /// page's do, under the Session's routes alone and the same domain
-    /// policy and Filter lists, each recorded in the Run trace, until the
-    /// worker goes.
-    fn service_workers_of(
+    /// What the page `page_id`, whose side of the interception is `state`
+    /// and whose driver is `page`, does with each of its children before it
+    /// runs: an out-of-process frame's requests pause on its own target and
+    /// pass the page's pipeline, under the page's routes, its Session's and
+    /// the same steps, each refused one recorded in the Run trace, since
+    /// the page's events never see them; a frame whose requests cannot be
+    /// paused never runs. A dedicated worker's requests pass its page's
+    /// own pipeline already.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one value per part of the page the interception holds, each its own owner's"
+    )]
+    fn children_of(
         &self,
-        session: &SessionId,
+        page_id: &PageId,
+        state: &Arc<PageState>,
         page: &PageDriver,
         run: &Run,
         (policy, lookups): (Policy, Option<Arc<Resolve>>),
         blocking: steps::Blocking,
         observing: Option<Observing>,
-    ) -> OnServiceWorker {
+    ) -> OnChild {
+        let answers = self.shared.answers.clone();
+        let (page_id, state, page, run) = (
+            page_id.clone(),
+            Arc::clone(state),
+            page.clone(),
+            run.clone(),
+        );
+        Arc::new(move |child: &Child| {
+            let frame =
+                (child.kind == ChildKind::Frame).then(|| page.on_child(child.session.clone()));
+            let (page_id, state, answers, run) = (
+                page_id.clone(),
+                Arc::clone(&state),
+                answers.clone(),
+                run.clone(),
+            );
+            let (policy, blocking, observing, lookups) = (
+                policy.clone(),
+                blocking.clone(),
+                observing.clone(),
+                lookups.clone(),
+            );
+            Box::pin(async move {
+                let Some(frame) = frame else {
+                    return true;
+                };
+                let events = frame.events().await;
+                let enabled = frame
+                    .command(&fetch::EnableParams {
+                        patterns: Some(patterns(observing.is_some())),
+                        handle_auth_requests: frame
+                            .proxy()
+                            .is_some_and(SessionProxy::answers_authentication)
+                            .then_some(true),
+                    })
+                    .await;
+                if let Err(failure) = enabled {
+                    tracing::warn!(%failure, "an out-of-process frame's requests could not be paused, so it does not run");
+                    return false;
+                }
+                let log = Arc::new(RequestLog::new(run.owner().child(), run.folder()));
+                let context = Arc::new(
+                    PageContext::new(
+                        frame,
+                        Sender::Frame { page: page_id, log },
+                        state,
+                        answers,
+                        policy,
+                        blocking,
+                        Refusals::default(),
+                        observing,
+                        run.clone(),
+                    )
+                    .with_lookups(lookups),
+                );
+                run.spawn(pipeline::dispatch(events, context));
+                true
+            })
+        })
+    }
+
+    /// What the Session `session`, whose page `page` of `run` its context
+    /// chose for, does with each service or shared worker of its sites,
+    /// as `worker` says, before it runs (ADRs 0014 and 0121): its requests
+    /// pause and pass the pipeline as a page's do, under the Session's
+    /// routes alone and the same domain policy and Filter lists, until the
+    /// worker goes; a service worker's are each recorded in the Run trace,
+    /// a shared worker's when refused.
+    fn workers_of(
+        &self,
+        (session, worker): (&SessionId, Worker),
+        page: &PageDriver,
+        run: &Run,
+        (policy, lookups): (Policy, Option<Arc<Resolve>>),
+        blocking: steps::Blocking,
+        observing: Option<Observing>,
+    ) -> OnWorker {
         // The browser keeps this choice, so it holds no driver of the
         // browser and nothing that must end with the Run before the
         // browser does.
@@ -543,7 +646,7 @@ impl Interception {
         // A worker's requests take its Session's pages' value: their gate
         // admits the navigations the worker carries.
         let value = page.value().clone();
-        Arc::new(move |worker: PageDriver, gone: CancellationToken| {
+        Arc::new(move |driver: PageDriver, gone: CancellationToken| {
             let (shared, session, proxy, run, value) = (
                 Arc::clone(&shared),
                 session.clone(),
@@ -569,19 +672,19 @@ impl Interception {
                     )
                 };
                 let log = Arc::new(RequestLog::new(run.owner().child(), run.folder()));
-                let worker = worker.with_proxy(proxy).with_value(value, run.clock());
-                let events = worker.events().await;
-                let enabled = worker
+                let driver = driver.with_proxy(proxy).with_value(value, run.clock());
+                let events = driver.events().await;
+                let enabled = driver
                     .opening_command(&fetch::EnableParams {
                         patterns: Some(patterns(observing.is_some())),
-                        handle_auth_requests: worker
+                        handle_auth_requests: driver
                             .proxy()
                             .is_some_and(SessionProxy::answers_authentication)
                             .then_some(true),
                     })
                     .await;
                 if let Err(error) = enabled {
-                    tracing::warn!(%error, "a service worker's requests could not be paused, so it does not run");
+                    tracing::warn!(%error, ?worker, "a worker's requests could not be paused, so it does not run");
                     return false;
                 }
                 let state = Arc::new(PageState {
@@ -602,8 +705,11 @@ impl Interception {
                 });
                 let context = Arc::new(
                     PageContext::new(
-                        worker,
-                        Sender::ServiceWorker { session, log },
+                        driver,
+                        match worker {
+                            Worker::Service => Sender::ServiceWorker { session, log },
+                            Worker::Shared => Sender::SharedWorker { log },
+                        },
                         state,
                         shared.answers.clone(),
                         policy,
@@ -850,6 +956,33 @@ fn patterns(observed: bool) -> Vec<fetch::RequestPattern> {
         ));
     }
     patterns
+}
+
+/// The domain policy of `run`, every host allowed for a Run without
+/// settings.
+///
+/// # Errors
+///
+/// `setting_invalid` for a domain list of the Run's that holds no host.
+fn policy_of(run: &Run) -> Result<Policy, CallError> {
+    match run.settings() {
+        Some(settings) => Policy::of(settings.resolved()),
+        None => Policy::new(&["*"], &[] as &[&str]),
+    }
+    .map_err(|invalid| {
+        CallError::new(
+            &SETTING_INVALID,
+            format!(
+                "`{}` holds `{}`, which is no host",
+                invalid.setting, invalid.entry
+            ),
+            &SettingInvalidDetails {
+                key: invalid.setting.to_owned(),
+                layer: None,
+                reason: format!("`{}` is no host", invalid.entry),
+            },
+        )
+    })
 }
 
 /// `closed` for a page or Session the interception does not hold.

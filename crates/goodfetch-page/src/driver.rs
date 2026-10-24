@@ -14,7 +14,8 @@
 //! its Session keeps its timers (ADR 0085's question), and a headless
 //! browser's pages show the identity it shows with a window (`identity`).
 //! Each browser attaches the engine to its service workers before they run
-//! (`service_workers`; ADR 0121). A page carries what Foxhound sets on it
+//! (`service_workers`; ADR 0121), and each page to its out-of-process
+//! frames and dedicated workers (`children`; ADR 0014). A page carries what Foxhound sets on it
 //! (`page_value`): its lease check is asked before each command it sends,
 //! and its waits for its navigation gate's permits count against none of
 //! its deadlines (`permit_waits`).
@@ -25,6 +26,7 @@
 //! in their own modules.
 
 mod carry;
+mod children;
 mod encoding;
 mod ending;
 mod functions;
@@ -61,6 +63,7 @@ use tokio::sync::{Mutex, MutexGuard, OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::carry::{Carried, Origins};
+pub(crate) use self::children::{Child, ChildKind, OnChild};
 use self::encoding::{encoding_of, encoding_read, isolated_world};
 pub(crate) use self::ending::Lost;
 use self::functions::{evaluation, page_function_world};
@@ -68,7 +71,7 @@ pub(crate) use self::navigation::{Arrived, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use self::permit_waits::PermitWaits;
 pub(crate) use self::popups::OnPopup;
-pub(crate) use self::service_workers::{OnServiceWorker, ServiceWorkers};
+pub(crate) use self::service_workers::{OnWorker, ServiceWorkers};
 use crate::borrowed::CdpUrl;
 use crate::errors::{
     Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,

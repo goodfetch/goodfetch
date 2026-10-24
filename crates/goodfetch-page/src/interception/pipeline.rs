@@ -33,7 +33,8 @@ use goodfetch_protocol::page::route::{
     RouteFetched, RouteHandleParams, RouteHandled, RouteId, RouteRequest,
 };
 use goodfetch_protocol::page::{
-    NAVIGATION_FAILED, NavigationFailedDetails, PageId, ServiceWorkerRequest, SessionId,
+    NAVIGATION_FAILED, NavigationFailedDetails, PageId, RequestFailed, ServiceWorkerRequest,
+    SessionId,
 };
 use secrecy::ExposeSecret as _;
 use tokio::sync::oneshot;
@@ -55,6 +56,11 @@ use crate::page_value::{
 pub(crate) enum Sender {
     /// A page's.
     Page(PageId),
+    /// An out-of-process frame's of the page `page`, whose target is not
+    /// the page's: they pass the page's routes, and its page's events never
+    /// see them, so each one refused is recorded in the Run trace's request
+    /// `log` at once.
+    Frame { page: PageId, log: Arc<RequestLog> },
     /// A site's service worker's, which belongs to no page, of the Session
     /// `session`: each one is recorded in the Run trace's request `log`
     /// (ADR 0121).
@@ -62,14 +68,26 @@ pub(crate) enum Sender {
         session: SessionId,
         log: Arc<RequestLog>,
     },
+    /// A shared worker's, which belongs to no page: each one refused is
+    /// recorded in the Run trace's request `log` at once.
+    SharedWorker { log: Arc<RequestLog> },
 }
 
 impl Sender {
-    /// The page, when a page sends the requests.
+    /// The page, when a page or one of its frames sends the requests.
     fn page_id(&self) -> Option<&PageId> {
         match self {
-            Self::Page(page_id) => Some(page_id),
-            Self::ServiceWorker { .. } => None,
+            Self::Page(page_id) | Self::Frame { page: page_id, .. } => Some(page_id),
+            Self::ServiceWorker { .. } | Self::SharedWorker { .. } => None,
+        }
+    }
+
+    /// The request log a refusal is recorded in at once, when no page's
+    /// events report the sender's requests: a frame's or a shared worker's.
+    fn log(&self) -> Option<&Arc<RequestLog>> {
+        match self {
+            Self::Frame { log, .. } | Self::SharedWorker { log, .. } => Some(log),
+            Self::Page(_) | Self::ServiceWorker { .. } => None,
         }
     }
 }
@@ -201,7 +219,9 @@ impl Observing {
 /// pipeline as a task of its own.
 pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>) {
     while let Some(event) = events.next().await {
-        if event.read::<page::LoadEventFiredEvent>().is_some() {
+        if matches!(context.sender, Sender::Page(_))
+            && event.read::<page::LoadEventFiredEvent>().is_some()
+        {
             // The navigation's last hop ends with the page's `load`.
             drop(lock(&context.permit).take());
             if let Some(page_id) = context.sender.page_id() {
@@ -827,9 +847,9 @@ impl PageContext {
     async fn gate_refused(&self, held: &Held, refusal: &Refusal) -> CallError {
         let url = held.url();
         let waiting = self.driver.navigation_waits();
-        if matches!(self.sender, Sender::ServiceWorker { .. }) {
-            // A worker's request, which no page's event reports, is
-            // recorded refused at once.
+        if !matches!(self.sender, Sender::Page(_)) {
+            // A worker's or a frame's request, which no page's event
+            // reports, is recorded refused at once.
             self.leave_refusal(held, site_preferences_failure(url, refusal));
         } else if let Some(network_id) = &held.paused.network_id {
             self.refusals
@@ -875,7 +895,13 @@ impl PageContext {
         let navigation = self.sender.page_id().is_some()
             && paused.resource_type == network::ResourceType::Document
             && &paused.frame_id == self.driver.main_frame();
-        if let Some(network_id) = &paused.network_id {
+        if self.sender.log().is_some() {
+            self.record_refusal(
+                &paused.request.url,
+                &paused.request.method,
+                refused.failure(),
+            );
+        } else if let Some(network_id) = &paused.network_id {
             self.refusals
                 .leave(network_id, refused.failure(), !navigation);
         }
@@ -1025,10 +1051,12 @@ impl PageContext {
 
     /// Leaves `refusal` for `held`'s failure to carry, before the browser
     /// fails it: the Run trace records it unless the request is the
-    /// navigation's, which raises it. A service worker's request, which no
-    /// page's event reports, is recorded refused at once.
+    /// navigation a call waits on, which raises it. A request no page's
+    /// event reports, a frame's or a worker's, is recorded refused at once.
     fn leave_refusal(&self, held: &Held, refusal: ErrorData) {
-        if matches!(self.sender, Sender::ServiceWorker { .. }) {
+        if self.sender.log().is_some() {
+            self.record_refusal(held.url(), held.method(), refusal);
+        } else if matches!(self.sender, Sender::ServiceWorker { .. }) {
             self.trace_service_worker(
                 held,
                 Some(RequestFailure {
@@ -1037,8 +1065,34 @@ impl PageContext {
                 }),
             );
         } else if let Some(network_id) = &held.paused.network_id {
-            self.refusals.leave(network_id, refusal, !held.navigation);
+            // A navigation the page sent itself, which no call waits on, is
+            // recorded too.
+            let recorded = !held.navigation || !self.driver.navigation_waits();
+            self.refusals.leave(network_id, refusal, recorded);
         }
+    }
+
+    /// Records the request to `url` that `method` sent, refused with
+    /// `refusal`, in the sender's request log, as a request that no call
+    /// waited for failed, and its Error code in the Run's outcome record.
+    fn record_refusal(&self, url: &str, method: &str, refusal: ErrorData) {
+        let Some(log) = self.sender.log() else {
+            return;
+        };
+        self.run.record_outcome(&refusal.code);
+        let (log, failed) = (
+            Arc::clone(log),
+            RequestFailed {
+                url: url.to_owned(),
+                method: method.to_owned(),
+                failure: refusal,
+            },
+        );
+        self.run.spawn(async move {
+            if let Err(error) = log.request_failed(&failed).await {
+                tracing::warn!(%error, "the Run trace did not take a refused request");
+            }
+        });
     }
 
     /// Records `held`, a service worker's own request, in the Run trace,

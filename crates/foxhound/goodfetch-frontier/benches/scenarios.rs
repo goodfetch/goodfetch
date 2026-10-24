@@ -6,6 +6,7 @@
 //! is enqueued, admitted in round-robin turns and ended.
 
 use goodfetch_engine::admission::{Ended, Gate, Waiting};
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_frontier::{
     BOUNDS_TABLES, Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope, Url,
@@ -111,6 +112,8 @@ pub(crate) fn admit_seeds(links: &[String]) -> usize {
             .expect("invariant: the visited set's and the scope's tables are created");
     }
     let scope = Scope::default();
+    let policy =
+        Policy::new(&["*"], &[] as &[&str]).expect("invariant: the default domain policy reads");
     let get = HttpMethod::get();
     let mut added = 0_usize;
     for link in links {
@@ -122,7 +125,7 @@ pub(crate) fn admit_seeds(links: &[String]) -> usize {
                 key: None,
             },
         };
-        let answer = admit(&connection, &scope, candidate, |_| {
+        let answer = admit(&connection, &scope, &policy, candidate, |_| {
             Ok((added + 1).to_string())
         })
         .expect("invariant: the visited set in memory is written");

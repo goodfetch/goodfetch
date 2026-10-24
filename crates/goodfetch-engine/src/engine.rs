@@ -354,6 +354,7 @@ impl Engine {
                     dependencies.home.usage_ledger(),
                     dependencies.run_state.vfs.clone(),
                 ),
+                settings: settings.clone(),
                 owner: Arc::new(owner.child()),
             },
             events.clone(),

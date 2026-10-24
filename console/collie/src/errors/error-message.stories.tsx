@@ -10,13 +10,14 @@ import {
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ErrorMessage } from "./error-message.tsx";
 
-const meta = {
+const meta: Meta<typeof ErrorMessage> = {
+  title: "Error message",
   component: ErrorMessage,
-} satisfies Meta<typeof ErrorMessage>;
+};
 
 export default meta;
 
-type Story = StoryObj<typeof meta>;
+type Story = StoryObj<typeof ErrorMessage>;
 
 /** A deadline that passed, with every field. */
 export const EveryField: Story = {

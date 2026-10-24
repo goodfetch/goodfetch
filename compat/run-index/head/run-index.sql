@@ -1,5 +1,12 @@
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
+CREATE TABLE consent_walls (
+        domain TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        seen_at TEXT NOT NULL,
+        PRIMARY KEY (domain, run_id)
+    ) STRICT;
+INSERT INTO "consent_walls" VALUES('walled.example','finished-run','2026-01-05T09:00:00Z');
 CREATE TABLE format (
     name TEXT NOT NULL PRIMARY KEY,
     version TEXT NOT NULL,

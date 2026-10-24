@@ -12,8 +12,9 @@
 //! `request` module `page.request`, the request API on a page's Session,
 //! its `proxy` module a Session's proxy, its `dialog` module a page's
 //! JavaScript dialogs, its `tabs` module a Session's pages and popups
-//! and `page.close`, and its `functions` module the page functions,
-//! `page.evaluate` and `page.add_init_script`.
+//! and `page.close`, its `functions` module the page functions,
+//! `page.evaluate` and `page.add_init_script`, and its `waits` module the
+//! app-state waits, each armed when its call arrives.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
 //! Run's folder, named by the digest of its bytes. A Client on the same
@@ -50,6 +51,7 @@ pub mod request;
 pub mod route;
 pub mod session;
 pub mod tabs;
+pub mod waits;
 
 use self::dialog::{
     DIALOG_ACCEPT, DIALOG_ALREADY_HANDLED, DIALOG_DISMISS, DIALOG_HANDLE, PAGE_ON_DIALOG,
@@ -69,6 +71,10 @@ use self::route::{
 };
 use self::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
 use self::tabs::{PAGE_POPUP, SESSION_ON, SESSION_PAGE, SESSION_PAGES};
+use self::waits::{
+    LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_LOAD_STATE,
+    PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,
+};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -1129,6 +1135,13 @@ pub const ENTRIES: Entries = Entries {
         tabs::PAGE_CLOSE,
         PAGE_EVALUATE,
         PAGE_ADD_INIT_SCRIPT,
+        PAGE_WAIT_FOR_URL,
+        PAGE_WAIT_FOR_REQUEST,
+        PAGE_WAIT_FOR_RESPONSE,
+        PAGE_WAIT_FOR_LOAD_STATE,
+        PAGE_WAIT_FOR_FUNCTION,
+        LOCATOR_WAIT_FOR,
+        LOCATOR_WAIT_FOR_COUNT,
     ],
     events: &[
         PAGE_DOWNLOAD,

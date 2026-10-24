@@ -308,6 +308,31 @@ class ConsoleState(RootModel[ConsoleState1 | ConsoleState2 | Literal["absent"]])
     """
 
 
+class Count(BaseModel):
+    """
+    A count of matches, bounded on either side or both: an exact count is
+    both bounds.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    max: Annotated[int | None, Field(ge=0)] = None
+    """The most; no bound when absent."""
+    min: Annotated[int | None, Field(ge=0)] = None
+    """The fewest; no bound when absent."""
+
+
+class Counted(BaseModel):
+    """What `locator.wait_for_count` answers: how many elements matched."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """The number of matches."""
+
+
 class CpuReading(BaseModel):
     """The engine's CPU and Tokio workers, as the governor read them."""
 
@@ -461,6 +486,22 @@ class DownloadSaved(BaseModel):
     `$/chunk` notifications before this answer carried every byte, and
     the SDK writes the path.
     """
+
+
+class ElementState(StrEnum):
+    """A state of the element a locator matches (Playwright's `waitFor`)."""
+
+    attached = "attached"
+    """One element matches."""
+    detached = "detached"
+    """No element matches."""
+    visible = "visible"
+    """
+    One element matches, with a box of its own and `visibility:
+    visible`.
+    """
+    hidden = "hidden"
+    """No element matches, or the one that does is not visible."""
 
 
 class EndingError(BaseModel):
@@ -731,6 +772,21 @@ class LimitStanding(StrEnum):
     """
     not_understood = "not_understood"
     """It cannot evaluate it: a newer engine wrote it."""
+
+
+class LoadState(StrEnum):
+    """A state the page's document reaches (Playwright's `LoadState`)."""
+
+    domcontentloaded = "domcontentloaded"
+    """The document fired `DOMContentLoaded`."""
+    load = "load"
+    """The document fired `load`."""
+    networkidle = "networkidle"
+    """
+    The document fired `load`, and no request of the page was in flight
+    for 500 ms since, WebSocket and server-sent-event connections left
+    out.
+    """
 
 
 class LogLevel(StrEnum):
@@ -1244,6 +1300,17 @@ class ProxyKindBytes(BaseModel):
     """The bytes."""
     kind: str
     """The proxy kind, such as `residential`."""
+
+
+class Reached(BaseModel):
+    """
+    What `page.wait_for_url`, `page.wait_for_load_state` and
+    `locator.wait_for` answer once the state they waited for came.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
 
 
 class RecordingReport(BaseModel):
@@ -2230,6 +2297,34 @@ class Verdict(StrEnum):
     """Everything else: a person reviews it."""
 
 
+class WaitForExchangeParams(BaseModel):
+    """
+    What `page.wait_for_request` and `page.wait_for_response` take: the
+    page, and the URLs of the requests they wait for; any request when none
+    is given.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    url: UrlMatcher | None = None
+    """The URLs it waits for."""
+
+
+class WaitForLoadStateParams(BaseModel):
+    """What `page.wait_for_load_state` takes: the page and the state."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    state: LoadState | None = None
+    """The state; `load` when absent."""
+
+
 class WaitForRequestFinishedParams(BaseModel):
     """
     What `page.wait_for_request_finished` takes: the page, and the URLs of
@@ -2243,6 +2338,26 @@ class WaitForRequestFinishedParams(BaseModel):
     """The page."""
     url: UrlMatcher | None = None
     """The URLs it waits for."""
+
+
+class WaitForUrlParams(BaseModel):
+    """
+    What `page.wait_for_url` takes: the page, the URL it waits for, and the
+    state a new document must reach.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    url: UrlMatcher
+    """The URL it waits for."""
+    wait_until: LoadState | None = None
+    """
+    The state a new document at that URL must reach; `load` when
+    absent. A change within the document waits for none.
+    """
 
 
 class WaitUntil(StrEnum):
@@ -3067,6 +3182,18 @@ class Locator(BaseModel):
     """A CSS selector, which also matches inside open shadow roots."""
 
 
+class LocatorWaitForParams(BaseModel):
+    """What `locator.wait_for` takes: the locator and the state of its element."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    locator: Locator
+    """The locator."""
+    state: ElementState | None = None
+    """The state; `visible` when absent."""
+
+
 class LogEvent(BaseModel):
     """What `$/log` carries: one log event of the engine."""
 
@@ -3803,6 +3930,48 @@ class UsageSetParams(BaseModel):
     """
     usage_kind: str
     """The Usage kind it caps."""
+
+
+class WaitForCountParams(BaseModel):
+    """
+    What `locator.wait_for_count` takes: the locator and the count its
+    matches must reach.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: Count
+    """The count."""
+    locator: Locator
+    """The locator."""
+
+
+class WaitForFunctionParams(BaseModel):
+    """
+    What `page.wait_for_function` takes: the page, the function's source,
+    its argument, its world, and how often it is checked.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """Its one argument, JSON; absent for none."""
+    function: str
+    """
+    The page function's JavaScript source: a function, called with
+    `arg`, or an expression, which takes none.
+    """
+    page_id: PageId
+    """The page."""
+    polling_interval: Annotated[int | None, Field(ge=0)] = None
+    """
+    The milliseconds between two checks, at least 1; absent, about one
+    frame's, 16.
+    """
+    world: World | None = None
+    """Where it runs; the main world when absent."""
 
 
 class AppliedLimit(BaseModel):

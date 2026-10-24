@@ -19,6 +19,8 @@
 //!   (or, over HTTP/1.1, the connection's close).
 //! - `ipv6.fetch-edge.test` serves the pages on IPv4; the Proving ground's
 //!   IPv6 loopback address on its port drops every connection attempt.
+//! - `/misdirected` answers `421` once on any connection, for a client that
+//!   never coalesces hosts on one connection, as the HTTP tier does not.
 //! - `/text/shift-jis` and `/json/bom` are the bodies `page.request`'s
 //!   decoding cases read (ADR 0119): text in `Shift_JIS`, labelled so, and
 //!   JSON after a UTF-8 BOM.
@@ -104,6 +106,7 @@ pub(super) fn answer(host: &str, request: &Request, earlier: u64) -> Answer {
         "/http1-required" if request.protocol == Protocol::Http2 => {
             Answer::Refuse(Refusal::Reset(ErrorCode::Http11Required))
         }
+        "/misdirected" if first => Answer::Page(Page::text(421, "misdirected request")),
         "/calm" if first => Answer::Refuse(Refusal::Reset(ErrorCode::EnhanceYourCalm)),
         "/reuse/close" if request.earlier_on_connection > 0 => Answer::Refuse(Refusal::Close),
         "/reuse/408" if request.earlier_on_connection > 0 => {

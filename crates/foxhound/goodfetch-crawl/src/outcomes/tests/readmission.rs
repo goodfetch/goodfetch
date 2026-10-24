@@ -61,7 +61,14 @@ fn crawl_of(count: usize) -> Connection {
             key: None,
         })
         .collect();
-    work_items::admit_seeds(&connection, &goodfetch_frontier::Scope::default(), &seeds).unwrap();
+    let every_host = goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap();
+    work_items::admit_seeds(
+        &connection,
+        &goodfetch_frontier::Scope::default(),
+        &every_host,
+        &seeds,
+    )
+    .unwrap();
     connection
 }
 

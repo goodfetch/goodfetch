@@ -2042,6 +2042,7 @@ dependencies = [
  "libc",
  "mimalloc",
  "proptest",
+ "psl",
  "regex",
  "regex-syntax",
  "rstest",

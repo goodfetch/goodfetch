@@ -30,7 +30,11 @@
 //! the page's requests, URL and load states in its events
 //! (`page_events`), `page.wait_for_function` by running its function until
 //! it is truthy (`page_functions`), and the locator waits through the
-//! guard's check, each under the Run's `timeout.wait`.
+//! guard's check, each under the Run's `timeout.wait`. Every document a
+//! navigation reached is judged by its Page check (`recovery`), and a page
+//! that blocking may have broken is loaded once more with blocking off
+//! (`blocking_off`, ADR 0047), the Product's classifier telling its Block
+//! cause (`blocks`).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -69,25 +73,28 @@ use goodfetch_protocol::page::tabs::{
 };
 use goodfetch_protocol::page::{
     Acted, ClickParams, FillParams, FormatsParams, GotoParams, LOCATOR_CLICK, LOCATOR_FILL,
-    LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_DOWNLOAD, PAGE_FORMATS, PAGE_GO_BACK,
-    PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageDownload, PageFormats, PageId, PageParams,
-    PageResponse, PressParams, RUN_NEW_PAGE, WaitUntil,
+    LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_FORMATS, PAGE_GO_BACK, PAGE_GO_FORWARD,
+    PAGE_GOTO, PAGE_RELOAD, PageFormats, PageId, PageParams, PageResponse, PressParams,
+    RUN_NEW_PAGE, WaitUntil,
 };
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
 
+use crate::blocks::{BlockClassifier, NoBlocks};
 use crate::browser_fetch;
 use crate::dialogs::{self, Dialogs};
-use crate::driver::{Arrived, Destination, SerializedDocument};
+use crate::driver::{Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Injections, Pending, Registered};
 use crate::page_value::{HandlerPages, ProgramPages};
-use crate::recovery::{self, Judging};
+use crate::recovery;
 use crate::sessions::{self, OpenPage, PageEvent, Sessions};
 use crate::trace;
 use crate::url_pattern::UrlPattern;
 
+mod arrival;
+mod blocking_off;
 mod clean_up;
 mod waits;
 
@@ -98,16 +105,22 @@ mod waits;
 /// locator actions, and of the routes and their answers, whose browsers
 /// come from `pins`, the builds the Product version pins.
 /// Every page it opens carries an empty value and registers no response
-/// observer, as a Collie program's pages do.
+/// observer, as a Collie program's pages do, and no document has a Block
+/// cause.
 pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
-    contribution_with(pins, Arc::new(ProgramPages))
+    contribution_with(pins, Arc::new(ProgramPages), Arc::new(NoBlocks))
 }
 
 /// What the page crate adds to the engine, as [`contribution`], each page
 /// it opens taking its value and its response observer from `hooks` (ADR
 /// 0087): the hook through which Foxhound sets them on the pages it hands
-/// to handlers.
-pub fn contribution_with(pins: Vec<PinnedArtifact>, hooks: Arc<dyn HandlerPages>) -> Contribution {
+/// to handlers; `blocks` tells a page's Block cause, from the Product's
+/// rules (ADR 0035).
+pub fn contribution_with(
+    pins: Vec<PinnedArtifact>,
+    hooks: Arc<dyn HandlerPages>,
+    blocks: Arc<dyn BlockClassifier>,
+) -> Contribution {
     let interception = Interception::default();
     let events = page_events::Table::default();
     let dialogs = Dialogs::default();
@@ -123,6 +136,7 @@ pub fn contribution_with(pins: Vec<PinnedArtifact>, hooks: Arc<dyn HandlerPages>
         events,
         dialogs,
         hooks,
+        blocks,
         init_scripts: InitScripts::default(),
         injections: Injections::default(),
     };
@@ -649,6 +663,8 @@ struct Pages {
     /// The Product's hook, which also serves the pages its fetch tiers
     /// opened from a document.
     hooks: Arc<dyn HandlerPages>,
+    /// The Product's Block classification.
+    blocks: Arc<dyn BlockClassifier>,
     /// Each page's init scripts on their way in or out, which its
     /// navigations wait for.
     init_scripts: InitScripts,
@@ -703,6 +719,7 @@ impl Pages {
             .reads_files()
             .then(|| self.interception.allow_files(page_id, navigator));
         let events = context.events();
+        let blocked_before = self.interception.lists_blocked(page_id);
         let navigated = page
             .life
             .call(
@@ -716,45 +733,22 @@ impl Pages {
         if let Some(failure) = self.left_failure(page_id) {
             return Err(failure);
         }
-        match navigated? {
-            Arrived::Document(response) => {
-                // Every document a Session's navigation reached is judged
-                // by its Page check (ADRs 0006 and 0092).
-                if let Some(response) = &response {
-                    let judging = Judging {
-                        run: &page.run,
-                        session: &page.session,
-                        page_id,
-                        driver: &page.driver,
-                        declared: page.page_check.as_deref(),
-                        requested: match destination {
-                            Destination::Url(url) => Some(url),
-                            Destination::Reload | Destination::Back | Destination::Forward => None,
-                        },
-                        operation: destination.operation(),
-                    };
-                    recovery::judge(&judging, response).await?;
-                }
-                Ok(Navigated { response })
-            }
-            Arrived::Download {
-                url,
-                suggested_filename,
-            } => {
-                events
-                    .publish(
-                        &PAGE_DOWNLOAD,
-                        Some(&page_id.0),
-                        &PageDownload {
-                            page_id: page_id.clone(),
-                            url,
-                            suggested_filename,
-                        },
-                    )
-                    .await;
-                Ok(Navigated { response: None })
-            }
-        }
+        let Some(response) = arrival::arrived(page_id, navigated?, events).await else {
+            return Ok(Navigated { response: None });
+        };
+        // Every document a Session's navigation reached is judged by its
+        // Page check (ADRs 0006 and 0092).
+        let judged =
+            recovery::judge(&arrival::judging(&page, page_id, destination), &response).await;
+        let first = blocking_off::FirstLoad {
+            destination,
+            wait_until,
+            response,
+            judged,
+            blocked_before,
+        };
+        self.unless_blocking_broke_it(page_id, &page, first, events)
+            .await
     }
 
     /// Performs `action` on the element `locator` matches, through the

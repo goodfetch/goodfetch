@@ -645,7 +645,17 @@ impl PageContext {
             source_url: &source,
             egress: self.egress_kind(held),
         };
-        let command = match steps::send_on(&paused, &self.policy, &self.blocking, fetch) {
+        // Step 4 without the Filter lists while the page loads once more
+        // with blocking off, or for a document on a domain its Run learned
+        // blocking off for (ADR 0047).
+        let without_lists;
+        let blocking = if self.state.lists_off(&source) {
+            without_lists = self.blocking.without_lists();
+            &without_lists
+        } else {
+            &self.blocking
+        };
+        let command = match steps::send_on(&paused, &self.policy, blocking, fetch) {
             Ok(steps::Sent::Continue(command)) => {
                 // Step 6: the page's navigation gate; its lease check is
                 // asked before the command that sends the request on.
@@ -670,7 +680,12 @@ impl PageContext {
                 }
                 return Ok(());
             }
-            Err(Stopped::Blocked) => return Err(self.blocked(held).await),
+            Err(Stopped::Blocked { by_list }) => {
+                if by_list {
+                    self.state.blocked_by_lists();
+                }
+                return Err(self.blocked(held).await);
+            }
             Err(Stopped::Refused(refused)) => {
                 // The refusal waits before the request fails, so its
                 // failure carries it, and the navigation waiting on it

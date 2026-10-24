@@ -6,10 +6,12 @@
 //! and the pure functions both Products' code calls: the engine's one URL
 //! matcher ([`url_pattern`]) and robots.txt's group selection
 //! ([`robots_txt`]), and the interfaces Foxhound fills on the pages it
-//! hands to handlers ([`page_value`]). Its own crate so that Foxhound's crates fill its
+//! hands to handlers ([`page_value`]), and the seam its Product's Block
+//! classification fills ([`blocks`]). Its own crate so that Foxhound's crates fill its
 //! interfaces without reaching its internals (STYLE.md, reason 2); it never
 //! names a Foxhound type.
 
+pub mod blocks;
 mod browser_fetch;
 mod clean_up_versions;
 mod consent;

@@ -107,7 +107,7 @@ fn action() -> Call {
     }
 }
 
-/// Covers: error:navigation_failed, error:page_crashed, error:browser_launch_failed
+/// Covers: error:navigation_failed, error:page_crashed
 #[rstest]
 #[case::unknown_refusal_of_a_navigation(
     navigation(),
@@ -127,6 +127,7 @@ fn action() -> Call {
     "page_crashed"
 )]
 #[case::browser_lost_under_a_navigation(navigation(), Browser::Exits, "page_crashed")]
+/// Covers: error:browser_launch_failed
 #[case::unknown_refusal_of_a_new_page(
     open_page(),
     Browser::Refuses("Something new"),

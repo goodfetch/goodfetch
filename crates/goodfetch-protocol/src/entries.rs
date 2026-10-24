@@ -7,11 +7,11 @@ use crate::{
     audit, block, browser_cache, checkpoint, connection, console, daemon, dns, download, egress,
     engine, events, executables, foxhound, governor, hostile_input, key_value_store, log,
     needs_you, ops, page, people, politeness, response_limits, run, sample, secrets, security,
-    settings, storage, tls, usage, versions,
+    settings, site_preferences, storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 44] = [
+pub const MODULES: [&Entries; 45] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,
@@ -45,6 +45,7 @@ pub const MODULES: [&Entries; 44] = [
     &usage::ENTRIES,
     &versions::ENTRIES,
     &politeness::ENTRIES,
+    &site_preferences::ENTRIES,
     &block::ENTRIES,
     &foxhound::ENTRIES,
     &foxhound::crawl::ENTRIES,

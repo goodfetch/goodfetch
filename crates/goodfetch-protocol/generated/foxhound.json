@@ -16671,6 +16671,79 @@
     {
       "arrived_in": "0.1",
       "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "The longest robots.txt Crawl-delay a crawl waits out between request starts on a domain key while `site_preferences.respect_robots_txt` is on: 30 s. A host asking for more has its crawl requests skipped with `crawl_delay`, and its delay is not raised.",
+      "name": "site_preferences.max_crawl_delay",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "search",
+      "description": "What the run's results are for, against which the AI-use signals are judged while `site_preferences.respect_use_signals` is on: `search` (the default, which no signal is judged against), `ai-input` (input to an AI model), `ai-train` (training an AI model) or `collect` (plain collection, text and data mining).",
+      "name": "site_preferences.purpose",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "search",
+          "ai-input",
+          "ai-train",
+          "collect"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is read but not obeyed, and it is listed in the run's result as a value that presses a site harder.",
+      "name": "site_preferences.respect_robots_txt",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Whether the AI-use signals a site sends (IETF aipref's `Content-Usage` header, TDMRep's `tdm-reservation` header) are applied to the run's `site_preferences.purpose`: on, a crawl request whose response's signal refuses the Purpose ends `skipped` with `use_signals` and its handler never runs. Off by default; the signals are read either way.",
+      "name": "site_preferences.respect_use_signals",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
       "clearable": true,
       "default": null,
       "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder.",

@@ -48,6 +48,29 @@ fn plain(proving_ground: &ProvingGround, host: &str, path: &str) -> Hop {
     Hop::get(Url::parse(&proving_ground.url(host, path)).unwrap())
 }
 
+/// How a hop reaches the Proving ground.
+#[derive(Clone, Copy, Debug)]
+enum Over {
+    /// Plain HTTP/1.1.
+    Plain,
+    /// TLS, where ALPN offers HTTP/2 first.
+    Tls,
+}
+
+/// A `GET` of `path` on `host` over `over`.
+fn get(proving_ground: &ProvingGround, over: Over, host: &str, path: &str) -> Hop {
+    match over {
+        Over::Plain => plain(proving_ground, host, path),
+        Over::Tls => Hop::get(
+            Url::parse(&format!(
+                "https://{host}:{}{path}",
+                proving_ground.address().port()
+            ))
+            .unwrap(),
+        ),
+    }
+}
+
 /// The requests the Proving ground received for `path` on `host`.
 fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<Value> {
     proving_ground.observations().unwrap()["requests"]
@@ -77,7 +100,7 @@ fn a_cut_body_fails_with_response_truncated(#[case] path: &str, #[case] transfer
     let transport = reqwest(&proving_ground, None);
     let hop = plain(&proving_ground, HOST, path);
 
-    let error = fetched_in_turn(&transport, &[hop.clone()])
+    let error = fetched_in_turn(&transport, std::slice::from_ref(&hop))
         .remove(0)
         .unwrap_err();
 
@@ -109,4 +132,123 @@ fn a_body_its_connection_s_close_delimits_is_whole_at_the_close() {
             && text.ends_with("</html>"),
         "{text}"
     );
+}
+
+/// Covers: story:5-126
+#[test]
+fn an_http2_stream_reset_after_its_headers_fails_with_response_truncated() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let hop = get(&proving_ground, Over::Tls, HOST, "/cut/reset");
+
+    let error = fetched_in_turn(&transport, &[hop]).remove(0).unwrap_err();
+
+    assert_eq!(error.code(), "response_truncated", "{error:?}");
+    let requests = requests_for(&proving_ground, HOST, "/cut/reset");
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert_eq!(requests[0]["protocol"], "h2");
+    assert_eq!(requests[0]["delivery"]["end"]["kind"], "stream_reset");
+}
+
+/// Covers: story:5-127
+#[rstest]
+#[case::refused_stream(Over::Tls, HOST, &[], "/refused")]
+#[case::http_1_1_required(Over::Tls, HOST, &[], "/http1-required")]
+#[case::a_goaway_below_its_stream(Over::Tls, "goaway.fetch-edge.test", &["/target"], "/target")]
+#[case::misdirected(Over::Plain, HOST, &[], "/misdirected")]
+#[case::a_reused_connection_closing(Over::Plain, HOST, &["/target"], "/reuse/close")]
+#[case::a_reused_connection_answering_408(Over::Plain, HOST, &["/target"], "/reuse/408")]
+fn a_request_the_site_never_processed_is_sent_once_more_on_a_new_connection(
+    #[case] over: Over,
+    #[case] host: &str,
+    #[case] earlier: &[&str],
+    #[case] path: &str,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let mut hops: Vec<Hop> = earlier
+        .iter()
+        .map(|earlier| get(&proving_ground, over, host, earlier))
+        .collect();
+    hops.push(get(&proving_ground, over, host, path));
+
+    let answer = fetched_in_turn(&transport, &hops).pop().unwrap().unwrap();
+
+    assert_eq!(answer.status, 200);
+    let requests = requests_for(&proving_ground, host, path);
+    let last_two = &requests[requests.len().saturating_sub(2)..];
+    assert_eq!(
+        last_two.len(),
+        2,
+        "the request is sent once more: {requests:?}"
+    );
+    assert_ne!(
+        last_two[0]["connection"], last_two[1]["connection"],
+        "on a new connection: {requests:?}"
+    );
+}
+
+/// Covers: story:5-127
+#[test]
+fn http_1_1_required_keeps_its_origin_on_http_1_1() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let hops = [
+        get(&proving_ground, Over::Tls, HOST, "/http1-required"),
+        get(&proving_ground, Over::Tls, HOST, "/target"),
+    ];
+
+    let answers = fetched_in_turn(&transport, &hops);
+
+    assert!(answers.iter().all(Result::is_ok), "{answers:?}");
+    let protocols: Vec<Value> = requests_for(&proving_ground, HOST, "/http1-required")
+        .into_iter()
+        .chain(requests_for(&proving_ground, HOST, "/target"))
+        .map(|request| request["protocol"].clone())
+        .collect();
+    assert_eq!(protocols, ["h2", "http/1.1", "http/1.1"]);
+}
+
+/// Covers: story:5-127
+#[test]
+fn a_request_refused_again_is_never_sent_a_third_time() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let hop = get(&proving_ground, Over::Tls, HOST, "/refused/always");
+
+    let error = fetched_in_turn(&transport, &[hop]).remove(0).unwrap_err();
+
+    assert_eq!(error.code(), "navigation_failed");
+    assert_eq!(
+        error.details().unwrap()["error"],
+        "net::ERR_HTTP2_SERVER_REFUSED_STREAM"
+    );
+    assert_eq!(
+        requests_for(&proving_ground, HOST, "/refused/always").len(),
+        2
+    );
+}
+
+/// Covers: story:5-127
+#[test]
+fn a_post_on_a_reused_connection_that_closes_is_not_sent_again() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let mut post = plain(&proving_ground, HOST, "/reuse/close");
+    post.method = http::Method::POST;
+    post.body = Some(bytes::Bytes::from_static(b"q=1"));
+    let hops = [plain(&proving_ground, HOST, "/target"), post];
+
+    let error = fetched_in_turn(&transport, &hops)
+        .pop()
+        .unwrap()
+        .unwrap_err();
+
+    assert_eq!(error.code(), "navigation_failed", "{error:?}");
+    assert_eq!(requests_for(&proving_ground, HOST, "/reuse/close").len(), 1);
 }

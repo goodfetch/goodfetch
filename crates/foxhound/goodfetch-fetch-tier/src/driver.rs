@@ -6,7 +6,20 @@
 //! content codings as Chrome does (ADR 0119) and owns the transport-failure
 //! enum, [`TransportFailure`], with the Error code each variant ends an
 //! attempt with (ADR 0118). Cancelling a fetch is dropping it. Redirects,
-//! resends, retries and cookies join it with their tickets (#762, #763).
+//! retries and cookies join it with their tickets (#762).
+//!
+//! **Cut bodies (ADR 0118; pitfall H15):** once a hop's head arrived, any
+//! failure of its body, or a compressed stream that stops before its end,
+//! is `response_truncated`: retryable, and the body is never handed on. A
+//! body its connection's close delimits is whole at the close.
+//!
+//! **Resends (ADR 0118; pitfall H05):** a hop the site never processed
+//! (an HTTP/2 stream refused, `REFUSED_STREAM` or a `GOAWAY` below it, an
+//! HTTP/2 `HTTP_1_1_REQUIRED`, a 421, and for a read only a reused idle
+//! connection that closes before answering or answers 408) is sent once
+//! more on a new connection, inside the same fetch: no attempt, retry or
+//! Politeness start counts it. The resend's own failure or answer is the
+//! fetch's, never sent again.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -67,6 +80,9 @@ pub struct Sent {
     pub headers: Vec<(String, String)>,
     /// Its body, exactly as it arrives: no content coding decoded.
     pub body: Box<dyn Body>,
+    /// Whether it came on an idle connection an earlier hop left, whose
+    /// 408 means the site timed the connection out, not the request.
+    pub reused: bool,
 }
 
 impl std::fmt::Debug for Sent {
@@ -75,16 +91,29 @@ impl std::fmt::Debug for Sent {
             .debug_struct("Sent")
             .field("status", &self.status)
             .field("headers", &self.headers)
+            .field("reused", &self.reused)
             .finish_non_exhaustive()
     }
 }
 
+/// The connection a hop goes out on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Connection {
+    /// Any of the transport's: an idle one an earlier hop left, or a new
+    /// one.
+    Pooled,
+    /// A new one, never one an earlier hop used: a resend's (ADR 0118).
+    New,
+}
+
 /// The primitive a tier that sends HTTP itself fills (ADR 0129): it sends
-/// `hop` once and answers its head. It follows no redirect, decodes no
-/// content coding and sets no timeout of its own: the driver does each.
+/// `hop` once, on `connection`, and answers its head. It follows no
+/// redirect, resends nothing, decodes no content coding and sets no
+/// timeout of its own: the driver does each. An origin that answered
+/// [`TransportFailure::Http11Required`] is sent HTTP/1.1 from then on.
 pub trait Transport: Send + Sync {
-    /// Sends `hop` and answers its head.
-    fn send<'a>(&'a self, hop: &'a Hop) -> Sending<'a, Sent>;
+    /// Sends `hop` on `connection` and answers its head.
+    fn send<'a>(&'a self, hop: &'a Hop, connection: Connection) -> Sending<'a, Sent>;
 }
 
 /// Why a hop got no whole answer: each transport's library, TLS and HTTP
@@ -108,6 +137,17 @@ pub enum TransportFailure {
     /// The connection closed before the answer was whole
     /// (`net::ERR_CONNECTION_CLOSED`).
     ConnectionClosed,
+    /// An idle connection an earlier hop left closed or was reset before
+    /// any byte of the answer: the site never processed the request
+    /// (`net::ERR_EMPTY_RESPONSE`), which only a read is sent again for.
+    ClosedAtReuse,
+    /// The site refused the HTTP/2 stream unprocessed: `REFUSED_STREAM`, or
+    /// a `GOAWAY` whose last stream is below it
+    /// (`net::ERR_HTTP2_SERVER_REFUSED_STREAM`).
+    RefusedStream,
+    /// The site asked over HTTP/2 for HTTP/1.1 (`HTTP_1_1_REQUIRED`), having
+    /// processed nothing (`net::ERR_HTTP_1_1_REQUIRED`).
+    Http11Required,
     /// The host's certificate failed verification
     /// (`net::ERR_CERT_AUTHORITY_INVALID`).
     CertificateInvalid,
@@ -144,6 +184,9 @@ impl TransportFailure {
             Self::ConnectionTimedOut => "net::ERR_CONNECTION_TIMED_OUT",
             Self::ConnectionReset => "net::ERR_CONNECTION_RESET",
             Self::ConnectionClosed => "net::ERR_CONNECTION_CLOSED",
+            Self::ClosedAtReuse => "net::ERR_EMPTY_RESPONSE",
+            Self::RefusedStream => "net::ERR_HTTP2_SERVER_REFUSED_STREAM",
+            Self::Http11Required => "net::ERR_HTTP_1_1_REQUIRED",
             Self::CertificateInvalid => "net::ERR_CERT_AUTHORITY_INVALID",
             Self::Tls => "net::ERR_SSL_PROTOCOL_ERROR",
             Self::InvalidResponse => "net::ERR_INVALID_HTTP_RESPONSE",
@@ -171,6 +214,48 @@ impl TransportFailure {
                 error: Some(error.to_owned()),
             },
         )
+    }
+
+    /// Whether the site never processed a hop of `method` that failed so,
+    /// which is then sent once more on a new connection (ADR 0118): a
+    /// refused HTTP/2 stream and `HTTP_1_1_REQUIRED` whatever the method,
+    /// and a reused connection's close only for a read (RFC 9110, section
+    /// 9.2.2).
+    fn unprocessed(&self, method: &http::Method) -> bool {
+        match self {
+            Self::RefusedStream | Self::Http11Required => true,
+            Self::ClosedAtReuse => is_read(method),
+            _ => false,
+        }
+    }
+}
+
+/// Whether `method` only reads, so a site that may have seen it can be
+/// sent it again (RFC 9110, section 9.2.1).
+fn is_read(method: &http::Method) -> bool {
+    [
+        http::Method::GET,
+        http::Method::HEAD,
+        http::Method::OPTIONS,
+        http::Method::TRACE,
+    ]
+    .contains(method)
+}
+
+/// The head of `hop`'s answer through `transport`, sent once more on a new
+/// connection when the site never processed it (ADR 0118): a failure
+/// [`TransportFailure::unprocessed`] names, a 421, or a 408 a reused
+/// connection gave a read. The resend's answer or failure is the hop's.
+async fn answer(transport: &dyn Transport, hop: &Hop) -> Result<Sent, TransportFailure> {
+    match transport.send(hop, Connection::Pooled).await {
+        Err(failure) if !failure.unprocessed(&hop.method) => Err(failure),
+        Ok(sent)
+            if sent.status != 421
+                && !(sent.status == 408 && sent.reused && is_read(&hop.method)) =>
+        {
+            Ok(sent)
+        }
+        Err(_) | Ok(_) => transport.send(hop, Connection::New).await,
     }
 }
 
@@ -251,7 +336,7 @@ pub async fn fetch(
     let whole = async {
         let mut sent = deadlines
             .first_byte
-            .within(clock, "first_byte", transport.send(hop))
+            .within(clock, "first_byte", answer(transport, hop))
             .await?
             .map_err(|failure| failure.error(url))?;
         let expected = content_length(&sent.headers);

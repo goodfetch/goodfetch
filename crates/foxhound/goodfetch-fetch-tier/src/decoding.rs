@@ -55,15 +55,15 @@ impl Coding {
             Self::Gzip if !body.starts_with(&GZIP_MAGIC) => Err(DecodingFailed::Corrupt),
             Self::Gzip => flate2::read::GzDecoder::new(body)
                 .read_to_end(&mut out)
-                .map_err(failure),
+                .map_err(|error| failure(&error)),
             Self::Deflate if has_zlib_header(body) => flate2::read::ZlibDecoder::new(body)
                 .read_to_end(&mut out)
-                .map_err(failure),
+                .map_err(|error| failure(&error)),
             Self::Deflate => flate2::read::DeflateDecoder::new(body)
                 .read_to_end(&mut out)
-                .map_err(failure),
+                .map_err(|error| failure(&error)),
             Self::Brotli => return brotli(body),
-            Self::Zstd => return zstd::stream::decode_all(body).map_err(failure),
+            Self::Zstd => return zstd::stream::decode_all(body).map_err(|error| failure(&error)),
         };
         read.map(|_| out)
     }
@@ -73,7 +73,7 @@ impl Coding {
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
 /// What a decoder's `error` means: a stream that ended early is cut.
-fn failure(error: std::io::Error) -> DecodingFailed {
+fn failure(error: &std::io::Error) -> DecodingFailed {
     match error.kind() {
         std::io::ErrorKind::UnexpectedEof => DecodingFailed::Cut,
         _ => DecodingFailed::Corrupt,

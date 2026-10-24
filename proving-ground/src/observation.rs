@@ -74,7 +74,14 @@ struct State {
     reports: Vec<ReportRecord>,
     findings: Vec<FindingRecord>,
     unrecorded_findings: u64,
+    /// The host name of each handshake that presented a client certificate,
+    /// in order.
+    client_certificates: Vec<String>,
 }
+
+/// The most handshakes that presented a client certificate kept (STYLE.md:
+/// every buffer is bounded).
+const CLIENT_CERTIFICATE_LIMIT: usize = 10_000;
 
 /// Bytes received from and sent to a client.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize)]
@@ -424,6 +431,7 @@ struct Document<'a> {
     unrecorded_findings: u64,
     tasks: BTreeMap<&'a str, ByteCount>,
     hosts: &'a BTreeMap<Arc<str>, ByteCount>,
+    client_certificates: &'a [String],
     #[serde(flatten)]
     record: &'a connection_record::Document<'a>,
 }
@@ -489,6 +497,15 @@ impl Observations {
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock()
+    }
+
+    /// Records that a handshake for the host name `host` presented a client
+    /// certificate the host accepted.
+    pub(crate) fn client_certificate(&self, host: &str) {
+        let mut state = self.state();
+        if state.client_certificates.len() < CLIENT_CERTIFICATE_LIMIT {
+            state.client_certificates.push(host.to_owned());
+        }
     }
 
     /// Starts observing a new connection the site's listener accepted from
@@ -608,6 +625,7 @@ impl Observations {
                 reports: &state.reports,
                 findings: &state.findings,
                 unrecorded_findings: state.unrecorded_findings,
+                client_certificates: &state.client_certificates,
                 tasks,
                 hosts: &state.hosts,
                 record,

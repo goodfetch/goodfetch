@@ -6496,6 +6496,17 @@
       ]
     },
     {
+      "id": "setting:tls.client_certificates",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:tls.trusted_cas",
       "kind": "setting",
       "area": 4,

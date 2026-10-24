@@ -20,7 +20,7 @@ use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::http_client::{
     Failure, FetchError, PageTraffic, Resolve, UpstreamProxy, Waiter,
 };
-use goodfetch_engine::tls::{CertificateExceptions, Trust};
+use goodfetch_engine::tls::{CertificateExceptions, ClientCertificates, Trust};
 use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
 use goodfetch_test_support::{
     Answer, Family, Outcome, ProvingGround, Refusal, SsrfCase, SsrfTable, TestEnv, run_cases,
@@ -79,6 +79,7 @@ fn traffic(
             )
             .unwrap(),
         exceptions: CertificateExceptions::default(),
+        client_certificates: ClientCertificates::default(),
         cookies: Vec::new(),
         clock: Clock::system(),
         delays: Delays::BUILT_IN,

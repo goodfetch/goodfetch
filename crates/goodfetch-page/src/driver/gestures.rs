@@ -50,9 +50,9 @@ impl GestureWatch {
 impl PageDriver {
     /// Starts watching the main frame for a navigation the gesture about to
     /// be sent requests.
-    pub(crate) async fn watch_gesture(&self) -> GestureWatch {
+    pub(crate) fn watch_gesture(&self) -> GestureWatch {
         GestureWatch {
-            events: self.browser.connection.subscribe(Some(&self.session)).await,
+            events: self.browser.connection.subscribe(Some(&self.session)),
             navigation: Navigation::of(self.frame.clone()),
             ended: false,
         }
@@ -95,9 +95,9 @@ impl PageDriver {
             }
         };
         if self
-            .within(self.navigation_timeout, Box::pin(settled))
+            .within_navigation_deadline("navigation", Box::pin(settled))
             .await
-            .is_none()
+            .is_err()
         {
             tracing::debug!(
                 url.origin = goodfetch_engine::log::origin(&url),

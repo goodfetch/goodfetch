@@ -37,6 +37,51 @@ pub enum BuildPlatform {
     WindowsX64,
 }
 
+impl BuildPlatform {
+    /// The platforms Chrome for Testing builds for, in its own order.
+    pub const CHROME_FOR_TESTING: [Self; 4] = [
+        Self::LinuxX64,
+        Self::MacArm64,
+        Self::MacX64,
+        Self::WindowsX64,
+    ];
+
+    /// Chrome for Testing's name for it, as its downloads' paths spell it;
+    /// none for a platform it builds nothing for.
+    pub fn chrome_for_testing_name(self) -> Option<&'static str> {
+        Some(match self {
+            Self::LinuxX64 => "linux64",
+            Self::MacArm64 => "mac-arm64",
+            Self::MacX64 => "mac-x64",
+            Self::WindowsX64 => "win64",
+            Self::LinuxArm64 => return None,
+        })
+    }
+
+    /// The platform Chrome for Testing names `name`.
+    pub fn of_chrome_for_testing_name(name: &str) -> Option<Self> {
+        Self::CHROME_FOR_TESTING
+            .into_iter()
+            .find(|platform| platform.chrome_for_testing_name() == Some(name))
+    }
+
+    /// Where the executable of Chrome for Testing's build for it is, in
+    /// the folder its archive unpacks to, as a `/`-separated path.
+    pub fn chrome_for_testing_executable(self) -> Option<&'static str> {
+        Some(match self {
+            Self::LinuxX64 => "chrome-linux64/chrome",
+            Self::MacArm64 => {
+                "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+            }
+            Self::MacX64 => {
+                "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+            }
+            Self::WindowsX64 => "chrome-win64/chrome.exe",
+            Self::LinuxArm64 => return None,
+        })
+    }
+}
+
 /// One download a Product version pins: by URL, the digest of its archive,
 /// and the digest of the files the archive holds.
 #[derive(Clone, Debug, PartialEq, Eq)]

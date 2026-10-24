@@ -3,9 +3,9 @@
 //! and `localStorage` no other Session of the Run shares, as the Proving
 //! ground's record of what each request sent shows; `session.close`, after
 //! which a call on the Session raises `closed` and a second close changes
-//! nothing; `session.source`, refused in a Session's own settings and the
-//! default of the Sessions beneath a Run that sets it; and new work on a
-//! finished Run, which raises `run_ended`.
+//! nothing, also once its Run ended; `session.source`, refused in a
+//! Session's own settings and the default of the Sessions beneath a Run
+//! that sets it; and new work on a finished Run, which raises `run_ended`.
 
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
@@ -25,6 +25,7 @@ pub(crate) enum Case {
     Closed,
     Source,
     Ended,
+    ClosedWithItsRun,
     /// One of a Session's proxy cases.
     Proxy(super::proxies::Case),
     /// One of a Session's proxy limit cases.
@@ -45,6 +46,7 @@ impl Case {
                 Self::Source
             }
             "new-work-on-a-finished-run-raises-run-ended" => Self::Ended,
+            "closing-a-session-whose-run-ended-changes-nothing" => Self::ClosedWithItsRun,
             _ => {
                 return super::proxies::Case::from_id(id)
                     .map(Self::Proxy)
@@ -68,6 +70,7 @@ impl Case {
             Self::Closed => closed(connection, site, checks),
             Self::Source => source(connection, site, checks),
             Self::Ended => ended(connection, checks),
+            Self::ClosedWithItsRun => closed_with_its_run(connection, site, checks),
             Self::Proxy(case) => case.run(connection, site, checks),
             Self::ProxyLimit(case) => case.run(connection, site, checks),
             Self::PageCheck(case) => case.run(connection, target, site, checks),
@@ -349,6 +352,45 @@ fn ended(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
             RUN_NEW_SESSION.name, RUN_NEW_PAGE.name, RUN_ENDED.name
         ),
         code_of(&session) == &json!(RUN_ENDED.name) && code_of(&page) == &json!(RUN_ENDED.name),
+    );
+    Ok(())
+}
+
+/// A Session whose Run finished ended with it: closing it then, twice,
+/// changes nothing, as `close()` is idempotent (ADR 0078).
+fn closed_with_its_run(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-sessions-closed-with-its-run";
+    start_run(connection, site, run_id, &json!({}), checks)?;
+    let opened = call(
+        connection,
+        RUN_NEW_SESSION.name,
+        &json!({ "run_id": run_id }),
+    )?;
+    let Some(session) = session_of(&opened) else {
+        checks.check(format!("`{}` opens a Session", RUN_NEW_SESSION.name), false);
+        return finish_run(connection, run_id);
+    };
+    finish_run(connection, run_id)?;
+    let closed = call(
+        connection,
+        SESSION_CLOSE.name,
+        &json!({ "session_id": session }),
+    )?;
+    let again = call(
+        connection,
+        SESSION_CLOSE.name,
+        &json!({ "session_id": session }),
+    )?;
+    checks.check(
+        format!(
+            "`{}` of a Session whose Run finished answers, and again",
+            SESSION_CLOSE.name
+        ),
+        closed.get("result").is_some() && again.get("result").is_some(),
     );
     Ok(())
 }

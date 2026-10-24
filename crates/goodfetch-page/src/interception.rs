@@ -481,7 +481,7 @@ impl Interception {
             tables.pages.insert(page_id.clone(), Arc::clone(&state));
             (state, lookups)
         };
-        let events = driver.events().await;
+        let events = driver.events();
         let observing = observer.map(Observing::of);
         let patterns = patterns(observing.is_some());
         driver
@@ -593,7 +593,7 @@ impl Interception {
                 let Some(frame) = frame else {
                     return true;
                 };
-                let events = frame.events().await;
+                let events = frame.events();
                 let enabled = frame
                     .command(&fetch::EnableParams {
                         patterns: Some(patterns(observing.is_some())),
@@ -683,7 +683,7 @@ impl Interception {
                 };
                 let log = Arc::new(RequestLog::new(run.owner().child(), run.folder()));
                 let driver = driver.with_proxy(proxy).with_value(value, run.clock());
-                let events = driver.events().await;
+                let events = driver.events();
                 let enabled = driver
                     .opening_command(&fetch::EnableParams {
                         patterns: Some(patterns(observing.is_some())),

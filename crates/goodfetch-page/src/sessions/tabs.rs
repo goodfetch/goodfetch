@@ -30,7 +30,7 @@ use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 
 use super::life::{Ending, PageLife, session_closed};
 use super::lifecycle::PageEffect;
-use super::{OpenPage, Session, Sessions, timeouts, wait_deadline};
+use super::{OpenPage, Session, Sessions, action_timeout, wait_deadline};
 use crate::driver::{OnPopup, PageDriver};
 use crate::hiding::{PageHiding, Sheets};
 use crate::page_events::{PageEvents, Refusals};
@@ -109,7 +109,7 @@ impl Sessions {
         } = adopting;
         let run = open.run.clone();
         let session = &super::session_id(run.id(), open.position);
-        let (_, action_timeout) = timeouts(&run);
+        let action_timeout = action_timeout(&run);
         let page = {
             let mut state = self.state.lock().await;
             state.opened_pages += 1;
@@ -124,12 +124,12 @@ impl Sessions {
             &run,
             stream.clone(),
             refusals.clone(),
-            driver.events().await,
+            driver.events(),
             wait_deadline(&run),
         );
         self.events.insert(page.clone(), events);
         self.dialogs
-            .start(page.clone(), driver.clone(), &run, driver.events().await);
+            .start(page.clone(), driver.clone(), &run, driver.events());
         let pages = std::slice::from_ref(&page);
         let started = self.hold(
             (&page, session),
@@ -254,14 +254,10 @@ impl Sessions {
             return;
         };
         let run = open.run.clone();
-        let (navigation_timeout, _) = timeouts(&run);
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
-        let in_browser = open
-            .seat
-            .popup_in(opener.in_browser.browser(), &driver)
-            .await;
+        let in_browser = open.seat.popup_in(opener.in_browser.browser(), &driver);
         let driver = driver
-            .for_session(open.proxy.clone(), navigation_timeout)
+            .for_session(open.proxy.clone())
             .with_value(opener.driver.value().clone(), run.clock());
         let adopted = self
             .adopt(Adopting {

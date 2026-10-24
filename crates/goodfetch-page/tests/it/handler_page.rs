@@ -5,10 +5,6 @@
 //! through the protocol over the in-memory network, against its own
 //! Proving ground, Goodfetch home and Browser cache (ADR 0059), and reads
 //! what the Recording gate recorded.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the tests build their own runtime with real time, since a real browser answers in real time (ADR 0060)"
-)]
 
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
@@ -138,6 +134,10 @@ impl Program {
     }
 
     /// The answer to the request `id`, the whole message.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a real browser answers in real time, so the wait's deadline is real time (ADR 0060)"
+    )]
     pub(crate) async fn answer(&mut self, id: i64) -> Value {
         let until = Instant::now() + CALL_DEADLINE;
         loop {
@@ -199,6 +199,10 @@ impl Program {
 
     /// Reads until the engine sent a request `method`, such as
     /// `route.handle`, and answers the first one: the whole message.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a real browser answers in real time, so the wait's deadline is real time (ADR 0060)"
+    )]
     pub(crate) async fn until_request(&mut self, method: &str) -> Value {
         let until = Instant::now() + SETTLE_DEADLINE;
         loop {
@@ -225,6 +229,10 @@ impl Program {
     }
 
     /// Reads until an event `name` whose data `holds` arrived.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a real browser answers in real time, so the wait's deadline is real time (ADR 0060)"
+    )]
     pub(crate) async fn until_event(&mut self, name: &str, holds: impl Fn(&Value) -> bool) {
         let until = Instant::now() + SETTLE_DEADLINE;
         while !self.events(name).iter().any(&holds) {
@@ -265,6 +273,10 @@ impl Program {
 
     /// The method of each CDP command the Run trace's command log holds so
     /// far, in order.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a small Run trace file read between calls, which only the engine's own actor appends to"
+    )]
     pub(crate) fn cdp_commands(&self) -> Vec<String> {
         let file = self
             .home
@@ -282,6 +294,10 @@ impl Program {
     }
 
     /// The lines of the Run trace's request log so far.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a small Run trace file read between calls, which only the engine's own actor appends to"
+    )]
     pub(crate) fn request_log(&self) -> Vec<Value> {
         let file = self
             .home
@@ -304,6 +320,10 @@ pub(crate) async fn settled(holds: impl FnMut() -> bool) {
 }
 
 /// Waits until `holds` is true, failing with what `seen` says it saw.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a real browser acts in real time, so the wait's deadline is real time (ADR 0060)"
+)]
 pub(crate) async fn settled_or(mut holds: impl FnMut() -> bool, seen: impl Fn() -> String) {
     let until = Instant::now() + SETTLE_DEADLINE;
     while !holds() {
@@ -320,6 +340,10 @@ pub(crate) async fn settled_or(mut holds: impl FnMut() -> bool, seen: impl Fn() 
 /// `gate`, once its Run started with `settings` beside `network.resolve`,
 /// which maps the Proving ground's hosts to it, and its first page opened;
 /// the engine stops its Run, closing its browser, once `test` ends.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the tests build their own runtime with real time, since a real browser answers in real time (ADR 0060)"
+)]
 pub(crate) fn with_handler_page(
     gate: &RecordingGate,
     settings: Map<String, Value>,
@@ -433,6 +457,10 @@ impl<F: Future> Future for Unwinding<F> {
 
 /// What the engine runs on: the test's home, its Browser cache, the OS's
 /// clock and threads.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the engine's entropy is seeded from the test's own seed (ADR 0059)"
+)]
 fn dependencies(home: &Path, cache: &Path) -> Dependencies {
     Dependencies {
         environment: std::collections::BTreeMap::new(),

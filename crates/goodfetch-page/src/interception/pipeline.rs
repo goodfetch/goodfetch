@@ -305,7 +305,6 @@ impl Held {
         self.overrides = std::mem::take(&mut self.overrides).then(overrides);
     }
 
-    /// The request as a route sees it.
     /// The request as a route sees it: without the Session's cookies.
     fn view(&self) -> RouteRequest {
         let headers = self.overrides.headers.clone().unwrap_or_else(|| {

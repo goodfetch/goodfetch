@@ -88,18 +88,64 @@ const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
 /// which the request's failure then carries: the refusal's Error code, and
 /// whether the Run trace records it, as it does when no call waits on the
 /// request.
+/// It also hands each main-frame navigation the navigation gate refused,
+/// with no navigation call waiting on it, to the waiters armed for it.
 #[derive(Clone, Default)]
-pub(crate) struct Refusals(Arc<Mutex<BTreeMap<String, (ErrorData, bool)>>>);
+pub(crate) struct Refusals(Arc<RefusalsShared>);
+
+#[derive(Default)]
+struct RefusalsShared {
+    requests: Mutex<BTreeMap<String, (ErrorData, bool)>>,
+    /// The latest main-frame navigation refused that no call waited on.
+    navigations: watch::Sender<Option<Arc<RefusedNavigation>>>,
+}
+
+/// A main-frame navigation refused with no navigation call waiting on it:
+/// its URL, and the error it raises from the waiters armed for it.
+pub(crate) struct RefusedNavigation {
+    url: String,
+    error: CallError,
+}
 
 impl Refusals {
     /// Leaves `refusal` for the request `request_id`, before the browser
     /// fails it; `recorded` when no call waits on it.
     pub(crate) fn leave(&self, request_id: &str, refusal: ErrorData, recorded: bool) {
-        lock(&self.0).insert(request_id.to_owned(), (refusal, recorded));
+        lock(&self.0.requests).insert(request_id.to_owned(), (refusal, recorded));
     }
 
     fn take(&self, request_id: &str) -> Option<(ErrorData, bool)> {
-        lock(&self.0).remove(request_id)
+        lock(&self.0.requests).remove(request_id)
+    }
+
+    /// The main-frame navigation to `url` was refused with `error`, and no
+    /// navigation call waits on it: each waiter armed for it raises it.
+    pub(crate) fn refuse_navigation(&self, url: &str, error: CallError) {
+        self.0
+            .navigations
+            .send_replace(Some(Arc::new(RefusedNavigation {
+                url: url.to_owned(),
+                error,
+            })));
+    }
+
+    /// The error of the first main-frame navigation refused from now on
+    /// whose URL `matches`; never, while none is.
+    fn refused<F: Fn(&str) -> bool>(&self, matches: F) -> impl Future<Output = CallError> + use<F> {
+        let mut navigations = self.0.navigations.subscribe();
+        async move {
+            loop {
+                if navigations.changed().await.is_err() {
+                    return std::future::pending().await;
+                }
+                let refused = navigations.borrow_and_update().clone();
+                if let Some(refused) = refused
+                    && matches(&refused.url)
+                {
+                    return refused.error.clone();
+                }
+            }
+        }
     }
 }
 

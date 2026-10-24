@@ -959,6 +959,10 @@ impl PageContext {
         }
         if waiting {
             self.state.leave(site_preferences_refused(url, refusal));
+        } else if held.navigation {
+            // No call waits on it: the waiters armed for it raise it.
+            self.refusals
+                .refuse_navigation(url, site_preferences_refused(url, refusal));
         }
         self.fail(&held.paused.request_id, network::ErrorReason::Aborted)
             .await;
@@ -1082,6 +1086,7 @@ impl PageContext {
             self.state.leave(error);
         } else {
             tracing::info!(%error, "the navigation gate refused a document no call waited on: the page is left blank");
+            self.refusals.refuse_navigation(&paused.request.url, error);
         }
         self.fulfill(
             &paused.request_id,

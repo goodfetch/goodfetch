@@ -301,6 +301,63 @@ fn a_refused_navigation_no_call_waits_on_is_aborted_and_the_page_keeps_its_docum
     });
 }
 
+/// A refusal no navigation call waits on raises from the waiters armed for
+/// it: a `page.wait_for_url` and a `page.wait_for_response` armed for the
+/// URL a click navigates to raise `site_preferences_refused` at once,
+/// never `deadline_exceeded` at `timeout.wait`.
+/// Covers: error:site_preferences_refused, operation:page.wait_for_url, operation:page.wait_for_response
+#[test]
+fn a_refused_navigation_raises_from_the_waiters_armed_for_it() {
+    let gate = RecordingGate::new();
+    gate.refuse("/b", SitePreference::RobotsTxt);
+    with_handler_page(&gate, Map::new(), async |program| {
+        program.goto(HISTORY, "/").await;
+        let page = program.page.clone();
+        let matcher = json!({ "kind": "glob", "pattern": "**/b" });
+        let url = program
+            .request(
+                "page.wait_for_url",
+                &json!({ "page_id": page, "url": matcher }),
+            )
+            .await;
+        let response = program
+            .request(
+                "page.wait_for_response",
+                &json!({ "page_id": page, "url": matcher }),
+            )
+            .await;
+        let clicked = program
+            .call(
+                "locator.click",
+                &json!({ "locator": { "page_id": page, "selector": "#next" } }),
+            )
+            .await;
+        let waited_url = program.answer(url).await;
+        let waited_response = program.answer(response).await;
+
+        assert_eq!(
+            (
+                clicked.get("result").is_some(),
+                refusal(&waited_url),
+                refusal(&waited_response),
+            ),
+            (
+                true,
+                (
+                    json!("site_preferences_refused"),
+                    json!("robots_txt"),
+                    Some("/b".to_owned())
+                ),
+                (
+                    json!("site_preferences_refused"),
+                    json!("robots_txt"),
+                    Some("/b".to_owned())
+                ),
+            )
+        );
+    });
+}
+
 /// The lease check is asked before each command the page sends, a
 /// `page.request`'s included: once the lease ended, a navigation, a
 /// `page.request` and a click each raise the error the lease check gives

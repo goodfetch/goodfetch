@@ -646,18 +646,39 @@ impl<B: Connect> SessionDriver<B> {
         if self.browser.borrowed() {
             self.opened.lock().await.push(created.target_id.clone());
         }
-        let attached = browser
-            .send(
-                None,
-                &target::AttachToTargetParams {
-                    target_id: created.target_id.clone(),
-                    flatten: Some(true),
-                },
-                &opening,
-            )
-            .await?;
-        let session = TargetSession(attached.session_id);
-        prepare(&browser, &session).await?;
+        let prepared = async {
+            let attached = browser
+                .send(
+                    None,
+                    &target::AttachToTargetParams {
+                        target_id: created.target_id.clone(),
+                        flatten: Some(true),
+                    },
+                    &opening,
+                )
+                .await?;
+            let session = TargetSession(attached.session_id);
+            prepare(&browser, &session).await.map(|()| session)
+        };
+        // A target the page never became is closed, so no tab is left
+        // outside the Session's pages and the governor's count.
+        let session = match prepared.await {
+            Ok(session) => session,
+            Err(error) => {
+                if let Err(failure) = browser
+                    .send_unleased(
+                        None,
+                        &target::CloseTargetParams {
+                            target_id: created.target_id,
+                        },
+                    )
+                    .await
+                {
+                    tracing::debug!(%failure, "a page that did not open was gone already");
+                }
+                return Err(error);
+            }
+        };
         Ok(PageDriver {
             browser,
             session,

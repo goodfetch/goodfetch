@@ -9,6 +9,8 @@
 //! with the warning the person was shown; the item then leaves the list at
 //! the source's next read. The catalog marks it person only, so the RPC
 //! layer refuses it to every surface but the Console's and the CLI's.
+//! The answers to a `wall_refetch_stopped` item, which write
+//! `wall.refetch_domains` and `wall.denied_domains`, are in [`refetch`].
 
 use std::io;
 use std::sync::Arc;
@@ -20,8 +22,9 @@ use goodfetch_protocol::formats::USER_CONFIGURATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::needs_you::{
     CONSENT_DOMAIN_ALLOWED, ConsentDomainAllowed, NEEDS_YOU_ALLOW_CONSENT_DOMAIN,
-    NEEDS_YOU_DISMISS, NEEDS_YOU_LIST, NeedsYouAllowConsentDomainParams, NeedsYouDismissParams,
-    NeedsYouDismissed, NeedsYouList, NeedsYouListParams, consent_domain_warning,
+    NEEDS_YOU_DENY_WALL_DOMAIN, NEEDS_YOU_DISMISS, NEEDS_YOU_LIST, NEEDS_YOU_REMOVE_REFETCH_DOMAIN,
+    NeedsYouAllowConsentDomainParams, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList,
+    NeedsYouListParams, consent_domain_warning,
 };
 use goodfetch_protocol::settings::{CONSENT_DOMAINS, SettingsLayer};
 use serde_json::{Value, json};
@@ -35,12 +38,19 @@ use crate::settings::{
     HostDefaults, Layers, MachineLayers, SettingsError, resolve, set, user_configuration,
 };
 
+mod refetch;
+
 /// The `needs_you.*` handlers.
-pub(crate) fn handlers() -> [Handler; 3] {
+pub(crate) fn handlers() -> [Handler; 5] {
     [
         Handler::new(&NEEDS_YOU_LIST, list),
         Handler::new(&NEEDS_YOU_DISMISS, dismiss),
         Handler::new(&NEEDS_YOU_ALLOW_CONSENT_DOMAIN, allow_consent_domain),
+        Handler::new(
+            &NEEDS_YOU_REMOVE_REFETCH_DOMAIN,
+            refetch::remove_refetch_domain,
+        ),
+        Handler::new(&NEEDS_YOU_DENY_WALL_DOMAIN, refetch::deny_wall_domain),
     ]
 }
 
@@ -115,6 +125,8 @@ enum Refused {
     Settings(SettingsError),
     /// The file could not be read or written.
     File(io::Error),
+    /// The answer does not fit what the file lists, which this says.
+    Params(String),
 }
 
 /// One answer's inputs, as its blocking write takes them.
@@ -174,6 +186,9 @@ async fn allow_consent_domain(
                 &settings.files().named_in(error),
                 context.identity(),
             ));
+        }
+        Err(Refused::Params(message)) => {
+            return Err(CallError::protocol(ProtocolFailure::InvalidParams, message));
         }
         Err(Refused::File(error)) => {
             return Err(CallError::protocol(

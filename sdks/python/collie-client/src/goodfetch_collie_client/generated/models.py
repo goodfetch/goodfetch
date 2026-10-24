@@ -933,6 +933,18 @@ class NeedsYouAllowConsentDomainParams(BaseModel):
     """
 
 
+class NeedsYouDenyWallDomainParams(BaseModel):
+    """What `needs_you.deny_wall_domain` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str
+    """The registrable domain to deny."""
+    reason: str
+    """Why, such as the site's objection; required."""
+
+
 class NeedsYouDismissParams(BaseModel):
     """What `needs_you.dismiss` takes."""
 
@@ -978,6 +990,21 @@ class NeedsYouRemoval(StrEnum):
     """
     dismissed = "dismissed"
     """A person dismissed it."""
+
+
+class NeedsYouRemoveRefetchDomainParams(BaseModel):
+    """What `needs_you.remove_refetch_domain` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str
+    """The registrable domain, as a `wall_refetch_stopped` item names it."""
+    instead_of_star: list[str] | None = None
+    """
+    When only `*` covers the domain in its layer, the registrable
+    domains that replace `*` there, the domain itself not among them.
+    """
 
 
 class NotAddedReason(StrEnum):
@@ -2646,6 +2673,23 @@ class WaitUntil(StrEnum):
     """Once the document fired `load`."""
 
 
+class WallDomainDenied(BaseModel):
+    """What `needs_you.deny_wall_domain` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    added: bool
+    """
+    Whether it was added: false when the Operator policy denied it
+    already, which then changed nothing and recorded nothing.
+    """
+    domain: str
+    """The domain, as `wall.denied_domains` now lists it."""
+    reason: str
+    """The reason, as the Audit log records it."""
+
+
 class WeakenedSetting(BaseModel):
     """
     A setting that weakened a safeguard for a Run (ADR 0028): its key, its
@@ -3624,7 +3668,10 @@ class NeedsYouItem(BaseModel):
     for `storage_level`, `level` and `folder`; for
     `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
     `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
-    `consent_wall`, `domain`.
+    `consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,
+    `cause`, the `layer` and `file` that list it and `only_star`; for
+    `certificate_changed`, `host`, `person`, `pinned_spki_sha256` and
+    `presented_spki_sha256`.
     """
     id: str
     """
@@ -3905,6 +3952,29 @@ class ReachedLimit(BaseModel):
     """The Limit's scope."""
     usage_kind: str
     """The Usage kind it caps."""
+
+
+class RefetchDomainRemoved(BaseModel):
+    """What `needs_you.remove_refetch_domain` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    domain: str
+    """The domain."""
+    domains: list[str]
+    """That layer's `wall.refetch_domains` now."""
+    layer: SettingsLayer | None = None
+    """
+    The layer that listed it, and now does not; none when no layer was
+    changed.
+    """
+    removed: bool
+    """
+    Whether its layer changed: false when neither user configuration
+    nor the Operator policy lists it, which then changed nothing and
+    recorded nothing.
+    """
 
 
 class RouteAbortParams(BaseModel):

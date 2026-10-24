@@ -207,6 +207,7 @@ impl Settings {
             RunSettings {
                 settings: self.clone(),
                 resolved,
+                project: opening.project,
             },
             machine,
         ))
@@ -220,12 +221,20 @@ impl Settings {
 pub struct RunSettings {
     settings: Settings,
     resolved: Resolved,
+    project: Option<ProjectSettings>,
 }
 
 impl RunSettings {
     /// What the Run opened with.
     pub fn resolved(&self) -> &Resolved {
         &self.resolved
+    }
+
+    /// The path of the project configuration the Run opened with, when it
+    /// sets `key`, nested as its file nests it.
+    pub fn project_setting(&self, key: &str) -> Option<&str> {
+        let project = self.project.as_ref()?;
+        nested(&project.settings, key).map(|_| project.path.as_str())
     }
 
     /// What the Run takes at an admission point: its values under the
@@ -244,4 +253,18 @@ impl RunSettings {
             }
         }
     }
+}
+
+/// The value of `key` in `settings`, nested as a file nests it, or written
+/// whole as one dotted key.
+pub fn nested<'a>(settings: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
+    if let Some(value) = settings.get(key) {
+        return Some(value);
+    }
+    let mut segments = key.split('.');
+    let mut value = settings.get(segments.next()?)?;
+    for segment in segments {
+        value = value.get(segment)?;
+    }
+    Some(value)
 }

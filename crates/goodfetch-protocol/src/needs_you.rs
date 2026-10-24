@@ -41,6 +41,15 @@ pub const RUN_STOPPED_BY_LIMIT: &str = "run_stopped_by_limit";
 /// 0052).
 pub const CONSENT_WALL: &str = "consent_wall";
 
+/// The kind of a domain on which a Run's refetch without the site's stored
+/// data stopped, which a person may remove from the layer of
+/// `wall.refetch_domains` that lists it or deny (ADR 0052).
+pub const WALL_REFETCH_STOPPED: &str = "wall_refetch_stopped";
+
+/// The kind of a pinned host whose certificate's key changed, which the
+/// person whose store holds the pin accepts or forgets (ADR 0042).
+pub const CHANGED_CERTIFICATE: &str = "certificate_changed";
+
 /// How many items one `needs_you.list` page holds at most.
 pub const PAGE: usize = 100;
 
@@ -80,7 +89,10 @@ pub struct NeedsYouItem {
     /// for `storage_level`, `level` and `folder`; for
     /// `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
     /// `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
-    /// `consent_wall`, `domain`.
+    /// `consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,
+    /// `cause`, the `layer` and `file` that list it and `only_star`; for
+    /// `certificate_changed`, `host`, `person`, `pinned_spki_sha256` and
+    /// `presented_spki_sha256`.
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub details: Map<String, Value>,
@@ -174,6 +186,68 @@ pub fn consent_domain_warning(domain: &str) -> String {
     }
 }
 
+/// What `needs_you.remove_refetch_domain` takes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NeedsYouRemoveRefetchDomainParams {
+    /// The registrable domain, as a `wall_refetch_stopped` item names it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub domain: String,
+    /// When only `*` covers the domain in its layer, the registrable
+    /// domains that replace `*` there, the domain itself not among them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub instead_of_star: Option<Vec<String>>,
+}
+
+/// What `needs_you.remove_refetch_domain` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RefetchDomainRemoved {
+    /// The domain.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub domain: String,
+    /// Whether its layer changed: false when neither user configuration
+    /// nor the Operator policy lists it, which then changed nothing and
+    /// recorded nothing.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub removed: bool,
+    /// The layer that listed it, and now does not; none when no layer was
+    /// changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub layer: Option<SettingsLayer>,
+    /// That layer's `wall.refetch_domains` now.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub domains: Vec<String>,
+}
+
+/// What `needs_you.deny_wall_domain` takes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct NeedsYouDenyWallDomainParams {
+    /// The registrable domain to deny.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub domain: String,
+    /// Why, such as the site's objection; required.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: String,
+}
+
+/// What `needs_you.deny_wall_domain` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct WallDomainDenied {
+    /// The domain, as `wall.denied_domains` now lists it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub domain: String,
+    /// Whether it was added: false when the Operator policy denied it
+    /// already, which then changed nothing and recorded nothing.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub added: bool,
+    /// The reason, as the Audit log records it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: String,
+}
+
 /// Why an item left the list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -265,6 +339,54 @@ pub const NEEDS_YOU_ALLOW_CONSENT_DOMAIN: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// `needs_you.remove_refetch_domain`.
+pub const NEEDS_YOU_REMOVE_REFETCH_DOMAIN: Operation = Operation {
+    name: "needs_you.remove_refetch_domain",
+    description: "Removes a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that lists it, user configuration or else the Operator policy, every other entry and byte of the file kept, and records the answer in the Audit log; answers whether it removed it. When only `*` covers the domain there, `instead_of_star` gives the registrable domains that replace `*`, and without it the call is refused with `invalid_params`. A domain only project configuration lists is changed in that file, never here. A managed Operator policy, or one that locks the key against user configuration, refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item leaves the list with `needs_you.changed`.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::PersonOnly,
+    params: schema_of::<NeedsYouRemoveRefetchDomainParams>,
+    result: schema_of::<RefetchDomainRemoved>,
+    events: &[&NEEDS_YOU_CHANGED],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `needs_you.deny_wall_domain`.
+pub const NEEDS_YOU_DENY_WALL_DOMAIN: Operation = Operation {
+    name: "needs_you.deny_wall_domain",
+    description: "Adds a registrable domain, with its required reason, to `wall.denied_domains` in the Operator policy, creating the file when there is none, so no run reads past its Walls or refetches its pages whatever another layer allows (ADR 0052), and records the denial and its reason in the Audit log; answers whether it added it. One call, no confirmation asked. A managed Operator policy refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item of the domain leaves the list with `needs_you.changed`.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::PersonOnly,
+    params: schema_of::<NeedsYouDenyWallDomainParams>,
+    result: schema_of::<WallDomainDenied>,
+    events: &[&NEEDS_YOU_CHANGED],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A person removed a domain from `wall.refetch_domains`.
+pub const REFETCH_DOMAIN_REMOVED: SharedTypeValue = SharedTypeValue {
+    shared_type: SharedType::AuditKind,
+    name: "refetch_domain_removed",
+    description: "A person removed a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that listed it, or replaced `*` there with a list (ADR 0052); `details` give the `domain` and the layer's `domains` after.",
+    arrived_in: ARRIVED_IN,
+};
+
+/// A person denied a domain the Wall allowance.
+pub const WALL_DOMAIN_DENIED: SharedTypeValue = SharedTypeValue {
+    shared_type: SharedType::AuditKind,
+    name: "wall_domain_denied",
+    description: "A person added a domain to `wall.denied_domains` in the Operator policy, so no run reads past its Walls or refetches its pages (ADR 0052); `details` give the `domain` and the `reason`.",
+    arrived_in: ARRIVED_IN,
+};
+
 /// A person added a domain, or `*`, to `consent.domains`.
 pub const CONSENT_DOMAIN_ALLOWED: SharedTypeValue = SharedTypeValue {
     shared_type: SharedType::AuditKind,
@@ -280,6 +402,8 @@ pub const ENTRIES: Entries = Entries {
         NEEDS_YOU_LIST,
         NEEDS_YOU_DISMISS,
         NEEDS_YOU_ALLOW_CONSENT_DOMAIN,
+        NEEDS_YOU_REMOVE_REFETCH_DOMAIN,
+        NEEDS_YOU_DENY_WALL_DOMAIN,
     ],
     events: &[NEEDS_YOU_CHANGED],
     handler_requests: &[],
@@ -313,6 +437,20 @@ pub const ENTRIES: Entries = Entries {
             description: "A domain whose consent wall a Run met and left at `consent_required` (ADR 0048), offered for `consent.domains` with `needs_you.allow_consent_domain`, a domain in `wall.denied_domains` too (ADR 0052); `details` give the `domain`, and `run` the last Run that met it. It leaves the list once `consent.domains` in the Operator policy or user configuration covers the domain, or when a person dismisses it.",
             arrived_in: ARRIVED_IN,
         },
+        SharedTypeValue {
+            shared_type: SharedType::NeedsYouKind,
+            name: WALL_REFETCH_STOPPED,
+            description: "A domain on which a Run's refetch without the site's stored data stopped, at a Block cause, a 401 or 403 status or a login page (ADR 0052); `details` give the `domain`, the `cause`, and the `layer` of `wall.refetch_domains` that lists it with its `file`, and whether `only_star` covers it there; `run` is the last Run whose refetch stopped there. Its actions offer `needs_you.remove_refetch_domain`, except for a domain project configuration lists, which is changed in its file, and `needs_you.deny_wall_domain`. It leaves the list once no layer lists the domain, once `wall.denied_domains` denies it, or when a person dismisses it.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::NeedsYouKind,
+            name: CHANGED_CERTIFICATE,
+            description: "A pinned host whose certificate presented another public key, stopped with `certificate_changed` (ADR 0042); `details` give the `host`, the `person` whose known-certificates store holds the pin, and both keys' SHA-256 as `pinned_spki_sha256` and `presented_spki_sha256`; `run` is the Run that met it. Its actions offer `certs.accept` and `certs.forget`, which that person alone answers. It leaves the list once they answer.",
+            arrived_in: ARRIVED_IN,
+        },
         CONSENT_DOMAIN_ALLOWED,
+        REFETCH_DOMAIN_REMOVED,
+        WALL_DOMAIN_DENIED,
     ],
 };

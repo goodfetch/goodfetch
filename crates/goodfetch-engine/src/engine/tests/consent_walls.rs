@@ -80,14 +80,14 @@ fn walled_engine(env: &TestEnv) -> Engine {
 }
 
 /// Writes `text` as `file` of the test home's per-major folder.
-fn write(env: &TestEnv, file: &str, text: &str) {
+pub(super) fn write(env: &TestEnv, file: &str, text: &str) {
     let folder = env.home().join("1");
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(folder.join(file), text).unwrap();
 }
 
 /// Writes user configuration with a short sample interval and `settings`.
-fn configure(env: &TestEnv, settings: &str) {
+pub(super) fn configure(env: &TestEnv, settings: &str) {
     write(
         env,
         "configuration.toml",
@@ -96,7 +96,7 @@ fn configure(env: &TestEnv, settings: &str) {
 }
 
 /// Opens a Connection from `surface` and subscribes to every event.
-async fn opened(client: &mut Client, surface: &str) {
+pub(super) async fn opened(client: &mut Client, surface: &str) {
     client
         .send(&[json!({
             "jsonrpc": "2.0", "id": 0, "method": "hello",
@@ -151,7 +151,7 @@ fn offered(domain: &str) -> Value {
 }
 
 /// The Audit log's entries, in order.
-fn audit_entries(env: &TestEnv) -> Vec<Value> {
+pub(super) fn audit_entries(env: &TestEnv) -> Vec<Value> {
     let home = Home::new(env.home().to_path_buf());
     if !home.audit_log().exists() {
         return Vec::new();

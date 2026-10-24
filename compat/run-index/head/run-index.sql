@@ -18,6 +18,15 @@ CREATE TABLE needs_you_dismissed (
         dismissed_at TEXT NOT NULL
     ) STRICT;
 INSERT INTO "needs_you_dismissed" VALUES('corpus_waiting:1','2026-01-05T09:00:00Z');
+CREATE TABLE refetch_stops (
+        domain TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        cause TEXT NOT NULL,
+        project_file TEXT,
+        stopped_at TEXT NOT NULL,
+        PRIMARY KEY (domain, run_id)
+    ) STRICT;
+INSERT INTO "refetch_stops" VALUES('walled.example','finished-run','challenge',NULL,'2026-01-05T09:00:00Z');
 CREATE TABLE runs (
         run_id TEXT NOT NULL PRIMARY KEY,
         location TEXT NOT NULL,

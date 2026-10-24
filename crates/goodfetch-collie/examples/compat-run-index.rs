@@ -64,6 +64,11 @@ fn scenario() -> Vec<Value> {
             "compat.consent_wall",
             json!({ "run_id": "finished-run", "domain": "walled.example" }),
         ),
+        call(
+            31,
+            "compat.refetch_stopped",
+            json!({ "run_id": "finished-run", "domain": "walled.example", "cause": "challenge" }),
+        ),
         call(3, "run.finish", json!({ "run_id": "finished-run" })),
         call(
             4,
@@ -103,6 +108,40 @@ async fn consent_wall(params: Value, context: CallContext) -> Result<Value, Call
     run.record_consent_wall(params["domain"].as_str().unwrap_or_default().to_owned())
         .await
         .expect("invariant: the corpus's Run index is written");
+    Ok(json!({}))
+}
+
+/// Records that a Run's refetch without the site's stored data stopped on
+/// a domain, as the Wall allowance does when the site refuses it.
+const REFETCH_STOPPED: Operation = Operation {
+    name: "compat.refetch_stopped",
+    description: "Records that a Run's refetch stopped on a domain.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<Value>,
+    result: schema_of::<Value>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+async fn refetch_stopped(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default())
+        .expect("invariant: the scenario names a valid Run ID");
+    let run = context
+        .runs()
+        .live(run_id)
+        .await
+        .expect("invariant: the scenario's Run is live");
+    run.record_refetch_stop(
+        params["domain"].as_str().unwrap_or_default().to_owned(),
+        params["cause"].as_str().unwrap_or_default().to_owned(),
+    )
+    .await
+    .expect("invariant: the corpus's Run index is written");
     Ok(json!({}))
 }
 
@@ -229,6 +268,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &goodfetch_collie::composition().with(
             Contribution::new("compat-run-index")
                 .with_handler(Handler::new(&CONSENT_WALL, consent_wall))
+                .with_handler(Handler::new(&REFETCH_STOPPED, refetch_stopped))
                 .with_needs_you_source(NeedsYouSource::new(Waiting)),
         ),
     )?;

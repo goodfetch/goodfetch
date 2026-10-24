@@ -3103,7 +3103,10 @@ export interface NeedsYouItem {
    * for `storage_level`, `level` and `folder`; for
    * `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
    * `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
-   * `consent_wall`, `domain`.
+   * `consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,
+   * `cause`, the `layer` and `file` that list it and `only_star`; for
+   * `certificate_changed`, `host`, `person`, `pinned_spki_sha256` and
+   * `presented_spki_sha256`.
    */
   details?: {
     [k: string]: unknown;
@@ -3136,6 +3139,22 @@ export interface NeedsYouItem {
    * it has no words of its own for.
    */
   summary: string;
+}
+/**
+ * What `needs_you.deny_wall_domain` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouDenyWallDomainParams".
+ */
+export interface NeedsYouDenyWallDomainParams {
+  /**
+   * The registrable domain to deny.
+   */
+  domain: string;
+  /**
+   * Why, such as the site's objection; required.
+   */
+  reason: string;
 }
 /**
  * What `needs_you.dismiss` takes.
@@ -3180,7 +3199,10 @@ export interface NeedsYouItem1 {
    * for `storage_level`, `level` and `folder`; for
    * `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
    * `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
-   * `consent_wall`, `domain`.
+   * `consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,
+   * `cause`, the `layer` and `file` that list it and `only_star`; for
+   * `certificate_changed`, `host`, `person`, `pinned_spki_sha256` and
+   * `presented_spki_sha256`.
    */
   details?: {
     [k: string]: unknown;
@@ -3247,6 +3269,23 @@ export interface NeedsYouListParams {
    * Only the items of these kinds; every kind when absent.
    */
   kinds?: string[] | null;
+}
+/**
+ * What `needs_you.remove_refetch_domain` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouRemoveRefetchDomainParams".
+ */
+export interface NeedsYouRemoveRefetchDomainParams {
+  /**
+   * The registrable domain, as a `wall_refetch_stopped` item names it.
+   */
+  domain: string;
+  /**
+   * When only `*` covers the domain in its layer, the registrable
+   * domains that replace `*` there, the domain itself not among them.
+   */
+  instead_of_star?: string[] | null;
 }
 /**
  * What `run.new_page` takes: the Run whose default Session opens the page.
@@ -3983,6 +4022,33 @@ export interface RecordingReport {
    * The engine that wrote them.
    */
   written_by?: string | null;
+}
+/**
+ * What `needs_you.remove_refetch_domain` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RefetchDomainRemoved".
+ */
+export interface RefetchDomainRemoved {
+  /**
+   * The domain.
+   */
+  domain: string;
+  /**
+   * That layer's `wall.refetch_domains` now.
+   */
+  domains: string[];
+  /**
+   * The layer that listed it, and now does not; none when no layer was
+   * changed.
+   */
+  layer?: SettingsLayer | null;
+  /**
+   * Whether its layer changed: false when neither user configuration
+   * nor the Operator policy lists it, which then changed nothing and
+   * recorded nothing.
+   */
+  removed: boolean;
 }
 /**
  * What `response.body` takes: the page and the request whose response's
@@ -5902,6 +5968,27 @@ export interface WaitForUrlParams {
    * absent. A change within the document waits for none.
    */
   wait_until?: LoadState | null;
+}
+/**
+ * What `needs_you.deny_wall_domain` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WallDomainDenied".
+ */
+export interface WallDomainDenied {
+  /**
+   * Whether it was added: false when the Operator policy denied it
+   * already, which then changed nothing and recorded nothing.
+   */
+  added: boolean;
+  /**
+   * The domain, as `wall.denied_domains` now lists it.
+   */
+  domain: string;
+  /**
+   * The reason, as the Audit log records it.
+   */
+  reason: string;
 }
 /**
  * What `page.page_error` reports, `WebError`: an exception the page did

@@ -32,6 +32,7 @@ use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
 use crate::governor::{Governor, System};
 use crate::home::{Home, RunStateLocation, major_name};
+use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::log::LogEvents;
 use crate::metrics::Metrics;
@@ -366,6 +367,10 @@ impl Engine {
                     dependencies.run_state.vfs.clone(),
                 ),
                 settings: settings.clone(),
+                known_certificates: KnownCertificates::of(
+                    &dependencies.home,
+                    dependencies.run_state.vfs.clone(),
+                ),
                 owner: Arc::new(owner.child()),
             },
             events.clone(),

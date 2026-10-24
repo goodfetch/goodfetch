@@ -76,7 +76,7 @@ use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure, TIMEOUT_SECRET,
 };
-use goodfetch_protocol::settings::{SettingsLayer, WeakenedSetting};
+use goodfetch_protocol::settings::{SettingsLayer, WALL_REFETCH_DOMAINS, WeakenedSetting};
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
@@ -1201,6 +1201,43 @@ impl Run {
             .blocking(move || {
                 run_index::record_consent_wall(&path, &version, &domain, &run_id, &at)
             })
+            .await
+    }
+
+    /// Records in the Run index that the Run's refetch without the site's
+    /// stored data stopped on the registrable domain `domain` for `cause`,
+    /// the Block cause, the `401` or `403` status or the login page that
+    /// answered it, so "Needs you" lists the domain with the layer of
+    /// `wall.refetch_domains` that lists it (ADR 0052). The Run's first
+    /// stop on a domain is kept.
+    ///
+    /// # Errors
+    ///
+    /// When the Run index cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write began still records it.
+    pub async fn record_refetch_stop(
+        &self,
+        domain: String,
+        cause: String,
+    ) -> Result<(), RunStateError> {
+        let path = self.runs.home().run_index(&self.runs.version);
+        let version = self.runs.version.clone();
+        let at = self.point_in_time();
+        let stop = run_index::RefetchStopped {
+            domain,
+            first_stopped: at.clone(),
+            last_run: self.id.clone(),
+            cause,
+            project_file: self
+                .settings()
+                .and_then(|settings| settings.project_setting(WALL_REFETCH_DOMAINS.name))
+                .map(str::to_owned),
+        };
+        self.owner
+            .blocking(move || run_index::record_refetch_stop(&path, &version, &stop, &at))
             .await
     }
 

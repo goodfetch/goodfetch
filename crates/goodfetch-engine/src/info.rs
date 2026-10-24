@@ -11,7 +11,8 @@ use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo, EngineInfoParams};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::{
     audit_operations, certs_operations, config, daemon, key_value_store, needs_you,
-    needs_you_operations, people_operations, rpc, run, run_files, run_files_operations, usage,
+    needs_you_operations, people_operations, rpc, run, run_files, run_files_operations, runs,
+    usage,
 };
 
 /// What the engine adds to every composition.
@@ -36,7 +37,9 @@ pub fn contribution() -> Contribution {
                 .with_needs_you_source(needs_you::storage::levels())
                 .with_needs_you_source(needs_you::storage::runs_stopped())
                 .with_needs_you_source(needs_you::limits::runs_stopped())
-                .with_needs_you_source(needs_you::consent::walls()),
+                .with_needs_you_source(needs_you::consent::walls())
+                .with_needs_you_source(needs_you::refetch::stops())
+                .with_needs_you_source(needs_you::certificates::changed(runs::CALLER)),
             Contribution::with_handler,
         )
 }

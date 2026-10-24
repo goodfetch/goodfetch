@@ -155,11 +155,22 @@ pub struct LearnedRule {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub parameter: Option<String>,
+    /// The form it merges, for an `equivalent_form`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub form: Option<EquivalentForm>,
     /// What it was learned from, naming the URLs.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub evidence: String,
+    /// The pair of pages that contradicted it, naming their URLs: both
+    /// forms fetched, neither redirected, and their page signatures
+    /// differ. From then on it merges nothing more; absent while it holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub contradiction: Option<String>,
     /// Each URL it merged with another or refused, in the order the crawl
-    /// met them.
+    /// met them, a pending request it ended `skipped` with `duplicate`
+    /// included.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub merged: Vec<String>,
 }
@@ -176,10 +187,32 @@ pub enum LearnedRuleKind {
     /// and no URL outside it, so its URLs are not added, with
     /// `trap_path`.
     TrapPath,
+    /// Two forms of the host's URLs serve one page, so a URL in one form
+    /// is a `duplicate` of an admitted one in the other.
+    EquivalentForm,
     /// A listing pages by a cursor as well as by an offset: its offset
     /// URLs not yet fetched are not added, with `duplicate`, and the cursor
     /// is followed.
     CursorPagination,
+}
+
+/// Two spellings of one host's URLs a learned `equivalent_form` merges
+/// (ADR 0120), each learned on evidence: a redirect from one to the
+/// other, pairs of pages of matching signatures, or pages whose
+/// `rel=canonical` differs from their URL only by it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum EquivalentForm {
+    /// One leading `www.` label against the bare host, the rule's host.
+    Www,
+    /// `http` against `https`.
+    Scheme,
+    /// A path with a trailing slash against the same path without it.
+    TrailingSlash,
+    /// A final `index.html` against its folder.
+    IndexHtml,
+    /// A final `index.php` against its folder.
+    IndexPhp,
 }
 
 /// A sitemap a crawl read (ADR 0102).

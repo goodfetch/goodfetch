@@ -5,7 +5,7 @@
 // will hold `Page`, `Session` and `Locator`; `@goodfetch/foxhound` holds
 // `Foxhound`, `Crawl`, `Label`, `Dataset` and `CrawlContext`.
 
-export type { AttemptError, BlockCause, CountOf, CrawlRequestEnqueueParams, CrawlRequestOutcome, CrawlRequestOutcomes, CrawlRunReport, CrawlStartParams, DatasetRecords, EnqueueDocument, Enqueued, FailedRequests, HttpBody, HttpMethod, LearnedRule, LearnedRuleKind, NotAddedReason, NothingCommitted, Now, OutcomeKind, OutcomeRequest, OutcomesAfter, RequestCounts, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SampleCrawled, SamplePageFilterAdmitParams, SamplePageFilterAdmitResult, Seed, SeedAttempt, Seeds, SinkReport, SinkStatus, SitemapReport, SkipReason } from "./types.ts";
+export type { AttemptError, BlockCause, CountOf, CrawlRequestEnqueueParams, CrawlRequestOutcome, CrawlRequestOutcomes, CrawlRunReport, CrawlStartParams, DatasetRecords, EnqueueDocument, Enqueued, EquivalentForm, FailedRequests, HttpBody, HttpMethod, LearnedRule, LearnedRuleKind, NotAddedReason, NothingCommitted, Now, OutcomeKind, OutcomeRequest, OutcomesAfter, RequestCounts, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SampleCrawled, SamplePageFilterAdmitParams, SamplePageFilterAdmitResult, Seed, SeedAttempt, Seeds, SinkReport, SinkStatus, SitemapReport, SkipReason } from "./types.ts";
 export * from "./operations.ts";
 export * from "./events.ts";
 export * from "./errors.ts";

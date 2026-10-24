@@ -9,13 +9,14 @@
 //! their keys follow in the per-user Politeness file, shared by every run of
 //! the user (the per-domain cap, delay, backoff, `Retry-After` and 429
 //! halving); and the rules it learns from the pages a crawl fetched
-//! (ADR 0005): query parameters with no effect, trap paths and cursor
-//! pagination preferred to offset. Its own crate under `crates/foxhound/`, since only Foxhound
+//! (ADR 0005): query parameters with no effect, equivalent forms (ADR
+//! 0120), trap paths and cursor pagination preferred to offset. Its own crate under `crates/foxhound/`, since only Foxhound
 //! links it (STYLE.md, reason 2).
 
 mod admit;
 mod bounds;
 mod domain_key;
+mod forms;
 mod identity;
 mod learn;
 mod politeness;
@@ -35,7 +36,7 @@ pub use domain_key::DomainKeys;
 pub use identity::{
     Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, url_key,
 };
-pub use learn::{PageSeen, learn};
+pub use learn::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
 pub use politeness::longest_wait;
 pub use queues::DomainQueues;
 pub use rules::{

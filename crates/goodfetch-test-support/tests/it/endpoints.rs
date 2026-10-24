@@ -419,7 +419,7 @@ fn a_strict_signed_address_listener_passes() {
 }
 
 #[test]
-fn an_advisorys_run_tries_only_the_rows_citing_it() {
+fn a_run_for_an_advisory_tries_only_the_rows_citing_it() {
     let (address, log) = listeners::ops_listener(Behaviour::Permissive);
     let listener = ops_listener(address);
 
@@ -455,7 +455,7 @@ fn an_advisory_no_row_of_the_column_cites_fails() {
 }
 
 #[test]
-fn a_strict_ops_listener_passes_an_advisorys_rows() {
+fn a_strict_ops_listener_passes_the_rows_citing_an_advisory() {
     let (address, log) = listeners::ops_listener(Behaviour::Strict);
     let listener = ops_listener(address);
 

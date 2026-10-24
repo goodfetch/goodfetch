@@ -198,6 +198,8 @@ mod tests {
                     "run.add_seed",
                     "run.add_seeds",
                     "crawl_request.enqueue",
+                    "crawl_request.links",
+                    "crawl_request.enqueue_links",
                     "run.outcomes",
                     "run.failed_requests",
                 ],

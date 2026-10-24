@@ -1952,6 +1952,44 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Adds every link a locator matches on the page a handler's attempt was given, a handler context's `enqueueLinks`, each a `GET` of its `href` resolved against the document's base URL (its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself), its query percent-encoded in the document's encoding as a browser encodes it, and answers each matched element in document order: added, with its crawl request's ID and URL; not added, with its reason, as `crawl_request.enqueue` answers; `no_link` for an element without an `href`; or `skipped_by_payload` for one whose entry in `payloads` is `null`. Every link takes `payload`, or its own entry of `payloads`, the program's Payload function's answers for the elements `crawl_request.links` read; a Payload that does not fit its Label fails the call with `payload_invalid` and adds none. `include` and `exclude` only narrow the crawl's scope; a pattern the engine cannot match fails with `pattern_unsupported`. A page no fetch tier serves fails with `closed`, and an attempt whose lease no longer holds with `attempt_ended`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "crawl_request.enqueue_links",
+      "params": {
+        "$ref": "#/$defs/CrawlRequestEnqueueLinksParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/EnqueuedLinks"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads each element a locator matches on the page a handler's attempt was given, in document order, as a handler context's `enqueueLinks` gives them to its Payload function: its `href` as written, its URL (the `href` resolved against the document's base URL, its query percent-encoded in the document's encoding, as a browser encodes it), its text and its attributes. A page no fetch tier serves fails with `closed`, a selector that is no CSS selector with `invalid_params`, and an attempt whose lease no longer holds with `attempt_ended`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "crawl_request.links",
+      "params": {
+        "$ref": "#/$defs/CrawlRequestLinksParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/CrawlRequestLinks"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "read",
       "deprecated": null,
       "description": "Says whether the Daemon is live and ready to take a new Run, and why not: what its ops listener's `/livez` and `/readyz` answer with a status alone.",

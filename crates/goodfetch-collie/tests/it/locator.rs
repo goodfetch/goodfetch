@@ -408,7 +408,9 @@ fn traced_counts(env: &TestEnv) -> BTreeMap<String, usize> {
 /// events and disarms: no stability wait, no second check (ADR 0019's
 /// speed target). Live hiding and the Consent prompt runner are off, and
 /// the Page check matches by URL alone, so that the Run trace holds the
-/// guard's commands alone: their reads of each document are no action's.
+/// guard's commands beside block detection's one read of the document the
+/// `goto` reached (a world and a call, since a rule reads a 200 page's
+/// captcha widget): the reads of each document are no action's.
 /// Covers: story:5-2, operation:locator.click
 #[test]
 fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
@@ -444,7 +446,7 @@ fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
             counts.get("Input.dispatchMouseEvent"),
             counts.get("Runtime.enable"),
         ),
-        (&json!({}), Some(&1), Some(&2), Some(&3), None),
+        (&json!({}), Some(&2), Some(&3), Some(&3), None),
         "{counts:?}"
     );
 }

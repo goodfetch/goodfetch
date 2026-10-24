@@ -32,6 +32,9 @@
 //! next matching response, a redirect's included, and the page's document
 //! (`document`) answers the URL and load state waits. Each waits at most
 //! the Run's `timeout.wait`.
+//!
+//! Size: one page's event reader and the state its calls read, kept whole
+//! so each event changes that state in one place, under one lock.
 #![expect(
     clippy::disallowed_types,
     reason = "listeners and waiters are armed as their call arrives, before any `.await`: each lock guards one page's state for one step, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -193,12 +196,18 @@ struct State {
     in_flight: InFlight,
     /// The sockets the page opened, by the browser's ID.
     sockets: BTreeMap<String, String>,
+    /// The browser's ID of the request of the main frame's document last
+    /// judged for its Block cause: by the call that waited for its
+    /// navigation, or else by the page's next call.
+    judged: Option<String>,
 }
 
 /// One request, at its latest hop.
 struct Tracked {
     request: PageRequest,
     response: Option<PageResponse>,
+    /// When its response arrived, on the Run's clock.
+    answered_at: Option<SystemTime>,
     /// The bytes of its body that arrived, decoded.
     received: u64,
     ended: Option<Ended>,
@@ -305,6 +314,37 @@ impl PageEvents {
         run.spawn(read(subscription, Arc::clone(&shared)));
         run.spawn(document::watch_idle(Arc::clone(&shared)));
         Self { shared }
+    }
+
+    /// Marks the document whose request the browser names `request_id` as
+    /// judged, by the call that waited for its navigation.
+    pub(crate) fn judged(&self, request_id: &str) {
+        lock(&self.shared.state).judged = Some(request_id.to_owned());
+    }
+
+    /// When the response to the request `request_id` arrived, on the Run's
+    /// clock, once it did.
+    pub(crate) fn answered_at(&self, request_id: &str) -> Option<SystemTime> {
+        lock(&self.shared.state)
+            .requests
+            .get(request_id)
+            .and_then(|tracked| tracked.answered_at)
+    }
+
+    /// The response of the document the main frame committed last, and when
+    /// it arrived, unless it was judged already, as a navigation no call
+    /// waited for leaves it: it is judged from now. None for the page's
+    /// first, blank document.
+    pub(crate) fn take_unjudged(&self) -> Option<(PageResponse, SystemTime)> {
+        let loader = self.shared.document.borrow().loader()?.clone();
+        let mut state = lock(&self.shared.state);
+        if state.judged.as_ref() == Some(&loader) {
+            return None;
+        }
+        let tracked = state.requests.get(&loader)?;
+        let unjudged = tracked.response.clone().zip(tracked.answered_at)?;
+        state.judged = Some(loader);
+        Some(unjudged)
     }
 
     /// Arms a listener for `event` now: the event is published while it
@@ -615,6 +655,7 @@ fn take_in(shared: &Arc<Shared>, event: &goodfetch_cdp::RawEvent) -> Vec<Publish
         let response = response_of(&received.request_id, &received.response);
         if let Some(tracked) = state.requests.get_mut(&received.request_id) {
             tracked.response = Some(response.clone());
+            tracked.answered_at = Some(shared.clock.wall());
             let exchange = PageExchange {
                 request: tracked.request.clone(),
                 response,
@@ -723,6 +764,7 @@ fn sent_request(
         Tracked {
             request,
             response: None,
+            answered_at: None,
             received: 0,
             ended: None,
         },

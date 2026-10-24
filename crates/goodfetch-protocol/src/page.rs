@@ -34,6 +34,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema, schema_for};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::block::BlockCause;
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Operation,
     OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind,
@@ -352,6 +353,26 @@ pub struct LoggedOutDetails {
     pub judged_by: JudgedBy,
 }
 
+/// What `blocked` details (ADRs 0092 and 0118).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct BlockedDetails {
+    /// The Block cause, kept as received by an SDK that does not know it
+    /// (ADR 0079).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub cause: BlockCause,
+    /// The URL of the document that met it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// Its HTTP status.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: u16,
+    /// The time the site's `Retry-After` asks for, in RFC 3339, read in
+    /// either of its forms; `null` when it asks for none. The engine never
+    /// waits on it for a program's own navigation.
+    #[schemars(with = "Option<String>", extend("format" = "date-time", "arrived_in" = "0.1"))]
+    pub retry_after: Option<jiff::Timestamp>,
+}
+
 /// The count of redirects a fetch follows at most, and what set it (ADR
 /// 0118).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -539,6 +560,17 @@ pub const PAGE_CHECK_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
 pub const LOGGED_OUT: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "logged_out",
     description: "The document the navigation reached is a login page, even one answered with a 200: the Session's login is lost, judged by its Page check's `login_page`, or by the built-in detector when it declares none. The page stays on the login page, the Session open with its cookies. The details name the URL, the status and what judged it.",
+    group: ErrorGroup::Page,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A Block cause the engine cannot get past on a Session a program or an
+/// Agent opened (ADRs 0088, 0092 and 0118).
+pub const BLOCKED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "blocked",
+    description: "The site refused the document a navigation reached with a Block cause the engine cannot get past, such as a rate limit, an IP block or a challenge: raised by the call that waited for that navigation, or else by the page's next call. The Session stays open with its cookies, never replaced, and nothing waits on the site's `Retry-After`: the program decides whether to wait, open another Session or pause for a person. The details name the cause, the URL, the status and `retry_after`, the time the site asked for or `null`.",
     group: ErrorGroup::Page,
     retryable: false,
     exit_code: None,
@@ -1228,6 +1260,7 @@ pub const ENTRIES: Entries = Entries {
         NAVIGATION_INTERRUPTED,
         PAGE_CHECK_FAILED,
         LOGGED_OUT,
+        BLOCKED,
         TOO_MANY_REDIRECTS,
         RESPONSE_TRUNCATED,
         SITE_PREFERENCES_REFUSED,

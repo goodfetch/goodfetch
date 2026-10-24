@@ -1,0 +1,3 @@
+{"sequence":1,"time":"2026-01-05T09:00:00Z","kind":"secret_reference_used","actor":{"kind":"client_surface","surface":"cli"},"details":{"reference":"env:A","domain":"example.com"},"hash":"c70d88c60f9b58c7ab63a0fdb012de542ab732d4f29e077801a1ed4a47d186f0"}
+{"sequence":2,"time":"2026-01-05T09:00:00Z","kind":"secret_reference_used","actor":{"kind":"client_surface","surface":"cli"},"details":{"reference":"env:X","domain":"example.com"},"hash":"b186250c1bd90e50b23e4d7973f3bf655a76671553d99b4798e4337be239e002"}
+{"sequence":3,"time":"2026-01-05T09:00:00Z","kind":"secret_reference_used","actor":{"kind":"client_surface","surface":"cli"},"details":{"reference":"env:C","domain":"example.com"},"hash":"b1fbc69554785a4e34b99bed2ab0540e1dcd3cec8ce94010fc3ffb355fb619e0"}

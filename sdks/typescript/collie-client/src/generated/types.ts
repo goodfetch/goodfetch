@@ -23,6 +23,38 @@ export type AbortReason =
   | "timedout"
   | "failed";
 /**
+ * Who an entry's event was done by.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Actor".
+ */
+export type Actor =
+  | {
+      kind: "person";
+      /**
+       * Their name.
+       */
+      name: string;
+    }
+  | {
+      kind: "named_token";
+      /**
+       * Its name.
+       */
+      name: string;
+    }
+  | {
+      kind: "client_surface";
+      /**
+       * Its surface.
+       */
+      surface:
+        "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "console" | "cloud" | "browser_host" | "worker";
+    }
+  | {
+      kind: "engine";
+    };
+/**
  * What set the Memory allowance: the tightest of them (ADR 0040).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -54,12 +86,13 @@ export type ArtifactKind =
  */
 export type Asked = true;
 /**
- * A browser family, as ADR 0056 names them.
+ * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "BrowserName".
+ * via the `definition` "SettingsLayer".
  */
-export type BrowserName = "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari";
+export type SettingsLayer =
+  "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
 /**
  * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
  *
@@ -67,6 +100,21 @@ export type BrowserName = "chrome" | "edge" | "brave" | "chromium" | "firefox" |
  * via the `definition` "RunId".
  */
 export type RunId = string;
+/**
+ * The surface a `hello` comes from (ADR 0024).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Surface".
+ */
+export type Surface =
+  "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "console" | "cloud" | "browser_host" | "worker";
+/**
+ * A browser family, as ADR 0056 names them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "BrowserName".
+ */
+export type BrowserName = "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari";
 /**
  * Whether a Run's results cover everything in its scope (ADRs 0005 and
  * 0029).
@@ -213,14 +261,6 @@ export type Enqueued =
  * via the `definition` "World".
  */
 export type World = "main" | "isolated";
-/**
- * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SettingsLayer".
- */
-export type SettingsLayer =
-  "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
 /**
  * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
  * writes it.
@@ -802,14 +842,6 @@ export type StoppedBy = "client" | "program" | "browser";
  */
 export type StorageLevel = "normal" | "low" | "critical";
 /**
- * The surface a `hello` comes from (ADR 0024).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Surface".
- */
-export type Surface =
-  "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "console" | "cloud" | "browser_host" | "worker";
-/**
  * A Run's tags, in the order given.
  *
  * @maxItems 16
@@ -973,6 +1005,102 @@ export interface ArtifactId {
   name: string;
 }
 /**
+ * What `audit.export` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "AuditExportParams".
+ */
+export interface AuditExportParams {}
+/**
+ * What `audit.export` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "AuditExported".
+ */
+export interface AuditExported {
+  /**
+   * Every entry the log holds, in sequence, each with its hash: the
+   * anchor first when the log was pruned.
+   */
+  entries: ExportedAuditEntry[];
+}
+/**
+ * One entry of an exported Audit log, one line of its JSONL: the entry
+ * and the hash that chains it to the line before it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExportedAuditEntry".
+ */
+export interface ExportedAuditEntry {
+  /**
+   * Who did what it records.
+   */
+  actor:
+    | {
+        kind: "person";
+        /**
+         * Their name.
+         */
+        name: string;
+      }
+    | {
+        kind: "named_token";
+        /**
+         * Its name.
+         */
+        name: string;
+      }
+    | {
+        kind: "client_surface";
+        /**
+         * Its surface.
+         */
+        surface:
+          "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "console" | "cloud" | "browser_host" | "worker";
+      }
+    | {
+        kind: "engine";
+      };
+  /**
+   * What its kind records, such as a Secret reference and the domain it
+   * was sent to, never a secret's value.
+   */
+  details: {
+    [k: string]: unknown;
+  };
+  /**
+   * `SHA-256(previous hash ‖ RFC 8785 canonical JSON of the entry)`, in
+   * lowercase hex; an anchor's is the last pruned entry's.
+   */
+  hash: string;
+  /**
+   * Its kind, a value of the shared type `audit_kind`.
+   */
+  kind: string;
+  /**
+   * The settings layer its event came from, such as an Operator policy
+   * that switched a control off; none where no layer applies.
+   */
+  layer?: SettingsLayer | null;
+  /**
+   * The Run it happened in; none outside a Run.
+   */
+  run_id?: RunId | null;
+  /**
+   * Its place in the chain, from 1.
+   */
+  sequence: number;
+  /**
+   * The surface the actor acted through, such as `console` for a person
+   * in the Console; none for the engine's own events.
+   */
+  surface?: Surface | null;
+  /**
+   * A point in time in UTC, as RFC 3339.
+   */
+  time: string;
+}
+/**
  * What `audit.verify` answers.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1040,7 +1168,7 @@ export interface BodyHandle {
    */
   path: string;
   /**
-   * The Run whose folder holds it.
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
   /**
@@ -1381,7 +1509,7 @@ export interface ConsentDomainAllowed {
    */
   domain: string;
   /**
-   * The layer written: user configuration.
+   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
    */
   layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
   /**
@@ -2101,7 +2229,7 @@ export interface ExplainedSetting {
    */
   key: string;
   /**
-   * The layer that set it.
+   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
    */
   layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
   /**
@@ -2256,7 +2384,7 @@ export interface HelloParams {
    */
   protocol_version: string;
   /**
-   * The surface it comes from.
+   * The surface a `hello` comes from (ADR 0024).
    */
   surface: "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "console" | "cloud" | "browser_host" | "worker";
   /**

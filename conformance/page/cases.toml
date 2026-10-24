@@ -1,5 +1,5 @@
 # The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718, #859 and #709;
-# spec #580, ticket #783): a Collie program's pages, their locator actions
+# spec #580, tickets #783 and #789): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
 # local Proving ground (ADR 0094), each case on a Run of its own whose
@@ -536,3 +536,18 @@ covers = ["story:5-19", "operation:locator.wait_for", "operation:locator.wait_fo
 [[capability.case]]
 id = "each-wait-ends-at-timeout-wait-naming-what-it-waited-for"
 covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+
+[[capability]]
+name = "robots_txt"
+
+[[capability.case]]
+id = "a-programs-goto-to-a-disallowed-page-loads-and-provenance-names-the-disallowing-group"
+covers = ["story:6-62", "story:6-63", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "two-tabs-on-one-site-are-neither-delayed-nor-refused-under-crawl-delay-and-disallow"
+covers = ["story:6-63", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-run-reads-robots-txt-once-per-origin-into-its-own-copy-and-leaves-foxhounds-untouched"
+covers = ["story:6-62", "story:6-64", "operation:run.new_page", "operation:page.goto"]

@@ -36,7 +36,7 @@ pub use identity::{
     Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, url_key,
 };
 pub use learn::{PageSeen, learn};
-pub use politeness::longest_wait;
+pub use politeness::{longest_wait, refuse_second_copies};
 pub use queues::DomainQueues;
 pub use rules::{
     TABLES as RULES_TABLES, completeness_reasons as learned_completeness_reasons, learned_rules,

@@ -12,6 +12,7 @@ max_files = 4
 
 [settings.otlp]
 traces_endpoint = "example"
+logs_endpoint = "example"
 metrics_endpoint = "example"
 
 [settings.console]
@@ -107,6 +108,10 @@ key_reference = "env:EXAMPLE"
 
 [settings.checkpoint]
 interval = 30000
+
+[settings.audit]
+retention = 30000
+otlp = true
 
 [settings.timeout]
 secret = 30000
@@ -213,6 +218,11 @@ exclude = ["example"]
 
 [settings.fetch]
 tier = "auto"
+coalesce = true
+
+[settings.fetch.hedge]
+enabled = true
+max_percent = 4
 
 [settings.paid_fetch]
 domains = ["example"]

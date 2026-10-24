@@ -8,17 +8,27 @@
 //! or a truncation shows. `audit.verify` answers whether the log is intact,
 //! or the first sequence where it is not.
 //!
+//! `audit.export` answers every entry with its hash, which the CLI writes
+//! as JSONL, one entry per line in sequence, and an engine whose
+//! `audit.otlp` is on also sends each new entry to the OTLP collector
+//! `otlp.logs_endpoint` names as an OpenTelemetry event. `audit.retention`
+//! prunes the log from its beginning only: the entries older than it give
+//! way to an anchor entry carrying the last pruned hash, from which the
+//! rest still verifies, and a pruning record chained at the tail names
+//! that anchor, so an anchor rewritten or moved shows too.
+//!
 //! The kinds of entry are the values of the shared type `audit_kind`, each
 //! marked with the Product of the module that lists it, so that every area
-//! registers its own; this module lists the security area's.
+//! registers its own; this module lists the security area's and the
+//! Audit log's own.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::catalog::{
-    Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, SharedType,
-    SharedTypeValue, Stability, schema_of,
+    Authority, Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting,
+    SharedType, SharedTypeValue, Stability, ValueKind, schema_of,
 };
 use crate::connection::Surface;
 use crate::run::{PointInTime, RunId};
@@ -109,6 +119,81 @@ pub struct AuditVerified {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub first_broken: Option<u64>,
 }
+
+/// One entry of an exported Audit log, one line of its JSONL: the entry
+/// and the hash that chains it to the line before it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ExportedAuditEntry {
+    /// The entry, as its hash covers it.
+    #[serde(flatten)]
+    pub entry: AuditEntry,
+    /// `SHA-256(previous hash ‖ RFC 8785 canonical JSON of the entry)`, in
+    /// lowercase hex; an anchor's is the last pruned entry's.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub hash: String,
+}
+
+/// What `audit.export` takes: nothing.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AuditExportParams {}
+
+/// What `audit.export` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AuditExported {
+    /// Every entry the log holds, in sequence, each with its hash: the
+    /// anchor first when the log was pruned.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub entries: Vec<ExportedAuditEntry>,
+}
+
+/// `audit.export`.
+pub const AUDIT_EXPORT: Operation = Operation {
+    name: "audit.export",
+    description: "Exports the user's Audit log: every entry in sequence, each with the hash that chains it to the one before it, the anchor first when `audit.retention` pruned its beginning. The CLI's `audit export` writes them as JSONL, one entry per line, which `audit verify --file` verifies off the machine.",
+    class: OperationClass::Read,
+    kind: OperationKind::Query,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<AuditExportParams>,
+    result: schema_of::<AuditExported>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn none() -> Value {
+    Value::Null
+}
+
+fn off() -> Value {
+    Value::Bool(false)
+}
+
+/// `audit.retention` (ADR 0016).
+pub const AUDIT_RETENTION: Setting = Setting {
+    name: "audit.retention",
+    description: "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only.",
+    kind: ValueKind::Duration,
+    default: none,
+    clearable: true,
+    authority: Authority::Machine,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `audit.otlp` (ADR 0016).
+pub const AUDIT_OTLP: Setting = Setting {
+    name: "audit.otlp",
+    description: "Whether an engine process also sends each new Audit log entry, the hash with it, as an OpenTelemetry event to the OTLP/HTTP collector `otlp.logs_endpoint` names: off by default, and nothing is sent while `otlp.logs_endpoint` is unset. Read when the process starts; set in user configuration or an Operator policy only.",
+    kind: ValueKind::Boolean,
+    default: off,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
 
 /// `audit.verify`.
 pub const AUDIT_VERIFY: Operation = Operation {
@@ -226,18 +311,32 @@ pub const PRESSING_HARDER_VALUE_SET: SharedTypeValue = kind(
     "A run set a value that presses a site harder than its default, with the setting and its value (ADR 0086).",
 );
 
+/// The anchor a pruning leaves.
+pub const AUDIT_LOG_ANCHOR: SharedTypeValue = kind(
+    "audit_log_anchor",
+    "The first entry of a pruned Audit log, in place of the entries `audit.retention` pruned: the last pruned sequence, its hash, from which the rest chains, and the time and layer of the pruning that left it.",
+);
+
+/// A pruning of the Audit log's beginning.
+pub const AUDIT_LOG_PRUNED: SharedTypeValue = kind(
+    "audit_log_pruned",
+    "`audit.retention` pruned the Audit log's beginning: the last pruned sequence and its hash, which the anchor carries, and the retention, with the layer that set it.",
+);
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[AUDIT_VERIFY],
+    operations: &[AUDIT_EXPORT, AUDIT_VERIFY],
     events: &[],
     handler_requests: &[],
     error_codes: &[],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[],
+    settings: &[AUDIT_RETENTION, AUDIT_OTLP],
     hook_stages: &[],
     shared_type_values: &[
+        AUDIT_LOG_ANCHOR,
+        AUDIT_LOG_PRUNED,
         SECRET_REFERENCE_USED,
         SECURITY_SWITCH_TURNED_OFF,
         PRIVATE_ADDRESSES_ALLOWED,

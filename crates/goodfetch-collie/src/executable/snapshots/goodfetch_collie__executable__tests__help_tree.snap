@@ -9,6 +9,7 @@ Usage: goodfetch-collie [OPTIONS] <COMMAND>
 
 Commands:
   browsers         Manages the browser builds this version pins in the Browser cache
+  audit            Exports and verifies the user's Audit log
   certs            Lists, accepts and forgets the certificate pins of the user's known-certificates store
   console          Opens the Console in the browser, signed in: starts the major's Daemon unless one runs
   config           Shows the settings and where each value comes from
@@ -25,7 +26,6 @@ Commands:
   locator          Calls the catalog's `locator` operations
   response         Calls the catalog's `response` operations
   key-value-store  Calls the catalog's `key_value_store` operations
-  audit            Calls the catalog's `audit` operations
   sample           Calls the catalog's `sample` operations
 
 Options:
@@ -71,6 +71,40 @@ Usage: goodfetch-collie browsers clean [OPTIONS]
 
 Options:
       --dry-run       Lists what it would delete, and deletes nothing
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie audit --help
+Exports and verifies the user's Audit log
+
+Usage: goodfetch-collie audit [OPTIONS] <COMMAND>
+
+Commands:
+  export  Writes the user's Audit log to stdout as JSONL: one entry per line, in sequence, each with the hash that chains it to the line before it, the anchor first when `audit.retention` pruned its beginning. `audit verify --file` verifies what it wrote
+  verify  Verifies the user's Audit log, or with `--file` an export of it: every entry's hash chains it to the one before it, from the first or from the anchor a pruning left, and the log's head file names its last. Prints that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry shows
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie audit export --help
+Writes the user's Audit log to stdout as JSONL: one entry per line, in sequence, each with the hash that chains it to the line before it, the anchor first when `audit.retention` pruned its beginning. `audit verify --file` verifies what it wrote
+
+Usage: goodfetch-collie audit export [OPTIONS]
+
+Options:
+      --json          Prints a failure as JSON on stdout; the entries are JSON either way
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie audit verify --help
+Verifies the user's Audit log, or with `--file` an export of it: every entry's hash chains it to the one before it, from the first or from the anchor a pruning left, and the log's head file names its last. Prints that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry shows
+
+Usage: goodfetch-collie audit verify [OPTIONS]
+
+Options:
+      --file <FILE>   A file `audit export` wrote, verified in place of the log; it has no head file, so its tail is its last line
       --json          Prints the result as JSON
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
@@ -1118,30 +1152,6 @@ Options:
       --daemon           Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>     When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help             Print help
-
-$ goodfetch-collie audit --help
-Calls the catalog's `audit` operations
-
-Usage: goodfetch-collie audit [OPTIONS] <COMMAND>
-
-Commands:
-  verify  Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows
-
-Options:
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
-
-$ goodfetch-collie audit verify --help
-Verifies the user's Audit log: every entry's hash chains it to the one before it, and the head file names the last one. Answers that it is intact, or the first sequence that does not verify, so an edited, deleted, reordered or truncated entry, a truncated tail included, shows
-
-Usage: goodfetch-collie audit verify [OPTIONS]
-
-Options:
-      --json          Prints the result as JSON
-      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
-      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
 
 $ goodfetch-collie sample --help
 Calls the catalog's `sample` operations

@@ -69,7 +69,7 @@ use self::frames::{Frame, Frames};
 use self::messages::{ANSWER, Action, BINDING, Message, Outcome, RESTART, START};
 pub(crate) use self::walls::Walls;
 use self::walls::{Approval, Wall};
-use crate::driver::{GUARD_WORLD, PageDriver};
+use crate::driver::{Child, ChildKind, GUARD_WORLD, OnChild, PageDriver};
 use crate::guard::{self, Element, Readiness};
 use crate::hiding::{Part, Sheets};
 use crate::interception::domain_key;
@@ -112,7 +112,9 @@ impl Consent {
     /// `driver` drives for `run`: the bundle in the guard's world of every
     /// frame from the next document on, out-of-process iframes attached as
     /// they appear, hiding through the page's `sheets`; with the Run's
-    /// `consent.handling` off, only looking.
+    /// `consent.handling` off, only looking. It answers what the runner
+    /// does with each of the page's children before it runs: an
+    /// out-of-process iframe is prepared as the page is.
     ///
     /// # Errors
     ///
@@ -125,7 +127,7 @@ impl Consent {
         driver: &PageDriver,
         run: &Run,
         sheets: &Arc<Sheets>,
-    ) -> Result<(), CallError> {
+    ) -> Result<OnChild, CallError> {
         let resolved = run
             .settings()
             .map(goodfetch_engine::settings::RunSettings::resolved);
@@ -189,8 +191,24 @@ impl Consent {
                 },
             )
         })?;
-        run.spawn(listen(shared, session, events));
-        Ok(())
+        run.spawn(listen(Arc::clone(&shared), session, events));
+        Ok(Arc::new(move |child: &Child| {
+            let frame = (child.kind == ChildKind::Frame).then(|| {
+                (
+                    Arc::clone(&shared),
+                    child.parent.clone(),
+                    child.session.clone(),
+                    child.target.clone(),
+                )
+            });
+            Box::pin(async move {
+                if let Some((shared, parent, session, target)) = frame {
+                    attach(shared, parent, session, target).await;
+                }
+                // Prepared or not, the frame runs.
+                true
+            })
+        }))
     }
 }
 
@@ -209,8 +227,9 @@ struct Shared {
     walls: Walls,
 }
 
-/// Puts the bundle on every new document of `session`'s target and has its
-/// out-of-process iframes attached, each paused until it is prepared too.
+/// Puts the bundle on every new document of `session`'s target; the
+/// driver attaches its out-of-process iframes, each paused until it is
+/// prepared too (`driver::follow_children`).
 async fn prepare(shared: &Shared, session: &TargetSession) -> Result<(), goodfetch_cdp::Failure> {
     let driver = &shared.driver;
     driver
@@ -221,20 +240,6 @@ async fn prepare(shared: &Shared, session: &TargetSession) -> Result<(), goodfet
                 world_name: Some(GUARD_WORLD.to_owned()),
                 include_command_line_api: None,
                 run_immediately: Some(true),
-            },
-        )
-        .await?;
-    driver
-        .command_on(
-            session,
-            &target::SetAutoAttachParams {
-                auto_attach: true,
-                wait_for_debugger_on_start: true,
-                flatten: Some(true),
-                filter: Some(vec![target::FilterEntry {
-                    exclude: Some(false),
-                    r#type: Some("iframe".to_owned()),
-                }]),
             },
         )
         .await?;
@@ -264,13 +269,7 @@ fn listen_to(shared: &Arc<Shared>, session: TargetSession, events: Subscription)
 
 /// What `event` of `session` asks of the runner.
 async fn react(shared: &Arc<Shared>, session: &TargetSession, event: &goodfetch_cdp::RawEvent) {
-    if let Some(attached) = event.read::<target::AttachedToTargetEvent>() {
-        if attached.target_info.r#type == "iframe" {
-            let shared = Arc::clone(shared);
-            let parent = session.clone();
-            shared.run.clone().spawn(attach(shared, parent, attached));
-        }
-    } else if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
+    if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
         let detached = TargetSession(detached.session_id);
         shared.frames.lock().await.forget_session(&detached);
         shared.sheets.forget_session(&detached);
@@ -328,19 +327,15 @@ async fn react(shared: &Arc<Shared>, session: &TargetSession, event: &goodfetch_
     }
 }
 
-/// Prepares the out-of-process iframe `attached`, a child of `parent`, and
-/// lets it run.
+/// Prepares the out-of-process iframe on `session`, whose target is
+/// `target`, a child of `parent`, before it runs.
 async fn attach(
     shared: Arc<Shared>,
     parent: TargetSession,
-    attached: target::AttachedToTargetEvent,
+    session: TargetSession,
+    target: target::TargetID,
 ) {
-    let session = TargetSession(attached.session_id);
-    shared
-        .frames
-        .lock()
-        .await
-        .attach(&parent, &session, attached.target_info.target_id);
+    shared.frames.lock().await.attach(&parent, &session, target);
     let events = shared.driver.events_on(&session).await;
     let prepared = async {
         shared
@@ -350,16 +345,11 @@ async fn attach(
         prepare(&shared, &session).await
     }
     .await;
-    if let Err(failure) = &prepared {
-        tracing::debug!(%failure, "an out-of-process iframe was not prepared for the Consent prompt runner");
-    }
-    // A paused frame never left waiting, prepared or not.
-    let _ = shared
-        .driver
-        .command_on(&session, &runtime::RunIfWaitingForDebuggerParams {})
-        .await;
-    if prepared.is_ok() {
-        listen_to(&shared, session, events);
+    match prepared {
+        Ok(()) => listen_to(&shared, session, events),
+        Err(failure) => {
+            tracing::debug!(%failure, "an out-of-process iframe was not prepared for the Consent prompt runner");
+        }
     }
 }
 

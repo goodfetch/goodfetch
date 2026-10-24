@@ -17,6 +17,8 @@ use std::sync::Arc;
 use goodfetch_cdp::generated::target;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::governor::Permit;
+use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::Values;
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::connection::ClosedValue;
 use goodfetch_protocol::governor::WorkKind;
@@ -30,7 +32,7 @@ use super::life::{Ending, PageLife, session_closed};
 use super::lifecycle::PageEffect;
 use super::{OpenPage, Session, Sessions, timeouts, wait_deadline};
 use crate::driver::{OnPopup, PageDriver};
-use crate::hiding::Sheets;
+use crate::hiding::{PageHiding, Sheets};
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_value::ResponseObserver;
 use crate::pool::InBrowser;
@@ -129,29 +131,14 @@ impl Sessions {
         self.dialogs
             .start(page.clone(), driver.clone(), &run, driver.events().await);
         let pages = std::slice::from_ref(&page);
-        let started = async {
-            let clean_up = self
-                .interception
-                .start(
-                    &page,
-                    session,
-                    &driver,
-                    &run,
-                    &open.settings,
-                    refusals,
-                    observer,
-                )
-                .await?;
-            // Live hiding and the Consent prompt runner share each
-            // document's one hiding sheet.
-            let sheets = Arc::new(Sheets::new(driver.clone()));
-            let hiding = self
-                .hiding
-                .start(&page, session, &driver, &run, &clean_up, &sheets)
-                .await?;
-            self.consent.start(&page, &driver, &run, &sheets).await?;
-            Ok::<_, CallError>(hiding)
-        };
+        let started = self.hold(
+            (&page, session),
+            &driver,
+            &run,
+            &open.settings,
+            refusals,
+            observer,
+        );
         let hiding = match started.await {
             Ok(hiding) => hiding,
             Err(error) => {
@@ -199,6 +186,40 @@ impl Sessions {
                 .await;
         }
         Ok(page)
+    }
+
+    /// Puts the page `page` of the Session `session`, which `driver` drives
+    /// with the Session's own `settings`, under the interception, live
+    /// hiding and the Consent prompt runner, each of its out-of-process
+    /// frames and dedicated workers held by them before it runs; answers
+    /// its live hiding.
+    async fn hold(
+        &self,
+        (page, session): (&PageId, &SessionId),
+        driver: &PageDriver,
+        run: &Run,
+        settings: &Values,
+        refusals: Refusals,
+        observer: Option<Arc<dyn ResponseObserver>>,
+    ) -> Result<Option<Arc<PageHiding>>, CallError> {
+        let held = self
+            .interception
+            .start(page, session, driver, run, settings, refusals, observer)
+            .await?;
+        // Live hiding and the Consent prompt runner share each document's
+        // one hiding sheet.
+        let sheets = Arc::new(Sheets::new(driver.clone()));
+        let hiding = self
+            .hiding
+            .start(page, session, driver, run, &held.clean_up, &sheets)
+            .await?;
+        let consent = self.consent.start(page, driver, run, &sheets).await?;
+        // Each out-of-process frame and dedicated worker waits until the
+        // interception holds it and the runner prepared it.
+        driver
+            .follow_children(run, vec![held.children, consent])
+            .await?;
+        Ok(hiding)
     }
 
     /// What the Session `session` does with a popup one of its pages

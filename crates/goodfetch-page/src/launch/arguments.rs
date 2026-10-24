@@ -8,7 +8,11 @@
 //! 0085's question); the back/forward cache is off, so going back or
 //! forward always loads its document again (ADR 0121, with no setting);
 //! `network.resolve` reaches Chromium as host resolver rules (ADR 0059),
-//! and every `.invalid` name fails without a DNS query; and a small
+//! and every `.invalid` name fails without a DNS query; the Run's domain
+//! policy, when it refuses any host, reaches it as a proxy auto-config
+//! script, so a connection no interception sees, a WebSocket's or WebRTC's
+//! over TCP, is held to it too, and WebRTC sends no UDP, which no proxy
+//! carries (ADRs 0014 and 0044); and a small
 //! `/dev/shm`, such as the 64 MB Kubernetes
 //! and Docker give, moves Chromium's shared memory to `/tmp` with a warning
 //! (ADR 0049).
@@ -17,6 +21,7 @@ use std::fmt;
 use std::net::IpAddr;
 use std::path::Path;
 
+use data_encoding::BASE64;
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 
 /// The `/dev/shm` below which Chromium's shared memory moves to `/tmp`:
@@ -37,6 +42,11 @@ const BACKGROUND_PAGES: [&str; 3] = [
 /// setting's rules, which come first.
 const INVALID_NAMES: &str = "MAP *.invalid ~NOTFOUND";
 
+/// WebRTC's policy: no UDP that no proxy carries, so each of its
+/// connections goes over TCP, where the browser's proxy resolution holds it
+/// (ADR 0044).
+const WEBRTC_POLICY: &str = "--webrtc-ip-handling-policy=disable_non_proxied_udp";
+
 /// What a launch decided.
 pub(crate) struct Launch<'a> {
     /// The profile folder, the Run's own.
@@ -47,6 +57,9 @@ pub(crate) struct Launch<'a> {
     pub(crate) resolve: &'a [(String, Vec<IpAddr>)],
     /// The size of `/dev/shm` in bytes, where one was measured.
     pub(crate) shared_memory: Option<u64>,
+    /// The Run's domain policy as a proxy auto-config script, when it
+    /// refuses any host.
+    pub(crate) proxy_script: Option<&'a str>,
 }
 
 /// The command line, and the warnings it comes with.
@@ -98,6 +111,13 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
         .map(str::to_owned),
     );
     arguments.extend(chromium_background_traffic_off());
+    arguments.push(WEBRTC_POLICY.to_owned());
+    if let Some(script) = launch.proxy_script {
+        arguments.push(format!(
+            "--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,{}",
+            BASE64.encode(script.as_bytes())
+        ));
+    }
     let mut warnings = Vec::new();
     if let Some(bytes) = launch
         .shared_memory

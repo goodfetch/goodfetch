@@ -21,6 +21,7 @@ fn launch(headless: bool, shared_memory: Option<u64>) -> Launch<'static> {
         headless,
         resolve: &[],
         shared_memory,
+        proxy_script: None,
     }
 }
 
@@ -213,5 +214,43 @@ fn every_launch_carries_every_entry_of_the_background_traffic_table() {
             omitted(&arguments(&launch(false, None))),
         ),
         ((Vec::new(), 1), (Vec::new(), 1))
+    );
+}
+
+/// The Run's domain policy reaches the browser as the proxy auto-config
+/// script it gives, whole, and only when it gives one; WebRTC sends no UDP
+/// a proxy could not carry either way (ADRs 0014 and 0044).
+#[test]
+fn a_policy_script_reaches_the_browser_as_its_proxy_configuration() {
+    let script = "function FindProxyForURL(url, host) { return \"DIRECT\"; }";
+    let held = arguments(&Launch {
+        proxy_script: Some(script),
+        ..launch(true, None)
+    });
+    let open = arguments(&launch(true, None));
+    let configured = |built: &Arguments| {
+        built
+            .arguments
+            .iter()
+            .filter_map(|argument| {
+                argument
+                    .strip_prefix("--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,")
+            })
+            .map(|encoded| {
+                String::from_utf8(data_encoding::BASE64.decode(encoded.as_bytes()).unwrap())
+                    .unwrap()
+            })
+            .collect::<Vec<_>>()
+    };
+    let webrtc = "--webrtc-ip-handling-policy=disable_non_proxied_udp";
+
+    assert_eq!(
+        (
+            configured(&held),
+            configured(&open),
+            has(&held, webrtc),
+            has(&open, webrtc)
+        ),
+        (vec![script.to_owned()], Vec::new(), true, true)
     );
 }

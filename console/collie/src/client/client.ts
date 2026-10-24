@@ -134,6 +134,12 @@ export interface Subscription extends AsyncIterable<StreamItem> {
 /** The streams a Client subscribes to. */
 export type StreamName = "events";
 
+/** What a call takes besides its params. */
+export interface CallOptions {
+  /** Cancels the call once aborted. */
+  readonly signal?: AbortSignal | undefined;
+}
+
 /** The Console's Client. */
 export interface ConsoleClient {
   /** Where it stands. */
@@ -142,10 +148,15 @@ export interface ConsoleClient {
   watch(changed: (state: ConnectionState) => void): () => void;
   /** The engine of the current Connection, once its `hello` is answered. */
   readonly engine: EngineIdentity | undefined;
-  /** Calls `operation` of the catalog with its wire params and answers its wire result. */
+  /**
+   * Calls `operation` of the catalog with its wire params and answers its
+   * wire result; aborting `options.signal` cancels it, on the engine too,
+   * and rejects it with the signal's reason.
+   */
   call<Name extends keyof ConsoleOperations>(
     operation: Name,
     params: ConsoleOperations[Name]["params"],
+    options?: CallOptions,
   ): Promise<ConsoleOperations[Name]["result"]>;
   /** Subscribes to `stream`, after `after` when given, else from now. */
   subscribe(stream: StreamName, options?: { readonly after?: LastRead | undefined }): Subscription;
@@ -419,15 +430,20 @@ class Client implements ConsoleClient {
   async call<Name extends keyof ConsoleOperations>(
     operation: Name,
     params: ConsoleOperations[Name]["params"],
+    options: CallOptions = {},
   ): Promise<ConsoleOperations[Name]["result"]> {
+    const { signal } = options;
     // A read or an idempotent write waits for a Connection and is sent
     // again on the next one when its own drops; an Effect never is (ADR
     // 0079).
     const sentAgain = operationClasses[operation] !== "effect";
     for (;;) {
-      const opened = sentAgain ? await this.#connected(operation) : this.#current(operation);
+      signal?.throwIfAborted();
+      const opened = sentAgain
+        ? await this.#connected(operation, signal)
+        : this.#current(operation);
       try {
-        const result = await opened.channel.call(operation, params);
+        const result = await opened.channel.call(operation, params, { signal });
         // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
         return result as ConsoleOperations[Name]["result"];
       } catch (error) {
@@ -448,14 +464,26 @@ class Client implements ConsoleClient {
     return opened;
   }
 
-  /** The Connection a call goes on, once there is one; `connection_lost` once the Client is closed. */
-  async #connected(operation: string): Promise<Opened> {
+  /**
+   * The Connection a call goes on, once there is one; `connection_lost`
+   * once the Client is closed, and the signal's reason once it is aborted.
+   */
+  async #connected(operation: string, signal: AbortSignal | undefined): Promise<Opened> {
     while (!this.#closed) {
+      signal?.throwIfAborted();
       const opened = this.#opened;
       if (opened !== undefined && this.#state === "connected") {
         return opened;
       }
-      await new Promise<void>((resolve) => this.#waiting.add(resolve));
+      await new Promise<void>((resolve) => {
+        const woken = (): void => {
+          signal?.removeEventListener("abort", woken);
+          this.#waiting.delete(woken);
+          resolve();
+        };
+        this.#waiting.add(woken);
+        signal?.addEventListener("abort", woken, { once: true });
+      });
     }
     throw lost(operation);
   }

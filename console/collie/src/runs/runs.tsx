@@ -7,7 +7,7 @@
 // erased, never dropped. A live run's row follows its axes and status line
 // from the event stream without reading the list again; a run the list does
 // not hold, an axis change under a filter that names an axis, or a resync
-// reads it again.
+// reads it again. Each row's Run ID links to the run's page.
 import type {
   RunIndexRow,
   RunListParams,
@@ -479,9 +479,14 @@ function RunRow({ row }: { readonly row: RunIndexRow }): ReactNode {
   return (
     <tr className="border-b align-top">
       <th scope="row" className="py-2 pr-4 text-left font-normal">
-        <code translate="no" className="font-mono">
-          {row.run_id}
-        </code>
+        <a
+          href={`/runs/${encodeURIComponent(row.run_id)}`}
+          className="rounded-sm underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <code translate="no" className="font-mono">
+            {row.run_id}
+          </code>
+        </a>
         <Presence row={row} />
         {watch ? (
           <span className="block text-sm text-muted-foreground">

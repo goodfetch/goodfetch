@@ -124,6 +124,7 @@ impl Subject {
                     SCOPE_TABLES,
                     BOUNDS_TABLES,
                     goodfetch_frontier::RULES_TABLES,
+                    goodfetch_frontier::payload::TABLES,
                 ],
                 1,
                 &owner,

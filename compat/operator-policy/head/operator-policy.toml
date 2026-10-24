@@ -230,6 +230,9 @@ strategy = "same_hostname"
 include = ["example"]
 exclude = ["example"]
 
+[settings.crawl.payload]
+max_size = 4
+
 [settings.fetch]
 tier = "auto"
 coalesce = true
@@ -480,6 +483,9 @@ strategy = "same_hostname"
 include = ["example"]
 exclude = ["example"]
 
+[lock.crawl.payload]
+max_size = 4
+
 [lock.fetch]
 tier = "auto"
 coalesce = true
@@ -612,6 +618,9 @@ max = 4
 
 [cap.crawl.handler]
 concurrency = 4
+
+[cap.crawl.payload]
+max_size = 4
 
 [cap.fetch.hedge]
 max_percent = 4

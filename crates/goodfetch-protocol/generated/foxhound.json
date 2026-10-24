@@ -1888,6 +1888,14 @@
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
         },
+        "labels": {
+          "additionalProperties": {
+            "$ref": "#/$defs/LabelDeclaration"
+          },
+          "arrived_in": "0.1",
+          "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone (ADRs 0082 and 0093). A Payload of a declared schema is checked\nagainst it at every enqueue; a Label the crawl does not declare\ntakes any Payload.",
+          "type": "object"
+        },
         "project": {
           "anyOf": [
             {
@@ -3395,6 +3403,17 @@
       ],
       "type": "object"
     },
+    "LabelDeclaration": {
+      "additionalProperties": false,
+      "description": "One Label a crawl declares (ADRs 0082 and 0093).",
+      "properties": {
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema its requests' Payloads are checked against, the\nside the program's schema parses from; none takes any Payload."
+        }
+      },
+      "type": "object"
+    },
     "LastRead": {
       "additionalProperties": false,
       "description": "The last event a Client read: its position, and the engine instance\nthat gave it.",
@@ -4054,6 +4073,31 @@
         }
       ]
     },
+    "NeedsYouDenyWallDomainParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.deny_wall_domain` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The registrable domain to deny.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why, such as the site's objection; required.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "reason"
+      ],
+      "type": "object"
+    },
     "NeedsYouDismissParams": {
       "additionalProperties": false,
       "description": "What `needs_you.dismiss` takes.",
@@ -4101,7 +4145,7 @@
         "details": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,\n`limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for\n`consent_wall`, `domain`.",
+          "description": "Its kind's own fields, which the kind's value in the catalog names:\nfor `storage_level`, `level` and `folder`; for\n`run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,\n`limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for\n`consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,\n`cause`, the `layer` and `file` that list it and `only_star`; for\n`certificate_changed`, `host`, `person`, `pinned_spki_sha256` and\n`presented_spki_sha256`.",
           "type": "object"
         },
         "id": {
@@ -4223,6 +4267,36 @@
           "type": "string"
         }
       ]
+    },
+    "NeedsYouRemoveRefetchDomainParams": {
+      "additionalProperties": false,
+      "description": "What `needs_you.remove_refetch_domain` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The registrable domain, as a `wall_refetch_stopped` item names it.",
+          "type": "string"
+        },
+        "instead_of_star": {
+          "arrived_in": "0.1",
+          "description": "When only `*` covers the domain in its layer, the registrable\ndomains that replace `*` there, the domain itself not among them.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "type": "object"
     },
     "NewPageParams": {
       "additionalProperties": false,
@@ -5651,6 +5725,47 @@
         "mode",
         "file",
         "responses_used"
+      ],
+      "type": "object"
+    },
+    "RefetchDomainRemoved": {
+      "description": "What `needs_you.remove_refetch_domain` answers.",
+      "properties": {
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain.",
+          "type": "string"
+        },
+        "domains": {
+          "arrived_in": "0.1",
+          "description": "That layer's `wall.refetch_domains` now.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "layer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The layer that listed it, and now does not; none when no layer was\nchanged."
+        },
+        "removed": {
+          "arrived_in": "0.1",
+          "description": "Whether its layer changed: false when neither user configuration\nnor the Operator policy lists it, which then changed nothing and\nrecorded nothing.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "domain",
+        "removed",
+        "domains"
       ],
       "type": "object"
     },
@@ -9747,6 +9862,32 @@
         }
       ]
     },
+    "WallDomainDenied": {
+      "description": "What `needs_you.deny_wall_domain` answers.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "Whether it was added: false when the Operator policy denied it\nalready, which then changed nothing and recorded nothing.",
+          "type": "boolean"
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "The domain, as `wall.denied_domains` now lists it.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "The reason, as the Audit log records it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "added",
+        "reason"
+      ],
+      "type": "object"
+    },
     "WeakenedSetting": {
       "description": "A setting that weakened a safeguard for a Run (ADR 0028): its key, its\nvalue, the layer that set it and, for the run layer, where the value came\nfrom.",
       "properties": {
@@ -10405,6 +10546,26 @@
       "json_rpc_class": -32001,
       "name": "pattern_unsupported",
       "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A crawl request's Payload was refused when it was enqueued, as a seed, an added seed or a handler's enqueue: it does not fit its Label's JSON Schema, each issue named by its path, or its JSON is longer than `crawl.payload.max_size`, which `limit` names. Nothing was added. Large content goes to the Key-value store, and the Payload carries its key.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "payload_invalid",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawl now declares a Label's Payload JSON Schema that the Run did not begin with, and Payloads of that Label's pending requests fail it, so the Run was not resumed and did no work. The details name the Label, how many pending Payloads fail out of how many, and the first failure. Give the new field a default in the schema, or start a new Run: a Payload is never migrated silently.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "payload_schema_changed",
+      "product": "foxhound",
       "retryable": false
     },
     {
@@ -12208,6 +12369,27 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
+      "description": "Adds a registrable domain, with its required reason, to `wall.denied_domains` in the Operator policy, creating the file when there is none, so no run reads past its Walls or refetches its pages whatever another layer allows (ADR 0052), and records the denial and its reason in the Audit log; answers whether it added it. One call, no confirmation asked. A managed Operator policy refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item of the domain leaves the list with `needs_you.changed`.",
+      "events": [
+        "needs_you.changed"
+      ],
+      "kind": "round_trip",
+      "name": "needs_you.deny_wall_domain",
+      "params": {
+        "$ref": "#/$defs/NeedsYouDenyWallDomainParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/WallDomainDenied"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
       "description": "Hides an item of \"Needs you\" whose source lets a person dismiss it, for every Client, and answers whether it did; an item the list no longer holds, or one only resolving it removes, stays as it is. The item leaves the list with `needs_you.changed`.",
       "events": [
         "needs_you.changed"
@@ -12240,6 +12422,27 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/NeedsYouList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Removes a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that lists it, user configuration or else the Operator policy, every other entry and byte of the file kept, and records the answer in the Audit log; answers whether it removed it. When only `*` covers the domain there, `instead_of_star` gives the registrable domains that replace `*`, and without it the call is refused with `invalid_params`. A domain only project configuration lists is changed in that file, never here. A managed Operator policy, or one that locks the key against user configuration, refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item leaves the list with `needs_you.changed`.",
+      "events": [
+        "needs_you.changed"
+      ],
+      "kind": "round_trip",
+      "name": "needs_you.remove_refetch_domain",
+      "params": {
+        "$ref": "#/$defs/NeedsYouRemoveRefetchDomainParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/RefetchDomainRemoved"
       },
       "stability": "experimental"
     },
@@ -13994,6 +14197,23 @@
           "type": "object"
         },
         "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 65536,
+      "description": "The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.",
+      "name": "crawl.payload.max_size",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },
@@ -16919,8 +17139,22 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A pinned host whose certificate presented another public key, stopped with `certificate_changed` (ADR 0042); `details` give the `host`, the `person` whose known-certificates store holds the pin, and both keys' SHA-256 as `pinned_spki_sha256` and `presented_spki_sha256`; `run` is the Run that met it. Its actions offer `certs.accept` and `certs.forget`, which that person alone answers. It leaves the list once they answer.",
+      "name": "certificate_changed",
+      "product": "collie",
+      "type": "needs_you_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The certificate exceptions a run used, once per run, by host and kind (ADR 0042).",
       "name": "certificate_exceptions_used",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person removed their pin of a host, and any change waiting for it, so its next connection under trust on first use pins again (ADR 0042).",
+      "name": "certificate_pin_forgotten",
       "product": "collie",
       "type": "audit_kind"
     },
@@ -17297,6 +17531,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A person removed a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that listed it, or replaced `*` there with a list (ADR 0052); `details` give the `domain` and the layer's `domains` after.",
+      "name": "refetch_domain_removed",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Requests a run sent: a crawl's Crawl requests, and a page's navigations.",
       "name": "requests",
       "product": "collie",
@@ -17427,6 +17668,20 @@
       "name": "trap_path",
       "product": "foxhound",
       "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person added a domain to `wall.denied_domains` in the Operator policy, so no run reads past its Walls or refetches its pages (ADR 0052); `details` give the `domain` and the `reason`.",
+      "name": "wall_domain_denied",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A domain on which a Run's refetch without the site's stored data stopped, at a Block cause, a 401 or 403 status or a login page (ADR 0052); `details` give the `domain`, the `cause`, and the `layer` of `wall.refetch_domains` that lists it with its `file`, and whether `only_star` covers it there; `run` is the last Run whose refetch stopped there. Its actions offer `needs_you.remove_refetch_domain`, except for a domain project configuration lists, which is changed in its file, and `needs_you.deny_wall_domain`. It leaves the list once no layer lists the domain, once `wall.denied_domains` denies it, or when a person dismisses it.",
+      "name": "wall_refetch_stopped",
+      "product": "collie",
+      "type": "needs_you_kind"
     }
   ]
 }

@@ -9,10 +9,6 @@
     clippy::disallowed_methods,
     reason = "tests run on the test Clock (ADR 0059)"
 )]
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

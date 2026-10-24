@@ -21,7 +21,7 @@ use goodfetch_test_support::{
 use serde_json::{Map, Value, json};
 
 use crate::daemon::RawClient;
-use crate::daemon_run::{Foreground, free_address, opened};
+use crate::daemon_run::{ANY_PORT, Foreground, opened, took_a_free_port};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -104,7 +104,6 @@ fn cli() {
         .expect("J-015's cli variant starts");
     let cache = browser_cache(run.env()).expect("Playwright's Chrome for Testing is installed");
     let cache = cache.to_string_lossy().into_owned();
-    let address = free_address();
     let mut variables: Vec<(&str, &str)> = vec![(BROWSERS_PATH_VARIABLE, &cache)];
     let mut first: Option<Foreground> = None;
     let mut endpoint: Option<DaemonEndpoint> = None;
@@ -121,7 +120,7 @@ fn cli() {
         "Configure the Daemon's address through a configuration file and its drain grace period through an environment variable",
         |run| {
             run.env().user_configuration(&format!(
-                "daemon.address = \"{address}\"\ndaemon.idle_timeout = 100\n"
+                "daemon.address = \"{ANY_PORT}\"\ndaemon.idle_timeout = 100\n"
             ));
             variables.push(("GOODFETCH_DAEMON_DRAIN_GRACE", DRAIN_GRACE));
         },
@@ -224,8 +223,11 @@ fn cli() {
         "The foreground Daemon listened on the configured address and wrote no runtime file",
         |_| {
             assert_eq!(
-                (endpoint.clone(), RuntimeFile::path(&home, VERSION).exists()),
-                (Some(DaemonEndpoint::Tcp(address)), false)
+                (
+                    endpoint.as_ref().is_some_and(took_a_free_port),
+                    RuntimeFile::path(&home, VERSION).exists()
+                ),
+                (true, false)
             );
         },
     );

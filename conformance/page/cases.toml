@@ -252,6 +252,10 @@ id = "an-unanswered-route-lets-the-request-through-and-the-page-loads"
 covers = ["story:5-40", "operation:page.route", "operation:page.goto"]
 
 [[capability.case]]
+id = "a-routes-header-value-with-a-line-break-or-a-nul-is-refused-before-the-browser"
+covers = ["operation:route.continue", "operation:route.fallback", "operation:route.fulfill", "error:header_value_invalid"]
+
+[[capability.case]]
 id = "a-route-whose-handler-fails-aborts-its-request-is-removed-and-the-waiting-call-raises-page-handler-failed"
 covers = ["story:5-41", "operation:page.route", "error:page_handler_failed"]
 
@@ -450,6 +454,14 @@ covers = ["story:5-44", "operation:page.request", "operation:run.new_session", "
 [[capability.case]]
 id = "page-request-passes-the-pages-domain-policy"
 covers = ["story:5-44", "operation:page.request", "error:egress_refused"]
+
+[[capability.case]]
+id = "page-request-refuses-a-header-value-with-a-line-break-or-a-nul-before-the-browser"
+covers = ["operation:page.request", "error:header_value_invalid"]
+
+[[capability.case]]
+id = "page-request-refuses-a-body-past-the-runs-limits-naming-the-setting"
+covers = ["operation:page.request", "error:response_limit_exceeded"]
 
 [[capability.case]]
 id = "no-service-worker-answers-a-page-request"

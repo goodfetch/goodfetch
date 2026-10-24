@@ -11,6 +11,7 @@
 //! `page.request` sends (the browser-fetch tier), never through the copy
 //! Foxhound shares.
 
+use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::robots_txt::{self, Fetched, Judgment, RobotsTxt};
 use goodfetch_protocol::page::{PageId, SessionId};
 use serde_json::{Value, json};
@@ -49,11 +50,14 @@ pub(super) fn read(
     let session = page.session.clone();
     let value = page.driver.value().clone();
     let run = page.run.clone();
+    let limits = run
+        .settings()
+        .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
     page.run.spawn(async move {
         let fetched = run
             .robots_txt()
             .copy(&location, || {
-                fetch(&sessions, &steps, &session, &value, &location)
+                fetch(&sessions, &steps, &session, &value, &location, limits)
             })
             .await;
         let reading = Reading {
@@ -67,13 +71,15 @@ pub(super) fn read(
 }
 
 /// Fetches `location` from a page of the Session `session` the engine
-/// opens for it and closes after, as `page.request` sends a request.
+/// opens for it and closes after, as `page.request` sends a request, its
+/// body under the Run's `limits` (SC-05).
 async fn fetch(
     sessions: &Sessions,
     steps: &EngineRequests,
     session: &SessionId,
     value: &PageValue,
     location: &Url,
+    limits: Limits,
 ) -> Fetched {
     let (driver, in_browser) = match sessions.engine_page(session, value).await {
         Ok(opened) => opened,
@@ -86,6 +92,7 @@ async fn fetch(
         post_data: None,
         max_redirects: REDIRECTS,
         option: "robots.txt",
+        limits,
     };
     let fetched = browser_fetch::send(&driver, steps, &request).await;
     driver.close().await;

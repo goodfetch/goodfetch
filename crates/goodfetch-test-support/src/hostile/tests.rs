@@ -332,6 +332,10 @@ fn the_committed_tables_name_the_proving_grounds_hostile_pages() {
             ("limits", "brotli_bomb", "bombs/3"),
             ("limits", "zstd_bomb", "bombs/4"),
             ("limits", "stacked_codings_bomb", "bombs/5"),
+            ("limits", "body_past_64_mib", "body-limits/1"),
+            ("limits", "endless_chunked_body", "body-limits/2"),
+            ("limits", "endless_close_delimited_body", "body-limits/3"),
+            ("limits", "response_json_past_128_deep", "body-limits/4"),
             ("limits", "response_head_past_256_kib", "headers/1"),
         ]
     );

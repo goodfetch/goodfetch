@@ -1235,6 +1235,46 @@
       "start_url": "https://11.content-coding.test/page"
     },
     {
+      "description": "Read the start page as one Record with `id` and `text`. Its body is one byte past 64 MiB, the engine's `network.max_body_size`, and says so in its `Content-Length`. A correct tool refuses it at the limit rather than reading it whole.",
+      "digest": "f340cbd83470884ee81f0b152f850e438bb8da64a5e057e3764d82a18b22a5bc",
+      "family": "body-limits",
+      "id": "body-limits/1",
+      "kind": "extract",
+      "start_url": "https://1.body-limits.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `text`. Its body is chunked and never sends its last chunk. A correct tool stops it at the engine's `network.max_body_size` rather than reading it without end.",
+      "digest": "08d89c95755a4b8e2086afda439416cc4222837371df032e64b059b645d331db",
+      "family": "body-limits",
+      "id": "body-limits/2",
+      "kind": "extract",
+      "start_url": "https://2.body-limits.test/"
+    },
+    {
+      "description": "Read the start page as one Record with `id` and `text`. Its body has no length and never closes. A correct tool stops it at the engine's `network.max_body_size` rather than reading it without end.",
+      "digest": "a67d9cb5a7e903045c11cb2b96abb409143eb423e57bb7ad8e8b4130486ae1e9",
+      "family": "body-limits",
+      "id": "body-limits/3",
+      "kind": "extract",
+      "start_url": "https://3.body-limits.test/"
+    },
+    {
+      "description": "Read the API's answer as one Record with `id` and `text`. Its JSON nests arrays 129 deep, past the engine's `network.max_json_depth`. A correct tool refuses it before it parses it.",
+      "digest": "8606df3ef4dd5da0ee333bdd8e4fcbb3e3824b925ba99d65798dddeb5015671d",
+      "family": "body-limits",
+      "id": "body-limits/4",
+      "kind": "extract",
+      "start_url": "https://4.body-limits.test/api"
+    },
+    {
+      "description": "Read the API's answer as one Record with `id` and `text`: the object nested 128 deep, as deep as the engine's `network.max_json_depth` keeps. A correct tool keeps it.",
+      "digest": "247590e210551a9bfc8f65f55a78e91312444c5e0194b1267d1d541c508f0498",
+      "family": "body-limits",
+      "id": "body-limits/5",
+      "kind": "extract",
+      "start_url": "https://5.body-limits.test/api"
+    },
+    {
       "description": "Extract the page the start URL leads to as one Record with `id` and `word`. The start page redirects as the SSRF case table's case its path names does (ADR 0067), to a private address or to a scheme other than HTTP: a correct tool refuses it with the case's typed error and no connection reaches the target.",
       "digest": "d77a650e322771a5dfe83170c39214c1374134c7ba3567d3fed43cdd314795e3",
       "family": "redirects",

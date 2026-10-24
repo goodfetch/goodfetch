@@ -73,7 +73,19 @@ fn scenario() -> Vec<Value> {
         call(
             4,
             "run.start",
-            json!({ "run_id": "aborted-run", "tags": ["manual"] }),
+            json!({
+                "run_id": "aborted-run",
+                "tags": ["manual"],
+                "project": {
+                    "path": "/corpus/project/goodfetch.toml",
+                    "settings": { "wall": { "domains": ["walled.example"], "refetch_domains": ["walled.example"] } },
+                },
+            }),
+        ),
+        call(
+            32,
+            "compat.refetch_stopped",
+            json!({ "run_id": "aborted-run", "domain": "walled.example", "cause": "status_403" }),
         ),
         call(5, "run.abort", json!({ "run_id": "aborted-run" })),
         call(6, "needs_you.dismiss", json!({ "item": WAITING })),

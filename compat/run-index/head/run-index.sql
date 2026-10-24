@@ -27,6 +27,7 @@ CREATE TABLE refetch_stops (
         PRIMARY KEY (domain, run_id)
     ) STRICT;
 INSERT INTO "refetch_stops" VALUES('walled.example','finished-run','challenge',NULL,'2026-01-05T09:00:00Z');
+INSERT INTO "refetch_stops" VALUES('walled.example','aborted-run','status_403','/corpus/project/goodfetch.toml','2026-01-05T09:00:00Z');
 CREATE TABLE runs (
         run_id TEXT NOT NULL PRIMARY KEY,
         location TEXT NOT NULL,

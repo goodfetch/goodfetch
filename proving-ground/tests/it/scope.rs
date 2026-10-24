@@ -154,3 +154,20 @@ fn the_storage_page_keeps_its_mark_in_a_cookie_and_its_report_answers() {
         )
     );
 }
+
+#[test]
+fn the_quiet_page_shows_its_mark_or_none_for_an_unsafe_one() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let marked = proving_ground.get(&proving_ground.url("scope.test", "/quiet?mark=turns-1"));
+    let unmarked = proving_ground.get(&proving_ground.url("scope.test", "/quiet?mark=a%3Bb"));
+
+    assert_eq!(
+        (
+            marked.status,
+            marked.body.contains("<p id=\"mark\">turns-1</p>"),
+            unmarked.body.contains("<p id=\"mark\">none</p>"),
+        ),
+        (200, true, true)
+    );
+}

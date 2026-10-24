@@ -2,9 +2,10 @@
 // token when the address carries one, then connects the Console's Client
 // over the WebSocket on its own origin, or over Server-Sent Events plus
 // `POST` where WebSockets are refused, and renders the shell, with the
-// Console's messages and design system.
+// Console's messages and design system, over the window's address.
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { windowAddress } from "./address.ts";
 import {
   documentVisibility,
   eventStreamTransport,
@@ -44,7 +45,11 @@ const client =
 createRoot(root).render(
   <StrictMode>
     <ConsoleI18n>
-      <Shell client={client} route={window.location.pathname} />
+      <Shell
+        client={client}
+        route={window.location.pathname}
+        address={windowAddress(window.location, window.history)}
+      />
     </ConsoleI18n>
   </StrictMode>,
 );

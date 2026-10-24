@@ -17,4 +17,10 @@
 feature = "screen:/settings"
 route = "/settings"
 sign_in = "signed-in"
-walk = ["link Overview", "link Engine & settings", "button Project configuration", "textbox Run values", "button Explain"]
+walk = ["link Overview", "link Runs", "link Engine & settings", "button Project configuration", "textbox Run values", "button Explain"]
+
+[[screen]]
+feature = "screen:/runs"
+route = "/runs"
+sign_in = "signed-in"
+walk = ["link Overview", "link Runs", "link Engine & settings", "searchbox Search", "combobox Lifecycle", "combobox Verdict", "combobox Completeness", "textbox Tags", "combobox Sort by", "combobox Order", "button More filters", "button Apply"]

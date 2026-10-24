@@ -5120,6 +5120,17 @@
       ]
     },
     {
+      "id": "screen:/runs",
+      "kind": "screen",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "screen:/settings",
       "kind": "screen",
       "area": 12,

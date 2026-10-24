@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::failure::{Failure, PartyText};
+use crate::failure::{Failure, PartyText, Refusal};
 use crate::framing::{Framer, FramingError, frame};
 
 /// How many requests wait for the driver before their senders wait.
@@ -251,8 +251,18 @@ fn read<T: DeserializeOwned>(method: &'static str, answer: Value) -> Result<T, F
 
 struct Pending {
     method: &'static str,
+    /// The target's session it was sent on, if any.
+    session: Option<SessionId>,
     answer: oneshot::Sender<Result<Value, Failure>>,
 }
+
+/// The browser's event that a target's session ended: its target closed,
+/// or its browser context was disposed under it.
+const DETACHED: &str = "Target.detachedFromTarget";
+
+/// The code of Chromium's refusal of a command on a session it no longer
+/// has.
+const NO_SESSION: i64 = -32001;
 
 impl<R, W> Driver<R, W>
 where
@@ -280,15 +290,15 @@ where
                     let id = next_id;
                     next_id += 1;
                     let mut message = json!({ "id": id, "method": method, "params": params });
-                    if let Some(session) = session {
-                        message["sessionId"] = Value::String(session.0);
+                    if let Some(session) = &session {
+                        message["sessionId"] = Value::String(session.0.clone());
                     }
                     tracing::trace!(target: "goodfetch::cdp::command", method, id, "sending");
                     if let Err(error) = self.writer.write_all(&frame(&message)).await {
                         let _ = answer.send(Err(Failure::Disconnected));
                         break Ended::Broken(error.kind());
                     }
-                    pending.insert(id, Pending { method, answer });
+                    pending.insert(id, Pending { method, session, answer });
                 }
                 read = self.reader.read(&mut buffer) => {
                     match read {
@@ -332,7 +342,7 @@ fn dispatch(bytes: &[u8], pending: &mut BTreeMap<u64, Pending>, subscribers: &Sh
         return;
     };
     if let Some(id) = message.get("id").and_then(Value::as_u64) {
-        let Some(Pending { method, answer }) = pending.remove(&id) else {
+        let Some(Pending { method, answer, .. }) = pending.remove(&id) else {
             return;
         };
         let answered = match message.get("error") {
@@ -355,6 +365,9 @@ fn dispatch(bytes: &[u8], pending: &mut BTreeMap<u64, Pending>, subscribers: &Sh
         method,
         params: message.get_mut("params").map_or(Value::Null, Value::take),
     });
+    if session.is_none() && event.method == DETACHED {
+        detached(&event.params, pending);
+    }
     lock(subscribers).list.retain(|(subscribed, events)| {
         if events.is_closed() {
             return false;
@@ -374,6 +387,35 @@ fn dispatch(bytes: &[u8], pending: &mut BTreeMap<u64, Pending>, subscribers: &Sh
             }
         }
     });
+}
+
+/// Fails at once each command in flight on the session the browser
+/// detached, as `params` of its `Target.detachedFromTarget` name it: the
+/// browser never answers one, and its target is gone.
+fn detached(params: &Value, pending: &mut BTreeMap<u64, Pending>) {
+    let Some(gone) = params.get("sessionId").and_then(Value::as_str) else {
+        return;
+    };
+    let ids: Vec<u64> = pending
+        .iter()
+        .filter(|(_, command)| {
+            command
+                .session
+                .as_ref()
+                .is_some_and(|session| session.0 == gone)
+        })
+        .map(|(id, _)| *id)
+        .collect();
+    for id in ids {
+        if let Some(Pending { method, answer, .. }) = pending.remove(&id) {
+            let _ = answer.send(Err(Failure::Refused {
+                method,
+                refusal: Refusal::TargetGone,
+                code: NO_SESSION,
+                message: PartyText::new("the browser detached the target's session"),
+            }));
+        }
+    }
 }
 
 #[cfg(test)]

@@ -263,6 +263,45 @@ fn a_subscription_never_read_holds_up_no_answer() {
     });
 }
 
+/// A command in flight on a target's session whose target the browser
+/// detached, such as a page of a browser context disposed under it, fails
+/// at once as the target gone, rather than at its timeout: the browser
+/// never answers it.
+#[test]
+fn a_command_on_a_session_the_browser_detached_fails_at_once() {
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let page = SessionId("page".to_owned());
+        let (_, failed) = tokio::join!(driver.run(), async {
+            let (failed, ()) = tokio::join!(
+                tokio::time::timeout(
+                    TIMEOUT / 2,
+                    connection.send(Some(&page), &GetVersionParams {}, TIMEOUT)
+                ),
+                async {
+                    let _ = browser.received().await;
+                    browser
+                        .send(&json!({ "method": "Target.detachedFromTarget", "params": { "sessionId": "page", "targetId": "target-1" } }))
+                        .await;
+                }
+            );
+            drop((connection, browser));
+            failed
+        });
+        assert!(
+            matches!(
+                failed,
+                Ok(Err(Failure::Refused {
+                    method: "Browser.getVersion",
+                    refusal: crate::Refusal::TargetGone,
+                    ..
+                }))
+            ),
+            "{failed:?}"
+        );
+    });
+}
+
 #[test]
 fn events_reach_the_subscribers_of_their_session_only() {
     runtime().block_on(async {

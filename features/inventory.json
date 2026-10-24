@@ -1370,6 +1370,17 @@
       ]
     },
     {
+      "id": "error:response_limit_exceeded",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:response_truncated",
       "kind": "error",
       "area": 5,
@@ -6019,6 +6030,39 @@
       "id": "setting:log.output",
       "kind": "setting",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:network.max_body_size",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:network.max_decompression_ratio",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:network.max_json_depth",
+      "kind": "setting",
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [

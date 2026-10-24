@@ -559,6 +559,15 @@ export class ResourcesExhaustedError extends UnavailableError {
 }
 
 /**
+ * A body or JSON the engine read from outside passed one of its limits, so the engine stopped reading it: more decoded bytes than `network.max_body_size`, more decoded bytes per received byte than `network.max_decompression_ratio` once past 1 MiB, or JSON nested deeper than `network.max_json_depth`. The details name the URL, the setting and its value; raise the setting for a site you trust.
+ */
+export class ResponseLimitExceededError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "response_limit_exceeded", group: "page", retryable: false });
+  }
+}
+
+/**
  * The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.
  */
 export class ResponseTruncatedError extends PageError {
@@ -860,6 +869,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   proxy_auth_failed: ProxyAuthFailedError,
   proxy_unavailable: ProxyUnavailableError,
   resources_exhausted: ResourcesExhaustedError,
+  response_limit_exceeded: ResponseLimitExceededError,
   response_truncated: ResponseTruncatedError,
   route_already_handled: RouteAlreadyHandledError,
   run_busy: RunBusyError,

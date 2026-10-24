@@ -393,7 +393,11 @@ impl Reader {
                             Asked::Through
                         }
                         // Ended without an answer: it falls through.
-                        Ok(DialogHandled {}) | Err(_) => Asked::Through,
+                        Ok(DialogHandled {}) => Asked::Through,
+                        Err(error) => {
+                            tracing::warn!(%error, "a dialog handler's reply was not read, so it falls through");
+                            Asked::Through
+                        }
                     };
                 }
                 event = events.next() => match event {

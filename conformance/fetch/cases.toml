@@ -11,7 +11,7 @@ product = "foxhound"
 
 [suite]
 name = "fetch"
-version = "1"
+version = "2"
 
 [[capability]]
 name = "fetch.tier.http"
@@ -19,3 +19,21 @@ name = "fetch.tier.http"
 [[capability.case]]
 id = "a-request-fetched-over-http-hands-its-handler-the-document-on-a-page"
 covers = ["story:5-128"]
+
+# The fetch edge cases of the `http` tier (ADR 0118), over plain HTTP/1.1
+# on `fetch-edge.test`: the HTTP/2 forms, which the Run's trust does not
+# reach yet, are proved through the fetch-tier crate's own tests.
+[[capability]]
+name = "fetch.edge.http"
+
+[[capability.case]]
+id = "a-cut-body-fails-its-attempt-with-response-truncated-and-never-reaches-the-handler"
+covers = ["story:5-126"]
+
+[[capability.case]]
+id = "a-body-its-connections-close-delimits-reaches-the-handler-whole"
+covers = ["story:5-126"]
+
+[[capability.case]]
+id = "a-request-the-site-never-processed-is-sent-once-more-and-counted-nowhere"
+covers = ["story:5-127"]

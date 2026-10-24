@@ -252,3 +252,53 @@ fn a_backstop_without_the_disk_its_build_needs_is_skipped() {
         run.results
     );
 }
+
+/// A gate worktree keeps its npm packages from one gate to the next, but
+/// never Vite's pre-bundled dependencies (Vitest's and Storybook's, at any
+/// depth of `node_modules`): their cache is keyed by the lockfile and the
+/// config only, so a head importing a package the previous head did not
+/// would find it missing, have Vite bundle it mid-run and reload, and every
+/// browser test file would fail to import.
+#[test]
+fn a_gate_worktree_keeps_its_npm_packages_but_not_vites_prebundled_dependencies() {
+    let workspace = backstop_repository();
+    // Ignored, as the repository's `.gitignore` ignores them.
+    workspace.write(".git/info/exclude", b"node_modules/\n");
+    let stand_in = stand_in_just(&workspace);
+    let first = backstop(&workspace, &stand_in);
+    assert_eq!(first.code, Some(0), "{}", first.log);
+    let worktree = ".claude/worktrees/gate-backstop";
+    let prebundled = [
+        "node_modules/.vite/vitest/0a1b/deps",
+        "node_modules/.cache/storybook/10.6.3/0c2d/sb-vitest/vitest/0e3f/deps",
+        "console/collie/node_modules/.vite/deps",
+    ];
+    for deps in prebundled {
+        workspace.write(&format!("{worktree}/{deps}/_metadata.json"), b"{}");
+        workspace.write(&format!("{worktree}/{deps}/react.js"), b"");
+    }
+    let kept = [
+        "node_modules/react/index.js",
+        "console/collie/node_modules/.bin/vite",
+        "node_modules/.vite/vitest/0a1b/results.json",
+    ];
+    for file in kept {
+        workspace.write(&format!("{worktree}/{file}"), b"");
+    }
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}", run.log);
+    for deps in prebundled {
+        assert!(
+            !workspace.path().join(worktree).join(deps).exists(),
+            "{deps} was kept"
+        );
+    }
+    for file in kept {
+        assert!(
+            workspace.path().join(worktree).join(file).exists(),
+            "{file} was removed"
+        );
+    }
+}

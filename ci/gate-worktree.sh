@@ -39,7 +39,8 @@ gate_worktree_lock() {
 # Resets the worktree to `commit` and nothing else: tracked files as
 # committed, every other file removed but the build caches (`target/`, the
 # Python environment and the npm packages, which `just fetch` brings to the
-# head's lockfiles), and no step's output from an earlier gate in `target/`.
+# head's lockfiles, without Vite's pre-bundled dependencies), and no step's
+# output from an earlier gate in `target/`.
 gate_worktree_checkout() {
   local commit=$1 entry
   if [[ -e "$worktree/.git" ]]; then
@@ -62,6 +63,15 @@ gate_worktree_checkout() {
     esac
   done
   shopt -u nullglob
+  # Vite's pre-bundled dependencies (Vitest's in `node_modules/.vite/`,
+  # Storybook's in `node_modules/.cache/storybook/`, any `deps` folder with
+  # Vite's `_metadata.json`) are not kept: Vite keys them by the lockfile and
+  # the config alone, so a head that imports a package the last gate's head
+  # did not would have Vite bundle it mid-run and reload, which fails every
+  # browser test file at import ("Vitest failed to find the current suite").
+  find "$worktree" \( -path "$worktree/target" -o -path "$worktree/.venv" -o -name .pnpm \) -prune -o \
+    -type f -path '*/node_modules/*/deps/_metadata.json' -print |
+    while IFS= read -r entry; do rm -rf "${entry%/_metadata.json}"; done
   if [[ -n "$(git -C "$worktree" status --porcelain)" || $(git -C "$worktree" rev-parse HEAD) != "$(git rev-parse "$commit^{commit}")" ]]; then
     echo "error: the gate's worktree $worktree is not a clean checkout of $commit" >&2
     exit 1

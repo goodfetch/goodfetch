@@ -9,6 +9,11 @@
 // `websocket` (a WebSocket opened there) and `webrtc` (a peer connection
 // whose TURN server, over TCP, is that host on the port the query's `turn`
 // names).
+// Titles the page `done`.
+const finish = () => {
+  document.title = "done";
+};
+
 (() => {
   "use strict";
   const query = new URLSearchParams(window.location.search);
@@ -16,15 +21,12 @@
   const port = window.location.port;
   const kind = window.location.pathname.split("/").pop();
   const reached = `${to}:${port}/request-kinds/reached?kind=${kind}`;
-  const done = () => {
-    document.title = "done";
-  };
   const worker = `/request-kinds/worker.js?kind=${kind}&to=${to}`;
   const attempts = {
     fetch: () => {
       void fetch(`http://${reached}`, { mode: "no-cors" })
         .catch(() => null)
-        .then(done);
+        .then(finish);
     },
     navigation: () => {
       // Once the page loaded, so no call waits on the navigation; a refused
@@ -36,24 +38,24 @@
       });
     },
     frame: () => {
-      window.addEventListener("message", done, { once: true });
+      window.addEventListener("message", finish, { once: true });
       const frame = document.createElement("iframe");
       frame.src = `http://${query.get("frame")}:${port}/request-kinds/frame-document?to=${to}`;
       document.body.append(frame);
     },
     dedicated_worker: () => {
       const dedicated = new Worker(worker);
-      dedicated.addEventListener("message", done, { once: true });
+      dedicated.addEventListener("message", finish, { once: true });
     },
     shared_worker: () => {
       const shared = new SharedWorker(worker);
-      shared.port.addEventListener("message", done, { once: true });
+      shared.port.addEventListener("message", finish, { once: true });
       shared.port.start();
     },
     websocket: () => {
       const socket = new WebSocket(`ws://${reached}`);
       socket.addEventListener("open", () => socket.close());
-      socket.addEventListener("close", done, { once: true });
+      socket.addEventListener("close", finish, { once: true });
     },
     webrtc: () => {
       const connection = new RTCPeerConnection({
@@ -67,22 +69,22 @@
       });
       connection.addEventListener("icegatheringstatechange", () => {
         if (connection.iceGatheringState === "complete") {
-          done();
+          finish();
         }
       });
       // A TURN server that never answers keeps gathering going.
-      window.setTimeout(done, 5000);
+      window.setTimeout(finish, 5000);
       connection.createDataChannel("request-kinds");
       void connection
         .createOffer()
         .then((offer) => connection.setLocalDescription(offer))
-        .catch(done);
+        .catch(finish);
     },
   };
   const attempt = attempts[kind];
   if (attempt) {
     attempt();
   } else {
-    done();
+    finish();
   }
 })();

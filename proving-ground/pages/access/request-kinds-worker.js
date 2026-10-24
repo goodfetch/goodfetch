@@ -15,5 +15,6 @@ if ("onconnect" in self) {
     void settled.then(() => port.postMessage("done"));
   });
 } else {
+  // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a dedicated worker's postMessage takes no target origin
   void settled.then(() => self.postMessage("done"));
 }

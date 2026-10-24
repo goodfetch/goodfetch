@@ -1113,6 +1113,12 @@ number = 6
 kind = "setting"
 prefix = "crawl.max_"
 
+# Area 6, Collection, Foxhound: per-path budgets (#847).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.path_budgets"
+
 # Area 6, Collection (spec #580, Collie's part): a Run's Key-value store
 # (#791).
 [[area]]

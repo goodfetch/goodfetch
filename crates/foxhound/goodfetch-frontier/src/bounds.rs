@@ -14,6 +14,17 @@
 //! file, beside the count of requests admitted, so a finished Run reports
 //! what cut it: a bound makes it `incomplete`, a cap `unverified`.
 //!
+//! `crawl.path_budgets` bounds sections of a site (CO-08; Spider's
+//! `with_budget`): each entry's glob is matched against a URL's path and
+//! query, the first entry a URL matches counts it, and one past that
+//! entry's count is not added with `path_budget`, checked after
+//! `crawl.max_requests` and before the caps. Each entry counts what it
+//! admitted and what it refused by its pattern, and a finished Run that it
+//! refused a URL is `incomplete`, a reason naming the pattern and the
+//! counts. Facets get no default rule (ADR 0120): robots.txt, a
+//! `crawl.scope.exclude` pattern on their parameters, `crawl.max_requests`
+//! or a path budget bound them.
+//!
 //! The values live in the run file, recorded when the Run begins and again
 //! when it resumes under its new settings, so every admission point, a
 //! seed added to a running crawl included, reads the same ones.
@@ -21,17 +32,19 @@
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_engine::settings::Resolved;
+use goodfetch_page::url_pattern::{UnsupportedPattern, UrlPattern};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::frontier::{
     CRAWL_MAX_DEPTH, CRAWL_MAX_PATH_SEGMENTS, CRAWL_MAX_REQUESTS, CRAWL_MAX_SEGMENT_REPEATS,
-    CRAWL_MAX_URL_LENGTH, NotAddedReason,
+    CRAWL_MAX_URL_LENGTH, CRAWL_PATH_BUDGETS, NotAddedReason, PathBudget,
 };
 use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::{Connection, OptionalExtension as _};
 use url::{Position, Url};
 
-/// The bounds' values, one row; the count of requests admitted, one row;
-/// and each bound's count of refusals, by its setting's name.
+/// The bounds' values, one row, and the path budgets, in order; the count
+/// of requests admitted, one row; each bound's count of refusals, by its
+/// setting's name; and each path budget's counts, by its pattern.
 pub const TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-frontier-bounds",
     statements: &[
@@ -51,11 +64,21 @@ pub const TABLES: RunStateTables = RunStateTables {
             setting TEXT NOT NULL PRIMARY KEY,
             count INTEGER NOT NULL
         ) STRICT, WITHOUT ROWID",
+        "CREATE TABLE IF NOT EXISTS bounds_path_budgets (
+            position INTEGER NOT NULL PRIMARY KEY,
+            pattern TEXT NOT NULL,
+            max_requests INTEGER NOT NULL
+        ) STRICT",
+        "CREATE TABLE IF NOT EXISTS bounds_path_counts (
+            pattern TEXT NOT NULL PRIMARY KEY,
+            admitted INTEGER NOT NULL,
+            refused INTEGER NOT NULL
+        ) STRICT, WITHOUT ROWID",
     ],
 };
 
 /// A crawl's bounds and caps, each `None` when off.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bounds {
     /// `crawl.max_depth`.
     pub max_depth: Option<u64>,
@@ -67,6 +90,8 @@ pub struct Bounds {
     pub max_path_segments: Option<u64>,
     /// `crawl.max_segment_repeats`.
     pub max_segment_repeats: Option<u64>,
+    /// `crawl.path_budgets`, in order.
+    pub path_budgets: Vec<PathBudget>,
 }
 
 impl Default for Bounds {
@@ -79,20 +104,31 @@ impl Default for Bounds {
             max_url_length: built_in(&CRAWL_MAX_URL_LENGTH),
             max_path_segments: built_in(&CRAWL_MAX_PATH_SEGMENTS),
             max_segment_repeats: built_in(&CRAWL_MAX_SEGMENT_REPEATS),
+            path_budgets: Vec::new(),
         }
     }
 }
 
 impl Bounds {
     /// The bounds `settings` hold.
-    pub fn of_settings(settings: &Resolved) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// The first path budget's pattern the matcher cannot read, which the
+    /// start raises as `pattern_unsupported`.
+    pub fn of_settings(settings: &Resolved) -> Result<Self, UnsupportedPattern> {
+        let bounds = Self {
             max_depth: settings.count(CRAWL_MAX_DEPTH.name),
             max_requests: settings.count(CRAWL_MAX_REQUESTS.name),
             max_url_length: settings.count(CRAWL_MAX_URL_LENGTH.name),
             max_path_segments: settings.count(CRAWL_MAX_PATH_SEGMENTS.name),
             max_segment_repeats: settings.count(CRAWL_MAX_SEGMENT_REPEATS.name),
+            path_budgets: PathBudget::list(settings.value(CRAWL_PATH_BUDGETS.name)),
+        };
+        for budget in &bounds.path_budgets {
+            UrlPattern::glob(&budget.pattern)?;
         }
+        Ok(bounds)
     }
 
     /// Records the bounds in the run file `connection` holds, as the Run
@@ -117,6 +153,18 @@ impl Bounds {
                 self.max_segment_repeats.map(sql),
             ),
         )?;
+        connection.execute("DELETE FROM bounds_path_budgets", [])?;
+        for (position, budget) in self.path_budgets.iter().enumerate() {
+            connection.execute(
+                "INSERT INTO bounds_path_budgets (position, pattern, max_requests)
+                 VALUES (?1, ?2, ?3)",
+                (
+                    sql(u64::try_from(position).unwrap_or(u64::MAX)),
+                    &budget.pattern,
+                    sql(budget.max_requests),
+                ),
+            )?;
+        }
         Ok(())
     }
 
@@ -140,20 +188,44 @@ impl Bounds {
                     max_url_length: value(2)?,
                     max_path_segments: value(3)?,
                     max_segment_repeats: value(4)?,
+                    path_budgets: Vec::new(),
                 })
                 },
             )
             .optional()?;
-        Ok(recorded.unwrap_or_default())
+        let mut bounds = recorded.unwrap_or_default();
+        let mut statement = connection.prepare_cached(
+            "SELECT pattern, max_requests FROM bounds_path_budgets ORDER BY position",
+        )?;
+        bounds.path_budgets = statement
+            .query_map([], |row| {
+                Ok(PathBudget {
+                    pattern: row.get(0)?,
+                    max_requests: count(row.get(1)?),
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(bounds)
     }
 
-    /// Why a request to `url` at `depth` is not added, if it is not: a
-    /// bound it is past, then a cap on its shape.
+    /// The first path budget whose pattern the path and query of `url`
+    /// match: the one that counts it.
+    pub(crate) fn budget_of(&self, url: &Url) -> Option<&PathBudget> {
+        let path_and_query = &url[Position::BeforePath..Position::AfterQuery];
+        self.path_budgets.iter().find(|budget| {
+            UrlPattern::glob(&budget.pattern).is_ok_and(|pattern| pattern.matches(path_and_query))
+        })
+    }
+
+    /// Why a request to `url` at `depth`, counted by the path budget
+    /// `budget`, is not added, if it is not: a bound it is past, then a cap
+    /// on its shape.
     pub(crate) fn refuses(
         &self,
         connection: &Connection,
         url: &Url,
         depth: u64,
+        budget: Option<&PathBudget>,
     ) -> rusqlite::Result<Option<NotAddedReason>> {
         if self.max_depth.is_some_and(|max| depth > max) {
             return Ok(Some(NotAddedReason::MaxDepth));
@@ -162,6 +234,11 @@ impl Bounds {
             && admitted(connection)? >= max
         {
             return Ok(Some(NotAddedReason::MaxRequests));
+        }
+        if let Some(budget) = budget
+            && path_admitted(connection, &budget.pattern)? >= budget.max_requests
+        {
+            return Ok(Some(NotAddedReason::PathBudget));
         }
         Ok(self.shape_refuses(url))
     }
@@ -224,21 +301,33 @@ fn repeats_more_than(segments: &[&str], max: u64) -> bool {
     })
 }
 
-/// Counts one request admitted into the run file `connection` holds.
+/// Counts one request admitted into the run file `connection` holds, and
+/// against the path budget `budget` that counts it.
 ///
 /// # Errors
 ///
 /// When the run file cannot be written.
-pub(crate) fn count_admitted(connection: &Connection) -> rusqlite::Result<()> {
+pub(crate) fn count_admitted(
+    connection: &Connection,
+    budget: Option<&PathBudget>,
+) -> rusqlite::Result<()> {
     connection.execute(
         "INSERT INTO bounds_admitted (id, count) VALUES (1, 1)
          ON CONFLICT (id) DO UPDATE SET count = count + 1",
         [],
     )?;
+    if let Some(budget) = budget {
+        connection.execute(
+            "INSERT INTO bounds_path_counts (pattern, admitted, refused) VALUES (?1, 1, 0)
+             ON CONFLICT (pattern) DO UPDATE SET admitted = admitted + 1",
+            [&budget.pattern],
+        )?;
+    }
     Ok(())
 }
 
-/// Counts one refusal for `reason` when a bound or a cap gave it.
+/// Counts one refusal for `reason` when a bound or a cap gave it, against
+/// the path budget `budget` when it was that budget's.
 ///
 /// # Errors
 ///
@@ -246,7 +335,18 @@ pub(crate) fn count_admitted(connection: &Connection) -> rusqlite::Result<()> {
 pub(crate) fn count_refused(
     connection: &Connection,
     reason: NotAddedReason,
+    budget: Option<&PathBudget>,
 ) -> rusqlite::Result<()> {
+    if reason == NotAddedReason::PathBudget
+        && let Some(budget) = budget
+    {
+        connection.execute(
+            "INSERT INTO bounds_path_counts (pattern, admitted, refused) VALUES (?1, 0, 1)
+             ON CONFLICT (pattern) DO UPDATE SET refused = refused + 1",
+            [&budget.pattern],
+        )?;
+        return Ok(());
+    }
     let Some(setting) = cut_by(reason) else {
         return Ok(());
     };
@@ -261,7 +361,8 @@ pub(crate) fn count_refused(
 /// What the bounds and caps of the run file `connection` holds cut: each
 /// setting that refused a request or a URL, the Completeness it gives the
 /// Run, and a reason coded by the setting's name that says how many it
-/// refused, in the order of the settings' names.
+/// refused, in the order of the settings' names; each path budget that
+/// refused one is a reason of its own, in the order of the entries.
 ///
 /// # Errors
 ///
@@ -286,7 +387,62 @@ pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<Com
             reason: refused_by(name, refused),
         });
     }
+    reasons.extend(budget_reasons(connection)?);
+    reasons.sort_by(|one, other| one.reason.code.cmp(&other.reason.code));
     Ok(reasons)
+}
+
+/// Each path budget of the run file `connection` holds that refused a URL,
+/// in the order of the entries, one no longer set last: a reason naming its
+/// pattern, its count and how many it refused, making the Run `incomplete`.
+fn budget_reasons(connection: &Connection) -> rusqlite::Result<Vec<CompletenessReason>> {
+    let mut statement = connection.prepare(
+        "SELECT counts.pattern, counts.refused, budgets.max_requests
+         FROM bounds_path_counts AS counts
+         LEFT JOIN (SELECT pattern, max_requests, MIN(position) AS position
+                    FROM bounds_path_budgets GROUP BY pattern) AS budgets
+           ON budgets.pattern = counts.pattern
+         WHERE counts.refused > 0
+         ORDER BY budgets.position IS NULL, budgets.position, counts.pattern",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            count(row.get(1)?),
+            row.get::<_, Option<i64>>(2)?.map(count),
+        ))
+    })?;
+    let plural = |count: u64, one: &str, many: &str| {
+        format!("{count} {}", if count == 1 { one } else { many })
+    };
+    rows.map(|row| {
+        let (pattern, refused, max_requests) = row?;
+        let past = max_requests.map_or_else(String::new, |max| {
+            format!(" past its {}", plural(max, "request", "requests"))
+        });
+        Ok(CompletenessReason {
+            completeness: Completeness::Incomplete,
+            reason: AxisReason {
+                code: CRAWL_PATH_BUDGETS.name.to_owned(),
+                message: format!(
+                    "`{}`'s entry `{pattern}` refused {}{past} the crawl would otherwise have admitted.",
+                    CRAWL_PATH_BUDGETS.name,
+                    plural(refused, "URL", "URLs"),
+                ),
+                call_id: None,
+            },
+        })
+    })
+    .collect()
+}
+
+/// The count of requests the path budget of `pattern` admitted so far.
+fn path_admitted(connection: &Connection, pattern: &str) -> rusqlite::Result<u64> {
+    Ok(connection
+        .prepare_cached("SELECT admitted FROM bounds_path_counts WHERE pattern = ?1")?
+        .query_row([pattern], |row| row.get::<_, i64>(0))
+        .optional()?
+        .map_or(0, count))
 }
 
 /// The reason the setting `name` gives a finished Run, having refused

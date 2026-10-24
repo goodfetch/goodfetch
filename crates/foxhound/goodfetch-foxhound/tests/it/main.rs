@@ -18,6 +18,7 @@ mod journeys;
 mod learned_rules;
 mod limits;
 mod outcomes;
+mod path_budgets;
 mod politeness;
 mod scope;
 mod seeds;

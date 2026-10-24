@@ -200,6 +200,7 @@ export type Enqueued =
         | "max_url_length"
         | "max_path_segments"
         | "max_segment_repeats"
+        | "path_budget"
         | "trap_path";
       /**
        * Its URL as it was given.
@@ -493,6 +494,7 @@ export type NotAddedReason =
   | "max_url_length"
   | "max_path_segments"
   | "max_segment_repeats"
+  | "path_budget"
   | "trap_path";
 /**
  * Why a call that ends a Run did nothing (ADR 0102's G1).

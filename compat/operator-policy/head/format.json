@@ -993,6 +993,29 @@
                 ],
                 "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
               },
+              "path_budgets": {
+                "description": "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_requests": {
+                      "description": "How many requests whose URL the pattern matches first the crawl admits.",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "pattern": {
+                      "description": "A glob read as Playwright reads one, such as `/shop?*`, matched in the engine against a URL's path and query.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pattern",
+                    "max_requests"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "retry": {
                 "additionalProperties": false,
                 "properties": {
@@ -2952,6 +2975,29 @@
                   }
                 ],
                 "description": "The longest URL a crawl admits, in characters as the WHATWG parser serializes it, without its fragment (Scrapy's `URLLENGTH_LIMIT`): a longer one is not added, with `max_url_length`, and a finished Run that refused one is `unverified`. 2,083 by default; `null` turns the cap off."
+              },
+              "path_budgets": {
+                "description": "Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_requests": {
+                      "description": "How many requests whose URL the pattern matches first the crawl admits.",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "pattern": {
+                      "description": "A glob read as Playwright reads one, such as `/shop?*`, matched in the engine against a URL's path and query.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "pattern",
+                    "max_requests"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
               },
               "retry": {
                 "additionalProperties": false,

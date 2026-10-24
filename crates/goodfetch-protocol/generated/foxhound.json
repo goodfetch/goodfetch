@@ -468,6 +468,16 @@
           "description": "What it is, such as `stopped` or `failed`; a reason this reader does\nnot know is kept as it is.",
           "type": "string"
         },
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many it counts, when it counts some: the URLs a bound refused,\nthe pages left at a Block cause, or the requests a stop left.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "message": {
           "arrived_in": "0.1",
           "description": "What it says, for people.",
@@ -4398,11 +4408,19 @@
           "type": "object"
         },
         {
-          "description": "No seed reached a handler: each was refused when added or skipped\nwhen fetched.",
+          "description": "No seed reached a handler: each was refused when added or ended\nbefore its handler ran, counted by why.",
           "properties": {
             "reason": {
               "const": "no_seed_handled",
               "type": "string"
+            },
+            "seeds": {
+              "arrived_in": "0.1",
+              "description": "How many seeds each reason kept from a handler: the reason an\nenqueue answered, or how the request ended, by its skip reason,\nError code or Block cause, in the order of the reasons.",
+              "items": {
+                "$ref": "#/$defs/SeedsKept"
+              },
+              "type": "array"
             }
           },
           "required": [
@@ -7882,6 +7900,28 @@
       },
       "minItems": 1,
       "type": "array"
+    },
+    "SeedsKept": {
+      "description": "How many seeds one reason kept from a handler.",
+      "properties": {
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many seeds it kept.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "The reason: an enqueue's not-added reason, a skip reason, an Error\ncode or a Block cause.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "count"
+      ],
+      "type": "object"
     },
     "ServingSession": {
       "description": "The Session of the crawl's Session pool that serves one attempt.",
@@ -16706,6 +16746,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Pages in the crawl's scope were left `blocked` with `consent_required`, counted: `unverified`.",
+      "name": "consent_required",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A domain whose consent wall a Run met and left at `consent_required` (ADR 0048), offered for `consent.domains` with `needs_you.allow_consent_domain`, a domain in `wall.denied_domains` too (ADR 0052); `details` give the `domain`, and `run` the last Run that met it. It leaves the list once `consent.domains` in the Operator policy or user configuration covers the domain, or when a person dismisses it.",
       "name": "consent_wall",
       "product": "collie",
@@ -16724,6 +16771,48 @@
       "name": "cpu_throttled",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`crawl.max_depth` refused URLs the crawl would otherwise have admitted, counted: `incomplete`.",
+      "name": "crawl.max_depth",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`crawl.max_path_segments` refused URLs the crawl would otherwise have admitted, counted: `unverified`.",
+      "name": "crawl.max_path_segments",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`crawl.max_requests` refused URLs the crawl would otherwise have admitted, counted: `incomplete`.",
+      "name": "crawl.max_requests",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`crawl.max_segment_repeats` refused URLs the crawl would otherwise have admitted, counted: `unverified`.",
+      "name": "crawl.max_segment_repeats",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`crawl.max_url_length` refused URLs the crawl would otherwise have admitted, counted: `unverified`.",
+      "name": "crawl.max_url_length",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "One entry of `crawl.path_budgets` refused URLs past its count, named with its pattern and counted: `incomplete`.",
+      "name": "crawl.path_budgets",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
     },
     {
       "arrived_in": "0.1",
@@ -16752,6 +16841,13 @@
       "name": "exposed_daemon_set_up",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "An error ended it before its end, `incomplete`.",
+      "name": "failed",
+      "product": "collie",
+      "type": "completeness_reason_code"
     },
     {
       "arrived_in": "0.1",
@@ -16825,6 +16921,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Model allowance skipped requests the crawl would otherwise have handled, counted: `incomplete`.",
+      "name": "model_allowance",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Model calls a run made, retries and Repairs included (ADR 0101).",
       "name": "model_calls",
       "product": "collie",
@@ -16836,6 +16939,13 @@
       "name": "model_tokens",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Listings were paged only by an offset parameter, counted: `unverified`.",
+      "name": "offset_pagination",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
     },
     {
       "arrived_in": "0.1",
@@ -16878,6 +16988,13 @@
       "name": "payment_required",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Pages in the crawl's scope were left `blocked` with `payment_required`, counted: `unverified`.",
+      "name": "payment_required",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
     },
     {
       "arrived_in": "0.1",
@@ -16958,6 +17075,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Requests failed with `response_unavailable`, a site asking to wait longer than `politeness.retry_after.max`, counted: `incomplete`.",
+      "name": "response_unavailable",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Run stopped by a Limit that still holds it (ADR 0041): the Limit's period has not started again since the stop, and it was not set again since then with something left. `details` give the `limit` as `limit_reached` names it, the `amount` it allows now, the Product the Run `needs` and, for a Recipe's Run, its `recipe`. Its actions offer `usage.raise`, a person's answer, and for a Recipe's Run `run.resume`, which resumes it in the Daemon once the Limit is raised; an SDK script's Run then waits for its script, which resumes it by its Run ID (ADR 0031). It leaves the list once a person raises the Limit or its period starts again, once the Run runs again, or when a person dismisses it.",
       "name": "run_stopped_by_limit",
       "product": "collie",
@@ -17028,6 +17152,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "It stopped before its end, `incomplete`; a crawl's counts the requests it left.",
+      "name": "stopped",
+      "product": "collie",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A filesystem a Run writes to is at the `low` or `critical` storage level (ADR 0122); `details` give its `level` and a `folder` on it. It leaves the list at the first sample that finds the space again.",
       "name": "storage_level",
       "product": "collie",
@@ -17060,6 +17191,13 @@
       "name": "trap_links_off",
       "product": "foxhound",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Learned traps refused URLs the crawl would otherwise have admitted, counted: `unverified`.",
+      "name": "trap_path",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
     }
   ]
 }

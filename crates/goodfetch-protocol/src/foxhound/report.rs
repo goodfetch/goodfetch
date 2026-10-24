@@ -1,20 +1,42 @@
 //! What a crawl's Run report adds to every Run's (ADR 0102): how its
 //! requests ended, its Records per Dataset, its Sinks, its Frontier's
-//! learned URL rules and its sitemaps; and the warning Foxhound adds to the
-//! warning table, `trap_links_off`.
+//! learned URL rules and its sitemaps; the warning Foxhound adds to the
+//! warning table, `trap_links_off`; and the Completeness reasons a crawl
+//! adds to every Run's (ADRs 0005, 0045, 0048, 0107, 0118 and 0120), each
+//! named by its setting or its cause.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Entries, ProtocolVersion, SharedType, SharedTypeValue};
 use crate::run::RunReport;
+use crate::run::completeness::reason;
 
+use super::crawl::RESPONSE_UNAVAILABLE;
+use super::frontier::{
+    CRAWL_MAX_DEPTH, CRAWL_MAX_PATH_SEGMENTS, CRAWL_MAX_REQUESTS, CRAWL_MAX_SEGMENT_REPEATS,
+    CRAWL_MAX_URL_LENGTH, CRAWL_PATH_BUDGETS,
+};
 use super::outcomes::DatasetRecords;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// The warning that a crawl ran with its trap-link detection off.
 pub const TRAP_LINKS_OFF: &str = "trap_links_off";
+
+/// The Completeness reason of the URLs learned traps refused (ADR 0005).
+pub const TRAP_PATH: &str = "trap_path";
+/// The Completeness reason of listings paged only by an offset (ADR 0005).
+pub const OFFSET_PAGINATION: &str = "offset_pagination";
+/// The Completeness reason of the requests the Model allowance skipped
+/// (ADR 0107).
+pub const MODEL_ALLOWANCE: &str = "model_allowance";
+/// The Completeness reason of the pages left `blocked` with
+/// `payment_required` (ADR 0045).
+pub const PAYMENT_REQUIRED: &str = "payment_required";
+/// The Completeness reason of the pages left `blocked` with
+/// `consent_required` (ADR 0048).
+pub const CONSENT_REQUIRED: &str = "consent_required";
 
 /// A crawl's Run report (ADR 0102): what a crawl adds to every Run's
 /// report, a part no area supplied being absent. On the wire, a crawl's
@@ -240,10 +262,60 @@ pub const ENTRIES: Entries = Entries {
     metrics: &[],
     settings: &[],
     hook_stages: &[],
-    shared_type_values: &[SharedTypeValue {
-        shared_type: SharedType::RunWarningCode,
-        name: TRAP_LINKS_OFF,
-        description: "The crawl ran with its trap-link detection off.",
-        arrived_in: ARRIVED_IN,
-    }],
+    shared_type_values: &[
+        SharedTypeValue {
+            shared_type: SharedType::RunWarningCode,
+            name: TRAP_LINKS_OFF,
+            description: "The crawl ran with its trap-link detection off.",
+            arrived_in: ARRIVED_IN,
+        },
+        reason(
+            CRAWL_MAX_DEPTH.name,
+            "`crawl.max_depth` refused URLs the crawl would otherwise have admitted, counted: `incomplete`.",
+        ),
+        reason(
+            CRAWL_MAX_REQUESTS.name,
+            "`crawl.max_requests` refused URLs the crawl would otherwise have admitted, counted: `incomplete`.",
+        ),
+        reason(
+            CRAWL_PATH_BUDGETS.name,
+            "One entry of `crawl.path_budgets` refused URLs past its count, named with its pattern and counted: `incomplete`.",
+        ),
+        reason(
+            MODEL_ALLOWANCE,
+            "The Model allowance skipped requests the crawl would otherwise have handled, counted: `incomplete`.",
+        ),
+        reason(
+            RESPONSE_UNAVAILABLE.name,
+            "Requests failed with `response_unavailable`, a site asking to wait longer than `politeness.retry_after.max`, counted: `incomplete`.",
+        ),
+        reason(
+            CRAWL_MAX_URL_LENGTH.name,
+            "`crawl.max_url_length` refused URLs the crawl would otherwise have admitted, counted: `unverified`.",
+        ),
+        reason(
+            CRAWL_MAX_PATH_SEGMENTS.name,
+            "`crawl.max_path_segments` refused URLs the crawl would otherwise have admitted, counted: `unverified`.",
+        ),
+        reason(
+            CRAWL_MAX_SEGMENT_REPEATS.name,
+            "`crawl.max_segment_repeats` refused URLs the crawl would otherwise have admitted, counted: `unverified`.",
+        ),
+        reason(
+            TRAP_PATH,
+            "Learned traps refused URLs the crawl would otherwise have admitted, counted: `unverified`.",
+        ),
+        reason(
+            OFFSET_PAGINATION,
+            "Listings were paged only by an offset parameter, counted: `unverified`.",
+        ),
+        reason(
+            PAYMENT_REQUIRED,
+            "Pages in the crawl's scope were left `blocked` with `payment_required`, counted: `unverified`.",
+        ),
+        reason(
+            CONSENT_REQUIRED,
+            "Pages in the crawl's scope were left `blocked` with `consent_required`, counted: `unverified`.",
+        ),
+    ],
 };

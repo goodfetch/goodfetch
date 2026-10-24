@@ -36,6 +36,7 @@ const SESSIONS: Part = (
         "sessions.proxy",
     ],
 );
+const PROXY_LIMITS: Part = ("proxy_limits", &["sessions.proxy_limits"]);
 const NAVIGATION: Part = (
     "navigation",
     &[
@@ -79,8 +80,9 @@ const PAGE_FUNCTIONS: Part = ("page-functions", &["page_functions"]);
 const WAITS: Part = ("waits", &["waits"]);
 
 /// Every part.
-const PARTS: [Part; 15] = [
+const PARTS: [Part; 16] = [
     SESSIONS,
+    PROXY_LIMITS,
     NAVIGATION,
     FORMATS,
     LAUNCH,
@@ -180,6 +182,12 @@ fn prove((name, capabilities): Part) {
 #[test]
 fn the_page_suite_proves_sessions_against_collies_attached_engine() {
     prove(SESSIONS);
+}
+
+/// Covers: story:5-90, setting:politeness.proxy.concurrency, setting:politeness.proxy.rate, setting:politeness.sharing, setting:proxy.server, setting:proxy.username, error:proxy_unavailable, operation:run.new_page, operation:page.goto
+#[test]
+fn the_page_suite_proves_proxy_limits_against_collies_attached_engine() {
+    prove(PROXY_LIMITS);
 }
 
 /// Covers: story:5-61, story:5-23, story:5-24, story:5-26, operation:run.new_page, operation:page.goto, operation:page.reload, operation:page.go_back, operation:page.go_forward, error:navigation_failed, error:navigation_interrupted, story:5-29, story:5-30, story:5-31, error:too_many_redirects, error:response_truncated, event:page.download

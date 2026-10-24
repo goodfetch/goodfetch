@@ -366,13 +366,16 @@ fn run_usage_answers_what_the_run_used(#[case] mode: Mode) {
 /// it ended.
 ///
 /// Covers: story:3-161, command:run.progress
-#[test]
-fn run_progress_answers_the_last_progress_of_a_run_that_ended() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_progress_answers_the_last_progress_of_a_run_that_ended(#[case] mode: Mode) {
     let env = TestEnv::new();
     start(&env, "first");
 
     let checked = cli(&env, COLLIE)
         .args(["run", "progress", "first", "--json"])
+        .mode(mode)
         .json("RunProgress")
         .unwrap();
 
@@ -402,13 +405,16 @@ fn run_progress_answers_the_last_progress_of_a_run_that_ended() {
 }
 
 /// Covers: story:3-165, command:run.report
-#[test]
-fn run_report_answers_the_report_of_a_run_that_ended_at_once() {
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn run_report_answers_the_report_of_a_run_that_ended_at_once(#[case] mode: Mode) {
     let env = TestEnv::new();
     start(&env, "first");
 
     let checked = cli(&env, COLLIE)
         .args(["run", "report", "first", "--json"])
+        .mode(mode)
         .json("RunReport")
         .unwrap();
 

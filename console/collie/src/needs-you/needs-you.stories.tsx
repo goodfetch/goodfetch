@@ -4,8 +4,9 @@
 // renderer for, the Console read-only, and the engine's refusal; runs
 // stopped by a Limit, an SDK script's and a Recipe's priced one, and what a
 // person's raise left: a run waiting for its script, with its resume
-// command, and one resumed in the Daemon.
-import type { NeedsYouItem } from "@goodfetch/collie-client/generated";
+// command, and one resumed in the Daemon; and a domain that showed a
+// consent wall, with and without a Connection.
+import { RunStateUnavailableError, type NeedsYouItem } from "@goodfetch/collie-client/generated";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NeedsYouView } from "./needs-you.tsx";
 
@@ -75,10 +76,25 @@ const recipeByPrice: NeedsYouItem = {
   },
 };
 
+const wall: NeedsYouItem = {
+  id: "consent_wall:walled.example",
+  kind: "consent_wall",
+  since: "2026-10-24T09:10:00Z",
+  run: "nightly",
+  summary: "walled.example showed a consent wall.",
+  actions: ["needs_you.allow_consent_domain", "needs_you.dismiss"],
+  details: { domain: "walled.example" },
+};
+
 const meta: Meta<typeof NeedsYouView> = {
   title: "Needs you",
   component: NeedsYouView,
-  args: { onDismiss: (): void => {}, onRaise: (): void => {}, onCopy: (): void => {} },
+  args: {
+    onDismiss: (): void => {},
+    onRaise: (): void => {},
+    onCopy: (): void => {},
+    onAllowConsentDomain: (): void => {},
+  },
 };
 
 export default meta;
@@ -144,7 +160,22 @@ export const LimitRaised: Story = {
   },
 };
 
+/** A domain that showed a consent wall, offered for `consent.domains` alone or as `*`, each beside its warning. */
+export const ConsentWall: Story = { args: { state: { kind: "listed", items: [wall] } } };
+
+/** The same with no Connection: both offers are disabled. */
+export const ConsentWallReadOnly: Story = {
+  args: { state: { kind: "listed", items: [wall] }, readOnly: true },
+};
+
 /** The engine refused the list. */
 export const Failed: Story = {
-  args: { state: { kind: "failed", message: "the Run index cannot be read" } },
+  args: {
+    state: {
+      kind: "failed",
+      error: new RunStateUnavailableError("the Run index cannot be read", {
+        details: { operation: "needs_you.list", path: "/srv/goodfetch/1/run-index.sqlite" },
+      }),
+    },
+  },
 };

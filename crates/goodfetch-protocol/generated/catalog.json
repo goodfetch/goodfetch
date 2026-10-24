@@ -1610,6 +1610,66 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The space left to the engine's user, in bytes, on each filesystem the Resource governor samples, at its last sample, labelled by what the filesystem holds; a filesystem holding several of them gives each its series (ADR 0122).",
+      "instrument": "gauge",
+      "labels": [
+        {
+          "name": "holds",
+          "values": [
+            "run_state",
+            "home",
+            "trace",
+            "temp"
+          ]
+        }
+      ],
+      "name": "goodfetch.storage.available",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "By"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The inodes left to the engine's user on each filesystem the Resource governor samples that reports them, at its last sample, labelled by what the filesystem holds (ADR 0122).",
+      "instrument": "gauge",
+      "labels": [
+        {
+          "name": "holds",
+          "values": [
+            "run_state",
+            "home",
+            "trace",
+            "temp"
+          ]
+        }
+      ],
+      "name": "goodfetch.storage.inodes.available",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "{inode}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The storage level of each filesystem the Resource governor samples, at its last sample: 0 `normal`, 1 `low`, 2 `critical`, labelled by what the filesystem holds. `/readyz` fails while run state's is 2 (ADR 0122).",
+      "instrument": "gauge",
+      "labels": [
+        {
+          "name": "holds",
+          "values": [
+            "run_state",
+            "home",
+            "trace",
+            "temp"
+          ]
+        }
+      ],
+      "name": "goodfetch.storage.level",
+      "product": "collie",
+      "stability": "stable",
+      "unit": "{level}"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The crawls' work items leased to a handler whose attempt has not ended.",
       "instrument": "up_down_counter",
       "labels": [],
@@ -2202,6 +2262,27 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Counted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Adds a domain whose consent wall a Run met, or `*` for every domain, to `consent.domains` in user configuration, so the next runs accept its consent walls instead of raising `blocked` with `consent_required`, and records the answer in the Audit log with the warning of what the person takes on; answers whether it added it. One call, no confirmation asked. A domain that file lists already adds nothing; an Operator policy that locks `consent.domains` refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `consent_wall` items it covers leave the list with `needs_you.changed`.",
+      "events": [
+        "needs_you.changed"
+      ],
+      "kind": "round_trip",
+      "name": "needs_you.allow_consent_domain",
+      "params": {
+        "$ref": "#/$defs/NeedsYouAllowConsentDomainParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/ConsentDomainAllowed"
       },
       "stability": "experimental"
     },
@@ -6635,10 +6716,24 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A person added a domain, or `*`, to `consent.domains` in user configuration, so later runs accept its consent walls (ADR 0048), with the warning of what they take on that they were shown (ADR 0052).",
+      "name": "consent_domain_allowed",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A wall that asks for consent before it shows the page (ADR 0048).",
       "name": "consent_required",
       "product": "collie",
       "type": "block_cause"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A domain whose consent wall a Run met and left at `consent_required` (ADR 0048), offered for `consent.domains` with `needs_you.allow_consent_domain`, a domain in `wall.denied_domains` too (ADR 0052); `details` give the `domain`, and `run` the last Run that met it. It leaves the list once `consent.domains` in the Operator policy or user configuration covers the domain, or when a person dismisses it.",
+      "name": "consent_wall",
+      "product": "collie",
+      "type": "needs_you_kind"
     },
     {
       "arrived_in": "0.1",

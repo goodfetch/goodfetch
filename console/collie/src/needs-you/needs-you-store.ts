@@ -15,8 +15,8 @@ export type NeedsYouState =
   | { readonly kind: "reading" }
   /** Every item, the longest waiting first. */
   | { readonly kind: "listed"; readonly items: readonly NeedsYouItem[] }
-  /** The engine refused the list; its English message (ADR 0079). */
-  | { readonly kind: "failed"; readonly message: string };
+  /** The engine refused the list, with this error. */
+  | { readonly kind: "failed"; readonly error: unknown };
 
 /** The list before its first answer. */
 export const READING: NeedsYouState = { kind: "reading" };
@@ -38,11 +38,6 @@ function ordered(items: Iterable<NeedsYouItem>): readonly NeedsYouItem[] {
       ? left.id.localeCompare(right.id)
       : left.since.localeCompare(right.since),
   );
-}
-
-/** A refused call's message. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /** "Needs you" over one Client: an external store React reads with `useSyncExternalStore`. */
@@ -95,7 +90,7 @@ export class NeedsYouStore {
         } while (after !== undefined);
       } catch (error) {
         if (!stopped) {
-          this.#state = { kind: "failed", message: messageOf(error) };
+          this.#state = { kind: "failed", error };
           this.#emit();
         }
         return;

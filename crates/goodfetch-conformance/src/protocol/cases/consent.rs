@@ -12,7 +12,7 @@
 //! snippet never touches it; and `consent.handling: false` leaves prompts
 //! alone. Each is judged by the requests the pages report to the Proving
 //! ground and by the Run trace the engine writes, its Provenance log
-//! among it. The consent wall cases (ticket #718) are `walls`'.
+//! among it. The consent wall cases (tickets #718 and #859) are `walls`'.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -70,6 +70,7 @@ pub(crate) enum Case {
     WallsOff,
     Accepted,
     WallSettings,
+    Offered,
 }
 
 impl Case {
@@ -101,6 +102,9 @@ impl Case {
             "a-run-widening-consent-domains-is-setting-locked-and-on-wall-ask-is-unavailable-until-the-human-pause" => {
                 Self::WallSettings
             }
+            "a-domain-whose-consent-wall-a-run-left-is-offered-in-needs-you-for-consent-domains" => {
+                Self::Offered
+            }
             _ => return None,
         })
     }
@@ -126,6 +130,7 @@ impl Case {
             Self::WallsOff => walls::walls_off(connection, home, site, checks),
             Self::Accepted => walls::accepted(connection, home, site, checks),
             Self::WallSettings => walls::settings(connection, site, checks),
+            Self::Offered => walls::offered(connection, site, checks),
         }
     }
 }

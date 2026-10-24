@@ -93,7 +93,7 @@ fn with_ops(env: &TestEnv, browsers: Browsers) -> (Foreground, SocketAddr) {
 
 /// The status and body of `GET path` at `address`, with `token` as a
 /// bearer token when given.
-fn get(address: SocketAddr, path: &str, token: Option<&str>) -> (u16, String) {
+pub(crate) fn get(address: SocketAddr, path: &str, token: Option<&str>) -> (u16, String) {
     let agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .build()
@@ -111,7 +111,7 @@ fn get(address: SocketAddr, path: &str, token: Option<&str>) -> (u16, String) {
 /// Daemon's log until the Audit log records it (area 4); the token of the
 /// Daemon's own socket stands for another listener's.
 ///
-/// Covers: story:3-101, command:daemon.run, setting:ops.address
+/// Covers: story:3-101, story:13-44, command:daemon.run, setting:ops.address
 #[test]
 fn the_ops_listener_passes_its_endpoint_table_rows() {
     let env = TestEnv::new();
@@ -150,7 +150,7 @@ fn the_ops_listener_passes_its_endpoint_table_rows() {
 /// while the Daemon runs, ready only while the browser its configuration
 /// uses is installed.
 ///
-/// Covers: story:3-101, story:3-102
+/// Covers: story:3-101, story:3-102, story:13-44
 #[rstest]
 #[case::browsers_installed(Browsers::Installed, (200, 200))]
 #[case::browsers_missing(Browsers::Missing, (200, 503))]
@@ -172,7 +172,8 @@ fn the_probes_answer_whether_the_daemon_is_live_and_ready(
 }
 
 /// The protocol's metric of the Prometheus series `name`: its name with
-/// `.` rendered `_`, and a counter's `_total` or a ratio's `_ratio`.
+/// `.` rendered `_`, and a counter's `_total`, a ratio's `_ratio` or a size's
+/// `_bytes`.
 fn declared(name: &str) -> Option<&'static Metric> {
     MODULES
         .iter()
@@ -183,16 +184,17 @@ fn declared(name: &str) -> Option<&'static Metric> {
                 rendered.clone(),
                 format!("{rendered}_total"),
                 format!("{rendered}_ratio"),
+                format!("{rendered}_bytes"),
             ]
             .contains(&name.to_owned())
         })
 }
 
 /// A series of a Prometheus text: its name, its labels and its value.
-type Series = (String, BTreeMap<String, String>, String);
+pub(crate) type Series = (String, BTreeMap<String, String>, String);
 
 /// Each series of a Prometheus text.
-fn series(text: &str) -> Vec<Series> {
+pub(crate) fn series(text: &str) -> Vec<Series> {
     text.lines()
         .filter(|line| !line.starts_with('#') && !line.is_empty())
         .map(|line| {

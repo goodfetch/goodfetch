@@ -35,7 +35,7 @@ const MB: u64 = 1_000_000;
 const LEVELS: &str = "storage.low_free = 2000000\nstorage.critical_free = 1000000\n";
 
 /// The call that holds the tests' subscription.
-const SUBSCRIPTION: i64 = 1;
+pub(super) const SUBSCRIPTION: i64 = 1;
 
 fn viewed(view: &DiskView) -> Engine {
     engine(Product::Collie).with_governor(System::os().with_disks(view.clone()))
@@ -58,15 +58,15 @@ async fn opened(client: &mut Client) -> Value {
 /// "Needs you" as its changes on the subscription leave it: each item by
 /// ID, with every change seen so far.
 #[derive(Default)]
-struct Seen {
-    items: BTreeMap<String, Value>,
-    changes: Vec<Value>,
+pub(super) struct Seen {
+    pub(super) items: BTreeMap<String, Value>,
+    pub(super) changes: Vec<Value>,
 }
 
 impl Seen {
     /// Reads the subscription's events until `done` holds of the items,
     /// failing the test when a minute of the paused clock passes first.
-    async fn until(
+    pub(super) async fn until(
         &mut self,
         client: &mut Client,
         done: impl Fn(&BTreeMap<String, Value>) -> bool,
@@ -82,7 +82,13 @@ impl Seen {
 
     /// Calls `method` with `params` as call `id`, taking the subscription's
     /// events that arrive meanwhile; answers the reply.
-    async fn call(&mut self, client: &mut Client, id: i64, method: &str, params: Value) -> Value {
+    pub(super) async fn call(
+        &mut self,
+        client: &mut Client,
+        id: i64,
+        method: &str,
+        params: Value,
+    ) -> Value {
         client
             .send(&[json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })])
             .await;
@@ -142,7 +148,7 @@ fn of_kind<'a>(items: &'a BTreeMap<String, Value>, kind: &str) -> Vec<&'a Value>
     items.values().filter(|item| item["kind"] == kind).collect()
 }
 
-fn listed(result: &Value) -> Vec<Value> {
+pub(super) fn listed(result: &Value) -> Vec<Value> {
     result["result"]["items"].as_array().unwrap().clone()
 }
 

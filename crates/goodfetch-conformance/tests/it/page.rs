@@ -218,7 +218,7 @@ fn the_page_suite_proves_clean_up_against_collies_attached_engine() {
     prove(CLEAN_UP);
 }
 
-/// Covers: story:5-100, setting:consent.handling, story:5-101, error:blocked, operation:page.evaluate, setting:consent.domains, setting:consent.on_wall, error:setting_locked, error:capability_unavailable
+/// Covers: story:5-100, setting:consent.handling, story:5-101, error:blocked, operation:page.evaluate, setting:consent.domains, setting:consent.on_wall, error:setting_locked, error:capability_unavailable, story:12-26, operation:needs_you.list
 #[test]
 fn the_page_suite_proves_consent_against_collies_attached_engine() {
     prove(CONSENT);

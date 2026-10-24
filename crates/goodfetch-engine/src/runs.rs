@@ -77,7 +77,7 @@ use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure, TIMEOUT_SECRET,
 };
 use goodfetch_protocol::settings::{SettingsLayer, WeakenedSetting};
-use goodfetch_protocol::storage::StorageLevel;
+use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
 use secrecy::SecretString;
@@ -950,6 +950,9 @@ pub(crate) struct RegistryHealth {
     pub(crate) folder: PathBuf,
     /// Whether the Resource governor is at its last resort (ADR 0040).
     pub(crate) governor_last_resort: bool,
+    /// Whether the governor's last storage sample found the filesystem of
+    /// the run folders at `critical` (ADR 0122).
+    pub(crate) storage_critical: bool,
 }
 
 /// Whether a wait for a Run's end lets it finish (ADR 0102): `run.finish`
@@ -992,6 +995,9 @@ pub struct Runs {
     clean_up: Option<Arc<CleanUpRules>>,
     /// The engine's "Needs you".
     needs_you: NeedsYou,
+    /// The engine's Product version, whose major's Run index its Runs
+    /// write.
+    version: ProductVersion,
 }
 
 /// The composition's Clean-up rules, and the engine's Product version, the
@@ -1159,6 +1165,29 @@ impl Run {
     /// beginning and its end each give a new value.
     pub fn human_pause(&self, pause: HumanPause) -> PauseHeld {
         self.shared.progress.pause(pause)
+    }
+
+    /// Records in the Run index that the Run met a consent wall on the
+    /// registrable domain `domain` and left it, so "Needs you" offers the
+    /// domain for `consent.domains` (ADR 0048).
+    ///
+    /// # Errors
+    ///
+    /// When the Run index cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write began still records it.
+    pub async fn record_consent_wall(&self, domain: String) -> Result<(), RunStateError> {
+        let path = self.runs.home().run_index(&self.runs.version);
+        let version = self.runs.version.clone();
+        let run_id = self.id.clone();
+        let at = self.point_in_time();
+        self.owner
+            .blocking(move || {
+                run_index::record_consent_wall(&path, &version, &domain, &run_id, &at)
+            })
+            .await
     }
 
     /// Sets the part `name` its kind of Run adds to its progress, such as a
@@ -1871,6 +1900,7 @@ impl Runs {
             drivers: Arc::new(setup.drivers.clone()),
             clean_up: CleanUpRules::of(&setup),
             needs_you: setup.needs_you.clone(),
+            version: setup.version.clone(),
         };
         let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
@@ -3181,10 +3211,31 @@ impl Registry {
     /// ledger and the Politeness file in the Goodfetch home) stops at its
     /// next safe point; each Run's progress carries the worst level among
     /// its filesystems when it changes, and its report a `storage_low`
-    /// warning for each folder found at `low` or worse.
+    /// warning for each folder found at `low` or worse. The runtime's
+    /// metrics record the filesystem of the run folders, of the Goodfetch
+    /// home and of the temporary folder, each labelled by what it holds,
+    /// so one filesystem holding several gives each its series.
     fn storage(&mut self, sample: &StorageSample) {
         let home = self.setup.home.root().to_owned();
         let temporary = std::env::temp_dir();
+        let runs = self
+            .setup
+            .location
+            .folder(&self.setup.home, &self.setup.version);
+        for (holds, folder) in [
+            (SampledFolder::RunState, &runs),
+            (SampledFolder::Home, &home),
+            (SampledFolder::Temp, &temporary),
+        ] {
+            if let Some(filesystem) = sample.of(folder) {
+                self.setup.metrics.storage(
+                    holds,
+                    filesystem.level,
+                    filesystem.free,
+                    filesystem.free_inodes,
+                );
+            }
+        }
         for live in self.live.values_mut() {
             let Some(run) = &live.run else {
                 continue;
@@ -3969,13 +4020,22 @@ impl Registry {
 
     /// What it answers about the engine's health.
     fn health(&self) -> RegistryHealth {
+        let folder = self
+            .setup
+            .location
+            .folder(&self.setup.home, &self.setup.version);
+        let storage_critical = self
+            .setup
+            .governor
+            .storage()
+            .borrow()
+            .of(&folder)
+            .is_some_and(|filesystem| filesystem.level == StorageLevel::Critical);
         RegistryHealth {
             draining: self.draining,
             governor_last_resort: self.setup.governor.at_last_resort(),
-            folder: self
-                .setup
-                .location
-                .folder(&self.setup.home, &self.setup.version),
+            storage_critical,
+            folder,
         }
     }
 
@@ -4056,6 +4116,7 @@ impl Registry {
             drivers: Arc::clone(&self.drivers),
             clean_up: CleanUpRules::of(&self.setup),
             needs_you: self.setup.needs_you.clone(),
+            version: self.setup.version.clone(),
         }
     }
 
@@ -4892,6 +4953,7 @@ async fn unrecorded(
             folders: vec![folder.clone()],
             level: StorageLevel::Critical,
             free: 0,
+            free_inodes: None,
             limit: None,
         });
     Box::new(StorageExhausted {

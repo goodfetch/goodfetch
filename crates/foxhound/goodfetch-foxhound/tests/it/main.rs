@@ -16,6 +16,7 @@ mod daemon;
 mod frontier;
 mod governor;
 mod journeys;
+mod learned_rules;
 mod limits;
 mod outcomes;
 mod politeness;

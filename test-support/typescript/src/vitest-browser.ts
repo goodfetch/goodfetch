@@ -11,6 +11,7 @@ export type { BrowserState } from "./browser-state.ts";
 export { clippedText } from "./clipped-text.ts";
 export { virtualScreenReader } from "./screen-reader.ts";
 export { TEXT_SPACING_STYLE, textSpacing } from "./text-spacing.ts";
+export { untranslatedText } from "./untranslated-text.ts";
 
 declare module "vitest/browser" {
   interface BrowserCommands {

@@ -3,7 +3,7 @@
 // pauses waiting, a low storage level and the uncapped mark, a run in each
 // Lifecycle and Verdict, an interrupted run with its resume command, the
 // notices of its actions, and the page with no Connection.
-import type { RunProgress } from "@goodfetch/collie-client/generated";
+import { RunStateUnavailableError, type RunProgress } from "@goodfetch/collie-client/generated";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RunPageView, type RunAxisValues, type ShownRun } from "./run-page.tsx";
 
@@ -94,7 +94,17 @@ export const Failed: Story = {
   args: {
     read: {
       kind: "failed",
-      message: "The state of the Run `nightly` is unavailable: run.sqlite is locked",
+      error: new RunStateUnavailableError(
+        "The state of the Run `nightly` is unavailable: run.sqlite is locked",
+        {
+          fix: "close the program that holds run.sqlite, then open the run again",
+          details: {
+            operation: "run.info",
+            observed: "run.sqlite is locked",
+            call_log: ["opening run.sqlite", "run.sqlite is locked"],
+          },
+        },
+      ),
     },
   },
 };

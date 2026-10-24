@@ -264,7 +264,13 @@ impl Subject {
         let state = self.runtime.block_on(RunState::open(
             path,
             &options,
-            vec![identity::TABLES, scope::TABLES, bounds::TABLES, REQUESTS],
+            vec![
+                identity::TABLES,
+                scope::TABLES,
+                bounds::TABLES,
+                crate::rules::TABLES,
+                REQUESTS,
+            ],
             1,
             &self.owner,
         ));

@@ -321,6 +321,7 @@ impl StateMachineTest for Subject {
                     goodfetch_frontier::VISITED_TABLES,
                     goodfetch_frontier::SCOPE_TABLES,
                     goodfetch_frontier::BOUNDS_TABLES,
+                    goodfetch_frontier::RULES_TABLES,
                 ],
                 1,
                 &owner,

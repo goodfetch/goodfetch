@@ -54,6 +54,10 @@ pub use url::document_base;
 /// A URL as the WHATWG URL Standard parsed it.
 pub use ::url::Url;
 
+/// A document's encoding, as the WHATWG Encoding Standard names it, in
+/// which its links' queries are percent-encoded (ADR 0120).
+pub use ::encoding_rs::Encoding;
+
 /// What Foxhound's Frontier adds to the engine: `run.seeds`, its per-domain
 /// queues as the gate in admission, with its per-domain Politeness as the
 /// rule of their keys, the tables that keep each seed's answer and each

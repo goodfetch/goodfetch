@@ -8,6 +8,9 @@
 //! the Standard says. A crawl fetches only `http` and `https`.
 
 use goodfetch_protocol::foxhound::frontier::NotAddedReason;
+use std::borrow::Cow;
+
+use encoding_rs::{EncoderResult, Encoding};
 use url::Url;
 
 /// The schemes a crawl fetches.
@@ -29,6 +32,65 @@ pub(crate) fn parse(input: &str, base: Option<&Url>) -> Result<Url, NotAddedReas
         Ok(url)
     } else {
         Err(NotAddedReason::UnsupportedScheme)
+    }
+}
+
+/// Parses the link `href` of a document whose base URL is `base`, written
+/// in `encoding`, as [`parse`] does, but for its query, which is
+/// percent-encoded in the document's output encoding as the HTML
+/// standard's URL parsing encodes it: UTF-8 for a UTF-16 document, and a
+/// character the encoding cannot write as its `&#<code point>;`,
+/// percent-encoded, as the WHATWG URL Standard's "percent-encode after
+/// encoding" writes it (ADR 0120).
+///
+/// # Errors
+///
+/// The reason a request to `href` is not added.
+pub(crate) fn parse_link(
+    href: &str,
+    base: &Url,
+    encoding: &'static Encoding,
+) -> Result<Url, NotAddedReason> {
+    let encoding = encoding.output_encoding();
+    if encoding == encoding_rs::UTF_8 {
+        return parse(href, Some(base));
+    }
+    let encode: &dyn Fn(&str) -> Cow<'_, [u8]> = &|part| Cow::Owned(encoded(part, encoding));
+    let url = Url::options()
+        .base_url(Some(base))
+        .encoding_override(Some(encode))
+        .parse(href)
+        .map_err(|_| NotAddedReason::InvalidUrl)?;
+    if FETCHED.contains(&url.scheme()) {
+        Ok(url)
+    } else {
+        Err(NotAddedReason::UnsupportedScheme)
+    }
+}
+
+/// `text` written in `encoding`, each character it cannot write as
+/// `%26%23<code point in decimal>%3B`, which percent-encoding keeps.
+fn encoded(text: &str, encoding: &'static Encoding) -> Vec<u8> {
+    let mut encoder = encoding.new_encoder();
+    let mut bytes = Vec::with_capacity(text.len() * 2);
+    let mut rest = text;
+    loop {
+        let room = encoder
+            .max_buffer_length_from_utf8_without_replacement(rest.len())
+            .unwrap_or(rest.len() * 4 + 16);
+        bytes.reserve(room);
+        let (result, read) =
+            encoder.encode_from_utf8_to_vec_without_replacement(rest, &mut bytes, true);
+        rest = &rest[read..];
+        match result {
+            EncoderResult::InputEmpty => return bytes,
+            EncoderResult::OutputFull => {}
+            EncoderResult::Unmappable(character) => {
+                bytes.extend_from_slice(b"%26%23");
+                bytes.extend_from_slice(u32::from(character).to_string().as_bytes());
+                bytes.extend_from_slice(b"%3B");
+            }
+        }
     }
 }
 

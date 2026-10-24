@@ -2021,6 +2021,7 @@ name = "goodfetch-frontier"
 version = "0.0.0"
 dependencies = [
  "data-encoding",
+ "encoding_rs",
  "goodfetch-engine",
  "goodfetch-page",
  "goodfetch-protocol",

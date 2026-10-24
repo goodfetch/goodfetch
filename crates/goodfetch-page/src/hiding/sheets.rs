@@ -88,6 +88,29 @@ impl Sheets {
         }
     }
 
+    /// Starts live hiding in the sheet of `frame`'s document on `session`,
+    /// which waited for the Consent prompt runner's first pass there; with
+    /// `loader`, only in the document of that load.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::set`].
+    pub(crate) async fn release(
+        &self,
+        session: &TargetSession,
+        frame: &page::FrameId,
+        loader: Option<&str>,
+    ) -> Result<(), Failure> {
+        let _sending = self.sending.lock().await;
+        let write = self
+            .documents()
+            .release(&(session.clone(), frame.clone()), loader);
+        match write {
+            Some(write) => self.send(write).await,
+            None => Ok(()),
+        }
+    }
+
     /// Empties every other document's sheet while a click in `frame` of
     /// `session` goes in, so no hidden owner swallows it, until
     /// [`Self::restore`]; nothing for a click in the page's own frame.

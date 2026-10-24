@@ -67,6 +67,7 @@ pub(crate) enum Case {
     Worlds,
     Off,
     Walls,
+    WallsAtOnce,
     WallsOff,
     Accepted,
     WallSettings,
@@ -96,6 +97,9 @@ impl Case {
                 Self::Walls
             }
             "with-consent-handling-off-the-wall-test-still-raises-blocked" => Self::WallsOff,
+            "a-walls-navigation-raises-it-before-any-call-reads-the-page-even-one-a-filter-list-would-hide" => {
+                Self::WallsAtOnce
+            }
             "on-a-domain-in-consent-domains-the-wall-is-accepted-and-provenance-records-the-acceptance" => {
                 Self::Accepted
             }
@@ -127,6 +131,7 @@ impl Case {
             Self::Worlds => worlds(connection, home, site, checks),
             Self::Off => off(connection, home, site, checks),
             Self::Walls => walls::walls(connection, home, site, checks),
+            Self::WallsAtOnce => walls::walls_at_once(connection, site, checks),
             Self::WallsOff => walls::walls_off(connection, home, site, checks),
             Self::Accepted => walls::accepted(connection, home, site, checks),
             Self::WallSettings => walls::settings(connection, site, checks),

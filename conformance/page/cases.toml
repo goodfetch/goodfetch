@@ -418,6 +418,10 @@ id = "a-notice-is-hidden-and-a-wall-raises-blocked-with-consent-required-and-is-
 covers = ["story:5-101", "error:blocked", "operation:page.evaluate"]
 
 [[capability.case]]
+id = "a-walls-navigation-raises-it-before-any-call-reads-the-page-even-one-a-filter-list-would-hide"
+covers = ["story:5-101", "error:blocked", "operation:page.goto"]
+
+[[capability.case]]
 id = "with-consent-handling-off-the-wall-test-still-raises-blocked"
 covers = ["story:5-101", "setting:consent.handling", "error:blocked"]
 

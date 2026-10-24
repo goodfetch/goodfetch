@@ -65,7 +65,7 @@ use serde_json::{Value, json};
 use tokio::sync::{Mutex, OnceCell};
 
 use self::frames::{Frame, Frames};
-use self::messages::{ANSWER, Action, BINDING, Message, Outcome, RESTART, START};
+use self::messages::{ANSWER, Action, BINDING, DETECTING, Message, Outcome, RESTART, START};
 pub(crate) use self::walls::Walls;
 use self::walls::{Approval, Wall};
 use crate::driver::{GUARD_WORLD, Iframe, Iframes, PageDriver};
@@ -179,16 +179,7 @@ impl Consent {
         });
         let session = driver.session().clone();
         let events = driver.events_on(&session).await;
-        prepare(&shared, &session).await.map_err(|failure| {
-            CallError::new(
-                &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
-                format!("the Consent prompt runner did not start on the page: {failure}"),
-                &goodfetch_protocol::page::BrowserLaunchFailedDetails {
-                    executable: String::new(),
-                    exit: None,
-                },
-            )
-        })?;
+        prepare(&shared, driver).await?;
         let preparing = Arc::clone(&shared);
         iframes.on_attach(Arc::new(move |iframe: Iframe| {
             Box::pin(attach(Arc::clone(&preparing), iframe))
@@ -196,6 +187,19 @@ impl Consent {
         run.spawn(listen(shared, session, events));
         Ok(())
     }
+}
+
+/// Whether the runner's first pass on the main document of the page `driver`
+/// drives found a prompt, ended or not, as the runner answers in its world:
+/// a vendor's, a pre-hide rule's or one the heuristics know, or one the page
+/// shows now that its pass would find.
+pub(crate) async fn first_pass_found(driver: &PageDriver) -> bool {
+    matches!(
+        driver
+            .read_in_frame(driver.main_frame(), DETECTING, Value::Null)
+            .await,
+        Ok(Some(Value::String(stands))) if stands != "none"
+    )
 }
 
 /// One page's runner: its driver, its frames, its hiding sheets, whether
@@ -213,19 +217,17 @@ struct Shared {
     walls: Walls,
 }
 
-/// Puts the bundle on every new document of `session`'s target.
-async fn prepare(shared: &Shared, session: &TargetSession) -> Result<(), goodfetch_cdp::Failure> {
-    let driver = &shared.driver;
+/// Puts the bundle on every new document of the target `driver` sends its
+/// commands to, the page's or an out-of-process iframe's, a failure
+/// translated as opening a page's (`errors`).
+async fn prepare(shared: &Shared, driver: &PageDriver) -> Result<(), CallError> {
     driver
-        .command_on(
-            session,
-            &page::AddScriptToEvaluateOnNewDocumentParams {
-                source: shared.runner.source().to_owned(),
-                world_name: Some(GUARD_WORLD.to_owned()),
-                include_command_line_api: None,
-                run_immediately: Some(true),
-            },
-        )
+        .opening_command(&page::AddScriptToEvaluateOnNewDocumentParams {
+            source: shared.runner.source().to_owned(),
+            world_name: Some(GUARD_WORLD.to_owned()),
+            include_command_line_api: None,
+            run_immediately: Some(true),
+        })
         .await?;
     Ok(())
 }
@@ -239,7 +241,7 @@ async fn listen(shared: Arc<Shared>, session: TargetSession, mut events: Subscri
     }
     // The page's own target is gone: so is any wall it left.
     if session == *shared.driver.session() {
-        shared.walls.take(&shared.page_id);
+        shared.walls.new_document(&shared.page_id);
     }
 }
 
@@ -256,7 +258,7 @@ async fn react(shared: &Arc<Shared>, session: &TargetSession, event: &goodfetch_
         // A new document in the page's main frame leaves the last one's
         // wall behind.
         if *session == *shared.driver.session() && navigated.frame.parent_id.is_none() {
-            shared.walls.take(&shared.page_id);
+            shared.walls.new_document(&shared.page_id);
         }
         let shared = Arc::clone(shared);
         let session = session.clone();
@@ -296,6 +298,19 @@ async fn react(shared: &Arc<Shared>, session: &TargetSession, event: &goodfetch_
             tracing::debug!("the Consent prompt runner sent a message the engine does not read");
             return;
         };
+        // What the first pass found, and a wall left, are taken in the
+        // order the runner reported them, before the page's next event, so
+        // a call waiting on the pass's end finds its wall.
+        match &message {
+            Message::Detected | Message::Settled => {
+                first_pass(shared, &frame, &message).await;
+                return;
+            }
+            Message::Outcome(outcome) if outcome.action == Action::Wall => {
+                left_wall(shared, &frame, outcome).await;
+            }
+            _ => {}
+        }
         let shared = Arc::clone(shared);
         shared.run.clone().spawn(async move {
             answer(&shared, &frame, message).await;
@@ -314,11 +329,11 @@ async fn attach(shared: Arc<Shared>, iframe: Iframe) -> bool {
         .attach(&iframe.parent, &session, iframe.target);
     let events = shared.driver.events_on(&session).await;
     let prepared = async {
-        shared
+        iframe
             .driver
-            .command_on(&session, &page::EnableParams::default())
+            .opening_command(&page::EnableParams::default())
             .await?;
-        prepare(&shared, &session).await
+        prepare(&shared, &iframe.driver).await
     }
     .await;
     match prepared {
@@ -388,10 +403,13 @@ async fn answer(shared: &Shared, frame: &Frame, message: Message) {
             (id, json!(ran))
         }
         Message::Sheet { id, text } => {
-            if let Err(failure) = shared
-                .sheets
-                .set(&frame.session, &frame.id, Part::Consent, text)
-                .await
+            // A sheet for a document that went is never written into the
+            // frame's next one.
+            if current(shared, frame).await
+                && let Err(failure) = shared
+                    .sheets
+                    .set(&frame.session, &frame.id, Part::Consent, text)
+                    .await
             {
                 tracing::debug!(%failure, "the Consent prompt runner's hiding sheet was not set");
             }
@@ -403,6 +421,7 @@ async fn answer(shared: &Shared, frame: &Frame, message: Message) {
             recorded(shared, frame, &outcome).await;
             return;
         }
+        Message::Detected | Message::Settled => return,
     };
     let _ = shared
         .driver
@@ -478,22 +497,8 @@ async fn recorded(shared: &Shared, frame: &Frame, outcome: &Outcome) {
                 .rule();
             entry["cause"] = json!(goodfetch_protocol::block::BlockCause::ConsentRequired);
             entry["block_rule"] = json!(rule);
-            let main = frame.session == *shared.driver.session()
-                && frame.id == *shared.driver.main_frame();
-            let frames = shared.frames.lock().await;
-            let current = frames.context(&frame.session, &frame.id) == Some(frame.context);
-            let loader = frames.loader(&frame.session, &frame.id);
-            drop(frames);
-            if main
-                && current
-                && let Some(loader) = loader
-            {
-                shared
-                    .walls
-                    .put(shared.page_id.clone(), Wall { loader, rule });
-            }
             // "Needs you" offers the domain for `consent.domains`.
-            if main
+            if main(shared, frame)
                 && let Some(domain) = domain_key(&outcome.url)
                 && let Err(error) = shared.run.record_consent_wall(domain).await
             {
@@ -503,6 +508,65 @@ async fn recorded(shared: &Shared, frame: &Frame, outcome: &Outcome) {
         Action::Refused | Action::Hidden | Action::Left | Action::Failed => {}
     }
     trace::provenance(&shared.run, &entry).await;
+}
+
+/// Whether `frame` is the page's main frame.
+fn main(shared: &Shared, frame: &Frame) -> bool {
+    frame.session == *shared.driver.session() && frame.id == *shared.driver.main_frame()
+}
+
+/// Whether `frame`'s document is its frame's current one.
+async fn current(shared: &Shared, frame: &Frame) -> bool {
+    shared
+        .frames
+        .lock()
+        .await
+        .context(&frame.session, &frame.id)
+        == Some(frame.context)
+}
+
+/// Keeps the wall `outcome` left in `frame`'s document for the page's next
+/// call, when that document is the page's main frame's current one.
+async fn left_wall(shared: &Shared, frame: &Frame, outcome: &Outcome) {
+    let rule = outcome
+        .reason
+        .unwrap_or(messages::WallReason::Covers)
+        .rule();
+    let frames = shared.frames.lock().await;
+    let current = frames.context(&frame.session, &frame.id) == Some(frame.context);
+    let loader = frames.loader(&frame.session, &frame.id);
+    drop(frames);
+    if main(shared, frame)
+        && current
+        && let Some(loader) = loader
+    {
+        shared
+            .walls
+            .put(shared.page_id.clone(), Wall { loader, rule });
+    }
+}
+
+/// Takes what the runner's first pass on `frame`'s document reported,
+/// `message`: in the page's main frame, a prompt found makes the page's
+/// calls wait for the pass's end; the pass's end lets them go, and starts
+/// live hiding on the document, which waited for it (ADR 0048).
+async fn first_pass(shared: &Shared, frame: &Frame, message: &Message) {
+    if !current(shared, frame).await {
+        return;
+    }
+    let main = main(shared, frame);
+    match message {
+        Message::Detected if main => shared.walls.detected(&shared.page_id),
+        Message::Settled => {
+            if main {
+                shared.walls.settled(&shared.page_id);
+            }
+            if let Err(failure) = shared.sheets.release(&frame.session, &frame.id, None).await {
+                tracing::debug!(%failure, "live hiding did not start on a document after the Consent prompt runner's first pass");
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Clicks the element `handle` of `frame`'s guard world through the guard,

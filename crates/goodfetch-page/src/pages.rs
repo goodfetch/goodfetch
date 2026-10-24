@@ -833,9 +833,9 @@ impl Pages {
                 return Err(blocked::blocked(block, again, received));
             }
         }
-        // A consent wall the runner found before the navigation answered
-        // is the navigation's (ADR 0048).
-        self.consent_wall(page_id)?;
+        // A consent wall the runner found on the navigation's document is
+        // the navigation's, once the runner judged it (ADR 0048).
+        self.consent_verdict(page_id, &page, true).await?;
         Ok(navigated)
     }
 
@@ -1020,9 +1020,32 @@ impl Pages {
         if let Some(failure) = self.left_failure(page_id) {
             return Err(failure);
         }
-        self.consent_wall(page_id)?;
+        self.consent_verdict(page_id, &page, false).await?;
         self.judge_unjudged(&page, page_id, None).await?;
         Ok(page)
+    }
+
+    /// Raises the consent wall the Consent prompt runner left in the main
+    /// document of `page`, the page `page_id`, once, after waiting, within
+    /// the page's action deadline, for the verdict on a prompt the runner's
+    /// first pass there found (ADR 0048): a call that `navigated` asks the
+    /// runner first whether it found one, as its report may still be on its
+    /// way.
+    async fn consent_verdict(
+        &self,
+        page_id: &PageId,
+        page: &OpenPage,
+        navigated: bool,
+    ) -> Result<(), CallError> {
+        let walls = self.sessions.consent_walls();
+        if navigated && crate::consent::first_pass_found(&page.driver).await {
+            walls.detected(page_id);
+        }
+        let (_, limit) = &page.action_timeout;
+        if !walls.verdict(page_id, *limit, page.clock).await {
+            tracing::debug!(page_id = %page_id.0, "the Consent prompt runner gave no verdict on a prompt it found within the action deadline");
+        }
+        self.consent_wall(page_id)
     }
 
     /// Raises the consent wall the Consent prompt runner left in the

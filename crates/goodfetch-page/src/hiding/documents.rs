@@ -1,8 +1,11 @@
 //! What each document's one hiding sheet holds (ADRs 0047 and 0048): live
 //! hiding's rules and the Consent prompt runner's, written into a single
 //! style sheet per document, so each frame gets one CSS injection whoever
-//! hides in it. Pure: which commands a change needs is decided here, and
-//! tested without a browser; [`super::Sheets`] sends them.
+//! hides in it. Live hiding's part waits, in a document a navigation named,
+//! until the runner's first detection pass and wall test there ended, so no
+//! cosmetic rule hides a consent wall before it is judged (ADR 0048). Pure:
+//! which commands a change needs is decided here, and tested without a
+//! browser; [`super::Sheets`] sends them.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -31,15 +34,18 @@ struct Document {
     sheet: Option<StyleSheetId>,
     hiding: String,
     consent: String,
+    /// Whether live hiding's part waits for the runner's first pass.
+    held: bool,
     /// What the browser's sheet holds now.
     written: String,
 }
 
 impl Document {
     /// The sheet's whole text: each part that holds a rule, live hiding's
-    /// first.
+    /// first once it no longer waits.
     fn text(&self) -> String {
-        [self.hiding.as_str(), self.consent.as_str()]
+        let hiding = if self.held { "" } else { self.hiding.as_str() };
+        [hiding, self.consent.as_str()]
             .into_iter()
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>()
@@ -79,13 +85,15 @@ impl Documents {
 
     /// `frame` of `session` committed the document of `loader`: a document
     /// other than the one its sheet was made in starts with no sheet and no
-    /// rule; the same document, reported again, keeps both.
+    /// rule, live hiding's part waiting for the runner's first pass; the
+    /// same document, reported again, keeps all.
     pub(super) fn navigated(&mut self, session: &TargetSession, frame: &FrameId, loader: &str) {
         let key = (session.clone(), frame.clone());
         let document = self.by_key.entry(key).or_default();
         if document.loader.as_deref() != Some(loader) {
             *document = Document {
                 loader: Some(loader.to_owned()),
+                held: true,
                 ..Document::default()
             };
         }
@@ -100,6 +108,23 @@ impl Documents {
             Part::Hiding => document.hiding = text,
             Part::Consent => document.consent = text,
         }
+        if self.lifted.as_ref().is_some_and(|lifted| lifted != key) {
+            return None;
+        }
+        self.write(key)
+    }
+
+    /// Live hiding's part of `key`'s document no longer waits, the
+    /// runner's first pass there having ended, or, with `loader`, the
+    /// document of that load having waited long enough; the write it needs,
+    /// as [`Self::set`] answers it.
+    pub(super) fn release(&mut self, key: &Key, loader: Option<&str>) -> Option<Write> {
+        let document = self.by_key.get_mut(key)?;
+        if !document.held || loader.is_some_and(|loader| document.loader.as_deref() != Some(loader))
+        {
+            return None;
+        }
+        document.held = false;
         if self.lifted.as_ref().is_some_and(|lifted| lifted != key) {
             return None;
         }

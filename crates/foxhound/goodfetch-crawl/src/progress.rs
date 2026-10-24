@@ -3,8 +3,10 @@
 //! group per reason with the domains it holds and the setting behind it;
 //! `inFlight`, each attempt with its phase; `idle`, while a keep-alive crawl
 //! waits for work; and `concurrency`. Its composition's progress part reads
-//! `requests` from committed state each time a value is read. A Run of
-//! another kind gets none of them.
+//! `requests` from committed state each time a value is read, and keeps in
+//! `inFlight` and `concurrency` only the attempts that state leases, so a
+//! value is one moment of the crawl. A Run of another kind gets none of
+//! them.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -238,8 +240,15 @@ impl InFlight {
 }
 
 /// The crawl's part of its Run's progress read from committed state:
-/// `requests`, its requests by state, those in flight split by the phase
-/// its `inFlight` gives them.
+/// `requests`, its requests by state, and which are in flight. The live
+/// parts were taken at another moment than the committed state, and the
+/// delivery commits an attempt's lease and its outcome apart from adding
+/// it to `inFlight` and taking it out with its handler, so the committed
+/// state decides which requests are in flight: `inFlight` keeps those it leases at the
+/// same attempt, split by phase in `requests`, and `concurrency` counts
+/// their handlers; one it leases that `inFlight` does not show yet is
+/// counted pending, as it was a moment before. One read is then one
+/// moment of the crawl.
 pub(crate) struct CrawlProgress;
 
 impl ProgressPart for CrawlProgress {
@@ -250,21 +259,33 @@ impl ProgressPart for CrawlProgress {
         }
         let (ended, _) = crate::report::ended(connection)?;
         let (pending, leased) = work_items::pending_and_leased(connection)?;
-        let fetching = progress
+        let in_flight: Vec<InFlightRequest> = progress
             .kind_parts
             .get(IN_FLIGHT)
-            .and_then(Value::as_array)
-            .map_or(0, |requests| {
-                requests
-                    .iter()
-                    .filter(|request| request["phase"] == "fetching")
-                    .count()
-            });
-        let fetching = u64::try_from(fetching).unwrap_or(u64::MAX).min(leased);
+            .and_then(|requests| {
+                serde_json::from_value::<Vec<InFlightRequest>>(requests.clone()).ok()
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|request| leased.contains(&(request.request_id.clone(), request.attempt)))
+            .collect();
+        let count = |requests: usize| u64::try_from(requests).unwrap_or(u64::MAX);
+        let fetching = in_flight
+            .iter()
+            .filter(|request| request.phase == InFlightPhase::Fetching)
+            .count();
+        let starting = leased.len() - in_flight.len();
+        let handlers = in_flight.len();
+        if let Some(concurrency) = progress.kind_parts.get_mut(CONCURRENCY) {
+            concurrency["handlers"] = Value::from(count(handlers));
+        }
+        progress
+            .kind_parts
+            .insert(IN_FLIGHT.to_owned(), encoded!(&in_flight));
         let requests = RequestProgress {
-            pending,
-            fetching,
-            handling: leased - fetching,
+            pending: pending + count(starting),
+            fetching: count(fetching),
+            handling: count(handlers - fetching),
             in_human_pause: 0,
             succeeded: ended.succeeded,
             failed: ended.failed,

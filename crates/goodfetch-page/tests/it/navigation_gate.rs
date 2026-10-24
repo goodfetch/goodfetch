@@ -484,9 +484,10 @@ fn a_permit_wait_counts_against_no_timeout_and_holds_the_lease() {
 
 /// The response observer Foxhound registers receives each response the
 /// engine observes on the page whose URL its patterns match, with its body
-/// cut at its byte cap, those a service worker answered included and
-/// marked so: one from its Cache Storage, and one it fetched itself. One
-/// that matches nothing is never passed to it.
+/// cut at its byte cap, its whole length and its page named, those a
+/// service worker answered included and marked so: one from its Cache
+/// Storage, and one it fetched itself. One that matches nothing is never
+/// passed to it.
 /// Covers: operation:page.goto
 #[test]
 fn the_response_observer_receives_each_kept_response_with_its_body_a_service_workers_included() {
@@ -524,19 +525,33 @@ fn the_response_observer_receives_each_kept_response_with_its_body_a_service_wor
             })
             .collect();
         observed.sort();
+        let on_its_page = gate
+            .observed()
+            .iter()
+            .all(|observed| observed.page_id.0 == program.page);
+        let cached_length = gate
+            .observed()
+            .iter()
+            .find(|observed| observed.url.contains("/cached.json"))
+            .map(|observed| observed.body_length);
 
         assert_eq!(
-            observed,
-            vec![
-                (Some("/effects.js".to_owned()), 200, false, 8),
-                (Some("/service-worker/cached.json".to_owned()), 200, true, 8),
-                (
-                    Some("/service-worker/network.json".to_owned()),
-                    200,
-                    true,
-                    8
-                ),
-            ]
+            (observed, on_its_page, cached_length),
+            (
+                vec![
+                    (Some("/effects.js".to_owned()), 200, false, 8),
+                    (Some("/service-worker/cached.json".to_owned()), 200, true, 8),
+                    (
+                        Some("/service-worker/network.json".to_owned()),
+                        200,
+                        true,
+                        8
+                    ),
+                ],
+                true,
+                // `{"cached":true}`, whole, though its body arrives cut.
+                Some(15),
+            )
         );
     });
 }

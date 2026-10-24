@@ -22,7 +22,7 @@ use goodfetch_page::page_value::{
     PageValue, Permit, Refusal, ResponseObserver,
 };
 use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
-use goodfetch_protocol::page::{SessionId, SitePreference};
+use goodfetch_protocol::page::{PageId, SessionId, SitePreference};
 use goodfetch_protocol::run::RunId;
 
 /// The recording gate, lease check and observer every page of an engine
@@ -74,12 +74,16 @@ pub struct Wait {
 /// A response the observer received.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Observed {
+    /// The page whose request got it.
+    pub page_id: PageId,
     /// Its URL.
     pub url: String,
     /// Its status.
     pub status: u16,
     /// Whether a service worker's fetch handler answered it.
     pub from_service_worker: bool,
+    /// The length of its whole body.
+    pub body_length: usize,
     /// Its body as received, cut at the byte cap.
     pub body: Vec<u8>,
 }
@@ -282,7 +286,9 @@ impl ResponseObserver for RecordingGate {
 
     fn on_response(&self, response: &ObservedResponse<'_>, body: &[u8]) {
         lock(&self.shared.records).observed.push(Observed {
+            page_id: response.page_id.clone(),
             url: response.url.to_owned(),
+            body_length: response.body_length,
             status: response.status,
             from_service_worker: response.from_service_worker,
             body: body.to_vec(),

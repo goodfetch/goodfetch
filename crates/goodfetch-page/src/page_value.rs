@@ -189,8 +189,14 @@ impl PageValue {
 /// Session answered included.
 #[derive(Clone, Copy, Debug)]
 pub struct ObservedResponse<'a> {
+    /// The page whose request got it, so a page a handler opened in its
+    /// Session is told from the handler's own (ADR 0110).
+    pub page_id: &'a PageId,
     /// The URL that answered.
     pub url: &'a str,
+    /// The length of its whole body, after any content coding: more than
+    /// the observer receives when its byte cap cut it.
+    pub body_length: usize,
     /// Its status.
     pub status: u16,
     /// Its headers, as the browser gives them.

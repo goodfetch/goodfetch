@@ -667,7 +667,9 @@ fn observe(shared: &Arc<Shared>, response: &PageResponse, finished: bool) {
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect();
         let passed = ObservedResponse {
+            page_id: &shared.page_id,
             url: &response.url,
+            body_length: body.len(),
             status: response.status,
             headers: &headers,
             from_service_worker: response.from_service_worker,

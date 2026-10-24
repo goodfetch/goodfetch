@@ -263,6 +263,10 @@ fn settings() -> Value {
 /// the domain policy, the Filter lists and a Session route, never a page
 /// route; the page's events never report them and the Run trace does; the
 /// calls the worker answered arrive with `from_service_worker` true.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one Run's page, its listeners, routes and waiter armed before the one navigation every check reads"
+)]
 fn under_the_interception(
     connection: &mut Connection,
     target: &EngineTarget,
@@ -369,20 +373,7 @@ fn under_the_interception(
         "both calls arrive in the page's `response` event with `from_service_worker` true",
         from_worker(&cached) && from_worker(&network),
     );
-    let waited = watch.answer(cached_response)?;
-    checks.check(
-        "a response waiter armed before the navigation gets the cached call, from the worker",
-        url_of(&waited["result"]["response"]).ends_with(&cached)
-            && waited["result"]["response"]["from_service_worker"] == json!(true),
-    );
-    let idle = watch.call(
-        PAGE_WAIT_FOR_LOAD_STATE.name,
-        &json!({ "page_id": page.page_id, "state": "networkidle" }),
-    )?;
-    checks.check(
-        "the page reaches `networkidle`, which the worker's own requests do not hold back",
-        idle.get("result").is_some(),
-    );
+    waits_on_the_page(&mut watch, (cached_response, &cached), &page, checks)?;
     let requests = watch.data("page.request");
     let count = |suffix: &str| {
         requests
@@ -424,6 +415,33 @@ fn under_the_interception(
         traced(&tracker).is_some_and(|data| {
             data["failure"]["error_text"] == json!("net::ERR_BLOCKED_BY_CLIENT")
         }),
+    );
+    Ok(())
+}
+
+/// The response waiter `armed`, armed before the navigation, got the
+/// call to `cached` the worker answered from its cache, and `page` reaches
+/// `networkidle`, which the worker's own requests, of no page, never hold
+/// back.
+fn waits_on_the_page(
+    watch: &mut Watch<'_>,
+    (armed, cached): (i64, &str),
+    page: &PageOpened,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let waited = watch.answer(armed)?;
+    checks.check(
+        "a response waiter armed before the navigation gets the cached call, from the worker",
+        url_of(&waited["result"]["response"]).ends_with(cached)
+            && waited["result"]["response"]["from_service_worker"] == json!(true),
+    );
+    let idle = watch.call(
+        PAGE_WAIT_FOR_LOAD_STATE.name,
+        &json!({ "page_id": page.page_id, "state": "networkidle" }),
+    )?;
+    checks.check(
+        "the page reaches `networkidle`, which the worker's own requests do not hold back",
+        idle.get("result").is_some(),
     );
     Ok(())
 }

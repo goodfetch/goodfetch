@@ -2752,7 +2752,7 @@
     {
       "id": "operation:page.wait_for_function",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2763,7 +2763,7 @@
     {
       "id": "operation:page.wait_for_load_state",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2774,7 +2774,7 @@
     {
       "id": "operation:page.wait_for_request",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2796,7 +2796,7 @@
     {
       "id": "operation:page.wait_for_response",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2807,7 +2807,7 @@
     {
       "id": "operation:page.wait_for_url",
       "kind": "operation",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [

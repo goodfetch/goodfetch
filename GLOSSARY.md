@@ -304,6 +304,10 @@ _Avoid_: budget, quota, spending cap
 The most model Usage one run, or one Partitioned crawl, may spend, past which its model calls are refused while it goes on; part of its own task, not a Limit.
 _Avoid_: model budget, model Limit, AI quota
 
+**Path budget**:
+An entry of `crawl.path_budgets`: a glob matched against a URL's path and query, and the most requests a crawl admits whose URL it matches first, past which one is not added with `path_budget` and the Run ends `incomplete` (CO-08); a bound on a section of a site, not a Limit on Usage.
+_Avoid_: path limit, section quota
+
 **Price table**:
 The list prices of third parties' Usage, per model and per metered proxy, with fixed rates between currencies, shipped with each release and changed only in configuration or, for a Plugin's, its manifest, through which a currency Limit reserves and a price is reported; an estimate, never a bill.
 _Avoid_: price list, cost map, rate card

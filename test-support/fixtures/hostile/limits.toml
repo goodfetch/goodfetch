@@ -5,10 +5,10 @@
 # 100 once a decoded body passes 1 MiB, `network.max_json_depth` 128), and
 # the JSON-RPC framing's `message_too_large` (16 MiB) and `message_too_deep`
 # (64). The decompression-bomb pages are the Proving ground's `bombs` family
-# (`bombs/1` to `bombs/5`); the pages that serve a huge or endless body and
-# deep JSON end to end are still the owner's to build, and this table names
-# them until then. A layer's runner pairs these with its own positive
-# control: a normal page, and a message within the limits, pass.
+# (`bombs/1` to `bombs/5`), and the huge and endless bodies and the deep
+# JSON its `body-limits` family (`body-limits/1` to `body-limits/4`). A
+# layer's runner pairs these with its own positive control: a normal page
+# (`bombs/6`, `body-limits/5`), and a message within the limits, pass.
 
 [[cases]]
 name = "gzip_bomb"
@@ -44,25 +44,25 @@ served_by = { page = "bombs/5" }
 name = "body_past_64_mib"
 input = { kind = "oversized_body", bytes = 67108865 }
 expected = { code = "response_limit_exceeded", setting = "network.max_body_size" }
-served_by = { waiting_on_owner = "a page whose uncompressed body is 64 MiB and one byte, generated on request" }
+served_by = { page = "body-limits/1" }
 
 [[cases]]
 name = "endless_chunked_body"
 input = { kind = "endless_body", framing = "chunked" }
 expected = { code = "response_limit_exceeded", setting = "network.max_body_size" }
-served_by = { waiting_on_owner = "a page whose chunked body never sends its last chunk" }
+served_by = { page = "body-limits/2" }
 
 [[cases]]
 name = "endless_close_delimited_body"
 input = { kind = "endless_body", framing = "close_delimited" }
 expected = { code = "response_limit_exceeded", setting = "network.max_body_size" }
-served_by = { waiting_on_owner = "a page whose body has no length and never closes" }
+served_by = { page = "body-limits/3" }
 
 [[cases]]
 name = "response_json_past_128_deep"
 input = { kind = "deep_nesting", channel = "response_json", depth = 129 }
 expected = { code = "response_limit_exceeded", setting = "network.max_json_depth" }
-served_by = { waiting_on_owner = "a discovered API whose JSON nests arrays 129 deep" }
+served_by = { page = "body-limits/4" }
 
 [[cases]]
 name = "json_rpc_message_past_64_deep"

@@ -91,6 +91,25 @@ fn an_unreadable_response_date_measures_against_the_engines_clock() {
     assert_eq!(asked, RetryAfter::Until(skewed() + Duration::from_mins(1)));
 }
 
+/// A date is measured against the response's own `Date`, whose one-second
+/// resolution it shares, so a response received just before the engine's
+/// clock ticks a second keeps its whole wait from that moment: nothing is
+/// lost or gained to the second boundary.
+///
+/// Covers: story:3-159
+#[test]
+fn a_date_received_just_before_a_second_ticks_keeps_its_whole_wait() {
+    let received = skewed() + Duration::from_millis(999);
+
+    let asked = read(
+        "Wed, 21 Oct 2026 07:27:02 GMT",
+        Some("Wed, 21 Oct 2026 07:27:00 GMT"),
+        received,
+    );
+
+    assert_eq!(asked, RetryAfter::Until(received + Duration::from_secs(2)));
+}
+
 /// An absurd number of seconds saturates rather than overflow.
 ///
 /// Covers: story:3-159

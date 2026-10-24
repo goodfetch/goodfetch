@@ -1015,6 +1015,11 @@ class NotAddedReason(StrEnum):
     A segment of its URL's path repeats more than
     `crawl.max_segment_repeats`.
     """
+    path_budget = "path_budget"
+    """
+    The first entry of `crawl.path_budgets` whose pattern its URL's path
+    and query match already counted that entry's `max_requests`.
+    """
     trap_path = "trap_path"
     """
     Its URL's path falls under a trap the Frontier learned and closed

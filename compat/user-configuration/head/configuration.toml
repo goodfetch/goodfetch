@@ -76,6 +76,12 @@ blocked_domains = ["example"]
 offline = true
 no_private_endpoints = true
 
+[settings.network]
+max_body_size = 4
+max_decompression_ratio = 4
+max_json_depth = 4
+resolve = { "example.test" = ["127.0.0.1"] }
+
 [settings.tls]
 trusted_cas = { "example.test" = ["example"] }
 client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
@@ -125,9 +131,6 @@ handler = 30000
 
 [settings.sample]
 echo_repeats = 4
-
-[settings.network]
-resolve = { "example.test" = ["127.0.0.1"] }
 
 [settings.consent]
 handling = true
@@ -203,6 +206,7 @@ max_requests = 4
 max_url_length = 4
 max_path_segments = 4
 max_segment_repeats = 4
+path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
 
 [settings.crawl.retry]
 max = 4

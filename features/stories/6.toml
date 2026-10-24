@@ -686,6 +686,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 229
+title = "As a crawl developer, I want `crawl.path_budgets` to cap the requests admitted under URL path patterns, as Spider's `with_budget`, with a URL past its budget not added with `path_budget` and the Run ending `incomplete`, so that one section of a site cannot use the whole crawl (CO-08) **(shape)**."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 230
+title = "As a crawl developer, I want facets bounded by robots.txt, a `crawl.scope.exclude` pattern on their parameters and `crawl.max_requests`, with no default rule, so that a catalogue on one path is never cut (ADR 0120; pitfall U02)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 231
 title = "As a crawl developer, I want `ctx.enqueue(url, label, payload?, options)` to resolve a relative URL against the document's base URL and answer added or not added with its reason, so that \"enqueued nothing\" says why (ADRs 0093, 0120; pitfall U08)."
 milestone = "M1 Core"

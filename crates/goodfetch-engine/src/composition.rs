@@ -604,7 +604,8 @@ pub struct ConsoleBuild {
 
 impl ConsoleBuild {
     /// The build made of `files`, whose page shows each of `routes`, such
-    /// as `/settings`.
+    /// as `/settings`, or `/runs/$run`, whose segment `$run` stands for
+    /// any one segment.
     pub const fn new(files: &'static [ConsoleFile], routes: &'static [&'static str]) -> Self {
         Self { files, routes }
     }
@@ -612,12 +613,35 @@ impl ConsoleBuild {
     /// The file a request's path names: `/` and each route of the build
     /// name the page itself, which shows the route's screen.
     pub(crate) fn file(&self, path: &str) -> Option<&ConsoleFile> {
-        let path = if path == "/" || self.routes.contains(&path) {
+        let path = if path == "/" || self.routes.iter().any(|route| matches_route(route, path)) {
             "/index.html"
         } else {
             path
         };
         self.files.iter().find(|file| file.path == path)
+    }
+}
+
+/// Whether `path` is one of `route`'s: the same segments, a segment of
+/// `route` that begins with `$` standing for any one that is not empty.
+fn matches_route(route: &str, path: &str) -> bool {
+    let mut routes = route.split('/');
+    let mut paths = path.split('/');
+    loop {
+        match (routes.next(), paths.next()) {
+            (None, None) => return true,
+            (Some(expected), Some(given)) => {
+                let fits = if expected.starts_with('$') {
+                    !given.is_empty()
+                } else {
+                    expected == given
+                };
+                if !fits {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
     }
 }
 

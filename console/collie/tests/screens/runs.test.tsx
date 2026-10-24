@@ -144,6 +144,9 @@ test(
     expect(await cells("finished-run")).toEqual(
       expect.arrayContaining(["finished", "verified", "complete", "shop-prices"]),
     );
+    expect((await headerOf("live-run")).querySelector("a")?.getAttribute("href")).toBe(
+      "/runs/live-run",
+    );
     expect((await headerOf("missing-run")).textContent).toContain("Run file missing");
     expect((await headerOf("erased-run")).textContent).toContain("Erased");
     expect(listed(adapter)).toEqual([{}]);

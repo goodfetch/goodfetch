@@ -1,42 +1,63 @@
-//! The OTLP/HTTP exports' HTTP client (ADRs 0050 and 0132), which both the
-//! spans' export and the metrics' share: ureq, blocking, on the export's
-//! own thread (the spans' batch processor, the metrics' periodic reader),
-//! which waits on each export, each bounded by [`EXPORT_TIMEOUT`].
+//! The OTLP/HTTP exports' HTTP client (ADRs 0017, 0050 and 0132), which
+//! both the spans' export and the metrics' share: the engine's own HTTP
+//! client, reaching the collector as the Operator-configured endpoint it
+//! is (`goodfetch_engine::otlp`), on the export's own thread (the spans'
+//! batch processor, the metrics' periodic reader), which waits on each
+//! export, each bounded by [`EXPORT_TIMEOUT`] over a runtime of its own.
 
 use std::time::Duration;
 
 use bytes::Bytes;
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::otlp::Collector;
+use goodfetch_engine::settings::Resolved;
 
 /// How long one export to the collector may take.
 pub(super) const EXPORT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The client.
 #[derive(Debug)]
-pub(super) struct Ureq(ureq::Agent);
+pub(super) struct ToCollector {
+    collector: Collector,
+    clock: Clock,
+}
 
-impl Ureq {
-    /// A client whose every export ends within [`EXPORT_TIMEOUT`], and which
-    /// hands the exporter every status the collector answers.
-    pub(super) fn new() -> Self {
-        Self(
-            ureq::Agent::config_builder()
-                .http_status_as_error(false)
-                .timeout_global(Some(EXPORT_TIMEOUT))
-                .build()
-                .new_agent(),
-        )
+impl ToCollector {
+    /// A client to the collector the machine's `settings` configure, whose
+    /// every export ends within [`EXPORT_TIMEOUT`], and which hands the
+    /// exporter every status the collector answers.
+    pub(super) fn new(settings: &Resolved, clock: Clock) -> Self {
+        Self {
+            collector: Collector::of(settings, clock),
+            clock,
+        }
     }
 }
 
 #[async_trait::async_trait]
-impl opentelemetry_http::HttpClient for Ureq {
+impl opentelemetry_http::HttpClient for ToCollector {
     async fn send_bytes(
         &self,
         request: http::Request<Bytes>,
     ) -> Result<http::Response<Bytes>, opentelemetry_http::HttpError> {
-        let response = self.0.run(request.map(|body| body.to_vec()))?;
-        let (parts, mut body) = response.into_parts();
-        let body = body.read_to_vec()?;
-        Ok(http::Response::from_parts(parts, Bytes::from(body)))
+        // The export's own thread runs no runtime: each export gets one of
+        // its own, as `main`'s other blocking steps do.
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "main builds the runtime (ADR 0060)"
+        )]
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        runtime.block_on(async {
+            tokio::select! {
+                answered = self.collector.send(request) => answered.map_err(Into::into),
+                () = self.clock.sleep(EXPORT_TIMEOUT) => Err(format!(
+                    "the collector did not answer within {} seconds",
+                    EXPORT_TIMEOUT.as_secs()
+                )
+                .into()),
+            }
+        })
     }
 }

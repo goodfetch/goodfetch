@@ -1196,3 +1196,31 @@ fn the_resolved_settings_say_whether_the_run_is_a_recipes(
 
     assert_eq!(resolved(&layers).recipe_run(), expected);
 }
+
+/// Story 4-16 (ADR 0017): `egress.no_private_endpoints` is the Operator
+/// policy's alone, as Goodfetch Cloud sets it: from any other layer it is
+/// refused with `setting_locked`, and the policy's own value is taken
+/// (positive control).
+/// Covers: story:4-16, error:setting_locked, setting:egress.no_private_endpoints
+#[rstest]
+#[case::from_a_recipe(SettingsLayer::Recipe, false)]
+#[case::from_the_run(SettingsLayer::Run, false)]
+#[case::from_user_configuration(SettingsLayer::UserConfiguration, false)]
+#[case::from_project_configuration(SettingsLayer::ProjectConfiguration, false)]
+#[case::from_the_operator_policy(SettingsLayer::OperatorPolicy, true)]
+fn no_private_endpoints_is_taken_from_the_operator_policy_alone(
+    #[case] layer: SettingsLayer,
+    #[case] taken: bool,
+) {
+    let layers = only(layer, "egress.no_private_endpoints", &json!(true));
+
+    let resolved = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    match resolved {
+        Ok(effective) => assert_eq!(
+            (taken, effective.value("egress.no_private_endpoints")),
+            (true, &json!(true))
+        ),
+        Err(refused) => assert_eq!((taken, refused.code()), (false, "setting_locked")),
+    }
+}

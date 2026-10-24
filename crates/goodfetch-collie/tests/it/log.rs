@@ -311,15 +311,79 @@ fn serve_exports(stream: std::net::TcpStream, exports: &mpsc::Sender<ExportTrace
 /// An OTLP/HTTP collector stand-in on loopback, on a thread of its own: its
 /// traces endpoint, and the spans of each export it receives.
 fn collector() -> (String, mpsc::Receiver<ExportTraceServiceRequest>) {
+    let (endpoint, received, _) = recorded_collector();
+    (endpoint, received)
+}
+
+/// The collector stand-in of [`collector`], with its connection record:
+/// one message for each connection it accepted.
+fn recorded_collector() -> (
+    String,
+    mpsc::Receiver<ExportTraceServiceRequest>,
+    mpsc::Receiver<()>,
+) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}/v1/traces", listener.local_addr().unwrap());
     let (exports, received) = mpsc::channel();
+    let (accepted, connections) = mpsc::channel();
     std::thread::spawn(move || {
         for stream in listener.incoming().map_while(Result::ok) {
+            let _ = accepted.send(());
             serve_exports(stream, &exports);
         }
     });
-    (endpoint, received)
+    (endpoint, received, connections)
+}
+
+/// Story 4-16 (ADR 0017): the OTLP collector is an Operator-configured
+/// endpoint, reached on loopback by default; an Operator policy that sets
+/// `egress.no_private_endpoints` refuses it before any connection, so the
+/// collector's record shows none and it receives no span, while the run
+/// itself goes on.
+/// Covers: story:4-16, setting:egress.no_private_endpoints, setting:otlp.traces_endpoint
+#[rstest]
+#[case::by_default(false, 1)]
+#[case::under_no_private_endpoints(true, 0)]
+fn a_collector_on_loopback_is_refused_only_under_an_operator_policy_of_no_private_endpoints(
+    #[case] refused: bool,
+    #[case] runs: usize,
+) {
+    let env = TestEnv::new();
+    let (endpoint, exports, connections) = recorded_collector();
+    env.user_configuration(&format!("otlp.traces_endpoint = \"{endpoint}\""));
+    if refused {
+        let major = env.home().join("0.0");
+        std::fs::create_dir_all(&major).unwrap();
+        std::fs::write(
+            major.join("operator-policy.toml"),
+            "version = \"0.1\"\n\n[settings.egress]\nno_private_endpoints = true\n",
+        )
+        .unwrap();
+    }
+    let mut engine = Attached::start(&env);
+    engine.send(&hello("collie", "0.1"));
+    let _ = engine.next();
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 1, "method": "run.start", "params": { "run_id": "traced" },
+    }));
+    let started = engine.next().unwrap();
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 2, "method": "run.finish", "params": { "run_id": "traced" },
+    }));
+    let _ = engine.next();
+
+    let (_, succeeded) = engine.finish();
+
+    let exported = exports
+        .try_iter()
+        .flat_map(|request| spans_of(&request))
+        .filter(|(name, _)| name == "run")
+        .count();
+    let accepted = connections.try_iter().count();
+    assert_eq!(
+        (succeeded, &started["error"], exported, accepted.min(1)),
+        (true, &Value::Null, runs, runs)
+    );
 }
 
 /// Covers: story:3-105, setting:otlp.traces_endpoint

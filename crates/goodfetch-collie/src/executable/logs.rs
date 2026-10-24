@@ -39,7 +39,7 @@ use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 
 use super::log_file::{LogFile, Rotation};
-use super::otlp::{EXPORT_TIMEOUT, Ureq};
+use super::otlp::{EXPORT_TIMEOUT, ToCollector};
 use super::{Command, DaemonCommand, LOG_FOLDER, Parsed};
 
 /// The kinds of process whose logs ADR 0122 tells apart.
@@ -297,12 +297,19 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
             .with_writer(file)
             .with_filter(filter())
     });
-    let endpoint = logs
-        .settings
-        .and_then(|settings| settings.get(OTLP_TRACES_ENDPOINT.name))
-        .and_then(|endpoint| endpoint.value.as_str().map(str::to_owned));
-    let (export, failed) = match endpoint.map(|endpoint| export(&endpoint, logs.product, trace_ids))
-    {
+    let endpoint = logs.settings.and_then(|settings| {
+        let endpoint = settings.get(OTLP_TRACES_ENDPOINT.name)?.value.as_str()?;
+        Some((endpoint.to_owned(), settings))
+    });
+    let exported = endpoint.map(|(endpoint, settings)| {
+        export(
+            &endpoint,
+            ToCollector::new(settings, clock),
+            logs.product,
+            trace_ids,
+        )
+    });
+    let (export, failed) = match exported {
         Some(Ok(export)) => (Some(export), None),
         Some(Err(error)) => (None, Some(error)),
         None => (None, None),
@@ -331,16 +338,18 @@ pub(super) fn install(logs: Logs<'_>) -> Installed {
     Installed { export, file: kept }
 }
 
-/// The export of every span to the OTLP/HTTP collector at `endpoint`, its
-/// trace and span IDs drawn from `trace_ids` (ADR 0132).
+/// The export of every span to the OTLP/HTTP collector at `endpoint`
+/// through `client`, its trace and span IDs drawn from `trace_ids` (ADR
+/// 0132).
 fn export(
     endpoint: &str,
+    client: ToCollector,
     product: Product,
     trace_ids: Option<Entropy>,
 ) -> Result<SdkTracerProvider, String> {
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
-        .with_http_client(Ureq::new())
+        .with_http_client(client)
         .with_endpoint(endpoint)
         .with_timeout(EXPORT_TIMEOUT)
         .build()

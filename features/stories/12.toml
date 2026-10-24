@@ -38,6 +38,14 @@ journey = true
 status = "active"
 
 [[story]]
+id = 11
+title = "As a user, I want each run's Lifecycle, Verdict and Completeness shown as three separate values, so that \"finished but needs review\" or \"verified but incomplete\" reads as it is (ADR 0029)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 12
 title = "As a user, I want to filter and sort runs by tags, Recipe, Schedule and occurrence, trigger, Product, each axis, start and end time, and a text match on Run ID, tags and Recipe, Watch runs hidden unless the filter asks for them, with the filter kept in the address, so that I find a run and share the view (ADRs 0036, 0117; ADR 0037 / CN-04)."
 milestone = "M1 Core"
@@ -56,6 +64,38 @@ status = "active"
 [[story]]
 id = 14
 title = "As a user, I want a live run's row and page to update as its axes, progress and status message change, without reloading, so that I follow it as it runs (ADRs 0031, 0102; ADR 0037 / RT-15)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 16
+title = "As a developer, I want the `consoleUrl` of a Run report to open that run's page, so that a CI log links straight to what happened (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 18
+title = "As a user, I want a run marked *uncapped* when it can spend money with nothing capping it, whether or not a Model allowance is set, so that unbounded spending is visible (ADRs 0041, 0107)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 19
+title = "As a user, I want a run's page to show its writer (live or none), its run epoch and last Checkpoint, each Human pause waiting, and the worst storage level among the filesystems it writes to, with that folder and its free space, so that a slow run explains itself (ADRs 0102, 0122)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 20
+title = "As a user, I want a live run's page to offer stop and checkpoint, and an interrupted run's page to show the resume command, so that I act on a run from where I see it (ADRs 0031, 0102)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

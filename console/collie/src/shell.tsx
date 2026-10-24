@@ -4,9 +4,10 @@
 // opened at. Its first screen, at `/`, names the Product, "Goodfetch Collie", then
 // calls it "Collie", and says which engine its Client reached, by Product
 // and version, or that the page is not signed in; the Runs screen lists
-// the runs. Each screen's route is plain data (`routes.ts`, ADR 0072), and
-// the page's title names it; a screen that keeps its view in the address
-// reads and replaces the address's query.
+// the runs, and a run's page, at `/runs/<run-id>`, one of them. Each
+// screen's route is plain data (`routes.ts`, ADR 0072), its `$` segments
+// the screen's parameters, and the page's title names it; a screen that
+// keeps its view in the address reads and replaces the address's query.
 // While the Client has no Connection, after its first or once its first
 // attempt failed, a banner says the page is read-only until it reconnects,
 // which it does by itself, and each screen disables its actions (ADR
@@ -21,7 +22,8 @@ import { EngineSettings } from "#engine-settings/engine-settings.tsx";
 import { formatCount } from "#format.ts";
 import { NeedsYouStore, READING, type NeedsYouState } from "#needs-you/needs-you-store.ts";
 import { NeedsYou } from "#needs-you/needs-you.tsx";
-import { ENGINE_SETTINGS, NEEDS_YOU, RUNS } from "#routes.ts";
+import { ENGINE_SETTINGS, NEEDS_YOU, RUN, RUNS, paramsOf, type RouteParams } from "#routes.ts";
+import { RunPage } from "#runs/run-page.tsx";
 import { Runs } from "#runs/runs.tsx";
 
 /** What the shell shows the Console's link to its engine with. */
@@ -42,18 +44,20 @@ interface ScreenContext {
   readonly readOnly: boolean;
 }
 
-/** A screen of Collie's build: its route, its name, and what it shows. */
+/** A screen of Collie's build: its route, its name, whether the side menu links it, and what it shows with its route's parameters. */
 interface Screen {
   readonly route: string;
   readonly name: MessageDescriptor;
-  readonly content: (context: ScreenContext) => ReactNode;
+  readonly inMenu: boolean;
+  readonly content: (context: ScreenContext, params: RouteParams) => ReactNode;
 }
 
-/** Collie's screens, in the side menu's order. */
+/** Collie's screens, the side menu's in its order. */
 const SCREENS: readonly Screen[] = [
   {
     route: NEEDS_YOU,
     name: msg`Needs you`,
+    inMenu: true,
     content: ({ needsYou, readOnly }) => (
       <NeedsYou state={needsYou.state} readOnly={readOnly} dismiss={needsYou.dismiss} />
     ),
@@ -61,14 +65,37 @@ const SCREENS: readonly Screen[] = [
   {
     route: RUNS,
     name: msg`Runs`,
+    inMenu: true,
     content: ({ client, address }) => <Runs client={client} address={address} />,
   },
   {
     route: ENGINE_SETTINGS,
     name: msg`Engine & settings`,
+    inMenu: true,
     content: ({ client }) => <EngineSettings client={client} />,
   },
+  {
+    route: RUN,
+    name: msg`Run`,
+    inMenu: false,
+    content: ({ client, readOnly }, { run = "" }) => (
+      <RunPage key={run} client={client} runId={run} readOnly={readOnly} />
+    ),
+  },
 ];
+
+/** The screen at `route`, a page's path, with the parameters its route takes from it. */
+function screenAt(
+  route: string,
+): { readonly screen: Screen; readonly params: RouteParams } | undefined {
+  for (const screen of SCREENS) {
+    const params = paramsOf(screen.route, route);
+    if (params !== undefined) {
+      return { screen, params };
+    }
+  }
+  return undefined;
+}
 
 /** "Needs you" as the shell holds it: the list now, and how to dismiss an item. */
 interface ShellNeedsYou {
@@ -184,7 +211,8 @@ function MenuLink({
 /** The Console's shell. */
 export function Shell({ client, route, address = NO_ADDRESS }: ShellProps): ReactNode {
   const { i18n, t } = useLingui();
-  const screen = SCREENS.find((candidate) => candidate.route === route);
+  const at = screenAt(route);
+  const screen = at?.screen;
   const name = screen === undefined ? undefined : i18n._(screen.name);
   const title = name === undefined ? t`Goodfetch Collie` : t`${name} · Goodfetch Collie`;
   useEffect(() => {
@@ -201,7 +229,7 @@ export function Shell({ client, route, address = NO_ADDRESS }: ShellProps): Reac
           <MenuLink route="/" current={screen === undefined}>
             <Trans>Overview</Trans>
           </MenuLink>
-          {SCREENS.map((candidate) => (
+          {SCREENS.filter((candidate) => candidate.inMenu).map((candidate) => (
             <MenuLink key={candidate.route} route={candidate.route} current={candidate === screen}>
               {i18n._(candidate.name)}
               {candidate.route === NEEDS_YOU && waiting > 0 ? (
@@ -213,7 +241,7 @@ export function Shell({ client, route, address = NO_ADDRESS }: ShellProps): Reac
           ))}
         </nav>
       </header>
-      {screen === undefined ? (
+      {at === undefined ? (
         <main className="mx-auto flex max-w-2xl flex-col justify-center gap-3 px-6 py-16">
           <Overview client={client} />
         </main>
@@ -224,7 +252,7 @@ export function Shell({ client, route, address = NO_ADDRESS }: ShellProps): Reac
               <NotSignedIn />
             </p>
           ) : (
-            screen.content({ client, address, needsYou, readOnly })
+            at.screen.content({ client, address, needsYou, readOnly }, at.params)
           )}
         </main>
       )}

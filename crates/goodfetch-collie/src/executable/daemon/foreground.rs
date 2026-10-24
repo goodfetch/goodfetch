@@ -32,6 +32,7 @@ use std::time::Duration;
 use goodfetch_engine::browser_cache::{
     BrowserChoice, BrowserSource, CacheLocation, Pins, Platform, browser_source, entry_present,
 };
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use goodfetch_engine::ops::{ConfiguredBrowsers, Ops, OpsOptions};
@@ -48,6 +49,7 @@ use tokio_util::sync::CancellationToken;
 use super::{Failure, Machine, Reach, multi_thread_runtime};
 use crate::executable::browsers;
 use crate::executable::metrics::Export;
+use crate::executable::otlp::ToCollector;
 
 /// The deployment variable that overrides `daemon.address` for `daemon run`.
 const ADDRESS_VARIABLE: &str = "GOODFETCH_DAEMON_ADDRESS";
@@ -113,7 +115,7 @@ pub(in crate::executable) fn run(
         Ok(tokens) => tokens,
         Err(exit) => return exit,
     };
-    let export = match export(&configured, identity) {
+    let export = match export(&configured, identity, dependencies.clock) {
         Ok(export) => export,
         Err(exit) => return exit,
     };
@@ -225,10 +227,13 @@ fn tokens(configured: &Configured, files: &DaemonFiles) -> Result<Tokens, ExitCo
 }
 
 /// The metrics' export `configured` asks for.
-fn export(configured: &Configured, identity: &Identity) -> Result<Export, ExitCode> {
+fn export(configured: &Configured, identity: &Identity, clock: Clock) -> Result<Export, ExitCode> {
     Export::start(
         configured.ops.is_some(),
-        configured.otlp_metrics.as_deref(),
+        configured
+            .otlp_metrics
+            .as_deref()
+            .map(|endpoint| (endpoint, ToCollector::new(&configured.settings, clock))),
         identity.product,
     )
     .map_err(|error| {

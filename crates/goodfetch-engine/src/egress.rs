@@ -21,14 +21,21 @@
 //! its exact address. A URL whose host carries a zone ID is refused as a
 //! private address by [`judge`] itself, since the URL parser reads no host
 //! from it.
+//!
+//! Operator-configured endpoints are the second egress class (ADR 0017),
+//! judged by [`judge_endpoint`] and [`judge_endpoint_addresses`] under an
+//! [`EndpointPolicy`]: no run's domain policy applies, and an endpoint
+//! reaches private addresses, so a model on localhost works, unless
+//! `egress.no_private_endpoints`, set in the Operator policy alone, holds
+//! it to globally reachable ones.
 
 use std::collections::HashSet;
 use std::hash::{BuildHasherDefault, DefaultHasher};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use goodfetch_protocol::egress::{
-    EGRESS_ALLOWED_DOMAINS, EGRESS_BLOCKED_DOMAINS, EGRESS_REFUSED, EVERY_HOST,
-    EgressRefusedDetails, EgressRule,
+    EGRESS_ALLOWED_DOMAINS, EGRESS_BLOCKED_DOMAINS, EGRESS_NO_PRIVATE_ENDPOINTS, EGRESS_REFUSED,
+    EVERY_HOST, EgressRefusedDetails, EgressRule,
 };
 use goodfetch_protocol::jsonrpc::ErrorData;
 use serde_json::{Map, Value};
@@ -496,6 +503,85 @@ pub fn judge_addresses(
         });
     }
     Ok(())
+}
+
+/// What the Operator policy lets an Operator-configured endpoint reach
+/// (ADR 0017), the second egress class: no run's domain policy or private
+/// ranges apply to it, and it reaches private addresses, a model on
+/// localhost among them, unless `egress.no_private_endpoints` holds it to
+/// globally reachable ones.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EndpointPolicy {
+    no_private_endpoints: bool,
+}
+
+impl EndpointPolicy {
+    /// The policy that refuses every address that is not globally
+    /// reachable when `no_private_endpoints`.
+    pub fn new(no_private_endpoints: bool) -> Self {
+        Self {
+            no_private_endpoints,
+        }
+    }
+
+    /// The policy the resolved settings give: `egress.no_private_endpoints`,
+    /// which only the Operator policy sets.
+    pub fn of(settings: &Resolved) -> Self {
+        Self::new(
+            settings
+                .boolean(EGRESS_NO_PRIVATE_ENDPOINTS.name)
+                .unwrap_or(false),
+        )
+    }
+}
+
+/// Judges the URL of an Operator-configured endpoint before any lookup:
+/// its scheme alone, one of HTTP's, since no run's domain policy applies
+/// to it; [`judge_endpoint_addresses`] then judges where it resolves.
+pub fn judge_endpoint(url: &str) -> Judgment {
+    let refused = |rule| {
+        Judgment::Refused(Refused {
+            url: url.to_owned(),
+            rule,
+            address: None,
+            setting: None,
+        })
+    };
+    match Url::parse(url) {
+        Ok(parsed) if SCHEMES.contains(&parsed.scheme()) => Judgment::Allowed(parsed),
+        Ok(_) => refused(EgressRule::Scheme),
+        Err(_) => refused(EgressRule::DomainPolicy),
+    }
+}
+
+/// Judges the addresses a connection to the Operator-configured endpoint
+/// at `url` may try, before it tries any.
+///
+/// # Errors
+///
+/// [`Refused`] with [`EgressRule::PrivateAddress`], the first address that
+/// is not globally reachable and `egress.no_private_endpoints`, when it
+/// is on.
+pub fn judge_endpoint_addresses(
+    url: &str,
+    addresses: &[SocketAddr],
+    policy: EndpointPolicy,
+) -> Result<(), Refused> {
+    if !policy.no_private_endpoints {
+        return Ok(());
+    }
+    match addresses
+        .iter()
+        .find(|address| !classify_socket(**address).is_global())
+    {
+        Some(address) => Err(Refused {
+            url: url.to_owned(),
+            rule: EgressRule::PrivateAddress,
+            address: Some(address.ip()),
+            setting: Some(EGRESS_NO_PRIVATE_ENDPOINTS.name),
+        }),
+        None => Ok(()),
+    }
 }
 
 /// The schemes a request may use; every other is refused (ADR 0017).

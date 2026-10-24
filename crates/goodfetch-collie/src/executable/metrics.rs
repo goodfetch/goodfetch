@@ -18,7 +18,7 @@ use opentelemetry_otlp::{WithExportConfig as _, WithHttpConfig as _};
 use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use prometheus::{Encoder as _, TextEncoder};
 
-use super::otlp::{EXPORT_TIMEOUT, Ureq};
+use super::otlp::{EXPORT_TIMEOUT, ToCollector};
 
 /// How often the metrics are exported to the collector: OpenTelemetry's
 /// default.
@@ -42,7 +42,8 @@ impl Drop for Export {
 
 impl Export {
     /// The export to Prometheus when `prometheus`, and to the OTLP/HTTP
-    /// collector at `otlp` when one is named; none at all otherwise.
+    /// collector at `otlp` through its client when one is named; none at
+    /// all otherwise.
     ///
     /// # Errors
     ///
@@ -50,7 +51,7 @@ impl Export {
     /// URL.
     pub(super) fn start(
         prometheus: bool,
-        otlp: Option<&str>,
+        otlp: Option<(&str, ToCollector)>,
         product: Product,
     ) -> Result<Self, String> {
         if !prometheus && otlp.is_none() {
@@ -77,10 +78,10 @@ impl Export {
         } else {
             None
         };
-        if let Some(endpoint) = otlp {
+        if let Some((endpoint, client)) = otlp {
             let exporter = opentelemetry_otlp::MetricExporter::builder()
                 .with_http()
-                .with_http_client(Ureq::new())
+                .with_http_client(client)
                 .with_endpoint(endpoint)
                 .with_timeout(EXPORT_TIMEOUT)
                 .build()

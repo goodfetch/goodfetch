@@ -349,6 +349,7 @@ impl Engine {
                     .home
                     .run_index(&self.identity().product_version),
                 version: self.identity().product_version.clone(),
+                settings: settings.clone(),
                 owner: Arc::new(owner.child()),
             },
             events.clone(),

@@ -12,6 +12,7 @@
 )]
 
 mod checkpoint;
+mod consent_walls;
 mod daemon;
 mod discard;
 mod durability;

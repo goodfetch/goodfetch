@@ -161,7 +161,7 @@ fn listed(change: &NeedsYouChange) -> &str {
 /// among items waiting since the same time, which `kinds` narrows to the
 /// kinds it names.
 ///
-/// Covers: story:12-23, operation:needs_you.list
+/// Covers: story:12-23
 #[test]
 fn every_sources_items_make_one_list_the_longest_waiting_first() {
     let (_folder, path) = index();
@@ -216,8 +216,6 @@ fn every_sources_items_make_one_list_the_longest_waiting_first() {
 
 /// A list longer than a page is read a page at a time: each page's `next`
 /// is where the next one starts, and the last page has none.
-///
-/// Covers: operation:needs_you.list
 #[test]
 fn a_long_list_is_read_a_page_at_a_time() {
     let (_folder, path) = index();
@@ -269,7 +267,7 @@ fn a_long_list_is_read_a_page_at_a_time() {
 /// by its Run, leaves the list with `needs_you.changed` saying so; one that
 /// changes is listed again as it is now, waiting since it first appeared.
 ///
-/// Covers: story:12-32, event:needs_you.changed
+/// Covers: story:12-32
 #[test]
 fn an_item_its_source_resolves_leaves_the_list_and_one_that_changes_keeps_its_since() {
     let (_folder, path) = index();
@@ -328,7 +326,7 @@ fn an_item_its_source_resolves_leaves_the_list_and_one_that_changes_keeps_its_si
 /// item of a source that does not allow it, or one the list no longer
 /// holds, is not dismissed.
 ///
-/// Covers: story:12-32, operation:needs_you.dismiss, format:run-index
+/// Covers: story:12-32, format:run-index
 #[test]
 fn a_dismissed_item_stays_hidden_after_the_engine_starts_again() {
     let (_folder, path) = index();

@@ -1134,7 +1134,11 @@ impl PageContext {
         if driver.navigation_waits() {
             state.leave(error.clone());
         } else {
-            tracing::info!(%error, "the navigation gate refused a document no call waited on: the page is left blank");
+            tracing::info!(
+                code = error.code(),
+                url.origin = goodfetch_engine::log::origin(&paused.request.url),
+                "the navigation gate refused a document no call waited on: the page is left blank"
+            );
             refusals.refuse_navigation(&paused.request.url, error.clone());
         }
         self.fulfill(

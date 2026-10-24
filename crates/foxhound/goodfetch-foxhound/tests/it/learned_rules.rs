@@ -245,6 +245,7 @@ fn a_calendar_trap_closes_after_a_hundred_months_and_leaves_the_run_unverified()
             &json!([{
                 "code": "trap_path",
                 "message": "A learned trap refused 1 URL the crawl would otherwise have admitted.",
+                "count": 1,
             }]),
         )
     );

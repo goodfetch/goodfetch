@@ -43,6 +43,14 @@ export type AuditKind = "audit_log_anchor" | "audit_log_pruned" | "certificate_a
 export type BlockCause = "captcha" | "challenge" | "consent_required" | "ip_block" | "payment_required" | "rate_limit" | (string & {});
 
 /**
+ * A `completeness_reason_code`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
+ *
+ * - `failed`: An error ended it before its end, `incomplete`.
+ * - `stopped`: It stopped before its end, `incomplete`; a crawl's counts the requests it left.
+ */
+export type CompletenessReasonCode = "failed" | "stopped" | (string & {});
+
+/**
  * A `limit_scope`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
  *
  * - `connection`: Every run a Client connection starts, while it lasts.

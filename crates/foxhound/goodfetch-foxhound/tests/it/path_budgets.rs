@@ -173,6 +173,7 @@ fn a_faceted_listing_is_crawled_whole_unless_an_exclude_pattern_or_the_request_c
             "`crawl.max_requests` refused {} URLs the crawl would otherwise have admitted.",
             capped.answers["max_requests"]
         ),
+        "count": capped.answers["max_requests"],
     }]);
     assert_eq!(
         (
@@ -211,6 +212,7 @@ fn a_path_budget_refuses_past_its_count_and_the_run_ends_incomplete() {
         "message": format!(
             "`crawl.path_budgets`'s entry `/shop?*` refused {refused} URLs past its 20 requests the crawl would otherwise have admitted."
         ),
+        "count": refused,
     }]);
     let answers_given = crawled.answers.clone();
     assert_eq!(

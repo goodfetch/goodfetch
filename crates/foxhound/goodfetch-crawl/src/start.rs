@@ -64,6 +64,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_handler(read_failed_requests)
         .with_run_state_tables(work_items::TABLES)
         .with_report_part(Arc::new(crate::report::CrawlParts))
+        .with_report_part(Arc::new(crate::completeness::StoppedParts))
         .with_progress_part(Arc::new(crate::progress::CrawlProgress))
         .with_driver(
             RunKind::Crawl,

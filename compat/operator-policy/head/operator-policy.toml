@@ -209,6 +209,11 @@ exclude = ["example"]
 
 [settings.fetch]
 tier = "auto"
+coalesce = true
+
+[settings.fetch.hedge]
+enabled = true
+max_percent = 4
 
 [settings.paid_fetch]
 domains = ["example"]
@@ -428,6 +433,11 @@ exclude = ["example"]
 
 [lock.fetch]
 tier = "auto"
+coalesce = true
+
+[lock.fetch.hedge]
+enabled = true
+max_percent = 4
 
 [lock.paid_fetch]
 domains = ["example"]
@@ -524,6 +534,9 @@ max = 4
 
 [cap.crawl.handler]
 concurrency = 4
+
+[cap.fetch.hedge]
+max_percent = 4
 
 [cap.session.pool]
 max_size = 4

@@ -100,6 +100,10 @@ covers = ["story:5-89", "operation:session.new_page", "operation:run.new_page", 
 id = "socks4-and-credentials-in-the-proxy-url-are-setting-invalid"
 covers = ["story:5-88", "setting:proxy.server", "error:setting_invalid"]
 
+[[capability.case]]
+id = "a-client-acting-for-a-model-sets-no-proxy"
+covers = ["story:5-88", "setting:proxy.server", "setting:proxy.password", "error:setting_locked", "operation:run.new_session"]
+
 [[capability]]
 name = "sessions.proxy_limits"
 
@@ -116,7 +120,7 @@ id = "a-run-that-shares-no-politeness-keeps-the-ceiling-it-learned-to-itself"
 covers = ["story:5-90", "setting:politeness.sharing", "error:proxy_unavailable"]
 
 [[capability.case]]
-id = "a-sites-429-through-a-proxy-lowers-no-ceiling"
+id = "a-sites-429-through-a-proxy-lowers-no-ceiling-and-writes-no-domain-limit"
 covers = ["story:5-90", "error:proxy_unavailable"]
 
 [[capability]]

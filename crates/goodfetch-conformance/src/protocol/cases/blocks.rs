@@ -156,7 +156,7 @@ fn contexts(target: &EngineTarget, run_id: &str) -> usize {
 /// Whether the Politeness file of `target`'s Goodfetch home holds anything
 /// naming `host`: a domain limit, a Permit or a waiter of its key. A file
 /// never made holds nothing.
-fn politeness_names(target: &EngineTarget, host: &str) -> bool {
+pub(super) fn politeness_names(target: &EngineTarget, host: &str) -> bool {
     let Some(home) = target.environment.get("GOODFETCH_HOME") else {
         return false;
     };

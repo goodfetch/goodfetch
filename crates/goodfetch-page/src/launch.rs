@@ -265,15 +265,17 @@ pub(crate) async fn launch(
         start(command).map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
     let process = child.child.id();
     let (exits, exit) = watch::channel(None);
-    run.spawn(supervise(
-        (run.clone(), stopping),
-        child,
-        (connection.clone(), driver),
+    run.spawn(supervise(Supervised {
+        run: run.clone(),
+        stopping,
+        process: child,
+        connection: connection.clone(),
+        driver,
         exits,
         held,
         profile,
-        run.metrics().browser_running(kind),
-    ));
+        running: run.metrics().browser_running(kind),
+    }));
     Ok(Launched {
         connection,
         exit,
@@ -348,18 +350,43 @@ fn start(_command: Command) -> std::io::Result<(Connection, Driving, Process)> {
     ))
 }
 
+/// What the supervisor of one launched browser holds until it exits.
+struct Supervised {
+    /// The browser's Run.
+    run: Run,
+    /// Cancelled when the Run stops or the pool closes the browser.
+    stopping: CancellationToken,
+    /// Its process.
+    process: Process,
+    /// Its connection, through which it is asked to close.
+    connection: Connection,
+    /// The connection's driver, which the supervisor runs.
+    driver: Driving,
+    /// Told how the process ended, once it did.
+    exits: watch::Sender<Option<BrowserExit>>,
+    /// The build it runs, held until it exits.
+    held: Option<HeldArtifact>,
+    /// Its profile, removed once it exited.
+    profile: PathBuf,
+    /// Its count among the running browsers.
+    running: Counted,
+}
+
 /// Runs the browser's connection, waits for its process to exit or for
 /// `stopping`, closes it then, within the Run's `timeout.close`, after
 /// which it is killed, and releases its build and profile.
-async fn supervise(
-    (run, stopping): (Run, CancellationToken),
-    process: Process,
-    (connection, driver): (Connection, Driving),
-    exits: watch::Sender<Option<BrowserExit>>,
-    held: Option<HeldArtifact>,
-    profile: PathBuf,
-    running: Counted,
-) {
+async fn supervise(supervised: Supervised) {
+    let Supervised {
+        run,
+        stopping,
+        process,
+        connection,
+        driver,
+        exits,
+        held,
+        profile,
+        running,
+    } = supervised;
     let Process {
         mut child,
         _group: group,

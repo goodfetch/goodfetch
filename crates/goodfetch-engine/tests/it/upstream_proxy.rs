@@ -311,11 +311,14 @@ fn tunnel_failure(error: FetchError, proxy: &UpstreamProxy, url: &str) -> String
     }
 }
 
-/// Covers: story:4-12, error:proxy_unavailable, error:proxy_auth_failed
+/// Covers: story:4-12
 #[rstest]
 #[case::an_open_proxy_tunnels_to_the_site("open", Ok(200))]
+/// Covers: error:proxy_unavailable
 #[case::a_proxy_that_refuses_every_tunnel("refusing_tunnels", Err("proxy_unavailable"))]
+/// Covers: error:proxy_auth_failed
 #[case::a_proxy_that_wants_credentials("datacenter", Err("proxy_auth_failed"))]
+/// Covers: error:proxy_unavailable
 #[case::a_proxy_nothing_answers_on("down", Err("proxy_unavailable"))]
 fn a_refused_tunnel_request_is_a_failure_of_the_proxy_itself(
     #[case] name: &str,

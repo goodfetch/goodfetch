@@ -11589,6 +11589,39 @@
       ]
     },
     {
+      "id": "story:13-44",
+      "kind": "story",
+      "area": 13,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:13-45",
+      "kind": "story",
+      "area": 13,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:13-46",
+      "kind": "story",
+      "area": 13,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:14-15",
       "kind": "story",
       "area": 14,

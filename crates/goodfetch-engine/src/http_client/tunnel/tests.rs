@@ -30,28 +30,32 @@ fn a_2xx_answer_opens_the_tunnel(#[case] head: &[u8]) {
     assert_eq!(answered(head), Ok(()));
 }
 
-/// Covers: error:proxy_auth_failed, error:proxy_unavailable
 #[rstest]
+/// Covers: error:proxy_auth_failed
 #[case::authentication_required(
     b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"p\"\r\n\r\n",
     ProxyFailure::AuthenticationRequired,
     "proxy_auth_failed"
 )]
+/// Covers: error:proxy_unavailable
 #[case::rate_limited(
     b"HTTP/1.1 429 Too Many Requests\r\n\r\n",
     ProxyFailure::RateLimited,
     "proxy_unavailable"
 )]
+/// Covers: error:proxy_unavailable
 #[case::bad_gateway(
     b"HTTP/1.1 502 Bad Gateway\r\nProxy-Status: p; error=dns_error\r\n\r\n",
     ProxyFailure::BadGateway,
     "proxy_unavailable"
 )]
+/// Covers: error:proxy_unavailable
 #[case::an_unknown_refusal(
     b"HTTP/1.1 403 Forbidden\r\n\r\n",
     ProxyFailure::Unrecognized(Unrecognized { answer: "HTTP/1.1 403 Forbidden".to_owned() }),
     "proxy_unavailable"
 )]
+/// Covers: error:proxy_unavailable
 #[case::no_http_answer(
     b"SSH-2.0-OpenSSH_9.6\r\n\r\n",
     ProxyFailure::Unrecognized(Unrecognized { answer: "SSH-2.0-OpenSSH_9.6".to_owned() }),

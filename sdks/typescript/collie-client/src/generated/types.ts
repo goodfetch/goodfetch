@@ -119,7 +119,8 @@ export type DaemonEndpoint =
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "Unready".
  */
-export type Unready = "draining" | "run_state_not_writable" | "browsers_missing" | "governor_last_resort";
+export type Unready =
+  "draining" | "run_state_not_writable" | "browsers_missing" | "governor_last_resort" | "storage_critical";
 /**
  * One dialog a handler answers, which `dialog.*` names.
  *

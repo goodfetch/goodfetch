@@ -2,6 +2,7 @@
 //! process on a run file in memory (spec #581: pure rules and run state in
 //! process).
 
+use goodfetch_engine::egress::Policy;
 use goodfetch_frontier::{
     BOUNDS_TABLES, Patterns, SCOPE_TABLES, Scope, ScopeStrategy, VISITED_TABLES,
 };
@@ -39,7 +40,8 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
     scope.record(&connection).unwrap();
     let seed: Seed =
         serde_json::from_value(json!({ "url": "http://shop.test/", "label": "page" })).unwrap();
-    work_items::admit_seeds(&connection, &scope, &[seed]).unwrap();
+    let every_host = Policy::new(&["*"], &[] as &[&str]).unwrap();
+    work_items::admit_seeds(&connection, &scope, &every_host, &[seed]).unwrap();
     let leased = work_items::lease(&connection, &["1".to_owned()]).unwrap();
     let enqueue = |url: &str| {
         let params: CrawlRequestEnqueueParams = serde_json::from_value(json!({
@@ -50,7 +52,9 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
             "label": "page",
         }))
         .unwrap();
-        add(&connection, &params, None).unwrap().unwrap()
+        add(&connection, &every_host, &params, None)
+            .unwrap()
+            .unwrap()
     };
 
     let answers = [

@@ -19,10 +19,26 @@ import {
 import { expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
-import { createConsoleClient, type ConsoleClient, type PageVisibility } from "#client/client.ts";
-import type { ConsoleOperations } from "#generated/operations.ts";
+import {
+  createConsoleClient,
+  type ConsoleClient,
+  type ConsoleOperations,
+  type PageVisibility,
+} from "#client/client.ts";
 import { ConsoleI18n } from "#i18n.tsx";
 import { Shell } from "#shell.tsx";
+
+/**
+ * The adapter over every operation the Console calls, those kept off the
+ * SDKs' layer such as the person-only `usage.raise` included: its default,
+ * the SDK's operation table, leaves them out.
+ */
+type ConsoleAdapter = ProtocolAdapter<ConsoleOperations>;
+
+/** An adapter standing for Collie's engine, as the Console reaches it. */
+function consoleAdapter(): ConsoleAdapter {
+  return createProtocolAdapter<ConsoleOperations>();
+}
 
 /** A page that stays visible. */
 const visible: PageVisibility = { visible: true, watch: () => () => {} };
@@ -49,7 +65,7 @@ const STOPPED: NeedsYouItem = {
 };
 
 /** The Console's Client over `adapter`. */
-function clientOf(adapter: Pick<ProtocolAdapter, "transport" | "bodyFetcher">): ConsoleClient {
+function clientOf(adapter: ConsoleAdapter): ConsoleClient {
   return createConsoleClient({
     transport: adapter.transport,
     bodyFetcher: adapter.bodyFetcher,
@@ -76,7 +92,7 @@ function items() {
   return page.getByRole("list", { name: "Needs you" }).getByRole("listitem");
 }
 
-async function subscribed(adapter: Pick<ProtocolAdapter, "requests">): Promise<void> {
+async function subscribed(adapter: ConsoleAdapter): Promise<void> {
   await expect
     .poll(() => adapter.requests.some((request) => request.method === "events.subscribe"))
     .toBe(true);
@@ -86,7 +102,7 @@ test(
   "the side menu counts what needs you and follows the list live, each storage entry shown with its folder",
   { tags: ["story:12-23", "story:12-25", "story:12-32", "screen:/needs-you"] },
   async () => {
-    const adapter = createProtocolAdapter();
+    const adapter = consoleAdapter();
     adapter.answer("needs_you.list", { items: [LOW] });
     const client = clientOf(adapter);
     await shown(client);
@@ -121,7 +137,7 @@ test(
   "a person dismisses a stopped run, and the change the engine publishes takes it off the list",
   { tags: ["story:12-32", "screen:/needs-you"] },
   async () => {
-    const adapter = createProtocolAdapter();
+    const adapter = consoleAdapter();
     adapter.answer("needs_you.list", { items: [LOW, STOPPED] });
     adapter.answer("needs_you.dismiss", ({ item }) => {
       adapter.push(
@@ -154,7 +170,7 @@ test(
   "a tab that reconnects misses no item: it resumes after its last event, or takes a resync's snapshot",
   { tags: ["story:12-23", "screen:/needs-you"] },
   async () => {
-    const adapter = createProtocolAdapter();
+    const adapter = consoleAdapter();
     adapter.answer("needs_you.list", { items: [] });
     const client = clientOf(adapter);
     await shown(client);
@@ -237,8 +253,8 @@ function raisedTo(amount: number): LimitUsage {
 }
 
 /** An engine listing `item` that raises its Limit, then takes it off the list as resolved. */
-function raising(item: NeedsYouItem): ProtocolAdapter {
-  const adapter = createProtocolAdapter();
+function raising(item: NeedsYouItem): ConsoleAdapter {
+  const adapter = consoleAdapter();
   adapter.answer("needs_you.list", { items: [item] });
   adapter.answer("usage.raise", ({ amount }) => {
     adapter.push(
@@ -259,7 +275,7 @@ async function raise(amount: string): Promise<void> {
 }
 
 /** The calls of `method` the Console made, by their params. */
-function calls(adapter: ProtocolAdapter, method: string): unknown[] {
+function calls(adapter: ConsoleAdapter, method: string): unknown[] {
   return adapter.requests
     .filter((request) => request.method === method)
     .map((request) => request.params);
@@ -286,7 +302,7 @@ test(
     await raise("5000");
 
     await expect.poll(() => items().elements().length).toBe(0);
-    await expect.element(menuLink()).not.toHaveTextContent(/\d/);
+    await expect.element(menuLink()).not.toMatchTextContent(/\d/);
     expect(calls(adapter, "usage.raise")).toEqual([
       {
         scope: "install",
@@ -346,7 +362,7 @@ test(
   "the engine's refusal to raise a Limit is shown, and the run stays listed",
   { tags: ["story:12-100", "screen:/needs-you"] },
   async () => {
-    const adapter = createProtocolAdapter();
+    const adapter = consoleAdapter();
     adapter.answer("needs_you.list", { items: [stoppedByLimit()] });
     adapter.answer("usage.raise", failure("person_required", {}));
     const client = clientOf(adapter);
@@ -364,9 +380,6 @@ test(
     client.close();
   },
 );
-
-/** The in-memory adapter answering the Console's operations, a person's answers among them. */
-type ConsoleAdapter = ProtocolAdapter<ConsoleOperations>;
 
 const WALL: NeedsYouItem = {
   id: "consent_wall:walled.test",
@@ -400,7 +413,7 @@ test(
   "a domain that showed a consent wall is offered for consent.domains with what the person takes on, answered in one click",
   { tags: ["story:12-26", "screen:/needs-you", "operation:needs_you.allow_consent_domain"] },
   async () => {
-    const adapter = createProtocolAdapter<ConsoleOperations>();
+    const adapter = consoleAdapter();
     adapter.answer("needs_you.list", { items: [WALL] });
     allowing(adapter);
     const client = clientOf(adapter);
@@ -428,7 +441,7 @@ test(
   "accepting consent walls on every domain shows its own warning before the one click that writes *",
   { tags: ["story:12-26", "screen:/needs-you"] },
   async () => {
-    const adapter = createProtocolAdapter<ConsoleOperations>();
+    const adapter = consoleAdapter();
     adapter.answer("needs_you.list", { items: [WALL] });
     allowing(adapter);
     const client = clientOf(adapter);
@@ -450,7 +463,7 @@ test(
   "an answer the engine refuses, such as under an Operator policy's lock, is said and leaves the item listed",
   { tags: ["story:12-26", "screen:/needs-you"] },
   async () => {
-    const adapter = createProtocolAdapter<ConsoleOperations>();
+    const adapter = consoleAdapter();
     adapter.answer("needs_you.list", { items: [WALL] });
     adapter.answer(
       "needs_you.allow_consent_domain",

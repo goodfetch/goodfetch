@@ -11,7 +11,7 @@ product = "foxhound"
 
 [suite]
 name = "fetch"
-version = "2"
+version = "3"
 
 [[capability]]
 name = "fetch.tier.http"
@@ -37,3 +37,31 @@ covers = ["story:5-126"]
 [[capability.case]]
 id = "a-request-the-site-never-processed-is-sent-once-more-and-counted-nowhere"
 covers = ["story:5-127"]
+
+[[capability.case]]
+id = "a-redirect-loop-fails-with-too-many-redirects-at-a-cost-of-fetch-redirect-max-and-one-requests"
+covers = ["story:5-124", "setting:fetch.redirect.max", "error:too_many_redirects"]
+
+[[capability.case]]
+id = "each-redirect-status-sends-its-next-hop-with-fetchs-method-and-body"
+covers = ["story:5-124"]
+
+[[capability.case]]
+id = "a-3xx-fetch-does-not-follow-fails-with-response-not-ok-unless-crawl-handle-statuses-lists-it"
+covers = ["story:5-124", "error:response_not_ok", "setting:crawl.handle_statuses"]
+
+[[capability.case]]
+id = "each-redirect-hop-goes-through-the-navigation-gate"
+covers = ["story:5-124"]
+
+[[capability.case]]
+id = "a-redirect-to-an-admitted-key-or-out-of-scope-ends-skipped"
+covers = ["story:5-124", "story:6-220"]
+
+[[capability.case]]
+id = "a-redirects-retry-after-delays-its-next-hop-or-past-the-bound-fails-with-response-unavailable"
+covers = ["story:5-124", "setting:politeness.retry_after.max", "error:response_unavailable"]
+
+[[capability.case]]
+id = "a-refresh-stub-within-fetch-refresh-max-delay-hands-the-handler-its-target"
+covers = ["story:5-125", "setting:fetch.refresh.max_delay"]

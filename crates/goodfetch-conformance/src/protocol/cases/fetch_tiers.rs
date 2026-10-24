@@ -7,7 +7,8 @@
 //! The harness names the crawl's operations by their wire names, since
 //! only `goodfetch-protocol` names its Foxhound module (ADR 0099).
 //! The page is the `content-coding` family's gzip page, over plain HTTP.
-//! The fetch edge cases of the `http` tier (ADR 0118) are `edge`'s.
+//! The fetch edge cases of the `http` tier (ADR 0118) are `edge`'s, and
+//! those of its redirect chains `chain`'s.
 
 use goodfetch_protocol::page::PAGE_FORMATS;
 use goodfetch_protocol::run::RUN_FINISH;
@@ -17,6 +18,7 @@ use super::{Checks, Site};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::DEADLINE;
 
+mod chain;
 mod edge;
 
 /// `crawl.start`, Foxhound's.
@@ -38,6 +40,13 @@ pub(crate) enum Case {
     CutBodiesFailTheirAttempt,
     CloseDelimitedBodyIsWhole,
     UnprocessedRequestIsResent,
+    RedirectLoopCostsItsCountAndOne,
+    RedirectsSendFetchsMethods,
+    OtherRedirectsAreNotOk,
+    HopsGoThroughTheGate,
+    HopsGoThroughTheFrontier,
+    RedirectRetryAfter,
+    RefreshStubs,
 }
 
 impl Case {
@@ -56,6 +65,27 @@ impl Case {
             "a-request-the-site-never-processed-is-sent-once-more-and-counted-nowhere" => {
                 Some(Self::UnprocessedRequestIsResent)
             }
+            "a-redirect-loop-fails-with-too-many-redirects-at-a-cost-of-fetch-redirect-max-and-one-requests" => {
+                Some(Self::RedirectLoopCostsItsCountAndOne)
+            }
+            "each-redirect-status-sends-its-next-hop-with-fetchs-method-and-body" => {
+                Some(Self::RedirectsSendFetchsMethods)
+            }
+            "a-3xx-fetch-does-not-follow-fails-with-response-not-ok-unless-crawl-handle-statuses-lists-it" => {
+                Some(Self::OtherRedirectsAreNotOk)
+            }
+            "each-redirect-hop-goes-through-the-navigation-gate" => {
+                Some(Self::HopsGoThroughTheGate)
+            }
+            "a-redirect-to-an-admitted-key-or-out-of-scope-ends-skipped" => {
+                Some(Self::HopsGoThroughTheFrontier)
+            }
+            "a-redirects-retry-after-delays-its-next-hop-or-past-the-bound-fails-with-response-unavailable" => {
+                Some(Self::RedirectRetryAfter)
+            }
+            "a-refresh-stub-within-fetch-refresh-max-delay-hands-the-handler-its-target" => {
+                Some(Self::RefreshStubs)
+            }
             _ => None,
         }
     }
@@ -72,6 +102,13 @@ impl Case {
             Self::CutBodiesFailTheirAttempt => edge::cut_bodies(connection, site, checks),
             Self::CloseDelimitedBodyIsWhole => edge::close_delimited(connection, site, checks),
             Self::UnprocessedRequestIsResent => edge::resent(connection, site, checks),
+            Self::RedirectLoopCostsItsCountAndOne => chain::redirect_loop(connection, site, checks),
+            Self::RedirectsSendFetchsMethods => chain::redirect_methods(connection, site, checks),
+            Self::OtherRedirectsAreNotOk => chain::not_followed(connection, site, checks),
+            Self::HopsGoThroughTheGate => chain::gated_hops(connection, site, checks),
+            Self::HopsGoThroughTheFrontier => chain::frontier_hops(connection, site, checks),
+            Self::RedirectRetryAfter => chain::redirect_retry_after(connection, site, checks),
+            Self::RefreshStubs => chain::refresh_stubs(connection, site, checks),
         }
     }
 }

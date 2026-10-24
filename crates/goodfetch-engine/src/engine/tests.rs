@@ -22,6 +22,7 @@ mod key_value_bytes;
 mod key_value_store;
 mod layout;
 mod lifecycle;
+mod list;
 mod log;
 mod ops;
 mod pauses;

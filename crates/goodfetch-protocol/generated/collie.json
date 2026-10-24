@@ -3521,6 +3521,26 @@
       "minimum": 0,
       "type": "integer"
     },
+    "Presence": {
+      "description": "Whether the state a Run index row points at is there (ADRs 0031 and\n0036).",
+      "oneOf": [
+        {
+          "const": "present",
+          "description": "Its state is at its location.",
+          "type": "string"
+        },
+        {
+          "const": "missing",
+          "description": "`runs reindex` found no state at its location; the row is kept.",
+          "type": "string"
+        },
+        {
+          "const": "erased",
+          "description": "The Run was discarded on purpose; `runs reindex` keeps its row\nerased.",
+          "type": "string"
+        }
+      ]
+    },
     "PressParams": {
       "additionalProperties": false,
       "description": "What `locator.press` takes: the locator whose element gets the key, and\nthe key.",
@@ -3570,6 +3590,27 @@
           "type": "string"
         }
       ]
+    },
+    "PrivateEndpoint": {
+      "additionalProperties": false,
+      "description": "An Attached engine's private endpoint (ADRs 0024 and 0031): where it\nlistens, a `0600` Unix socket on macOS and Linux or loopback TCP on\nWindows, and the `0600` file holding the token that each Connection's\n`hello` there carries, as a Daemon's does.",
+      "properties": {
+        "address": {
+          "$ref": "#/$defs/DaemonEndpoint",
+          "arrived_in": "0.1",
+          "description": "Where it listens."
+        },
+        "token_file": {
+          "arrived_in": "0.1",
+          "description": "The path of the file holding its token.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "address",
+        "token_file"
+      ],
+      "type": "object"
     },
     "Product": {
       "description": "One of Goodfetch's two Products (ADR 0084), by its mark as the catalog\nwrites it.",
@@ -4301,6 +4342,308 @@
       "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
       "type": "string"
     },
+    "RunIndexRow": {
+      "description": "One row of the Run index (ADR 0031): a Run, where its state is, its three\naxes and, while it is live, the engine that owns it.",
+      "properties": {
+        "completeness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Completeness"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its Completeness, once it ended."
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it ended."
+        },
+        "kind": {
+          "$ref": "#/$defs/RunKind",
+          "description": "What kind of Run it is."
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "description": "Where it is."
+        },
+        "location": {
+          "description": "Its folder: relative to the per-major data folder when it is inside,\nabsolute otherwise.",
+          "type": "string"
+        },
+        "needs": {
+          "$ref": "#/$defs/Product",
+          "description": "The Product it needs (ADR 0098)."
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunOwner"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "While it is live, where the engine that owns it is reached: a\nDaemon's endpoint, or an Attached engine's private endpoint. An\nengine that cannot take the Run's writer lock forwards live actions\nthere."
+        },
+        "presence": {
+          "$ref": "#/$defs/Presence",
+          "description": "Whether its state is at its location."
+        },
+        "progress_message": {
+          "description": "The program's own status line, once it set one (RT-15).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recipe": {
+          "description": "The Recipe it ran, by its name, when a Recipe started it (ADR\n0031).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "description": "The Run's ID."
+        },
+        "started_at": {
+          "$ref": "#/$defs/PointInTime",
+          "description": "When it started."
+        },
+        "tags": {
+          "$ref": "#/$defs/Tags",
+          "description": "Its tags (ADR 0036)."
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its Verdict, once it ended."
+        }
+      },
+      "required": [
+        "run_id",
+        "location",
+        "kind",
+        "needs",
+        "tags",
+        "lifecycle",
+        "started_at",
+        "presence"
+      ],
+      "type": "object"
+    },
+    "RunKind": {
+      "description": "What kind of Run it is: a Collie Run its program drives, or a crawl\n(ADR 0102), which its start's inputs name.",
+      "oneOf": [
+        {
+          "const": "collie",
+          "description": "A Run its program drives page by page.",
+          "type": "string"
+        },
+        {
+          "const": "crawl",
+          "description": "A crawl, whose work items the engine leases to its handlers.",
+          "type": "string"
+        }
+      ]
+    },
+    "RunList": {
+      "description": "What `run.list` answers: the rows of its filter, in its order.",
+      "properties": {
+        "runs": {
+          "arrived_in": "0.1",
+          "description": "The rows, every presence kept: a Run whose state is gone is listed\n`missing`, one discarded on purpose `erased` (ADR 0031).",
+          "items": {
+            "$ref": "#/$defs/RunIndexRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "runs"
+      ],
+      "type": "object"
+    },
+    "RunListParams": {
+      "additionalProperties": false,
+      "description": "What `run.list` takes: which rows of the Run index it answers, each\nfield given narrowing them, and in which order.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "completeness": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Completeness"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Their Completeness: only Runs that ended have one."
+        },
+        "ended": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When they ended: only Runs that ended match."
+        },
+        "lifecycle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Lifecycle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Their Lifecycle."
+        },
+        "occurrence": {
+          "arrived_in": "0.1",
+          "description": "The occurrence that started the Runs, by its ID.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "order": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SortOrder"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Which way, descending by default."
+        },
+        "product": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Product"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Product the Runs need (ADR 0098)."
+        },
+        "recipe": {
+          "arrived_in": "0.1",
+          "description": "The Recipe the Runs ran, by its name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schedule": {
+          "arrived_in": "0.1",
+          "description": "The Schedule that started the Runs, by its ID.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunSortKey"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What the rows are sorted by, when they started by default; rows\nthat compare equal follow in Run ID order."
+        },
+        "started": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When they started."
+        },
+        "tags": {
+          "arrived_in": "0.1",
+          "description": "Tags each row carries, every one of them.",
+          "items": {
+            "$ref": "#/$defs/Tag"
+          },
+          "type": "array"
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "Text found, ignoring case, in their Run ID, one of their tags or\ntheir Recipe's name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trigger": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunTrigger"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What fired the occurrence that started the Runs."
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verdict"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Their Verdict: only Runs that ended have one."
+        },
+        "watch_runs": {
+          "arrived_in": "0.1",
+          "description": "Whether Watch runs are listed too; they are left out by default\n(ADR 0036).",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
     "RunMigrating": {
       "description": "What `run.migrating` carries.",
       "properties": {
@@ -4337,6 +4680,37 @@
           "const": "form",
           "description": "An Integration's form.",
           "type": "string"
+        }
+      ]
+    },
+    "RunOwner": {
+      "description": "Where the engine that owns a live Run is reached (ADR 0031).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A Daemon, at the endpoint of its runtime file, which also holds its\ntoken.",
+          "properties": {
+            "daemon": {
+              "$ref": "#/$defs/DaemonEndpoint"
+            }
+          },
+          "required": [
+            "daemon"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An Attached engine, at its private endpoint.",
+          "properties": {
+            "attached": {
+              "$ref": "#/$defs/PrivateEndpoint"
+            }
+          },
+          "required": [
+            "attached"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -4774,6 +5148,66 @@
       ],
       "type": "object"
     },
+    "RunSortKey": {
+      "description": "What `run.list` sorts its rows by.",
+      "oneOf": [
+        {
+          "const": "started_at",
+          "description": "When the Run started.",
+          "type": "string"
+        },
+        {
+          "const": "ended_at",
+          "description": "When it ended; a Run that has not ended comes after every one that\ndid, in ascending order.",
+          "type": "string"
+        },
+        {
+          "const": "run_id",
+          "description": "Its Run ID.",
+          "type": "string"
+        },
+        {
+          "const": "recipe",
+          "description": "Its Recipe's name.",
+          "type": "string"
+        },
+        {
+          "const": "schedule",
+          "description": "The Schedule that started it.",
+          "type": "string"
+        },
+        {
+          "const": "occurrence",
+          "description": "The occurrence that started it.",
+          "type": "string"
+        },
+        {
+          "const": "trigger",
+          "description": "What fired that occurrence.",
+          "type": "string"
+        },
+        {
+          "const": "product",
+          "description": "The Product it needs.",
+          "type": "string"
+        },
+        {
+          "const": "lifecycle",
+          "description": "Its Lifecycle.",
+          "type": "string"
+        },
+        {
+          "const": "verdict",
+          "description": "Its Verdict.",
+          "type": "string"
+        },
+        {
+          "const": "completeness",
+          "description": "Its Completeness.",
+          "type": "string"
+        }
+      ]
+    },
     "RunStartParams": {
       "additionalProperties": false,
       "description": "What `run.start` takes.",
@@ -4896,6 +5330,31 @@
         "free_bytes"
       ],
       "type": "object"
+    },
+    "RunTrigger": {
+      "description": "What fired a Schedule's occurrence (ADR 0036), as its run's reserved\n`goodfetch.trigger` tag names it.",
+      "oneOf": [
+        {
+          "const": "time",
+          "description": "A time trigger: cron or an interval.",
+          "type": "string"
+        },
+        {
+          "const": "watch",
+          "description": "A Watch that found a change.",
+          "type": "string"
+        },
+        {
+          "const": "after_run",
+          "description": "The end of another run.",
+          "type": "string"
+        },
+        {
+          "const": "run_now",
+          "description": "A person's or a program's \"run now\".",
+          "type": "string"
+        }
+      ]
     },
     "RunUsage": {
       "description": "What a Run used, as the Usage ledger charged it, and the Limits that\napply to it (ADRs 0041 and 0101): what `run.usage` answers and the\nreport carries.",
@@ -5738,6 +6197,21 @@
       ],
       "type": "object"
     },
+    "SortOrder": {
+      "description": "Which way `run.list` sorts.",
+      "oneOf": [
+        {
+          "const": "ascending",
+          "description": "Smallest first.",
+          "type": "string"
+        },
+        {
+          "const": "descending",
+          "description": "Largest first: the newest first, when sorting by time.",
+          "type": "string"
+        }
+      ]
+    },
     "StartedAs": {
       "description": "Whether a start began its Run or found it.",
       "oneOf": [
@@ -6033,6 +6507,37 @@
       },
       "maxItems": 16,
       "type": "array"
+    },
+    "TimeRange": {
+      "additionalProperties": false,
+      "description": "A span of time: from its first point, included, until its last,\nexcluded; an end left out leaves that side open.",
+      "properties": {
+        "from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its first point, included."
+        },
+        "until": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The point it ends before, excluded."
+        }
+      },
+      "type": "object"
     },
     "TraceContext": {
       "additionalProperties": false,
@@ -9258,6 +9763,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunReport"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists the Runs of the Run index of the user and major, of either Product (ADRs 0031 and 0098): each row with its tags, Recipe, Lifecycle, Verdict, Completeness, start and end, the engine that owns it while it is live, and its presence, a Run whose state is gone `missing` and one discarded on purpose `erased`, never left out. The engine filters by tags, Recipe, the Schedule, occurrence and trigger its reserved `goodfetch.` tags name, Product, each axis, start and end time, and a text found in its Run ID, tags or Recipe, and sorts by the key given; Watch runs are left out unless `watch_runs` asks for them (ADR 0036).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.list",
+      "params": {
+        "$ref": "#/$defs/RunListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RunList"
       },
       "stability": "experimental"
     },

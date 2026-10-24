@@ -37,7 +37,8 @@ use goodfetch_protocol::run::{
     StartedAs, StopReason,
 };
 use goodfetch_protocol::run::{
-    RUN_INTERRUPTED, RUN_PROGRESS_READ, RUN_REPORT, RunInterruptedDetails, RunProgressParams,
+    RUN_INTERRUPTED, RUN_LIST, RUN_PROGRESS_READ, RUN_REPORT, RunInterruptedDetails, RunList,
+    RunListParams, RunProgressParams,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::usage::{
@@ -63,13 +64,14 @@ use crate::composition::{CallContext, CallError, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{
-    EndedBy, Forwarded, Resume, Resumed, RunError, Start, StartError, Started, StorageExhausted,
+    EndedBy, Forwarded, ListError, Resume, Resumed, RunError, Start, StartError, Started,
+    StorageExhausted,
 };
 use crate::secrets::SecretError;
 use crate::settings::{Opening, Resolved, SettingsError};
 
 /// The `run.*` handlers.
-pub(crate) fn handlers() -> [Handler; 13] {
+pub(crate) fn handlers() -> [Handler; 14] {
     [
         Handler::new(&RUN_START, start),
         Handler::new(&RUN_FINISH, finish),
@@ -84,6 +86,7 @@ pub(crate) fn handlers() -> [Handler; 13] {
         Handler::new(&RUN_DISCARD, discard),
         Handler::new(&RUN_PROGRESS_READ, progress),
         Handler::new(&RUN_REPORT, report),
+        Handler::new(&RUN_LIST, list),
     ]
 }
 
@@ -663,6 +666,30 @@ async fn progress(
         .progress(params.run_id, params.after)
         .await
         .map_err(|error| run_error_of(error, context.identity(), RUN_PROGRESS_READ.name))
+}
+
+async fn list(params: RunListParams, context: CallContext) -> Result<RunList, CallError> {
+    match context.runs().list(params).await {
+        Ok(runs) => Ok(RunList { runs }),
+        Err(ListError::Stopped) => Err(stopped()),
+        Err(ListError::Format {
+            format,
+            found,
+            compatibility,
+            install,
+        }) => {
+            let format = goodfetch_protocol::formats::FORMATS
+                .iter()
+                .find(|known| known.name == format)
+                .copied()
+                .unwrap_or(&goodfetch_protocol::formats::RUN_INDEX);
+            Err(match install {
+                Some(install) => store_refusal(format, &found, &install),
+                None => format_refusal(format, &found, compatibility),
+            })
+        }
+        Err(error @ ListError::Unreadable(_)) => Err(internal(error.to_string())),
+    }
 }
 
 async fn report(params: RunParams, context: CallContext) -> Result<RunReport, CallError> {

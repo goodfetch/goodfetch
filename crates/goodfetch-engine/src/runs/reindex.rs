@@ -127,8 +127,8 @@ fn found_row(
         }
     };
     let live = matches!(test_writer(folder), Ok(Writer::Live));
-    let owner = listed
-        .get(&recorded.run_id)
+    let listed_row = listed.get(&recorded.run_id);
+    let owner = listed_row
         .and_then(|row| row.owner.clone())
         .filter(|_| live);
     let report = recorded.report.as_ref();
@@ -138,6 +138,8 @@ fn found_row(
         kind: recorded.kind,
         needs: recorded.needs,
         tags: recorded.tags.clone(),
+        // Run state records no Recipe yet: the row keeps the one it named.
+        recipe: listed_row.and_then(|row| row.recipe.clone()),
         lifecycle: recorded.lifecycle,
         verdict: report.map(|report| report.verdict),
         completeness: report.map(|report| report.completeness),

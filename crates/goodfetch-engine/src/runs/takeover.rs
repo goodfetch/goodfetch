@@ -112,6 +112,7 @@ impl TakeOver {
             kind: recorded.kind,
             needs: recorded.needs,
             tags: recorded.tags,
+            recipe: None,
             lifecycle: report.lifecycle,
             verdict: Some(report.verdict),
             completeness: Some(report.completeness),

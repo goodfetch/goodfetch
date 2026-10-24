@@ -207,6 +207,13 @@
               "null"
             ]
           },
+          "recipe": {
+            "description": "The Recipe it ran, by its name, when a Recipe started it (ADR\n0031).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "run_id": {
             "$ref": "#/$defs/RunId",
             "description": "The Run's ID."

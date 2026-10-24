@@ -56,6 +56,7 @@ fn row(run_id: &str) -> RunIndexRow {
         kind: RunKind::Collie,
         needs: Product::Collie,
         tags: Tags::default(),
+        recipe: None,
         lifecycle: Lifecycle::Running,
         verdict: None,
         completeness: None,

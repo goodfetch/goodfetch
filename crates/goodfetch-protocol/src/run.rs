@@ -5,7 +5,8 @@
 //! abort to the engine that owns it; the Run report's three axes; the Run
 //! ID and the Run's tags; the setting that places run files; the Error codes
 //! they answer with; the rows of run state and of the Run index (ADR 0031),
-//! the two formats this module's rows describe (ADR 0066); and what
+//! the two formats this module's rows describe (ADR 0066); `run.list`,
+//! which answers the Run index's rows filtered and sorted; and what
 //! `runs reindex --json` prints.
 //!
 //! Size: the contract of one Run's lifecycle and its rows, kept whole so the
@@ -26,10 +27,15 @@ use crate::catalog::{
 use crate::connection::{DaemonEndpoint, PrivateEndpoint, StoppedBy};
 use crate::settings::{ProjectSettings, SettingLimit};
 
+mod list;
 mod progress;
 mod report;
 pub mod warning;
 
+pub use self::list::{
+    CREATOR_TAG, OCCURRENCE_TAG, RESERVED_TAG_PREFIX, ROLE_TAG, RUN_LIST, RunList, RunListParams,
+    RunSortKey, RunTrigger, SCHEDULE_TAG, SortOrder, TRIGGER_TAG, TimeRange, WATCH_ROLE,
+};
 pub use self::progress::{
     EngineStep, HumanPause, PauseOrigin, RUN_INTERRUPTED, RUN_PROGRESS, RUN_PROGRESS_READ,
     RUN_REPORT, RunInterruptedDetails, RunProgress, RunProgressParams, RunStorage, RunWriter,
@@ -1186,6 +1192,9 @@ pub struct RunIndexRow {
     pub needs: Product,
     /// Its tags (ADR 0036).
     pub tags: Tags,
+    /// The Recipe it ran, by its name, when a Recipe started it (ADR
+    /// 0031).
+    pub recipe: Option<String>,
     /// Where it is.
     pub lifecycle: Lifecycle,
     /// Its Verdict, once it ended.
@@ -1260,6 +1269,7 @@ pub const ENTRIES: Entries = Entries {
         RUN_DISCARD,
         RUN_PROGRESS_READ,
         RUN_REPORT,
+        RUN_LIST,
     ],
     events: &[RUN_AXES_CHANGED, RUN_PROGRESS],
     handler_requests: &[],

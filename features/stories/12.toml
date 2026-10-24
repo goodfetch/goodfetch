@@ -31,6 +31,37 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 10
+title = "As a user, I want the Runs screen to list every run of my user and major from the Run index, whichever engine or Product ran it, so that one place shows all my work (ADRs 0031, 0098; ADR 0037 / CN-03)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 12
+title = "As a user, I want to filter and sort runs by tags, Recipe, Schedule and occurrence, trigger, Product, each axis, start and end time, and a text match on Run ID, tags and Recipe, Watch runs hidden unless the filter asks for them, with the filter kept in the address, so that I find a run and share the view (ADRs 0036, 0117; ADR 0037 / CN-04)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 13
+title = "As a user, I want a row whose run file is gone shown as missing and a run discarded on purpose shown as erased, never dropped, so that the list never lies about what existed (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 14
+title = "As a user, I want a live run's row and page to update as its axes, progress and status message change, without reloading, so that I follow it as it runs (ADRs 0031, 0102; ADR 0037 / RT-15)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 94
 title = "As a user, I want Engine & settings to show every effective value with its layer and lock, as `config explain` does, so that I see where each value comes from (ADR 0031; J-009; ADR 0037 / RT-22)."
 milestone = "M1 Core"

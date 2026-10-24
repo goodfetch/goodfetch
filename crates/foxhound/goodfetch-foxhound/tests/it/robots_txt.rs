@@ -10,7 +10,11 @@
 //! counted from it.
 #![expect(
     clippy::disallowed_methods,
-    reason = "the test measures, from outside the engine's process, how long its first page waited"
+    reason = "the test measures, from outside the engine's process, how long its first page waited, and writes the Operator policy itself"
+)]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
 use std::time::{Duration, Instant};
@@ -402,6 +406,50 @@ fn with_robots_txt_not_respected_a_disallowed_request_is_fetched() {
             vec![ended("/private/catalog/1", "succeeded", None)],
             vec!["/private/catalog/1".to_owned()],
         )
+    );
+}
+
+/// An Operator policy that locks `site_preferences.respect_robots_txt` on
+/// is honoured (ADR 0028): a crawl that turns it off is refused at its
+/// start with `setting_locked`, and the site gets nothing.
+///
+/// Covers: story:6-239, setting:site_preferences.respect_robots_txt, error:setting_locked
+#[test]
+fn an_operator_policy_lock_keeps_robots_txt_respected() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let folder = env.home().join("0.0");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("operator-policy.toml"),
+        "version = \"0.1\"\n\n[lock.site_preferences]\nrespect_robots_txt = true\n",
+    )
+    .unwrap();
+    let mut engine = Attached::start(&env);
+
+    let started = engine.call(
+        "start",
+        "crawl.start",
+        &json!({
+            "run_id": "locked",
+            "seeds": [{ "url": proving_ground.url(FILE_HOST, "/private/catalog/1"), "label": "page" }],
+            "settings": settings(
+                &proving_ground,
+                FILE_HOST,
+                &json!({ "site_preferences": { "respect_robots_txt": false } }),
+            ),
+        }),
+        &mut |_| None,
+    );
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            &started["error"]["data"]["code"],
+            pages_received(&proving_ground, FILE_HOST),
+        ),
+        (&json!("setting_locked"), Vec::<String>::new()),
+        "{started}"
     );
 }
 

@@ -24,6 +24,7 @@ mod http_profile;
 mod redundant;
 mod tiers;
 mod transports;
+mod use_signals;
 
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
@@ -33,3 +34,4 @@ pub use http_profile::HttpProfile;
 pub use redundant::Requester;
 pub use tiers::{FetchTiers, HandedOver, HttpTier, Signed};
 pub use transports::{Reqwest, TransportConfig, TransportUnavailable, Wreq};
+pub use use_signals::{Purpose, UseSignals};

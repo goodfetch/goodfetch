@@ -17,8 +17,16 @@
 //! place of its own; when that copy has none to use, the robots.txt is
 //! fetched under the attempt's own Permit of its domain key, and the
 //! document then waits the domain's delay between starts, its start
-//! recorded for every run sharing the domain. What robots.txt allows is
-//! read here and applied by the gate of #883.
+//! recorded for every run sharing the domain. While
+//! `site_preferences.respect_robots_txt` is on, a request robots.txt
+//! disallows is never sent and ends `skipped` with `robots_txt`; one whose
+//! robots.txt cannot be read, with no earlier copy, is not sent either, the
+//! failed fetch counting as one of its attempts and backing its domain
+//! off, and it ends `skipped` with `robots_txt` once its retries ran out.
+//! While `site_preferences.respect_use_signals` is on, a document whose
+//! response carries an AI-use signal refusing the Run's Purpose is closed
+//! unhandled, its request `skipped` with `use_signals` (ADRs 0086 and
+//! 0093).
 
 use std::sync::Arc;
 
@@ -32,7 +40,9 @@ use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch, Fetched};
 use goodfetch_engine::runs::Run;
-use goodfetch_fetch_tier::{FetchTiers, HandOver, HandedOver, HttpTier, Requester, RobotsTxtFetch};
+use goodfetch_fetch_tier::{
+    FetchTiers, HandOver, HandedOver, HttpTier, Purpose, Requester, RobotsTxtFetch,
+};
 use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
@@ -50,6 +60,9 @@ use goodfetch_protocol::foxhound::settings::{
 };
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::run::PointInTime;
+use goodfetch_protocol::site_preferences::{
+    SITE_PREFERENCES_PURPOSE, SITE_PREFERENCES_RESPECT_USE_SIGNALS,
+};
 use goodfetch_session_pool::Effect;
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
@@ -269,6 +282,26 @@ async fn read_robots_txt(run: &Run, http: &HttpTier, leased: &Leased) -> Option<
     Some(read)
 }
 
+/// What the AI-use signals the response of the served page `page_id`
+/// carried say of its request while `site_preferences.respect_use_signals`
+/// is on (ADRs 0086 and 0093): nothing when none refuses the Run's
+/// `site_preferences.purpose`, else the attempt's answer, its handler
+/// never run.
+fn use_signals_refusal(run: &Run, tiers: &FetchTiers, page_id: &PageId) -> Option<Answer> {
+    let settings = run.settings()?.resolved();
+    if settings.boolean(SITE_PREFERENCES_RESPECT_USE_SIGNALS.name) != Some(true) {
+        return None;
+    }
+    let purpose = settings
+        .value(SITE_PREFERENCES_PURPOSE.name)
+        .as_str()
+        .and_then(Purpose::named)?;
+    tiers
+        .use_signals(page_id)
+        .refusing(purpose)
+        .map(|_| Answer::Refused(SkipReason::UseSignals))
+}
+
 /// What the robots.txt `read` for `leased`'s request says of it while
 /// `site_preferences.respect_robots_txt` is on (ADR 0086): nothing when
 /// it allows it, else the attempt's answer, sent nothing.
@@ -357,6 +390,16 @@ pub(super) async fn attempt(
         }
     };
     let mut merged = Vec::new();
+    let fetched = fetched.and_then(|document| match (&fetching, &document) {
+        (Some(fetch), Some(page_id)) => match use_signals_refusal(&run, &fetch.tiers, page_id) {
+            Some(refused) => {
+                fetch.tiers.close(page_id);
+                Err(refused)
+            }
+            None => Ok(document),
+        },
+        _ => Ok(document),
+    });
     let answer = match fetched {
         Err(answer) => answer,
         Ok(document) => {

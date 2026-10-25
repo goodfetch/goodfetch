@@ -25,6 +25,14 @@ use crate::catalog::{
 };
 use crate::settings::SettingsLayer;
 
+mod local_addresses;
+
+pub use local_addresses::{
+    EGRESS_LOCAL_ADDRESSES, EGRESS_ROTATION_BLOCK_IPV4, EGRESS_ROTATION_BLOCK_IPV6,
+    IPV4_BLOCK_SHAPE, IPV6_BLOCK_SHAPE, Ipv6Prefix, LOCAL_ADDRESS_UNAVAILABLE,
+    LOCAL_ADDRESSES_SHAPE, LocalAddressFailure, LocalAddressUnavailableDetails, LocalAddresses,
+};
+
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// What an entry of either domain list allows or blocks when written alone:
@@ -331,7 +339,11 @@ pub const ENTRIES: Entries = Entries {
     operations: &[],
     events: &[],
     handler_requests: &[],
-    error_codes: &[EGRESS_REFUSED, CDP_URL_NOT_ALLOWED],
+    error_codes: &[
+        EGRESS_REFUSED,
+        CDP_URL_NOT_ALLOWED,
+        LOCAL_ADDRESS_UNAVAILABLE,
+    ],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[
@@ -339,6 +351,9 @@ pub const ENTRIES: Entries = Entries {
         EGRESS_BLOCKED_DOMAINS,
         EGRESS_OFFLINE,
         EGRESS_NO_PRIVATE_ENDPOINTS,
+        EGRESS_LOCAL_ADDRESSES,
+        EGRESS_ROTATION_BLOCK_IPV4,
+        EGRESS_ROTATION_BLOCK_IPV6,
     ],
     hook_stages: &[],
     shared_type_values: &[],

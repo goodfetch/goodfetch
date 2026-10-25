@@ -1182,6 +1182,17 @@
       ]
     },
     {
+      "id": "error:local_address_unavailable",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:logged_out",
       "kind": "error",
       "area": 5,
@@ -5887,6 +5898,17 @@
       ]
     },
     {
+      "id": "setting:egress.local_addresses",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:egress.no_private_endpoints",
       "kind": "setting",
       "area": 4,
@@ -5899,6 +5921,28 @@
     },
     {
       "id": "setting:egress.offline",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:egress.rotation_block.ipv4",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:egress.rotation_block.ipv6",
       "kind": "setting",
       "area": 4,
       "milestone": null,

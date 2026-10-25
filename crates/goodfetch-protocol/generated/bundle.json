@@ -14671,6 +14671,31 @@
                     },
                     "type": "array"
                   },
+                  "local_addresses": {
+                    "anyOf": [
+                      {
+                        "oneOf": [
+                          {
+                            "description": "IP addresses of the host.",
+                            "items": {
+                              "format": "ip",
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          {
+                            "description": "An interface's name, such as `eth0`, or an IPv6 prefix, such as `2001:db8:1::/48`.",
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own."
+                  },
                   "no_private_endpoints": {
                     "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification webhooks, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
                     "type": "boolean"
@@ -14678,6 +14703,24 @@
                   "offline": {
                     "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
                     "type": "boolean"
+                  },
+                  "rotation_block": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "ipv4": {
+                        "description": "The prefix length of the IPv4 blocks new Sessions are spread across, round-robin, when `egress.local_addresses` gives several: 24 by default, so consecutive Sessions leave from different /24 networks while the addresses allow it. Set for a connection or a Run.",
+                        "maximum": 32,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "ipv6": {
+                        "description": "The prefix length of the IPv6 blocks new Sessions are spread across, round-robin, when `egress.local_addresses` gives several: 64 by default, the block a rate limiter such as Cloudflare's counts as one client. Set for a connection or a Run.",
+                        "maximum": 128,
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -16849,6 +16892,31 @@
                     },
                     "type": "array"
                   },
+                  "local_addresses": {
+                    "anyOf": [
+                      {
+                        "oneOf": [
+                          {
+                            "description": "IP addresses of the host.",
+                            "items": {
+                              "format": "ip",
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          {
+                            "description": "An interface's name, such as `eth0`, or an IPv6 prefix, such as `2001:db8:1::/48`.",
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own."
+                  },
                   "no_private_endpoints": {
                     "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification webhooks, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
                     "type": "boolean"
@@ -16856,6 +16924,24 @@
                   "offline": {
                     "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
                     "type": "boolean"
+                  },
+                  "rotation_block": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "ipv4": {
+                        "description": "The prefix length of the IPv4 blocks new Sessions are spread across, round-robin, when `egress.local_addresses` gives several: 24 by default, so consecutive Sessions leave from different /24 networks while the addresses allow it. Set for a connection or a Run.",
+                        "maximum": 32,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "ipv6": {
+                        "description": "The prefix length of the IPv6 blocks new Sessions are spread across, round-robin, when `egress.local_addresses` gives several: 64 by default, the block a rate limiter such as Cloudflare's counts as one client. Set for a connection or a Run.",
+                        "maximum": 128,
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -19043,6 +19129,31 @@
                     },
                     "type": "array"
                   },
+                  "local_addresses": {
+                    "anyOf": [
+                      {
+                        "oneOf": [
+                          {
+                            "description": "IP addresses of the host.",
+                            "items": {
+                              "format": "ip",
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          {
+                            "description": "An interface's name, such as `eth0`, or an IPv6 prefix, such as `2001:db8:1::/48`.",
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own."
+                  },
                   "no_private_endpoints": {
                     "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification webhooks, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
                     "type": "boolean"
@@ -19050,6 +19161,24 @@
                   "offline": {
                     "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
                     "type": "boolean"
+                  },
+                  "rotation_block": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "ipv4": {
+                        "description": "The prefix length of the IPv4 blocks new Sessions are spread across, round-robin, when `egress.local_addresses` gives several: 24 by default, so consecutive Sessions leave from different /24 networks while the addresses allow it. Set for a connection or a Run.",
+                        "maximum": 32,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "ipv6": {
+                        "description": "The prefix length of the IPv6 blocks new Sessions are spread across, round-robin, when `egress.local_addresses` gives several: 64 by default, the block a rate limiter such as Cloudflare's counts as one client. Set for a connection or a Run.",
+                        "maximum": 128,
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"

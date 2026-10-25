@@ -1042,6 +1042,16 @@
       ]
     },
     {
+      "id": "error:effect_staging_refused",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:egress_refused",
       "kind": "error",
       "area": 4,
@@ -5942,6 +5952,28 @@
     },
     {
       "id": "setting:egress.offline",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:egress.private_ranges",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:egress.recipe_private_ranges",
       "kind": "setting",
       "area": 4,
       "milestone": null,
@@ -18468,6 +18500,26 @@
       ]
     },
     {
+      "id": "story:6-236",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-237",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-238",
       "kind": "story",
       "area": 6,
@@ -18758,6 +18810,16 @@
     },
     {
       "id": "story:6-310",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-314",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

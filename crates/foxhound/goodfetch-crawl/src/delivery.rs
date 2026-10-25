@@ -197,6 +197,13 @@ pub(crate) async fn drive(
     crawls.close(run.id()).await;
 }
 
+/// Where `run`'s leases are granted, each attempt staging in the crawl's
+/// staging.
+fn leases_of(run: &Run, arrivals: &Opened) -> Leases {
+    Leases::new(run.clock(), run.id().as_str(), run.state().epoch())
+        .staging_in(arrivals.staging.clone())
+}
+
 /// The delivery's loop, which returns once the Run ended or stopped.
 async fn deliver(
     run: &Run,
@@ -205,7 +212,7 @@ async fn deliver(
     settings: &RunSettings,
     fetching: &Fetching<'_>,
 ) {
-    let run_leases = Leases::new(run.clock(), run.id().as_str(), run.state().epoch());
+    let run_leases = leases_of(run, arrivals);
     let Some((mut admission, mut pool)) = opened(run, settings).await else {
         return;
     };
@@ -453,6 +460,7 @@ impl Fetching<'_> {
             second_copies: second_copies.clone(),
             robots: self.robots.clone(),
             egress: std::sync::Arc::clone(&self.egress),
+            addresses: self.http.map(HttpTier::address_check),
             page_check: self.labels.settings.page_check(label).cloned(),
         }
     }
@@ -1085,8 +1093,9 @@ async fn settle(
                 .commit(run.state(), handled.records, run.point_in_time())
                 .await
             {
-                Ok(()) => {
+                Ok(files) => {
                     lease.release();
+                    goodfetch_engine::key_value_store::forget_files(run, files).await;
                     return false;
                 }
                 Err(CommitError::LeaseLost) => failure(

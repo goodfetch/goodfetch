@@ -29,6 +29,7 @@ mod progress;
 mod report;
 mod seeding;
 mod serving;
+mod staging;
 mod start;
 mod tier_choice;
 mod work_items;

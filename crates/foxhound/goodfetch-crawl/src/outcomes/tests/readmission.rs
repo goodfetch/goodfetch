@@ -71,6 +71,7 @@ fn crawl_of(count: usize) -> Connection {
     let every_host = goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap();
     work_items::admit_seeds(
         &connection,
+        &mut work_items::Positions::of(&connection).unwrap(),
         &goodfetch_frontier::Scope::default(),
         &every_host,
         &seeds,

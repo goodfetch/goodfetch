@@ -20,10 +20,11 @@
 //!   its permit, held until its answer's head arrived, or ends the request
 //!   [skipped](Stop::Skipped). The first hop's permit is its admission's.
 //!   The gate is told as each hop, the first included, is sent.
-//! - **A hop after the first that the transport's egress check refuses**,
-//!   its URL or the address it would connect to (ADRs 0017 and 0118), ends
-//!   the request `skipped` with `domain_policy`: a redirect is no way
-//!   around the policy, and its refusal is an outcome, not a failure.
+//! - **A hop that the transport's egress check refuses**, the first
+//!   included, its URL or the address it would connect to (ADRs 0017 and
+//!   0118), ends the request `skipped` with `domain_policy`: a redirect is
+//!   no way around the policy, and its refusal is an outcome, not a
+//!   failure (spec #565).
 
 use std::collections::BTreeSet;
 use std::future::Future;
@@ -141,8 +142,8 @@ pub trait HopGate: Send + Sync {
 ///
 /// [`Stop::Failed`] with `fetch`'s error, `too_many_redirects`,
 /// `response_not_ok` or `response_unavailable`; [`Stop::Skipped`] when
-/// `gate` skips a hop, and with `domain_policy` when `fetch` fails a hop
-/// after the first with `egress_refused`.
+/// `gate` skips a hop, and with `domain_policy` when `fetch` fails a hop,
+/// the first included, with `egress_refused`.
 ///
 /// # Cancel safety
 ///
@@ -166,13 +167,18 @@ where
         gate.sending(&hop, hops.is_empty()).await;
         let sent = clock.now();
         let fetched = fetch(hop.clone()).await.map_err(|error| {
-            if hops.is_empty() || error.code() != EGRESS_REFUSED.name {
+            if error.code() != EGRESS_REFUSED.name {
                 return Stop::Failed(error);
             }
+            let what = if hops.is_empty() {
+                "The request to"
+            } else {
+                "A redirect to"
+            };
             Stop::Skipped(Skip {
                 reason: SkipReason::DomainPolicy,
                 message: format!(
-                    "A redirect to `{}` reaches an address the Run's egress policy refuses: {}",
+                    "{what} `{}` reaches an address the Run's egress policy refuses: {}",
                     hop.url,
                     error.message()
                 ),

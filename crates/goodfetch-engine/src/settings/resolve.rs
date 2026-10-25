@@ -551,6 +551,7 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
     }
     if let Some(recipe) = &layers.recipe {
         if let Some(value) = recipe.declared.get(name) {
+            recipe_may_set(policy, setting, &state.effective)?;
             take(&mut state, key, SettingsLayer::Recipe, value, None)?;
         }
         match recipe.expose.get(name) {
@@ -587,6 +588,40 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
     Ok(state.effective)
 }
 
+/// Refuses a Recipe's value for `setting`, whose effective value below the
+/// Recipe is `below`, where its authority wants an allowance `policy` does
+/// not give.
+fn recipe_may_set(
+    policy: &Policy,
+    setting: &Setting,
+    below: &Effective,
+) -> Result<(), SettingsError> {
+    let Authority::NotByModelRecipeAllowedBy(allowance) = setting.authority else {
+        return Ok(());
+    };
+    if allows(policy, allowance) {
+        return Ok(());
+    }
+    let name = setting.name;
+    Err(SettingsError::Locked {
+        key: name.to_owned(),
+        layer: SettingsLayer::Recipe,
+        limit: limit(name, &below.value, below.layer),
+        fix: format!(
+            "a Recipe sets `{name}` only where the Operator policy sets `{allowance}` to true"
+        ),
+    })
+}
+
+/// Whether `policy` sets the boolean `allowance` to `true`, locked or not.
+fn allows(policy: &Policy, allowance: &str) -> bool {
+    policy
+        .lock
+        .get(allowance)
+        .or_else(|| policy.settings.get(allowance))
+        == Some(&Value::Bool(true))
+}
+
 fn limit(key: &str, value: &Value, layer: SettingsLayer) -> SettingLimit {
     SettingLimit {
         key: key.to_owned(),
@@ -603,7 +638,9 @@ fn above(value: &Value, bound: u64) -> bool {
 
 /// Takes `value` from `layer` for `key`, as `given` for the run layer and
 /// the project configuration a Client sent,
-/// unless something holds the key.
+/// unless something holds the key: a lock, an Operator policy's cap the
+/// value is past (a clear to no bound is past every cap), a Recipe's
+/// bounds or the key's authority.
 fn take(
     state: &mut State,
     key: Key,
@@ -629,8 +666,8 @@ fn take(
         };
         return Err(refused(locked.clone(), fix));
     }
-    if let (Some(cap), Some(given)) = (&state.cap, value.as_u64())
-        && cap.value.as_u64().is_some_and(|bound| given > bound)
+    if let Some(cap) = &state.cap
+        && cap.value.as_u64().is_some_and(|bound| above(value, bound))
     {
         return Err(refused(
             cap.clone(),
@@ -702,12 +739,14 @@ fn authority(
                 format!("a Recipe never sets `{name}`; it may only expose it"),
             ))
         }
-        Authority::NotByRecipeOrModel if for_model => Err(refused(
-            current.clone(),
-            format!(
-                "a Client acting for a model never sets `{name}`: set it in the program's own code, in configuration or in an Operator policy"
-            ),
-        )),
+        Authority::NotByRecipeOrModel | Authority::NotByModelRecipeAllowedBy(_) if for_model => {
+            Err(refused(
+                current.clone(),
+                format!(
+                    "a Client acting for a model never sets `{name}`: set it in the program's own code, in configuration or in an Operator policy"
+                ),
+            ))
+        }
         Authority::Narrowed if above_configuration && !narrows(key, value, &current.value) => {
             Err(refused(
                 current.clone(),
@@ -722,6 +761,7 @@ fn authority(
         | Authority::ConfigurationExcept(_)
         | Authority::NotByRecipe
         | Authority::NotByRecipeOrModel
+        | Authority::NotByModelRecipeAllowedBy(_)
         | Authority::Narrowed => Ok(()),
     }
 }

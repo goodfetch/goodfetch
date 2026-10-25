@@ -1,0 +1,177 @@
+{
+  "$defs": {
+    "Family": {
+      "description": "The families of SSRF cases (ADR 0067).",
+      "oneOf": [
+        {
+          "const": "encoding",
+          "description": "Spellings of an address a URL parser accepts: integers, octal and\nhexadecimal parts, short forms, percent-encoding, full-width digits.",
+          "type": "string"
+        },
+        {
+          "const": "ipv6_form",
+          "description": "IPv6 forms that embed or stand for a private address: IPv4-mapped,\nNAT64, 6to4, Teredo, zone IDs.",
+          "type": "string"
+        },
+        {
+          "const": "special_purpose_block",
+          "description": "One block of IANA's special-purpose registries that is not globally\nreachable.",
+          "type": "string"
+        },
+        {
+          "const": "mixed_answers",
+          "description": "A name whose answers mix public and private addresses.",
+          "type": "string"
+        },
+        {
+          "const": "redirect",
+          "description": "A redirect of each status and kind, and to schemes other than HTTP.",
+          "type": "string"
+        },
+        {
+          "const": "rebinding",
+          "description": "A name whose answer changes between lookups.",
+          "type": "string"
+        },
+        {
+          "const": "upstream_proxy",
+          "description": "A request through the run's upstream proxy, which would resolve the\nname itself.",
+          "type": "string"
+        },
+        {
+          "const": "plugin_traffic",
+          "description": "A Plugin's own request.",
+          "type": "string"
+        },
+        {
+          "const": "lent_page_client",
+          "description": "A Lent page's client trying a browser context with its own proxy, or\nan extension (ADR 0089).",
+          "type": "string"
+        },
+        {
+          "const": "operator_endpoint",
+          "description": "An Operator-configured endpoint at an address that is not globally\nreachable, under an Operator policy that sets\n`egress.no_private_endpoints` (ADR 0017), as Goodfetch Cloud does.",
+          "type": "string"
+        },
+        {
+          "const": "domain_policy",
+          "description": "A host the run's domain policy refuses, in any spelling the URL\nparser accepts: one it does not allow, one it blocks.",
+          "type": "string"
+        },
+        {
+          "const": "borrowed_browser",
+          "description": "A page of a Borrowed browser, which the engine holds to the policy\nby interception alone, resolving each host itself (ADR 0056): each\ncase is refused at interception, before the browser connects.",
+          "type": "string"
+        }
+      ]
+    },
+    "Layer": {
+      "additionalProperties": false,
+      "description": "One layer a request of the run passes, which holds it to the egress\npolicy.",
+      "properties": {
+        "not_run": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Why the layer never meets a family of `every_layer`, by family.",
+          "type": "object"
+        },
+        "pending": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Pending"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The ticket that builds the layer, when it is not built yet: such a\nlayer has no runner."
+        },
+        "runners": {
+          "description": "The tests that apply the table to the layer.",
+          "items": {
+            "$ref": "#/$defs/LayerRunner"
+          },
+          "type": "array"
+        },
+        "summary": {
+          "description": "What the layer is and how its runners reach it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "type": "object"
+    },
+    "LayerRunner": {
+      "additionalProperties": false,
+      "description": "One test that applies the table to a layer.",
+      "properties": {
+        "families": {
+          "description": "The families whose cases it runs.",
+          "items": {
+            "$ref": "#/$defs/Family"
+          },
+          "type": "array"
+        },
+        "test": {
+          "description": "The test: its file relative to the workspace's root, `::`, and its\nfunction's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "test",
+        "families"
+      ],
+      "type": "object"
+    },
+    "Pending": {
+      "additionalProperties": false,
+      "description": "A layer not built yet.",
+      "properties": {
+        "families": {
+          "description": "The families its runner will run.",
+          "items": {
+            "$ref": "#/$defs/Family"
+          },
+          "type": "array"
+        },
+        "joins": {
+          "description": "The ticket or area that builds it, and its runner with it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "joins",
+        "families"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The layers Collie carries and the runners that apply the table to each.",
+  "properties": {
+    "every_layer": {
+      "description": "The families every layer meets: each layer runs their cases, or says\nin `not_run` why it never meets one.",
+      "items": {
+        "$ref": "#/$defs/Family"
+      },
+      "type": "array"
+    },
+    "layers": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Layer"
+      },
+      "description": "The layers, by name in snake case.",
+      "type": "object"
+    }
+  },
+  "required": [
+    "every_layer",
+    "layers"
+  ],
+  "title": "SsrfLayers",
+  "type": "object"
+}

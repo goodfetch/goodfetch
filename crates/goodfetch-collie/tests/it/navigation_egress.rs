@@ -23,8 +23,8 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use goodfetch_test_support::{
-    Answer, BROWSERS_PATH_VARIABLE, Family, Outcome, ProvingGround, Refusal, SsrfCase, SsrfTable,
-    TestEnv, browser_cache, run_cases,
+    Answer, BROWSERS_PATH_VARIABLE, Outcome, ProvingGround, Refusal, Route, Runner, SsrfCase,
+    SsrfTable, TestEnv, browser_cache,
 };
 use serde_json::{Map, Value, json};
 
@@ -321,15 +321,20 @@ fn run_case(
 /// mapping, which the relay judges as any other. Positive controls: the
 /// same kinds to an allowed page go through.
 ///
-/// Covers: story:4-5, story:4-10, error:egress_refused
+/// Covers: story:4-5, story:4-10, story:4-89, error:egress_refused
 #[test]
 fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let public = proving_ground.address().ip();
-    let table = SsrfTable::committed().unwrap();
-    let cases: Vec<SsrfCase> = table.cases_of(Family::Redirect).cloned().collect();
+    let runner = Runner::committed(
+        "chromium_navigation",
+        file!(),
+        "every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium",
+    )
+    .unwrap();
+    let cases = runner.cases();
     let controls = SsrfTable::parse(
         r#"
         [[cases]]
@@ -359,7 +364,7 @@ fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium() {
     let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
     // A hop to a name the table resolves privately reaches the relay with
     // the name's answer from the Run's mapping, which no range lists.
-    for case in &cases {
+    for case in cases {
         for lookup in case.lookups.iter().skip(1) {
             let addresses: Vec<String> = lookup
                 .answers
@@ -391,11 +396,7 @@ fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium() {
         format!("policy-{index}")
     };
 
-    let controlled = run_cases(&controls.cases, public, |case| {
-        let run_id = run_for(&mut program, case);
-        run_case(&mut program, &proving_ground, &run_id, case)
-    });
-    let result = run_cases(&cases, public, |case| {
+    let result = runner.run(&controls.cases, public, |case| {
         let run_id = run_for(&mut program, case);
         run_case(&mut program, &proving_ground, &run_id, case)
     });
@@ -403,22 +404,221 @@ fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium() {
     let finished: Vec<&str> = finished.iter().map(String::as_str).collect();
     program.finish(&finished);
 
-    assert_eq!(
-        controlled.map_err(|let_through| {
-            let_through
-                .misses
-                .iter()
-                .map(|miss| (miss.case.clone(), miss.refusal.clone(), miss.reached_target))
-                .collect::<Vec<_>>()
-        }),
-        Err(vec![
-            ("status_to_an_allowed_host".to_owned(), None, true),
-            ("meta_refresh_to_an_allowed_page".to_owned(), None, true),
-            ("script_to_an_allowed_page".to_owned(), None, true),
-        ])
-    );
     assert_eq!(cases.len(), 15);
     assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
+}
+
+/// How many connections the Proving ground's listener `name` accepted, such
+/// as its open proxy's.
+fn listener_connections(proving_ground: &ProvingGround, name: &str) -> usize {
+    proving_ground.observations().unwrap()["connections"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|connection| connection["listener"] == json!(name))
+        .count()
+}
+
+/// `case`'s URL as the program navigates to it: at the Proving ground's
+/// port, so a navigation let through to its address would reach it, or as
+/// the case writes it when the WHATWG parser refuses it.
+fn navigated_url(case: &SsrfCase, port: u16) -> String {
+    match url::Url::parse(&case.url) {
+        Ok(mut url) => {
+            let _ = url.set_port(Some(port));
+            url.to_string()
+        }
+        Err(_) => case.url.clone(),
+    }
+}
+
+/// The Run settings a case's navigation goes under: its domain policy, its
+/// lookups in the Run's `network.resolve` mapping, `public` the Proving
+/// ground's address, the names its positive controls resolve listed in
+/// `egress.private_ranges`, and the Proving ground's open proxy for an
+/// upstream proxy case.
+fn case_settings(
+    program: &Program<'_>,
+    proving_ground: &ProvingGround,
+    case: &SsrfCase,
+    listed: &[String],
+) -> Value {
+    let public = proving_ground.address().ip().to_string();
+    let mut resolve = program.resolve.clone();
+    for lookup in &case.lookups {
+        let answers: Vec<String> = lookup
+            .answers
+            .iter()
+            .map(|answer| match answer {
+                Answer::Public => public.clone(),
+                Answer::Address(address) => address.to_string(),
+            })
+            .collect();
+        resolve.insert(lookup.name.clone(), json!(answers));
+    }
+    let (allowed, blocked) = case.domains.as_ref().map_or_else(
+        || (vec!["*".to_owned()], Vec::new()),
+        |domains| (domains.allowed.clone(), domains.blocked.clone()),
+    );
+    let mut ranges = program.private_ranges.clone();
+    ranges.extend(listed.iter().cloned());
+    let mut settings = json!({
+        "network": { "resolve": resolve },
+        "egress": {
+            "allowed_domains": allowed,
+            "blocked_domains": blocked,
+            "private_ranges": ranges,
+        },
+    });
+    if case.route == Route::UpstreamProxy {
+        settings["proxy"] = json!({
+            "server": format!("http://{}", proving_ground.description().fixtures.proxies["open"]),
+        });
+    }
+    settings
+}
+
+/// The SSRF table's thin runner on Chromium (ADR 0067) for the program's
+/// own navigation, `test` the runner's test: each of its cases as
+/// `page.goto`, at the Proving ground's port, is refused with
+/// `egress_refused` and its rule, and neither the Proving ground nor its
+/// open proxy receives anything meanwhile. One Run per domain policy, proxy
+/// and mapping, which its cases share, and a page of its own per case, so
+/// no refusal of a case's reaches another's call. The positive controls, a
+/// Proving ground page directly and a public name through the open proxy,
+/// reach the Proving ground. Chromium and the engine read a URL as the
+/// WHATWG parser does, so each URL is navigated as that parser writes it,
+/// but for those it refuses, navigated as written.
+fn navigations_are_refused_on_chromium(test: &str) -> Runner {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let public = proving_ground.address().ip();
+    let port = proving_ground.address().port();
+    let runner = Runner::committed("chromium_navigation", file!(), test).unwrap();
+    let controls = SsrfTable::parse(
+        r#"
+        [[cases]]
+        name = "public_page"
+        family = "mixed_answers"
+        url = "http://catalog.test/catalog/1"
+        target = "public"
+        refusal = { code = "egress_refused", rule = "private_address" }
+
+        [[cases]]
+        name = "public_name_through_the_proxy"
+        family = "upstream_proxy"
+        url = "http://proxied.ssrf.test/"
+        route = { via = "upstream_proxy" }
+        lookups = [{ name = "proxied.ssrf.test", answers = ["public"] }]
+        target = "public"
+        refusal = { code = "egress_refused", rule = "private_address" }
+        "#,
+    )
+    .unwrap();
+    let listed = ["proxied.ssrf.test".to_owned()];
+    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut runs: Vec<Value> = Vec::new();
+
+    let result = runner.run(&controls.cases, public, |case| {
+        let settings = case_settings(&program, &proving_ground, case, &listed);
+        let run = if let Some(run) = runs.iter().position(|shared| *shared == settings) {
+            run
+        } else {
+            let started = program.call(
+                "run.start",
+                &json!({ "run_id": format!("run-{}", runs.len()), "settings": settings }),
+            );
+            assert!(started.get("result").is_some(), "{started}");
+            // The Run's first page stays open, so closing a case's own
+            // never ends its Session.
+            let _ = program.new_page(&format!("run-{}", runs.len()));
+            runs.push(settings);
+            runs.len() - 1
+        };
+        let page = program.new_page(&format!("run-{run}"));
+        let requested = requests(&proving_ground).len();
+        let proxied = listener_connections(&proving_ground, "open");
+        let went = program.goto(&page, &navigated_url(case, port));
+        let _ = program.call("page.close", &json!({ "page_id": page }));
+        // The Proving ground's own requests reached its address; the open
+        // proxy's connections stand for the case's target, which the proxy
+        // would reach.
+        let reached = requests(&proving_ground).len() - requested;
+        let proxied_now = listener_connections(&proving_ground, "open") - proxied;
+        Outcome {
+            refusal: match error(&went) {
+                (code, details) if code == "egress_refused" => {
+                    serde_json::from_value(details["rule"].clone())
+                        .ok()
+                        .map(|rule| Refusal::EgressRefused { rule })
+                }
+                _ => None,
+            },
+            connections: [
+                vec![public; reached],
+                vec![case.target_address(public).unwrap_or(public); proxied_now],
+            ]
+            .concat(),
+        }
+    });
+    let finished: Vec<String> = (0..runs.len()).map(|run| format!("run-{run}")).collect();
+    let finished: Vec<&str> = finished.iter().map(String::as_str).collect();
+    program.finish(&finished);
+
+    assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
+    runner
+}
+
+/// The encodings' and the IPv6 forms' cases as navigations: see
+/// [`navigations_are_refused_on_chromium`].
+///
+/// Covers: story:4-5, story:4-10, story:4-89, error:egress_refused, operation:page.goto
+#[test]
+fn every_encoding_and_ipv6_form_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium() {
+    let runner = navigations_are_refused_on_chromium(
+        "every_encoding_and_ipv6_form_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium",
+    );
+
+    assert!(
+        runner.cases().len() >= 30,
+        "only {} cases",
+        runner.cases().len()
+    );
+}
+
+/// Every IANA block's case as a navigation: see
+/// [`navigations_are_refused_on_chromium`].
+///
+/// Covers: story:4-5, story:4-10, story:4-89, error:egress_refused, operation:page.goto
+#[test]
+fn every_special_purpose_block_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium() {
+    let runner = navigations_are_refused_on_chromium(
+        "every_special_purpose_block_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium",
+    );
+
+    assert!(
+        runner.cases().len() >= 36,
+        "only {} cases",
+        runner.cases().len()
+    );
+}
+
+/// The mixed answers', upstream proxy's and domain policy's cases as
+/// navigations: see [`navigations_are_refused_on_chromium`].
+///
+/// Covers: story:4-2, story:4-10, story:4-12, story:4-89, error:egress_refused, operation:page.goto
+#[test]
+fn every_name_and_proxy_case_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium() {
+    let runner = navigations_are_refused_on_chromium(
+        "every_name_and_proxy_case_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium",
+    );
+
+    assert!(
+        runner.cases().len() >= 25,
+        "only {} cases",
+        runner.cases().len()
+    );
 }
 
 /// A file of the machine the engine runs on, holding `text`.

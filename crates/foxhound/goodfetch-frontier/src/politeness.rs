@@ -5,7 +5,11 @@
 //! flight there, across every sharing run, is below its own
 //! `politeness.domain.concurrency` and below the key's ceiling a 429
 //! lowered; once its own `politeness.domain.delay` passed since the last
-//! request start there by any sharing run; and once a `Retry-After` or a
+//! request start there by any sharing run, raised to the largest
+//! Crawl-delay the robots.txt of the key's hosts ask for, as any sharing
+//! run read it, up to its own `site_preferences.max_crawl_delay` while
+//! `site_preferences.respect_robots_txt` is on (ADR 0086; a longer one
+//! leaves the delay, its host's requests skipped); and once a `Retry-After` or a
 //! backoff any sharing run met has ended. Each wait of a backoff is drawn
 //! with decorrelated jitter ([`Backoff`]), between
 //! `politeness.backoff.initial` and three times the previous wait, never
@@ -42,6 +46,7 @@ use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::settings::{
     POLITENESS_BACKOFF_ENABLED, POLITENESS_BACKOFF_INITIAL, POLITENESS_BACKOFF_MAX,
     POLITENESS_DOMAIN_CONCURRENCY, POLITENESS_DOMAIN_DELAY, POLITENESS_RETRY_AFTER_MAX,
+    SITE_PREFERENCES_MAX_CRAWL_DELAY, SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
 };
 use goodfetch_protocol::settings::{SETTING_NOT_APPLICABLE, SettingNotApplicableDetails};
 use rusqlite::{Connection, OptionalExtension as _};
@@ -53,14 +58,22 @@ pub(crate) const RECOVERY: Duration = Duration::from_secs(10);
 /// The table the rule keeps each domain key's shared state in.
 pub(crate) const TABLES: PolitenessTables = PolitenessTables {
     name: "goodfetch-frontier",
-    statements: &["CREATE TABLE IF NOT EXISTS domain_limits (
+    statements: &[
+        "CREATE TABLE IF NOT EXISTS domain_limits (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,
             backoff INTEGER,
             ceiling INTEGER,
             ceiling_changed_at INTEGER,
             last_start INTEGER
-        ) STRICT"],
+        ) STRICT",
+        "CREATE TABLE IF NOT EXISTS crawl_delays (
+            key TEXT NOT NULL,
+            location TEXT NOT NULL,
+            delay INTEGER NOT NULL,
+            PRIMARY KEY (key, location)
+        ) STRICT",
+    ],
 };
 
 /// The `Entropy` a crawl's gate draws its backoffs from, shared by the
@@ -165,8 +178,15 @@ impl Limits {
     }
 
     /// Whether one more request may start at `now` with `in_flight` in
-    /// flight, under a run's own rule.
-    fn admit(&self, in_flight: u64, now: i64, rule: &DomainRule) -> Verdict {
+    /// flight, under a run's own rule, its domain's hosts asking for
+    /// `crawl_delays`.
+    fn admit(
+        &self,
+        in_flight: u64,
+        now: i64,
+        rule: &DomainRule,
+        crawl_delays: &[Duration],
+    ) -> Verdict {
         if let Some(longest) = rule.waits.longest()
             && let Some(ready_at) = self.ready_at.filter(|ready_at| *ready_at > now)
         {
@@ -176,7 +196,9 @@ impl Limits {
                 Verdict::Until(moment(ready_at), Hold::BackOff)
             };
         }
-        if let (Some(delay), Some(last_start)) = (rule.delay, self.last_start) {
+        if let (Some(delay), Some(last_start)) =
+            (rule.between_starts(crawl_delays), self.last_start)
+        {
             let next = last_start.saturating_add(duration_milliseconds(delay));
             if next > now {
                 return Verdict::Until(moment(next), Hold::Delay);
@@ -325,6 +347,10 @@ impl Waits {
 pub(crate) struct DomainRule {
     concurrency: Option<u64>,
     delay: Option<Duration>,
+    /// `site_preferences.max_crawl_delay`; `None` while
+    /// `site_preferences.respect_robots_txt` is off, which waits for no
+    /// Crawl-delay.
+    max_crawl_delay: Option<Duration>,
     waits: Waits,
     entropy: SharedEntropy,
 }
@@ -338,9 +364,29 @@ impl DomainRule {
             delay: settings
                 .duration(POLITENESS_DOMAIN_DELAY.name)
                 .filter(|delay| !delay.is_zero()),
+            max_crawl_delay: (settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name)
+                != Some(false))
+            .then(|| settings.duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name))
+            .flatten(),
             waits: Waits::of(settings),
             entropy,
         }
+    }
+
+    /// The delay between starts on a domain key whose hosts ask for
+    /// `crawl_delays` (ADR 0086): the longest of `politeness.domain.delay`
+    /// and each Crawl-delay up to `site_preferences.max_crawl_delay`, so a
+    /// shorter one never shortens it and a longer one never raises it;
+    /// `None` for no wait.
+    fn between_starts(&self, crawl_delays: &[Duration]) -> Option<Duration> {
+        let honoured = self.max_crawl_delay.and_then(|max| {
+            crawl_delays
+                .iter()
+                .copied()
+                .filter(|asked| *asked <= max)
+                .max()
+        });
+        self.delay.max(honoured).filter(|delay| !delay.is_zero())
     }
 }
 
@@ -352,7 +398,8 @@ impl PermitRule for DomainRule {
         in_flight: u64,
         now: SystemTime,
     ) -> rusqlite::Result<Verdict> {
-        Ok(Limits::read(connection, key)?.admit(in_flight, milliseconds(now), self))
+        let crawl_delays = crawl_delays(connection, key)?;
+        Ok(Limits::read(connection, key)?.admit(in_flight, milliseconds(now), self, &crawl_delays))
     }
 
     fn started(&self, connection: &Connection, key: &str, now: SystemTime) -> rusqlite::Result<()> {
@@ -413,6 +460,54 @@ pub async fn started_again(
         .await
 }
 
+/// Takes in `connection` the next start of `key` for a request that may go
+/// `spacing` after the request of its own that started at `after`: no
+/// sooner than `spacing` after the last start any sharing run took either,
+/// which it then becomes. Answers when it is.
+pub(crate) fn start_taken(
+    connection: &Connection,
+    key: &str,
+    after: SystemTime,
+    spacing: Duration,
+) -> rusqlite::Result<SystemTime> {
+    let mut limits = Limits::read(connection, key)?;
+    let spacing = duration_milliseconds(spacing);
+    let start = limits
+        .last_start
+        .map_or(milliseconds(after), |last| last.max(milliseconds(after)))
+        .saturating_add(spacing);
+    limits.last_start = Some(start);
+    limits.write(connection, key)?;
+    Ok(moment(start))
+}
+
+/// Takes the next start of `key`, for every run sharing `politeness`, for
+/// a request that may go `spacing` after the request of its own that
+/// started at `after`, such as a document after the robots.txt it fetched
+/// under its Permit: no sooner than `spacing` after the last start any
+/// sharing run took either, so two runs that fetched robots.txt at once,
+/// before either knew its Crawl-delay, start their documents `spacing`
+/// apart (ADR 0086). Answers when it is; the caller waits until then.
+///
+/// # Errors
+///
+/// When the Politeness file's transaction failed.
+///
+/// # Cancel safety
+///
+/// Dropping the future does not withdraw a transaction already queued.
+pub async fn start_after(
+    politeness: &Politeness,
+    key: &str,
+    after: SystemTime,
+    spacing: Duration,
+) -> Result<SystemTime, PolitenessError> {
+    let key = key.to_owned();
+    politeness
+        .transact(move |connection| start_taken(connection, &key, after, spacing))
+        .await
+}
+
 /// When the last request of `key` started, by any run sharing
 /// `politeness`; `None` before the first.
 ///
@@ -434,6 +529,63 @@ pub async fn last_start(
     Ok(last
         .and_then(|last| u64::try_from(last).ok())
         .map(|last| SystemTime::UNIX_EPOCH + Duration::from_millis(last)))
+}
+
+/// Records in `connection` that the robots.txt at `location` asks the
+/// requests of `key` for the Crawl-delay `delay`, or for none, replacing
+/// what it asked before.
+pub(crate) fn crawl_delay_asked(
+    connection: &Connection,
+    key: &str,
+    location: &str,
+    delay: Option<Duration>,
+) -> rusqlite::Result<()> {
+    match delay {
+        Some(delay) => connection.execute(
+            "INSERT INTO crawl_delays (key, location, delay) VALUES (?1, ?2, ?3)
+             ON CONFLICT (key, location) DO UPDATE SET delay = ?3",
+            (key, location, duration_milliseconds(delay)),
+        )?,
+        None => connection.execute(
+            "DELETE FROM crawl_delays WHERE key = ?1 AND location = ?2",
+            (key, location),
+        )?,
+    };
+    Ok(())
+}
+
+/// The Crawl-delays the robots.txt of `key`'s hosts ask for.
+fn crawl_delays(connection: &Connection, key: &str) -> rusqlite::Result<Vec<Duration>> {
+    let mut statement =
+        connection.prepare_cached("SELECT delay FROM crawl_delays WHERE key = ?1")?;
+    statement
+        .query_map([key], |row| row.get::<_, i64>(0))?
+        .map(|delay| delay.map(|delay| Duration::from_millis(u64::try_from(delay).unwrap_or(0))))
+        .collect()
+}
+
+/// Records, for every run sharing `politeness`, that the robots.txt at
+/// `location` asks the requests of `key` for the Crawl-delay `delay`, or
+/// for none (ADR 0086): each such run then waits it between starts on
+/// `key`, up to its own `site_preferences.max_crawl_delay`.
+///
+/// # Errors
+///
+/// When the Politeness file's transaction failed.
+///
+/// # Cancel safety
+///
+/// Dropping the future does not withdraw a transaction already queued.
+pub async fn crawl_delay_read(
+    politeness: &Politeness,
+    key: &str,
+    location: &str,
+    delay: Option<Duration>,
+) -> Result<(), PolitenessError> {
+    let (key, location) = (key.to_owned(), location.to_owned());
+    politeness
+        .transact(move |connection| crawl_delay_asked(connection, &key, &location, delay))
+        .await
 }
 
 #[cfg(test)]

@@ -38,7 +38,8 @@ use crate::people::SignInDriver;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::{CleanUpVersions, Driver, ProgressPart, ReportPart, Runs};
+use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Run, Runs};
+use crate::settings::RunSettings;
 use goodfetch_protocol::run::RunKind;
 
 /// A failure a call answers with: an Error code of the catalog, with its
@@ -189,6 +190,9 @@ pub(crate) struct ConnectionContext {
     pub(crate) identity: Arc<Identity>,
     pub(crate) client: Client,
     pub(crate) surface: OnceLock<Surface>,
+    /// The driver of each kind of Run that has one, which a resume starts
+    /// again.
+    pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,
     pub(crate) runs: Runs,
     pub(crate) events: Events,
     pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
@@ -355,6 +359,11 @@ impl CallContext {
             .expect("invariant: a call runs only on a Connection whose `hello` was answered")
     }
 
+    /// The driver of Runs of `kind`, when the composition has one.
+    pub(crate) fn driver(&self, kind: RunKind) -> Option<Driver> {
+        self.connection.drivers.get(&kind).cloned()
+    }
+
     /// The engine's Runs.
     pub fn runs(&self) -> &Runs {
         &self.connection.runs
@@ -384,6 +393,25 @@ impl CallContext {
 }
 
 type Answer = Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+
+/// What drives a kind of Run, such as Foxhound's crawl's delivery, given
+/// the Run, the context of the call that resumed it, whose Connection's
+/// Client serves it, and its settings: a resume starts it again on the
+/// Run's committed state.
+pub type Driver = Arc<
+    dyn Fn(Run, CallContext, RunSettings) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync,
+>;
+
+/// A call's answer as a [`Guard`] gives it in place of its handler's: the
+/// result, as JSON, or its error.
+pub type GuardAnswer = Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+
+/// What a contribution asks of each of its calls before its handler, given
+/// the operation, the call's params as they arrived and its context: an
+/// answer given in the handler's place, or `None` to let the handler
+/// answer. It runs when the request arrives, as the handler does.
+pub type Guard =
+    Arc<dyn Fn(&'static Operation, &Value, &CallContext) -> Option<GuardAnswer> + Send + Sync>;
 
 /// The handler of one operation of the catalog.
 #[derive(Clone)]
@@ -525,6 +553,26 @@ impl Contribution {
     #[must_use]
     pub fn with_handler(mut self, handler: Handler) -> Self {
         self.handlers.push(handler);
+        self
+    }
+
+    /// The same, each of its handlers' calls asking `guard` first, whose
+    /// answer, when it gives one, the call takes in place of its handler's.
+    #[must_use]
+    pub fn guarded(mut self, guard: &Guard) -> Self {
+        for handler in &mut self.handlers {
+            let (inner, operation, guard) = (
+                Arc::clone(&handler.call),
+                handler.operation,
+                Arc::clone(guard),
+            );
+            handler.call = Arc::new(move |params: Value, context: CallContext| {
+                match guard(operation, &params, &context) {
+                    Some(answer) => answer,
+                    None => inner(params, context),
+                }
+            });
+        }
         self
     }
 

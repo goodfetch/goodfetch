@@ -24,7 +24,7 @@ use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_err
 use goodfetch_engine::runs::{EndedBy, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
-use goodfetch_fetch_tier::FetchTiers;
+use goodfetch_fetch_tier::{FetchTiers, LabelTiers};
 use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_frontier::{Bounds, Scope};
 use goodfetch_protocol::catalog::Product;
@@ -38,6 +38,7 @@ use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 
 use crate::delivery;
 use crate::enqueue;
+use crate::labels;
 use crate::outcomes;
 use crate::policy::domain_policy;
 use crate::seeding;
@@ -58,6 +59,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let resuming = crawls.clone();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
+    let [read_links, enqueue_links] = enqueue::links::handlers(&crawls, &tiers);
     Contribution::new("goodfetch-crawl")
         .with_handler(Handler::new(&CRAWL_START, move |params, context| {
             start(params, context, crawls.clone(), starting.clone())
@@ -66,20 +68,23 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
             serve(params, context, serving.clone())
         }))
         .with_handler(enqueue::handler(enqueuing))
+        .with_handler(read_links)
+        .with_handler(enqueue_links)
         .with_handler(add_seed)
         .with_handler(add_seeds)
         .with_handler(read_outcomes)
         .with_handler(read_failed_requests)
         .with_run_state_tables(work_items::TABLES)
+        .with_run_state_tables(labels::TABLES)
         .with_report_part(Arc::new(crate::report::CrawlParts))
         .with_report_part(Arc::new(crate::completeness::StoppedParts))
         .with_progress_part(Arc::new(crate::progress::CrawlProgress))
         .with_driver(
             RunKind::Crawl,
-            Arc::new(move |run, client, settings| {
+            Arc::new(move |run, context, settings| {
                 Box::pin(delivery::resume(
                     run,
-                    client,
+                    context,
                     settings,
                     resuming.clone(),
                     tiers.clone(),
@@ -95,7 +100,7 @@ async fn serve(
     context: CallContext,
     crawls: Crawls,
 ) -> Result<RunReport, CallError> {
-    let Some(_stays) = crawls.join(&params.run_id, context.client().clone()).await else {
+    let Some(_stays) = crawls.join(&params.run_id, context.clone()).await else {
         return Err(CallError::new(
             &RUN_NOT_FOUND,
             format!(
@@ -135,7 +140,8 @@ async fn start(
         })
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;
-    FetchTiers::check(settings.resolved())?;
+    let labels = LabelTiers::of(&params.labels)?;
+    FetchTiers::check(settings.resolved(), &labels)?;
     let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
     let bounds = Bounds::of_settings(settings.resolved());
     bounds.check().map_err(CallError::from)?;
@@ -156,6 +162,7 @@ async fn start(
         StartInput::Seeds,
         serde_json::to_value(&seeds).expect("invariant: seeds encode as JSON"),
     )]);
+    let declared = params.labels;
     let started = context
         .runs()
         .start(Start {
@@ -169,6 +176,7 @@ async fn start(
                 scope.record(connection)?;
                 bounds.record(connection)?;
                 payloads.record(connection)?;
+                labels::record(connection, &declared)?;
                 let answers = work_items::admit_seeds(connection, &scope, &seeding, &seeds)?;
                 goodfetch_frontier::seeds::answered(connection, &answers)
             })),
@@ -193,11 +201,11 @@ async fn start(
             let opened = crawls.open(&run, egress).await;
             run.spawn(delivery::drive(
                 run.clone(),
-                context.client().clone(),
+                context.clone(),
                 opened,
                 crawls,
                 settings,
-                tiers,
+                (tiers, labels),
             ));
             started
         }

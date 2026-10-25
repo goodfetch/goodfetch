@@ -40,7 +40,6 @@ use tokio::sync::{OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
 use super::{Browser, PageDriver};
-use crate::proxy::SessionProxy;
 
 /// The target type of a service worker.
 const SERVICE_WORKER: &str = "service_worker";
@@ -125,7 +124,7 @@ impl PageDriver {
         Self {
             browser,
             session,
-            proxy: None,
+            egress: super::SessionEgress::default(),
             context,
             frame: worker,
             started: Arc::new(watch::Sender::new(0)),
@@ -137,16 +136,16 @@ impl PageDriver {
         }
     }
 
-    /// Its Session's proxy, shared, if it has one.
-    pub(crate) fn proxy_handle(&self) -> Option<Arc<SessionProxy>> {
-        self.proxy.clone()
+    /// Its Session's proxy and egress relay, shared.
+    pub(crate) fn egress_handle(&self) -> super::SessionEgress {
+        self.egress.clone()
     }
 
-    /// This driver with its Session's `proxy`, whose challenges it answers:
-    /// a service worker's requests reach the proxy of the context its pages
-    /// are in.
-    pub(crate) fn with_proxy(self, proxy: Option<Arc<SessionProxy>>) -> Self {
-        Self { proxy, ..self }
+    /// This driver with its Session's `egress`, whose challenges it
+    /// answers: a service worker's requests reach the proxy, or the relay,
+    /// of the context its pages are in.
+    pub(crate) fn with_egress(self, egress: super::SessionEgress) -> Self {
+        Self { egress, ..self }
     }
 
     /// Chooses, once for the page's browser context, what becomes of the

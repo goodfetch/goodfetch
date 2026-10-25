@@ -1960,6 +1960,87 @@
       ],
       "type": "object"
     },
+    "CrawlRequestEnqueueLinksParams": {
+      "additionalProperties": false,
+      "description": "What `crawl_request.enqueue_links` takes: every link a locator matches,\nto add from one attempt under one Label (ADR 0093).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt enqueues.",
+          "type": "string"
+        },
+        "exclude": {
+          "arrived_in": "0.1",
+          "description": "URL patterns a link must match none of, besides the crawl's scope.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "include": {
+          "arrived_in": "0.1",
+          "description": "URL patterns, globs as `crawl.scope.include`'s, of which a link must\nmatch one when there are any, besides the crawl's scope, which they\nonly narrow.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "Their Label.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator, on the page `crawl_request.handle` gave."
+        },
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The one Payload every link takes; never with `payloads`."
+        },
+        "payloads": {
+          "arrived_in": "0.1",
+          "description": "Each matched element's own Payload, in the order\n`crawl_request.links` answered them, as the program's Payload\nfunction returned it: `null` skips that link, reported\n`skipped_by_payload`. Never with `payload`.",
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "priority": {
+          "arrived_in": "0.1",
+          "default": 0,
+          "description": "Their priority among the requests of their domain, as\n`crawl_request.enqueue`'s; 0 by default.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "crawl_request_id",
+        "lease_epoch",
+        "locator",
+        "label"
+      ],
+      "type": "object"
+    },
     "CrawlRequestEnqueueParams": {
       "additionalProperties": false,
       "description": "What `crawl_request.enqueue` takes: one request to add, from one attempt\nof a crawl request.",
@@ -2155,6 +2236,62 @@
           "description": "Its handler's skip: the request ends `skipped` with the reason\n`handler`, and the attempt's Records are discarded."
         }
       },
+      "type": "object"
+    },
+    "CrawlRequestLinks": {
+      "description": "What `crawl_request.links` answers: each element its locator matched,\nin document order.",
+      "properties": {
+        "links": {
+          "arrived_in": "0.1",
+          "description": "The elements.",
+          "items": {
+            "$ref": "#/$defs/MatchedLink"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "links"
+      ],
+      "type": "object"
+    },
+    "CrawlRequestLinksParams": {
+      "additionalProperties": false,
+      "description": "What `crawl_request.links` takes: the locator whose elements an\nattempt's `enqueueLinks` reads before its Payload function runs.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt reads the links.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator, on the page `crawl_request.handle` gave."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "crawl_request_id",
+        "lease_epoch",
+        "locator"
+      ],
       "type": "object"
     },
     "CrawlRequestOutcome": {
@@ -2607,7 +2744,7 @@
             "$ref": "#/$defs/LabelDeclaration"
           },
           "arrived_in": "0.1",
-          "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone (ADRs 0082 and 0093). A Payload of a declared schema is checked\nagainst it at every enqueue; a Label the crawl does not declare\ntakes any Payload.",
+          "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone, and its own settings (ADRs 0082 and 0093): a scope between the\nRun and its requests. A Payload of a declared schema is checked\nagainst it at every enqueue; a Label the crawl does not declare\ntakes any Payload.",
           "type": "object"
         },
         "project": {
@@ -3513,6 +3650,110 @@
       ],
       "type": "object"
     },
+    "EnqueuedLink": {
+      "description": "What became of one element an `enqueueLinks` locator matched.",
+      "oneOf": [
+        {
+          "description": "The Frontier admitted its link as a crawl request.",
+          "properties": {
+            "id": {
+              "arrived_in": "0.1",
+              "description": "The crawl request's ID within the Run.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "added",
+              "type": "string"
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "Its URL as parsed and resolved, the URL its handler receives.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The Frontier did not admit its link.",
+          "properties": {
+            "kind": {
+              "const": "not_added",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/NotAddedReason",
+              "arrived_in": "0.1",
+              "description": "Why."
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "Its `href`, as written.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The element has no `href`.",
+          "properties": {
+            "kind": {
+              "const": "no_link",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The program's Payload function skipped it, returning `null`.",
+          "properties": {
+            "kind": {
+              "const": "skipped_by_payload",
+              "type": "string"
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "Its `href`, as written.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EnqueuedLinks": {
+      "description": "What `crawl_request.enqueue_links` answers: what became of each element\nits locator matched, in document order.",
+      "properties": {
+        "links": {
+          "arrived_in": "0.1",
+          "description": "Each element's answer.",
+          "items": {
+            "$ref": "#/$defs/EnqueuedLink"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "links"
+      ],
+      "type": "object"
+    },
     "EquivalentForm": {
       "description": "Two spellings of one host's URLs a learned `equivalent_form` merges\n(ADR 0120), each learned on evidence: a redirect from one to the\nother, pairs of pages of matching signatures, or pages whose\n`rel=canonical` differs from their URL only by it.",
       "oneOf": [
@@ -4184,6 +4425,16 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the navigation may take, in milliseconds, at least 1:\nabsent for `timeout.navigation`, `null` for none, though an\nenclosing timeout still applies (ADR 0080). Its waits for permits\ncount against it no more than against the setting.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "arrived_in": "0.1",
@@ -5165,11 +5416,17 @@
     },
     "LabelDeclaration": {
       "additionalProperties": false,
-      "description": "One Label a crawl declares (ADRs 0082 and 0093).",
+      "description": "One Label a crawl declares (ADRs 0082 and 0093): its Payload's schema\nand the settings its requests take over the Run's.",
       "properties": {
         "payload": {
           "arrived_in": "0.1",
           "description": "The JSON Schema its requests' Payloads are checked against, the\nside the program's schema parses from; none takes any Payload."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its settings, nested by key: today `fetch.tier` alone, any other key\nrefused with `setting_not_applicable`.",
+          "type": "object"
         }
       },
       "type": "object"
@@ -5782,6 +6039,45 @@
       },
       "required": [
         "content"
+      ],
+      "type": "object"
+    },
+    "MatchedLink": {
+      "description": "One element an `enqueueLinks` locator matched, as its Payload function\nreads it (ADR 0093).",
+      "properties": {
+        "attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Its attributes, by name.",
+          "type": "object"
+        },
+        "href": {
+          "arrived_in": "0.1",
+          "description": "Its `href` attribute, as written; none for an element without one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "Its text content.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its `href` resolved against the document's base URL, its query\npercent-encoded in the document's encoding: the URL it is fetched\nat; none when it has no `href` or the `href` does not parse.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "text",
+        "attributes"
       ],
       "type": "object"
     },
@@ -14371,7 +14667,7 @@
                     "type": "object"
                   },
                   "tier": {
-                    "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
+                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it today fetches the request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                     "enum": [
                       "auto",
                       "http",
@@ -16511,7 +16807,7 @@
                     "type": "object"
                   },
                   "tier": {
-                    "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
+                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it today fetches the request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                     "enum": [
                       "auto",
                       "http",
@@ -18667,7 +18963,7 @@
                     "type": "object"
                   },
                   "tier": {
-                    "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
+                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it today fetches the request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                     "enum": [
                       "auto",
                       "http",

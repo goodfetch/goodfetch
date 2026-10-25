@@ -59,6 +59,9 @@ pub(crate) struct Observations {
     record: ConnectionRecord,
     /// What `serve` reported of its network fixtures, once bound.
     network_fixtures: Mutex<Option<serde_json::Value>>,
+    /// Whether the `limited` proxy holds each request it counts until a
+    /// harness releases it (`PUT /limited-proxy-hold`).
+    limited_hold: tokio::sync::watch::Sender<bool>,
 }
 
 #[derive(Default)]
@@ -446,7 +449,28 @@ impl Observations {
             state: Mutex::default(),
             record: ConnectionRecord::default(),
             network_fixtures: Mutex::new(None),
+            limited_hold: tokio::sync::watch::Sender::new(false),
         }
+    }
+
+    /// Sets whether the `limited` proxy holds each request it counts until
+    /// it is released, so a harness that sends two at once knows they meet
+    /// there, however late the second arrives.
+    pub(crate) fn set_limited_hold(&self, held: bool) {
+        self.limited_hold.send_replace(held);
+    }
+
+    /// Waits while the `limited` proxy's hold is on.
+    pub(crate) async fn limited_released(&self) {
+        let mut held = self.limited_hold.subscribe();
+        // The sender lives as long as these observations, so the wait ends
+        // only once the hold is off.
+        let _ = held.wait_for(|held| !*held).await;
+    }
+
+    /// Whether the `limited` proxy's hold is on.
+    pub(crate) fn limited_held(&self) -> bool {
+        *self.limited_hold.borrow()
     }
 
     /// Keeps what `serve` reports of its network fixtures, which

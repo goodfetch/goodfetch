@@ -36,6 +36,7 @@ use goodfetch_protocol::browser_cache::{
 use goodfetch_protocol::page::{
     BROWSER_HEADLESS, BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails,
 };
+use goodfetch_protocol::security::SECURITY_RAW_CDP_EGRESS_PROXY;
 use goodfetch_protocol::settings::{NETWORK_RESOLVE, TIMEOUT_CLOSE};
 use tokio::process::{Child, Command};
 use tokio::sync::watch;
@@ -226,7 +227,13 @@ pub(crate) async fn launch(
         .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
         .unwrap_or_default();
     // A policy that is no policy opens no page anyway (`setting_invalid`).
+    // Behind the egress relay, which every Session's context takes as its
+    // proxy, the relay holds what the script would.
+    let relayed = settings
+        .and_then(|settings| settings.boolean(SECURITY_RAW_CDP_EGRESS_PROXY.name))
+        .unwrap_or(true);
     let proxy_script = settings
+        .filter(|_| !relayed)
         .and_then(|settings| Policy::of(settings).ok())
         .and_then(|policy| policy.proxy_script());
     let built = arguments::arguments(&arguments::Launch {

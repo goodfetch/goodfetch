@@ -990,13 +990,37 @@ fn an_operator_policy_tightened_cap_reaches_a_crawl_already_going() {
     );
 }
 
-/// A crawl whose `fetch.tier` forces a tier this engine does not build is
-/// refused before its Run begins, naming the setting and the tier (spec
-/// #579); the conformance fetch suite starts one under `http`.
+/// A crawl whose `fetch.tier` forces a tier this engine does not build,
+/// for the Run or for one of its Labels, is refused before its Run begins,
+/// naming the setting and the tier (spec #579), and a Label setting a key
+/// a Label does not take is refused with `setting_not_applicable`; the
+/// conformance fetch suite starts one under `http`.
 ///
-/// Covers: story:5-128, setting:fetch.tier, error:capability_unavailable
-#[test]
-fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable() {
+/// Covers: story:5-128, story:5-118, setting:fetch.tier
+#[rstest::rstest]
+/// Covers: error:capability_unavailable
+#[case::by_the_run(
+    json!({ "fetch": { "tier": "light_browser" } }),
+    json!({}),
+    json!(["capability_unavailable", "fetch.tier", "light_browser"])
+)]
+/// Covers: error:capability_unavailable
+#[case::by_a_label(
+    json!({}),
+    json!({ "list": { "settings": { "fetch": { "tier": "discovered_api" } } } }),
+    json!(["capability_unavailable", "fetch.tier", "discovered_api"])
+)]
+/// Covers: error:setting_not_applicable
+#[case::a_key_a_label_does_not_take(
+    json!({}),
+    json!({ "list": { "settings": { "crawl": { "max_depth": 2 } } } }),
+    json!(["setting_not_applicable", "crawl.max_depth", null])
+)]
+fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable(
+    #[case] settings: Value,
+    #[case] labels: Value,
+    #[case] expected: Value,
+) {
     let env = TestEnv::new();
 
     let forced = crawl(
@@ -1008,7 +1032,8 @@ fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable
                     json!({
                         "run_id": "forced",
                         "seeds": seeds(1),
-                        "settings": { "fetch": { "tier": "browser" } },
+                        "labels": labels,
+                        "settings": settings,
                     }),
                     &mut |_| Reply::Silent,
                 )
@@ -1019,17 +1044,10 @@ fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable
     let refusal = &forced["error"]["data"];
     assert_eq!(
         (
-            &refusal["code"],
-            &refusal["key"],
-            &refusal["kind"],
+            json!([refusal["code"], refusal["key"], refusal["kind"]]),
             &refusal["layer"]
         ),
-        (
-            &json!("capability_unavailable"),
-            &json!("fetch.tier"),
-            &json!("browser"),
-            &json!("run")
-        ),
+        (expected, &json!("run")),
         "{forced}"
     );
 }

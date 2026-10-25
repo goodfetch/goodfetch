@@ -20,6 +20,12 @@
 //! Collie engine's gives every page none. The pages opened in a page's
 //! Session, the engine's own page that sends its `page.request` among
 //! them, take the value its Session's pages take.
+//!
+//! A page a fetch tier serves from a document ([`ServedDocument`]) is no
+//! browser page: the seam answers each call on it that it answers itself
+//! ([`HandlerPages::call`]), serving it, escalating it or refusing it (ADR
+//! 0093), and the Product opens its handlers' browser pages through the
+//! [`BrowserPages`] it is handed once.
 
 use std::fmt::Debug;
 use std::future::Future;
@@ -28,10 +34,43 @@ use std::sync::Arc;
 
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::runs::Run;
-use goodfetch_protocol::page::{PageId, SessionId, SitePreference};
+use goodfetch_engine::{CallContext, CallError, GuardAnswer};
+use goodfetch_protocol::page::{Navigated, PageId, SessionId, SitePreference};
 use goodfetch_protocol::run::RunId;
 
 use crate::url_pattern::UrlPattern;
+
+/// A boxed future of [`BrowserPages`]'s.
+pub type Opening<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// The browser pages a Product opens for its handlers itself (ADR 0093's
+/// browser tier), which [`HandlerPages::opened`] hands it once.
+pub trait BrowserPages: Send + Sync {
+    /// Opens a page in the default Session of the live Run `run_id` for the
+    /// call `context`, whose Connection's Client then reaches it, taking
+    /// the value [`HandlerPages::value`] gives as it opens, and navigates
+    /// it to `url` as `page.goto` does, through its navigation gate;
+    /// answers its ID and the navigation's answer. A page whose navigation
+    /// failed is closed again.
+    ///
+    /// # Errors
+    ///
+    /// Those of `run.new_page` and `page.goto`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the page open, until its Session or
+    /// Run closes.
+    fn open<'a>(
+        &'a self,
+        run_id: &'a RunId,
+        url: &'a str,
+        context: &'a CallContext,
+    ) -> Opening<'a, Result<(PageId, Navigated), CallError>>;
+
+    /// Closes the page `page_id`, unless it is closed already.
+    fn close<'a>(&'a self, page_id: &'a PageId) -> Opening<'a, ()>;
+}
 
 /// A request the navigation gate is asked to admit.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -252,8 +291,8 @@ impl Observer {
 
 /// A document a Product's fetch tier fetched without the browser, served
 /// to a handler as a page (spec #579; ADR 0093): `page.formats` reads it,
-/// and every other call on it answers `closed` until the tier that serves
-/// or escalates it is built (#767).
+/// and the Product answers every other call on it through
+/// [`HandlerPages::call`].
 #[derive(Clone)]
 pub struct ServedDocument {
     /// The Run it was fetched for, on whose blocking owner it is read.
@@ -292,6 +331,29 @@ pub trait HandlerPages: Send + Sync {
     fn document(&self, page_id: &PageId) -> Option<ServedDocument> {
         let _ = page_id;
         None
+    }
+
+    /// The answer to the call `operation`, its params `params`, on the
+    /// page `page_id`, when a fetch tier serves that page from a document
+    /// and answers the call itself: served, escalated or refused (ADR
+    /// 0093); `None` lets the page crate answer it, as it answers
+    /// `page.formats` from [`HandlerPages::document`]. None by default.
+    fn call(
+        &self,
+        page_id: &PageId,
+        operation: &'static str,
+        params: &serde_json::Value,
+        context: &CallContext,
+    ) -> Option<GuardAnswer> {
+        let _ = (page_id, operation, params, context);
+        None
+    }
+
+    /// Takes the handle through which the Product opens browser pages for
+    /// its handlers itself, given once as the engine is composed; ignored
+    /// by default.
+    fn opened(&self, pages: Arc<dyn BrowserPages>) {
+        let _ = pages;
     }
 }
 

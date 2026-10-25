@@ -1000,7 +1000,14 @@ fn failed_request(
     let Some(tracked) = state.requests.get_mut(&failed.request_id) else {
         return;
     };
-    let error = NetError::of(&failed.error_text);
+    // The site's own failure, when the Session's egress relay met it for
+    // the browser, which sees only the relay's answer.
+    let text = shared
+        .driver
+        .relay()
+        .and_then(|relay| relay.net_error(&tracked.request.url, &failed.error_text, None))
+        .unwrap_or(&failed.error_text);
+    let error = NetError::of(text);
     let mut request = tracked.request.clone();
     request.failure = Some(RequestFailure {
         error_text: error.name().to_owned(),

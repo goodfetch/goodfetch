@@ -5,7 +5,10 @@
 //! of its domain's Politeness for each navigation, each redirect hop and
 //! each `page.request`, and is refused with `site_preferences_refused`
 //! where the site's robots.txt, read through the copy the user's runs
-//! share, disallows it for `goodfetch-foxhound`.
+//! share, disallows it for `goodfetch-foxhound` or asks for a Crawl-delay
+//! above `site_preferences.max_crawl_delay`; a refusal the handler lets
+//! escape ends its request `skipped` with the refusal's reason, and eight
+//! handlers at once press their one domain a delay apart.
 #![expect(
     clippy::disallowed_methods,
     reason = "the handler, the test's own code, waits in real time for the popup the browser navigates"
@@ -605,5 +608,255 @@ fn a_handlers_navigation_obeys_foxhounds_group_merged_with_the_operators_else_st
             vec![true, true, false, false, false, true],
             vec![true, false, false, false, false, true],
         )
+    );
+}
+
+/// The host whose robots.txt asks every crawler for a Crawl-delay of 5 s.
+const CRAWL_DELAY_HOST: &str = "crawl-delay.access-policy.test";
+
+/// A handler's `goto` that the site's preferences refuse raises
+/// `site_preferences_refused` with its reason and never reaches the site:
+/// a page robots.txt disallows, with `robots_txt`, and a host asking for a
+/// Crawl-delay above `site_preferences.max_crawl_delay`, with
+/// `crawl_delay`. The handler lets the refusal escape, and its request
+/// ends `skipped` with that reason, never retried.
+///
+/// Covers: story:6-244, error:site_preferences_refused, operation:page.goto, operation:run.outcomes
+#[rstest::rstest]
+/// Covers: setting:site_preferences.respect_robots_txt
+#[case::robots_txt(ROBOTS_HOST, "/private/catalog/2", "robots_txt")]
+/// Covers: setting:site_preferences.max_crawl_delay
+#[case::crawl_delay(CRAWL_DELAY_HOST, "/catalog/1", "crawl_delay")]
+fn a_handlers_refused_goto_escaping_it_ends_the_request_skipped_with_its_reason(
+    #[case] host: &str,
+    #[case] path: &str,
+    #[case] reason: &str,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let refused = proving_ground.url(host, path);
+    let more = json!({ "site_preferences": { "max_crawl_delay": 3_000 } });
+
+    let (mut went, mut handled) = (Value::Null, 0);
+    let report = crawl_with(
+        &mut engine,
+        "escapes",
+        &[json!({ "url": proving_ground.url(ROBOTS_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            handled += 1;
+            let page_id = new_page(inside, handle);
+            went = inside.call("page.goto", &json!({ "page_id": page_id, "url": refused }));
+            json!({ "error": went["error"] })
+        },
+    );
+    let outcomes = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "escapes" }),
+        &mut |_| None,
+    );
+    assert!(engine.finish());
+
+    let outcome = &outcomes["result"]["outcomes"][0];
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            refusal(&went),
+            handled,
+            (&outcome["kind"], &outcome["reason"], &outcome["attempts"]),
+            requested(&proving_ground, host, path),
+        ),
+        (
+            &json!("finished"),
+            (
+                json!("site_preferences_refused"),
+                json!(reason),
+                json!(refused)
+            ),
+            1,
+            (&json!("skipped"), &json!(reason), &json!(1)),
+            0,
+        ),
+        "{went} {outcomes}"
+    );
+}
+
+/// With `site_preferences.respect_robots_txt` off, a handler's `goto` to a
+/// page robots.txt disallows, or to a host asking for a Crawl-delay above
+/// `site_preferences.max_crawl_delay`, loads: the gate reads no robots.txt.
+///
+/// Covers: story:6-244, setting:site_preferences.respect_robots_txt, operation:page.goto
+#[test]
+fn with_robots_txt_not_respected_a_handlers_goto_is_not_refused() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let more = json!({
+        "site_preferences": { "respect_robots_txt": false, "max_crawl_delay": 3_000 },
+    });
+    let urls = [
+        proving_ground.url(ROBOTS_HOST, "/private/catalog/2"),
+        proving_ground.url(CRAWL_DELAY_HOST, "/catalog/1"),
+    ];
+
+    let mut statuses = Vec::new();
+    let report = crawl_with(
+        &mut engine,
+        "unrespected",
+        &[json!({ "url": proving_ground.url(ROBOTS_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            let page_id = new_page(inside, handle);
+            for url in &urls {
+                let went = inside.call("page.goto", &json!({ "page_id": page_id, "url": url }));
+                statuses.push(went["result"]["response"]["status"].clone());
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+
+    assert_eq!(
+        (&report["result"]["lifecycle"], statuses),
+        (&json!("finished"), vec![json!(200), json!(200)])
+    );
+}
+
+/// How many handlers run at once in the eight-handler case.
+const HANDLERS: usize = 8;
+
+/// The catalog host, whose robots.txt sets no rules: the eight handlers'
+/// one domain.
+const CATALOG_HOST: &str = "catalog.test";
+
+/// The delay between starts the eight-handler case sets.
+const EIGHT_DELAY_MILLISECONDS: u64 = 2_000;
+
+/// Eight handlers running at once, each going to its own page of one
+/// domain at the same moment, press that domain one request at a time:
+/// every request reaches the site at least `politeness.domain.delay` after
+/// the one before it there, on the Proving ground's arrival times, the
+/// site counts one request per page and sees no misstep, and no handler is
+/// timed out while its `goto` waits for its permit, though the last waits
+/// longer than its lease was granted for.
+///
+/// Each seed is on a domain of its own, so the eight are handled at once,
+/// and the engine sends nothing for them under the built-in `fetch.tier`.
+/// Each is added once
+/// the handler before it opened its page in the Run, so each page takes the
+/// gate and lease of its own attempt, the one handed over last.
+///
+/// Covers: story:6-245, story:5-134, setting:politeness.domain.delay, setting:crawl.handler.concurrency, setting:timeout.handler, operation:page.goto, operation:run.new_page, operation:run.add_seed
+#[test]
+fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let pages: Vec<String> = (1..=HANDLERS).map(|n| format!("/catalog/{n}")).collect();
+    let seed = |n: usize| json!({ "url": format!("https://seed-{n}.test/"), "label": "page" });
+    let mut settings = settings(
+        &proving_ground,
+        &json!({
+            // A lease of 1 s plus the 10 s margin, shorter than the last
+            // handler's wait for its permit.
+            "timeout": { "handler": 1_000 },
+            "politeness": { "domain": { "delay": EIGHT_DELAY_MILLISECONDS } },
+            "crawl": { "handler": { "concurrency": HANDLERS } },
+        }),
+    );
+    // The built-in tier: the engine sends nothing for the seeds and hands
+    // each handler its request alone (a set `auto` fetches them first, #767).
+    if let Some(settings) = settings.as_object_mut() {
+        settings.remove("fetch");
+    }
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
+        "params": { "run_id": "eight", "seeds": [seed(1)], "settings": settings },
+    }));
+
+    let (mut handles, mut opened, mut answers) = (Vec::new(), Vec::new(), Vec::new());
+    let report = loop {
+        let message = engine.next().expect("the engine answers");
+        let id = message["id"].as_str().unwrap_or_default().to_owned();
+        if message["method"] == "crawl_request.handle" {
+            if handles.len() == HANDLERS {
+                // A request delivered again, its lease lost: the
+                // assertion counts it.
+                handles.push(message["id"].clone());
+                engine.send(&json!({
+                    "jsonrpc": "2.0", "id": message["id"], "result": { "records": [] },
+                }));
+                continue;
+            }
+            handles.push(message["id"].clone());
+            engine.send(&json!({
+                "jsonrpc": "2.0", "id": format!("new-{}", handles.len() - 1),
+                "method": "run.new_page", "params": { "run_id": "eight" },
+            }));
+        } else if id == "finish" {
+            break message;
+        } else if id.starts_with("new-") {
+            opened.push(message["result"]["page_id"].clone());
+            if opened.len() < HANDLERS {
+                engine.send(&json!({
+                    "jsonrpc": "2.0", "id": "add", "method": "run.add_seed",
+                    "params": { "run_id": "eight", "seed": seed(opened.len() + 1) },
+                }));
+                continue;
+            }
+            // Every handler holds its page: all go at once.
+            for (handler, page_id) in opened.iter().enumerate() {
+                engine.send(&json!({
+                    "jsonrpc": "2.0", "id": format!("goto-{handler}"), "method": "page.goto",
+                    "params": {
+                        "page_id": page_id,
+                        "url": proving_ground.url(CATALOG_HOST, &pages[handler]),
+                    },
+                }));
+            }
+            engine.send(&json!({
+                "jsonrpc": "2.0", "id": "finish", "method": "run.finish",
+                "params": { "run_id": "eight" },
+            }));
+        } else if let Some(number) = id.strip_prefix("goto-") {
+            let number: usize = number.parse().unwrap();
+            answers.push(message["result"]["response"]["status"].clone());
+            engine.send(&json!({
+                "jsonrpc": "2.0", "id": handles[number], "result": { "records": [] },
+            }));
+        }
+    };
+    assert!(engine.finish());
+
+    let mut targets: Vec<&str> = pages.iter().map(String::as_str).collect();
+    targets.push("/robots.txt");
+    let arrived = arrivals(&proving_ground, CATALOG_HOST, &targets);
+    let least = EIGHT_DELAY_MILLISECONDS * 1_000 * 9 / 10;
+    let close: Vec<String> = arrived
+        .windows(2)
+        .filter(|pair| pair[1].1 - pair[0].1 < least)
+        .map(|pair| pair[1].0.clone())
+        .collect();
+    let observations = proving_ground.observations().unwrap();
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            handles.len(),
+            answers,
+            arrived.len(),
+            close,
+            &observations["findings"],
+        ),
+        (
+            &json!("finished"),
+            HANDLERS,
+            vec![json!(200); HANDLERS],
+            HANDLERS + 1,
+            Vec::<String>::new(),
+            &json!([]),
+        ),
+        "{arrived:?}"
     );
 }

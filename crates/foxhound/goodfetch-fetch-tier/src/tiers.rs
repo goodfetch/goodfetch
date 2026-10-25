@@ -1,35 +1,43 @@
 //! The tiers that serve a crawl request (spec #579; ADRs 0020, 0087 and
 //! 0093), and the crate's one composition value, [`FetchTiers`]: the seam
 //! Foxhound's composition sets on Collie's pages, and the tiers its crawl
-//! serves requests with. Under `fetch.tier: http`, [`HttpTier`] fetches a
+//! serves requests with. On the `http` tier, [`HttpTier`] fetches a
 //! request's document over reqwest through the fetch driver, and
 //! [`FetchTiers::serve`] opens a page served from it, which the handler
-//! reads through `page.formats`; every other call on that page answers
-//! `closed` until #767 serves or escalates it. Under `auto` the engine
-//! fetches nothing yet and the handler is given its request alone (#767,
-//! area 6); a forced tier not built yet refuses the crawl's start.
+//! reads through `page.formats` and whose other calls the `calls` module
+//! serves, escalates or refuses; on the `browser` tier,
+//! [`FetchTiers::browser`] opens Collie's own page for the handler. The
+//! tier each request takes is the `choice` module's; a forced tier not
+//! built yet refuses the crawl's start.
 //!
-//! A served page's document is read as UTF-8, a byte that is none replaced,
-//! until #764 builds ADR 0119's charset order.
+//! A served page's document is read in its BOM's encoding, else its
+//! `Content-Type` charset's, else as UTF-8 (the `document` module), until
+//! #764 builds the rest of ADR 0119's charset order; the links a locator
+//! matches in it are read for `enqueueLinks` with that encoding, in which
+//! their queries are percent-encoded (ADR 0120).
 #![expect(
     clippy::disallowed_types,
     reason = "the served pages' table is read and written in one step, before any `.await` and never under another lock, so there is no lock order to test under loom (ADR 0060)"
 )]
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use bytes::Bytes;
-use goodfetch_engine::CallError;
+use encoding_rs::Encoding;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::Trust;
-use goodfetch_page::page_value::{HandlerPages, Observer, PageValue, ProgramPages, ServedDocument};
+use goodfetch_engine::{CallContext, CallError, GuardAnswer};
+use goodfetch_page::page_value::{
+    BrowserPages, HandlerPages, Observer, PageValue, ProgramPages, ServedDocument,
+};
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
 use goodfetch_protocol::foxhound::fetch::{FETCH_HEDGE_ENABLED, FETCH_TIER, FetchTier};
-use goodfetch_protocol::page::{PageId, SessionId};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::page::{BodyHandle, Navigated, PageId, SessionId};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, NETWORK_RESOLVE, SettingsLayer,
@@ -37,11 +45,15 @@ use goodfetch_protocol::settings::{
 use url::Url;
 
 use crate::canonical::canonical;
+use crate::choice::{LabelTiers, SetTier, TierChoice, Unserved, unserved};
+use crate::document::{Matched, SelectorInvalid, decode, matched};
 use crate::driver::{Deadlines, Hop, fetch};
 use crate::gate::{Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::redundant::{Redundant, Requester};
 use crate::transports::{Reqwest, TransportConfig};
 use crate::use_signals::UseSignals;
+
+mod calls;
 
 /// Foxhound's fetch tiers: the pages they serve, which Collie's page
 /// crate reads through it as its [`HandlerPages`] seam, and
@@ -58,6 +70,9 @@ struct Served {
     /// What each Run's attempts handed over while their handlers run, in
     /// the order they did, each under its number.
     handed: Mutex<HandedOvers>,
+    /// How the browser tier opens Collie's pages, which the page crate
+    /// hands over once the engine is composed.
+    browser: OnceLock<Arc<dyn BrowserPages>>,
 }
 
 #[derive(Default)]
@@ -91,12 +106,43 @@ impl Drop for HandedOver {
 struct Pages {
     /// The number of the next page served.
     next: u64,
-    open: BTreeMap<PageId, ServedDocument>,
+    open: BTreeMap<PageId, ServedPage>,
     /// The `Link` header fields of each open page that had any, where
     /// its `rel=canonical` may be.
     links: BTreeMap<PageId, Vec<(String, String)>>,
     /// The AI-use signals each open page's response carried.
     use_signals: BTreeMap<PageId, UseSignals>,
+    /// The encoding each open page's document was decoded in.
+    encodings: BTreeMap<PageId, &'static Encoding>,
+}
+
+/// The elements a locator matched in a served page's document, with what
+/// their links resolve against.
+#[derive(Clone, Debug)]
+pub struct ServedLinks {
+    /// The URL the document was reached at.
+    pub url: String,
+    /// The document's base URL.
+    pub base_url: String,
+    /// The encoding it was decoded in.
+    pub encoding: &'static Encoding,
+    /// Each element matched, in document order.
+    pub elements: Vec<Matched>,
+}
+
+/// A page served from a document: the document, the tier that fetched it
+/// and how that tier was chosen, the call that escalated it, if one did,
+/// and the bodies of the responses its `page.request`s got.
+#[derive(Clone)]
+struct ServedPage {
+    document: ServedDocument,
+    http: HttpTier,
+    choice: TierChoice,
+    /// The first call its tier could not serve, under `auto`.
+    escalated: Option<&'static str>,
+    /// Its `page.request`s so far.
+    requests: u64,
+    bodies: BTreeMap<String, BodyHandle>,
 }
 
 /// What the Frontier learns from a served page (ADRs 0005 and 0120).
@@ -143,61 +189,67 @@ impl FetchTiers {
         }
     }
 
-    /// Refuses a Run whose `fetch.tier` forces a tier this engine does not
-    /// build yet, with `capability_unavailable` naming the setting, and one
-    /// that hedges where a hedge could never start.
+    /// Refuses a Run whose `fetch.tier`, its own or one of its Labels' in
+    /// `labels`, forces a tier this engine does not build yet, with
+    /// `capability_unavailable` naming the setting, and one that hedges
+    /// where a hedge could never start.
     ///
     /// # Errors
     ///
-    /// `capability_unavailable` for `discovered_api`, `browser_fetch`,
-    /// `light_browser` and `browser`; `setting_not_applicable` for hedges
-    /// switched on while a domain admits one request at a time (ADR 0086).
-    pub fn check(settings: &Resolved) -> Result<(), CallError> {
+    /// `capability_unavailable` for `discovered_api`, `browser_fetch` and
+    /// `light_browser`; `setting_not_applicable` for hedges switched on
+    /// while a domain admits one request at a time (ADR 0086).
+    pub fn check(settings: &Resolved, labels: &LabelTiers) -> Result<(), CallError> {
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_HEDGE_ENABLED)?;
-        let Some((tier, layer)) = forced(settings) else {
-            return Ok(());
-        };
-        if tier == FetchTier::Http {
-            return Ok(());
+        let run = forced(settings).map(|(tier, layer)| (tier, layer, None));
+        let by_label = labels
+            .forced()
+            .map(|(label, tier)| (tier, SettingsLayer::Run, Some(label)));
+        for (tier, layer, label) in run.into_iter().chain(by_label) {
+            if matches!(tier, FetchTier::Http | FetchTier::Browser) {
+                continue;
+            }
+            let name = tier.as_str();
+            let set = label.map_or_else(
+                || layer.as_str().to_owned(),
+                |label| format!("the Label `{label}`"),
+            );
+            return Err(CallError::new(
+                &CAPABILITY_UNAVAILABLE,
+                format!(
+                    "This engine fetches no crawl request on the `{name}` tier, which `fetch.tier` forces in {set}: set `fetch.tier` to `auto`, `http` or `browser`."
+                ),
+                &CapabilityUnavailableDetails {
+                    key: FETCH_TIER.name.to_owned(),
+                    layer,
+                    kind: name.to_owned(),
+                    fix: "`fetch.tier: auto`".to_owned(),
+                },
+            ));
         }
-        let name = tier.as_str();
-        Err(CallError::new(
-            &CAPABILITY_UNAVAILABLE,
-            format!(
-                "This engine fetches no crawl request on the `{name}` tier, which `fetch.tier` forces in {}: set `fetch.tier` to `auto` or `http`.",
-                layer.as_str()
-            ),
-            &CapabilityUnavailableDetails {
-                key: FETCH_TIER.name.to_owned(),
-                layer,
-                kind: name.to_owned(),
-                fix: "`fetch.tier: auto`".to_owned(),
-            },
-        ))
+        Ok(())
     }
 
-    /// The HTTP tier a Run's crawl requests take under its settings, one
-    /// per Run so its hops share connections; `None` unless `fetch.tier`
-    /// is `http`.
+    /// The Run's own `fetch.tier`: the tier it forces, `auto` set by any
+    /// layer above the built-in default, or the default.
+    pub fn run_tier(settings: &Resolved) -> SetTier {
+        if let Some((tier, _)) = forced(settings) {
+            return SetTier::Forced(tier);
+        }
+        match settings.get(FETCH_TIER.name) {
+            Some(effective) if effective.layer != SettingsLayer::Default => SetTier::Auto,
+            _ => SetTier::Unset,
+        }
+    }
+
+    /// An HTTP tier for `run` under its settings, one per Run so its hops
+    /// share connections: the one its crawl requests on the `http` tier
+    /// take, and its navigation gate fetches robots.txt with.
     ///
     /// # Errors
     ///
     /// A message when the transport cannot be built: the system's resolver
     /// configuration or the Session's egress policy cannot be read.
-    pub fn http(run: &Run, settings: &Resolved) -> Result<Option<HttpTier>, String> {
-        if forced(settings).map(|(tier, _)| tier) != Some(FetchTier::Http) {
-            return Ok(None);
-        }
-        Self::built(run, settings).map(Some)
-    }
-
-    /// An HTTP tier for `run` under its settings, whatever `fetch.tier`
-    /// says: the one a Run's navigation gate fetches robots.txt with when
-    /// its crawl requests take no HTTP tier.
-    ///
-    /// # Errors
-    ///
-    /// As [`FetchTiers::http`].
     pub fn built(run: &Run, settings: &Resolved) -> Result<HttpTier, String> {
         let egress = Policy::of(settings).map_err(|error| error.to_string())?;
         let transport = Reqwest::new(TransportConfig {
@@ -217,9 +269,9 @@ impl FetchTiers {
 
     /// Fetches `request`'s document on `tier` for `run`, sent for
     /// `requester`, and opens a page served from it, whose ID the handler
-    /// is given. An identical request in flight from its Session answers it
-    /// instead, and a slow one is hedged (ADR 0040; the `redundant`
-    /// module).
+    /// is given, its calls served as `choice` says. An identical request in
+    /// flight from its Session answers it instead, and a slow one is
+    /// hedged (ADR 0040; the `redundant` module).
     ///
     /// # Errors
     ///
@@ -236,6 +288,7 @@ impl FetchTiers {
         run: &Run,
         request: &CrawlRequest,
         requester: &Requester<'_>,
+        choice: &TierChoice,
     ) -> Result<PageId, CallError> {
         let url = Url::parse(&request.url).map_err(|error| {
             CallError::new(
@@ -273,7 +326,12 @@ impl FetchTiers {
             )
             .await?;
         let url = fetched.url.to_string();
-        let html = String::from_utf8_lossy(&fetched.body).into_owned();
+        let content_type = fetched
+            .headers
+            .iter()
+            .find(|(name, _)| name == "content-type")
+            .map(|(_, value)| value.as_str());
+        let (html, encoding) = decode(&fetched.body, content_type);
         let base_url = goodfetch_frontier::document_base(&url, base_href(&html).as_deref())
             .map_or_else(|| url.clone(), |base| base.to_string());
         let use_signals = UseSignals::of(&fetched.headers);
@@ -291,7 +349,18 @@ impl FetchTiers {
         let mut pages = lock(&self.served.pages);
         pages.next += 1;
         let page_id = PageId(format!("document-{}", pages.next));
-        pages.open.insert(page_id.clone(), document);
+        pages.open.insert(
+            page_id.clone(),
+            ServedPage {
+                document,
+                http: tier.clone(),
+                choice: choice.clone(),
+                escalated: None,
+                requests: 0,
+                bodies: BTreeMap::new(),
+            },
+        );
+        pages.encodings.insert(page_id.clone(), encoding);
         if !links.is_empty() {
             pages.links.insert(page_id.clone(), links);
         }
@@ -350,13 +419,162 @@ impl FetchTiers {
         Some(signed)
     }
 
+    /// The elements the CSS selector `selector` matches in the served
+    /// page `page_id`'s document, read on its Run's blocking owner;
+    /// `None` when no tier serves that page, as a closed one.
+    ///
+    /// # Errors
+    ///
+    /// When `selector` is no CSS selector.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only what it reads; the page stays open.
+    pub async fn links(
+        &self,
+        page_id: &PageId,
+        selector: &str,
+    ) -> Option<Result<ServedLinks, SelectorInvalid>> {
+        let (served, encoding) = {
+            let pages = lock(&self.served.pages);
+            let served = pages.open.get(page_id)?.document.clone();
+            let encoding = pages
+                .encodings
+                .get(page_id)
+                .copied()
+                .unwrap_or(encoding_rs::UTF_8);
+            (served, encoding)
+        };
+        let selector = selector.to_owned();
+        let run = served.run.clone();
+        let read = run
+            .owner()
+            .blocking(move || {
+                matched(&served.html, &selector).map(|elements| ServedLinks {
+                    url: served.url,
+                    base_url: served.base_url,
+                    encoding,
+                    elements,
+                })
+            })
+            .await;
+        Some(read)
+    }
+
     /// Closes the served page `page_id`: later calls on it answer
     /// `closed`.
     pub fn close(&self, page_id: &PageId) {
         let mut pages = lock(&self.served.pages);
         pages.open.remove(page_id);
         pages.links.remove(page_id);
+        pages.encodings.remove(page_id);
         pages.use_signals.remove(page_id);
+    }
+
+    /// The call that escalated the served page `page_id` to the browser,
+    /// the first its tier could not serve exactly under `auto`; `None`
+    /// while none did, or once the page closed.
+    pub fn escalated(&self, page_id: &PageId) -> Option<&'static str> {
+        lock(&self.served.pages)
+            .open
+            .get(page_id)
+            .and_then(|page| page.escalated)
+    }
+
+    /// Opens Collie's page on the browser tier for a handler of the live
+    /// Run `run_id`, in its default Session, for the call `context`, whose
+    /// Connection's Client then reaches it, and navigates it to `url`
+    /// through its navigation gate: the attempt hands its Run's pages over
+    /// first, so the page takes its value. Answers its ID and the
+    /// navigation's answer.
+    ///
+    /// # Errors
+    ///
+    /// Those of `run.new_page` and `page.goto`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the page open; [`FetchTiers::close_browser`]
+    /// closes it.
+    pub async fn browser(
+        &self,
+        run_id: &RunId,
+        url: &str,
+        context: &CallContext,
+    ) -> Result<(PageId, Navigated), CallError> {
+        let Some(pages) = self.served.browser.get() else {
+            return Err(CallError::protocol(
+                ProtocolFailure::InternalError,
+                "the engine's composition handed the fetch tiers no browser pages",
+            ));
+        };
+        pages.open(run_id, url, context).await
+    }
+
+    /// Closes the browser page `page_id` [`FetchTiers::browser`] opened.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the page open, until its Run ends.
+    pub async fn close_browser(&self, page_id: &PageId) {
+        if let Some(pages) = self.served.browser.get() {
+            pages.close(page_id).await;
+        }
+    }
+
+    /// The served page `page_id`, while it is open.
+    fn served_page(&self, page_id: &PageId) -> Option<ServedPage> {
+        lock(&self.served.pages).open.get(page_id).cloned()
+    }
+
+    /// The hand-over of the attempt that handed `run`'s pages over last.
+    fn handed_over(&self, run: &RunId) -> Option<Arc<HandOver>> {
+        lock(&self.served.handed)
+            .by_run
+            .get(run)
+            .and_then(|attempts| attempts.last())
+            .map(|(_, hand_over)| Arc::clone(hand_over))
+    }
+
+    /// The ID of the next `page.request` of the served page `page_id`.
+    fn next_request(&self, page_id: &PageId) -> String {
+        let mut pages = lock(&self.served.pages);
+        let number = pages.open.get_mut(page_id).map_or(0, |page| {
+            page.requests += 1;
+            page.requests
+        });
+        format!("{}-request-{number}", page_id.0)
+    }
+
+    /// Keeps `body`, the response body of the served page `page_id`'s
+    /// request `request_id`, for `response.body`.
+    fn keep_body(&self, page_id: &PageId, request_id: &str, body: BodyHandle) {
+        if let Some(page) = lock(&self.served.pages).open.get_mut(page_id) {
+            page.bodies.insert(request_id.to_owned(), body);
+        }
+    }
+
+    /// The error of `call` on the served page `page_id`, which its tier
+    /// cannot serve exactly: under `auto` the page is escalated, by its
+    /// first such call; under a forced tier `browser_required`. `waits`
+    /// when the call waits for content the document lacks.
+    fn unserved(&self, page_id: &PageId, call: &'static str, waits: bool) -> CallError {
+        let mut pages = lock(&self.served.pages);
+        let Some(page) = pages.open.get_mut(page_id) else {
+            return CallError::new(
+                &goodfetch_protocol::connection::CLOSED,
+                format!("the page `{}` is closed", page_id.0),
+                &serde_json::json!({ "page_id": page_id }),
+            );
+        };
+        let first = page.escalated.unwrap_or(call);
+        match unserved(&page.choice, first, waits) {
+            Unserved::Escalated(error) => {
+                page.escalated = Some(first);
+                error
+            }
+            Unserved::Refused(error) => error,
+        }
     }
 }
 
@@ -382,7 +600,25 @@ impl HandlerPages for FetchTiers {
     }
 
     fn document(&self, page_id: &PageId) -> Option<ServedDocument> {
-        lock(&self.served.pages).open.get(page_id).cloned()
+        lock(&self.served.pages)
+            .open
+            .get(page_id)
+            .map(|page| page.document.clone())
+    }
+
+    fn call(
+        &self,
+        page_id: &PageId,
+        operation: &'static str,
+        params: &serde_json::Value,
+        _context: &CallContext,
+    ) -> Option<GuardAnswer> {
+        calls::answer(self, page_id, operation, params)
+    }
+
+    fn opened(&self, pages: Arc<dyn BrowserPages>) {
+        // A second composition of the same value keeps the first's pages.
+        let _ = self.served.browser.set(pages);
     }
 }
 
@@ -457,6 +693,45 @@ impl HttpTier {
             }
         }
     }
+}
+
+/// Provenance's action for the tier a crawl request's attempt ran on.
+const FETCH_TIER_ACTION: &str = "fetch_tier";
+
+/// Records in `run`'s Provenance the tier `choice` names for an attempt of
+/// the crawl request `request_id` of `label`, and how it was chosen (ADR
+/// 0023): `forced`, with who forced it, the Run or the Label; `engine`
+/// under `auto`; or `escalation` to the browser, naming the call
+/// `escalated` that the cheaper tier could not serve.
+///
+/// # Cancel safety
+///
+/// Dropping the future never stops the line being written once it began.
+pub async fn record_tier(
+    run: &Run,
+    request_id: &str,
+    label: &str,
+    choice: &TierChoice,
+    escalated: Option<&'static str>,
+) {
+    let mut entry = serde_json::json!({
+        "action": FETCH_TIER_ACTION,
+        "crawl_request_id": request_id,
+        "label": label,
+        "tier": choice.tier.as_str(),
+        "chosen": if escalated.is_some() { "escalation" } else { choice.chosen() },
+    });
+    if let Some(forced) = &choice.forced {
+        entry["forced_by"] = serde_json::json!(if forced.label.is_some() {
+            "label"
+        } else {
+            "run"
+        });
+    }
+    if let Some(call) = escalated {
+        entry["call"] = serde_json::json!(call);
+    }
+    goodfetch_page::provenance(run, &entry).await;
 }
 
 /// The tier `fetch.tier` forces and the layer that set it; `None` under

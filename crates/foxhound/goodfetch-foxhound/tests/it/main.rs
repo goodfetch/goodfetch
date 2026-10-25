@@ -14,6 +14,8 @@ mod bounds;
 mod completeness;
 mod crawl;
 mod daemon;
+mod enqueue_links;
+mod fetch_tiers;
 mod frontier;
 mod governor;
 mod journeys;

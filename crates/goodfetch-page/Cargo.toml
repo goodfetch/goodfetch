@@ -20,6 +20,8 @@ goodfetch-clean-up-rules.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-extractor.workspace = true
 goodfetch-protocol.workspace = true
+# The egress relay's request heads (the `egress_relay` module).
+httparse.workspace = true
 jiff.workspace = true
 # A domain as ADR 0004 keys it, which blocking is learned off for (ADR 0047).
 psl.workspace = true

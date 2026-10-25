@@ -33,7 +33,7 @@ use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use super::life::{Ending, PageLife, session_closed};
 use super::lifecycle::PageEffect;
 use super::{OpenPage, Session, Sessions, action_timeout, wait_deadline};
-use crate::driver::{OnChild, OnPopup, PageDriver, PopupHandler};
+use crate::driver::{OnChild, OnPopup, PageDriver, PopupHandler, SessionEgress};
 use crate::hiding::{PageHiding, Sheets};
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_functions::FrameScripts;
@@ -328,7 +328,10 @@ impl Sessions {
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
         let in_browser = open.seat.popup_in(opener.in_browser.browser(), &driver);
         let driver = driver
-            .for_session(open.proxy.clone())
+            .for_session(SessionEgress {
+                proxy: open.proxy.clone(),
+                relay: open.relay.clone(),
+            })
             .with_value(opener.driver.value().clone(), run.clock());
         let adopted = self
             .adopt(Adopting {
@@ -469,7 +472,7 @@ impl Session {
     fn checking(&self) -> Arc<Checking> {
         Arc::new(Checking {
             declared: Declared::of(&self.run, &self.settings),
-            holds_login: self.interception_only.is_some(),
+            holds_login: self.held_frames.is_some(),
         })
     }
 }

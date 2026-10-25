@@ -18,12 +18,14 @@
 //! `daemon run`'s alone: anywhere else stdout is the protocol or the CLI's
 //! output, and it fails with `setting_not_applicable`.
 
+use std::io::Write;
+
 use goodfetch_engine::audit::AuditEvents;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, major_name};
 use goodfetch_engine::log::{ClockTime, LogEvents};
-use goodfetch_engine::mask::{MaskWriter, Masks, Scope};
+use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::trace::EntropyIds;
 use goodfetch_protocol::catalog::Product;
@@ -211,11 +213,55 @@ impl<M> Masked<M> {
 }
 
 impl<'a, M: MakeWriter<'a>> MakeWriter<'a> for Masked<M> {
-    type Writer = MaskWriter<M::Writer>;
+    type Writer = MaskedLine<M::Writer>;
 
     fn make_writer(&'a self) -> Self::Writer {
-        self.masks
-            .writer(self.inner.make_writer(), Scope::KeptOutput)
+        MaskedLine {
+            masks: self.masks.clone(),
+            inner: self.inner.make_writer(),
+            line: Vec::new(),
+        }
+    }
+}
+
+/// One `tracing` event's line on its way to its writer: held until the
+/// event is written, then masked whole and handed over in one write. The
+/// log file takes each write as a line of its own, and a line handed over
+/// in pieces, as a streaming mask writes around each value it replaces,
+/// would interleave with the lines other threads log at the same time.
+pub(super) struct MaskedLine<W: Write> {
+    masks: Masks,
+    inner: W,
+    line: Vec<u8>,
+}
+
+impl<W: Write> MaskedLine<W> {
+    /// Hands the line held so far, masked, to `inner` in one write.
+    fn hand_over(&mut self) -> std::io::Result<()> {
+        if self.line.is_empty() {
+            return Ok(());
+        }
+        let line = std::mem::take(&mut self.line);
+        self.inner
+            .write_all(&self.masks.apply_bytes(&line, Scope::KeptOutput))
+    }
+}
+
+impl<W: Write> Write for MaskedLine<W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.line.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.hand_over()?;
+        self.inner.flush()
+    }
+}
+
+impl<W: Write> Drop for MaskedLine<W> {
+    fn drop(&mut self) {
+        let _ = self.hand_over();
     }
 }
 

@@ -186,6 +186,25 @@ pub(crate) fn raw(address: &str, request: &[u8]) -> Exchange {
     }
 }
 
+/// Writes `request` as [`raw`] does and reads the response until the server
+/// ends its side, then keeps the connection open: the stream is returned,
+/// and the connection closes once it is dropped.
+pub(crate) fn raw_kept_open(address: &str, request: &[u8]) -> (Exchange, TcpStream) {
+    let mut stream = connect(address);
+    stream.write_all(request).expect("the request is written");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .expect("the response is read");
+    let exchange = Exchange {
+        response,
+        written: stream.written,
+        read: stream.read,
+        source: stream.source(),
+    };
+    (exchange, stream.stream)
+}
+
 /// Writes `request` on a new TLS connection to `host`, then reads the
 /// response until the server closes it; a refused handshake is the TLS
 /// error.

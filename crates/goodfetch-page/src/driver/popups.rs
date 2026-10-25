@@ -147,7 +147,7 @@ impl PageDriver {
         Ok(Self {
             browser,
             session,
-            proxy: None,
+            egress: super::SessionEgress::default(),
             context,
             frame: popup,
             started: Arc::new(watch::Sender::new(0)),
@@ -159,9 +159,10 @@ impl PageDriver {
         })
     }
 
-    /// This driver with its Session's `proxy`, whose challenges it answers.
-    pub(crate) fn for_session(self, proxy: Option<Arc<crate::proxy::SessionProxy>>) -> Self {
-        Self { proxy, ..self }
+    /// This driver with its Session's `egress`, whose challenges it
+    /// answers.
+    pub(crate) fn for_session(self, egress: super::SessionEgress) -> Self {
+        Self { egress, ..self }
     }
 }
 

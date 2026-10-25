@@ -8,7 +8,9 @@
 //! `workers=N` handler processes do. Each work item's ending commits its
 //! outcome, which `run.outcomes` and `run.failed_requests` read from
 //! committed state. A handler's `crawl_request.enqueue` adds a request
-//! from inside its attempt through the Frontier, `run.add_seed` and
+//! from inside its attempt through the Frontier, as
+//! `crawl_request.enqueue_links` adds every link a locator matches on the
+//! attempt's page, answering each element, `run.add_seed` and
 //! `run.add_seeds` add seeds to the running crawl, and what the crawl adds
 //! to its Run's report goes in as the Run ends. Its own crate under
 //! `crates/foxhound/`, since only
@@ -19,6 +21,7 @@
 mod completeness;
 mod delivery;
 mod enqueue;
+mod labels;
 mod lease;
 mod outcomes;
 mod policy;
@@ -29,5 +32,4 @@ mod serving;
 mod start;
 mod work_items;
 
-pub use lease::Lease;
 pub use start::contribution;

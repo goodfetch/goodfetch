@@ -388,6 +388,15 @@ export class LimitReachedError extends RefusedError {
 }
 
 /**
+ * `egress.local_addresses` yields no address this host can send from: a listed address the host does not hold, an interface it does not have or that holds no address, or an IPv6 prefix with none of the host's addresses in it and, on Linux, not routed locally with `net.ipv6.ip_nonlocal_bind` on. The binding is never ignored: assign the address, correct the value, or route the prefix to the host.
+ */
+export class LocalAddressUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "local_address_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * The document the navigation reached is a login page, even one answered with a 200: the Session's login is lost, judged by its Page check's `login_page`, or by the built-in detector when it declares none. The page stays on the login page, the Session open with its cookies. The details name the URL, the status and what judged it.
  */
 export class LoggedOutError extends PageError {
@@ -868,6 +877,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   header_value_invalid: HeaderValueInvalidError,
   limit_not_understood: LimitNotUnderstoodError,
   limit_reached: LimitReachedError,
+  local_address_unavailable: LocalAddressUnavailableError,
   logged_out: LoggedOutError,
   name_lookup_failed: NameLookupFailedError,
   name_not_resolved: NameNotResolvedError,

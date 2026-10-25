@@ -46,6 +46,7 @@ fn traffic(proving_ground: &ProvingGround) -> PageTraffic {
             .with_private_ranges(&[proving_ground.address().ip().to_string()])
             .unwrap(),
         resolve,
+        local: None,
         proxy: None,
         trust: Trust::default_roots()
             .with_trusted_cas("body-limits.test", authority())

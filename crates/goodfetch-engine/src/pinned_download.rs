@@ -330,6 +330,7 @@ pub(crate) async fn download(
         trust: &trust,
         clock: fetching.clock,
         delays: fetching.delays,
+        local: None,
     };
     let server = Server {
         host: &url.host,

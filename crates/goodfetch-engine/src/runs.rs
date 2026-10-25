@@ -122,6 +122,7 @@ use crate::governor::{
 use crate::home::{Home, RunStateLocation, major_name};
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation};
+use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::Metrics;
 use crate::needs_you::NeedsYou;
@@ -2151,6 +2152,19 @@ impl Runs {
     ///
     /// Dropping the future after the start was sent still starts the Run.
     pub async fn start(&self, mut start: Start) -> Result<Started, StartError> {
+        // A binding is never ignored (ADR 0044): local addresses that give
+        // no Session an address refuse the Run before it begins.
+        if let Some(rotation) = start
+            .settings
+            .as_ref()
+            .and_then(|settings| Rotation::of(settings.resolved()))
+        {
+            self.limits
+                .owner
+                .blocking(move || rotation.check(&local_addresses::System))
+                .await
+                .map_err(|unavailable| StartError::Refused(Box::new(unavailable.into())))?;
+        }
         let mut fallback = None;
         if start.clean_up_digest.is_none()
             && let Some(rules) = &self.clean_up

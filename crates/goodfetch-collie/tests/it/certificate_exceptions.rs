@@ -16,14 +16,13 @@
 )]
 
 use std::path::Path;
-use std::time::Duration;
 
 use data_encoding::BASE64;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
-use crate::egress_relay::{error, provenance, started};
+use crate::egress_relay::{PAST_AUTO_RELOAD, error, provenance, started};
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 635;
@@ -154,10 +153,6 @@ fn h03_each_invalid_certificate_is_refused_through_the_relay_and_passes_under_it
             .collect::<Vec<_>>()
     );
 }
-
-/// Longer than Chromium's first reload of a page left on a network error
-/// page, one second after the error page commits.
-const PAST_AUTO_RELOAD: Duration = Duration::from_secs(2);
 
 /// A page whose navigation the relay refused stays on its error page: the
 /// browser does not load it again on its own, so no request the program

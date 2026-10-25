@@ -70,25 +70,48 @@ pub(crate) enum Seen {
     },
 }
 
-/// The identities of a request to `url` declared so: a declared key has
-/// no learned one, since a program's own canonicalization always wins.
+/// A URL's key, made once for everything that reads it: as text, the
+/// identity's part, and as a URL, which the learned rules read.
+#[derive(Clone, Debug)]
+pub(crate) struct Key {
+    text: String,
+    url: Url,
+}
+
+impl Key {
+    /// The key of `url`, as parsed.
+    pub(crate) fn of(url: &Url) -> Self {
+        let text = url_key(url);
+        let url = Url::parse(&text).expect("invariant: a URL's key is a URL");
+        Self { text, url }
+    }
+
+    /// The key, as a URL.
+    pub(crate) fn url(&self) -> &Url {
+        &self.url
+    }
+}
+
+/// The identities of a request whose URL's key is `key`, declared so: a
+/// declared key has no learned one, since a program's own canonicalization
+/// always wins.
 ///
 /// # Errors
 ///
 /// When the run file cannot be read.
 pub(crate) fn identities(
     connection: &Connection,
-    url: &Url,
+    key: &Key,
     declared: Declared<'_>,
 ) -> rusqlite::Result<Identities> {
-    let plain = identity(url, declared);
+    let plain = identity_of_key(&key.text, declared);
     if declared.key.is_some() {
         return Ok(Identities {
             plain,
             learned: None,
         });
     }
-    let (stripped, rules) = rules::without_learned(connection, &keyed(url))?;
+    let (stripped, rules) = rules::without_learned(connection, &key.url)?;
     let learned = (!rules.is_empty()).then(|| (identity(&stripped, declared), rules));
     Ok(Identities { plain, learned })
 }
@@ -270,7 +293,7 @@ fn visited_on(
 
 /// `url`'s key, as a URL.
 pub(crate) fn keyed(url: &Url) -> Url {
-    Url::parse(&url_key(url)).expect("invariant: a URL's key is a URL")
+    Key::of(url).url
 }
 
 /// How a crawl request is sent beside its URL, and the key a program may
@@ -305,10 +328,16 @@ pub enum Hop {
 /// SHA-256 in hexadecimal, separated by spaces, which neither a method nor
 /// a serialized URL holds.
 pub(crate) fn identity(url: &Url, declared: Declared<'_>) -> String {
-    if let Some(key) = declared.key {
-        return format!("key:{key}");
+    identity_of_key(&url_key(url), declared)
+}
+
+/// The identity of a request whose URL's key is `key`, declared so, as
+/// [`identity`] makes it.
+fn identity_of_key(key: &str, declared: Declared<'_>) -> String {
+    if let Some(declared_key) = declared.key {
+        return format!("key:{declared_key}");
     }
-    let mut identity = format!("{} {}", declared.method, url_key(url));
+    let mut identity = format!("{} {key}", declared.method);
     if let Some(body) = declared.body.filter(|body| !body.is_empty()) {
         identity.push(' ');
         identity.push_str(&HEXLOWER.encode(&Sha256::digest(body)));
@@ -320,11 +349,8 @@ pub(crate) fn identity(url: &Url, declared: Declared<'_>) -> String {
 /// redirect; `None` while the visited set lacks it.
 pub(crate) fn visitor(connection: &Connection, identity: &str) -> rusqlite::Result<Option<String>> {
     connection
-        .query_row(
-            "SELECT crawl_request FROM visited WHERE identity = ?1",
-            [identity],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT crawl_request FROM visited WHERE identity = ?1")?
+        .query_row([identity], |row| row.get(0))
         .optional()
 }
 
@@ -335,11 +361,12 @@ pub(crate) fn visit(
     identity: &str,
     crawl_request: &str,
 ) -> rusqlite::Result<()> {
-    connection.execute(
-        "INSERT INTO visited (identity, crawl_request) VALUES (?1, ?2)
-         ON CONFLICT (identity) DO NOTHING",
-        (identity, crawl_request),
-    )?;
+    connection
+        .prepare_cached(
+            "INSERT INTO visited (identity, crawl_request) VALUES (?1, ?2)
+             ON CONFLICT (identity) DO NOTHING",
+        )?
+        .execute((identity, crawl_request))?;
     Ok(())
 }
 
@@ -365,7 +392,7 @@ pub fn redirect_hop(
     }
     let hop = identities(
         connection,
-        url,
+        &Key::of(url),
         Declared {
             method,
             body,
@@ -398,7 +425,7 @@ pub fn redirect_reached(
 ) -> rusqlite::Result<()> {
     let reached = identities(
         connection,
-        url,
+        &Key::of(url),
         Declared {
             method,
             body,

@@ -93,6 +93,32 @@ fn a_remount_sees_what_was_synced_before_the_cache_was_cleared() {
     );
 }
 
+/// The test's own writes of the user configuration, such as the `log.level`
+/// each engine start sets, are synced: a power cut after them leaves the
+/// file as written, never empty.
+#[test]
+fn the_tests_user_configuration_written_on_a_mounted_home_survives_clear_cache() {
+    let env = TestEnv::new();
+    let file = env.home().join("0.0").join("configuration.toml");
+    let mounted = LazyFs::mount(&env, env.home()).unwrap();
+    env.log_level("debug");
+    env.user_configuration("run_state.durability = \"fast\"\n");
+    env.log_level("trace");
+    let written = std::fs::read_to_string(&file).unwrap();
+
+    mounted.clear_cache().unwrap();
+    drop(mounted);
+    let _remounted = LazyFs::mount(&env, env.home()).unwrap();
+
+    assert_eq!(
+        (
+            std::fs::read_to_string(&file).unwrap(),
+            written.contains("version = \"0.1\"") && written.contains("log.level = \"trace\""),
+        ),
+        (written.clone(), true)
+    );
+}
+
 #[test]
 fn a_mount_that_cannot_be_made_fails_with_lazyfs_output_and_leaves_the_folder_as_it_was() {
     let env = TestEnv::new();

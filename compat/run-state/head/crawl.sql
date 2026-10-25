@@ -51,6 +51,15 @@ CREATE TABLE bounds_refusals (
             count INTEGER NOT NULL
         ) STRICT, WITHOUT ROWID;
 INSERT INTO "bounds_refusals" VALUES('crawl.max_segment_repeats',1);
+CREATE TABLE datasets (
+            name TEXT NOT NULL PRIMARY KEY,
+            position INTEGER NOT NULL,
+            schema TEXT,
+            schema_hash TEXT,
+            key TEXT NOT NULL
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "datasets" VALUES('links',1,NULL,NULL,'[]');
+INSERT INTO "datasets" VALUES('pages',0,'{"properties":{"title":{"type":"string"},"url":{"type":"string"}},"required":["url"],"type":"object"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4','["url"]');
 CREATE TABLE domains (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,

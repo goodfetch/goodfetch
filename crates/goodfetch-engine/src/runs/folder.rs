@@ -18,6 +18,7 @@ use serde_json::{Map, Value};
 
 use super::CALLER;
 use crate::clock::Clock;
+use crate::durable;
 
 /// The Run's own row, written once when it begins.
 pub(super) struct RunRow {
@@ -288,9 +289,8 @@ pub(super) fn machine_identity(path: &Path, drawn: &str) -> io::Result<String> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
-    if let Some(folder) = path.parent() {
-        std::fs::DirBuilder::new().recursive(true).create(folder)?;
-    }
+    let folder = path.parent().unwrap_or_else(|| Path::new("."));
+    durable::create_folder(folder)?;
     match std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -299,6 +299,9 @@ pub(super) fn machine_identity(path: &Path, drawn: &str) -> io::Result<String> {
         Ok(mut file) => {
             file.write_all(format!("{drawn}\n").as_bytes())?;
             file.sync_all()?;
+            // A Run bound to this machine (ADR 0056) names it: its name
+            // outlasts a power cut as the run file does.
+            durable::sync_folder(folder);
             Ok(drawn.to_owned())
         }
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => read(path),

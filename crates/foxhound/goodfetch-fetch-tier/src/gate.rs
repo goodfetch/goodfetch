@@ -108,10 +108,10 @@ pub struct HandOver {
     /// `politeness.domain.adaptive_delay`: on, each hop's latency is
     /// recorded for its domain key, for every sharing run.
     pub adaptive_delay: bool,
-    /// `politeness.domain.rate` and `politeness.domain.burst`: the crawl
-    /// request's own send waits for a token of its domain's sends, every
-    /// sharing rated run's together; none waits for none.
-    pub rate: Option<goodfetch_frontier::Rate>,
+    /// The Run's delay between starts and its rate: the crawl request's
+    /// own send waits for its delay after its domain's last send and for
+    /// a token of its domain's sends, every sharing run's together.
+    pub pace: goodfetch_frontier::Pace,
     /// `site_preferences.respect_robots_txt`: off, robots.txt is neither
     /// read nor applied.
     pub respect_robots_txt: bool,
@@ -131,13 +131,18 @@ pub struct HandOver {
     /// judges the browser pages the attempt opens in place of their
     /// Session's (ADR 0093).
     pub page_check: Option<PageCheck>,
+    /// The encoding `fetch.encoding` forces on the crawl request's own
+    /// document, its Label's else the Run's (ADR 0119); none of the
+    /// handler's own navigations takes it.
+    pub encoding: Option<&'static encoding_rs::Encoding>,
 }
 
 impl HandOver {
     /// Records `hop`'s send as the last start of its domain key for every
     /// run sharing it (ADR 0086), when the Run's Politeness opened. The
-    /// `lead` send of a rated run, its crawl request's own, first waits for
-    /// a token of the key's sends, renewing the lease meanwhile.
+    /// `lead` send, its crawl request's own, first waits for its delay
+    /// after the key's last send and, in a rated run, for a token of the
+    /// key's sends, renewing the lease meanwhile.
     pub(crate) async fn sending(&self, hop: &Hop, lead: bool) {
         self.sent(hop.url.as_str(), lead).await;
     }
@@ -146,17 +151,17 @@ impl HandOver {
     /// domain key for every run sharing it (ADR 0086), at the moment the
     /// Politeness file records it, when the Run's Politeness opened: the
     /// later of it and the start already recorded is kept. A `lead` send
-    /// of a rated run first waits for a token of the key's sends, renewing
-    /// the lease meanwhile.
+    /// first waits for its delay after the key's last send and, in a rated
+    /// run, for a token of the key's sends, renewing the lease meanwhile.
     async fn sent(&self, url: &str, lead: bool) {
         let Some(politeness) = &self.politeness else {
             return;
         };
         let run = &self.run;
         let key = self.keys.key(url);
-        let rate = self.rate.filter(|_| lead);
+        let pace = lead.then_some(self.pace);
         loop {
-            match goodfetch_frontier::started_at_send(politeness, &key, run.clock(), rate).await {
+            match goodfetch_frontier::started_at_send(politeness, &key, run.clock(), pace).await {
                 Ok(Some(until)) => {
                     let _waiting = self.lease.permit_wait(url);
                     if let Ok(wait) = until.duration_since(run.clock().wall()) {

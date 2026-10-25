@@ -88,6 +88,17 @@ impl Page {
         }
     }
 
+    /// A page of `status` with no `Content-Type`, whose type a client
+    /// sniffs from `body` (ADR 0119).
+    pub(crate) fn untyped(status: u16, body: impl Into<Vec<u8>>) -> Self {
+        Self {
+            status,
+            headers: Vec::new(),
+            body: body.into(),
+            framing: Framing::Length,
+        }
+    }
+
     /// An HTML page of `status`.
     pub(crate) fn html(status: u16, body: impl Into<Vec<u8>>) -> Self {
         Self::new(status, "text/html; charset=utf-8", body)

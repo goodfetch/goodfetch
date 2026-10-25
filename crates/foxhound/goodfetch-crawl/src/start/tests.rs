@@ -125,13 +125,16 @@ impl Client {
     }
 
     /// Sends the call `method` and answers the engine's handler requests
-    /// with `handler` until the call's reply arrives, which it answers.
+    /// with `handler` until the call's reply arrives, which it answers. A
+    /// `crawl.start` that declares no Dataset declares `pages`, which the
+    /// harness pushes every Record into.
     pub(crate) async fn call(
         &mut self,
         method: &str,
         params: Value,
         handler: &mut impl FnMut(&Value) -> Reply,
     ) -> Value {
+        let params = declaring_pages(method, params);
         let id = self.next_id;
         self.next_id += 1;
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
@@ -278,8 +281,18 @@ pub(crate) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) ->
     }
 }
 
+/// `params` of a call of `method`, a `crawl.start` that declares no
+/// Dataset declaring `pages`, which the harness pushes every Record into.
+fn declaring_pages(method: &str, mut params: Value) -> Value {
+    if method == "crawl.start" && params.get("datasets").is_none() {
+        params["datasets"] = json!([{ "name": "pages" }]);
+    }
+    params
+}
+
 /// A Foxhound engine composed of the engine's operations, the Frontier's
-/// per-domain queues, the Session pool's tables and the crawl's.
+/// per-domain queues, the Session pool's and the Datasets' tables and the
+/// crawl's.
 pub(crate) fn engine() -> Engine {
     let identity = Identity {
         product: Product::Foxhound,
@@ -290,6 +303,7 @@ pub(crate) fn engine() -> Engine {
         .with(goodfetch_engine::contribution())
         .with(goodfetch_frontier::contribution())
         .with(goodfetch_session_pool::contribution())
+        .with(goodfetch_dataset::contribution())
         .with(super::contribution(goodfetch_fetch_tier::FetchTiers::new()));
     Engine::new(identity, &composition).unwrap()
 }
@@ -554,7 +568,7 @@ fn a_handler_failure_that_is_retryable_is_tried_again_and_commits_once() {
                 .await;
             let mut handler = |params: &Value| match params["attempt"].as_u64() {
                 Some(1) => Reply::Fails("retry_requested", true),
-                _ => Reply::Records(vec![json!("second attempt")]),
+                _ => Reply::Records(vec![json!({ "attempt": "second" })]),
             };
             client
                 .call("run.finish", json!({ "run_id": "retry" }), &mut handler)
@@ -570,7 +584,7 @@ fn a_handler_failure_that_is_retryable_is_tried_again_and_commits_once() {
                 "pages".to_owned(),
                 1,
                 "1".to_owned(),
-                json!("second attempt")
+                json!({ "attempt": "second" })
             )],
             vec![("1".to_owned(), "succeeded".to_owned(), 2, None)],
         )
@@ -637,13 +651,13 @@ fn a_handler_that_never_answers_loses_its_lease_and_its_late_answer_commits_noth
                 .await;
             let mut handler = |params: &Value| match params["attempt"].as_u64() {
                 Some(1) => Reply::Silent,
-                _ => Reply::Records(vec![json!("on time")]),
+                _ => Reply::Records(vec![json!({ "answer": "on time" })]),
             };
             let started = client.call("run.finish", json!({ "run_id": "hung" }), &mut handler);
             let report = started.await;
             let late = client.silent[0].clone();
             client
-            .send(&json!({ "jsonrpc": "2.0", "id": late, "result": { "records": [{ "dataset": "pages", "data": "late" }] } }))
+            .send(&json!({ "jsonrpc": "2.0", "id": late, "result": { "records": [{ "dataset": "pages", "data": { "answer": "late" } }] } }))
             .await;
             report
         },
@@ -653,7 +667,12 @@ fn a_handler_that_never_answers_loses_its_lease_and_its_late_answer_commits_noth
     assert_eq!(
         (records(&file), work_items(&file)),
         (
-            vec![("pages".to_owned(), 1, "1".to_owned(), json!("on time"))],
+            vec![(
+                "pages".to_owned(),
+                1,
+                "1".to_owned(),
+                json!({ "answer": "on time" })
+            )],
             vec![("1".to_owned(), "succeeded".to_owned(), 2, None)],
         )
     );
@@ -680,10 +699,10 @@ fn a_late_commit_after_a_default_lease_ended_is_refused_and_the_retry_commits() 
                     &mut |_| Reply::Silent,
                 )
                 .await;
-            client.late = Some(vec![json!("late")]);
+            client.late = Some(vec![json!({ "answer": "late" })]);
             let mut handler = |params: &Value| match params["attempt"].as_u64() {
                 Some(1) => Reply::Silent,
-                _ => Reply::Records(vec![json!("on time")]),
+                _ => Reply::Records(vec![json!({ "answer": "on time" })]),
             };
             client
                 .call("run.finish", json!({ "run_id": "late" }), &mut handler)
@@ -740,7 +759,12 @@ fn a_late_commit_after_a_default_lease_ended_is_refused_and_the_retry_commits() 
     assert_eq!(
         (records(&file), work_items(&file)),
         (
-            vec![("pages".to_owned(), 1, "1".to_owned(), json!("on time"))],
+            vec![(
+                "pages".to_owned(),
+                1,
+                "1".to_owned(),
+                json!({ "answer": "on time" })
+            )],
             vec![("1".to_owned(), "succeeded".to_owned(), 2, None)],
         )
     );
@@ -1094,33 +1118,18 @@ fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable
     );
 }
 
-/// `fetch.encoding`, in the schema though the engine does not force an
-/// encoding yet: set for the Run or for a Label, the crawl is refused
-/// before its Run begins with `capability_unavailable` naming the key.
 /// `fetch.tier_race` switched on while a domain admits one request at a
 /// time, where its navigation could never start beside its browser-fetch,
-/// is refused with `setting_not_applicable` naming the key and the Run's
-/// layer (ADR 0086), as is `fetch.tier_race` on a Label, which the Run
-/// alone sets; a `fetch.encoding` that is no WHATWG Encoding label is
-/// refused with `setting_invalid`.
+/// is refused before its Run begins with `setting_not_applicable` naming
+/// the key and the Run's layer (ADR 0086), as is `fetch.tier_race` on a
+/// Label, which the Run alone sets; a `fetch.encoding` that is no WHATWG
+/// Encoding label is refused with `setting_invalid`.
 #[rstest::rstest]
 /// Covers: story:6-263, setting:fetch.tier_race, error:setting_not_applicable
 #[case::a_race_one_request_at_a_time(
     json!({ "fetch": { "tier_race": true }, "politeness": { "domain": { "concurrency": 1 } } }),
     json!({}),
     json!(["setting_not_applicable", "fetch.tier_race", null])
-)]
-/// Covers: setting:fetch.encoding, error:capability_unavailable
-#[case::an_encoding_for_the_run(
-    json!({ "fetch": { "encoding": "shift_jis" } }),
-    json!({}),
-    json!(["capability_unavailable", "fetch.encoding", "encoding"])
-)]
-/// Covers: error:capability_unavailable
-#[case::an_encoding_for_a_label(
-    json!({}),
-    json!({ "list": { "settings": { "fetch": { "encoding": "shift_jis" } } } }),
-    json!(["capability_unavailable", "fetch.encoding", "encoding"])
 )]
 /// Covers: error:setting_not_applicable
 #[case::a_race_for_a_label(
@@ -1134,7 +1143,7 @@ fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable
     json!({}),
     json!(["setting_invalid", "fetch.encoding", null])
 )]
-fn a_crawl_setting_a_fetch_key_not_built_is_refused_before_it_begins(
+fn a_crawl_setting_a_fetch_key_it_cannot_apply_is_refused_before_it_begins(
     #[case] settings: Value,
     #[case] labels: Value,
     #[case] expected: Value,

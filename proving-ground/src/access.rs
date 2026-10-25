@@ -81,17 +81,19 @@ const SERVICE_WORKER_CALLS: [&str; 3] = [
 /// The path the service worker requests that EasyPrivacy blocks.
 const SERVICE_WORKER_TRACKER: &str = "/service-worker/js/adobe-analytics.js";
 /// The request kinds pages, one per kind under this prefix, and their
-/// worker's script and cross-site frame.
+/// worker's script, service worker's script and cross-site frame.
 const REQUEST_KINDS: &str = "/request-kinds/";
 const REQUEST_KINDS_WORKER: &str = "/request-kinds/worker.js";
+const REQUEST_KINDS_SERVICE_WORKER: &str = "/request-kinds/sw.js";
 const REQUEST_KINDS_FRAME: &str = "/request-kinds/frame-document";
 /// The kinds of request the request kinds pages make (ADR 0014).
-const REQUEST_KIND_NAMES: [&str; 7] = [
+const REQUEST_KIND_NAMES: [&str; 8] = [
     "fetch",
     "navigation",
     "frame",
     "dedicated_worker",
     "shared_worker",
+    "service_worker",
     "websocket",
     "webrtc",
 ];
@@ -115,6 +117,8 @@ const SERVICE_WORKER_PAGE_SCRIPT: &str = include_str!("../pages/access/service-w
 const SERVICE_WORKER_WORKER_SCRIPT: &str = include_str!("../pages/access/service-worker-sw.js");
 const REQUEST_KINDS_SCRIPT: &str = include_str!("../pages/access/request-kinds.js");
 const REQUEST_KINDS_WORKER_SCRIPT: &str = include_str!("../pages/access/request-kinds-worker.js");
+const REQUEST_KINDS_SERVICE_WORKER_SCRIPT: &str =
+    include_str!("../pages/access/request-kinds-sw.js");
 const REQUEST_KINDS_FRAME_SCRIPT: &str = include_str!("../pages/access/request-kinds-frame.js");
 
 /// The generator places of the family's values: the family's own first, then
@@ -248,10 +252,14 @@ pub(crate) fn respond(
     })
 }
 
-/// A request kinds page, its worker's script or its frame, for `path`.
+/// A request kinds page, its worker's or service worker's script or its
+/// frame, for `path`.
 fn request_kinds(seed: u64, path: &str) -> Option<Reply> {
     if path == REQUEST_KINDS_WORKER {
         return Some(script_reply(REQUEST_KINDS_WORKER_SCRIPT));
+    }
+    if path == REQUEST_KINDS_SERVICE_WORKER {
+        return Some(script_reply(REQUEST_KINDS_SERVICE_WORKER_SCRIPT));
     }
     if path == REQUEST_KINDS_FRAME {
         return Some(scripted(

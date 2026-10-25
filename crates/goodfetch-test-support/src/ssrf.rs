@@ -11,7 +11,13 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
 use crate::resolver::Lookup;
+
+mod layers;
+
 use crate::special_purpose::{Cidr, Reachability, SpecialPurposeRegistries};
+pub use layers::{
+    Layer, LayerGap, LayerGaps, LayerRunner, Pending, RunFailed, Runner, SsrfLayers, UnknownRunner,
+};
 
 /// The SSRF case table: every case, in the committed file's order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -111,7 +117,9 @@ fn every_host() -> Vec<String> {
 }
 
 /// The families of SSRF cases (ADR 0067).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Family {
     /// Spellings of an address a URL parser accepts: integers, octal and

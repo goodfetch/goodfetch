@@ -23,6 +23,7 @@ pub fn composition() -> Composition {
         .with(sample::contribution())
         .with(goodfetch_frontier::contribution())
         .with(goodfetch_session_pool::contribution())
+        .with(goodfetch_dataset::contribution())
         .with(goodfetch_crawl::contribution(tiers))
 }
 

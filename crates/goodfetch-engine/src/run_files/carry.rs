@@ -16,8 +16,8 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension as _};
 use sha2::{Digest as _, Sha256};
 
-use super::save::sync_folder;
 use super::store::file;
+use crate::durable::sync_folder;
 
 /// The most bytes one chunk row holds.
 const CHUNK: usize = 1024 * 1024;

@@ -13,10 +13,11 @@ CREATE TABLE domain_limits (
             backoff INTEGER,
             ceiling INTEGER,
             ceiling_changed_at INTEGER,
-            last_start INTEGER
+            last_start INTEGER,
+            last_send INTEGER
         ) STRICT;
-INSERT INTO "domain_limits" VALUES('shop.test',1767603614773,9474,1,1767603600000,1767603620000);
-INSERT INTO "domain_limits" VALUES('hold.test',NULL,NULL,NULL,NULL,1767603605299);
+INSERT INTO "domain_limits" VALUES('shop.test',1767603614773,9474,1,1767603600000,1767603620000,1767603620000);
+INSERT INTO "domain_limits" VALUES('hold.test',NULL,NULL,NULL,NULL,1767603605299,NULL);
 CREATE TABLE domain_pacing (
             key TEXT NOT NULL PRIMARY KEY,
             latency INTEGER,

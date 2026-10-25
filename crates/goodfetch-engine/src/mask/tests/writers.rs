@@ -44,8 +44,13 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/foxhound/goodfetch-crawl/src/work_items.rs",
-        5,
-        "masked: a handler's failure is masked as `Scope::Kept` where the delivery receives it; work items, Records and outcomes hold URLs and the program's own data, and the reserved positions only a number",
+        4,
+        "masked: a handler's failure is masked as `Scope::Kept` where the delivery receives it, a refused Record's `record_invalid` too; work items and outcomes hold URLs and the program's own data, and the reserved positions only a number",
+    ),
+    (
+        "crates/foxhound/goodfetch-dataset/src/lib.rs",
+        2,
+        "holds no value: the Datasets a crawl declares (names, schemas, keys) and the Records its handlers pushed, the program's own data; masking Secret values in Records is #972's",
     ),
     (
         "crates/foxhound/goodfetch-frontier/src/bounds.rs",

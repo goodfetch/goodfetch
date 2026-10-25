@@ -27,6 +27,7 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
         .statements
         .iter()
         .chain(crate::labels::TABLES.statements)
+        .chain(goodfetch_dataset::TABLES.statements)
         .chain(VISITED_TABLES.statements)
         .chain(SCOPE_TABLES.statements)
         .chain(BOUNDS_TABLES.statements)

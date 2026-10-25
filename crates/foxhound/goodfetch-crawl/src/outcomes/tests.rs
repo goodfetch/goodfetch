@@ -50,7 +50,7 @@ fn seeds() -> Value {
 fn handler(params: &Value) -> Reply {
     let attempt = params["attempt"].as_u64();
     match params["crawl_request"]["url"].as_str() {
-        Some("https://shop.test/a") => Reply::Records(vec![json!(1), json!(2)]),
+        Some("https://shop.test/a") => Reply::Records(vec![json!({ "n": 1 }), json!({ "n": 2 })]),
         Some("https://shop.test/b") if attempt == Some(1) => Reply::Fails("retry_requested", true),
         Some("https://shop.test/b") => Reply::Records(Vec::new()),
         Some("https://shop.test/c") => Reply::Fails("handler_failed", true),
@@ -231,7 +231,7 @@ fn a_reader_from_now_on_reads_only_the_endings_committed_after_its_call() {
                     "run.outcomes",
                     json!({ "run_id": "live", "after": "now" }),
                     &mut |params: &Value| match params["crawl_request"]["id"].as_str() {
-                        Some("2") => Reply::Records(vec![json!("b")]),
+                        Some("2") => Reply::Records(vec![json!({ "page": "b" })]),
                         _ => Reply::Silent,
                     },
                 )

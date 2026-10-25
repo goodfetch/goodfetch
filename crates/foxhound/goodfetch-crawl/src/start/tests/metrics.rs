@@ -63,7 +63,7 @@ fn a_crawl_counts_each_attempt_while_it_runs_and_each_retry() {
                 ));
                 match params["attempt"].as_u64() {
                     Some(1) => Reply::Fails("retry_requested", true),
-                    _ => Reply::Records(vec![json!("second attempt")]),
+                    _ => Reply::Records(vec![json!({ "attempt": "second" })]),
                 }
             };
             client

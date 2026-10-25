@@ -77,7 +77,7 @@ use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
     WORK_ITEM_RETRIED,
 };
-use goodfetch_protocol::foxhound::fetch::{FETCH_TIER_RACE, FetchTier};
+use goodfetch_protocol::foxhound::fetch::{FETCH_ENCODING, FETCH_TIER_RACE, FetchTier};
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::governor::WorkKind;
@@ -192,6 +192,11 @@ pub(crate) async fn drive(
         egress: std::sync::Arc::clone(&arrivals.egress),
         labels: &labels,
         run_tier,
+        run_encoding: settings
+            .resolved()
+            .value(FETCH_ENCODING.name)
+            .as_str()
+            .map(str::to_owned),
         choices: tokio::sync::Mutex::new(choices),
         races,
         latencies: tokio::sync::Mutex::new(Latencies::default()),
@@ -446,6 +451,8 @@ struct Fetching<'a> {
     labels: &'a labels::Declared,
     /// The tier the Run's own `fetch.tier` forces.
     run_tier: SetTier,
+    /// The Run's own `fetch.encoding`, a WHATWG Encoding label.
+    run_encoding: Option<String>,
     /// What each Label on each domain learned under `auto`.
     choices: tokio::sync::Mutex<TierChoices>,
     /// Whether the Run races its requests' tiers (`fetch.tier_race`).
@@ -472,6 +479,10 @@ impl Fetching<'_> {
             egress: std::sync::Arc::clone(&self.egress),
             addresses: self.http.map(HttpTier::address_check),
             page_check: self.labels.settings.page_check(label).cloned(),
+            encoding: self
+                .labels
+                .settings
+                .encoding(label, self.run_encoding.as_deref()),
         }
     }
 
@@ -1156,6 +1167,15 @@ async fn settle(
                 Err(CommitError::LeaseLost) => failure(
                     Failure::new(LEASE_LOST.name, LEASE_LOST.description),
                     LEASE_LOST.retryable,
+                ),
+                Err(CommitError::Refused(refused)) => failure(
+                    kept_failure(
+                        run,
+                        refused.code().to_owned(),
+                        refused.message(),
+                        refused.details().cloned().unwrap_or_default(),
+                    ),
+                    refused.retryable(),
                 ),
                 Err(CommitError::RunState(error)) => {
                     tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");

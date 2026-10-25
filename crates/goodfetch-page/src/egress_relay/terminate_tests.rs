@@ -195,13 +195,13 @@ async fn browser(stream: DuplexStream, host: &str) -> Shown {
 }
 
 /// A Run's stores: its pins and its Audit log.
-struct Stores {
+pub(super) struct Stores {
     store: KnownCertificates,
-    book: PinBook,
+    pub(super) book: PinBook,
     _env: TestEnv,
 }
 
-fn stores() -> Stores {
+pub(super) fn stores() -> Stores {
     let env = TestEnv::new();
     let home = Home::new(env.home().to_path_buf());
     let store = KnownCertificates::of(&home, None);

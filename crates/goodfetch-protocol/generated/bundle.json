@@ -5425,7 +5425,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Its settings, nested by key: today `fetch.tier` alone, any other key\nrefused with `setting_not_applicable`.",
+          "description": "Its settings, nested by key: today `fetch.tier` and\n`session.page_check`, which judges its pages in place of the Run's,\nany other key refused with `setting_not_applicable`.",
           "type": "object"
         }
       },

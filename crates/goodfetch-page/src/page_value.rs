@@ -37,6 +37,7 @@ use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_protocol::page::{Navigated, PageId, SessionId, SitePreference};
 use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::settings::page_check::PageCheck;
 
 use crate::url_pattern::UrlPattern;
 
@@ -192,11 +193,14 @@ pub trait NavigationGate: Debug + Send + Sync {
 }
 
 /// What a page carries for Foxhound (ADR 0087): its navigation gate and its
-/// lease check, each empty unless Foxhound set it. Clones share them.
+/// lease check, each empty unless Foxhound set it, and the Page check its
+/// crawl request's Label declares, which judges the page in place of its
+/// Session's (ADR 0093). Clones share them.
 #[derive(Clone, Debug, Default)]
 pub struct PageValue {
     gate: Option<Arc<dyn NavigationGate>>,
     lease: Option<Arc<dyn LeaseCheck>>,
+    page_check: Option<PageCheck>,
 }
 
 impl PageValue {
@@ -211,7 +215,22 @@ impl PageValue {
         Self {
             gate: Some(Arc::new(gate)),
             lease: Some(Arc::new(lease)),
+            page_check: None,
         }
+    }
+
+    /// The same value, its pages judged by `page_check` in place of their
+    /// Session's Page check when it is given.
+    #[must_use]
+    pub fn with_page_check(mut self, page_check: Option<PageCheck>) -> Self {
+        self.page_check = page_check;
+        self
+    }
+
+    /// The Page check that judges its pages in place of their Session's,
+    /// when it carries one.
+    pub(crate) fn page_check(&self) -> Option<&PageCheck> {
+        self.page_check.as_ref()
     }
 
     /// Its navigation gate, when it has one.

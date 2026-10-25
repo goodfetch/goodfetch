@@ -82,6 +82,15 @@ impl Declared {
         let check = serde_json::from_value::<Option<PageCheck>>(value).ok()??;
         Some(Self { check, layer })
     }
+
+    /// The Page check `check` a crawl request's Label declares, set with
+    /// the Run's start (ADR 0093).
+    pub(crate) fn label(check: &PageCheck) -> Self {
+        Self {
+            check: check.clone(),
+            layer: SettingsLayer::Run,
+        }
+    }
 }
 
 /// How a Session's pages are judged.

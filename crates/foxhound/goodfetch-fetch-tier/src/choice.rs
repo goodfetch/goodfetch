@@ -18,15 +18,24 @@ use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, LabelDeclaration};
 use goodfetch_protocol::foxhound::fetch::{
     BROWSER_REQUIRED, BrowserRequiredDetails, FETCH_TIER, FETCH_TIERS, FetchTier,
 };
+use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
-    SETTING_INVALID, SETTING_NOT_APPLICABLE, SettingInvalidDetails, SettingNotApplicableDetails,
-    SettingsLayer,
+    SESSION_PAGE_CHECK, SETTING_INVALID, SETTING_NOT_APPLICABLE, SettingInvalidDetails,
+    SettingNotApplicableDetails, SettingsLayer,
 };
 use serde_json::{Map, Value, json};
 
-/// The Labels a crawl declares, each with its own `fetch.tier`.
+/// The Labels a crawl declares, each with what it sets of its own: its
+/// `fetch.tier` and its `session.page_check` (ADR 0093).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct LabelTiers(BTreeMap<String, SetTier>);
+pub struct LabelSettings(BTreeMap<String, Label>);
+
+/// What one declared Label sets of its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Label {
+    tier: SetTier,
+    page_check: Option<PageCheck>,
+}
 
 /// The Run's `fetch.tier`, or a declared Label's own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,26 +50,32 @@ pub enum SetTier {
     Forced(FetchTier),
 }
 
-impl LabelTiers {
+impl LabelSettings {
     /// The Labels `labels` declares, read from their settings.
     ///
     /// # Errors
     ///
     /// `setting_not_applicable` for a key a Label does not take here (every
-    /// key but `fetch.tier`), and `setting_invalid` for a `fetch.tier` that
-    /// names no tier.
+    /// key but `fetch.tier` and `session.page_check`), and `setting_invalid`
+    /// for a `fetch.tier` that names no tier or a `session.page_check` that
+    /// is no Page check.
     pub fn of(labels: &BTreeMap<String, LabelDeclaration>) -> Result<Self, CallError> {
         let mut tiers = BTreeMap::new();
         for (name, declaration) in labels {
             let mut keys = Vec::new();
             flatten("", &declaration.settings, &mut keys);
             let mut tier = SetTier::Unset;
+            let mut page_check = None;
             for (key, value) in keys {
+                if key == SESSION_PAGE_CHECK.name {
+                    page_check = page_check_of(name, &value)?;
+                    continue;
+                }
                 if key != FETCH_TIER.name {
                     return Err(CallError::new(
                         &SETTING_NOT_APPLICABLE,
                         format!(
-                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine: only `fetch.tier` is set per Label; set `{key}` for the Run instead."
+                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine: only `fetch.tier` and `session.page_check` are set per Label; set `{key}` for the Run instead."
                         ),
                         &SettingNotApplicableDetails {
                             key,
@@ -89,22 +104,27 @@ impl LabelTiers {
                     }
                 };
             }
-            tiers.insert(name.clone(), tier);
+            tiers.insert(name.clone(), Label { tier, page_check });
         }
         Ok(Self(tiers))
     }
 
+    /// The Page check the Label `label` declares of its own, if it does.
+    pub fn page_check(&self, label: &str) -> Option<&PageCheck> {
+        self.0.get(label)?.page_check.as_ref()
+    }
+
     /// Each declared Label that forces a tier, with it.
     pub fn forced(&self) -> impl Iterator<Item = (&str, FetchTier)> {
-        self.0.iter().filter_map(|(name, tier)| match tier {
-            SetTier::Forced(tier) => Some((name.as_str(), *tier)),
+        self.0.iter().filter_map(|(name, label)| match label.tier {
+            SetTier::Forced(tier) => Some((name.as_str(), tier)),
             SetTier::Unset | SetTier::Auto => None,
         })
     }
 
     /// Whether a declared Label sets `fetch.tier`.
     pub fn any(&self) -> bool {
-        self.0.values().any(|tier| *tier != SetTier::Unset)
+        self.0.values().any(|label| label.tier != SetTier::Unset)
     }
 
     /// The tier a request of `label` takes, the Run's own `fetch.tier`
@@ -114,7 +134,11 @@ impl LabelTiers {
             tier: FetchTier::Http,
             forced: None,
         };
-        match (self.0.get(label).copied().unwrap_or(SetTier::Unset), run) {
+        let own = self
+            .0
+            .get(label)
+            .map_or(SetTier::Unset, |declared| declared.tier);
+        match (own, run) {
             (SetTier::Forced(tier), _) => Some(TierChoice {
                 tier,
                 forced: Some(Forced {
@@ -141,10 +165,33 @@ fn flatten(prefix: &str, settings: &Map<String, Value>, keys: &mut Vec<(String, 
             format!("{prefix}.{name}")
         };
         match value {
-            Value::Object(nested) => flatten(&key, nested, keys),
+            // A Page check is one setting's value, read whole.
+            Value::Object(nested) if key != SESSION_PAGE_CHECK.name => {
+                flatten(&key, nested, keys);
+            }
             leaf => keys.push((key, leaf.clone())),
         }
     }
+}
+
+/// The Page check `value` the Label `name` sets, `None` for `null`.
+fn page_check_of(name: &str, value: &Value) -> Result<Option<PageCheck>, CallError> {
+    serde_json::from_value::<Option<PageCheck>>(value.clone()).map_err(|error| {
+        CallError::new(
+            &SETTING_INVALID,
+            format!(
+                "The Label `{name}` sets `{}` to {value}, which is no Page check: {error}.",
+                SESSION_PAGE_CHECK.name
+            ),
+            &SettingInvalidDetails {
+                key: SESSION_PAGE_CHECK.name.to_owned(),
+                layer: Some(SettingsLayer::Run),
+                reason: format!(
+                    "expected a Page check, `login_page` and `expected_page` each a page match of one `kind`: {error}"
+                ),
+            },
+        )
+    })
 }
 
 /// The tier a crawl request takes, and who forced it, if anyone did.

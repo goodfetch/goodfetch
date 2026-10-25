@@ -51,7 +51,8 @@ use goodfetch_engine::robots_txt::{self, Fetch, Fetched};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    FetchTiers, HandOver, HttpTier, Purpose, Requester, RobotsTxtFetch, Stop, TierChoice,
+    FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, Purpose, Requester, RobotsTxtFetch,
+    Stop, TierChoice,
 };
 use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt};
 use goodfetch_protocol::block::BlockCause;
@@ -72,6 +73,8 @@ use goodfetch_protocol::page::{
     NAVIGATION_FAILED, PageId, SITE_PREFERENCES_REFUSED, SitePreference,
 };
 use goodfetch_protocol::run::PointInTime;
+use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
+use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::site_preferences::{
     SITE_PREFERENCES_PURPOSE, SITE_PREFERENCES_RESPECT_USE_SIGNALS,
 };
@@ -126,22 +129,27 @@ pub(super) struct Tiering {
     tiers: FetchTiers,
     http: Option<HttpTier>,
     choice: Option<TierChoice>,
+    /// The Page check the request's Label declares of its own.
+    page_check: Option<PageCheck>,
     second_copies: SecondCopies,
 }
 
 impl Tiering {
     /// `choice` on the Run's `tiers` and `http` tier, its hedges taking
-    /// `second_copies`; no choice hands the handler its request alone.
+    /// `second_copies`, the request's Label declaring `page_check`; no
+    /// choice hands the handler its request alone.
     pub(super) fn of(
         tiers: &FetchTiers,
         http: Option<&HttpTier>,
         choice: Option<TierChoice>,
+        page_check: Option<PageCheck>,
         second_copies: &SecondCopies,
     ) -> Self {
         Self {
             tiers: tiers.clone(),
             http: http.cloned(),
             choice,
+            page_check,
             second_copies: second_copies.clone(),
         }
     }
@@ -154,11 +162,13 @@ impl Tiering {
 
 /// What an attempt's handler pages are gated with (the fetch tiers'
 /// `gate`): the tiers that hand them over, room beside the Run's own
-/// requests and how robots.txt is fetched.
+/// requests and how robots.txt is fetched; and the Page check of its
+/// request's Label, which judges them in place of their Session's.
 pub(super) struct Gating {
     pub(super) tiers: FetchTiers,
     pub(super) second_copies: SecondCopies,
     pub(super) robots: Option<RobotsTxtFetch>,
+    pub(super) page_check: Option<PageCheck>,
 }
 
 impl Gating {
@@ -204,6 +214,7 @@ impl Gating {
                 request_id: leased.crawl_request.id.clone(),
                 in_flight: Arc::clone(in_flight),
             }),
+            page_check: self.page_check.clone(),
         })
     }
 }
@@ -572,6 +583,25 @@ impl On<'_> {
         }
         let merged = learn(run, tiers, &page_id, leased).await;
         record_tier(run, leased, choice, None).await;
+        let check = tiering.page_check.clone().or_else(|| run_page_check(run));
+        let judged = match &check {
+            Some(check) => tiers.judge(&page_id, check).await,
+            None => Some(Judged::Passed),
+        };
+        match judged {
+            Some(Judged::Passed) | None => {}
+            Some(Judged::Failed(error)) => {
+                tiers.close(&page_id);
+                return (failed(&error), merged);
+            }
+            Some(Judged::Escalated) => {
+                tiers.close(&page_id);
+                // The browser's run takes a whole lease of its own.
+                lease.renew(lease.length());
+                let answer = self.browser(tiers, choice, Some(PAGE_CHECK_CALL)).await;
+                return (answer, merged);
+            }
+        }
         self.in_flight
             .lock()
             .await
@@ -637,6 +667,19 @@ impl On<'_> {
         tiers.close_browser(&page_id).await;
         answer
     }
+}
+
+/// The Run's own `session.page_check`, which judges the pages of a Label
+/// that declares none (ADR 0093).
+fn run_page_check(run: &Run) -> Option<PageCheck> {
+    let settings = run.settings()?;
+    let value = settings
+        .resolved()
+        .get(SESSION_PAGE_CHECK.name)?
+        .value
+        .clone();
+    // The setting's shape was checked where it was set.
+    serde_json::from_value::<Option<PageCheck>>(value).ok()?
 }
 
 /// An attempt that ended with `error` before its handler was asked.

@@ -26,7 +26,7 @@ use crate::crawl::Attached;
 /// The Proving ground's seed.
 const SEED: u64 = 238;
 
-/// The `pacing` family's slowest time step.
+/// A time step whose answers the `pacing` family holds about two seconds.
 const SLOW: u64 = 95;
 
 /// The governor admits two HTTP fetches at once whatever the host's load,

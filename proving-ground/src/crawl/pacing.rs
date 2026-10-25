@@ -29,8 +29,9 @@ const BASE_MS: u64 = 10;
 const STEP_MS: u64 = 20;
 const JITTER_MS: u64 = 10;
 /// The last step whose hold rises; later ones hold as long, so no hold
-/// passes two seconds (STYLE.md: every wait is bounded).
-const LAST_RISING_STEP: u64 = 95;
+/// passes five seconds, the `tiers` family's longest (STYLE.md: every wait
+/// is bounded).
+const LAST_RISING_STEP: u64 = 245;
 
 /// The hold at `step`, in milliseconds: it rises by more than the seeded
 /// part at each step, so it rises at every step up to the last rising one.
@@ -130,7 +131,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn each_page_is_held_for_the_time_its_server_timing_names() {
-        for (step, path) in [(0, "/"), (3, "/articles/4"), (95, "/"), (400, "/nowhere")] {
+        for (step, path) in [(0, "/"), (3, "/articles/4"), (245, "/"), (400, "/nowhere")] {
             let page = page_at(1538, step, path);
             let named: u64 = page
                 .headers
@@ -153,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn the_hold_stops_rising_below_two_seconds() {
+    fn the_hold_stops_rising_below_five_seconds() {
         let hold = |step| {
             page_at(1538, step, "/")
                 .headers
@@ -162,7 +163,8 @@ mod tests {
                 .map(|(_, value)| value)
         };
 
-        assert_eq!(hold(95), hold(u64::MAX));
-        assert!(super::hold_ms(1538, u64::MAX) < 2_000);
+        assert_eq!(hold(245), hold(u64::MAX));
+        assert!(super::hold_ms(1538, 244) < super::hold_ms(1538, 245));
+        assert!(super::hold_ms(1538, u64::MAX) < 5_000);
     }
 }

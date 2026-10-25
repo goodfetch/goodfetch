@@ -20,13 +20,17 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use bytes::Bytes;
+use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::egress::Refused;
 use goodfetch_fetch_tier::{
     Deadlines, Fetched, Following, Gating, Hop, HopGate, Skip, Stop, Transport, fetch, follow,
 };
 use goodfetch_page::page_value::Permit;
+use goodfetch_protocol::egress::EgressRule;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
+use goodfetch_protocol::page::NAVIGATION_FAILED;
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rstest::rstest;
@@ -628,5 +632,57 @@ fn a_hop_the_gate_skips_is_never_sent() {
     assert_eq!(
         requests_for(&proving_ground, HOST, "/private/target").len(),
         0
+    );
+}
+
+/// A chain whose first hop the transport refuses at its connection, its
+/// name having turned private since the address check let it through,
+/// ends `skipped` with `domain_policy`, the policy's refusal, as a later
+/// hop's does; another failure of the first hop stays a failure.
+///
+/// Covers: story:4-98
+#[test]
+fn a_first_hop_refused_at_its_connection_ends_skipped_with_domain_policy() {
+    let refused = Refused {
+        url: "http://rebound.test/".to_owned(),
+        rule: EgressRule::PrivateAddress,
+        address: Some("10.0.0.1".parse().unwrap()),
+        setting: Some("egress.private_ranges"),
+    };
+    let follow_failing = |error: CallError| {
+        running_clock_runtime().block_on(follow(
+            Hop::get(Url::parse("http://rebound.test/").unwrap()),
+            &defaults(),
+            &Recording::default(),
+            &Clock::system(),
+            |_| {
+                let error = error.clone();
+                async move { Err::<Fetched, _>(error) }
+            },
+        ))
+    };
+
+    let skipped = follow_failing(refused.error());
+    let failed = follow_failing(CallError::new(
+        &NAVIGATION_FAILED,
+        "unreachable".to_owned(),
+        &serde_json::json!({ "url": "http://rebound.test/" }),
+    ));
+
+    assert!(
+        matches!(
+            &skipped,
+            Err(Stop::Skipped(Skip {
+                reason: SkipReason::DomainPolicy,
+                ..
+            }))
+        ),
+        "{:?}",
+        skipped.map(|fetched| fetched.url)
+    );
+    assert!(
+        matches!(&failed, Err(Stop::Failed(error)) if error.code() == NAVIGATION_FAILED.name),
+        "{:?}",
+        failed.map(|fetched| fetched.url)
     );
 }

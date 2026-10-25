@@ -45,9 +45,9 @@
 //! Run's domain policy refuses with `domain_policy`, and one to a key the
 //! Frontier admitted for another request with `duplicate` (ADRs 0093, 0118
 //! and 0120). A hop whose URL names an address a page may not reach in
-//! place of a host ends it `skipped` with `domain_policy` too, before the
-//! gate reads its robots.txt (ADR 0017); a refusal of the gate's ends it
-//! `skipped` with its reason.
+//! place of a host, or whose name resolves to one, ends it `skipped` with
+//! `domain_policy` too, before the gate reads its robots.txt (ADR 0017); a
+//! refusal of the gate's ends it `skipped` with its reason.
 
 use std::fmt;
 use std::sync::Arc;
@@ -74,6 +74,7 @@ use url::Url;
 
 use crate::chain::{Gating, HopGate, Skip, Stop};
 use crate::driver::{Hop, judged};
+use crate::transports::AddressCheck;
 
 /// Fetches the robots.txt at a location for a Run, as the crawl's HTTP
 /// tier does (`HttpTier::robots_txt_fetch`).
@@ -117,6 +118,11 @@ pub struct HandOver {
     pub lease: Arc<dyn LeaseCheck>,
     /// The Run's domain policy, which judges each redirect hop.
     pub egress: Arc<Policy>,
+    /// The address check of the Run's HTTP tier, which judges each
+    /// redirect hop's URL and the addresses its name resolves to before
+    /// its robots.txt is read; `None` without the tier, the URL alone then
+    /// judged.
+    pub addresses: Option<AddressCheck>,
     /// The Page check its crawl request's Label declares of its own, which
     /// judges the browser pages the attempt opens in place of their
     /// Session's (ADR 0093).
@@ -540,9 +546,11 @@ impl HopGate for ChainGate {
                 }
                 goodfetch_frontier::Hop::Follow => {}
             }
-            // The crawl's HTTP tier connects directly: no proxy resolves
-            // its hops.
-            if let Err(refused) = judged(&hop.url, &self.hand_over.egress) {
+            let checked = match &self.hand_over.addresses {
+                Some(addresses) => addresses.check(&hop.url).await,
+                None => judged(&hop.url, &self.hand_over.egress),
+            };
+            if let Err(refused) = checked {
                 return skipped(
                     SkipReason::DomainPolicy,
                     format!(

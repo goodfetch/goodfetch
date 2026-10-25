@@ -453,6 +453,7 @@ impl Fetching<'_> {
             second_copies: second_copies.clone(),
             robots: self.robots.clone(),
             egress: std::sync::Arc::clone(&self.egress),
+            addresses: self.http.map(HttpTier::address_check),
             page_check: self.labels.settings.page_check(label).cloned(),
         }
     }

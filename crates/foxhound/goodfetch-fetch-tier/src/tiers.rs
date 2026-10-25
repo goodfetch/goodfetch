@@ -62,7 +62,7 @@ use crate::driver::{Deadlines, Hop, Transport, fetch};
 use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::redundant::{Redundant, Requester};
-use crate::transports::{BrowserFetch, Reqwest, TransportConfig};
+use crate::transports::{AddressCheck, BrowserFetch, Reqwest, TransportConfig};
 use crate::use_signals::UseSignals;
 
 mod calls;
@@ -334,6 +334,7 @@ impl FetchTiers {
         })
         .map_err(|error| error.to_string())?;
         Ok(HttpTier {
+            addresses: transport.address_check(),
             transport: Arc::new(transport),
             egress,
             deadlines: Deadlines::of(settings),
@@ -387,10 +388,11 @@ impl FetchTiers {
     /// # Errors
     ///
     /// [`Stop::Failed`] with the fetch driver's errors (`deadline_exceeded`,
-    /// `egress_refused`, `navigation_failed` with its network error,
-    /// `response_truncated`) or the chain's (`too_many_redirects`,
-    /// `response_not_ok`, `response_unavailable`); [`Stop::Skipped`] for a
-    /// hop the Frontier or the gate refuses.
+    /// `navigation_failed` with its network error, `response_truncated`)
+    /// or the chain's (`too_many_redirects`, `response_not_ok`,
+    /// `response_unavailable`); [`Stop::Skipped`] for a hop the Frontier or
+    /// the gate refuses, and with `domain_policy` for one the transport's
+    /// egress check refuses.
     ///
     /// # Cancel safety
     ///
@@ -832,6 +834,9 @@ pub struct HttpTier {
     transport: Arc<dyn Transport>,
     /// The Run's egress policy, which every transport judges each URL by.
     egress: Policy,
+    /// The address check of the tier's reqwest connections, run ahead of a
+    /// request whatever transport then sends it.
+    addresses: AddressCheck,
     deadlines: Deadlines,
     /// Its Run's hedges and requests in flight, which no other Run shares.
     redundant: Arc<Redundant>,
@@ -844,6 +849,13 @@ pub struct HttpTier {
 const ROBOTS_TXT_REDIRECTS: usize = 5;
 
 impl HttpTier {
+    /// The address check of the tier's connections, which judges a crawl
+    /// request's URL, and the addresses its name resolves to, before
+    /// anything is sent for it (ADR 0017).
+    pub fn address_check(&self) -> AddressCheck {
+        self.addresses.clone()
+    }
+
     /// [`HttpTier::robots_txt`] as the navigation gate fetches robots.txt.
     pub fn robots_txt_fetch(&self) -> RobotsTxtFetch {
         let tier = self.clone();

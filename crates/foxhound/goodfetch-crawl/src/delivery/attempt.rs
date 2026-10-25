@@ -52,8 +52,8 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
-    Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, PooledSession, Requester,
-    RobotsTxtFetch, Stop, TierChoice,
+    AddressCheck, Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, PooledSession,
+    Requester, RobotsTxtFetch, Stop, TierChoice,
 };
 use goodfetch_frontier::DomainKeys;
 use goodfetch_protocol::block::BlockCause;
@@ -182,6 +182,8 @@ pub(super) struct Gating {
     pub(super) robots: Option<RobotsTxtFetch>,
     /// The Run's domain policy.
     pub(super) egress: Arc<Policy>,
+    /// The address check of the Run's HTTP tier, if it has one.
+    pub(super) addresses: Option<AddressCheck>,
     pub(super) page_check: Option<PageCheck>,
 }
 
@@ -232,6 +234,7 @@ impl Gating {
                 in_flight: Arc::clone(in_flight),
             }),
             egress: Arc::clone(&self.egress),
+            addresses: self.addresses.clone(),
             page_check: self.page_check.clone(),
         })
     }
@@ -547,6 +550,7 @@ impl On<'_> {
         let fetched = tokio::select! {
             biased;
             document = async {
+                address_check(run, http, leased).await?;
                 let read = read_robots_txt(run, http, leased).await;
                 if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
                     return Err(refused);
@@ -665,6 +669,21 @@ fn run_page_check(run: &Run) -> Option<PageCheck> {
         .clone();
     // The setting's shape was checked where it was set.
     serde_json::from_value::<Option<PageCheck>>(value).ok()?
+}
+
+/// Judges `leased`'s URL by the address check of `http`'s connections
+/// before anything is sent for it, its robots.txt included (ADR 0017): a
+/// host that stands for an address the Run's egress policy refuses ends
+/// the request `skipped` with `domain_policy`, the policy's refusal and no
+/// failure (spec #565).
+async fn address_check(run: &Run, http: &HttpTier, leased: &Leased) -> Result<(), Answer> {
+    let Ok(url) = goodfetch_frontier::Url::parse(&leased.crawl_request.url) else {
+        return Ok(());
+    };
+    http.address_check().check(&url).await.map_err(|refused| {
+        tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, %refused, "the address check refused a crawl request before anything was sent");
+        Answer::Refused(SkipReason::DomainPolicy)
+    })
 }
 
 /// An attempt that ended with `error` before its handler was asked.

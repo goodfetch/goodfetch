@@ -66,8 +66,8 @@ use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::foxhound::settings::{
-    POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MAX_CRAWL_DELAY, SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
-    SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
+    POLITENESS_DOMAIN_ADAPTIVE_DELAY, POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MAX_CRAWL_DELAY,
+    SITE_PREFERENCES_RESPECT_ROBOTS_TXT, SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
 };
 use goodfetch_protocol::page::{NAVIGATION_FAILED, PageId};
 use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
@@ -216,6 +216,9 @@ impl Gating {
                     .map(str::to_owned)
             }),
             domain_delay,
+            adaptive_delay: settings.as_ref().is_some_and(|settings| {
+                settings.boolean(POLITENESS_DOMAIN_ADAPTIVE_DELAY.name) == Some(true)
+            }),
             respect_robots_txt: settings.as_ref().is_none_or(|settings| {
                 settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
             }),
@@ -534,6 +537,16 @@ impl On<'_> {
             .gating
             .hand_over(run, leased, lease, self.in_flight)
             .await;
+        // A Session that may move to the browser, under `auto`, sends its
+        // HTTP from inside its browser, so its fingerprint and cookies stay
+        // the Session's on both tiers (ADR 0020; pitfall H20).
+        let in_browser;
+        let http = if choice.forced.is_none() {
+            in_browser = tiers.in_browser(http, run, self.in_browser, &hand_over, self.context);
+            &in_browser
+        } else {
+            http
+        };
         let fetched = tokio::select! {
             biased;
             document = async {

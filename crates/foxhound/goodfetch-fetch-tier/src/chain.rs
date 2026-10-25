@@ -120,14 +120,19 @@ pub trait HopGate: Send + Sync {
     /// its admission by whatever ran between them.
     fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()>;
 
+    /// Records that `hop`'s answer arrived `latency` after it was sent,
+    /// for its domain's adaptive delay.
+    fn answered<'a>(&'a self, hop: &'a Hop, latency: Duration) -> Gating<'a, ()>;
+
     /// Records that the chain ended on `hop`, one after its first, whose
     /// answer is its document.
     fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()>;
 }
 
 /// Follows the chain from `first` under `following`, each hop fetched with
-/// `fetch` and each after the first admitted by `gate`, on `clock`; answers
-/// the document the chain ends on.
+/// `fetch` and each after the first admitted by `gate`, on `clock`, each
+/// told to `gate` as it is sent and once its answer arrived; answers the
+/// document the chain ends on.
 ///
 /// # Errors
 ///
@@ -156,6 +161,7 @@ where
     let mut permit: Option<Permit> = None;
     loop {
         gate.sending(&hop).await;
+        let sent = clock.now();
         let fetched = fetch(hop.clone()).await.map_err(|error| {
             if hops.is_empty() || error.code() != EGRESS_REFUSED.name {
                 return Stop::Failed(error);
@@ -169,6 +175,7 @@ where
                 ),
             })
         })?;
+        gate.answered(&hop, clock.now().duration_since(sent)).await;
         // The hop's answer arrived: its permit is released (ADR 0118).
         drop(permit.take());
         let Some(next) = next_hop(&hop, &fetched, following)? else {

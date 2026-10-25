@@ -15,15 +15,32 @@
 //! a browser end and the network beyond the relay are in-memory streams,
 //! each connection's head read, its credentials checked, its host and
 //! address judged and its tunnel opened, then bytes forwarded through one
-//! tunnel. Inputs are literals; no network, no sleep, no work whose amount
-//! depends on timing.
+//! tunnel. And its terminating mode (ADR 0124): a BoringSSL browser and site
+//! of the scenario's own, each connection's ClientHello read and mirrored
+//! upstream, the site's chain decided under the Run's exception, and the
+//! browser's handshake finished with the relay's leaf, then bytes forwarded
+//! through one terminated connection. Inputs are literals, the
+//! certificates made in each benchmark's setup; no network, no sleep, no
+//! work whose amount depends on timing.
 
+#[path = "../src/egress_relay/authority.rs"]
+#[expect(
+    dead_code,
+    reason = "the scenario reads the authority's leaves, never its domains"
+)]
+mod authority;
 #[path = "../src/guard/check.rs"]
 #[expect(
     dead_code,
     reason = "the scenario reads only a ready target's answer, never a waiting one's details"
 )]
 mod check;
+#[path = "../src/egress_relay/client_hello.rs"]
+#[expect(
+    dead_code,
+    reason = "the scenario's relay reads ClientHellos off streams, never parses one from bytes"
+)]
+mod client_hello;
 #[path = "../src/egress_relay/head.rs"]
 mod head;
 #[path = "../src/egress_relay/serve.rs"]
@@ -38,6 +55,8 @@ pub(crate) mod serve;
     reason = "no route of the scenario answers, so no override is merged"
 )]
 pub(crate) mod steps;
+#[path = "../src/egress_relay/terminate.rs"]
+pub(crate) mod terminate;
 #[path = "../src/driver/world.rs"]
 mod world;
 
@@ -376,6 +395,8 @@ impl serve::Observe for Unobserved {
     fn refused(&self, _: &goodfetch_engine::egress::Refused, _: &str) {}
     fn upstream(&self, _: serve::Met) {}
     fn unauthenticated(&self) {}
+    fn terminated(&self, _: &str, _: Option<&goodfetch_engine::tls::ExceptionUsed>) {}
+    fn stopped(&self, _: &str, _: &str, _: &terminate::Stop) {}
 }
 
 /// The relaying of the scenarios: a domain policy of a hundred entries, as
@@ -390,6 +411,7 @@ fn relaying() -> serve::Relaying {
         authorization: RELAY_AUTHORIZATION.to_owned(),
         upstream: serve::Upstream::Direct,
         bypasses: Box::new(|_| false),
+        terminating: None,
     }
 }
 
@@ -478,5 +500,200 @@ pub(crate) fn relay_tunnel(mebibytes: usize) -> usize {
         let (sender, mut far_ends) = tokio::sync::mpsc::unbounded_channel();
         let network = InMemory { far_ends: sender };
         relayed_connection(&relaying, &network, &mut far_ends, mebibytes << 20).await
+    })
+}
+
+/// What the terminating scenarios set up outside their measure: the
+/// relay's state, terminating `site-7.example.test` under trust on first
+/// use with the site's authority trusted for it, and the site's
+/// certificate and key in PKCS #8.
+pub(crate) struct Terminated {
+    relaying: serve::Relaying,
+    certificate: (Vec<u8>, Vec<u8>),
+    _env: goodfetch_test_support::TestEnv,
+}
+
+/// The terminating scenarios' setup.
+pub(crate) fn terminated() -> Terminated {
+    use std::sync::Arc;
+
+    let env = goodfetch_test_support::TestEnv::new();
+    let home = goodfetch_engine::home::Home::new(env.home().to_path_buf());
+    let site_key = rcgen::KeyPair::generate().expect("invariant: a key is made");
+    let mut site_authority = rcgen::CertificateParams::new(Vec::<String>::new())
+        .expect("invariant: no name is an invalid name");
+    site_authority.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    let authority_key = rcgen::KeyPair::generate().expect("invariant: a key is made");
+    let authority_der = site_authority
+        .self_signed(&authority_key)
+        .expect("invariant: the authority signs itself")
+        .der()
+        .to_vec();
+    let issuer = rcgen::Issuer::from_params(&site_authority, &authority_key);
+    let leaf = rcgen::CertificateParams::new(vec!["site-7.example.test".to_owned()])
+        .expect("invariant: the name is a name")
+        .signed_by(&site_key, &issuer)
+        .expect("invariant: the authority signs the leaf")
+        .der()
+        .to_vec();
+    let book = goodfetch_engine::tls::PinBook {
+        store: goodfetch_engine::known_certificates::KnownCertificates::of(&home, None),
+        person: "os_user".to_owned(),
+        run_id: None,
+        audit: Arc::new(goodfetch_engine::audit::AuditLog::of(&home, None)),
+        owner: Arc::new(goodfetch_engine::tasks::TaskOwner::root(
+            goodfetch_engine::tasks::BlockingPolicy::Inline,
+        )),
+        clock: goodfetch_engine::clock::Clock::system(),
+    };
+    let terminating = terminate::Terminating {
+        authority: Arc::new(
+            authority::Authority::new(vec!["example.test".to_owned()])
+                .expect("invariant: the relay's authority is made"),
+        ),
+        exceptions: goodfetch_engine::tls::CertificateExceptions::listed(
+            &json!({ "example.test": null }),
+            book,
+            goodfetch_engine::secrets::ExceptionHosts::default(),
+        )
+        .expect("invariant: the domain is a domain"),
+        examiner: goodfetch_engine::tls::Trust::default_roots()
+            .with_trusted_cas("example.test", vec![authority_der.into()])
+            .expect("invariant: the domain is a domain")
+            .examiner(),
+        trust: goodfetch_engine::tls::Trust::default_roots(),
+    };
+    Terminated {
+        relaying: serve::Relaying {
+            terminating: Some(Arc::new(terminating)),
+            ..relaying()
+        },
+        certificate: (leaf, site_key.serialize_der()),
+        _env: env,
+    }
+}
+
+/// The scenario's site: a BoringSSL server presenting `certificate`,
+/// choosing `h2`, which reads to the end; returns the bytes it read.
+async fn tls_site(stream: DuplexStream, (certificate, key): &(Vec<u8>, Vec<u8>)) -> usize {
+    let mut builder = btls::ssl::SslAcceptor::mozilla_intermediate_v5(btls::ssl::SslMethod::tls())
+        .expect("invariant: BoringSSL builds a server");
+    builder
+        .set_certificate(&btls::x509::X509::from_der(certificate).expect("invariant: DER"))
+        .expect("invariant: the certificate is taken");
+    builder
+        .set_private_key(
+            &btls::pkey::PKey::private_key_from_pkcs8(key).expect("invariant: PKCS #8"),
+        )
+        .expect("invariant: the key is taken");
+    builder.set_alpn_select_callback(|_, offered| {
+        btls::ssl::select_next_proto(b"\x02h2", offered).ok_or(btls::ssl::AlpnError::NOACK)
+    });
+    let acceptor = builder.build();
+    let ssl = btls::ssl::Ssl::new(acceptor.context()).expect("invariant: a connection is made");
+    let mut stream = tokio_btls::SslStream::new(ssl, stream).expect("invariant: a stream is made");
+    if std::pin::Pin::new(&mut stream).accept().await.is_err() {
+        return 0;
+    }
+    let mut buffer = vec![0; 16 * 1024];
+    let mut read = 0;
+    while let Ok(count) = stream.read(&mut buffer).await {
+        if count == 0 {
+            break;
+        }
+        read += count;
+    }
+    read
+}
+
+/// One terminated connection: the browser's authenticated `CONNECT`, its
+/// TLS handshake through the relay, then `sent` bytes, which the site
+/// reads to the end; returns the bytes the site read.
+async fn terminated_connection(
+    fixture: &Terminated,
+    network: &InMemory,
+    far_ends: &mut tokio::sync::mpsc::UnboundedReceiver<DuplexStream>,
+    sent: usize,
+) -> usize {
+    let (mut browser, relayed) = tokio::io::duplex(1 << 16);
+    let request = format!(
+        "CONNECT site-7.example.test:443 HTTP/1.1\r\nHost: site-7.example.test:443\r\nProxy-Authorization: {RELAY_AUTHORIZATION}\r\n\r\n"
+    );
+    let chunk = vec![0x5a; 16 * 1024];
+    let (_, (), read) = tokio::join!(
+        serve::serve(relayed, &fixture.relaying, network, &Unobserved),
+        async {
+            browser
+                .write_all(request.as_bytes())
+                .await
+                .expect("invariant: the relay reads the request");
+            let mut established = [0; 39];
+            browser
+                .read_exact(&mut established)
+                .await
+                .expect("invariant: the relay opens the tunnel");
+            let mut builder = btls::ssl::SslConnector::builder(btls::ssl::SslMethod::tls())
+                .expect("invariant: BoringSSL builds a client");
+            builder.set_grease_enabled(true);
+            builder
+                .set_alpn_protos(b"\x02h2\x08http/1.1")
+                .expect("invariant: the list is a list");
+            builder.set_verify(btls::ssl::SslVerifyMode::NONE);
+            let ssl = builder
+                .build()
+                .configure()
+                .and_then(|configuration| configuration.into_ssl("site-7.example.test"))
+                .expect("invariant: a connection is made");
+            let mut stream =
+                tokio_btls::SslStream::new(ssl, browser).expect("invariant: a stream is made");
+            std::pin::Pin::new(&mut stream)
+                .connect()
+                .await
+                .expect("invariant: the relay finishes the handshake");
+            let mut left = sent;
+            while left > 0 {
+                let part = left.min(chunk.len());
+                stream
+                    .write_all(&chunk[..part])
+                    .await
+                    .expect("invariant: the connection carries the bytes");
+                left -= part;
+            }
+            let _ = stream.shutdown().await;
+        },
+        async {
+            let far = far_ends
+                .recv()
+                .await
+                .expect("invariant: the relay connects once");
+            tls_site(far, &fixture.certificate).await
+        }
+    );
+    read
+}
+
+/// `count` terminated connections set up through the relay, each its
+/// ClientHello mirrored and its upstream handshake decided; returns how
+/// many opened.
+pub(crate) fn relay_terminated_connections(count: usize, fixture: &Terminated) -> usize {
+    runtime().block_on(async {
+        let (sender, mut far_ends) = tokio::sync::mpsc::unbounded_channel();
+        let network = InMemory { far_ends: sender };
+        let mut opened = 0;
+        for _ in 0..count {
+            terminated_connection(fixture, &network, &mut far_ends, 0).await;
+            opened += 1;
+        }
+        opened
+    })
+}
+
+/// `mebibytes` MiB forwarded through one terminated connection; returns
+/// the bytes the site read.
+pub(crate) fn relay_terminated_tunnel(mebibytes: usize, fixture: &Terminated) -> usize {
+    runtime().block_on(async {
+        let (sender, mut far_ends) = tokio::sync::mpsc::unbounded_channel();
+        let network = InMemory { far_ends: sender };
+        terminated_connection(fixture, &network, &mut far_ends, mebibytes << 20).await
     })
 }

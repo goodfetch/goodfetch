@@ -2,7 +2,8 @@
 //! recorded as the Proving ground saw it (method, target, headers in the
 //! order sent, cookies, HTTP message signature, the connection's TLS
 //! `ClientHello` and HTTP/2 settings, pseudo-header order, status and
-//! timing), the bytes each
+//! timing), every TLS handshake's `ClientHello` whether or not it
+//! completed, the bytes each
 //! request and each host received and sent, the Effects the site
 //! carried out, what its pages' own scripts reported, and the findings of
 //! the Crawl families (a page fetched twice, a trap followed, a honeypot
@@ -80,6 +81,20 @@ struct State {
     /// The host name of each handshake that presented a client certificate,
     /// in order.
     client_certificates: Vec<String>,
+    /// Each TLS handshake's `ClientHello`, in order, whether or not the
+    /// handshake completed.
+    tls_handshakes: Vec<Handshake>,
+}
+
+/// A TLS handshake a connection began: its `ClientHello`, recorded before
+/// the server answers, so a client that refuses the Proving ground's
+/// certificate, as a browser trusting only its own roots does, still shows
+/// its fingerprint.
+#[derive(Serialize)]
+struct Handshake {
+    connection: u64,
+    #[serde(flatten)]
+    hello: Arc<ClientHello>,
 }
 
 /// The most handshakes that presented a client certificate kept (STYLE.md:
@@ -435,6 +450,7 @@ struct Document<'a> {
     tasks: BTreeMap<&'a str, ByteCount>,
     hosts: &'a BTreeMap<Arc<str>, ByteCount>,
     client_certificates: &'a [String],
+    tls_handshakes: &'a [Handshake],
     #[serde(flatten)]
     record: &'a connection_record::Document<'a>,
 }
@@ -650,6 +666,7 @@ impl Observations {
                 findings: &state.findings,
                 unrecorded_findings: state.unrecorded_findings,
                 client_certificates: &state.client_certificates,
+                tls_handshakes: &state.tls_handshakes,
                 tasks,
                 hosts: &state.hosts,
                 record,
@@ -757,7 +774,16 @@ impl Connection {
         if let Some(name) = hello.sni.clone() {
             self.decide_host(&mut state, &name);
         }
-        state.tls = Some(Arc::new(hello));
+        let hello = Arc::new(hello);
+        state.tls = Some(Arc::clone(&hello));
+        drop(state);
+        let mut observations = self.observations.state();
+        if observations.tls_handshakes.len() < REQUEST_LIMIT {
+            observations.tls_handshakes.push(Handshake {
+                connection: self.id,
+                hello,
+            });
+        }
     }
 
     /// Records a request whose head has arrived, if its host is served; a

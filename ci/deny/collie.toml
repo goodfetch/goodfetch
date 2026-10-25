@@ -54,17 +54,18 @@ reason = "exists in the graph for wreq-util, which only Foxhound uses (spec #579
 crate = "brotli"
 reason = "exists in the graph for wreq-util's certificate compression, which only Foxhound uses (spec #579, ADR 0124)"
 
-# BoringSSL, through the fork wreq uses, only for the TLS relay, which stays
-# in Collie's Rust SDK crate (ADR 0124): each under the listed direct parents
-# only.
+# BoringSSL, through the fork wreq uses, only for the TLS relay (ADR 0124):
+# each under the listed direct parents only. The relay is the egress relay's
+# terminating mode in `goodfetch-page`, which Collie's Rust SDK crate links
+# with no Cargo feature (#635).
 [[bans.deny]]
 crate = "tokio-btls"
-wrappers = ["goodfetch-collie"]
+wrappers = ["goodfetch-page"]
 reason = "in Collie, only the TLS relay's crate takes BoringSSL (ADR 0124)"
 
 [[bans.deny]]
 crate = "btls"
-wrappers = ["goodfetch-collie", "tokio-btls"]
+wrappers = ["goodfetch-page", "tokio-btls"]
 reason = "in Collie, only the TLS relay's crate takes BoringSSL (ADR 0124)"
 
 [[bans.deny]]

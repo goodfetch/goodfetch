@@ -7,7 +7,9 @@
 //! `network.resolve` mapping, then the engine's resolver) and verifies
 //! certificates under the engine's [`Trust`]. Neither follows a redirect,
 //! resends anything, decodes a content coding or sets a timeout of its
-//! own: the driver does each.
+//! own: the driver does each. In a Session that may move to the browser,
+//! browser-fetch (`in_browser`) takes their place, sending from inside the
+//! Session's browser context (ADR 0020).
 //!
 //! **Connections (ADR 0118):** it keeps a pool of idle connections for
 //! [`Reuse::Allowed`] hops and opens a new one, kept for nothing, for
@@ -51,8 +53,10 @@ use url::Url;
 use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure, judged};
 
 mod impersonated;
+mod in_browser;
 
 pub use impersonated::Wreq;
+pub(crate) use in_browser::BrowserFetch;
 
 /// What a transport reaches and trusts.
 #[derive(Clone, Debug)]
@@ -231,6 +235,7 @@ impl Transport for Reqwest {
                     url: hop.url.clone(),
                 }),
                 reused,
+                decoded: false,
             })
         })
     }

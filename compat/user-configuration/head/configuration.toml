@@ -203,6 +203,9 @@ rate = 4
 [settings.politeness.domain]
 concurrency = 4
 delay = 30000
+adaptive_delay = true
+rate = 4
+burst = 4
 
 [settings.politeness.backoff]
 enabled = true

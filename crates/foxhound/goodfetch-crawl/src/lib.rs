@@ -28,6 +28,7 @@ mod policy;
 mod progress;
 mod report;
 mod seeding;
+mod servable;
 mod serving;
 mod start;
 mod tier_choice;

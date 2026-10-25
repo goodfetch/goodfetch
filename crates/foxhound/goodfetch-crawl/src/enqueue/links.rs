@@ -29,6 +29,7 @@ use goodfetch_protocol::run::{RUN_STATE_UNAVAILABLE, RunDetails, RunId};
 use rusqlite::Connection;
 use serde_json::Value;
 
+use crate::labels::Fragments;
 use crate::serving::{Crawls, LiveCrawl};
 use crate::work_items::{self, Adding};
 
@@ -280,6 +281,7 @@ fn add(
         }
     }
     let scope = Scope::read(connection)?;
+    let keeps_fragment = Fragments::read(connection)?.keeps(&params.label);
     let method = HttpMethod::get();
     let mut answers = Vec::with_capacity(batch.links.len());
     for link in batch.links {
@@ -291,7 +293,7 @@ fn add(
                     href,
                     base: batch.base,
                     encoding: batch.encoding,
-                    keeps_fragment: false,
+                    keeps_fragment,
                     from: &from,
                     narrowing: batch.narrowing,
                     depth: depth + 1,

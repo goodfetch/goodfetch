@@ -43,6 +43,7 @@ fn crawl_of(count: usize) -> Connection {
     for statement in work_items::TABLES
         .statements
         .iter()
+        .chain(crate::labels::TABLES.statements)
         .chain(goodfetch_frontier::VISITED_TABLES.statements)
         .chain(goodfetch_frontier::SCOPE_TABLES.statements)
         .chain(goodfetch_frontier::BOUNDS_TABLES.statements)

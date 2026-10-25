@@ -35,6 +35,8 @@ use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};
 
+use crate::labels::Fragments;
+
 /// The tables of a crawl's work items, Records and outcomes.
 pub(crate) const TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-crawl",
@@ -249,13 +251,15 @@ pub(crate) fn read_sitemap(
 
 /// Admits each seed through the Frontier under the Run's domain policy
 /// `policy`, as a pending work item at depth 0 when added, and answers each
-/// seed's answer, in order.
+/// seed's answer, in order, its key keeping its URL's fragment when its
+/// Label does, as the run file records.
 pub(crate) fn admit_seeds(
     connection: &Connection,
     scope: &Scope,
     policy: &Policy,
     seeds: &[Seed],
 ) -> rusqlite::Result<Vec<Enqueued>> {
+    let fragments = Fragments::read(connection)?;
     seeds
         .iter()
         .map(|seed| {
@@ -271,7 +275,7 @@ pub(crate) fn admit_seeds(
                 method: &seed.method,
                 body: seed.body.as_ref().map(HttpBody::bytes),
                 key: seed.key.as_deref(),
-                keeps_fragment: false,
+                keeps_fragment: fragments.keeps(&seed.label),
             };
             let candidate = Candidate::Seed {
                 url: &seed.url,

@@ -223,6 +223,7 @@ impl Gating {
             adaptive_delay: settings.as_ref().is_some_and(|settings| {
                 settings.boolean(POLITENESS_DOMAIN_ADAPTIVE_DELAY.name) == Some(true)
             }),
+            rate: settings.as_ref().and_then(goodfetch_frontier::Rate::of),
             respect_robots_txt: settings.as_ref().is_none_or(|settings| {
                 settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
             }),

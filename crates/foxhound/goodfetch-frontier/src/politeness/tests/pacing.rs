@@ -24,7 +24,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{KEY, at, file, milliseconds, rule};
-use crate::politeness::{TABLES, latency_noted, start_moved};
+use crate::politeness::{TABLES, latency_noted, send_taken, start_moved, started_at_send};
 
 fn adaptive(delay: u64, max: u64) -> Value {
     json!({
@@ -145,6 +145,60 @@ fn a_start_counts_its_interval_from_its_send(#[case] sent: SystemTime, #[case] n
             Verdict::Go
         }
     );
+}
+
+/// A rated run's request sends no sooner than its rate allows after the
+/// sends before it on the key, every sharing rated run's together: one
+/// whose send came later than its admission, past the next request's
+/// admission, would otherwise reach the site within the interval of that
+/// next request, whose token the earlier admission let it take. The send
+/// waits for the moment it answers, which becomes its start; a burst
+/// sends at once, and a run with no rate waits for none and takes none.
+/// Each send is `(milliseconds after 10 s, rated)`, each answer the wait's
+/// end in milliseconds after 10 s, if any.
+///
+/// Covers: story:6-248, setting:politeness.domain.rate, setting:politeness.domain.burst
+#[rstest]
+#[case::an_interval_apart(1, &[(0, true), (1_000, true)], &[None, None])]
+#[case::within_the_interval(1, &[(0, true), (400, true)], &[None, Some(1_000)])]
+#[case::each_after_the_wait_before(
+    1,
+    &[(0, true), (100, true), (200, true)],
+    &[None, Some(1_000), Some(2_000)]
+)]
+/// Covers: setting:politeness.domain.burst
+#[case::a_burst_at_once(2, &[(0, true), (0, true), (0, true)], &[None, None, Some(1_000)])]
+#[case::unrated_between(
+    1,
+    &[(0, true), (100, false), (200, true)],
+    &[None, None, Some(1_000)]
+)]
+fn a_rated_send_waits_for_the_interval_after_the_sends_before_it(
+    #[case] burst: u64,
+    #[case] sends: &[(u64, bool)],
+    #[case] waits: &[Option<u64>],
+) {
+    let file = file();
+    let rate = rule(rated(60, burst)).rate;
+
+    let answered: Vec<Option<SystemTime>> = sends
+        .iter()
+        .map(|(after, rated)| {
+            send_taken(
+                &file,
+                KEY,
+                at(10) + milliseconds(*after),
+                rate.filter(|_| *rated),
+            )
+            .unwrap()
+        })
+        .collect();
+
+    let expected: Vec<Option<SystemTime>> = waits
+        .iter()
+        .map(|wait| wait.map(|wait| at(10) + milliseconds(wait)))
+        .collect();
+    assert_eq!(answered, expected);
 }
 
 /// The weighted mean of `latencies`, by floating point: the model the
@@ -330,5 +384,53 @@ async fn two_runs_sharing_a_key_are_held_to_its_rate_over_a_minute() {
     assert!(
         (28..=30).contains(&host.len()) && gaps_ok && both,
         "{host:?}"
+    );
+}
+
+/// A send that waited for its engine's Politeness file, which another
+/// engine's or run's transaction held, counts its interval from the moment
+/// the file recorded it, not from when the request asked: the request
+/// leaves only once the record is written, so a start read before the wait
+/// would let the next request reach the site sooner than the rate. (The
+/// file's actor, a task here, runs the record only once the test yields,
+/// after the paused clock moved 300 ms.)
+///
+/// Covers: story:6-248, setting:politeness.domain.rate, format:politeness-file
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test runs on Tokio's paused clock and the test Clock (ADR 0059)"
+)]
+#[tokio::test(start_paused = true)]
+async fn a_send_that_waited_for_the_file_counts_its_interval_from_when_it_was_recorded() {
+    let env = TestEnv::new();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let clock = Clock::paused(at(10));
+    let politeness = engine_file(&env, "first", &owner).await;
+    let one_a_second = Arc::new(rule(rated(60, 1)));
+    let admitted = Arc::clone(&one_a_second);
+    politeness
+        .transact(move |connection| admitted.started(connection, KEY, at(10)))
+        .await
+        .unwrap();
+    let asked = clock.wall();
+
+    let (sent, ()) = tokio::join!(
+        started_at_send(&politeness, KEY, clock, None),
+        tokio::time::advance(milliseconds(300)),
+    );
+    sent.unwrap();
+    let next = politeness
+        .transact(move |connection| {
+            one_a_second.admit(connection, KEY, 0, at(11) + milliseconds(100))
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        (asked, next),
+        (
+            at(10),
+            Verdict::Until(at(11) + milliseconds(300), Hold::Delay)
+        )
     );
 }

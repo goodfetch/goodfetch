@@ -117,8 +117,11 @@ pub trait HopGate: Send + Sync {
 
     /// Records that `hop`, the first included, is sent now: its request's
     /// start, from which its domain's delay counts (ADR 0086), later than
-    /// its admission by whatever ran between them.
-    fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()>;
+    /// its admission by whatever ran between them. `lead` is the chain's
+    /// first hop, its request's own send, which a rated run sends only
+    /// once its domain's sends left it a token: the answer comes once it
+    /// may go.
+    fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, ()>;
 
     /// Records that `hop`'s answer arrived `latency` after it was sent,
     /// for its domain's adaptive delay.
@@ -160,7 +163,7 @@ where
     let mut hop = first;
     let mut permit: Option<Permit> = None;
     loop {
-        gate.sending(&hop).await;
+        gate.sending(&hop, hops.is_empty()).await;
         let sent = clock.now();
         let fetched = fetch(hop.clone()).await.map_err(|error| {
             if hops.is_empty() || error.code() != EGRESS_REFUSED.name {

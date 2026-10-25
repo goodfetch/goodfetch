@@ -9,7 +9,8 @@
 //! at a time leaves its first request unanswered, so its second waits for a
 //! wake. A Collie Run's navigation through a proxy then has met the proxy's
 //! own 429, which halved that proxy's learned ceiling under its key. The
-//! crawls' shared robots.txt copy then keeps `shop.test`'s file and
+//! crawls' shared robots.txt copy then keeps `shop.test`'s file, whose
+//! Crawl-delay is kept for its domain key, and
 //! `hold.test`'s 404 read as no rules, and a later 500 for `shop.test`
 //! leaves its file in place. A copy of the file taken then, its Run folder and wake endpoint
 //! written relative to the home, goes as SQL text into the folder given as
@@ -140,7 +141,8 @@ fn proxy_refusal(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
 /// The robots.txt copy a crawl's Runs share, in the Politeness file of
 /// `home`, as a second engine of the user: `shop.test` answers a file,
 /// `hold.test` a 404, and a fetch of `shop.test`'s a day later answers a
-/// 500, which keeps the file.
+/// 500, which keeps the file; the file's Crawl-delay of 2 s is kept for
+/// the `shop.test` domain key, as a crawl's attempt records it.
 async fn robots_txt_copies(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let owner = TaskOwner::root(BlockingPolicy::Inline);
     let file = Politeness::open(
@@ -156,7 +158,7 @@ async fn robots_txt_copies(home: &Path) -> Result<(), Box<dyn std::error::Error>
     let at = UNIX_EPOCH + Duration::from_hours(491_001) + Duration::from_secs(20);
     let copies = goodfetch_frontier::SharedRobotsTxt::new(file.clone(), Clock::paused(at));
     let a_day_later = goodfetch_frontier::SharedRobotsTxt::new(
-        file,
+        file.clone(),
         Clock::paused(at + Duration::from_hours(24)),
     );
     let answered = |status: u16, body: &[u8]| -> Fetch<'static> {
@@ -174,9 +176,16 @@ async fn robots_txt_copies(home: &Path) -> Result<(), Box<dyn std::error::Error>
             answered(200, b"User-agent: *\nDisallow: /private/\nCrawl-delay: 2\n"),
         )
         .await;
+    goodfetch_frontier::crawl_delay_read(
+        &file,
+        "shop.test",
+        shop.as_str(),
+        Some(Duration::from_secs(2)),
+    )
+    .await?;
     copies.copy(&hold, answered(404, b"not found")).await;
     a_day_later.copy(&shop, answered(500, b"")).await;
-    drop((copies, a_day_later));
+    drop((copies, a_day_later, file));
     owner.cancel();
     Ok(())
 }

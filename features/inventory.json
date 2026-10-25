@@ -5745,6 +5745,16 @@
       ]
     },
     {
+      "id": "setting:crawl.content_types",
+      "kind": "setting",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:crawl.domain_keys",
       "kind": "setting",
       "area": 3,

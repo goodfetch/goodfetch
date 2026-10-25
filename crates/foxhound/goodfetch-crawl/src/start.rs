@@ -171,9 +171,7 @@ async fn start(
         None => false,
     };
     if !found {
-        for seed in params.seeds.iter() {
-            work_items::check_seed(&payloads, seed)?;
-        }
+        work_items::check_seeds(&payloads, params.seeds.iter())?;
     }
     let seeding = egress.clone();
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();

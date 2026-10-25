@@ -202,6 +202,17 @@ fn from_sitemap(adding: sitemap::Adding<'_>) -> Adding<'_> {
     }
 }
 
+/// Checks each of `seeds` as [`check_seed`] does, failing at the first
+/// that does not hold.
+pub(crate) fn check_seeds<'a>(
+    payloads: &payload::PayloadRules,
+    seeds: impl IntoIterator<Item = &'a Seed>,
+) -> Result<(), CallError> {
+    seeds
+        .into_iter()
+        .try_for_each(|seed| check_seed(payloads, seed))
+}
+
 /// Checks `seed` before it is admitted: a request's Payload against its
 /// Label's schema and the cap `payloads` hold, and a sitemap seed's rules,
 /// each pattern one the engine matches (`pattern_unsupported`) and each

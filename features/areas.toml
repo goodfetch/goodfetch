@@ -579,6 +579,11 @@ number = 4
 kind = "setting"
 prefix = "security."
 
+[[area]]
+number = 4
+kind = "error"
+prefix = "browser_sandbox_unavailable"
+
 # Area 4's known-certificates store (#628): `certs.list`, Collie's `certs
 # list` and the store's format.
 [[area]]

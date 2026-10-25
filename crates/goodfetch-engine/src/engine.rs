@@ -46,6 +46,7 @@ use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Runs, RunsSetup};
+use crate::sandbox_probe;
 use crate::secrets::{self, Keychain};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
@@ -350,15 +351,11 @@ impl Engine {
     ) -> (Runs, Events) {
         let instance = EngineInstance::new(format!("{:016x}", dependencies.entropy.next_u64()));
         let events = Events::start(self.events, instance, owner);
-        let keychain = dependencies.keychain.clone();
-        let settings = Settings::with_host(
+        let settings = host_settings(
             SettingsFiles::of(&dependencies.home, &self.identity().product_version),
             self.identity().product,
-            owner.child(),
-            move || {
-                let keychain = keychain.clone();
-                Box::pin(async move { secrets::host_defaults(&keychain).await })
-            },
+            owner,
+            &dependencies,
         );
         let governor = match &self.system {
             Some(system) => {
@@ -567,6 +564,41 @@ impl Engine {
 /// Sends each of the Resource governor's samples as `engine.system_info`
 /// to the subscriptions that take it, and records it in the runtime's
 /// metrics, until `token` is cancelled.
+/// The engine's settings, whose host defaults are the keychain's and
+/// Chromium's sandbox probe's. The probe starts now, at startup, once for
+/// the process (ADR 0049); the host's defaults wait for its answer, which
+/// each browser launch reads.
+fn host_settings(
+    files: SettingsFiles,
+    product: goodfetch_protocol::catalog::Product,
+    owner: &TaskOwner,
+    dependencies: &Dependencies,
+) -> Settings {
+    let probing = Arc::new(owner.child());
+    let environment = Arc::new(dependencies.environment.clone());
+    {
+        let (probing, environment) = (Arc::clone(&probing), Arc::clone(&environment));
+        owner.spawn(async move {
+            probing
+                .blocking(move || {
+                    sandbox_probe::probed_in(&environment);
+                })
+                .await;
+        });
+    }
+    let keychain = dependencies.keychain.clone();
+    Settings::with_host(files, product, owner.child(), move || {
+        let keychain = keychain.clone();
+        let (probing, environment) = (Arc::clone(&probing), Arc::clone(&environment));
+        Box::pin(async move {
+            let probed = probing
+                .blocking(move || sandbox_probe::probed_in(&environment))
+                .await;
+            sandbox_probe::host_defaults(secrets::host_defaults(&keychain).await, probed)
+        })
+    })
+}
+
 async fn report_samples(
     mut samples: watch::Receiver<Option<SystemInfo>>,
     events: Events,

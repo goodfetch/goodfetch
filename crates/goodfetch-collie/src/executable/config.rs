@@ -13,6 +13,8 @@
 //! shows each value's origin: `key = value  (layer, locked by layer)`, a
 //! run value's layer with its origin, `run from flag`.
 
+use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -52,9 +54,10 @@ pub(super) fn explain(
     product: Product,
     version: &ProductVersion,
     home: &Home,
+    environment: &BTreeMap<OsString, OsString>,
     request: &Explain,
 ) -> ExitCode {
-    match explanation(product, version, home, request) {
+    match explanation(product, version, home, environment, request) {
         Ok(explanation) => {
             print(&explanation, request.json);
             ExitCode::SUCCESS
@@ -130,6 +133,7 @@ fn explanation(
     product: Product,
     version: &ProductVersion,
     home: &Home,
+    environment: &BTreeMap<OsString, OsString>,
     request: &Explain,
 ) -> Result<SettingsExplanation, SettingsError> {
     let settings_files = SettingsFiles::of(home, version);
@@ -145,7 +149,7 @@ fn explanation(
     let run =
         Values::read(SettingsLayer::Run, &request.settings, product)?.from_origin(RunOrigin::Flag);
     let layers = Layers {
-        host: host_defaults(),
+        host: host_defaults(environment),
         operator_policy: machine.operator_policy,
         user_configuration: machine.user_configuration,
         project_configuration: project,
@@ -166,8 +170,9 @@ fn explanation(
 }
 
 /// The defaults this host gives in place of the catalog's, found as the
-/// engine finds them: the OS keychain opens over its own runtime.
-fn host_defaults() -> HostDefaults {
+/// engine finds them: the OS keychain opens over its own runtime, and
+/// Chromium's sandbox is probed in `environment`.
+fn host_defaults(environment: &BTreeMap<OsString, OsString>) -> HostDefaults {
     #[expect(
         clippy::disallowed_methods,
         reason = "main builds the runtime (ADR 0060)"
@@ -176,7 +181,10 @@ fn host_defaults() -> HostDefaults {
         .enable_all()
         .build()
         .expect("invariant: the OS gives the runtime its thread");
-    runtime.block_on(goodfetch_engine::secrets::host_defaults(&Keychain::os()))
+    goodfetch_engine::sandbox_probe::host_defaults(
+        runtime.block_on(goodfetch_engine::secrets::host_defaults(&Keychain::os())),
+        goodfetch_engine::sandbox_probe::probed_in(environment),
+    )
 }
 
 fn describe(setting: &ExplainedSetting) -> String {

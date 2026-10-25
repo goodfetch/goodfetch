@@ -11,7 +11,7 @@ product = "foxhound"
 
 [suite]
 name = "fetch"
-version = "4"
+version = "5"
 
 [[capability]]
 name = "fetch.tier.http"
@@ -48,7 +48,7 @@ covers = ["story:5-124"]
 
 [[capability.case]]
 id = "a-3xx-fetch-does-not-follow-fails-with-response-not-ok-unless-crawl-handle-statuses-lists-it"
-covers = ["story:5-124", "error:response_not_ok", "setting:crawl.handle_statuses"]
+covers = ["story:5-124", "story:4-100", "error:response_not_ok", "setting:crawl.handle_statuses"]
 
 [[capability.case]]
 id = "each-redirect-hop-goes-through-the-navigation-gate"
@@ -65,3 +65,7 @@ covers = ["story:5-124", "setting:politeness.retry_after.max", "error:response_u
 [[capability.case]]
 id = "a-refresh-stub-within-fetch-refresh-max-delay-hands-the-handler-its-target"
 covers = ["story:5-125", "setting:fetch.refresh.max_delay"]
+
+[[capability.case]]
+id = "a-redirect-the-scope-the-domain-policy-or-the-address-check-refuses-ends-skipped-live"
+covers = ["story:4-94", "story:4-97", "story:4-103", "story:6-238", "setting:egress.blocked_domains", "setting:crawl.scope.exclude", "operation:run.outcomes", "operation:run.add_seed"]

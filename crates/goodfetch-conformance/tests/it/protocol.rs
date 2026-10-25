@@ -395,6 +395,10 @@ fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
                     "a-refresh-stub-within-fetch-refresh-max-delay-hands-the-handler-its-target",
                     CaseOutcome::Passed
                 ),
+                (
+                    "a-redirect-the-scope-the-domain-policy-or-the-address-check-refuses-ends-skipped-live",
+                    CaseOutcome::Passed
+                ),
             ]
         ),
         "{}",

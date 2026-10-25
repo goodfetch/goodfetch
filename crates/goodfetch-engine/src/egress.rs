@@ -17,10 +17,12 @@
 //! The resolved-address check is [`judge_addresses`], on the addresses a
 //! connection may try once a request is allowed: every answer must be one
 //! a page may reach ([`classify`]), or lie in a range the Session lists
-//! (`egress.private_ranges`), a cloud-metadata address only when listed by
-//! its exact address. A URL whose host carries a zone ID is refused as a
-//! private address by [`judge`] itself, since the URL parser reads no host
-//! from it.
+//! (`egress.private_ranges`), or be an answer of a host it lists by name,
+//! a cloud-metadata address only when listed by its exact address. With
+//! `security.resolved_ip_check` off, the Run's switch (ADR 0016), it
+//! judges nothing and the domain policy alone applies. A URL whose host
+//! carries a zone ID is refused as a private address by [`judge`] itself,
+//! since the URL parser reads no host from it.
 //!
 //! Operator-configured endpoints are the second egress class (ADR 0017),
 //! judged by [`judge_endpoint`] and [`judge_endpoint_addresses`] under an
@@ -34,10 +36,12 @@ use std::hash::{BuildHasherDefault, DefaultHasher};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use goodfetch_protocol::egress::{
-    EGRESS_ALLOWED_DOMAINS, EGRESS_BLOCKED_DOMAINS, EGRESS_NO_PRIVATE_ENDPOINTS, EGRESS_REFUSED,
-    EVERY_HOST, EgressRefusedDetails, EgressRule,
+    EGRESS_ALLOWED_DOMAINS, EGRESS_BLOCKED_DOMAINS, EGRESS_NO_PRIVATE_ENDPOINTS,
+    EGRESS_PRIVATE_RANGES, EGRESS_REFUSED, EVERY_HOST, EgressRefusedDetails, EgressRule,
+    PrivateRange,
 };
 use goodfetch_protocol::jsonrpc::ErrorData;
+use goodfetch_protocol::security::SECURITY_RESOLVED_IP_CHECK;
 use serde_json::{Map, Value};
 use url::{Host, Url};
 
@@ -62,17 +66,20 @@ mod address_classification {
     );
 }
 
-/// A Session's egress policy: its domain policy, which [`judge`] applies.
+/// A Session's egress policy: its domain policy, which [`judge`] applies,
+/// and the private addresses [`judge_addresses`] lets it reach.
 #[derive(Clone, Debug)]
 pub struct Policy {
     allowed: Entries,
     blocked: Entries,
-    private_ranges: Vec<PrivateRange>,
+    private_ranges: Vec<Block>,
+    private_hosts: HashSet<Box<str>, FixedKeys>,
+    resolved_ip_check: bool,
 }
 
 /// A range of private addresses a page may reach.
 #[derive(Clone, Copy, Debug)]
-struct PrivateRange {
+struct Block {
     first: IpAddr,
     prefix: u8,
 }
@@ -118,14 +125,18 @@ impl Policy {
             allowed: Entries::read(allowed, EGRESS_ALLOWED_DOMAINS.name)?,
             blocked: Entries::read(blocked, EGRESS_BLOCKED_DOMAINS.name)?,
             private_ranges: Vec::new(),
+            private_hosts: HashSet::default(),
+            resolved_ip_check: true,
         })
     }
 
-    /// The policy a Run's resolved settings give.
+    /// The policy a Run's resolved settings give: its domain policy, its
+    /// `egress.private_ranges` and its `security.resolved_ip_check`.
     ///
     /// # Errors
     ///
-    /// [`InvalidEntry`] as [`Policy::new`].
+    /// [`InvalidEntry`] as [`Policy::new`] and
+    /// [`Policy::with_private_ranges`].
     pub fn of(settings: &Resolved) -> Result<Self, InvalidEntry> {
         let list = |key: &str| -> Vec<String> {
             settings
@@ -136,10 +147,15 @@ impl Policy {
                 .filter_map(|entry| entry.as_str().map(str::to_owned))
                 .collect()
         };
-        Self::new(
+        let mut policy = Self::new(
             &list(EGRESS_ALLOWED_DOMAINS.name),
             &list(EGRESS_BLOCKED_DOMAINS.name),
-        )
+        )?
+        .with_private_ranges(&list(EGRESS_PRIVATE_RANGES.name))?;
+        policy.resolved_ip_check = settings
+            .boolean(SECURITY_RESOLVED_IP_CHECK.name)
+            .unwrap_or(true);
+        Ok(policy)
     }
 }
 
@@ -402,50 +418,61 @@ impl std::fmt::Display for Refused {
 }
 
 impl Policy {
-    /// The policy that also lets a page reach `ranges`, each a CIDR block
-    /// or one address, IPv4 or IPv6: the value of `egress.private_ranges`.
-    /// A cloud-metadata address is reached only through an entry that is
-    /// that address alone, never through a range that covers it.
+    /// The policy that also lets a page reach `ranges`, the value of
+    /// `egress.private_ranges`: each a CIDR block or one address, IPv4 or
+    /// IPv6, or a host name whose connections may use any address that is
+    /// not globally reachable. A cloud-metadata address is reached only
+    /// through an entry that is that address alone, never through a range
+    /// or a host name that covers it.
     ///
     /// # Errors
     ///
-    /// [`InvalidEntry`] for the first entry that is neither, such as a host
-    /// name: the setting's host names come with its declaration (#622).
+    /// [`InvalidEntry`] for the first entry that is none of them.
     pub fn with_private_ranges(mut self, ranges: &[impl AsRef<str>]) -> Result<Self, InvalidEntry> {
         for entry in ranges {
             let entry = entry.as_ref();
-            let range = PrivateRange::parse(entry).ok_or_else(|| InvalidEntry {
-                setting: PRIVATE_RANGES,
-                entry: entry.to_owned(),
-            })?;
-            self.private_ranges.push(range);
+            match PrivateRange::parse(entry) {
+                Ok(PrivateRange::Block { first, prefix }) => {
+                    self.private_ranges.push(Block { first, prefix });
+                }
+                Ok(PrivateRange::Host(host)) => {
+                    self.private_hosts.insert(host.into());
+                }
+                Err(_) => {
+                    return Err(InvalidEntry {
+                        setting: PRIVATE_RANGES,
+                        entry: entry.to_owned(),
+                    });
+                }
+            }
         }
         Ok(self)
     }
 
-    /// Whether a range lets a page reach `address`, whose class is `class`.
-    fn lists(&self, address: IpAddr, class: AddressClass) -> bool {
-        self.private_ranges.iter().any(|range| {
+    /// Whether an entry lets a page reach `address`, whose class is
+    /// `class`, on a connection for `url`.
+    fn lists(&self, url: &str, address: IpAddr, class: AddressClass) -> bool {
+        let in_a_block = self.private_ranges.iter().any(|range| {
             range.contains(address) && (class != AddressClass::Metadata || range.is_one(address))
-        })
+        });
+        in_a_block || (class != AddressClass::Metadata && self.lists_host_of(url))
+    }
+
+    /// Whether `url`'s host is one `egress.private_ranges` names.
+    fn lists_host_of(&self, url: &str) -> bool {
+        if self.private_hosts.is_empty() {
+            return false;
+        }
+        match Url::parse(url).ok().as_ref().and_then(Url::host) {
+            Some(Host::Domain(domain)) => self
+                .private_hosts
+                .contains(without_root(&domain.to_ascii_lowercase())),
+            _ => false,
+        }
     }
 }
 
-impl PrivateRange {
-    fn parse(entry: &str) -> Option<Self> {
-        let (address, prefix) = match entry.split_once('/') {
-            Some((address, prefix)) => (address, Some(prefix)),
-            None => (entry, None),
-        };
-        let first: IpAddr = address.parse().ok()?;
-        let bits = if first.is_ipv4() { 32 } else { 128 };
-        let prefix = match prefix {
-            Some(prefix) => prefix.parse().ok().filter(|prefix| *prefix <= bits)?,
-            None => bits,
-        };
-        Some(Self { first, prefix })
-    }
-
+impl Block {
     fn contains(self, address: IpAddr) -> bool {
         match (self.first, address) {
             (IpAddr::V4(first), IpAddr::V4(address)) => {
@@ -470,10 +497,8 @@ impl PrivateRange {
     }
 }
 
-/// The setting that lists the private ranges a page may reach. #622
-/// declares its key with who may set it; until then a [`Policy`] gets its
-/// ranges from [`Policy::with_private_ranges`] alone.
-pub const PRIVATE_RANGES: &str = "egress.private_ranges";
+/// The setting that lists the private ranges a page may reach.
+pub const PRIVATE_RANGES: &str = EGRESS_PRIVATE_RANGES.name;
 
 /// Judges the addresses a connection for `url` may try, every answer its
 /// host has, before it tries any (ADR 0017): one a page may not reach
@@ -486,15 +511,26 @@ pub const PRIVATE_RANGES: &str = "egress.private_ranges";
 ///
 /// [`Refused`] with [`EgressRule::PrivateAddress`] and the first address a
 /// page may not reach, naming `egress.private_ranges` unless no range could
-/// allow it (an address with a zone ID).
+/// allow it (an address with a zone ID). None while the Session's
+/// `security.resolved_ip_check` is off.
 pub fn judge_addresses(
     url: &str,
     addresses: &[SocketAddr],
     session: &Policy,
 ) -> Result<(), Refused> {
+    if !session.resolved_ip_check {
+        return Ok(());
+    }
+    judge_reachable(url, addresses, session)
+}
+
+/// [`judge_addresses`] whatever the switch says, for the rules that are
+/// not the run's resolved-address check, such as ADR 0056's for a
+/// `cdp_url`.
+fn judge_reachable(url: &str, addresses: &[SocketAddr], session: &Policy) -> Result<(), Refused> {
     for address in addresses {
         let class = classify_socket(*address);
-        let listed = class != AddressClass::ZoneId && session.lists(address.ip(), class);
+        let listed = class != AddressClass::ZoneId && session.lists(url, address.ip(), class);
         if class.is_global() || listed {
             continue;
         }

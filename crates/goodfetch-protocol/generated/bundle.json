@@ -14704,6 +14704,18 @@
                     "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
                     "type": "boolean"
                   },
+                  "private_ranges": {
+                    "description": "The ranges and hosts that addresses a page can reach may use although they are not globally reachable, for tests against a local site or an intranet: CIDR ranges such as `127.0.0.0/8`, IP addresses, and host names, each name's connections allowed any address that is not globally reachable. A cloud-metadata address (`169.254.169.254`, `fd00:ec2::254`, `100.100.100.200`) is reached only when listed by its exact address, never through a range or a host name that covers it. Empty by default; set by the program's own code, configuration or an Operator policy, by a Recipe only where the Operator policy's `egress.recipe_private_ranges` allows it, and never by a Client acting for a model, whose value is `setting_locked`. A run that lists any records it once in the Audit log as `private_addresses_allowed` and in its Run report's `weakened`.",
+                    "items": {
+                      "description": "A CIDR range such as `127.0.0.0/8`, an IP address such as `169.254.169.254`, or a host name such as `intranet.example`.",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "recipe_private_ranges": {
+                    "description": "Whether a Recipe may set `egress.private_ranges`. `false` by default, so a Recipe's value is `setting_locked`; set only in an Operator policy.",
+                    "type": "boolean"
+                  },
                   "rotation_block": {
                     "additionalProperties": false,
                     "properties": {
@@ -16938,6 +16950,18 @@
                   },
                   "offline": {
                     "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
+                    "type": "boolean"
+                  },
+                  "private_ranges": {
+                    "description": "The ranges and hosts that addresses a page can reach may use although they are not globally reachable, for tests against a local site or an intranet: CIDR ranges such as `127.0.0.0/8`, IP addresses, and host names, each name's connections allowed any address that is not globally reachable. A cloud-metadata address (`169.254.169.254`, `fd00:ec2::254`, `100.100.100.200`) is reached only when listed by its exact address, never through a range or a host name that covers it. Empty by default; set by the program's own code, configuration or an Operator policy, by a Recipe only where the Operator policy's `egress.recipe_private_ranges` allows it, and never by a Client acting for a model, whose value is `setting_locked`. A run that lists any records it once in the Audit log as `private_addresses_allowed` and in its Run report's `weakened`.",
+                    "items": {
+                      "description": "A CIDR range such as `127.0.0.0/8`, an IP address such as `169.254.169.254`, or a host name such as `intranet.example`.",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "recipe_private_ranges": {
+                    "description": "Whether a Recipe may set `egress.private_ranges`. `false` by default, so a Recipe's value is `setting_locked`; set only in an Operator policy.",
                     "type": "boolean"
                   },
                   "rotation_block": {
@@ -19190,6 +19214,18 @@
                   },
                   "offline": {
                     "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
+                    "type": "boolean"
+                  },
+                  "private_ranges": {
+                    "description": "The ranges and hosts that addresses a page can reach may use although they are not globally reachable, for tests against a local site or an intranet: CIDR ranges such as `127.0.0.0/8`, IP addresses, and host names, each name's connections allowed any address that is not globally reachable. A cloud-metadata address (`169.254.169.254`, `fd00:ec2::254`, `100.100.100.200`) is reached only when listed by its exact address, never through a range or a host name that covers it. Empty by default; set by the program's own code, configuration or an Operator policy, by a Recipe only where the Operator policy's `egress.recipe_private_ranges` allows it, and never by a Client acting for a model, whose value is `setting_locked`. A run that lists any records it once in the Audit log as `private_addresses_allowed` and in its Run report's `weakened`.",
+                    "items": {
+                      "description": "A CIDR range such as `127.0.0.0/8`, an IP address such as `169.254.169.254`, or a host name such as `intranet.example`.",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "recipe_private_ranges": {
+                    "description": "Whether a Recipe may set `egress.private_ranges`. `false` by default, so a Recipe's value is `setting_locked`; set only in an Operator policy.",
                     "type": "boolean"
                   },
                   "rotation_block": {

@@ -930,7 +930,7 @@ lazyfs-test:
     {{ just_executable() }} console-build
     GOODFETCH_LAZYFS=$(cargo run --quiet -p xtask -- lazyfs build)
     export GOODFETCH_LAZYFS GOODFETCH_TEST_SUITE=release
-    cargo nextest run -p goodfetch-test-support -p goodfetch-collie --profile ci \
+    cargo nextest run -p goodfetch-test-support -p goodfetch-engine -p goodfetch-collie --profile ci \
       --cargo-profile {{ test_profile }} --ignore-default-filter \
       -E 'kind(test) & test(/^lazyfs::/)'
 

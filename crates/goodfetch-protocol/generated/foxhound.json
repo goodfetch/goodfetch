@@ -15257,7 +15257,7 @@
       "authority": "every",
       "clearable": false,
       "default": false,
-      "description": "Whether a crawl request races its tiers: browser-fetch first, then the navigation after the Label-on-domain's median browser-fetch latency, the first result that passes the Page check and the Label's comparison winning, both counting in Politeness and Usage. Set for the Run only: a Label setting it is refused with `setting_not_applicable`. Off by default; switched on, the crawl's start is refused with `capability_unavailable` until the race is built.",
+      "description": "Whether a crawl request races its tiers: browser-fetch first, then the navigation after the Label-on-domain's median browser-fetch latency, the first result that passes the Page check and the Label's comparison winning, both counting in Politeness and Usage. The loser is cancelled, and Provenance records the race. Set for the Run only: a Label setting it is refused with `setting_not_applicable`, as is a Run switching it on while `politeness.domain.concurrency` is 1, where the navigation could never start. Off by default.",
       "name": "fetch.tier_race",
       "product": "foxhound",
       "products": [

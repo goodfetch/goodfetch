@@ -33,7 +33,7 @@ use goodfetch_protocol::egress::{
 pub use goodfetch_protocol::egress::{Ipv6Prefix, LocalAddresses};
 
 pub use self::host::System;
-use crate::composition::CallError;
+use crate::CallError;
 use crate::settings::Resolved;
 
 /// The built-in IPv4 block size, a /24.

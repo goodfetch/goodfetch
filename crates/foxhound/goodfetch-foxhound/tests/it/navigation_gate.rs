@@ -735,8 +735,9 @@ const HANDLERS: usize = 8;
 /// one domain.
 const CATALOG_HOST: &str = "catalog.test";
 
-/// The delay between starts the eight-handler case sets.
-const EIGHT_DELAY_MILLISECONDS: u64 = 2_000;
+/// The delay between starts the eight-handler case sets: eight of them
+/// outlast its lease.
+const EIGHT_DELAY_MILLISECONDS: u64 = 3_500;
 
 /// Eight handlers running at once, each going to its own page of one
 /// domain at the same moment, press that domain one request at a time:
@@ -748,37 +749,22 @@ const EIGHT_DELAY_MILLISECONDS: u64 = 2_000;
 ///
 /// Each seed is on a domain of its own, so the eight are handled at once,
 /// and the engine sends nothing for them under the built-in `fetch.tier`.
-/// Each is added once
-/// the handler before it opened its page in the Run, so each page takes the
-/// gate and lease of its own attempt, the one handed over last.
+/// Each is added once the handler before it opened its page in the Run, so
+/// each page takes the gate and lease of its own attempt, the one handed
+/// over last. Nothing renews a lease while its handler only holds its page,
+/// so the eight openings must fit in the first one's lease: a first seed's
+/// handler starts the Run's browser before them, and its page's navigation
+/// passes the Session's egress relay once, so that no `goto` of the eight
+/// waits for the browser's start or the relay's credentials.
 ///
-/// Covers: story:6-245, story:5-134, setting:politeness.domain.delay, setting:crawl.handler.concurrency, setting:timeout.handler, operation:page.goto, operation:run.new_page, operation:run.add_seed
+/// Covers: story:6-245, story:5-134, setting:politeness.domain.delay, setting:crawl.handler.concurrency, setting:timeout.handler, setting:crawl.keep_alive, operation:page.goto, operation:run.new_page, operation:run.add_seed
 #[test]
 fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
     let pages: Vec<String> = (1..=HANDLERS).map(|n| format!("/catalog/{n}")).collect();
-    let seed = |n: usize| json!({ "url": format!("https://seed-{n}.test/"), "label": "page" });
-    let mut settings = settings(
-        &proving_ground,
-        &json!({
-            // A lease of 1 s plus the 10 s margin, shorter than the last
-            // handler's wait for its permit.
-            "timeout": { "handler": 1_000 },
-            "politeness": { "domain": { "delay": EIGHT_DELAY_MILLISECONDS } },
-            "crawl": { "handler": { "concurrency": HANDLERS } },
-        }),
-    );
-    // The built-in tier: the engine sends nothing for the seeds and hands
-    // each handler its request alone (a set `auto` fetches them first, #767).
-    if let Some(settings) = settings.as_object_mut() {
-        settings.remove("fetch");
-    }
-    engine.send(&json!({
-        "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": "eight", "seeds": [seed(1)], "settings": settings },
-    }));
+    start_eight(&mut engine, &proving_ground);
 
     let (mut handles, mut opened, mut answers) = (Vec::new(), Vec::new(), Vec::new());
     let report = loop {
@@ -806,7 +792,7 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
             if opened.len() < HANDLERS {
                 engine.send(&json!({
                     "jsonrpc": "2.0", "id": "add", "method": "run.add_seed",
-                    "params": { "run_id": "eight", "seed": seed(opened.len() + 1) },
+                    "params": { "run_id": "eight", "seed": eight_seed(opened.len() + 1) },
                 }));
                 continue;
             }
@@ -826,7 +812,7 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
             }));
         } else if let Some(number) = id.strip_prefix("goto-") {
             let number: usize = number.parse().unwrap();
-            answers.push(message["result"]["response"]["status"].clone());
+            answers.push(status_or_code(&message));
             engine.send(&json!({
                 "jsonrpc": "2.0", "id": handles[number], "result": { "records": [] },
             }));
@@ -863,6 +849,85 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
         ),
         "{arrived:?}"
     );
+}
+
+/// The eight-handler crawl's seed `n`, each on a domain of its own.
+fn eight_seed(n: usize) -> Value {
+    json!({ "url": format!("https://seed-{n}.test/"), "label": "page" })
+}
+
+/// Starts the eight-handler crawl from its first seed, which [`warm_up`]
+/// handles, then adds the first of the eight.
+fn start_eight(engine: &mut Attached, proving_ground: &ProvingGround) {
+    let mut settings = settings(
+        proving_ground,
+        &json!({
+            // A lease of 15 s plus the 10 s margin, shorter than the last
+            // handler's wait for its permit.
+            "timeout": { "handler": 15_000 },
+            "politeness": { "domain": { "delay": EIGHT_DELAY_MILLISECONDS } },
+            // Kept alive until `run.finish`: it waits for each seed.
+            "crawl": { "handler": { "concurrency": HANDLERS }, "keep_alive": true },
+        }),
+    );
+    // The built-in tier: the engine sends nothing for the seeds and hands
+    // each handler its request alone (a set `auto` fetches them first, #767).
+    if let Some(settings) = settings.as_object_mut() {
+        settings.remove("fetch");
+    }
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
+        "params": { "run_id": "eight", "seeds": [eight_seed(0)], "settings": settings },
+    }));
+    warm_up(engine, proving_ground);
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "add", "method": "run.add_seed",
+        "params": { "run_id": "eight", "seed": eight_seed(1) },
+    }));
+}
+
+/// Handles the eight-handler crawl's first seed: its handler opens a page,
+/// which starts the Run's browser, and goes to a page of another domain
+/// through the Session's egress relay, then answers.
+fn warm_up(engine: &mut Attached, proving_ground: &ProvingGround) {
+    let (mut started, mut handle, mut others) = (false, None, Vec::new());
+    while !started || handle.is_none() {
+        let message = engine.next().expect("the engine answers");
+        if message["method"] == "crawl_request.handle" {
+            handle = Some(message["id"].clone());
+        } else {
+            assert_eq!(message["id"], "start", "{message}");
+            assert!(message.get("result").is_some(), "{message}");
+            started = true;
+        }
+    }
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "warm-page", "method": "run.new_page",
+        "params": { "run_id": "eight" },
+    }));
+    let page_id = answer_to(engine, "warm-page", &mut others)["result"]["page_id"].clone();
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "warm-goto", "method": "page.goto",
+        "params": { "page_id": page_id, "url": proving_ground.url("1.links.test", "/guide/") },
+    }));
+    let went = answer_to(engine, "warm-goto", &mut others);
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": handle, "result": { "records": [] },
+    }));
+    assert_eq!(
+        (status_or_code(&went), others),
+        (json!(200), Vec::<Value>::new())
+    );
+}
+
+/// The status of a `goto`'s response, or the Error code that refused it.
+fn status_or_code(answer: &Value) -> Value {
+    let status = &answer["result"]["response"]["status"];
+    if status.is_null() {
+        code(answer)
+    } else {
+        status.clone()
+    }
 }
 
 /// The Error code of a call's refusal.

@@ -81,7 +81,8 @@ fn navigations_sent(env: &TestEnv, run_id: &str) -> u64 {
 /// request of the same Label waits its first's latency, the median of one,
 /// before its navigation, which never starts: its unheld browser-fetch won
 /// before. A first request of another Label warms the browser, so neither
-/// run of the held race waits for it to launch.
+/// run of the held race waits for it to launch; that request's own race
+/// may go either way, so only its count is judged.
 ///
 /// Covers: story:6-263, setting:fetch.tier_race, operation:crawl.start
 #[test]
@@ -115,8 +116,12 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
         .collect();
     let next_delay = list_races[1][1].clone();
     list_races[1][1] = Value::Null;
-    let mut chosen = tiers(&env, "won-by-fetch");
+    let mut chosen: Vec<Value> = tiers(&env, "won-by-fetch")
+        .into_iter()
+        .filter(|entry| entry[0] == "list")
+        .collect();
     chosen.sort_by_key(Value::to_string);
+    seen.retain(|(url, _)| *url != warm);
     assert_eq!(
         (
             &report["result"]["lifecycle"],
@@ -134,11 +139,7 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
         ),
         (
             &json!("finished"),
-            vec![
-                (warm, json!("http")),
-                (held, json!("http")),
-                (next, json!("http")),
-            ],
+            vec![(held, json!("http")), (next, json!("http"))],
             vec![json!("succeeded"); 3],
             2,
             1,
@@ -147,10 +148,7 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
                 json!(["list", null, "won", "not_sent", "browser_fetch"]),
             ],
             true,
-            vec![json!(["list", "http", "race", null, null]); 2]
-                .into_iter()
-                .chain([json!(["warm", "http", "race", null, null])])
-                .collect::<Vec<_>>(),
+            vec![json!(["list", "http", "race", null, null]); 2],
             // Three crawl requests and each navigation sent.
             &json!(3 + navigations_sent(&env, "won-by-fetch")),
         ),
@@ -161,7 +159,9 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
 /// browser-fetch serves lacks them and fails the Page check, so the
 /// navigation started 500 ms after it wins, its page, where the script ran,
 /// passing; the handler is given the browser's page only. The site received
-/// both, and Usage counts both.
+/// both, and Usage counts both. A first request of another Label warms the
+/// browser, so browser-fetch does not wait for it to launch; that
+/// request's own race may go either way, so only its count is judged.
 ///
 /// Covers: story:6-263, setting:fetch.tier_race, setting:session.page_check
 #[test]
@@ -169,38 +169,53 @@ fn a_navigation_wins_when_browser_fetch_fails_the_page_check() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
+    let warm = proving_ground.url(HOST, "/products/9");
     let blog = proving_ground.url(HOST, "/blog/1");
 
     let mut seen = Vec::new();
     let report = crawl_declaring(
         &mut engine,
         "won-by-navigation",
-        &[json!({ "url": blog, "label": "blog" })],
-        &json!({ "blog": expecting("li.item", &json!({})) }),
+        &[
+            json!({ "url": warm, "label": "warm" }),
+            json!({ "url": blog, "label": "blog" }),
+        ],
+        &json!({ "warm": {}, "blog": expecting("li.item", &json!({})) }),
         &racing(&proving_ground),
         &mut recording(&mut seen),
     );
     let ended = outcomes(&mut engine, "won-by-navigation");
     assert!(engine.finish());
 
+    seen.retain(|(url, _)| *url != warm);
+    let of_blog = |entries: Vec<Value>| -> Vec<Value> {
+        entries
+            .into_iter()
+            .filter(|entry| entry[0] == "blog")
+            .collect()
+    };
     assert_eq!(
         (
             &report["result"]["lifecycle"],
             seen,
             ended,
             received(&proving_ground, "/blog/1"),
-            races(&env, "won-by-navigation"),
-            tiers(&env, "won-by-navigation"),
+            of_blog(races(&env, "won-by-navigation")),
+            of_blog(tiers(&env, "won-by-navigation")),
             &report["result"]["usage"]["requests"],
         ),
         (
             &json!("finished"),
             vec![(blog.clone(), json!("browser"))],
-            vec![(blog, json!("succeeded"), Value::Null)],
+            vec![
+                (blog, json!("succeeded"), Value::Null),
+                (warm, json!("succeeded"), Value::Null),
+            ],
             2,
             vec![json!(["blog", 500, "failed", "won", "browser"])],
             vec![json!(["blog", "browser", "race", null, null])],
-            &json!(2),
+            // Two crawl requests and each navigation sent.
+            &json!(2 + navigations_sent(&env, "won-by-navigation")),
         ),
     );
 }

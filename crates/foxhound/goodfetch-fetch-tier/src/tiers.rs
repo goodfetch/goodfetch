@@ -703,8 +703,8 @@ impl FetchTiers {
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future may leave the page open; [`FetchTiers::close_browser`]
-    /// closes it.
+    /// Dropping the future once the page opened closes it, its navigation
+    /// with it.
     pub async fn browser(
         &self,
         run_id: &RunId,
@@ -1036,7 +1036,7 @@ pub enum RaceEnd {
     Failed,
     /// It was sent, then cancelled once the other won.
     Cancelled,
-    /// It was never sent: the other won first, or its domain had no room.
+    /// It was never sent: the other won first, or Usage had none left.
     NotSent,
 }
 

@@ -19,8 +19,8 @@
 //! first page that passes the Page check, browser-fetch's only when it also
 //! agrees with its Label's comparison, wins and is handed to the handler;
 //! the other is cancelled: a browser-fetch in flight is dropped, its
-//! connection closed, and a navigation not yet sent is never sent, one
-//! sent has its page closed once it opened. Provenance records the race.
+//! connection closed, and a navigation not yet sent is never sent, while
+//! one sent has its page closed, its load with it. Provenance records the race.
 //! A browser-fetch whose document arrived gives its Label on its domain one
 //! latency, which times its later races.
 //!

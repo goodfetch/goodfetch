@@ -263,12 +263,17 @@ enum Navigated {
     Opened(PageId),
     /// It failed, its Page check included.
     Failed(CallError),
-    /// It was never sent: its domain had no room, or Usage none left.
+    /// It was never sent: Usage had none left.
     NotSent,
 }
 
-/// A race's navigation, run as a task of its own so a lost one's page is
-/// closed once it opened.
+/// How long a race's navigation whose domain is full waits before it asks
+/// for room again: the Politeness file wakes only the admission's own
+/// waiters.
+const FULL_RETRY: Duration = Duration::from_millis(250);
+
+/// A race's navigation, run as a task of its own: cancelled, it is never
+/// sent, or its page closes, its load with it.
 struct Navigation {
     run: Run,
     tiers: FetchTiers,
@@ -283,7 +288,8 @@ struct Navigation {
 
 impl Navigation {
     /// Waits for its start, then for room beside the attempt's own as a
-    /// second copy, charges one request in Usage and navigates, unless
+    /// second copy, asking again every [`FULL_RETRY`] while its domain is
+    /// full, as the navigation gate does, charges one request in Usage and navigates, unless
     /// `cancelled` resolves first; tells `sending` once it is sent,
     /// answers on `navigated`, and closes the page of a navigation no one
     /// waits for any more.
@@ -304,10 +310,9 @@ impl Navigation {
             match self.second_copies.take(&self.domain_key, clock.now()).await {
                 Room::Taken(copy) => break copy,
                 Room::Until(moment) => until = moment,
-                Room::Full => {
-                    let _ = navigated.send(Navigated::NotSent);
-                    return;
-                }
+                // Room frees as the domain's requests end; the race's end
+                // cancels the wait.
+                Room::Full => until = clock.now() + FULL_RETRY,
             }
         };
         if !matches!(
@@ -320,11 +325,16 @@ impl Navigation {
             return;
         }
         let _ = sending.send(());
-        let opened = self
-            .tiers
-            .browser(self.run.id(), &self.pooled, &self.url, &self.context)
-            .await;
+        let opened = tokio::select! {
+            biased;
+            // Dropped, the navigation's page closes, its load with it.
+            _ = &mut cancelled => None,
+            opened = self.tiers.browser(self.run.id(), &self.pooled, &self.url, &self.context) => Some(opened),
+        };
         self.second_copies.give_back(copy).await;
+        let Some(opened) = opened else {
+            return;
+        };
         match opened {
             Ok((page_id, _)) => {
                 if let Err(Navigated::Opened(page_id)) = navigated.send(Navigated::Opened(page_id))

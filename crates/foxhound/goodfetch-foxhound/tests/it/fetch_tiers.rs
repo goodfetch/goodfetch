@@ -69,7 +69,12 @@ fn settings(proving_ground: &ProvingGround, more: &Value) -> Value {
         .iter()
         .map(|(host, address)| (host.clone(), json!([address])))
         .collect();
-    let mut settings = json!({ "network": { "resolve": resolve } });
+    // A browser tier reaches the Proving ground through the egress relay,
+    // which judges a mapping's answers as any other.
+    let mut settings = json!({
+        "network": { "resolve": resolve },
+        "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
+    });
     if let (Some(settings), Some(more)) = (settings.as_object_mut(), more.as_object()) {
         settings.extend(more.clone());
     }

@@ -432,7 +432,7 @@ pub(super) fn settings(
         RUN_START.name,
         &json!({
             "run_id": "conformance-consent-widened",
-            "settings": { "consent": { "domains": [HOST] }, "network": { "resolve": site.resolve } },
+            "settings": site.mapped(&json!({ "consent": { "domains": [HOST] } })),
         }),
     )?;
     let widened = connection.answer(id)?.message;

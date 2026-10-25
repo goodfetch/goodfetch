@@ -55,6 +55,9 @@ fn settings(proving_ground: &ProvingGround, more: &Value) -> Value {
     let mut settings = json!({
         "fetch": { "tier": "http" },
         "network": { "resolve": resolve },
+        // The handler's pages reach the Proving ground through the egress
+        // relay, which judges a mapping's answers as any other.
+        "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
     });
     if let (Some(settings), Some(more)) = (settings.as_object_mut(), more.as_object()) {
         settings.extend(more.clone());

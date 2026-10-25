@@ -258,6 +258,7 @@ fn settings(proving_ground: Option<&ProvingGround>, clean_up: Value) -> Map<Stri
         resolve.insert(host.to_owned(), json!(["127.0.0.1"]));
     }
     let mut settings = Map::new();
+    crate::page::allow_private(&mut settings, resolve.keys());
     settings.insert("network".to_owned(), json!({ "resolve": resolve }));
     settings.insert("clean_up".to_owned(), clean_up);
     settings

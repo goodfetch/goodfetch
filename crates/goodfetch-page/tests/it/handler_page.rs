@@ -411,6 +411,12 @@ pub(crate) fn with_handler_page(
                 .map(|(host, address)| (host.clone(), json!([address])))
                 .collect();
             let mut settings = settings;
+            // The egress relay judges a mapping's answers as any other, so
+            // the Run lists the mapped hosts in its private ranges.
+            settings.insert(
+                "egress".to_owned(),
+                json!({ "private_ranges": resolve.keys().collect::<Vec<_>>() }),
+            );
             settings.insert("network".to_owned(), json!({ "resolve": resolve }));
             let started = program
                 .call("run.start", &json!({ "run_id": RUN, "settings": settings }))

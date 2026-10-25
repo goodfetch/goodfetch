@@ -349,7 +349,6 @@ impl serve::Network for InMemory {
         let address = host.parse().unwrap_or(SITE_ADDRESS);
         std::future::ready(Some(serve::Resolved {
             addresses: vec![std::net::SocketAddr::new(address, port)],
-            mapped: false,
         }))
     }
 

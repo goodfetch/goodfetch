@@ -1374,3 +1374,123 @@ fn no_private_endpoints_is_taken_from_the_operator_policy_alone(
         Err(refused) => assert_eq!((taken, refused.code()), (false, "setting_locked")),
     }
 }
+
+/// Story 4-11 (spec #563): `egress.private_ranges` is set by the program's
+/// own code, configuration and the Operator policy; a Client acting for a
+/// model is refused with `setting_locked`, and so is a Recipe unless the
+/// Operator policy's `egress.recipe_private_ranges` allows it.
+/// Covers: story:4-11, error:setting_locked, setting:egress.private_ranges, setting:egress.recipe_private_ranges
+#[rstest]
+#[case::from_the_programs_own_code(SettingsLayer::Run, false, false, true)]
+#[case::from_a_model(SettingsLayer::Run, true, false, false)]
+#[case::from_a_model_even_where_recipes_may(SettingsLayer::Run, true, true, false)]
+#[case::from_user_configuration(SettingsLayer::UserConfiguration, false, false, true)]
+#[case::from_project_configuration(SettingsLayer::ProjectConfiguration, false, false, true)]
+#[case::from_a_models_project_configuration(
+    SettingsLayer::ProjectConfiguration,
+    true,
+    false,
+    false
+)]
+#[case::from_the_operator_policy(SettingsLayer::OperatorPolicy, false, false, true)]
+#[case::from_a_recipe(SettingsLayer::Recipe, false, false, false)]
+#[case::from_a_recipe_the_operator_policy_allows(SettingsLayer::Recipe, false, true, true)]
+fn private_ranges_are_never_a_models_and_a_recipes_only_where_the_operator_policy_allows(
+    #[case] layer: SettingsLayer,
+    #[case] for_model: bool,
+    #[case] recipes_may: bool,
+    #[case] taken: bool,
+) {
+    let ranges = json!(["127.0.0.0/8"]);
+    let mut layers = only(layer, "egress.private_ranges", &ranges);
+    if for_model {
+        layers.run = layers.run.from_model();
+        layers.project_configuration = layers.project_configuration.from_model();
+    }
+    if recipes_may {
+        layers
+            .operator_policy
+            .settings
+            .applied
+            .insert("egress.recipe_private_ranges", json!(true));
+    }
+
+    let resolved = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    match resolved {
+        Ok(effective) => assert_eq!(
+            (taken, effective.value("egress.private_ranges")),
+            (true, &ranges)
+        ),
+        Err(refused) => assert_eq!(
+            (
+                taken,
+                refused.code(),
+                format!("{refused:?}").contains("egress.private_ranges")
+            ),
+            (false, "setting_locked", true),
+            "{refused:?}"
+        ),
+    }
+}
+
+/// A run that lists private ranges is weakened: its Run report's
+/// `weakened` names `egress.private_ranges` and the layer that set it,
+/// and one that lists none is not (positive control).
+/// Covers: story:4-11, setting:egress.private_ranges
+#[test]
+fn listing_private_ranges_weakens_the_run_and_listing_none_does_not() {
+    let listed = resolved(&only(
+        SettingsLayer::Run,
+        "egress.private_ranges",
+        &json!(["127.0.0.0/8"]),
+    ));
+    let none = resolved(&only(
+        SettingsLayer::Run,
+        "egress.private_ranges",
+        &json!([]),
+    ));
+
+    let names = |resolved: &Resolved| -> Vec<(String, SettingsLayer)> {
+        resolved
+            .weakened()
+            .into_iter()
+            .map(|weakened| (weakened.key, weakened.layer))
+            .filter(|(key, _)| key.starts_with("egress."))
+            .collect()
+    };
+    assert_eq!(
+        (names(&listed), names(&none)),
+        (
+            vec![("egress.private_ranges".to_owned(), SettingsLayer::Run)],
+            vec![]
+        )
+    );
+}
+
+/// Each entry is a CIDR range, an address or a host name; any other value
+/// is `setting_invalid` naming the key.
+/// Covers: story:4-11, error:setting_invalid, setting:egress.private_ranges
+#[rstest]
+#[case::a_range_too_long(json!(["10.0.0.0/33"]))]
+#[case::a_path(json!(["intranet.example/admin"]))]
+#[case::a_url(json!(["http://intranet.example"]))]
+#[case::a_wildcard(json!(["*.example"]))]
+#[case::no_list(json!("127.0.0.0/8"))]
+fn a_private_range_that_is_no_range_address_or_host_is_invalid(#[case] value: Value) {
+    let refused = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "egress": { "private_ranges": value } })),
+        Product::Collie,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        (
+            refused.code(),
+            format!("{refused:?}").contains("egress.private_ranges")
+        ),
+        ("setting_invalid", true),
+        "{refused:?}"
+    );
+}

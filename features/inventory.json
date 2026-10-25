@@ -5952,6 +5952,28 @@
       ]
     },
     {
+      "id": "setting:egress.private_ranges",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:egress.recipe_private_ranges",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:egress.rotation_block.ipv4",
       "kind": "setting",
       "area": 4,

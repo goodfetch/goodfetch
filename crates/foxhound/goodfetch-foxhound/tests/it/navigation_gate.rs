@@ -55,6 +55,9 @@ fn settings(proving_ground: &ProvingGround, more: &Value) -> Value {
     let mut settings = json!({
         "fetch": { "tier": "http" },
         "network": { "resolve": resolve },
+        // The handler's pages reach the Proving ground through the egress
+        // relay, which judges a mapping's answers as any other.
+        "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
     });
     if let (Some(settings), Some(more)) = (settings.as_object_mut(), more.as_object()) {
         settings.extend(more.clone());
@@ -894,7 +897,11 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
         }),
     );
     let mut others = Vec::new();
-    let program_page = program_page(&mut engine, &settings["network"], &mut others);
+    let program_page = program_page(
+        &mut engine,
+        &json!({ "network": settings["network"], "egress": settings["egress"] }),
+        &mut others,
+    );
     // The built-in tier: the engine sends nothing for the seed, so every
     // request the site gets is the handler's.
     if let Some(settings) = settings.as_object_mut() {
@@ -970,12 +977,12 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
 }
 
 /// Opens a page in a Run of the program's own, `program`, whose settings
-/// hold `network`, answering its ID; the replies and requests before it are
+/// are `settings`, answering its ID; the replies and requests before it are
 /// kept in `others`.
-fn program_page(engine: &mut Attached, network: &Value, others: &mut Vec<Value>) -> Value {
+fn program_page(engine: &mut Attached, settings: &Value, others: &mut Vec<Value>) -> Value {
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "program", "method": "run.start",
-        "params": { "run_id": "program", "settings": { "network": network } },
+        "params": { "run_id": "program", "settings": settings },
     }));
     let started = answer_to(engine, "program", others);
     assert!(started.get("result").is_some(), "{started}");

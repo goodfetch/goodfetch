@@ -212,6 +212,57 @@ impl Site {
         }
     }
 
+    /// `settings` with the site's `network.resolve` mapping, and, unless
+    /// `for_model` or `settings` list ranges, its hosts listed in
+    /// `egress.private_ranges`: the egress relay judges a mapping's answers
+    /// as any other (spec #563's reading of #325), so a case reaches the
+    /// Proving ground's loopback address by listing its hosts, the
+    /// resolved-address check left on, and `localhost` and literal
+    /// loopback addresses stay refused. A Client acting for a model never
+    /// sets the key; its cases list the hosts in user configuration
+    /// ([`Site::configured_hosts`]).
+    pub(crate) fn mapped(&self, settings: &Value, for_model: bool) -> Value {
+        let mut settings = settings.clone();
+        if !settings.is_object() {
+            settings = json!({});
+        }
+        settings["network"] = json!({ "resolve": self.resolve });
+        if for_model {
+            return settings;
+        }
+        if !settings["egress"].is_object() {
+            settings["egress"] = json!({});
+        }
+        if settings["egress"].get("private_ranges").is_none() {
+            settings["egress"]["private_ranges"] = json!(self.hosts());
+        }
+        settings
+    }
+
+    /// The hosts the site's mapping names.
+    fn hosts(&self) -> Vec<&String> {
+        self.resolve
+            .as_object()
+            .into_iter()
+            .flat_map(serde_json::Map::keys)
+            .collect()
+    }
+
+    /// The user configuration that lists the site's hosts in
+    /// `egress.private_ranges`, for a Client acting for a model, which
+    /// never sets the key itself.
+    pub(crate) fn configured_hosts(&self) -> String {
+        let hosts: Vec<String> = self
+            .hosts()
+            .iter()
+            .map(|host| format!("\"{host}\""))
+            .collect();
+        format!(
+            "version = \"0.1\"\n\n[settings.egress]\nprivate_ranges = [{}]\n",
+            hosts.join(", ")
+        )
+    }
+
     /// The address of the Proving ground's forward proxy `name`, such as
     /// `open`, if it serves one.
     fn proxy(&self, name: &str) -> Option<&str> {
@@ -670,8 +721,7 @@ pub(crate) fn start_run(
     settings: &Value,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let mut settings = settings.clone();
-    settings["network"] = json!({ "resolve": site.resolve });
+    let settings = site.mapped(settings, connection.acts_for_model());
     let id = connection.request(
         RUN_START.name,
         &json!({ "run_id": run_id, "settings": settings }),

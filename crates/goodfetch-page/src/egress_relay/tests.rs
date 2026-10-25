@@ -148,7 +148,6 @@ impl Network for Scripted {
         if let Some(mapped) = self.mapping.get(host) {
             return Some(Resolved {
                 addresses: on_port(mapped),
-                mapped: true,
             });
         }
         let addresses = match host.parse::<IpAddr>() {
@@ -157,7 +156,6 @@ impl Network for Scripted {
         };
         Some(Resolved {
             addresses: on_port(&addresses),
-            mapped: false,
         })
     }
 
@@ -639,4 +637,66 @@ fn a_client_hello_is_read_from_its_records_whole_or_split() {
             Err(super::client_hello::Unread::Malformed),
         ]
     );
+}
+
+/// The Run's `network.resolve` mapping applies before every lookup and its
+/// answer is still judged (ADR 0059; spec #563's reading of #325): a name
+/// mapped to loopback or to the metadata stand-in reaches it only where
+/// `egress.private_ranges` lists it, the metadata address only by its
+/// exact address, never through a range that covers it. The far end of
+/// the Scripted network at 169.254.169.254 stands in for the metadata
+/// service; the oracle is the connections the relay opened.
+///
+/// Covers: story:4-11, story:4-13, error:egress_refused, setting:egress.private_ranges, setting:network.resolve
+#[rstest::rstest]
+#[case::loopback_unlisted("127.0.0.1", &[], false)]
+#[case::loopback_under_its_range("127.0.0.1", &["127.0.0.0/8"], true)]
+#[case::loopback_by_the_hosts_name("127.0.0.1", &["mapped.test"], true)]
+#[case::metadata_under_a_range_that_covers_it("169.254.169.254", &["169.254.0.0/16"], false)]
+#[case::metadata_through_the_hosts_name("169.254.169.254", &["mapped.test"], false)]
+#[case::metadata_by_its_exact_address("169.254.169.254", &["169.254.169.254"], true)]
+fn a_mapped_answer_is_judged_and_reaches_only_what_the_private_ranges_list(
+    #[case] mapped: &str,
+    #[case] ranges: &[&str],
+    #[case] reached: bool,
+) {
+    let mut network = Scripted::new(None, Far::Site);
+    network
+        .mapping
+        .insert("mapped.test".to_owned(), vec![mapped.parse().unwrap()]);
+    let told = Told::default();
+    let relaying = relaying(
+        every_host().with_private_ranges(ranges).unwrap(),
+        Upstream::Direct,
+    );
+
+    let (answer, _) = goodfetch_test_support::runtime().block_on(through(
+        &connect("mapped.test:443"),
+        GET,
+        &relaying,
+        &network,
+        &told,
+    ));
+
+    let address: IpAddr = mapped.parse().unwrap();
+    let refusals: Vec<_> = told
+        .refused
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(refused, _)| (refused.rule, refused.address))
+        .collect();
+    if reached {
+        assert_eq!(
+            (network.connections(), refusals, answer.ends_with("ok")),
+            (vec![Some(SocketAddr::new(address, 443))], vec![], true),
+            "{answer}"
+        );
+    } else {
+        assert_eq!(
+            (network.connections(), refusals),
+            (vec![], vec![(EgressRule::PrivateAddress, Some(address))]),
+            "{answer}"
+        );
+    }
 }

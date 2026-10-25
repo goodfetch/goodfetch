@@ -127,6 +127,7 @@ impl<'env> OnTask<'env> {
             .map(|(host, address)| (host.clone(), json!([address])))
             .collect();
         let mut run_settings = settings.clone();
+        crate::page::allow_private(&mut run_settings, resolve.keys());
         run_settings.insert("network".to_owned(), json!({ "resolve": resolve }));
         run_settings.insert("timeout".to_owned(), json!({ "action": action_timeout }));
         let started = call(

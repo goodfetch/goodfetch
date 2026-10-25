@@ -17,7 +17,7 @@ use goodfetch_protocol::egress::{
 use goodfetch_protocol::settings::SettingsLayer;
 use url::Url;
 
-use super::{EndpointPolicy, Policy, judge_addresses, judge_endpoint_addresses};
+use super::{EndpointPolicy, Policy, judge_endpoint_addresses, judge_reachable};
 use crate::composition::CallError;
 
 /// What `cdp_url_not_allowed` asks for.
@@ -161,7 +161,7 @@ pub fn judge_cdp_url(
             }
             return Err(refused(CdpUrlRule::Loopback, address.ip(), None));
         }
-        judge_addresses(url, std::slice::from_ref(address), session).map_err(|page| {
+        judge_reachable(url, std::slice::from_ref(address), session).map_err(|page| {
             refused(
                 CdpUrlRule::PrivateAddress,
                 page.address.unwrap_or(address.ip()),

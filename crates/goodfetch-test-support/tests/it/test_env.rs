@@ -257,7 +257,7 @@ fn a_proving_ground_without_its_resolve_mapping_fails_validation() {
             "address": "127.0.0.1:4000", "version": "0.0.0+0", "seed": 7, "ca": "/tmp/ca.pem",
             "fixtures": {
                 "proxies": {}, "proxy_credentials": { "username": "u", "password": "p" },
-                "dns": "127.0.0.1:4001", "target": "127.0.0.1:4002",
+                "dns": "127.0.0.1:4001", "target": "127.0.0.1:4002", "udp": "127.0.0.1:4003",
                 "connections": "http://127.0.0.1:4000/observations"
             }
         }

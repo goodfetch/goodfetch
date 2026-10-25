@@ -53,6 +53,22 @@ fn received(proving_ground: &ProvingGround, target: &str) -> usize {
         .count()
 }
 
+/// How long, in milliseconds, the Proving ground held its first answer to
+/// `target` on [`HOST`], from the request's arrival to the answer's send;
+/// `None` before it answered one.
+fn held_ms(proving_ground: &ProvingGround, target: &str) -> Option<u64> {
+    proving_ground.observations().unwrap()["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| request["host"] == HOST && request["target"] == target)
+        .find_map(|request| {
+            let timing = &request["timing"];
+            let answered = timing["answered_microseconds"].as_u64()?;
+            Some(answered.saturating_sub(timing["arrived_microseconds"].as_u64()?) / 1_000)
+        })
+}
+
 /// Each `tier_race` Provenance entry of `run_id`: its Label, its delay,
 /// how browser-fetch and the navigation ended, and the winner.
 fn races(env: &TestEnv, run_id: &str) -> Vec<Value> {
@@ -81,7 +97,11 @@ fn navigations_sent(env: &TestEnv, run_id: &str) -> u64 {
 /// A static listing held 3 s: browser-fetch's document passes the Page
 /// check first, so the handler is given it on `http`, and the navigation
 /// started 500 ms after it, the Label having no browser-fetch latency yet,
-/// is cancelled. The site received both, and Usage counts both. The next
+/// is cancelled. The site received both, and Usage counts both; the
+/// navigation's request reaches the site only as browser-fetch's answer
+/// arrives, since Chrome holds a second request for a URL its Session's
+/// HTTP cache is already fetching. The case first checks the Proving
+/// ground held that answer 3 s, its one premise. The next
 /// request of the same Label waits its first's latency, the median of one,
 /// before its navigation, which never starts: its unheld browser-fetch won
 /// before. A first request of another Label warms the browser, so neither
@@ -114,6 +134,14 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
     let ended = outcomes(&mut engine, "won-by-fetch");
     assert!(engine.finish());
 
+    // The case's one premise: a Proving ground executable that predates the
+    // `hold` query (a stale test tool manifest) answers at once, and every
+    // race below would read as browser-fetch winning before the delay.
+    let answered_after = held_ms(&proving_ground, "/products/1?hold=3000");
+    assert!(
+        answered_after.is_some_and(|after| after >= 3_000),
+        "the Proving ground held browser-fetch's answer {answered_after:?} ms, not 3000: its executable predates `tiers.test`'s `hold`; build the test tools again (`just test`)"
+    );
     let mut list_races: Vec<Value> = races(&env, "won-by-fetch")
         .into_iter()
         .filter(|race| race[0] == "list")

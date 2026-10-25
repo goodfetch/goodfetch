@@ -39,23 +39,28 @@ impl CleanUp {
     }
 
     /// Step 4 as `choices` make it for a page of `run`, its parts loaded
-    /// through the Run's blocking tasks if no page loaded them yet.
-    pub(super) async fn blocking(&self, choices: Choices, run: &Run) -> Blocking {
+    /// through the Run's blocking tasks if no page loaded them yet, and the
+    /// digest of the Filter lists' version, when any list is on.
+    pub(super) async fn blocking(&self, choices: Choices, run: &Run) -> (Blocking, Option<String>) {
         let owner = run.owner();
         let never_block = self
             .never_block
             .get_or_init(|| async { Arc::new(owner.blocking(NeverBlock::new).await) })
             .await;
-        let lists = if choices.needs_lists() {
-            Some(self.versions.lists(run, owner).await)
+        let (lists, version) = if choices.needs_lists() {
+            let held = self.versions.lists(run, owner).await;
+            (Some(held.lists), Some(held.digest))
         } else {
-            None
+            (None, None)
         };
-        Blocking {
-            never_block: Arc::clone(never_block),
-            lists,
-            choices,
-        }
+        (
+            Blocking {
+                never_block: Arc::clone(never_block),
+                lists,
+                choices,
+            },
+            version,
+        )
     }
 }
 

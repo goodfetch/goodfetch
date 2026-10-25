@@ -113,6 +113,14 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// The Filter lists of the version a Run holds to, loaded, and its digest,
+/// which names that version wherever a Run records what its rules did.
+#[derive(Clone)]
+pub(crate) struct HeldLists {
+    pub(crate) digest: String,
+    pub(crate) lists: Arc<FilterLists>,
+}
+
 /// One version of the Clean-up rules: its digest and its manifest.
 #[derive(Clone, Debug)]
 pub(crate) struct Version {
@@ -631,8 +639,8 @@ impl Versions {
     /// The Filter lists `run`'s pages match: the version it holds to,
     /// loaded once for every Run that holds to it, through `owner`'s
     /// blocking tasks; the embedded part, recorded in Provenance and warned
-    /// of, when its files no longer read.
-    pub(crate) async fn lists(&self, run: &Run, owner: &TaskOwner) -> Arc<FilterLists> {
+    /// of, when its files no longer read. Each comes with its digest.
+    pub(crate) async fn lists(&self, run: &Run, owner: &TaskOwner) -> HeldLists {
         let held = lock(&self.holding)
             .get(run.id())
             .map(|held| (held.digest.clone(), held.artifact.clone()));
@@ -646,18 +654,18 @@ impl Versions {
             ),
         };
         if let Some(lists) = self.loaded(&digest) {
-            return lists;
+            return HeldLists { digest, lists };
         }
         let _loading = self.loading.lock().await;
         if let Some(lists) = self.loaded(&digest) {
-            return lists;
+            return HeldLists { digest, lists };
         }
         if digest != EMBEDDED_DIGEST {
             match self.load(&digest, artifact, run, owner).await {
                 Ok(lists) => {
                     let lists = Arc::new(lists);
-                    lock(&self.loaded).insert(digest, Arc::downgrade(&lists));
-                    return lists;
+                    lock(&self.loaded).insert(digest.clone(), Arc::downgrade(&lists));
+                    return HeldLists { digest, lists };
                 }
                 Err(failure) => {
                     let fallback =
@@ -678,8 +686,9 @@ impl Versions {
                 }
             }
         }
+        let digest = EMBEDDED_DIGEST.to_owned();
         if let Some(lists) = self.loaded(EMBEDDED_DIGEST) {
-            return lists;
+            return HeldLists { digest, lists };
         }
         let lists = Arc::new(
             owner
@@ -688,7 +697,7 @@ impl Versions {
                 .expect("invariant: the build compiled the embedded Filter lists with this binary's own adblock"),
         );
         lock(&self.loaded).insert(EMBEDDED_DIGEST.to_owned(), Arc::downgrade(&lists));
-        lists
+        HeldLists { digest, lists }
     }
 
     /// The loaded version of `digest`, if a Run still holds it.

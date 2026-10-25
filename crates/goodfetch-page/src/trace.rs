@@ -7,7 +7,8 @@
 //! `run_trace` writes masked by the Run's `Mask`: one JSON
 //! line per entry, in `trace/provenance.jsonl`, each naming its `action`
 //! and its page, such as the live hiding a page ran under, a rule the guard
-//! lifted, or what extraction-side removal took from a document, and what
+//! lifted, or each `page.formats` call with the Clean-up rules' version and
+//! what extraction-side removal took from its document, and what
 //! a fetch tier did, such as a hedge it sent or a response two requests
 //! shared (ADR 0040).
 #![expect(

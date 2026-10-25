@@ -1,35 +1,46 @@
-//! A page's formats read once extraction-side removal ran (ADR 0047): the
-//! elements its Session's cosmetic rules match, and the prompts the Consent
-//! prompt runner hid (ADR 0048), go from its serialized document, shadow
-//! roots included, before the extractor reads it; what went, and the share
-//! of the main content's text it took, is a Provenance entry, flagged above
-//! a fifth.
+//! A page's formats read with the Clean-up rules (ADR 0047): the extractor
+//! reads its serialized document, shadow roots included, and applies,
+//! through its `Context`, the cosmetic matcher this module makes of the
+//! page's Session's cosmetic rules and of the prompts the Consent prompt
+//! runner hid (ADR 0048), before the main-content step and the Markdown
+//! converter only. Each call is a Provenance entry of the Run trace: the
+//! version of the rules applied, what they removed and the share of the
+//! main content's text it took, flagged above a fifth (G6).
+
+use std::cell::RefCell;
 
 use goodfetch_clean_up_rules::removal::{self, Removed, Share};
-use goodfetch_extractor::{Context, Document};
+use goodfetch_extractor::{CleanUp, Context, Document};
 use goodfetch_protocol::page::{FormatsRequest, PageFormats, PageId, SessionId};
 use serde_json::{Value, json};
 
 use crate::driver::SerializedDocument;
 use crate::interception::Cosmetic;
 
-/// What removal took from one page's document, as Provenance records it.
-pub(super) struct Removal {
+/// What one `page.formats` call's rules did, as Provenance records it.
+pub(super) struct FormatsRead {
     url: String,
+    /// The digest of the Clean-up rules' version applied; none when no
+    /// Filter list of the page's Session is on.
+    version: Option<String>,
     removed: Vec<Removed>,
     removed_text: usize,
-    share: Share,
+    /// What the removal took of the main content's text; none when it took
+    /// nothing.
+    share: Option<Share>,
 }
 
-impl Removal {
+impl FormatsRead {
     /// Its Provenance entry, for the page `page_id` of the Session
-    /// `session_id`.
-    pub(super) fn entry(&self, page_id: &PageId, session_id: &SessionId) -> Value {
+    /// `session_id`, when it has one.
+    pub(super) fn entry(&self, page_id: &PageId, session_id: Option<&SessionId>) -> Value {
+        let share = self.share.unwrap_or(Share::of(0, 0));
         json!({
-            "action": "content_removed",
+            "action": "formats",
             "page_id": page_id,
             "session_id": session_id,
             "url": self.url,
+            "clean_up_rules": self.version,
             "removed": self.removed.iter().map(|element| json!({
                 "rule": element.rule,
                 // A prompt the Consent prompt runner hid names no list.
@@ -39,63 +50,80 @@ impl Removal {
                 "links": element.links,
             })).collect::<Vec<_>>(),
             "removed_text": self.removed_text,
-            "main_content": { "before": self.share.before, "after": self.share.after },
-            "share": self.share.taken(),
-            "flagged": self.share.flagged(),
+            "main_content": self.share.map(|share| json!({ "before": share.before, "after": share.after })),
+            "share": share.taken(),
+            "flagged": share.flagged(),
         })
     }
 }
 
-/// The formats `request` names, read from `document` once the cosmetic
-/// rules `cosmetic` hold, and the runner's rules of the selectors `hidden`,
-/// removed what they match, and what removal took; none when it took
-/// nothing.
+/// The cosmetic matcher of one call: the rules of `cosmetic`, then the
+/// runner's of the selectors `hidden`; it keeps what it removed.
+struct Matcher<'a> {
+    cosmetic: Option<&'a Cosmetic>,
+    hidden: &'a [String],
+    removal: RefCell<Option<removal::Removal>>,
+}
+
+impl CleanUp for Matcher<'_> {
+    fn remove(&self, html: &str, url: &str) -> String {
+        let removal = match self.cosmetic {
+            Some(cosmetic) => removal::remove(html, url, &cosmetic.lists, &cosmetic.choices),
+            None => removal::Removal {
+                html: html.to_owned(),
+                removed: Vec::new(),
+                removed_text: 0,
+            },
+        };
+        let removal = removal::remove_selected(removal, self.hidden);
+        let cleaned = removal.html.clone();
+        *self.removal.borrow_mut() = Some(removal);
+        cleaned
+    }
+}
+
+/// The formats `request` names, read from `document`, the cosmetic rules
+/// `cosmetic` holds and the runner's rules of the selectors `hidden`
+/// applied before its main content, and what they did.
 pub(super) fn read(
     document: &SerializedDocument,
     request: FormatsRequest,
     cosmetic: Option<&Cosmetic>,
     hidden: &[String],
-) -> (PageFormats, Option<Removal>) {
+) -> (PageFormats, FormatsRead) {
     let of = |html| Document {
         html,
         url: &document.url,
         base_url: &document.base_url,
     };
-    if cosmetic.is_none() && hidden.is_empty() {
-        return (
-            goodfetch_extractor::formats(&of(&document.html), &request, &Context::default()),
-            None,
-        );
-    }
-    let removal = match cosmetic {
-        Some(cosmetic) => removal::remove(
-            &document.html,
-            &document.url,
-            &cosmetic.lists,
-            &cosmetic.choices,
-        ),
-        None => removal::Removal {
-            html: document.html.clone(),
-            removed: Vec::new(),
-            removed_text: 0,
-        },
+    let matcher = Matcher {
+        cosmetic,
+        hidden,
+        removal: RefCell::new(None),
     };
-    let removal = removal::remove_selected(removal, hidden);
-    let formats = goodfetch_extractor::formats(&of(&removal.html), &request, &Context::default());
-    if removal.removed.is_empty() {
-        return (formats, None);
-    }
-    let share = Share::of(
-        goodfetch_extractor::main_content_length(&of(&document.html)),
-        goodfetch_extractor::main_content_length(&of(&removal.html)),
-    );
+    let context = Context {
+        clean_up: (cosmetic.is_some() || !hidden.is_empty()).then_some(&matcher as &dyn CleanUp),
+    };
+    let formats = goodfetch_extractor::formats(&of(&document.html), &request, &context);
+    let removal = matcher.removal.into_inner();
+    let (removed, removed_text, share) = match removal {
+        Some(removal) if !removal.removed.is_empty() => {
+            let share = Share::of(
+                goodfetch_extractor::main_content_length(&of(&document.html)),
+                goodfetch_extractor::main_content_length(&of(&removal.html)),
+            );
+            (removal.removed, removal.removed_text, Some(share))
+        }
+        Some(_) | None => (Vec::new(), 0, None),
+    };
     (
         formats,
-        Some(Removal {
+        FormatsRead {
             url: document.url.clone(),
-            removed: removal.removed,
-            removed_text: removal.removed_text,
+            version: cosmetic.map(|cosmetic| cosmetic.version.clone()),
+            removed,
+            removed_text,
             share,
-        }),
+        },
     )
 }

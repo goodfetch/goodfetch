@@ -339,8 +339,10 @@ impl EngineRequests {
 /// hiding and extraction-side removal read them.
 #[derive(Clone)]
 pub(crate) struct Cosmetic {
-    /// The embedded Filter lists.
+    /// The Filter lists of the version the page's Run holds to.
     pub(crate) lists: Arc<FilterLists>,
+    /// That version's digest.
+    pub(crate) version: String,
     /// What the Session's settings choose of them.
     pub(crate) choices: Choices,
 }
@@ -460,12 +462,17 @@ impl Interception {
         let choices = clean_up::choices(resolved, own);
         let blocked = (!choices.block_resources.is_empty())
             .then(|| clean_up::effective(resolved, own, BROWSER_BLOCK_RESOURCES.name).to_string());
-        let blocking = self.shared.clean_up.blocking(choices, run).await;
+        let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
         let clean_up = PageCleanUp {
-            cosmetic: blocking.lists.as_ref().map(|lists| Cosmetic {
-                lists: Arc::clone(lists),
-                choices: blocking.choices.clone(),
-            }),
+            cosmetic: blocking
+                .lists
+                .as_ref()
+                .zip(version)
+                .map(|(lists, version)| Cosmetic {
+                    lists: Arc::clone(lists),
+                    version,
+                    choices: blocking.choices.clone(),
+                }),
             live_hiding: clean_up::live_hiding(resolved, own),
         };
         if let Some(blocked) = blocked {
@@ -862,7 +869,7 @@ impl Interception {
     ) -> Result<EngineRequests, CallError> {
         let policy = policy_of(run)?;
         let choices = clean_up::choices(run.settings().map(RunSettings::resolved), own);
-        let blocking = self.shared.clean_up.blocking(choices, run).await;
+        let (blocking, _) = self.shared.clean_up.blocking(choices, run).await;
         Ok(EngineRequests { policy, blocking })
     }
 

@@ -1192,6 +1192,8 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 | A Session's proxy relay | relay unit tests against a fake SOCKS5 proxy: credentials refused per connection, the accept loop's backoff | Quick | every OS |
 | The egress relay (`goodfetch-page`'s `egress_relay`) | relay unit tests in process: a client without the Session's credentials refused, the Scripted resolver's rebinding cases, the upstream proxy path, the domain policy | Quick | every OS |
 | | the relay on Chromium (Collie's `egress_relay` tests): no private address reached, another local process refused, an upstream proxy chained, the switch off, the ClientHello's JA4 unchanged | Pre-merge; Release | Linux; every OS but Windows |
+| | the terminating mode in process (`egress_relay`'s `terminate_tests`): the ClientHello mirrored upstream, an exception host passing through trust on first use, a changed pin stopping the host before any byte goes up, each certificate failure named, the authority's name constraints read by a verifier; the request-head and ClientHello fuzz targets replayed | Quick | every OS |
+| | the terminating mode on Chromium (Collie's `certificate_exceptions` tests): pitfall H03 refused and passed under its exception, a changed pin, no Session cookie to an exception host, a refused tunnelled certificate named, no authority key or certificate on disk | Pre-merge; Release | Linux; every OS but Windows |
 | | the relay path end to end through the Proving ground's SOCKS5 proxy, its password searched as a Secret canary | Pre-merge; Release | Linux; every OS but Windows |
 | Secrets | redaction property tests | Quick | every OS |
 | | Secret canary searches | the suite of the test that produces the output | its OSes |

@@ -108,6 +108,12 @@ pub struct RunStateTables {
     pub statements: &'static [&'static str],
 }
 
+/// The run file writer's page cache, in KiB: a bounded cache over what the
+/// file keeps on disk, such as the Frontier's exact visited set, sized so
+/// a Frontier of 100,000 URLs keeps under ADR 0134's 8 heap bytes per URL
+/// (SQLite's default of 2,000 KiB alone is 20).
+pub const PAGE_CACHE_KIB: u32 = 512;
+
 /// How a run file opens.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RunStateOptions {
@@ -476,6 +482,10 @@ fn open_file(
         .map_err(failed)?;
     connection
         .pragma_update(None, "synchronous", options.durability.synchronous())
+        .map_err(failed)?;
+    // A negative size counts KiB rather than pages.
+    connection
+        .pragma_update(None, "cache_size", -i64::from(PAGE_CACHE_KIB))
         .map_err(failed)?;
     if cfg!(target_os = "macos") {
         connection

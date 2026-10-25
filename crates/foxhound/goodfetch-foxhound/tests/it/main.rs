@@ -33,6 +33,7 @@ mod redundant_requests;
 mod robots_txt;
 mod scope;
 mod seeds;
+mod served_calls;
 mod service_manager;
 mod session_pool;
 mod use_signals;

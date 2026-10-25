@@ -75,6 +75,14 @@ class PayloadSchemaChangedError(ProgramError):
         super().__init__(message, code="payload_schema_changed", group="program", retryable=False)
 
 
+class ResponseNotDocumentError(ProgramError):
+    """A handler's call that reads, waits on or acts on the document of a page whose accepted response is not an HTML document, such as a PDF its Label's `crawl.content_types` lists: a locator, `content()`, `formats`, `evaluate`, a screenshot or an AI verb. It fails at once on every tier and never escalates. The details name the response's content type and the call; the fix names `ctx.response`, which holds the body."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="response_not_document", group="program", retryable=False)
+
+
 class ResponseNotOKError(PageError):
     """The response is not one a handler is handed: a 3xx that is not one of Fetch's redirect statuses (301, 302, 303, 307, 308), or a redirect whose `Location` is missing, does not parse or names no HTTP(S) URL. The details name the response's `url` and `status`, and a `fix` naming `crawl.handle_statuses`, which hands a status to the handler. Not retried: the site answers the same again."""
 
@@ -108,6 +116,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "lease_lost": LeaseLostError,
     "payload_invalid": PayloadInvalidError,
     "payload_schema_changed": PayloadSchemaChangedError,
+    "response_not_document": ResponseNotDocumentError,
     "response_not_ok": ResponseNotOKError,
     "response_unavailable": ResponseUnavailableError,
     "sample_crawl_refused": SampleCrawlRefusedError,

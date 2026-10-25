@@ -10,7 +10,7 @@
 //! address, which the Proving ground listens on, so a connection that got
 //! through would show in its record.
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -22,10 +22,8 @@ const SEED: u64 = 678;
 /// The requests the Proving ground received for a host starting with
 /// `host`.
 fn requests_to(observations: &Value, host: &str) -> usize {
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(observations)
+        .every()
         .filter(|request| {
             request["host"]
                 .as_str()
@@ -153,9 +151,9 @@ fn a_seed_whose_name_resolves_to_a_private_address_ends_skipped_with_domain_poli
         })
         .collect();
     outcomes.sort_by_key(|outcome| outcome.0.to_string());
-    let requests = observations["requests"].as_array().unwrap();
+    let requests = ReceivedRequests::of(&observations);
     let to_localhost = requests
-        .iter()
+        .every()
         .filter(|request| {
             request["host"]
                 .as_str()
@@ -171,7 +169,7 @@ fn a_seed_whose_name_resolves_to_a_private_address_ends_skipped_with_domain_poli
             outcomes,
             handled,
             to_localhost,
-            connections <= requests.len(),
+            connections <= requests.every().count(),
             skips
                 .as_array()
                 .unwrap_or_else(|| panic!("{report}"))

@@ -17,7 +17,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -77,10 +77,8 @@ fn crawl_scope_with(host: &str, path: &str, settings: &Value) -> (Vec<String>, V
     assert!(engine.finish());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
 
-    let mut hosts: Vec<String> = observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    let mut hosts: Vec<String> = ReceivedRequests::of(&observations)
+        .every()
         .map(|request| request["host"].as_str().unwrap().to_owned())
         .collect();
     hosts.sort();
@@ -373,9 +371,9 @@ fn a_seed_an_added_seed_and_an_enqueue_the_domain_policy_refuses_are_not_added_a
     let observations = proving_ground.observations().unwrap();
     assert!(engine.finish());
 
-    let requests = observations["requests"].as_array().unwrap();
+    let requests = ReceivedRequests::of(&observations);
     let refused_hosts = requests
-        .iter()
+        .every()
         .filter(|request| request["host"] == "elsewhere.test")
         .count();
     // Every connection but the observations' own read carried one request.
@@ -398,7 +396,7 @@ fn a_seed_an_added_seed_and_an_enqueue_the_domain_policy_refuses_are_not_added_a
                 added("7", &allowed_added),
             ],
             0,
-            requests.len(),
+            requests.every().count(),
         )
     );
 }

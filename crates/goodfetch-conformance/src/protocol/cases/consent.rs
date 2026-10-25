@@ -143,11 +143,9 @@ impl Case {
 /// The query parameters of each report the pages sent to `path`.
 fn reports(site: &Site, path: &str) -> Vec<Vec<(String, String)>> {
     site.proving_ground
-        .observations()
-        .ok()
-        .and_then(|observations| observations["requests"].as_array().cloned())
+        .received_requests()
         .unwrap_or_default()
-        .iter()
+        .of_the_case()
         .filter(|request| [json!(HOST), json!(FRAME_HOST)].contains(&request["host"]))
         .filter_map(|request| {
             let (target, query) = request["target"].as_str()?.split_once('?')?;

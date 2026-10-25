@@ -141,11 +141,9 @@ impl Case {
 /// received.
 pub(super) fn received(site: &Site, target: &str) -> usize {
     site.proving_ground
-        .observations()
-        .ok()
-        .and_then(|observations| observations["requests"].as_array().cloned())
+        .received_requests()
         .unwrap_or_default()
-        .iter()
+        .of_the_case()
         .filter(|request| request["host"] == json!(HOST) && request["target"] == json!(target))
         .count()
 }
@@ -457,11 +455,9 @@ fn block_resources(
 /// Proving ground received.
 fn received_in_frame(site: &Site, target: &str) -> usize {
     site.proving_ground
-        .observations()
-        .ok()
-        .and_then(|observations| observations["requests"].as_array().cloned())
+        .received_requests()
         .unwrap_or_default()
-        .iter()
+        .of_the_case()
         .filter(|request| {
             request["host"] == json!(FRAME_HOST) && request["target"] == json!(target)
         })
@@ -587,11 +583,9 @@ pub(super) const AD_TEXT: &str = "An ad's text";
 /// host that start with `prefix`, in the order received.
 fn targets(site: &Site, prefix: &str) -> Vec<String> {
     site.proving_ground
-        .observations()
-        .ok()
-        .and_then(|observations| observations["requests"].as_array().cloned())
+        .received_requests()
         .unwrap_or_default()
-        .iter()
+        .of_the_case()
         .filter(|request| request["host"] == json!(HOST))
         .filter_map(|request| request["target"].as_str().map(str::to_owned))
         .filter(|target| target.starts_with(prefix))

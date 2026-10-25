@@ -335,7 +335,7 @@ pub(crate) fn browser_command_lines(env: &TestEnv) -> Vec<String> {
 
 /// The CDP methods the Run's trace recorded.
 #[cfg(unix)]
-fn traced_methods(env: &TestEnv, run_id: &str) -> BTreeSet<String> {
+pub(crate) fn traced_methods(env: &TestEnv, run_id: &str) -> BTreeSet<String> {
     let file = env
         .home()
         .join("0.0")

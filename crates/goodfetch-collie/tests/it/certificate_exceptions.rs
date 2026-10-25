@@ -57,10 +57,10 @@ fn trusting(env: &TestEnv, proving_ground: &ProvingGround) {
 /// The requests the Proving ground's sites received, each as its host and
 /// the cookies it carried.
 fn requests(proving_ground: &ProvingGround) -> Vec<(String, Value)> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    proving_ground
+        .received_requests()
+        .unwrap()
+        .every()
         .filter(|request| request["target"] != json!("/favicon.ico"))
         .map(|request| {
             (

@@ -45,10 +45,10 @@ fn racing(proving_ground: &ProvingGround) -> Value {
 
 /// How many requests for `target` on [`HOST`] the Proving ground received.
 fn received(proving_ground: &ProvingGround, target: &str) -> usize {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .of_the_case()
         .filter(|request| request["host"] == HOST && request["target"] == target)
         .count()
 }
@@ -57,10 +57,10 @@ fn received(proving_ground: &ProvingGround, target: &str) -> usize {
 /// `target` on [`HOST`], from the request's arrival to the answer's send;
 /// `None` before it answered one.
 fn held_ms(proving_ground: &ProvingGround, target: &str) -> Option<u64> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .of_the_case()
         .filter(|request| request["host"] == HOST && request["target"] == target)
         .find_map(|request| {
             let timing = &request["timing"];

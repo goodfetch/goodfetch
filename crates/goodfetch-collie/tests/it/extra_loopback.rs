@@ -23,7 +23,7 @@ use std::collections::BTreeSet;
 use std::net::{SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -53,10 +53,8 @@ fn bound(more: &Value) -> Value {
 /// The source addresses of the connections that carried a request to one
 /// of the pages' hosts, never the test's own to the control host.
 fn site_sources(observations: &Value) -> BTreeSet<String> {
-    let carried: BTreeSet<u64> = observations["requests"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    let carried: BTreeSet<u64> = ReceivedRequests::of(observations)
+        .every()
         .filter(|request| {
             request["host"]
                 .as_str()
@@ -85,10 +83,8 @@ const PAGE_HOSTS: [&str; 2] = ["catalog.test", "access.test"];
 /// The protocol and kind of each request the site received, such as
 /// `("h2", "request")` or `("http/1.1", "websocket")`.
 fn request_kinds(observations: &Value) -> BTreeSet<(String, String)> {
-    observations["requests"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    ReceivedRequests::of(observations)
+        .every()
         .filter(|request| {
             request["host"]
                 .as_str()

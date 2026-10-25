@@ -78,6 +78,8 @@ rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 # A stored body's ID, the SHA-256 of its bytes, for `page body --follow`,
 # and the stand-in registry's blob digests.
 sha2.workspace = true
+# The relay authority's key hash, in base64, as its Provenance entry gives it.
+data-encoding.workspace = true
 insta.workspace = true
 # The clean-up's time in the page tests, and the pins' lever
 # (examples/pin-chrome-for-testing.rs), which downloads and unpacks the

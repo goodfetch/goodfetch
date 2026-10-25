@@ -69,6 +69,11 @@ pub(crate) struct Launch<'a> {
     pub(crate) proxy_script: Option<&'a str>,
     /// `security.browser_sandbox`: whether Chromium's sandbox stays on.
     pub(crate) sandbox: bool,
+    /// The SHA-256 of the egress relay's certificate authority's key, in
+    /// base64, when the Run lists an invalid-certificate exception: the
+    /// browser takes the leaves the relay presents for the listed hosts
+    /// (ADR 0042).
+    pub(crate) relay_authority: Option<&'a str>,
 }
 
 /// The command line, and the warnings it comes with.
@@ -123,6 +128,9 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
     arguments.push(WEBRTC_POLICY.to_owned());
     if !launch.sandbox {
         arguments.push(NO_SANDBOX.to_owned());
+    }
+    if let Some(spki) = launch.relay_authority {
+        arguments.push(format!("--ignore-certificate-errors-spki-list={spki}"));
     }
     if let Some(script) = launch.proxy_script {
         arguments.push(format!(

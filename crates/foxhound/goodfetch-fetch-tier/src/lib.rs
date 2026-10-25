@@ -29,6 +29,7 @@ mod http_profile;
 mod redirects;
 mod redundant;
 mod refresh;
+mod served_calls;
 mod tiers;
 mod transports;
 mod use_signals;

@@ -21,6 +21,7 @@ mod browser_pool;
 ))]
 mod browser_sandbox;
 mod browsers;
+mod certificate_exceptions;
 mod certs;
 #[cfg(target_os = "macos")]
 mod checkpoint;

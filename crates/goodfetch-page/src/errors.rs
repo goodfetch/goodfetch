@@ -30,6 +30,7 @@ use goodfetch_protocol::page::{
 };
 
 use goodfetch_protocol::settings::SettingLimit;
+use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
 
 use crate::page_value::Refusal as GateRefusal;
 
@@ -338,6 +339,29 @@ pub(crate) fn network_error(url: &str, error: &str) -> CallError {
             error: Some(error.to_owned()),
         },
     )
+}
+
+/// How Chromium refused a certificate it verified itself, on a host the
+/// egress relay only tunnels, by the wire's name of the failure (ADR
+/// 0127): `error` is a network error the browser names, and none is no
+/// certificate's. Chromium names an expired certificate and one not valid
+/// yet alike, and an unknown issuer and a self-signed certificate alike;
+/// the relay's own look at the certificate tells them apart where it can.
+pub(crate) fn certificate_failure(error: &str) -> Option<CertificateFailure> {
+    let name = error.strip_prefix("net::").unwrap_or(error);
+    let known = |failure| Some(CertificateFailure::Known(failure));
+    match name {
+        "ERR_CERT_COMMON_NAME_INVALID" => known(KnownCertificateFailure::NameMismatch),
+        "ERR_CERT_AUTHORITY_INVALID" => known(KnownCertificateFailure::UnknownIssuer),
+        "ERR_CERT_REVOKED" => known(KnownCertificateFailure::Revoked),
+        _ => {
+            let rest = name.strip_prefix("ERR_CERT_").or_else(|| {
+                name.strip_prefix("ERR_")
+                    .filter(|rest| rest.starts_with("CERTIFICATE_"))
+            })?;
+            Some(CertificateFailure::Unrecognized(rest.to_ascii_lowercase()))
+        }
+    }
 }
 
 #[cfg(test)]

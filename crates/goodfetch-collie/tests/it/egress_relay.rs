@@ -38,6 +38,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::attached::Attached;
 use crate::page::{opened, started_with};
+use crate::proxy::robots_txt_read;
 use crate::run::call;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -46,28 +47,28 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 const SEED: u64 = 634;
 
 /// A Connection's calls, each with the next ID.
-struct Program<'env> {
+pub(crate) struct Program<'env> {
     engine: Attached<'env>,
     next_id: i64,
 }
 
 impl Program<'_> {
-    fn call(&mut self, method: &str, params: &Value) -> Value {
+    pub(crate) fn call(&mut self, method: &str, params: &Value) -> Value {
         self.next_id += 1;
         call(&mut self.engine, self.next_id, method, params)
     }
 
-    fn new_page(&mut self, run_id: &str) -> String {
+    pub(crate) fn new_page(&mut self, run_id: &str) -> String {
         opened(&self.call("run.new_page", &json!({ "run_id": run_id })))
             .page_id
             .0
     }
 
-    fn goto(&mut self, page: &str, url: &str) -> Value {
+    pub(crate) fn goto(&mut self, page: &str, url: &str) -> Value {
         self.call("page.goto", &json!({ "page_id": page, "url": url }))
     }
 
-    fn finish(mut self, run_id: &str) {
+    pub(crate) fn finish(mut self, run_id: &str) {
         let _ = self.call("run.finish", &json!({ "run_id": run_id }));
         let _ = self.engine.finish();
     }
@@ -76,7 +77,7 @@ impl Program<'_> {
 /// An Attached engine and its Run `run_id`, with `settings` beside the
 /// Proving ground's `network.resolve` mapping, and `variables` in the
 /// engine's environment.
-fn started<'env>(
+pub(crate) fn started<'env>(
     env: &'env TestEnv,
     proving_ground: &ProvingGround,
     run_id: &str,
@@ -97,7 +98,7 @@ fn started<'env>(
 }
 
 /// The Error code of a call's error and its details.
-fn error(answer: &Value) -> (Value, Value) {
+pub(crate) fn error(answer: &Value) -> (Value, Value) {
     let mut details = answer["error"]["data"].clone();
     let code = details["code"].take();
     (code, details)
@@ -158,7 +159,7 @@ fn trace(env: &TestEnv, run_id: &str, file: &str) -> Vec<Value> {
 }
 
 /// The Run `run_id`'s Provenance entries of `action`.
-fn provenance(env: &TestEnv, run_id: &str, action: &str) -> Vec<Value> {
+pub(crate) fn provenance(env: &TestEnv, run_id: &str, action: &str) -> Vec<Value> {
     trace(env, run_id, "provenance.jsonl")
         .into_iter()
         .filter(|entry| entry["action"] == json!(action))
@@ -279,6 +280,10 @@ fn another_local_process_without_the_sessions_credentials_is_refused_and_the_ses
         .and_then(|rest| rest.split('/').next())
         .unwrap()
         .to_owned();
+    // The document's robots.txt read, which its navigation never waits
+    // for (ADR 0086), has reached the site: what the site sees from here
+    // on came through the relay from the other process.
+    robots_txt_read(&env, "relayed");
     let before = requests(&proving_ground).len();
 
     let answers: Vec<String> = [
@@ -291,7 +296,7 @@ fn another_local_process_without_the_sessions_credentials_is_refused_and_the_ses
     .iter()
     .map(|request| answered_status(&relay, request))
     .collect();
-    let after = requests(&proving_ground).len();
+    let after = requests(&proving_ground);
     program.finish("relayed");
 
     assert_eq!(
@@ -303,7 +308,7 @@ fn another_local_process_without_the_sessions_credentials_is_refused_and_the_ses
         answers,
         vec!["HTTP/1.1 407 Proxy Authentication Required"; 3]
     );
-    assert_eq!(after, before);
+    assert_eq!(after.get(before..), Some(&[][..]), "{after:?}");
 }
 
 /// The variable the engine's environment holds a proxy password in.

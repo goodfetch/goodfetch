@@ -1838,6 +1838,36 @@ export interface DaemonStopping {
   live_runs: number;
 }
 /**
+ * One committed Record of a Dataset, as a reader reads it (ADR 0103).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DatasetRecord".
+ */
+export interface DatasetRecord {
+  /**
+   * A point in time in UTC, as RFC 3339.
+   */
+  committed_at: string;
+  /**
+   * Its number in its Dataset, from 1, in commit order, with no gaps.
+   */
+  number: number;
+  /**
+   * The ID of the crawl request whose attempt committed it.
+   */
+  request_id: string;
+  /**
+   * That crawl request's URL.
+   */
+  url: string;
+  /**
+   * The Record, as JSON; the program's schema parses it.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
  * A dialog as its handler sees it.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -4070,6 +4100,46 @@ export interface LimitScope4 {
    * The scope's kind.
    */
   kind: string;
+}
+/**
+ * What `$/record` carries: the next Record a `run.records` call reads.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecordRead".
+ */
+export interface RecordRead {
+  /**
+   * The id of the `run.records` call.
+   */
+  id: number | string;
+  record: DatasetRecord1;
+}
+/**
+ * The Record.
+ */
+export interface DatasetRecord1 {
+  /**
+   * A point in time in UTC, as RFC 3339.
+   */
+  committed_at: string;
+  /**
+   * Its number in its Dataset, from 1, in commit order, with no gaps.
+   */
+  number: number;
+  /**
+   * The ID of the crawl request whose attempt committed it.
+   */
+  request_id: string;
+  /**
+   * That crawl request's URL.
+   */
+  url: string;
+  /**
+   * The Record, as JSON; the program's schema parses it.
+   */
+  value: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What a Run did with the Response recording its start named (ADR 0105).

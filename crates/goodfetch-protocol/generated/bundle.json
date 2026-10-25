@@ -3231,6 +3231,45 @@
       ],
       "type": "object"
     },
+    "DatasetRecord": {
+      "description": "One committed Record of a Dataset, as a reader reads it (ADR 0103).",
+      "properties": {
+        "committed_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it was committed."
+        },
+        "number": {
+          "arrived_in": "0.1",
+          "description": "Its number in its Dataset, from 1, in commit order, with no gaps.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt committed it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "That crawl request's URL.",
+          "type": "string"
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The Record, as JSON; the program's schema parses it."
+        }
+      },
+      "required": [
+        "number",
+        "value",
+        "request_id",
+        "url",
+        "committed_at"
+      ],
+      "type": "object"
+    },
     "DatasetRecords": {
       "description": "What a succeeded request's commit did with its Records in one Dataset\n(ADR 0103).",
       "properties": {
@@ -8279,6 +8318,27 @@
       ],
       "type": "object"
     },
+    "RecordRead": {
+      "additionalProperties": false,
+      "description": "What `$/record` carries: the next Record a `run.records` call reads.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the `run.records` call."
+        },
+        "record": {
+          "$ref": "#/$defs/DatasetRecord",
+          "arrived_in": "0.1",
+          "description": "The Record."
+        }
+      },
+      "required": [
+        "id",
+        "record"
+      ],
+      "type": "object"
+    },
     "RecordingReport": {
       "description": "What a Run did with the Response recording its start named (ADR 0105).",
       "properties": {
@@ -8344,6 +8404,30 @@
         "mode",
         "file",
         "responses_used"
+      ],
+      "type": "object"
+    },
+    "RecordsRead": {
+      "description": "What `run.records` answers once it sent the last Record: how many it\nsent, and the number of the last, which a later call's `after` takes.",
+      "properties": {
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many Records it sent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "last": {
+          "arrived_in": "0.1",
+          "description": "The number of the last Record it sent, else the `after` it took, 0\nwithout one.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count",
+        "last"
       ],
       "type": "object"
     },
@@ -9940,6 +10024,41 @@
       },
       "required": [
         "run_id"
+      ],
+      "type": "object"
+    },
+    "RunRecordsParams": {
+      "additionalProperties": false,
+      "description": "What `run.records` takes: a crawl's Run, one of its Datasets, and where\nto start.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "after": {
+          "arrived_in": "0.1",
+          "description": "The number of the last Record the reader handled: the call starts\nafter it. Absent, it starts at the Dataset's first Record.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset"
       ],
       "type": "object"
     },
@@ -13610,6 +13729,11 @@
     },
     "meta": {
       "$ref": "#/$defs/TraceContext"
+    },
+    "record": {
+      "params": {
+        "$ref": "#/$defs/RecordRead"
+      }
     },
     "seeds": {
       "params": {

@@ -1235,6 +1235,24 @@ export interface OutcomeRequest1 {
   url: string;
 }
 /**
+ * What `run.records` answers once it sent the last Record: how many it
+ * sent, and the number of the last, which a later call's `after` takes.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RecordsRead".
+ */
+export interface RecordsRead {
+  /**
+   * How many Records it sent.
+   */
+  count: number;
+  /**
+   * The number of the last Record it sent, else the `after` it took, 0
+   * without one.
+   */
+  last: number;
+}
+/**
  * One request a crawl starts from (ADR 0093): a URL, the Label that picks
  * its handler and its Payload, and how it is sent and identified.
  *
@@ -1372,6 +1390,28 @@ export interface RunOutcomesParams {
    * Only outcomes of requests of these Labels; absent, every Label.
    */
   labels?: string[] | null;
+  /**
+   * The crawl's Run.
+   */
+  run_id: RunId;
+}
+/**
+ * What `run.records` takes: a crawl's Run, one of its Datasets, and where
+ * to start.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RunRecordsParams".
+ */
+export interface RunRecordsParams {
+  /**
+   * The number of the last Record the reader handled: the call starts
+   * after it. Absent, it starts at the Dataset's first Record.
+   */
+  after?: number | null;
+  /**
+   * The Dataset's name.
+   */
+  dataset: string;
   /**
    * The crawl's Run.
    */

@@ -118,6 +118,8 @@ CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
             work_item TEXT NOT NULL,
+            url TEXT NOT NULL,
+            committed_at TEXT NOT NULL,
             data TEXT NOT NULL,
             PRIMARY KEY (dataset, number)
         ) STRICT;

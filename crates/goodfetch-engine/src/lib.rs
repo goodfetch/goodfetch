@@ -89,8 +89,8 @@ pub mod upgrade;
 mod usage;
 
 pub use composition::{
-    CallContext, CallError, CallInput, Composition, CompositionError, ConsoleBuild, ConsoleFile,
-    Contribution, Driver, Guard, GuardAnswer, Handler,
+    CallContext, CallError, CallInput, CallStream, Composition, CompositionError, ConsoleBuild,
+    ConsoleFile, Contribution, Driver, Guard, GuardAnswer, Handler,
 };
 pub use engine::{Dependencies, Engine};
 pub use info::contribution;

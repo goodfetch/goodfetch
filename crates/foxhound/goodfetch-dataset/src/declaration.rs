@@ -159,22 +159,49 @@ impl Datasets {
         Ok(Checked::new(records))
     }
 
+    /// Answers whether the crawl declares the Dataset `name`, for a reader
+    /// of its Records.
+    ///
+    /// # Errors
+    ///
+    /// `dataset_unknown`, naming the Datasets the crawl declares, when it
+    /// declares none of that name.
+    pub fn readable(&self, name: &str) -> Result<(), CallError> {
+        if self.0.iter().any(|declared| declared.name == name) {
+            return Ok(());
+        }
+        Err(self.unknown(
+            name,
+            format!(
+                "The crawl declares no Dataset `{name}`, so no Record was read: read one the crawl declares."
+            ),
+        ))
+    }
+
+    /// `dataset_unknown` for `name`, saying `message`.
+    fn unknown(&self, name: &str, message: String) -> CallError {
+        CallError::new(
+            &DATASET_UNKNOWN,
+            message,
+            &DatasetUnknownDetails {
+                dataset: name.to_owned(),
+                declared: self
+                    .0
+                    .iter()
+                    .map(|declared| declared.name.clone())
+                    .collect(),
+            },
+        )
+    }
+
     fn check_one(&self, record: &PushedRecord) -> Result<(), CallError> {
         let name = &record.dataset;
         let Some(declaration) = self.0.iter().find(|declared| &declared.name == name) else {
-            return Err(CallError::new(
-                &DATASET_UNKNOWN,
+            return Err(self.unknown(
+                name,
                 format!(
                     "The crawl declares no Dataset `{name}`, so the Record was not staged: push it into one the crawl declares."
                 ),
-                &DatasetUnknownDetails {
-                    dataset: name.clone(),
-                    declared: self
-                        .0
-                        .iter()
-                        .map(|declared| declared.name.clone())
-                        .collect(),
-                },
             ));
         };
         let issues = issues(declaration, &record.data);

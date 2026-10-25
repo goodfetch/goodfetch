@@ -10,7 +10,7 @@ from typing import Any, cast
 from goodfetch_collie_client.generated.operations import AsyncCaller, Caller
 
 from goodfetch_collie_client.generated.models import RunParams, RunStarted
-from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, FailedRequests, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
+from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, FailedRequests, RecordsRead, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
 
 
 def _fields(result: object) -> dict[str, Any]:
@@ -94,6 +94,13 @@ class AsyncFoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return CrawlRequestOutcomes.model_construct(**_fields(await self._caller.call("run.outcomes", params)))
+
+    async def run_records(self, params: RunRecordsParams) -> RecordsRead:
+        """Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. A Dataset the crawl does not declare fails with `dataset_unknown`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RecordsRead.model_construct(**_fields(await self._caller.call("run.records", params)))
 
     async def run_seeds(self, params: RunSeedsParams) -> RunSeeds:
         """Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds.
@@ -183,6 +190,13 @@ class FoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return CrawlRequestOutcomes.model_construct(**_fields(self._caller.call("run.outcomes", params)))
+
+    def run_records(self, params: RunRecordsParams) -> RecordsRead:
+        """Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. A Dataset the crawl does not declare fails with `dataset_unknown`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RecordsRead.model_construct(**_fields(self._caller.call("run.records", params)))
 
     def run_seeds(self, params: RunSeedsParams) -> RunSeeds:
         """Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds.

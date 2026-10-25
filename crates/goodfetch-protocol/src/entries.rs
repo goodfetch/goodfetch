@@ -205,6 +205,7 @@ mod tests {
                     "crawl_request.links",
                     "crawl_request.enqueue_links",
                     "crawl_request.push",
+                    "run.records",
                     "run.outcomes",
                     "run.failed_requests",
                 ],

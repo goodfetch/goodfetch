@@ -2,8 +2,10 @@
 //! 0082 and 0103): each Dataset a crawl declares at its start, with its
 //! JSON Schema and its key; `crawl_request.push`, a handler context's
 //! `push`, which checks one Record against its Dataset and stages it with
-//! the attempt; and the Error codes of a declaration or a Record that does
-//! not hold. Foxhound's own.
+//! the attempt; `run.records`, the cursor that reads a Dataset's committed
+//! Records from the first, or after a number, following the Run live under
+//! its Client's credits, so a reader never slows the crawl; and the Error
+//! codes of a declaration or a Record that does not hold. Foxhound's own.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -13,7 +15,8 @@ use crate::catalog::{
     Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
     ProtocolVersion, Reach, Stability, schema_of,
 };
-use crate::run::RunId;
+use crate::jsonrpc::RequestId;
+use crate::run::{PointInTime, RunId};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -80,6 +83,88 @@ pub const CRAWL_REQUEST_PUSH: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// The notification that carries one Record `run.records` sends.
+pub const RECORD: &str = "$/record";
+
+/// What `run.records` takes: a crawl's Run, one of its Datasets, and where
+/// to start.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunRecordsParams {
+    /// The crawl's Run.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The Dataset's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub dataset: String,
+    /// The number of the last Record the reader handled: the call starts
+    /// after it. Absent, it starts at the Dataset's first Record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub after: Option<u64>,
+}
+
+/// One committed Record of a Dataset, as a reader reads it (ADR 0103).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DatasetRecord {
+    /// Its number in its Dataset, from 1, in commit order, with no gaps.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub number: u64,
+    /// The Record, as JSON; the program's schema parses it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub value: Value,
+    /// The ID of the crawl request whose attempt committed it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub request_id: String,
+    /// That crawl request's URL.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// When it was committed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub committed_at: PointInTime,
+}
+
+/// What `$/record` carries: the next Record a `run.records` call reads.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RecordRead {
+    /// The id of the `run.records` call.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub id: RequestId,
+    /// The Record.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub record: DatasetRecord,
+}
+
+/// What `run.records` answers once it sent the last Record: how many it
+/// sent, and the number of the last, which a later call's `after` takes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RecordsRead {
+    /// How many Records it sent.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub count: u64,
+    /// The number of the last Record it sent, else the `after` it took, 0
+    /// without one.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub last: u64,
+}
+
+/// `run.records`.
+pub const RUN_RECORDS: Operation = Operation {
+    name: "run.records",
+    description: "Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+    class: OperationClass::Read,
+    kind: OperationKind::Sequence,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<RunRecordsParams>,
+    result: schema_of::<RecordsRead>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A crawl that declares two Datasets of one name (ADR 0103).
 pub const DATASET_DUPLICATE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "dataset_duplicate",
@@ -93,7 +178,7 @@ pub const DATASET_DUPLICATE: ErrorCodeDefinition = ErrorCodeDefinition {
 /// A Record pushed into a Dataset the crawl does not declare (ADR 0103).
 pub const DATASET_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "dataset_unknown",
-    description: "A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged. The details name the Dataset and those the crawl declares.",
+    description: "A Record was pushed into, or `run.records` read, a Dataset the crawl does not declare, such as another crawl's, so the Record was not staged or nothing was read. The details name the Dataset and those the crawl declares.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,
@@ -175,7 +260,7 @@ pub struct RecordInvalidDetails {
 /// The module's entries.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[CRAWL_REQUEST_PUSH],
+    operations: &[CRAWL_REQUEST_PUSH, RUN_RECORDS],
     events: &[],
     handler_requests: &[],
     error_codes: &[

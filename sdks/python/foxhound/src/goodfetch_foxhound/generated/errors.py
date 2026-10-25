@@ -52,7 +52,7 @@ class DatasetKeyInvalidError(ProgramError):
 
 
 class DatasetUnknownError(ProgramError):
-    """A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged. The details name the Dataset and those the crawl declares."""
+    """A Record was pushed into, or `run.records` read, a Dataset the crawl does not declare, such as another crawl's, so the Record was not staged or nothing was read. The details name the Dataset and those the crawl declares."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""

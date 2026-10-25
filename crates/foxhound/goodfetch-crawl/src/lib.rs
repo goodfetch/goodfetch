@@ -30,6 +30,7 @@ mod report;
 mod seeding;
 mod serving;
 mod start;
+mod tier_choice;
 mod work_items;
 
 pub use start::contribution;

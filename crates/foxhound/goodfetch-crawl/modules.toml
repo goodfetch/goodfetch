@@ -1,7 +1,7 @@
 # Which of goodfetch-crawl's top-level modules may import which (ADR 0126).
 [modules]
 completeness = ["report", "work_items"]
-delivery = ["completeness", "labels", "lease", "policy", "progress", "serving", "work_items"]
+delivery = ["completeness", "labels", "lease", "policy", "progress", "serving", "tier_choice", "work_items"]
 enqueue = ["serving", "work_items"]
 labels = []
 lease = ["work_items"]
@@ -11,7 +11,8 @@ progress = ["report", "work_items"]
 report = ["work_items"]
 seeding = ["serving", "work_items"]
 serving = []
-start = ["completeness", "delivery", "enqueue", "labels", "outcomes", "policy", "progress", "report", "seeding", "serving", "work_items"]
+start = ["completeness", "delivery", "enqueue", "labels", "outcomes", "policy", "progress", "report", "seeding", "serving", "tier_choice", "work_items"]
+tier_choice = []
 work_items = []
 
 [submodules.enqueue]

@@ -1051,3 +1051,51 @@ fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable
         "{forced}"
     );
 }
+
+/// `fetch.tier_race` and `fetch.encoding`, in the schema though the engine
+/// does neither yet: switched on or set, for the Run or, for
+/// `fetch.encoding`, for a Label, the crawl is refused before its Run
+/// begins with `capability_unavailable` naming the key; `fetch.tier_race`
+/// on a Label, which the Run alone sets, with `setting_not_applicable`;
+/// and a `fetch.encoding` that is no WHATWG Encoding label with
+/// `setting_invalid`.
+#[rstest::rstest]
+/// Covers: setting:fetch.tier_race, error:capability_unavailable
+#[case::a_race_for_the_run(
+    json!({ "fetch": { "tier_race": true } }),
+    json!({}),
+    json!(["capability_unavailable", "fetch.tier_race", "tier_race"])
+)]
+/// Covers: setting:fetch.encoding, error:capability_unavailable
+#[case::an_encoding_for_the_run(
+    json!({ "fetch": { "encoding": "shift_jis" } }),
+    json!({}),
+    json!(["capability_unavailable", "fetch.encoding", "encoding"])
+)]
+/// Covers: error:capability_unavailable
+#[case::an_encoding_for_a_label(
+    json!({}),
+    json!({ "list": { "settings": { "fetch": { "encoding": "shift_jis" } } } }),
+    json!(["capability_unavailable", "fetch.encoding", "encoding"])
+)]
+/// Covers: error:setting_not_applicable
+#[case::a_race_for_a_label(
+    json!({}),
+    json!({ "list": { "settings": { "fetch": { "tier_race": true } } } }),
+    json!(["setting_not_applicable", "fetch.tier_race", null])
+)]
+/// Covers: setting:fetch.encoding, error:setting_invalid
+#[case::an_unknown_encoding_for_the_run(
+    json!({ "fetch": { "encoding": "klingon" } }),
+    json!({}),
+    json!(["setting_invalid", "fetch.encoding", null])
+)]
+fn a_crawl_setting_a_fetch_key_not_built_is_refused_before_it_begins(
+    #[case] settings: Value,
+    #[case] labels: Value,
+    #[case] expected: Value,
+) {
+    a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable(
+        settings, labels, expected,
+    );
+}

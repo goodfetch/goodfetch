@@ -27,8 +27,8 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use super::{
-    AccountsStore, ConsoleKey, Principal, SignInDriver, SignInFailure, SignInPolicy, SignInRefused,
-    SignIns, SingleUserLink, StoreError,
+    AccountsStore, ConsoleKey, OfflineKeyRefused, Principal, SignInDriver, SignInFailure,
+    SignInPolicy, SignInRefused, SignIns, SingleUserLink, StoreError,
 };
 use crate::audit::AuditLog;
 use crate::clock::Clock;
@@ -518,4 +518,76 @@ fn the_os_users_name_comes_from_the_environment(
         .collect();
 
     assert_eq!(super::os_user(&environment), expected);
+}
+
+/// Covers: story:12-126
+#[test]
+fn a_sign_ins_offline_key_unwraps_only_for_its_cookie_and_outlives_its_daemon() {
+    let env = TestEnv::new();
+    runtime().block_on(async {
+        let driver = driver(&env);
+        let own = driver.with_link(LINK_TOKEN, HERE).await.unwrap();
+        let other = driver.with_link(LINK_TOKEN, HERE).await.unwrap();
+
+        let created = driver
+            .offline_key(own.cookie(), None)
+            .await
+            .expect("a sign-in gets an offline key");
+        let restarted = driver_of(&env, "1.0.0", SignInPolicy::default());
+        let unwrapped = restarted
+            .offline_key(own.cookie(), Some(created.wrapped()))
+            .await
+            .expect("its own cookie unwraps it, after a restart too");
+
+        assert_eq!(created.key().len(), 32);
+        assert_eq!(unwrapped.key(), created.key());
+        assert_eq!(unwrapped.wrapped(), created.wrapped());
+        assert!(
+            !created
+                .wrapped()
+                .windows(created.key().len())
+                .any(|window| window == created.key()),
+            "the wrapped form holds no clear key"
+        );
+        assert!(matches!(
+            driver
+                .offline_key(other.cookie(), Some(created.wrapped()))
+                .await,
+            Err(OfflineKeyRefused::DoesNotOpen)
+        ));
+        assert!(matches!(
+            driver.offline_key("nobody.nothing", None).await,
+            Err(OfflineKeyRefused::NotSignedIn)
+        ));
+        let again = driver.offline_key(own.cookie(), None).await.unwrap();
+        assert_ne!(again.key(), created.key(), "each new key is drawn afresh");
+    });
+}
+
+/// Covers: story:12-126
+#[rstest::rstest]
+#[case::signed_out("signed_out")]
+#[case::revoked("revoked")]
+#[case::key_rotated("key_rotated")]
+fn an_ended_sign_ins_offline_key_unwraps_no_more(#[case] ending: &str) {
+    let env = TestEnv::new();
+    runtime().block_on(async {
+        let driver = driver(&env);
+        let signed_in = driver.with_link(LINK_TOKEN, HERE).await.unwrap();
+        let created = driver.offline_key(signed_in.cookie(), None).await.unwrap();
+        let (id, _) = signed_in.cookie().split_once('.').unwrap();
+
+        match ending {
+            "signed_out" => assert!(driver.sign_out(signed_in.cookie()).await),
+            "revoked" => assert!(driver.revoke(id, Some(Surface::Console)).await.unwrap()),
+            _ => assert_eq!(driver.rotate_key(Some(Surface::Console)).await.unwrap(), 1),
+        }
+
+        assert!(matches!(
+            driver
+                .offline_key(signed_in.cookie(), Some(created.wrapped()))
+                .await,
+            Err(OfflineKeyRefused::NotSignedIn)
+        ));
+    });
 }

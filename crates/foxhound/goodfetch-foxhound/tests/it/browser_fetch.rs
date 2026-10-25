@@ -7,6 +7,7 @@
 //! tier parity of cookies, Foxhound's half), and the site sees one TLS
 //! fingerprint across both tiers.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
@@ -138,6 +139,202 @@ fn a_cookie_the_browser_sample_set_is_sent_by_the_http_tiers_next_request_in_its
             ],
             &json!("finished")
         )
+    );
+}
+
+/// Each request of the Run `run_id` that ended unsuccessful, by URL: its
+/// Error code, its network error and the timeout it names, if any.
+fn failures(engine: &mut Attached, run_id: &str) -> BTreeMap<String, (Value, Value, Value)> {
+    let answer = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": run_id }),
+        &mut |_| None,
+    );
+    answer["result"]["outcomes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no outcomes: {answer}"))
+        .iter()
+        .filter(|outcome| !outcome["error"].is_null())
+        .map(|outcome| {
+            let error = &outcome["error"];
+            (
+                outcome["request"]["url"].as_str().unwrap().to_owned(),
+                (
+                    error["code"].clone(),
+                    error["details"]["error"].clone(),
+                    error["details"]["limit"]["key"].clone(),
+                ),
+            )
+        })
+        .collect()
+}
+
+/// The `Accept-Encoding` of each request `host` received, in order.
+fn accept_encodings(proving_ground: &ProvingGround, host: &str) -> Vec<Value> {
+    proving_ground.observations().unwrap()["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| {
+            request["host"]
+                .as_str()
+                .is_some_and(|seen| seen.starts_with(host))
+        })
+        .map(|request| {
+            request["headers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|header| {
+                    header[0]
+                        .as_str()
+                        .is_some_and(|name| name.eq_ignore_ascii_case("accept-encoding"))
+                })
+                .map_or(Value::Null, |header| header[1].clone())
+        })
+        .collect()
+}
+
+/// How many requests the site received for `target` on `host` so far.
+fn requests_for(proving_ground: &ProvingGround, host: &str, target: &str) -> usize {
+    proving_ground.observations().unwrap()["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| {
+            request["host"]
+                .as_str()
+                .is_some_and(|seen| seen.starts_with(host))
+                && request["target"] == target
+        })
+        .count()
+}
+
+/// The transport conformance gate (pitfall H13's acceptance test) on
+/// browser-fetch, the `http` tier of a Session that may move: each content
+/// coding page decodes as the browser decodes it, the text served to the
+/// handler, or fails with `navigation_failed` naming
+/// `net::ERR_CONTENT_DECODING_FAILED`, a body compressed twice and labelled
+/// once included; the browser asks for its own codings, as its own
+/// navigation does; a `page.request` asking for no redirect gets the 301
+/// as it came, nothing sent to its `Location`; and a page answering after
+/// 8 s ends at a 1 s `timeout.first_byte` with `deadline_exceeded` naming
+/// it.
+///
+/// **Over plain HTTP:** the browser cannot trust the Proving ground's
+/// authority, so the pages are fetched over `http://`, where Chrome asks
+/// for and decodes only `gzip` and `deflate`: the `br` and `zstd` pages
+/// fail there as Chrome's own navigation fails them, which the browser
+/// tier would too.
+///
+/// Covers: story:5-121, story:5-128
+#[test]
+fn browser_fetch_passes_the_transport_conformance_gate() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let mut settings = settings(&proving_ground, "auto");
+    settings["site_preferences"] = json!({ "respect_robots_txt": false });
+    settings["crawl"] = json!({ "retry": { "max": 0 } });
+    let redirect = proving_ground.url("fetch-edge.test", "/redirect/301");
+
+    let mut texts = BTreeMap::new();
+    let mut redirected = None;
+    let seeds: Vec<Value> = (1..=11)
+        .map(|ordinal| {
+            json!({
+                "url": proving_ground.url(&format!("{ordinal}.content-coding.test"), "/page"),
+                "label": "page",
+            })
+        })
+        .collect();
+    let finished = crawl_declaring(
+        &mut engine,
+        "codings",
+        &seeds,
+        &json!({ "page": {} }),
+        &settings,
+        &mut |inside, handle| {
+            if handle["tier"] != "http" {
+                return json!({ "result": { "records": [] } });
+            }
+            let url = handle["crawl_request"]["url"].as_str().unwrap().to_owned();
+            let read = inside.call(
+                "page.formats",
+                &json!({ "page_id": handle["page_id"], "formats": { "markdown": true } }),
+            );
+            texts.insert(url, read["result"]["markdown"].clone());
+            if redirected.is_none() {
+                let answer = inside.call(
+                    "page.request",
+                    &json!({ "page_id": handle["page_id"], "url": redirect, "max_redirects": 0 }),
+                );
+                redirected = Some((
+                    answer["result"]["status"].clone(),
+                    answer["result"]["headers"]["location"].is_string(),
+                    requests_for(&proving_ground, "fetch-edge.test", "/target"),
+                ));
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    let failed = failures(&mut engine, "codings");
+
+    let mut slow = settings.clone();
+    slow["timeout"] = json!({ "first_byte": 1_000 });
+    let slow_url = proving_ground.url("6.incidents.test", "/catalog/2");
+    let finished = crawl_declaring(
+        &mut engine,
+        "slow",
+        &[json!({ "url": slow_url, "label": "page" })],
+        &json!({ "page": {} }),
+        &slow,
+        &mut |_, _| json!({ "result": { "records": [] } }),
+    );
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    let timed_out = failures(&mut engine, "slow");
+    assert!(engine.finish());
+
+    let decoding_failed = (
+        json!("navigation_failed"),
+        json!("net::ERR_CONTENT_DECODING_FAILED"),
+        Value::Null,
+    );
+    for ordinal in 1..=11 {
+        let url = proving_ground.url(&format!("{ordinal}.content-coding.test"), "/page");
+        // 3, 10 and 11 hold `br` or `zstd`, which Chrome decodes over
+        // HTTPS only.
+        if [1, 2, 3, 6, 7, 10, 11].contains(&ordinal) {
+            assert_eq!(failed.get(&url), Some(&decoding_failed), "{url}");
+        } else {
+            let text = texts
+                .get(&url)
+                .and_then(Value::as_str)
+                .unwrap_or_else(|| panic!("{url} not served: {failed:?}"));
+            assert!(
+                text.contains(&format!(
+                    "Content coding page {ordinal}, decoded once and as labelled."
+                )),
+                "{url}: {text}"
+            );
+        }
+    }
+    assert_eq!(failed.len(), 7, "{failed:?}");
+    let asked = accept_encodings(&proving_ground, "8.content-coding.test");
+    assert!(
+        asked.len() >= 2 && asked.iter().all(|coding| coding == &asked[0]),
+        "on `http` as on `browser`: {asked:?}"
+    );
+    assert_eq!(redirected, Some((json!(301), true, 0)));
+    assert_eq!(
+        timed_out.get(&slow_url),
+        Some(&(
+            json!("deadline_exceeded"),
+            Value::Null,
+            json!("timeout.first_byte")
+        ))
     );
 }
 

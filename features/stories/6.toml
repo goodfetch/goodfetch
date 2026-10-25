@@ -821,6 +821,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 244
+title = "As a crawl developer, I want a handler's own navigation that robots.txt, a Crawl-delay or an AI-use signal refuses to raise `site_preferences_refused` with its reason, and escaping the handler to end the request `skipped` with that reason, so that a handler's `goto` cannot collect what an enqueue would skip (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 245
+title = "As a user, I want the navigation gate set on the page a handler gets and every page opened from it, backed by the per-domain limits, delay, backoff and robots.txt, and a permit's wait counted against no timeout, so that eight handlers never press one site eight times over (ADRs 0087, 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 246
 title = "As a user, I want Collie's per-Run robots.txt reading replaced, on a crawl's Run, by the shared copy, so that a crawl fetches robots.txt once per origin for all its pages (ADR 0086; Collie's part)."
 milestone = "M1 Core"

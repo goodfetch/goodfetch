@@ -31,7 +31,9 @@
 //! `crawl_delay` (ADR 0086). While `site_preferences.respect_use_signals` is on, a document whose
 //! response carries an AI-use signal refusing the Run's Purpose is closed
 //! unhandled, its request `skipped` with `use_signals` (ADRs 0086 and
-//! 0093).
+//! 0093). A handler that lets a `site_preferences_refused` its own
+//! navigation raised escape ends its request `skipped` with that
+//! refusal's reason, not `failed` (ADR 0093).
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -66,8 +68,9 @@ use goodfetch_protocol::foxhound::settings::{
     POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MAX_CRAWL_DELAY, SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
     SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
 };
-use goodfetch_protocol::page::NAVIGATION_FAILED;
-use goodfetch_protocol::page::PageId;
+use goodfetch_protocol::page::{
+    NAVIGATION_FAILED, PageId, SITE_PREFERENCES_REFUSED, SitePreference,
+};
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_protocol::site_preferences::{
     SITE_PREFERENCES_PURPOSE, SITE_PREFERENCES_RESPECT_USE_SIGNALS,
@@ -186,6 +189,12 @@ impl Gating {
                     .map(str::to_owned)
             }),
             domain_delay,
+            respect_robots_txt: settings.as_ref().is_none_or(|settings| {
+                settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
+            }),
+            max_crawl_delay: settings
+                .as_ref()
+                .and_then(|settings| settings.duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)),
             lease: Arc::new(HandlerLease {
                 lease: lease.clone(),
                 run: run.clone(),
@@ -723,6 +732,22 @@ impl EndMerged for Merged {
     }
 }
 
+/// The skip reason of a handler's failure that is a `site_preferences_refused`
+/// its own navigation raised and it let escape: the request ends `skipped`
+/// with that refusal's reason, not `failed`, since the site asked not to be
+/// crawled there (ADR 0093).
+fn escaped_refusal(code: &str, details: &Map<String, Value>) -> Option<SkipReason> {
+    if code != SITE_PREFERENCES_REFUSED.name {
+        return None;
+    }
+    let reason = details.get("reason").cloned()?;
+    match serde_json::from_value::<SitePreference>(reason).ok()? {
+        SitePreference::RobotsTxt => Some(SkipReason::RobotsTxt),
+        SitePreference::CrawlDelay => Some(SkipReason::CrawlDelay),
+        SitePreference::UseSignals => Some(SkipReason::UseSignals),
+    }
+}
+
 /// The handler request of one attempt, bounded by its lease.
 async fn handled(
     run: &Run,
@@ -740,7 +765,10 @@ async fn handled(
             answer = sent.answer() => match answer {
                 Ok(handled) => Answer::Handled(handled),
                 Err(ClientRequestError::Failed { code, retryable, message, details }) => {
-                    Answer::Failed { code, retryable, message, details }
+                    match escaped_refusal(&code, &details) {
+                        Some(reason) => Answer::Refused(reason),
+                        None => Answer::Failed { code, retryable, message, details },
+                    }
                 }
                 Err(ClientRequestError::Malformed(message)) => Answer::Failed {
                     code: HANDLER_FAILED.name.to_owned(),

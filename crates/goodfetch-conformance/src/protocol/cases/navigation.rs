@@ -329,18 +329,28 @@ pub(super) fn failed_with(answer: &Value, what: &str, error: &str, checks: &mut 
 
 /// A name that does not resolve fails the navigation with the browser's
 /// `net::ERR_NAME_NOT_RESOLVED`, told apart from a refused connection
-/// (pitfall H01).
+/// (pitfall H01): one to the port of the Proving ground's `down` fixture,
+/// which it holds with nothing listening while it runs, so no other
+/// program can take it, as one could a port bound and released
+/// (fix-queue 31 and 88).
 pub(super) fn unresolved_name(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-unresolved-name";
-    let refused = closed_port().ok().and_then(|port| {
-        site.page_url
-            .as_deref()
-            .and_then(|url| url_on_port(url, port))
-    });
+    let refused = site
+        .proxy("down")
+        .and_then(|down| down.parse::<std::net::SocketAddr>().ok())
+        .and_then(|down| {
+            site.page_url
+                .as_deref()
+                .and_then(|url| url_on_port(url, down.port()))
+        });
+    checks.check(
+        "the Proving ground holds a port that refuses connections",
+        refused.is_some(),
+    );
     if let (Some(page), Some(refused)) = (
         open(connection, site, run_id, &[&refused], checks)?,
         &refused,
@@ -384,17 +394,6 @@ fn url_on_port(url: &str, port: u16) -> Option<String> {
         .rsplit_once(':')
         .map_or(authority, |(host, _)| host);
     Some(format!("{scheme}://{host}:{port}{path}"))
-}
-
-/// A loopback port where nothing listens: one the OS just gave out and the
-/// harness closed again.
-#[expect(
-    clippy::disallowed_types,
-    reason = "the harness takes a free port outside the engine, never inside the Simulation (ADR 0060's note for the harness)"
-)]
-fn closed_port() -> std::io::Result<u16> {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-    Ok(listener.local_addr()?.port())
 }
 
 /// A navigation that another supersedes before its document committed

@@ -65,7 +65,11 @@ fn reason(rule: Rule) -> Option<&'static str> {
         | Rule::CsrfTokenMissing
         | Rule::SignInRevoked
         | Rule::SignInRateExceeded
-        | Rule::TokenForAnotherFile => return None,
+        | Rule::TokenForAnotherFile
+        | Rule::TokenExpired
+        | Rule::TokenRevoked
+        | Rule::TokenScopedElsewhere
+        | Rule::OriginMissingWithoutHeaderToken => return None,
     })
 }
 

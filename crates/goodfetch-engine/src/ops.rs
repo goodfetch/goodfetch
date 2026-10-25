@@ -13,11 +13,10 @@
 //! listener takes, and never to one carrying it in its query string. A
 //! request naming a `Host` other than an IP address or `localhost`, as a
 //! DNS-rebinding page's does, or carrying an `Origin`, as a browser's page
-//! does, is refused before anything else; each refusal is logged under the
-//! listeners' refusal target with its reason.
+//! does, is refused before anything else; each refusal is logged and
+//! recorded in the Audit log with its reason, by the endpoint rule.
 
 use std::convert::Infallible;
-use std::net::IpAddr;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -28,7 +27,7 @@ use hyper::header::{self, HeaderMap, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 
-use crate::rpc::REFUSAL_TARGET;
+use crate::endpoint::{Refusals, names_an_address, same_token};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
 use crate::transport::OpsListener;
@@ -154,6 +153,7 @@ pub(crate) async fn serve(options: OpsOptions, health: Health, owner: TaskOwner)
     let serving = Arc::new(Serving {
         token,
         scrape,
+        refusals: health.runs.refusals(),
         health,
     });
     loop {
@@ -195,6 +195,7 @@ pub(crate) async fn serve(options: OpsOptions, health: Health, owner: TaskOwner)
 struct Serving {
     token: String,
     scrape: Arc<dyn Scrape>,
+    refusals: Refusals,
     health: Health,
 }
 
@@ -202,11 +203,14 @@ impl Serving {
     /// The answer to `request`.
     async fn answer(&self, request: &Request<Incoming>) -> Response<Full<Bytes>> {
         let headers = request.headers();
-        if !names_an_address(headers) {
-            return refused(StatusCode::FORBIDDEN, "host_foreign");
+        let host = headers
+            .get(header::HOST)
+            .and_then(|host| host.to_str().ok());
+        if !names_an_address(host) {
+            return self.refused(StatusCode::FORBIDDEN, "host_foreign").await;
         }
         if headers.contains_key(header::ORIGIN) {
-            return refused(StatusCode::FORBIDDEN, "origin_foreign");
+            return self.refused(StatusCode::FORBIDDEN, "origin_foreign").await;
         }
         if request.method() != Method::GET && request.method() != Method::HEAD {
             let mut answer = empty(StatusCode::METHOD_NOT_ALLOWED);
@@ -225,9 +229,12 @@ impl Serving {
                 empty(probe_status(health.ready))
             }
             "/metrics" => match bearer(headers) {
-                None => refused(StatusCode::UNAUTHORIZED, "token_missing"),
+                None => {
+                    self.refused(StatusCode::UNAUTHORIZED, "token_missing")
+                        .await
+                }
                 Some(given) if !same_token(given, &self.token) => {
-                    refused(StatusCode::UNAUTHORIZED, "token_wrong")
+                    self.refused(StatusCode::UNAUTHORIZED, "token_wrong").await
                 }
                 Some(_) => {
                     let scrape = Arc::clone(&self.scrape);
@@ -256,39 +263,11 @@ fn probe_status(yes: bool) -> StatusCode {
     }
 }
 
-/// Whether the request's `Host` is an IP address or `localhost`, with or
-/// without a port: a name a DNS-rebinding page could point here is not.
-fn names_an_address(headers: &HeaderMap) -> bool {
-    let Some(host) = headers
-        .get(header::HOST)
-        .and_then(|host| host.to_str().ok())
-    else {
-        return false;
-    };
-    let name = match host.strip_prefix('[') {
-        Some(bracketed) => bracketed.split(']').next().unwrap_or_default(),
-        None => host.rsplit_once(':').map_or(host, |(name, _)| name),
-    };
-    name.eq_ignore_ascii_case("localhost") || name.parse::<IpAddr>().is_ok()
-}
-
 /// The bearer token of the request's `Authorization`, if any.
 fn bearer(headers: &HeaderMap) -> Option<&str> {
     let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
     let (scheme, token) = value.split_once(' ')?;
     scheme.eq_ignore_ascii_case("bearer").then(|| token.trim())
-}
-
-/// Whether two tokens are equal, in time that depends only on their
-/// lengths, so a scraper cannot guess one byte at a time.
-fn same_token(given: &str, expected: &str) -> bool {
-    let (given, expected) = (given.as_bytes(), expected.as_bytes());
-    given.len() == expected.len()
-        && given
-            .iter()
-            .zip(expected)
-            .fold(0_u8, |differs, (left, right)| differs | (left ^ right))
-            == 0
 }
 
 /// An answer with `status` and no body.
@@ -301,14 +280,16 @@ fn empty(status: StatusCode) -> Response<Full<Bytes>> {
     answer
 }
 
-/// The refusal `status` for `reason`, logged.
-fn refused(status: StatusCode, reason: &'static str) -> Response<Full<Bytes>> {
-    tracing::warn!(target: REFUSAL_TARGET, listener = LISTENER, reason, "the ops listener refused a request");
-    let mut answer = empty(status);
-    if status == StatusCode::UNAUTHORIZED {
+impl Serving {
+    /// The refusal `status` for `reason`, logged and recorded.
+    async fn refused(&self, status: StatusCode, reason: &'static str) -> Response<Full<Bytes>> {
+        self.refusals.refused(LISTENER, reason).await;
+        let mut answer = empty(status);
+        if status == StatusCode::UNAUTHORIZED {
+            answer
+                .headers_mut()
+                .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+        }
         answer
-            .headers_mut()
-            .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
     }
-    answer
 }

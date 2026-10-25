@@ -308,8 +308,12 @@ fn reason(rule: Rule) -> &'static str {
         Rule::OriginForeign => "origin_foreign",
         Rule::TokenWrong
         | Rule::TokenForAnotherFile
+        | Rule::TokenExpired
+        | Rule::TokenRevoked
+        | Rule::TokenScopedElsewhere
         | Rule::TokenInQueryString
         | Rule::OriginMissing
+        | Rule::OriginMissingWithoutHeaderToken
         | Rule::HelloNotFirst
         | Rule::ProbesAnswerStatusOnly
         | Rule::CsrfTokenMissing

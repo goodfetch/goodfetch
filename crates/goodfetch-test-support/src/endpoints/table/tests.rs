@@ -191,6 +191,27 @@ listeners.private_endpoint = { expect = "closed" }
     Rule::TokenForAnotherFile,
     ListenerKind::OpsListener
 )]
+#[case::an_accepted_attempt_that_must_be_refused(
+    "token_wrong",
+    "ops_listener",
+    r#"{ expect = "accepted" }"#,
+    Rule::TokenWrong,
+    ListenerKind::OpsListener
+)]
+#[case::an_accepted_missing_origin_on_a_websocket(
+    "origin_missing",
+    "daemon_websocket",
+    r#"{ expect = "accepted" }"#,
+    Rule::OriginMissing,
+    ListenerKind::DaemonWebsocket
+)]
+#[case::a_cookie_token_rule_on_a_json_rpc_stream(
+    "origin_missing_without_header_token",
+    "daemon_socket",
+    r#"{ expect = "closed" }"#,
+    Rule::OriginMissingWithoutHeaderToken,
+    ListenerKind::DaemonSocket
+)]
 fn a_cell_its_listener_cannot_try_fails(
     #[case] rule_name: &str,
     #[case] listener_name: &str,

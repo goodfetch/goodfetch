@@ -16,6 +16,7 @@
 )]
 
 use std::path::Path;
+use std::time::Duration;
 
 use data_encoding::BASE64;
 use goodfetch_test_support::{ProvingGround, TestEnv};
@@ -151,6 +152,57 @@ fn h03_each_invalid_certificate_is_refused_through_the_relay_and_passes_under_it
                 true
             ))
             .collect::<Vec<_>>()
+    );
+}
+
+/// Longer than Chromium's first reload of a page left on a network error
+/// page, one second after the error page commits.
+const PAST_AUTO_RELOAD: Duration = Duration::from_secs(2);
+
+/// A page whose navigation the relay refused stays on its error page: the
+/// browser does not load it again on its own, so no request the program
+/// did not make reaches the relay, and the page's next navigation raises
+/// its own host's failure, never the earlier host's (fix-queue 83, where
+/// Chromium's reload of the error page, a second after it, left the earlier
+/// host's refusal for the next call). Positive control: the first
+/// navigation raises its host's failure.
+///
+/// Covers: error:certificate_invalid, operation:page.goto
+#[test]
+fn a_page_left_on_its_error_page_is_not_reloaded_and_the_next_navigation_raises_its_own_host() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    trusting(&env, &proving_ground);
+    let mut program = started(&env, &proving_ground, "left", &json!({}), &[]);
+    let page = program.new_page("left");
+
+    let (first, first_details) = error(&program.goto(
+        &page,
+        &secure(&proving_ground, "expired.certificates.test", "/"),
+    ));
+    // Nothing to wait on: the page stays as it is, which only time shows.
+    std::thread::sleep(PAST_AUTO_RELOAD);
+    let (next, next_details) = error(&program.goto(
+        &page,
+        &secure(&proving_ground, "not-yet-valid.certificates.test", "/"),
+    ));
+    program.finish("left");
+
+    assert_eq!(
+        [
+            (first, first_details["host"].clone()),
+            (next, next_details["host"].clone())
+        ],
+        [
+            (
+                json!("certificate_invalid"),
+                json!("expired.certificates.test")
+            ),
+            (
+                json!("certificate_invalid"),
+                json!("not-yet-valid.certificates.test")
+            ),
+        ]
     );
 }
 

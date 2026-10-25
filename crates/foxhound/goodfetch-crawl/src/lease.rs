@@ -36,14 +36,14 @@ pub(crate) const TARGET: &str = "goodfetch::lease";
 
 /// One attempt's lease of a work item, as a value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Lease {
+pub(crate) struct Lease {
     epoch: u64,
     expires_at: Instant,
 }
 
 impl Lease {
     /// The lease of epoch `epoch`, granted at `now` for `length`.
-    pub fn granted(epoch: u64, now: Instant, length: Duration) -> Self {
+    pub(crate) fn granted(epoch: u64, now: Instant, length: Duration) -> Self {
         Self {
             epoch,
             expires_at: now + length,
@@ -51,24 +51,24 @@ impl Lease {
     }
 
     /// Its epoch.
-    pub fn epoch(&self) -> u64 {
+    pub(crate) fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// When it ends.
-    pub fn expires_at(&self) -> Instant {
+    pub(crate) fn expires_at(&self) -> Instant {
         self.expires_at
     }
 
     /// Whether it still holds at `now`.
-    pub fn holds_at(&self, now: Instant) -> bool {
+    pub(crate) fn holds_at(&self, now: Instant) -> bool {
         now < self.expires_at
     }
 
     /// Renews it at `now` for `length`: a renewal never shortens it, and
     /// never revives one that ended.
     #[must_use]
-    pub fn renewed(self, now: Instant, length: Duration) -> Self {
+    pub(crate) fn renewed(self, now: Instant, length: Duration) -> Self {
         if !self.holds_at(now) {
             return self;
         }

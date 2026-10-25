@@ -32,14 +32,13 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, cli};
+use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, cli, robots_txt_read};
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
 use crate::attached::Attached;
 use crate::page::{opened, started_with};
-use crate::proxy::robots_txt_read;
 use crate::run::call;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -133,10 +132,10 @@ fn target_connections(proving_ground: &ProvingGround) -> usize {
 /// The requests the Proving ground's sites received for a page, not the
 /// browser's own for an icon, as `(host, target)`.
 fn requests(proving_ground: &ProvingGround) -> Vec<(String, String)> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    proving_ground
+        .received_requests()
+        .unwrap()
+        .every()
         .map(|request| {
             (
                 request["host"].as_str().unwrap_or_default().to_owned(),

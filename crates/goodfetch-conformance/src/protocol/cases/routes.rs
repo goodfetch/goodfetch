@@ -293,12 +293,11 @@ pub(super) fn received(site: &Site, host: &str, target: &str) -> usize {
 /// The requests to `host` for `target` the Proving ground received.
 fn requests_to(site: &Site, host: &str, target: &str) -> Vec<Value> {
     site.proving_ground
-        .observations()
-        .ok()
-        .and_then(|observations| observations["requests"].as_array().cloned())
+        .received_requests()
         .unwrap_or_default()
-        .into_iter()
+        .of_the_case()
         .filter(|request| request["host"] == json!(host) && request["target"] == json!(target))
+        .cloned()
         .collect()
 }
 

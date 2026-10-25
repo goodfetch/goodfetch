@@ -32,7 +32,7 @@ use goodfetch_protocol::egress::EgressRule;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::page::NAVIGATION_FAILED;
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rstest::rstest;
 use serde_json::Value;
 use url::Url;
@@ -156,10 +156,10 @@ fn hop(proving_ground: &ProvingGround, path: &str) -> Hop {
 
 /// The requests the Proving ground received on `host` for `path`.
 fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<Value> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .of_the_case()
         .filter(|request| {
             request["host"]
                 .as_str()
@@ -574,9 +574,9 @@ fn a_hop_to_a_private_address_ends_skipped_with_domain_policy_and_never_connects
     );
 
     let observations = proving_ground.observations().unwrap();
-    let requests = observations["requests"].as_array().unwrap();
+    let requests = ReceivedRequests::of(&observations);
     let addressed = requests
-        .iter()
+        .of_the_case()
         .filter(|request| request["target"] == "/address/target")
         .count();
     // The observations' own read is the one connection with no request.
@@ -596,7 +596,7 @@ fn a_hop_to_a_private_address_ends_skipped_with_domain_policy_and_never_connects
         (
             control.ok().map(|fetched| fetched.url.path().to_owned()),
             addressed,
-            connections <= requests.len(),
+            connections <= requests.every().count(),
         ),
         (Some("/target".to_owned()), 0, true)
     );

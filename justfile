@@ -81,6 +81,7 @@ lint: fmt-check
     cargo run --quiet -p xtask -- mocking-lockfile
     cargo run --quiet -p xtask -- telemetry
     cargo run --quiet -p xtask -- no-retry
+    cargo run --quiet -p xtask -- received-requests
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
       cargo run --quiet -p xtask -- quarantine check --cargo-profile {{ test_profile }}
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \

@@ -46,6 +46,7 @@ perf = ["acceptance", "check", "console", "environment", "github", "issues", "me
 pinned = ["check", "github"]
 quarantine = ["check", "environment", "github", "issues", "output"]
 rate = []
+received_requests = ["check", "tree"]
 release_suite = ["check", "environment", "github", "issues", "output", "rate", "workflow"]
 repeat = ["environment", "output", "quarantine"]
 results = ["github", "junit", "release_suite"]

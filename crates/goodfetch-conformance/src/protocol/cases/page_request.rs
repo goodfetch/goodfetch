@@ -443,11 +443,9 @@ fn session_page(
 /// cookies it sent.
 fn received(site: &Site, host: &str, prefix: &str) -> Vec<(Value, Value)> {
     site.proving_ground
-        .observations()
-        .ok()
-        .and_then(|observations| observations["requests"].as_array().cloned())
+        .received_requests()
         .unwrap_or_default()
-        .into_iter()
+        .of_the_case()
         .filter(|request| {
             request["host"] == json!(host)
                 && request["target"]

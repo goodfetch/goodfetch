@@ -233,11 +233,9 @@ fn storage(site: &Site, mark: &str) -> String {
 fn storage_cookies(site: &Site, mark: &str) -> Vec<Value> {
     let target = format!("/storage?mark={mark}");
     site.proving_ground
-        .observations()
-        .ok()
-        .and_then(|observations| observations["requests"].as_array().cloned())
+        .received_requests()
         .unwrap_or_default()
-        .into_iter()
+        .of_the_case()
         .filter(|request| {
             request["host"] == json!("scope.test") && request["target"] == json!(target)
         })

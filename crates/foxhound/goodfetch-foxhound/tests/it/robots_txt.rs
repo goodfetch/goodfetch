@@ -502,7 +502,7 @@ const CRAWL_DELAY: u64 = 5_000_000;
 
 /// Each request `host` received so far, robots.txt included: its target
 /// and when it arrived, in microseconds, in arrival order.
-fn arrivals(proving_ground: &ProvingGround, host: &str) -> Vec<(String, u64)> {
+pub(crate) fn arrivals(proving_ground: &ProvingGround, host: &str) -> Vec<(String, u64)> {
     let observations = proving_ground.observations().unwrap();
     let mut arrivals: Vec<(String, u64)> = observations["requests"]
         .as_array()

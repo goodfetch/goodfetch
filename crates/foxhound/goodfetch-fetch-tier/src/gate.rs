@@ -104,6 +104,9 @@ pub struct HandOver {
     pub operator_token: Option<String>,
     /// `politeness.domain.delay`.
     pub domain_delay: Duration,
+    /// `politeness.domain.adaptive_delay`: on, each hop's latency is
+    /// recorded for its domain key, for every sharing run.
+    pub adaptive_delay: bool,
     /// `site_preferences.respect_robots_txt`: off, robots.txt is neither
     /// read nor applied.
     pub respect_robots_txt: bool,
@@ -136,6 +139,22 @@ impl fmt::Debug for Gate {
             .field("run", self.0.run.id())
             .field("domain_key", &self.0.domain_key)
             .finish_non_exhaustive()
+    }
+}
+
+/// The navigation gate of the pages browser-fetch sends a crawl request's
+/// hops from: it admits each at once, since the redirect chain already
+/// took each hop through [`ChainGate`] (ADR 0118).
+#[derive(Debug)]
+pub(crate) struct Admitted;
+
+impl NavigationGate for Admitted {
+    fn admit<'a>(&'a self, _navigation: &'a Navigation) -> Admission<'a> {
+        Box::pin(async { Ok(Permit::unlimited()) })
+    }
+
+    fn judge_document(&self, _response: &DocumentResponse<'_>) -> Result<(), Refusal> {
+        Ok(())
     }
 }
 
@@ -557,7 +576,8 @@ impl HopGate for ChainGate {
     /// every run sharing it, when later than the start its admission took:
     /// what ran between them (robots.txt, the Frontier's checks, the
     /// hand-over) would otherwise bring the next request that much closer
-    /// at the site than the delay (ADR 0086).
+    /// at the site than the delay (ADR 0086). It also moves the token the
+    /// admission took from the domain's rate to the send, when later.
     fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
         Box::pin(async move {
             let hand_over = &self.hand_over;
@@ -570,6 +590,27 @@ impl HopGate for ChainGate {
                 goodfetch_frontier::started_again(politeness, &key, run.clock().wall()).await
             {
                 tracing::warn!(%error, run_id = %run.id(), "a request's start at its send was not recorded");
+            }
+        })
+    }
+
+    /// Records the hop's latency for its domain key, for every run sharing
+    /// it, while the Run's adaptive delay is on (spec #582's Settings).
+    fn answered<'a>(&'a self, hop: &'a Hop, latency: Duration) -> Gating<'a, ()> {
+        Box::pin(async move {
+            let hand_over = &self.hand_over;
+            let Some(politeness) = hand_over
+                .politeness
+                .as_ref()
+                .filter(|_| hand_over.adaptive_delay)
+            else {
+                return;
+            };
+            let key = hand_over.keys.key(hop.url.as_str());
+            if let Err(error) =
+                goodfetch_frontier::latency_measured(politeness, &key, latency).await
+            {
+                tracing::warn!(%error, run_id = %hand_over.run.id(), "a response's latency was not recorded for its domain");
             }
         })
     }

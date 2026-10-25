@@ -6,6 +6,7 @@ CREATE TABLE crawl_delays (
             delay INTEGER NOT NULL,
             PRIMARY KEY (key, location)
         ) STRICT;
+INSERT INTO "crawl_delays" VALUES('shop.test','https://shop.test/robots.txt',2000);
 CREATE TABLE domain_limits (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,

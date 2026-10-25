@@ -29,7 +29,8 @@ impl On<'_> {
         tokio::select! {
             biased;
             answer = async {
-                let read = read_robots_txt(run, http, leased).await;
+                let hand_over = self.gating.hand_over(run, leased, lease, self.in_flight).await;
+                let read = read_robots_txt(run, http, leased, &*hand_over.lease).await;
                 if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
                     return refused;
                 }
@@ -49,7 +50,6 @@ impl On<'_> {
                         }
                     };
                 }
-                let hand_over = self.gating.hand_over(run, leased, lease, self.in_flight).await;
                 let limits = run
                     .settings()
                     .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));

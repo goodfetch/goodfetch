@@ -17,8 +17,8 @@ use goodfetch_engine::CallError;
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::{
     DATASET_DUPLICATE, DATASET_KEY_INVALID, DATASET_UNKNOWN, DatasetDeclaration,
-    DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, RECORD_INVALID,
-    RecordInvalidDetails, RecordIssue,
+    DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, KeyRefused,
+    RECORD_INVALID, RecordInvalidDetails, RecordIssue,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use rusqlite::Connection;
@@ -79,7 +79,9 @@ impl Datasets {
                     ),
                     &DatasetKeyInvalidDetails {
                         dataset: name.clone(),
-                        field: field.clone(),
+                        refused: KeyRefused::NotRequired {
+                            field: field.clone(),
+                        },
                     },
                 ));
             }
@@ -110,6 +112,11 @@ impl Datasets {
             ))?;
         }
         Ok(())
+    }
+
+    /// The declarations, in the order declared.
+    pub(crate) fn declarations(&self) -> &[DatasetDeclaration] {
+        &self.0
     }
 
     /// The declarations the run file `connection` holds; a row that no

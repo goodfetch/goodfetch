@@ -7,6 +7,11 @@
 //! `record_invalid` naming each issue's path and not staged; the Records an
 //! attempt staged commit once with it, each Dataset numbering its own from
 //! 1 in commit order; and a `succeeded` outcome counts them per Dataset.
+//! A start under the ID of a Run, ADR 0102's resume, is refused with
+//! `dataset_unknown` when the crawl no longer declares a Dataset that holds
+//! Records and with `dataset_key_invalid` when such a Dataset's key
+//! changed; a changed schema resumes, each Record keeping the hash of the
+//! schema it was committed under.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -72,12 +77,12 @@ fn refusal(reply: &Value) -> Value {
 /// Covers: error:dataset_key_invalid
 #[case::a_key_on_a_field_the_schema_does_not_require(
     json!([{ "name": "books", "schema": book_schema(), "key": ["isbn", "price"] }]),
-    json!({ "code": "dataset_key_invalid", "details": { "dataset": "books", "field": "price" } }),
+    json!({ "code": "dataset_key_invalid", "details": { "dataset": "books", "reason": "not_required", "field": "price" } }),
 )]
 /// Covers: error:dataset_key_invalid
 #[case::a_key_on_a_field_the_schema_does_not_have(
     json!([{ "name": "books", "schema": book_schema(), "key": ["author"] }]),
-    json!({ "code": "dataset_key_invalid", "details": { "dataset": "books", "field": "author" } }),
+    json!({ "code": "dataset_key_invalid", "details": { "dataset": "books", "reason": "not_required", "field": "author" } }),
 )]
 fn a_crawl_whose_datasets_cannot_be_declared_is_refused_before_its_run_begins(
     #[case] datasets: Value,
@@ -439,6 +444,248 @@ fn records_of_a_retried_request_commit_once_numbered_from_one_in_commit_order() 
                 json!("2-1-1"),
                 json!("2-1-2")
             ],
+        )
+    );
+}
+
+/// The run file of the Run `run_id`.
+fn run_file(env: &TestEnv, run_id: &str) -> Connection {
+    Connection::open(
+        env.home()
+            .join("0.0")
+            .join("runs")
+            .join(run_id)
+            .join("run.sqlite"),
+    )
+    .unwrap()
+}
+
+/// The reply of a start under the Run ID `run_id` of the seed
+/// `https://shop.test/book`, declaring `datasets`: its error's code and
+/// details, else how it started.
+fn start_again(engine: &mut Attached, run_id: &str, datasets: &Value) -> Value {
+    let reply = engine.call(
+        "again",
+        "crawl.start",
+        &json!({
+            "run_id": run_id,
+            "seeds": [{ "url": "https://shop.test/book", "label": "page" }],
+            "datasets": datasets,
+        }),
+        &mut |_| None,
+    );
+    match reply.get("result") {
+        Some(result) => json!({ "started_as": result["started_as"] }),
+        None => refusal(&reply),
+    }
+}
+
+/// A start under the ID of a Run whose `books` holds a Record and whose
+/// `notes` holds none is checked against the Datasets the Run began with
+/// before any work: `books` dropped or renamed fails with
+/// `dataset_unknown`, naming the Datasets now declared, and its key
+/// changed with `dataset_key_invalid`, naming both keys; `notes`, which
+/// holds no Record, may be dropped or keyed anew.
+///
+/// Covers: story:6-272, operation:crawl.start
+#[rstest]
+/// Covers: error:dataset_unknown
+#[case::a_dataset_holding_records_dropped(
+    json!([{ "name": "notes", "key": ["id"] }]),
+    json!({ "code": "dataset_unknown", "details": { "dataset": "books", "declared": ["notes"] } }),
+)]
+/// Covers: error:dataset_unknown
+#[case::a_dataset_holding_records_renamed(
+    json!([
+        { "name": "titles", "schema": book_schema(), "key": ["isbn"] },
+        { "name": "notes", "key": ["id"] },
+    ]),
+    json!({ "code": "dataset_unknown", "details": { "dataset": "books", "declared": ["titles", "notes"] } }),
+)]
+/// Covers: error:dataset_key_invalid
+#[case::the_key_of_a_dataset_holding_records_changed(
+    json!([
+        { "name": "books", "schema": book_schema(), "key": ["title"] },
+        { "name": "notes", "key": ["id"] },
+    ]),
+    json!({
+        "code": "dataset_key_invalid",
+        "details": { "dataset": "books", "reason": "changed", "key": ["title"], "began_with": ["isbn"] },
+    }),
+)]
+#[case::a_dataset_holding_no_record_dropped(
+    json!([{ "name": "books", "schema": book_schema(), "key": ["isbn"] }]),
+    json!({ "started_as": "existing" }),
+)]
+#[case::the_key_of_a_dataset_holding_no_record_changed(
+    json!([
+        { "name": "books", "schema": book_schema(), "key": ["isbn"] },
+        { "name": "notes", "key": ["text"] },
+    ]),
+    json!({ "started_as": "existing" }),
+)]
+fn a_start_under_its_run_id_refuses_a_dataset_holding_records_dropped_or_keyed_anew(
+    #[case] datasets: Value,
+    #[case] expected: Value,
+) {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    let book = json!({ "title": "Dune", "isbn": "0441013597" });
+
+    let report = crawl_from(
+        &mut engine,
+        &json!({
+            "run_id": "kept",
+            "seeds": [{ "url": "https://shop.test/book", "label": "page" }],
+            "datasets": declared(),
+        }),
+        &mut |_, _| json!({ "result": { "records": [{ "dataset": "books", "data": book }] } }),
+    );
+    let answer = start_again(&mut engine, "kept", &datasets);
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            committed(&env, "kept").len(),
+            answer
+        ),
+        (&json!("finished"), 1, expected)
+    );
+}
+
+/// Each committed Record of the run file of `run_id`, in number order:
+/// its number, its data and the hash of the schema it was committed under.
+fn hashed(env: &TestEnv, run_id: &str) -> Vec<(i64, Value, Option<String>)> {
+    let connection = run_file(env, run_id);
+    let mut select = connection
+        .prepare("SELECT number, data, schema_hash FROM records ORDER BY number")
+        .unwrap();
+    select
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                serde_json::from_str(&row.get::<_, String>(1)?).unwrap(),
+                row.get(2)?,
+            ))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// The schema hash the run file of `run_id` holds for its Dataset
+/// `books`.
+fn books_hash(env: &TestEnv, run_id: &str) -> Option<String> {
+    run_file(env, run_id)
+        .query_row(
+            "SELECT schema_hash FROM datasets WHERE name = 'books'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+/// A crawl killed while its second request is handled resumes, after a
+/// start under its Run ID whose `books` schema changed (`price` now a
+/// string), under that schema: the resumed attempt's Record, which only the
+/// new schema takes, commits, and each Record keeps the hash of the schema
+/// it was committed under.
+///
+/// Covers: story:6-272, operation:crawl.start, operation:run.resume
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test's own thread polls the run file until the first attempt committed, before it kills the engine"
+)]
+fn a_crawl_resumed_after_its_schema_changed_checks_new_records_against_it_and_each_keeps_its_schemas_hash()
+ {
+    let env = TestEnv::new();
+    let schema = |price: &str| {
+        let mut schema = book_schema();
+        schema["properties"]["price"] = json!({ "type": price });
+        json!([{ "name": "books", "schema": schema, "key": ["isbn"] }])
+    };
+    let one_at_a_time = json!({ "crawl": { "handler": { "concurrency": 1 } } });
+    let start = |datasets: Value| {
+        json!({
+            "run_id": "evolved",
+            "seeds": [
+                { "url": "https://shop.test/a", "label": "page" },
+                { "url": "https://shop.test/b", "label": "page" },
+            ],
+            "datasets": datasets,
+            "settings": one_at_a_time,
+        })
+    };
+    let first = json!({ "title": "Dune", "isbn": "1", "price": 9.99 });
+    let second = json!({ "title": "Emma", "isbn": "2", "price": "cheap" });
+
+    let mut killed = Attached::start(&env);
+    killed.send(&json!({
+        "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": start(schema("number")),
+    }));
+    let (mut started, mut held) = (false, false);
+    while !(started && held) {
+        let message = killed.next().expect("the engine runs the crawl");
+        if message["id"] == "start" {
+            started = true;
+        } else if message["method"] == "crawl_request.handle" {
+            if message["params"]["crawl_request"]["url"] == "https://shop.test/a" {
+                killed.send(&json!({
+                    "jsonrpc": "2.0", "id": message["id"],
+                    "result": { "records": [{ "dataset": "books", "data": first }] },
+                }));
+            } else {
+                held = true;
+            }
+        }
+    }
+    while hashed(&env, "evolved").is_empty() {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let began = books_hash(&env, "evolved");
+    killed.kill();
+
+    let mut resuming = Attached::start(&env);
+    let mut answer = |params: &Value| {
+        assert_eq!(params["crawl_request"]["url"], "https://shop.test/b");
+        Some(json!({ "result": { "records": [{ "dataset": "books", "data": second }] } }))
+    };
+    let again = resuming.call(
+        "again",
+        "crawl.start",
+        &start(schema("string")),
+        &mut answer,
+    );
+    let resumed = resuming.call(
+        "resume",
+        "run.resume",
+        &json!({ "run_id": "evolved", "settings": one_at_a_time }),
+        &mut answer,
+    );
+    let finished = resuming.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": "evolved" }),
+        &mut answer,
+    );
+    assert!(resuming.finish());
+
+    let now = books_hash(&env, "evolved");
+    assert_ne!(began, now, "the changed schema has another hash");
+    assert_eq!(
+        (
+            &again["result"]["started_as"],
+            &resumed["result"]["started_as"],
+            &finished["result"]["lifecycle"],
+            hashed(&env, "evolved"),
+        ),
+        (
+            &json!("existing"),
+            &json!("resumed"),
+            &json!("finished"),
+            vec![(1, first, began), (2, second, now)],
         )
     );
 }

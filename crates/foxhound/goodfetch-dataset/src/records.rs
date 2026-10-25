@@ -34,7 +34,7 @@ impl Checked {
 
 /// Commits `records`, which the attempt of the crawl request `work_item`
 /// staged, in `connection`'s transaction: each Record takes its Dataset's
-/// next number. Answers, per Dataset in the order first pushed, how many
+/// next number and the hash of the schema the run file declares it with. Answers, per Dataset in the order first pushed, how many
 /// it committed.
 ///
 /// # Errors
@@ -46,8 +46,9 @@ pub fn commit(
     records: &Checked,
 ) -> rusqlite::Result<Vec<DatasetRecords>> {
     let mut insert = connection.prepare(
-        "INSERT INTO records (dataset, number, work_item, data)
-         VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM records WHERE dataset = ?1), ?2, ?3)",
+        "INSERT INTO records (dataset, number, work_item, data, schema_hash)
+         VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM records WHERE dataset = ?1), ?2, ?3,
+             (SELECT schema_hash FROM datasets WHERE name = ?1))",
     )?;
     let mut counted: Vec<DatasetRecords> = Vec::new();
     for record in records.records() {

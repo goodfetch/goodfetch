@@ -5,7 +5,9 @@
 //! the check a pushed Record passes before it is staged with its attempt
 //! (`dataset_unknown`, `record_invalid`), which only a [`Checked`] value
 //! proves; and each Dataset's numbering of the Records an attempt commits,
-//! from 1, in commit order, with no gaps. The crawl's delivery (area 3)
+//! from 1, in commit order, with no gaps; and each Dataset's rejection
+//! table, which a Record the check refused at push enters with its
+//! attempt, and `run.rejected_records`, its reader. The crawl's delivery (area 3)
 //! stages and commits; this crate says what may be committed and numbers
 //! it. A resume checks the crawl's declarations against those the Run
 //! began with, and a changed schema is recorded for the Records committed
@@ -15,13 +17,16 @@
 
 mod declaration;
 mod records;
+mod rejected_records;
+mod rejections;
 mod resume;
 
 use goodfetch_engine::Contribution;
 use goodfetch_engine::run_state::RunStateTables;
 
-pub use declaration::Datasets;
+pub use declaration::{Datasets, Refused};
 pub use records::{Checked, commit};
+pub use rejections::{Rejection, fuzz_rejection};
 pub use resume::Began;
 
 /// The tables of a crawl's Datasets in every run file: `datasets`, each
@@ -29,7 +34,11 @@ pub use resume::Began;
 /// schema's hash (none for a Dataset without one) and its key as a JSON
 /// array; and `records`, each committed Record by its Dataset and its
 /// number, with the crawl request whose attempt committed it and the hash
-/// of the schema it was committed under (none for a Dataset without one).
+/// of the schema it was committed under (none for a Dataset without one);
+/// and `rejected_records`, each Dataset's rejection table: each rejected Record
+/// by its Dataset and its number there, with the crawl request whose
+/// attempt staged it, the Record as JSON and, as a JSON object, why
+/// (its reason, its issues and the Hook, when one rejected it).
 pub const TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-dataset",
     statements: &[
@@ -48,10 +57,21 @@ pub const TABLES: RunStateTables = RunStateTables {
             schema_hash TEXT,
             PRIMARY KEY (dataset, number)
         ) STRICT",
+        "CREATE TABLE IF NOT EXISTS rejected_records (
+            dataset TEXT NOT NULL,
+            number INTEGER NOT NULL,
+            work_item TEXT NOT NULL,
+            data TEXT NOT NULL,
+            rejection TEXT NOT NULL,
+            PRIMARY KEY (dataset, number)
+        ) STRICT",
     ],
 };
 
-/// What Datasets add to the engine: [`TABLES`].
+/// What Datasets add to the engine: [`TABLES`] and the handler of
+/// `run.rejected_records`.
 pub fn contribution() -> Contribution {
-    Contribution::new("goodfetch-dataset").with_run_state_tables(TABLES)
+    Contribution::new("goodfetch-dataset")
+        .with_run_state_tables(TABLES)
+        .with_handler(rejected_records::handler())
 }

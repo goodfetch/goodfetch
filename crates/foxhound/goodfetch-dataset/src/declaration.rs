@@ -26,6 +26,18 @@ use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 
 use crate::records::Checked;
+use crate::rejections::{Rejection, Why};
+
+/// A pushed Record the check refused: the error `crawl_request.push`
+/// answers, and what to stage in the Record's place, its rejection when
+/// the crawl declares its Dataset, else nothing.
+#[derive(Debug)]
+pub struct Refused {
+    /// The error.
+    pub error: CallError,
+    /// What to stage instead.
+    pub rejected: Checked,
+}
 
 /// The Datasets a crawl declares, in the order declared, each checked.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -166,24 +178,65 @@ impl Datasets {
         Ok(Checked::new(records))
     }
 
+    /// `record`, once it holds for the Dataset it names, as
+    /// `crawl_request.push` stages it.
+    ///
+    /// # Errors
+    ///
+    /// [`check`](Self::check)'s, with the rejection to stage in its place
+    /// when the crawl declares its Dataset: the Record, the error's
+    /// message as the reason, and each issue (ADR 0103).
+    pub fn check_pushed(&self, record: PushedRecord) -> Result<Checked, Refused> {
+        let Err(error) = self.check_one(&record) else {
+            return Ok(Checked::new(vec![record]));
+        };
+        let rejected = match self.declared(&record.dataset) {
+            Ok(declaration) => Checked::rejected(Rejection {
+                why: Why {
+                    reason: error.message().to_owned(),
+                    issues: issues(declaration, &record.data),
+                    hook: None,
+                },
+                dataset: record.dataset,
+                data: record.data,
+            }),
+            Err(_) => Checked::default(),
+        };
+        Err(Refused { error, rejected })
+    }
+
+    /// Whether the crawl declares the Dataset `name`.
+    ///
+    /// # Errors
+    ///
+    /// `dataset_unknown`, naming the Datasets the crawl declares.
+    pub fn known(&self, name: &str) -> Result<(), CallError> {
+        self.declared(name).map(drop)
+    }
+
+    fn declared(&self, name: &str) -> Result<&DatasetDeclaration, CallError> {
+        self.0
+            .iter()
+            .find(|declared| declared.name == name)
+            .ok_or_else(|| {
+                CallError::new(
+                    &DATASET_UNKNOWN,
+                    format!("The crawl declares no Dataset `{name}`: name one the crawl declares."),
+                    &DatasetUnknownDetails {
+                        dataset: name.to_owned(),
+                        declared: self
+                            .0
+                            .iter()
+                            .map(|declared| declared.name.clone())
+                            .collect(),
+                    },
+                )
+            })
+    }
+
     fn check_one(&self, record: &PushedRecord) -> Result<(), CallError> {
         let name = &record.dataset;
-        let Some(declaration) = self.0.iter().find(|declared| &declared.name == name) else {
-            return Err(CallError::new(
-                &DATASET_UNKNOWN,
-                format!(
-                    "The crawl declares no Dataset `{name}`, so the Record was not staged: push it into one the crawl declares."
-                ),
-                &DatasetUnknownDetails {
-                    dataset: name.clone(),
-                    declared: self
-                        .0
-                        .iter()
-                        .map(|declared| declared.name.clone())
-                        .collect(),
-                },
-            ));
-        };
+        let declaration = self.declared(name)?;
         let issues = issues(declaration, &record.data);
         if issues.is_empty() {
             return Ok(());

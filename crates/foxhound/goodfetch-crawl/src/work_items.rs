@@ -602,7 +602,13 @@ pub(crate) fn commit(
         "UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2",
         (SUCCEEDED, id),
     )?;
-    let nothing_committed = counted.is_empty().then_some(NothingCommitted::NonePushed);
+    let nothing_committed = if counted.is_empty() {
+        Some(NothingCommitted::NonePushed)
+    } else if counted.iter().all(|dataset| dataset.committed == 0) {
+        Some(NothingCommitted::NoneKept)
+    } else {
+        None
+    };
     write_outcome(
         connection,
         id,

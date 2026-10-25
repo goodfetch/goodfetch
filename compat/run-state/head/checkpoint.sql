@@ -122,6 +122,14 @@ CREATE TABLE records (
             schema_hash TEXT,
             PRIMARY KEY (dataset, number)
         ) STRICT;
+CREATE TABLE rejected_records (
+            dataset TEXT NOT NULL,
+            number INTEGER NOT NULL,
+            work_item TEXT NOT NULL,
+            data TEXT NOT NULL,
+            rejection TEXT NOT NULL,
+            PRIMARY KEY (dataset, number)
+        ) STRICT;
 CREATE TABLE rules_canonicals (
             host TEXT NOT NULL,
             form TEXT NOT NULL,

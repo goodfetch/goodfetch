@@ -17,7 +17,7 @@
 //! differ and stop the rule, and a sitemap seed whose sitemap it reads as
 //! listing an entry no rule matches and one the scope refuses, beside one
 //! whose sitemap answered 404, whose handler enqueues a `forefront` request on another domain from the
-//! first, pushes Records into its two Datasets, `pages` with a schema and
+//! first and pushes there a Record the engine rejects into its rejection table, answers Records for its two Datasets, `pages` with a schema and
 //! a key and `links` with neither, for the first, the `POST` and that request and
 //! fails on the second, whose first byte never came, so its
 //! domain still backs off when `run.finish` ends it, and whose last site
@@ -520,6 +520,46 @@ fn enqueue(request: &Value) -> Value {
     })
 }
 
+/// The handler's push, from the home page's attempt, of a `pages` Record
+/// without its `url`, which the engine's check rejects, so its rejection
+/// enters `pages`' rejection table with the attempt.
+fn reject(request: &Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": "reject",
+        "method": "crawl_request.push",
+        "params": {
+            "run_id": request["params"]["run_id"],
+            "crawl_request_id": request["params"]["crawl_request"]["id"],
+            "lease_epoch": request["params"]["lease_epoch"],
+            "dataset": "pages",
+            "data": { "title": "No address" },
+        },
+    })
+}
+
+/// What the home page's attempt sends after `received`, the reply to its
+/// enqueue or to its push: the rejected push, then its answer, which ends
+/// the attempt; `None` for any other message.
+fn after_enqueue(enqueuing: &mut Option<Value>, received: &Value) -> Result<Option<Value>, String> {
+    let Some(request) = enqueuing.as_ref() else {
+        return Ok(None);
+    };
+    if received["id"] == "enqueue" {
+        if received["result"]["kind"] != "added" {
+            return Err(format!("the enqueue failed: {received}"));
+        }
+        return Ok(Some(reject(request)));
+    }
+    if received["id"] == "reject" {
+        if received["error"]["data"]["code"] != "record_invalid" {
+            return Err(format!("the push was not rejected: {received}"));
+        }
+        return Ok(enqueuing.take().map(|request| handle(&request)));
+    }
+    Ok(None)
+}
+
 /// The handler's answer to one handler request.
 fn handle(request: &Value) -> Value {
     let id = &request["id"];
@@ -627,13 +667,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         } else {
                             writer.write_all(&line(&handle(&received))?).await?;
                         }
-                    } else if received["id"] == "enqueue"
-                        && let Some(request) = enqueuing.take()
-                    {
-                        if received["result"]["kind"] != "added" {
-                            return Err(format!("the enqueue failed: {received}").into());
-                        }
-                        writer.write_all(&line(&handle(&request))?).await?;
+                    } else if let Some(next) = after_enqueue(&mut enqueuing, &received)? {
+                        writer.write_all(&line(&next)?).await?;
                     } else if received["id"] == message["id"] {
                         if received.get("error").is_some() {
                             return Err(format!("the scenario failed: {received}").into());

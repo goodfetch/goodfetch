@@ -1080,6 +1080,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 270
+title = "As a crawl developer, I want `run.rejectedRecords(dataset, { after })` to read the rejection table, each entry numbered with the Record as JSON, its reason, its Hook, its request and its URL, so that a Hook's rejection is never lost (ADR 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 272
 title = "As a crawl developer, I want a resume refused with `dataset_unknown` when the crawl no longer declares a Dataset holding Records, and with `dataset_key_invalid` when its key changed, while a changed schema resumes and each Record keeps the hash of the schema it was committed under, so that no Record is orphaned or mis-keyed (ADR 0103)."
 milestone = "M1 Core"

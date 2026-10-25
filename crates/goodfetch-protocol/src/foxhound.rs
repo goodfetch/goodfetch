@@ -15,6 +15,7 @@ pub mod fetch;
 pub mod frontier;
 pub mod outcomes;
 pub mod progress;
+pub mod rejections;
 pub mod report;
 pub mod session_pool;
 pub mod settings;

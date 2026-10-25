@@ -66,6 +66,8 @@ struct Recording {
     released: Arc<Mutex<usize>>,
     waits: Mutex<Vec<(String, Duration)>>,
     reached: Mutex<Vec<String>>,
+    /// Each hop as it was sent, with how many hops were admitted then.
+    sent: Mutex<Vec<(String, usize)>>,
 }
 
 impl HopGate for Recording {
@@ -102,6 +104,16 @@ impl HopGate for Recording {
     fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
         Box::pin(async move {
             self.reached.lock().unwrap().push(hop.url.path().to_owned());
+        })
+    }
+
+    fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
+        Box::pin(async move {
+            let admitted = self.admitted.lock().unwrap().len();
+            self.sent
+                .lock()
+                .unwrap()
+                .push((hop.url.path().to_owned(), admitted));
         })
     }
 }
@@ -219,6 +231,37 @@ fn a_chain_of_nineteen_redirects_reaches_its_document_each_hop_through_the_gate(
         .collect();
     assert_eq!(*gate.admitted.lock().unwrap(), admitted);
     assert_eq!(*gate.reached.lock().unwrap(), ["/redirect/hops/0"]);
+}
+
+/// Each hop is told to the gate as it is sent, the first included and
+/// each after it once admitted, so its domain's delay counts from its
+/// send, never from an admission whatever ran after it held back (ADR
+/// 0086).
+///
+/// Covers: story:5-124
+#[test]
+fn each_hop_is_told_to_the_gate_as_it_is_sent() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let gate = Recording::default();
+
+    followed(
+        &transport,
+        hop(&proving_ground, "/redirect/hops/2"),
+        &defaults(),
+        &gate,
+    )
+    .unwrap();
+
+    assert_eq!(
+        *gate.sent.lock().unwrap(),
+        [
+            ("/redirect/hops/2".to_owned(), 0),
+            ("/redirect/hops/1".to_owned(), 1),
+            ("/redirect/hops/0".to_owned(), 2),
+        ]
+    );
 }
 
 /// Covers: story:5-124

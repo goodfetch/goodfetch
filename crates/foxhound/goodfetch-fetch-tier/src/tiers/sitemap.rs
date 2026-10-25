@@ -5,7 +5,9 @@
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::runs::Run;
+use goodfetch_frontier::DomainKeys;
 use goodfetch_page::page_value::Permit;
 use goodfetch_protocol::foxhound::crawl::{RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE};
 use url::Url;
@@ -18,7 +20,10 @@ impl HttpTier {
     /// Fetches the sitemap at `url` for `run` (ADR 0093): a `GET` whose
     /// redirects are followed as a crawl request's are, under the Run's
     /// domain policy, which its transport enforces on every hop, and never
-    /// the scope; answers its body, its content codings decoded.
+    /// the scope; each hop's send recorded as its domain's start in
+    /// `politeness`, the Politeness the Run shares, under the Run's domain
+    /// `keys`, as a page's hops are (ADR 0086); answers its body, its
+    /// content codings decoded.
     ///
     /// # Errors
     ///
@@ -29,10 +34,18 @@ impl HttpTier {
     /// # Cancel safety
     ///
     /// Dropping the future closes the fetch's connection.
-    pub async fn sitemap(&self, run: &Run, url: &Url) -> Result<Vec<u8>, CallError> {
+    pub async fn sitemap(
+        &self,
+        run: &Run,
+        url: &Url,
+        (politeness, keys): (Option<&Politeness>, &DomainKeys),
+    ) -> Result<Vec<u8>, CallError> {
         let clock = run.clock();
         let gate = SitemapHops {
             clock: clock.clone(),
+            politeness,
+            keys,
+            run,
         };
         let fetched = follow(
             Hop::get(url.clone()),
@@ -82,12 +95,16 @@ impl HttpTier {
 /// The hops of a sitemap's fetch after its first: each sent at once, under
 /// the domain policy its transport enforces, with no scope to leave and no
 /// handler page whose gate would admit it; a redirect's `Retry-After`
-/// waited out on `clock`.
-struct SitemapHops {
+/// waited out on `clock`; each hop's send, the first's included, recorded
+/// as its domain's start in `politeness`.
+struct SitemapHops<'h> {
     clock: Clock,
+    politeness: Option<&'h Politeness>,
+    keys: &'h DomainKeys,
+    run: &'h Run,
 }
 
-impl HopGate for SitemapHops {
+impl HopGate for SitemapHops<'_> {
     fn admit<'a>(&'a self, _hop: &'a Hop) -> Gating<'a, Result<Permit, Stop>> {
         Box::pin(async { Ok(Permit::unlimited()) })
     }
@@ -96,6 +113,20 @@ impl HopGate for SitemapHops {
         Box::pin(async move {
             if let Ok(wait) = until.duration_since(self.clock.wall()) {
                 self.clock.sleep(wait).await;
+            }
+        })
+    }
+
+    fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
+        Box::pin(async move {
+            let Some(politeness) = self.politeness else {
+                return;
+            };
+            let key = self.keys.key(hop.url.as_str());
+            if let Err(error) =
+                goodfetch_frontier::started_again(politeness, &key, self.clock.wall()).await
+            {
+                tracing::warn!(%error, run_id = %self.run.id(), "a sitemap's start at its send was not recorded");
             }
         })
     }

@@ -523,6 +523,27 @@ impl HopGate for ChainGate {
         })
     }
 
+    /// Records the hop's send as the last start of its domain key for
+    /// every run sharing it, when later than the start its admission took:
+    /// what ran between them (robots.txt, the Frontier's checks, the
+    /// hand-over) would otherwise bring the next request that much closer
+    /// at the site than the delay (ADR 0086).
+    fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
+        Box::pin(async move {
+            let hand_over = &self.hand_over;
+            let Some(politeness) = &hand_over.politeness else {
+                return;
+            };
+            let run = &hand_over.run;
+            let key = hand_over.keys.key(hop.url.as_str());
+            if let Err(error) =
+                goodfetch_frontier::started_again(politeness, &key, run.clock().wall()).await
+            {
+                tracing::warn!(%error, run_id = %run.id(), "a request's start at its send was not recorded");
+            }
+        })
+    }
+
     fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
         Box::pin(async move {
             let run = &self.hand_over.run;

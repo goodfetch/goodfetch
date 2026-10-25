@@ -1,0 +1,215 @@
+//! What a site's preferences say of an attempt's request (ADRs 0086 and
+//! 0093): its origin's robots.txt, read from the copy the user's runs
+//! share and its Crawl-delay recorded and waited; the refusal of a request
+//! that robots.txt disallows or whose Crawl-delay exceeds the crawl's
+//! bound; the AI-use signals of its document's response; and a handler's
+//! escaped `site_preferences_refused`.
+
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
+
+use goodfetch_engine::politeness::Politeness;
+use goodfetch_engine::robots_txt::{self, Fetch, Fetched};
+use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::Resolved;
+use goodfetch_fetch_tier::{FetchTiers, HttpTier, Purpose};
+use goodfetch_frontier::SharedRobotsTxt;
+use goodfetch_protocol::foxhound::outcomes::SkipReason;
+use goodfetch_protocol::foxhound::settings::{
+    POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MAX_CRAWL_DELAY, SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
+    SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
+};
+use goodfetch_protocol::page::{PageId, SITE_PREFERENCES_REFUSED, SitePreference};
+use goodfetch_protocol::site_preferences::{
+    SITE_PREFERENCES_PURPOSE, SITE_PREFERENCES_RESPECT_USE_SIGNALS,
+};
+use serde_json::{Map, Value};
+use tokio::sync::oneshot;
+
+use super::Answer;
+use crate::work_items::Leased;
+
+/// The Politeness the crawl's Run shares, once it opened: from then on
+/// the Run reads robots.txt from the copy its user's runs share there
+/// (ADR 0086). A Politeness file that cannot open leaves the Run its own
+/// copy.
+pub(super) async fn share_robots_txt(run: &Run) -> Option<Politeness> {
+    let settings = run.settings()?.resolved();
+    match run.politeness(settings).await {
+        Ok((politeness, _)) => {
+            let shared = politeness.clone();
+            run.share_robots_txt(|| Arc::new(SharedRobotsTxt::new(shared, run.clock())));
+            Some(politeness)
+        }
+        Err(error) => {
+            tracing::warn!(%error, run_id = %run.id(), "the shared robots.txt copy is out of reach; the crawl reads its own");
+            None
+        }
+    }
+}
+
+/// Reads the robots.txt of `leased`'s origin, as the crawl's Run reads it:
+/// from the copy its user's runs share, fetched on `http` only when the
+/// copy has none to use. The Crawl-delay it asks for is recorded for the
+/// request's domain key, for every run sharing the domain. A robots.txt
+/// fetch is a request of the domain: while the one the attempt made, or
+/// the one whose copy it read, is less than the delay before, the document
+/// starts `politeness.domain.delay` after that fetch's response arrived,
+/// or the Crawl-delay when the crawl waits it out and it is longer, and no
+/// sooner than that after the start another sharing run took meanwhile;
+/// that start is taken in the Politeness file for every run sharing the
+/// domain. Counted from the response's arrival, the site never receives
+/// the document sooner than the delay after the robots.txt request,
+/// whatever that request's connection cost. Answers what applies, or
+/// `None` for a URL with no robots.txt.
+pub(super) async fn read_robots_txt(
+    run: &Run,
+    http: &HttpTier,
+    leased: &Leased,
+) -> Option<Arc<Fetched>> {
+    let location = goodfetch_frontier::Url::parse(&leased.crawl_request.url)
+        .ok()
+        .and_then(|url| robots_txt::location(&url))?;
+    let politeness = share_robots_txt(run).await;
+    let (arriving, arrived) = oneshot::channel::<SystemTime>();
+    let fetch: Fetch<'_> = Box::pin(async {
+        let answer = http.robots_txt(run, &location).await;
+        let _ = arriving.send(run.clock().wall());
+        answer
+    });
+    let read = run.robots_txt().copy(&location, fetch).await;
+    let Some(settings) = run.settings().map(|settings| settings.resolved().clone()) else {
+        return Some(read);
+    };
+    let asked = crawl_delay_asked(&settings, &read);
+    if let Some(politeness) = &politeness
+        && let Err(error) = goodfetch_frontier::crawl_delay_read(
+            politeness,
+            &leased.waiting.key,
+            location.as_str(),
+            asked,
+        )
+        .await
+    {
+        tracing::warn!(%error, run_id = %run.id(), "a host's Crawl-delay was not recorded for its domain");
+    }
+    let delay = settings
+        .duration(POLITENESS_DOMAIN_DELAY.name)
+        .max(asked.filter(|asked| waits_out(&settings, *asked)))
+        .filter(|delay| !delay.is_zero());
+    let Some(delay) = delay else {
+        return Some(read);
+    };
+    let fetched = arrived.await.ok();
+    let start = match &politeness {
+        Some(politeness) => goodfetch_frontier::start_after_robots_txt(
+            politeness,
+            &leased.waiting.key,
+            location.as_str(),
+            fetched,
+            delay,
+            run.clock().wall(),
+        )
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, run_id = %run.id(), "a document's start after its robots.txt was not recorded");
+            fetched.map(|fetched| fetched + delay)
+        }),
+        None => fetched.map(|fetched| fetched + delay),
+    };
+    if let Some(wait) = start.and_then(|start| start.duration_since(run.clock().wall()).ok()) {
+        run.clock().sleep(wait).await;
+    }
+    Some(read)
+}
+
+/// The Crawl-delay the robots.txt `read` asks of a crawl under `settings`,
+/// its operator token's group merged with Foxhound's (ADR 0086).
+fn crawl_delay_asked(settings: &Resolved, read: &Fetched) -> Option<Duration> {
+    let operator_token = settings
+        .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
+        .as_str();
+    goodfetch_fetch_tier::crawl_delay(read, operator_token)
+}
+
+/// Whether a crawl under `settings` waits out the Crawl-delay `asked`:
+/// while `site_preferences.respect_robots_txt` is on, up to
+/// `site_preferences.max_crawl_delay` (ADR 0086).
+fn waits_out(settings: &Resolved, asked: Duration) -> bool {
+    settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
+        && settings
+            .duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)
+            .is_some_and(|max| asked <= max)
+}
+
+/// What the AI-use signals the response of the served page `page_id`
+/// carried say of its request while `site_preferences.respect_use_signals`
+/// is on (ADRs 0086 and 0093): nothing when none refuses the Run's
+/// `site_preferences.purpose`, else the attempt's answer, its handler
+/// never run.
+pub(super) fn use_signals_refusal(
+    run: &Run,
+    tiers: &FetchTiers,
+    page_id: &PageId,
+) -> Option<Answer> {
+    let settings = run.settings()?.resolved();
+    if settings.boolean(SITE_PREFERENCES_RESPECT_USE_SIGNALS.name) != Some(true) {
+        return None;
+    }
+    let purpose = settings
+        .value(SITE_PREFERENCES_PURPOSE.name)
+        .as_str()
+        .and_then(Purpose::named)?;
+    tiers
+        .use_signals(page_id)
+        .refusing(purpose)
+        .map(|_| Answer::Refused(SkipReason::UseSignals))
+}
+
+/// What the robots.txt `read` for `leased`'s request says of it while
+/// `site_preferences.respect_robots_txt` is on (ADR 0086): nothing when
+/// it allows it and asks for no Crawl-delay above
+/// `site_preferences.max_crawl_delay`, else the attempt's answer, sent
+/// nothing.
+pub(super) fn robots_txt_refusal(
+    run: &Run,
+    leased: &Leased,
+    read: Option<&Fetched>,
+) -> Option<Answer> {
+    let settings = run.settings()?.resolved();
+    if settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) == Some(false) {
+        return None;
+    }
+    let read = read?;
+    if let Fetched::Unreachable(reason) = read {
+        return Some(Answer::RobotsTxtUnreachable(format!(
+            "The site's robots.txt could not be read ({reason}), and no earlier copy applies, so the request was not sent."
+        )));
+    }
+    let url = goodfetch_frontier::Url::parse(&leased.crawl_request.url).ok()?;
+    let operator_token = settings
+        .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
+        .as_str();
+    if goodfetch_fetch_tier::disallowing(read, operator_token, &url).is_some() {
+        return Some(Answer::Refused(SkipReason::RobotsTxt));
+    }
+    crawl_delay_asked(settings, read)
+        .filter(|asked| !waits_out(settings, *asked))
+        .map(|_| Answer::Refused(SkipReason::CrawlDelay))
+}
+
+/// The skip reason of a handler's failure that is a `site_preferences_refused`
+/// its own navigation raised and it let escape: the request ends `skipped`
+/// with that refusal's reason, not `failed`, since the site asked not to be
+/// crawled there (ADR 0093).
+pub(super) fn escaped_refusal(code: &str, details: &Map<String, Value>) -> Option<SkipReason> {
+    if code != SITE_PREFERENCES_REFUSED.name {
+        return None;
+    }
+    let reason = details.get("reason").cloned()?;
+    match serde_json::from_value::<SitePreference>(reason).ok()? {
+        SitePreference::RobotsTxt => Some(SkipReason::RobotsTxt),
+        SitePreference::CrawlDelay => Some(SkipReason::CrawlDelay),
+        SitePreference::UseSignals => Some(SkipReason::UseSignals),
+    }
+}

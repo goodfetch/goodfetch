@@ -5,18 +5,19 @@
 
 use goodfetch_engine::robots_txt::Fetched;
 use goodfetch_fetch_tier::HttpTier;
-use goodfetch_frontier::sitemap;
+use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::foxhound::crawl::RESPONSE_NOT_OK;
 use serde_json::{Map, Value};
 
-use super::{Answer, On, failed, read_robots_txt, robots_txt_refusal};
+use super::{Answer, On, failed, read_robots_txt, robots_txt_refusal, share_robots_txt};
 
 impl On<'_> {
     /// The fetch of a sitemap seed's sitemap, or of the robots.txt whose
     /// `Sitemap:` lines it reads (ADR 0093), under the lease, on the Run's
     /// HTTP tier, whatever `fetch.tier` says: its origin's robots.txt read
     /// first, which may refuse it as it refuses a page, and the sitemap
-    /// parsed, no handler run. A robots.txt seed reads the copy its
+    /// parsed, no handler run, each hop's send recorded as its domain's
+    /// start for every run sharing it. A robots.txt seed reads the copy its
     /// origin's robots.txt read gave, with no second fetch.
     pub(super) async fn sitemap(&self, http: &HttpTier) -> Answer {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
@@ -43,7 +44,12 @@ impl On<'_> {
                         }
                     };
                 }
-                match http.sitemap(run, &url).await {
+                let politeness = share_robots_txt(run).await;
+                let keys = run
+                    .settings()
+                    .map(|settings| DomainKeys::of(settings.resolved()))
+                    .unwrap_or_default();
+                match http.sitemap(run, &url, (politeness.as_ref(), &keys)).await {
                     Ok(body) => match sitemap::parse(&body) {
                         Ok(document) => Answer::SitemapRead(document),
                         Err(why) => unreadable(url.as_str(), &why.0),

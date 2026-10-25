@@ -106,9 +106,7 @@ fn open(path: &Path, opener: &Opener) -> Result<Connection, RunStateError> {
     connection
         .busy_timeout(BUSY_TIMEOUT)
         .map_err(|error| failed(path, &error))?;
-    connection
-        .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-        .map_err(|error| failed(path, &error))?;
+    crate::sqlite_wal::enter(&connection, BUSY_TIMEOUT).map_err(|error| failed(path, &error))?;
     connection
         .pragma_update(None, "synchronous", "FULL")
         .map_err(|error| failed(path, &error))?;

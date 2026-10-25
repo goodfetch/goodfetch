@@ -2,3 +2,4 @@
 [modules]
 declaration = ["records"]
 records = []
+resume = ["declaration"]

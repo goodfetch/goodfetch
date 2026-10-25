@@ -7,23 +7,29 @@
 //! proves; and each Dataset's numbering of the Records an attempt commits,
 //! from 1, in commit order, with no gaps. The crawl's delivery (area 3)
 //! stages and commits; this crate says what may be committed and numbers
-//! it. Its own crate under `crates/foxhound/`, since only Foxhound links it
+//! it. A resume checks the crawl's declarations against those the Run
+//! began with, and a changed schema is recorded for the Records committed
+//! from then on, each keeping its schema's hash. Its own crate under
+//! `crates/foxhound/`, since only Foxhound links it
 //! (STYLE.md, reason 2).
 
 mod declaration;
 mod records;
+mod resume;
 
 use goodfetch_engine::Contribution;
 use goodfetch_engine::run_state::RunStateTables;
 
 pub use declaration::Datasets;
 pub use records::{Checked, commit};
+pub use resume::Began;
 
 /// The tables of a crawl's Datasets in every run file: `datasets`, each
 /// declared Dataset in the order declared, with its JSON Schema and that
 /// schema's hash (none for a Dataset without one) and its key as a JSON
 /// array; and `records`, each committed Record by its Dataset and its
-/// number, with the crawl request whose attempt committed it.
+/// number, with the crawl request whose attempt committed it and the hash
+/// of the schema it was committed under (none for a Dataset without one).
 pub const TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-dataset",
     statements: &[
@@ -39,6 +45,7 @@ pub const TABLES: RunStateTables = RunStateTables {
             number INTEGER NOT NULL,
             work_item TEXT NOT NULL,
             data TEXT NOT NULL,
+            schema_hash TEXT,
             PRIMARY KEY (dataset, number)
         ) STRICT",
     ],

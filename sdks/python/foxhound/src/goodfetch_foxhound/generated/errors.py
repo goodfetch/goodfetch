@@ -44,7 +44,7 @@ class DatasetDuplicateError(ProgramError):
 
 
 class DatasetKeyInvalidError(ProgramError):
-    """A Dataset's key names a field that is no top-level field its JSON Schema requires, so a Record could lack it and the crawl was not started. The details name the Dataset and the field. Key a Dataset only by fields its schema requires."""
+    """A Dataset's key names a field that is no top-level field its JSON Schema requires, so a Record could lack it and the crawl was not started (`reason` `not_required`, naming the field); or a start under the ID of a Run changes the key of a Dataset that holds Records, so the Run did no work and a Sink's upsert never mixes two identities (`reason` `changed`, naming both keys). The details name the Dataset. Key a Dataset only by fields its schema requires, and keep its key for the Run's life or start a new Run."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
@@ -52,7 +52,7 @@ class DatasetKeyInvalidError(ProgramError):
 
 
 class DatasetUnknownError(ProgramError):
-    """A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged. The details name the Dataset and those the crawl declares."""
+    """A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged; or a start under the ID of a Run whose Dataset holds Records no longer declares it, a renamed one included, so the Run did no work and no Record is orphaned. The details name the Dataset and those the crawl declares. Declare the Dataset again, or start a new Run."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""

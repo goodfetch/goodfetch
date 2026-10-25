@@ -119,6 +119,7 @@ CREATE TABLE records (
             number INTEGER NOT NULL,
             work_item TEXT NOT NULL,
             data TEXT NOT NULL,
+            schema_hash TEXT,
             PRIMARY KEY (dataset, number)
         ) STRICT;
 CREATE TABLE rules_canonicals (

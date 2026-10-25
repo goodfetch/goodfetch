@@ -29,6 +29,7 @@ mod outcomes;
 mod policy;
 mod progress;
 mod push;
+mod redeclare;
 mod report;
 mod seeding;
 mod servable;

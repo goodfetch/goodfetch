@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use crate::env::TestEnv;
 use crate::process::{Process, ReportedAddressError, reported_address_within};
+use crate::received_requests::ReceivedRequests;
 use crate::tools::{Tool, ToolsError, tools};
 
 /// How long `serve` has to print its first line, which it writes once its
@@ -226,6 +227,13 @@ impl ProvingGround {
             .call()
             .and_then(|mut response| response.body_mut().read_json())
             .map_err(|error| ProvingGroundError::Observations(error.to_string()))
+    }
+
+    /// The requests of its [`observations`](Self::observations), which a
+    /// test counts through (see [`ReceivedRequests`]).
+    pub fn received_requests(&self) -> Result<ReceivedRequests, ProvingGroundError> {
+        self.observations()
+            .map(|observations| ReceivedRequests::of(&observations))
     }
 
     /// `PUT /time-step` on its own address: the time step its pages answer

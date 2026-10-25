@@ -58,10 +58,10 @@ fn ran(env: &TestEnv, proving_ground: &ProvingGround, run_id: &str, settings: &V
         "page.goto",
         &json!({ "page_id": page, "url": proving_ground.url("catalog.test", &target) }),
     );
-    let reached = proving_ground.observations().unwrap()["requests"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    let reached = proving_ground
+        .received_requests()
+        .unwrap()
+        .of_the_case()
         .filter(|request| request["target"] == json!(target))
         .count();
     let report = call(&mut engine, 4, "run.finish", &json!({ "run_id": run_id }))["result"].clone();

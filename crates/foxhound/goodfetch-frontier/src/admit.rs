@@ -86,6 +86,15 @@ pub enum Candidate<'a> {
         /// Its depth: one deeper than the request whose attempt added it.
         depth: u32,
     },
+    /// An entry of a sitemap a sitemap seed read: a `GET` with no body, at
+    /// depth 0, relative to its sitemap's URL or absolute, measured against
+    /// the scope and never widening it (ADR 0120).
+    SitemapEntry {
+        /// Its URL, as the sitemap wrote it.
+        url: &'a str,
+        /// The URL of the sitemap that lists it.
+        sitemap: &'a Url,
+    },
 }
 
 /// A link's method: `GET`, with no body and no declared key.
@@ -142,6 +151,18 @@ pub fn admit(
             declared,
             Some(narrowing),
             depth,
+        ),
+        Candidate::SitemapEntry { url, sitemap } => (
+            url,
+            parse(url, Some(sitemap)),
+            None,
+            Declared {
+                method: &LINK,
+                body: None,
+                key: None,
+            },
+            Some(Narrowing::none()),
+            0,
         ),
     };
     let not_added = |reason: NotAddedReason| Enqueued::NotAdded {

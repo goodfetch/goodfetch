@@ -661,7 +661,7 @@ impl On<'_> {
             biased;
             document = async {
                 address_check(run, http, leased).await?;
-                let read = read_robots_txt(run, http, leased).await;
+                let read = read_robots_txt(run, http, leased, &*hand_over.lease).await;
                 if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
                     return Err(refused);
                 }

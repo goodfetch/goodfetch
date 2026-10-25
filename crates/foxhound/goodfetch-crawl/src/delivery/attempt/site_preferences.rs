@@ -8,6 +8,7 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch, Fetched};
 use goodfetch_engine::runs::Run;
@@ -60,12 +61,15 @@ pub(super) async fn share_robots_txt(run: &Run) -> Option<Politeness> {
 /// that start is taken in the Politeness file for every run sharing the
 /// domain. Counted from the response's arrival, the site never receives
 /// the document sooner than the delay after the robots.txt request,
-/// whatever that request's connection cost. Answers what applies, or
-/// `None` for a URL with no robots.txt.
+/// whatever that request's connection cost. That wait is a permit's wait
+/// for the domain's delay: `lease` is held through it, so it counts
+/// against no timeout and the Run's live status names it (ADR 0093).
+/// Answers what applies, or `None` for a URL with no robots.txt.
 pub(super) async fn read_robots_txt(
     run: &Run,
     http: &HttpTier,
     leased: &Leased,
+    lease: &dyn LeaseCheck,
 ) -> Option<Arc<Fetched>> {
     let location = goodfetch_frontier::Url::parse(&leased.crawl_request.url)
         .ok()
@@ -118,6 +122,7 @@ pub(super) async fn read_robots_txt(
         None => fetched.map(|fetched| fetched + delay),
     };
     if let Some(wait) = start.and_then(|start| start.duration_since(run.clock().wall()).ok()) {
+        let _waiting = lease.permit_wait(&leased.crawl_request.url);
         run.clock().sleep(wait).await;
     }
     Some(read)

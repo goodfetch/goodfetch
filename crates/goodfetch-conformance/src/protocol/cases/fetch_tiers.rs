@@ -45,6 +45,7 @@ pub(crate) enum Case {
     OtherRedirectsAreNotOk,
     HopsGoThroughTheGate,
     HopsGoThroughTheFrontier,
+    RefusedHopsEndSkipped,
     RedirectRetryAfter,
     RefreshStubs,
 }
@@ -80,6 +81,9 @@ impl Case {
             "a-redirect-to-an-admitted-key-or-out-of-scope-ends-skipped" => {
                 Some(Self::HopsGoThroughTheFrontier)
             }
+            "a-redirect-the-scope-the-domain-policy-or-the-address-check-refuses-ends-skipped-live" => {
+                Some(Self::RefusedHopsEndSkipped)
+            }
             "a-redirects-retry-after-delays-its-next-hop-or-past-the-bound-fails-with-response-unavailable" => {
                 Some(Self::RedirectRetryAfter)
             }
@@ -107,6 +111,7 @@ impl Case {
             Self::OtherRedirectsAreNotOk => chain::not_followed(connection, site, checks),
             Self::HopsGoThroughTheGate => chain::gated_hops(connection, site, checks),
             Self::HopsGoThroughTheFrontier => chain::frontier_hops(connection, site, checks),
+            Self::RefusedHopsEndSkipped => chain::refused_hops(connection, site, checks),
             Self::RedirectRetryAfter => chain::redirect_retry_after(connection, site, checks),
             Self::RefreshStubs => chain::refresh_stubs(connection, site, checks),
         }

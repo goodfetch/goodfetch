@@ -26,19 +26,20 @@
 //! fetch's, never sent again.
 
 use std::future::Future;
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 
 use bytes::Bytes;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
-use goodfetch_engine::egress::Refused;
+use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NavigationFailedDetails, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
 };
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
-use url::Url;
+use url::{Host, Url};
 
 use crate::decoding::{self, DecodingFailed};
 
@@ -484,4 +485,30 @@ fn truncated(url: &str, received: usize, expected: Option<u64>) -> CallError {
             expected,
         },
     )
+}
+
+/// Judges a hop to `url` under the Session's egress policy `egress` before
+/// anything is sent (ADR 0017): its URL, and, when the connection goes
+/// `direct`, the address the URL names in place of a host, which the
+/// transport connects to without asking its resolver.
+///
+/// # Errors
+///
+/// [`Refused`] by the domain policy, or by the address check for an address
+/// a page may not reach.
+pub(crate) fn judged(url: &Url, egress: &Policy, direct: bool) -> Result<(), Refused> {
+    let request = egress::Request {
+        url: url.as_str(),
+        kind: RequestKind::Fetch,
+    };
+    if let Judgment::Refused(refused) = egress::judge(&request, egress) {
+        return Err(refused);
+    }
+    let address = match url.host() {
+        Some(Host::Ipv4(address)) if direct => IpAddr::V4(address),
+        Some(Host::Ipv6(address)) if direct => IpAddr::V6(address),
+        _ => return Ok(()),
+    };
+    let port = url.port_or_known_default().unwrap_or_default();
+    egress::judge_addresses(url.as_str(), &[SocketAddr::new(address, port)], egress)
 }

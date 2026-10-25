@@ -40,10 +40,14 @@
 //!
 //! The same gate admits each hop after the first of a crawl request's
 //! redirect chain on a document tier ([`ChainGate`]; ADR 0118), after the
-//! Frontier's checks of the hop: a hop leaving the crawl's scope ends the
-//! request `skipped` with `out_of_scope`, and one to a key the Frontier
-//! admitted for another request with `duplicate` (ADR 0120); a refusal ends
-//! it `skipped` with its reason.
+//! Frontier's checks of the hop, in this order: a hop leaving the crawl's
+//! scope ends the request `skipped` with `out_of_scope`, one to a host the
+//! Run's domain policy refuses with `domain_policy`, and one to a key the
+//! Frontier admitted for another request with `duplicate` (ADRs 0093, 0118
+//! and 0120). A hop whose URL names an address a page may not reach in
+//! place of a host ends it `skipped` with `domain_policy` too, before the
+//! gate reads its robots.txt (ADR 0017); a refusal of the gate's ends it
+//! `skipped` with its reason.
 
 use std::fmt;
 use std::sync::Arc;
@@ -51,6 +55,7 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Room, SecondCopies};
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch, Fetched, Judgment, Rule};
@@ -68,7 +73,7 @@ use tokio::sync::oneshot;
 use url::Url;
 
 use crate::chain::{Gating, HopGate, Skip, Stop};
-use crate::driver::Hop;
+use crate::driver::{Hop, judged};
 
 /// Fetches the robots.txt at a location for a Run, as the crawl's HTTP
 /// tier does (`HttpTier::robots_txt_fetch`).
@@ -107,6 +112,8 @@ pub struct HandOver {
     pub max_crawl_delay: Option<Duration>,
     /// The attempt's lease.
     pub lease: Arc<dyn LeaseCheck>,
+    /// The Run's domain policy, which judges each redirect hop.
+    pub egress: Arc<Policy>,
     /// The Page check its crawl request's Label declares of its own, which
     /// judges the browser pages the attempt opens in place of their
     /// Session's (ADR 0093).
@@ -460,18 +467,21 @@ pub(crate) struct ChainGate {
 }
 
 impl ChainGate {
-    /// What the Frontier says of `hop`: whether it leaves the scope or
-    /// reaches a key admitted for another request. A run file that cannot
-    /// answer leaves the hop to the navigation gate.
+    /// What the Frontier says of `hop`: whether it leaves the scope, goes
+    /// to a host the domain policy refuses or reaches a key admitted for
+    /// another request. A run file that cannot answer leaves the hop to the
+    /// navigation gate, and the transport's own judgment of it.
     async fn frontier(&self, hop: &Hop) -> goodfetch_frontier::Hop {
         let run = &self.hand_over.run;
         let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
+        let egress = Arc::clone(&self.hand_over.egress);
         run.state()
             .write(move |connection| {
                 let scope = Scope::read(connection)?;
                 goodfetch_frontier::redirect_hop(
                     connection,
                     &scope,
+                    &egress,
                     &id,
                     &url,
                     &method,
@@ -507,6 +517,15 @@ impl HopGate for ChainGate {
                         format!("A redirect to `{}` leaves the crawl's scope.", hop.url),
                     );
                 }
+                goodfetch_frontier::Hop::DomainPolicy => {
+                    return skipped(
+                        SkipReason::DomainPolicy,
+                        format!(
+                            "A redirect to `{}` goes to a host the Run's domain policy refuses.",
+                            hop.url
+                        ),
+                    );
+                }
                 goodfetch_frontier::Hop::Duplicate => {
                     return skipped(
                         SkipReason::Duplicate,
@@ -517,6 +536,17 @@ impl HopGate for ChainGate {
                     );
                 }
                 goodfetch_frontier::Hop::Follow => {}
+            }
+            // The crawl's HTTP tier connects directly: no proxy resolves
+            // its hops.
+            if let Err(refused) = judged(&hop.url, &self.hand_over.egress, true) {
+                return skipped(
+                    SkipReason::DomainPolicy,
+                    format!(
+                        "A redirect to `{}` is refused by the Run's egress policy: {refused}.",
+                        hop.url
+                    ),
+                );
             }
             let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
             match Gate::new(Arc::clone(&self.hand_over))

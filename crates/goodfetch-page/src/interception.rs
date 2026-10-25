@@ -847,6 +847,25 @@ impl Interception {
         self.shared.answers.deliver(route_id, answer)
     }
 
+    /// Steps 3 to 8 for the engine's own requests from a Session of `run`
+    /// whose own settings are `own`, as its pages' would be: its domain
+    /// policy, and the Filter lists and `browser.block_resources` it
+    /// chose, for a request no page of the Session sends.
+    ///
+    /// # Errors
+    ///
+    /// `setting_invalid` for a domain list of the Run's that holds no host.
+    pub(crate) async fn engine_requests_of(
+        &self,
+        run: &Run,
+        own: &Values,
+    ) -> Result<EngineRequests, CallError> {
+        let policy = policy_of(run)?;
+        let choices = clean_up::choices(run.settings().map(RunSettings::resolved), own);
+        let blocking = self.shared.clean_up.blocking(choices, run).await;
+        Ok(EngineRequests { policy, blocking })
+    }
+
     /// Steps 3 to 8 of the page `page_id`'s pipeline, for a request the
     /// engine sends itself from its Session.
     ///

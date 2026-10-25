@@ -228,6 +228,7 @@ impl Transport for Wreq {
                     url: hop.url.clone(),
                 }),
                 reused,
+                decoded: false,
             })
         })
     }

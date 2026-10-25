@@ -628,6 +628,24 @@ impl Sessions {
         source: Option<Option<SessionSource>>,
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
+        let session = self.pool_session(run_id, pooled, source, context).await?;
+        self.new_page(&session, context).await
+    }
+
+    /// The Session a crawl's Session pool names `pooled` in the live Run
+    /// `run_id`, opened as [`Sessions::new_pool_page`] opens it when it has
+    /// no browser context yet.
+    #[expect(
+        clippy::option_option,
+        reason = "a setting's three states (ADR 0083): the Run's, `null` for a fresh Session, a source"
+    )]
+    pub(crate) async fn pool_session(
+        &self,
+        run_id: &RunId,
+        pooled: &SessionId,
+        source: Option<Option<SessionSource>>,
+        context: &CallContext,
+    ) -> Result<SessionId, CallError> {
         let run = live(run_id, context).await?;
         let borrowed = opening_source(&run, source, context)?;
         self.reach(&run, context).await?;
@@ -640,8 +658,22 @@ impl Sessions {
         let position = *cell
             .get_or_try_init(|| self.open_held(&run, borrowed.as_ref(), Opener::Pool, context))
             .await?;
-        let session = session_id(run.id(), position);
-        self.new_page(&session, context).await
+        Ok(session_id(run.id(), position))
+    }
+
+    /// The Run of the open Session `session` and its own settings, which
+    /// its pages take over the Run's; `closed` once it closed.
+    pub(crate) async fn own_settings(
+        &self,
+        session: &SessionId,
+    ) -> Result<(Run, Values), CallError> {
+        self.state
+            .lock()
+            .await
+            .sessions
+            .get(session)
+            .map(|open| (open.run.clone(), open.settings.clone()))
+            .ok_or_else(|| session_closed(session))
     }
 
     /// Retires the Session a crawl's Session pool names `pooled` in the

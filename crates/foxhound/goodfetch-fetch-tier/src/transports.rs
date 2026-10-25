@@ -50,8 +50,10 @@ use url::Url;
 use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
 
 mod impersonated;
+mod in_browser;
 
 pub use impersonated::Wreq;
+pub(crate) use in_browser::BrowserFetch;
 
 /// What a transport reaches and trusts.
 #[derive(Clone, Debug)]
@@ -232,6 +234,7 @@ impl Transport for Reqwest {
                     url: hop.url.clone(),
                 }),
                 reused,
+                decoded: false,
             })
         })
     }

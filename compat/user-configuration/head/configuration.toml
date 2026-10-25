@@ -216,6 +216,7 @@ max_crawl_delay = 30000
 
 [settings.crawl]
 sample_pages = 4
+handle_statuses = [4]
 domain_keys = { "example.test" = "example" }
 keep_alive = true
 max_depth = 4
@@ -242,11 +243,19 @@ max_size = 4
 
 [settings.fetch]
 tier = "auto"
+tier_race = true
+encoding = "example"
 coalesce = true
 
 [settings.fetch.hedge]
 enabled = true
 max_percent = 4
+
+[settings.fetch.redirect]
+max = 4
+
+[settings.fetch.refresh]
+max_delay = 30000
 
 [settings.paid_fetch]
 domains = ["example"]

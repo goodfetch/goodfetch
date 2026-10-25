@@ -228,6 +228,13 @@ CREATE TABLE seeds (
             answer TEXT NOT NULL
         ) STRICT;
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
+CREATE TABLE tier_choices (
+            label TEXT NOT NULL,
+            domain_key TEXT NOT NULL,
+            unit TEXT NOT NULL,
+            PRIMARY KEY (label, domain_key)
+        ) STRICT;
+INSERT INTO "tier_choices" VALUES('home','shop.test','{"kind":"split","segments":[{"name":"products","matched":3,"tier":"http"},{"name":"blog","matched":0,"tier":"browser"},{"name":"mixed","matched":1,"tier":null}]}');
 CREATE TABLE usage (
         slice_id INTEGER NOT NULL,
         epoch INTEGER NOT NULL,

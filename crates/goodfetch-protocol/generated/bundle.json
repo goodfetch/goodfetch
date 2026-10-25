@@ -13739,6 +13739,36 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "redirect": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max": {
+                        "description": "How many redirects a crawl request's fetch follows, a refresh stub's hop counted as one: 19 by default, as many as the browser follows in a navigation, from 1 to 19; any other value is refused with `setting_invalid` when the crawl starts. One more fails the request with `too_many_redirects`, so a redirect loop costs a site this many requests and one more. To hand a redirect to the handler unfollowed, list its status in `crawl.handle_statuses`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "refresh": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_delay": {
+                        "anyOf": [
+                          {
+                            "description": "A duration in milliseconds.",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The longest delay of a refresh stub a crawl request's fetch follows: a `Refresh` header, or a `<meta http-equiv=\"refresh\">` outside `<noscript>`, to another URL with a delay up to this is followed at once as one more hop, counted in `fetch.redirect.max`. 100 s by default; `0` follows instant refreshes only, and `null` any delay. A refresh with no URL or to the document's own is never followed."
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -14421,6 +14451,14 @@
                     "description": "Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.",
                     "type": "object"
                   },
+                  "handle_statuses": {
+                    "description": "Statuses whose responses go to the handler as they are: a redirect status listed here is not followed, and the handler gets the 3xx as its response. None by default.",
+                    "items": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
                   "handler": {
                     "additionalProperties": false,
                     "properties": {
@@ -14651,6 +14689,17 @@
                     "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
                     "type": "boolean"
                   },
+                  "encoding": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. A value that is no Encoding label is refused with `setting_invalid`; a valid one is refused with `capability_unavailable` at the crawl's start until every tier decodes in ADR 0119's order."
+                  },
                   "hedge": {
                     "additionalProperties": false,
                     "properties": {
@@ -14666,8 +14715,38 @@
                     },
                     "type": "object"
                   },
+                  "redirect": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max": {
+                        "description": "How many redirects a crawl request's fetch follows, a refresh stub's hop counted as one: 19 by default, as many as the browser follows in a navigation, from 1 to 19; any other value is refused with `setting_invalid` when the crawl starts. One more fails the request with `too_many_redirects`, so a redirect loop costs a site this many requests and one more. To hand a redirect to the handler unfollowed, list its status in `crawl.handle_statuses`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "refresh": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_delay": {
+                        "anyOf": [
+                          {
+                            "description": "A duration in milliseconds.",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The longest delay of a refresh stub a crawl request's fetch follows: a `Refresh` header, or a `<meta http-equiv=\"refresh\">` outside `<noscript>`, to another URL with a delay up to this is followed at once as one more hop, counted in `fetch.redirect.max`. 100 s by default; `0` follows instant refreshes only, and `null` any delay. A refresh with no URL or to the document's own is never followed."
+                      }
+                    },
+                    "type": "object"
+                  },
                   "tier": {
-                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it today fetches the request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first 3 requests of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all 3 gave the same Records, split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                     "enum": [
                       "auto",
                       "http",
@@ -14676,6 +14755,10 @@
                       "light_browser",
                       "browser"
                     ]
+                  },
+                  "tier_race": {
+                    "description": "Whether a crawl request races its tiers: browser-fetch first, then the navigation after the Label-on-domain's median browser-fetch latency, the first result that passes the Page check and the Label's comparison winning, both counting in Politeness and Usage. Set for the Run only: a Label setting it is refused with `setting_not_applicable`. Off by default; switched on, the crawl's start is refused with `capability_unavailable` until the race is built.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -16561,6 +16644,14 @@
                     "description": "Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.",
                     "type": "object"
                   },
+                  "handle_statuses": {
+                    "description": "Statuses whose responses go to the handler as they are: a redirect status listed here is not followed, and the handler gets the 3xx as its response. None by default.",
+                    "items": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
                   "handler": {
                     "additionalProperties": false,
                     "properties": {
@@ -16791,6 +16882,17 @@
                     "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
                     "type": "boolean"
                   },
+                  "encoding": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. A value that is no Encoding label is refused with `setting_invalid`; a valid one is refused with `capability_unavailable` at the crawl's start until every tier decodes in ADR 0119's order."
+                  },
                   "hedge": {
                     "additionalProperties": false,
                     "properties": {
@@ -16806,8 +16908,38 @@
                     },
                     "type": "object"
                   },
+                  "redirect": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max": {
+                        "description": "How many redirects a crawl request's fetch follows, a refresh stub's hop counted as one: 19 by default, as many as the browser follows in a navigation, from 1 to 19; any other value is refused with `setting_invalid` when the crawl starts. One more fails the request with `too_many_redirects`, so a redirect loop costs a site this many requests and one more. To hand a redirect to the handler unfollowed, list its status in `crawl.handle_statuses`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "refresh": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_delay": {
+                        "anyOf": [
+                          {
+                            "description": "A duration in milliseconds.",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The longest delay of a refresh stub a crawl request's fetch follows: a `Refresh` header, or a `<meta http-equiv=\"refresh\">` outside `<noscript>`, to another URL with a delay up to this is followed at once as one more hop, counted in `fetch.redirect.max`. 100 s by default; `0` follows instant refreshes only, and `null` any delay. A refresh with no URL or to the document's own is never followed."
+                      }
+                    },
+                    "type": "object"
+                  },
                   "tier": {
-                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it today fetches the request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first 3 requests of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all 3 gave the same Records, split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                     "enum": [
                       "auto",
                       "http",
@@ -16816,6 +16948,10 @@
                       "light_browser",
                       "browser"
                     ]
+                  },
+                  "tier_race": {
+                    "description": "Whether a crawl request races its tiers: browser-fetch first, then the navigation after the Label-on-domain's median browser-fetch latency, the first result that passes the Page check and the Label's comparison winning, both counting in Politeness and Usage. Set for the Run only: a Label setting it is refused with `setting_not_applicable`. Off by default; switched on, the crawl's start is refused with `capability_unavailable` until the race is built.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -18717,6 +18853,14 @@
                     "description": "Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.",
                     "type": "object"
                   },
+                  "handle_statuses": {
+                    "description": "Statuses whose responses go to the handler as they are: a redirect status listed here is not followed, and the handler gets the 3xx as its response. None by default.",
+                    "items": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "type": "array"
+                  },
                   "handler": {
                     "additionalProperties": false,
                     "properties": {
@@ -18947,6 +19091,17 @@
                     "description": "Whether identical GET or HEAD crawl requests in flight at once from one Session, from work items that declare no Effect, wait for one response: the same method, URL, headers and body. Never across Sessions or runs, never for a Paid fetch; Provenance records each response shared. On by default.",
                     "type": "boolean"
                   },
+                  "encoding": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. A value that is no Encoding label is refused with `setting_invalid`; a valid one is refused with `capability_unavailable` at the crawl's start until every tier decodes in ADR 0119's order."
+                  },
                   "hedge": {
                     "additionalProperties": false,
                     "properties": {
@@ -18962,8 +19117,38 @@
                     },
                     "type": "object"
                   },
+                  "redirect": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max": {
+                        "description": "How many redirects a crawl request's fetch follows, a refresh stub's hop counted as one: 19 by default, as many as the browser follows in a navigation, from 1 to 19; any other value is refused with `setting_invalid` when the crawl starts. One more fails the request with `too_many_redirects`, so a redirect loop costs a site this many requests and one more. To hand a redirect to the handler unfollowed, list its status in `crawl.handle_statuses`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "refresh": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_delay": {
+                        "anyOf": [
+                          {
+                            "description": "A duration in milliseconds.",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "The longest delay of a refresh stub a crawl request's fetch follows: a `Refresh` header, or a `<meta http-equiv=\"refresh\">` outside `<noscript>`, to another URL with a delay up to this is followed at once as one more hop, counted in `fetch.redirect.max`. 100 s by default; `0` follows instant refreshes only, and `null` any delay. A refresh with no URL or to the document's own is never followed."
+                      }
+                    },
+                    "type": "object"
+                  },
                   "tier": {
-                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it today fetches the request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first 3 requests of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all 3 gave the same Records, split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                     "enum": [
                       "auto",
                       "http",
@@ -18972,6 +19157,10 @@
                       "light_browser",
                       "browser"
                     ]
+                  },
+                  "tier_race": {
+                    "description": "Whether a crawl request races its tiers: browser-fetch first, then the navigation after the Label-on-domain's median browser-fetch latency, the first result that passes the Page check and the Label's comparison winning, both counting in Politeness and Usage. Set for the Run only: a Label setting it is refused with `setting_not_applicable`. Off by default; switched on, the crawl's start is refused with `capability_unavailable` until the race is built.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"

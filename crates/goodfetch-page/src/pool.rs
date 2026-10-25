@@ -50,7 +50,7 @@ use tokio::sync::{Mutex, OnceCell};
 use crate::borrowed::CdpUrl;
 use crate::driver::{
     Behind, BorrowedBrowser, Carried, LocalBrowser, Origins, PageDriver, SessionDriver,
-    SessionEgress,
+    SessionEgress, Visibility,
 };
 use crate::egress_relay::RelayTls;
 use crate::egress_relay::authority::Authority;
@@ -688,9 +688,12 @@ impl Seat {
         self.shared.seated(&mut place).await.map(drop)
     }
 
-    /// Opens a page of the Session in its browser unless that one is
-    /// recycled, in which case the Session moves first.
-    pub(crate) async fn new_page(&self) -> Result<(PageDriver, InBrowser), CallError> {
+    /// Opens a page of the Session in its browser, of `visibility`,
+    /// unless that one is recycled, in which case the Session moves first.
+    pub(crate) async fn new_page(
+        &self,
+        visibility: Visibility,
+    ) -> Result<(PageDriver, InBrowser), CallError> {
         let mut place = self.shared.place.lock().await;
         let (number, driver, opening) = loop {
             let (number, driver, opening) = self.shared.seated(&mut place).await?;
@@ -702,7 +705,7 @@ impl Seat {
         };
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
         drop(opening);
-        let page = driver.new_page().await?;
+        let page = driver.new_page(visibility).await?;
         let events = page.events();
         self.shared
             .pool

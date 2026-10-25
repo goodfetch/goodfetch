@@ -84,7 +84,7 @@ use self::lifecycle::{
 use crate::borrowed::{CdpUrl, resolve_of};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
-use crate::driver::{PageDriver, SessionEgress};
+use crate::driver::{PageDriver, SessionEgress, Visibility};
 use crate::egress_relay::{self, EgressRelay};
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
@@ -540,7 +540,7 @@ impl Sessions {
         let value = self.handler_pages.value(run.id(), session);
         lease_holds(&value)?;
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
-        let (driver, in_browser) = open.seat.new_page().await?;
+        let (driver, in_browser) = open.seat.new_page(Visibility::Visible).await?;
         let driver = driver.with_value(value, run.clock());
         let open_session = Arc::clone(&open);
         let page = self
@@ -720,7 +720,9 @@ impl Sessions {
         }
         open.life.call().await?;
         lease_holds(value)?;
-        let (driver, in_browser) = open.seat.new_page().await?;
+        // Hidden, so Chromium asks no site for the icon of the document it
+        // loads (ticket #1608).
+        let (driver, in_browser) = open.seat.new_page(Visibility::Hidden).await?;
         Ok(EnginePage {
             driver: driver.with_value(value.clone(), open.run.clock()),
             in_browser: Some(in_browser),

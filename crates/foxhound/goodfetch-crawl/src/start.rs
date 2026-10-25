@@ -43,6 +43,7 @@ use crate::outcomes;
 use crate::policy::domain_policy;
 use crate::seeding;
 use crate::serving::Crawls;
+use crate::tier_choice::{self, TierChoices};
 use crate::work_items;
 
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
@@ -76,6 +77,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_handler(read_failed_requests)
         .with_run_state_tables(work_items::TABLES)
         .with_run_state_tables(labels::TABLES)
+        .with_run_state_tables(tier_choice::TABLES)
         .with_report_part(Arc::new(crate::report::CrawlParts))
         .with_report_part(Arc::new(crate::completeness::StoppedParts))
         .with_progress_part(Arc::new(crate::progress::CrawlProgress))
@@ -205,7 +207,7 @@ async fn start(
                 opened,
                 crawls,
                 settings,
-                (tiers, labels),
+                (tiers, labels, TierChoices::default()),
             ));
             started
         }

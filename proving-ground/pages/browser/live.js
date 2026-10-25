@@ -2,16 +2,17 @@
 // stream open and counts their messages, and makes periodic requests one
 // after another, each starting when the one before it is answered, until
 // `data-updates` of them are done ("unbounded": never). The board then says
-// it settled. With `data-after-load`, the requests start that many
-// milliseconds after the document's `load`, and the board waits until then.
-// It is the page's only script, so its names stay its own.
+// it settled. With `data-at-load`, the requests start at the document's
+// `load` event, and the board waits until then; `data-requests` is the path
+// before each request's number (`/updates/` without it). It is the page's
+// only script, so its names stay its own.
 "use strict";
 
 const show = (id, value) => {
   document.getElementById(id).textContent = String(value);
 };
 
-const live = (limit, afterLoad) => {
+const live = (limit, atLoad, requests) => {
   const last = limit === "unbounded" ? Number.POSITIVE_INFINITY : Number(limit);
   let messages = 0;
   let events = 0;
@@ -29,7 +30,7 @@ const live = (limit, afterLoad) => {
   const run = async () => {
     show("state", "updating");
     for (let number = 1; number <= last; number += 1) {
-      const response = await fetch(`/updates/${number}`, { cache: "no-store" });
+      const response = await fetch(`${requests}${number}`, { cache: "no-store" });
       const { reading } = await response.json();
       show("updates", number);
       show("reading", reading);
@@ -39,12 +40,13 @@ const live = (limit, afterLoad) => {
   const start = () => {
     run().catch(() => show("state", "failed"));
   };
-  if (afterLoad === undefined) {
+  if (atLoad === undefined) {
     start();
   } else {
     show("state", "waiting");
-    addEventListener("load", () => setTimeout(start, Number(afterLoad)));
+    addEventListener("load", start);
   }
 };
 
-live(document.currentScript.dataset.updates, document.currentScript.dataset.afterLoad);
+const { updates, atLoad, requests = "/updates/" } = document.currentScript.dataset;
+live(updates, atLoad, requests);

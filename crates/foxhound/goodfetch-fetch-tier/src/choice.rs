@@ -2,21 +2,23 @@
 //! serve exactly leads to (spec #579's `tiers`; ADRs 0020, 0023 and 0093).
 //!
 //! `fetch.tier` forces a tier for the Run, or for one Label, whose own
-//! value wins for its requests. Under `auto` the engine chooses: until the
-//! sample comparison (#768) and the tier learned per Label (#926) choose
-//! it, a request whose `auto` was set, for its Label or its Run, starts on
-//! `http`, the cheapest tier built, while one left at the built-in default
-//! is handed to its handler alone, as before any tier was built. A call the
+//! value wins for its requests. Under an `auto` set for its Label or its
+//! Run the engine chooses: the crawl learns the tier per Label on a domain
+//! (`goodfetch-crawl`'s `tier_choice`), while a request left at the
+//! built-in default is handed to its handler alone, as before any tier was
+//! built, until #1602. A Label also takes `fetch.encoding`. A call the
 //! request's tier cannot serve exactly escalates the request to the browser
 //! under `auto`, and fails with `browser_required` under a forced tier,
 //! which nothing escalates.
 
 use std::collections::BTreeMap;
 
+use encoding_rs::Encoding;
 use goodfetch_engine::CallError;
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, LabelDeclaration};
 use goodfetch_protocol::foxhound::fetch::{
-    BROWSER_REQUIRED, BrowserRequiredDetails, FETCH_TIER, FETCH_TIERS, FetchTier,
+    BROWSER_REQUIRED, BrowserRequiredDetails, FETCH_ENCODING, FETCH_TIER, FETCH_TIER_RACE,
+    FETCH_TIERS, FetchTier,
 };
 use goodfetch_protocol::settings::{
     SETTING_INVALID, SETTING_NOT_APPLICABLE, SettingInvalidDetails, SettingNotApplicableDetails,
@@ -24,9 +26,24 @@ use goodfetch_protocol::settings::{
 };
 use serde_json::{Map, Value, json};
 
-/// The Labels a crawl declares, each with its own `fetch.tier`.
+/// The Labels a crawl declares, each with its own `fetch.tier` and the
+/// `fetch.encoding` it sets, if any.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct LabelTiers(BTreeMap<String, SetTier>);
+pub struct LabelTiers {
+    tiers: BTreeMap<String, SetTier>,
+    encodings: BTreeMap<String, String>,
+}
+
+/// How a request's tier is chosen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Choosing {
+    /// It takes no tier: its handler is given its request alone.
+    Alone,
+    /// `auto` is set: the engine chooses.
+    Engine,
+    /// `fetch.tier` forces this tier.
+    Forced(TierChoice),
+}
 
 /// The Run's `fetch.tier`, or a declared Label's own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,20 +64,33 @@ impl LabelTiers {
     /// # Errors
     ///
     /// `setting_not_applicable` for a key a Label does not take here (every
-    /// key but `fetch.tier`), and `setting_invalid` for a `fetch.tier` that
-    /// names no tier.
+    /// key but `fetch.tier` and `fetch.encoding`; `fetch.tier_race` is the
+    /// Run's only), and `setting_invalid` for a `fetch.tier` that names no
+    /// tier or a `fetch.encoding` that is no WHATWG Encoding label.
     pub fn of(labels: &BTreeMap<String, LabelDeclaration>) -> Result<Self, CallError> {
         let mut tiers = BTreeMap::new();
+        let mut encodings = BTreeMap::new();
         for (name, declaration) in labels {
             let mut keys = Vec::new();
             flatten("", &declaration.settings, &mut keys);
             let mut tier = SetTier::Unset;
             for (key, value) in keys {
+                if key == FETCH_ENCODING.name {
+                    if let Some(encoding) = encoding(name, &value)? {
+                        encodings.insert(name.clone(), encoding);
+                    }
+                    continue;
+                }
                 if key != FETCH_TIER.name {
+                    let only = if key == FETCH_TIER_RACE.name {
+                        " is set for the Run only"
+                    } else {
+                        ""
+                    };
                     return Err(CallError::new(
                         &SETTING_NOT_APPLICABLE,
                         format!(
-                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine: only `fetch.tier` is set per Label; set `{key}` for the Run instead."
+                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine{only}: only `fetch.tier` and `fetch.encoding` are set per Label; set `{key}` for the Run instead."
                         ),
                         &SettingNotApplicableDetails {
                             key,
@@ -91,12 +121,19 @@ impl LabelTiers {
             }
             tiers.insert(name.clone(), tier);
         }
-        Ok(Self(tiers))
+        Ok(Self { tiers, encodings })
+    }
+
+    /// Each declared Label that sets `fetch.encoding`, with its label.
+    pub fn encodings(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.encodings
+            .iter()
+            .map(|(name, encoding)| (name.as_str(), encoding.as_str()))
     }
 
     /// Each declared Label that forces a tier, with it.
     pub fn forced(&self) -> impl Iterator<Item = (&str, FetchTier)> {
-        self.0.iter().filter_map(|(name, tier)| match tier {
+        self.tiers.iter().filter_map(|(name, tier)| match tier {
             SetTier::Forced(tier) => Some((name.as_str(), *tier)),
             SetTier::Unset | SetTier::Auto => None,
         })
@@ -104,30 +141,55 @@ impl LabelTiers {
 
     /// Whether a declared Label sets `fetch.tier`.
     pub fn any(&self) -> bool {
-        self.0.values().any(|tier| *tier != SetTier::Unset)
+        self.tiers.values().any(|tier| *tier != SetTier::Unset)
     }
 
-    /// The tier a request of `label` takes, the Run's own `fetch.tier`
-    /// being `run`; `None` hands its handler the request alone.
-    pub fn choose(&self, label: &str, run: SetTier) -> Option<TierChoice> {
-        let auto = TierChoice {
-            tier: FetchTier::Http,
-            forced: None,
-        };
-        match (self.0.get(label).copied().unwrap_or(SetTier::Unset), run) {
-            (SetTier::Forced(tier), _) => Some(TierChoice {
+    /// How the tier of a request of `label` is chosen, the Run's own
+    /// `fetch.tier` being `run`.
+    pub fn choose(&self, label: &str, run: SetTier) -> Choosing {
+        match (
+            self.tiers.get(label).copied().unwrap_or(SetTier::Unset),
+            run,
+        ) {
+            (SetTier::Forced(tier), _) => Choosing::Forced(TierChoice {
                 tier,
                 forced: Some(Forced {
                     label: Some(label.to_owned()),
                 }),
             }),
-            (SetTier::Auto, _) | (SetTier::Unset, SetTier::Auto) => Some(auto),
-            (SetTier::Unset, SetTier::Forced(tier)) => Some(TierChoice {
+            (SetTier::Auto, _) | (SetTier::Unset, SetTier::Auto) => Choosing::Engine,
+            (SetTier::Unset, SetTier::Forced(tier)) => Choosing::Forced(TierChoice {
                 tier,
                 forced: Some(Forced { label: None }),
             }),
-            (SetTier::Unset, SetTier::Unset) => None,
+            (SetTier::Unset, SetTier::Unset) => Choosing::Alone,
         }
+    }
+}
+
+/// The WHATWG Encoding label the Label `name` sets `fetch.encoding` to, as
+/// given; `None` for `null`.
+///
+/// # Errors
+///
+/// `setting_invalid` for a value that is no Encoding label.
+pub(crate) fn encoding(name: &str, value: &Value) -> Result<Option<String>, CallError> {
+    match value {
+        Value::Null => Ok(None),
+        Value::String(label) if Encoding::for_label(label.as_bytes()).is_some() => {
+            Ok(Some(label.clone()))
+        }
+        other => Err(CallError::new(
+            &SETTING_INVALID,
+            format!(
+                "The Label `{name}` sets `fetch.encoding` to {other}, which is no WHATWG Encoding label, such as `utf-8` or `shift_jis`."
+            ),
+            &SettingInvalidDetails {
+                key: FETCH_ENCODING.name.to_owned(),
+                layer: Some(SettingsLayer::Run),
+                reason: format!("{other} is no WHATWG Encoding label"),
+            },
+        )),
     }
 }
 
@@ -164,13 +226,14 @@ pub struct Forced {
 }
 
 impl TierChoice {
-    /// How Provenance names the way it was chosen: `forced`, or `engine`
-    /// under `auto` (ADR 0023).
+    /// How Provenance names the way it was chosen: `forced`, or
+    /// `compared` under `auto`, the crawl's sample comparison having chosen
+    /// it (ADR 0023).
     pub fn chosen(&self) -> &'static str {
         if self.forced.is_some() {
             "forced"
         } else {
-            "engine"
+            "compared"
         }
     }
 }

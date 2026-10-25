@@ -450,7 +450,7 @@ fn through_an_upstream_proxy_a_private_answer_is_refused_before_the_proxy_sees_i
 ///
 /// Covers: story:4-10, error:proxy_auth_failed
 #[test]
-fn an_upstream_proxys_407_reaches_the_browser_and_marks_the_credentials_refused() {
+fn an_upstream_proxy_answering_407_reaches_the_browser_and_marks_the_credentials_refused() {
     let resolver = ScriptedResolver::new([goodfetch_test_support::Lookup::new(
         "public.ssrf.test",
         [PUBLIC],

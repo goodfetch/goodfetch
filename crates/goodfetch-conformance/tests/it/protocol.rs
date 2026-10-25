@@ -329,9 +329,10 @@ fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
 /// its handler as a page `page.formats` reads, the site seeing one request;
 /// a cut body fails its attempt and never reaches the handler, a body its
 /// connection's close delimits does, and a request the site never
-/// processed is sent once more, counted nowhere.
+/// processed is sent once more, counted nowhere; and its redirect chains
+/// and refresh stubs are followed as the browser follows them.
 ///
-/// Covers: story:5-126, story:5-127, story:5-128
+/// Covers: story:5-124, story:5-125, story:5-126, story:5-127, story:5-128
 #[test]
 fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
     let env = TestEnv::new();
@@ -364,6 +365,34 @@ fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
                 ),
                 (
                     "a-request-the-site-never-processed-is-sent-once-more-and-counted-nowhere",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-redirect-loop-fails-with-too-many-redirects-at-a-cost-of-fetch-redirect-max-and-one-requests",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "each-redirect-status-sends-its-next-hop-with-the-method-and-body-fetch-specifies",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-3xx-fetch-does-not-follow-fails-with-response-not-ok-unless-crawl-handle-statuses-lists-it",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "each-redirect-hop-goes-through-the-navigation-gate",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-redirect-to-an-admitted-key-or-out-of-scope-ends-skipped",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-redirects-retry-after-delays-its-next-hop-or-past-the-bound-fails-with-response-unavailable",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-refresh-stub-within-fetch-refresh-max-delay-hands-the-handler-its-target",
                     CaseOutcome::Passed
                 ),
             ]

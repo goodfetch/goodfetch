@@ -875,6 +875,23 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 257
+title = "As a crawl developer, I want the tier learned per Label on a domain by sample comparison under `fetch.tier: auto`, and forced per Label with `fetch.tier`, Provenance recording the tier and whether it was forced, so that a crawl mixes tiers with one handler (CO-15, ADR 0093; P11, K03)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 258
+title = "As a crawl developer, I want a Label on a domain split by the first segment of its URL paths when its samples disagree by segment, so that one Label covering two kinds of page does not hold both on the browser **(shape)**."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 309
 title = "As a crawl developer, I want Completeness `incomplete` for a depth, request or path-budget cutoff, a Model allowance skip or a stop, and `unverified` for offset pagination, a learned trap, a URL cap, or pages left at `payment_required` or `consent_required`, each reason named in the report with its count, so that a crawl never reads as complete when it is not (ADRs 0005, 0045, 0048, 0107, 0120; pain 10)."
 milestone = "M1 Core"

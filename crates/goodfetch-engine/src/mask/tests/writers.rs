@@ -38,6 +38,11 @@ const WRITERS: &[(&str, usize, &str)] = &[
         "holds no value: the Labels a crawl declares, their Payloads' schemas and their `fetch.tier`",
     ),
     (
+        "crates/foxhound/goodfetch-crawl/src/tier_choice.rs",
+        1,
+        "holds no value: each Label's tier on each domain key, its samples' path segments and whether they matched",
+    ),
+    (
         "crates/foxhound/goodfetch-crawl/src/work_items.rs",
         4,
         "masked: a handler's failure is masked as `Scope::Kept` where the delivery receives it; work items, Records and outcomes hold URLs and the program's own data",

@@ -23,7 +23,9 @@
 //!   and equivalent forms on evidence (ADR 0120), each threshold met and
 //!   one short of it;
 //! - `scope`: a site with a `www` host and a subdomain beside a sister
-//!   domain and an off-site host (pitfall U15), on host names of its own.
+//!   domain and an off-site host (pitfall U15), on host names of its own;
+//! - `tiers`: static and script-rendered listings on one host, apart by
+//!   their paths' first segment, from which a crawl learns its tiers.
 //!
 //! Every page and expected result is a pure function of the seed and the
 //! page's place; what a family keeps between requests is what it saw a
@@ -41,6 +43,7 @@ mod scale;
 mod scope;
 mod sitemaps;
 mod statuses;
+mod tiers;
 mod traps;
 
 use std::collections::BTreeMap;
@@ -59,7 +62,7 @@ use crate::task::{self, Entry, Expected, Finding, Kind, Record, Task};
 pub(crate) use limits::Held;
 
 /// The family host names, each with its family's name.
-const FAMILIES: [(&str, &str); 13] = [
+const FAMILIES: [(&str, &str); 14] = [
     (statuses::HOST, statuses::FAMILY),
     (traps::HOST, traps::FAMILY),
     (limits::HOST, limits::FAMILY),
@@ -73,6 +76,7 @@ const FAMILIES: [(&str, &str); 13] = [
     (learning::HOST, learning::FAMILY),
     (learning::SHOP_HOST, learning::FAMILY),
     (learning::WWW_HOST, learning::FAMILY),
+    (tiers::HOST, tiers::FAMILY),
 ];
 
 /// The parts of a request a Crawl family reads: an
@@ -254,6 +258,7 @@ impl Families {
             sitemaps::FAMILY => sitemaps::respond(&visit),
             scope::FAMILY => scope::respond(&visit),
             learning::FAMILY => learning::respond(&visit),
+            tiers::FAMILY => tiers::respond(&visit),
             _ => scale::respond(&visit),
         })
     }

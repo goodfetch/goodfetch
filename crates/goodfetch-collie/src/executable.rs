@@ -855,6 +855,7 @@ fn config_explain(
         identity.product,
         &identity.product_version,
         machine.home,
+        machine.environment,
         &request,
     )
 }

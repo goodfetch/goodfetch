@@ -73,6 +73,7 @@ pub mod run_key;
 pub mod run_state;
 pub mod run_trace;
 pub mod runs;
+pub mod sandbox_probe;
 pub mod secrets;
 pub mod settings;
 pub mod tasks;

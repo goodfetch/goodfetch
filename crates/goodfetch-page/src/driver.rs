@@ -89,6 +89,18 @@ use identity::Identity;
 /// browser.
 const UNBOUNDED: Duration = Duration::MAX;
 
+/// Whether the browser shows a page the engine opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Visibility {
+    /// Shown, as a program's page is.
+    Visible,
+    /// Shown nowhere (`Target.createTarget`'s `hidden`), as an engine page
+    /// is: a hidden page has no icon to show, so Chromium never asks its
+    /// document's site for `/favicon.ico`, a request that leaves past the
+    /// page's interception once that stops (ticket #1608).
+    Hidden,
+}
+
 /// The deadlines of a Run's settings that its browser's commands wait under
 /// (ADRs 0059 and 0080): a command the browser leaves unanswered past its
 /// call's raises `deadline_exceeded` naming its setting.
@@ -641,9 +653,9 @@ impl<B: Connect> SessionDriver<B> {
         }
     }
 
-    /// Opens a page in the Session, its navigations' deadline its Run's
-    /// `timeout.navigation`.
-    pub(crate) async fn new_page(&self) -> Result<PageDriver, CallError> {
+    /// Opens a page in the Session, of `visibility`, its navigations'
+    /// deadline its Run's `timeout.navigation`.
+    pub(crate) async fn new_page(&self, visibility: Visibility) -> Result<PageDriver, CallError> {
         let browser = self.browser.connect().await?;
         let opening = browser.opening();
         let context = self.context_in(&browser).await?;
@@ -664,7 +676,7 @@ impl<B: Connect> SessionDriver<B> {
                     new_window: None,
                     background: None,
                     for_tab: None,
-                    hidden: None,
+                    hidden: (visibility == Visibility::Hidden).then_some(true),
                     focus: None,
                 },
                 &opening,

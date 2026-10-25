@@ -46,8 +46,8 @@ pub use redundant::Requester;
 #[doc(hidden)]
 pub use refresh::fuzz_refresh;
 pub use tiers::{
-    Chosen, FetchTiers, HandedOver, HttpTier, Judged, PAGE_CHECK_CALL, ServedLinks, Signed,
-    record_tier,
+    Chosen, FetchTiers, HandedOver, HttpTier, Judged, PAGE_CHECK_CALL, Race, RaceEnd, ServedLinks,
+    Signed, record_race, record_tier,
 };
 pub use transports::{Reqwest, TransportConfig, TransportUnavailable, Wreq};
 pub use use_signals::{Purpose, UseSignals};

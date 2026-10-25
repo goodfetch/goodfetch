@@ -11,6 +11,19 @@
 //! one whose answer counts, and whether the two runs matched classified
 //! once the attempt settles.
 //!
+//! Under `fetch.tier_race` (ADR 0040; the `tier_race` module), an attempt
+//! whose tier is not forced races instead: its document is fetched through
+//! browser-fetch, and a full navigation of its URL in the same Session
+//! starts its race's delay later, taking room beside the attempt's own as
+//! a second copy does, one `requests` in Usage and its domain's delay. The
+//! first page that passes the Page check, browser-fetch's only when it also
+//! agrees with its Label's comparison, wins and is handed to the handler;
+//! the other is cancelled: a browser-fetch in flight is dropped, its
+//! connection closed, and a navigation not yet sent is never sent, one
+//! sent has its page closed once it opened. Provenance records the race.
+//! A browser-fetch whose document arrived gives its Label on its domain one
+//! latency, which times its later races.
+//!
 //! Under `fetch.tier: http` (spec #579), the attempt first fetches its
 //! request's document on the Run's HTTP tier, under the same lease, and
 //! hands the handler the page served from it, closed once the attempt
@@ -42,6 +55,7 @@
 //! refusal's reason, not `failed` (ADR 0093).
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use goodfetch_engine::CallContext;
 use goodfetch_engine::CallError;
@@ -79,9 +93,11 @@ use tokio::sync::oneshot;
 use crate::lease::{CommitError, WorkItemLease};
 use crate::progress::SharedInFlight;
 use crate::tier_choice::{self, AttemptPlan, Sampled};
+use crate::tier_race::Raced;
 use crate::work_items::Leased;
 
 mod learning;
+mod race;
 mod site_preferences;
 
 use learning::learn;
@@ -161,7 +177,7 @@ impl Tiering {
         match &self.plan {
             AttemptPlan::Alone => None,
             AttemptPlan::On(choice) => Some(choice.tier),
-            AttemptPlan::Sample(_) => Some(FetchTier::Http),
+            AttemptPlan::Sample(_) | AttemptPlan::Race(_) => Some(FetchTier::Http),
         }
     }
 }
@@ -169,6 +185,16 @@ impl Tiering {
 /// The tier a sample's cheaper run takes: `http`, chosen by no one.
 const SAMPLED: TierChoice = TierChoice {
     tier: FetchTier::Http,
+    forced: None,
+};
+
+/// The tier a race's browser-fetch serves its page on: `http`, sent from
+/// inside the Session's browser, chosen by no one.
+const RACED: TierChoice = SAMPLED;
+
+/// The browser's tier, chosen by no one.
+const BROWSER: TierChoice = TierChoice {
+    tier: FetchTier::Browser,
     forced: None,
 };
 
@@ -308,6 +334,9 @@ pub(super) struct Attempt {
     /// The sample it was, with whether its two runs matched, once both
     /// answered.
     pub(super) sampled: Option<(Sampled, bool)>,
+    /// The race it was, with its browser-fetch's latency, once its
+    /// document arrived.
+    pub(super) raced: Option<(Raced, Duration)>,
 }
 
 /// One attempt: the handler request, bounded by its lease, on the tier its
@@ -340,6 +369,7 @@ pub(super) async fn attempt(
     };
     let mut merged = Vec::new();
     let mut sampled = None;
+    let mut raced = None;
     let answer = match (&tiering.plan, &tiering.http) {
         (AttemptPlan::Alone, _) => {
             let params = on.params(None, None);
@@ -363,13 +393,22 @@ pub(super) async fn attempt(
             sampled = matched.map(|matched| (sample.clone(), matched));
             answer
         }
-        (AttemptPlan::On(_) | AttemptPlan::Sample(_), None) => Answer::Failed {
-            code: NAVIGATION_FAILED.name.to_owned(),
-            retryable: true,
-            message: "The crawl's HTTP tier could not be built, so the request was not fetched."
-                .to_owned(),
-            details: Map::new(),
-        },
+        (AttemptPlan::Race(race), Some(http)) => {
+            let (answer, learned, latency) = on.race(&tiering, http, race).await;
+            merged = learned;
+            raced = latency.map(|latency| (race.clone(), latency));
+            answer
+        }
+        (AttemptPlan::On(_) | AttemptPlan::Sample(_) | AttemptPlan::Race(_), None) => {
+            Answer::Failed {
+                code: NAVIGATION_FAILED.name.to_owned(),
+                retryable: true,
+                message:
+                    "The crawl's HTTP tier could not be built, so the request was not fetched."
+                        .to_owned(),
+                details: Map::new(),
+            }
+        }
     };
     Attempt {
         server,
@@ -380,6 +419,7 @@ pub(super) async fn attempt(
         answer,
         merged,
         sampled,
+        raced,
     }
 }
 
@@ -466,12 +506,8 @@ impl On<'_> {
             return (run.answer, merged, None);
         }
         self.lease.renew(self.lease.length());
-        let browser = TierChoice {
-            tier: FetchTier::Browser,
-            forced: None,
-        };
         let answer = self
-            .browser(&tiering.tiers, &browser, Chosen::Sample(run.escalated))
+            .browser(&tiering.tiers, &BROWSER, Chosen::Sample(run.escalated))
             .await;
         let matched = match (&answer, &run) {
             (
@@ -517,18 +553,6 @@ impl On<'_> {
         how: Chosen,
     ) -> Result<(HttpRun, Vec<(String, String)>), (Answer, Vec<(String, String)>)> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
-        let requester = Requester {
-            request_id: &leased.crawl_request.id,
-            session: &self.session.id,
-            label: &leased.crawl_request.label,
-            domain_key: &leased.waiting.key,
-            second_copies: &tiering.second_copies,
-            // No work item declares an Effect before area 9's Effect
-            // journal (ADR 0106), and no crawl request is a Paid fetch
-            // before ADR 0045's.
-            declares_effect: false,
-            paid: false,
-        };
         let tiers = &tiering.tiers;
         let hand_over = self
             .gating
@@ -544,39 +568,13 @@ impl On<'_> {
         } else {
             http
         };
-        let fetched = tokio::select! {
-            biased;
-            document = async {
-                let read = read_robots_txt(run, http, leased).await;
-                if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
-                    return Err(refused);
-                }
-                tiers
-                    .serve(http, run, &leased.crawl_request, &requester, choice, &hand_over)
-                    .await
-                    .map_err(|stop| match stop {
-                        Stop::Failed(error) => failed(&error),
-                        Stop::Skipped(skip) => {
-                            tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
-                            Answer::Refused(skip.reason)
-                        }
-                    })
-            } => document,
-            _ = lease.ended() => Err(Answer::LeaseEnded),
-        };
-        let page_id = fetched.map_err(|answer| (answer, Vec::new()))?;
-        if let Some(refused) = use_signals_refusal(run, tiers, &page_id) {
-            tiers.close(&page_id);
-            return Err((refused, Vec::new()));
-        }
+        let page_id = self
+            .document(tiering, http, choice, &hand_over)
+            .await
+            .map_err(|answer| (answer, Vec::new()))?;
         let merged = learn(run, tiers, &page_id, leased).await;
         record_tier(run, leased, choice, how).await;
-        let check = tiering.page_check.clone().or_else(|| run_page_check(run));
-        let judged = match &check {
-            Some(check) => tiers.judge(&page_id, check).await,
-            None => Some(Judged::Passed),
-        };
-        match judged {
+        match judged(run, tiering, &page_id).await {
             Some(Judged::Passed) | None => {}
             Some(Judged::Failed(error)) => {
                 tiers.close(&page_id);
@@ -612,6 +610,72 @@ impl On<'_> {
         let escalated = tiers.escalated(&page_id);
         tiers.close(&page_id);
         Ok((HttpRun { answer, escalated }, merged))
+    }
+
+    /// The document of the attempt's request fetched on `http` under the
+    /// lease, served as `choice` says, once its origin's robots.txt was
+    /// read, and opened as a served page, its pages gated with
+    /// `hand_over`; one whose AI-use signals refuse the Run's Purpose is
+    /// closed unhandled. Answers the page, or how the attempt ended.
+    async fn document(
+        &self,
+        tiering: &Tiering,
+        http: &HttpTier,
+        choice: &TierChoice,
+        hand_over: &Arc<HandOver>,
+    ) -> Result<PageId, Answer> {
+        let (run, leased, lease) = (self.run, self.leased, self.lease);
+        let requester = Requester {
+            request_id: &leased.crawl_request.id,
+            session: &self.session.id,
+            label: &leased.crawl_request.label,
+            domain_key: &leased.waiting.key,
+            second_copies: &tiering.second_copies,
+            // No work item declares an Effect before area 9's Effect
+            // journal (ADR 0106), and no crawl request is a Paid fetch
+            // before ADR 0045's.
+            declares_effect: false,
+            paid: false,
+        };
+        let tiers = &tiering.tiers;
+        let fetched = tokio::select! {
+            biased;
+            document = async {
+                let read = read_robots_txt(run, http, leased).await;
+                if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
+                    return Err(refused);
+                }
+                tiers
+                    .serve(http, run, &leased.crawl_request, &requester, choice, hand_over)
+                    .await
+                    .map_err(|stop| match stop {
+                        Stop::Failed(error) => failed(&error),
+                        Stop::Skipped(skip) => {
+                            tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
+                            Answer::Refused(skip.reason)
+                        }
+                    })
+            } => document,
+            _ = lease.ended() => Err(Answer::LeaseEnded),
+        };
+        let page_id = fetched?;
+        if let Some(refused) = use_signals_refusal(run, tiers, &page_id) {
+            tiers.close(&page_id);
+            return Err(refused);
+        }
+        Ok(page_id)
+    }
+
+    /// The handler request of the attempt on `tier`, given the page
+    /// `page_id`, bounded by its lease.
+    async fn handle(&self, page_id: &PageId, tier: FetchTier) -> Answer {
+        self.in_flight.lock().await.went_on(
+            self.run,
+            &self.leased.crawl_request.id,
+            InFlightPhase::Handling,
+        );
+        let params = self.params(Some(tier), Some(page_id.clone()));
+        handled(self.run, self.context.client(), &params, self.lease).await
     }
 
     /// The attempt on the `browser` tier: the Run's pages handed over,
@@ -651,6 +715,16 @@ impl On<'_> {
         drop(handed_over);
         tiers.close_browser(&page_id).await;
         answer
+    }
+}
+
+/// How the served page `page_id` fares against the Page check of its
+/// request's Label, else the Run's (ADR 0093).
+async fn judged(run: &Run, tiering: &Tiering, page_id: &PageId) -> Option<Judged> {
+    let check = tiering.page_check.clone().or_else(|| run_page_check(run));
+    match &check {
+        Some(check) => tiering.tiers.judge(page_id, check).await,
+        None => Some(Judged::Passed),
     }
 }
 

@@ -35,6 +35,7 @@ mod scope;
 mod seeds;
 mod service_manager;
 mod session_pool;
+mod tier_race;
 mod use_signals;
 mod workers;
 mod writer_lock;

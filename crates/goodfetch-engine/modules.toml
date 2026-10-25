@@ -122,6 +122,7 @@ storage = []
 [submodules.console]
 content = []
 event_stream = []
+offline_key = []
 
 # Which of `daemon`'s own modules may import which.
 [submodules.daemon]
@@ -203,6 +204,7 @@ engine = []
 # Which of `people`'s own modules may import which.
 [submodules.people]
 key = []
+offline = []
 store = []
 
 # Which of `trace`'s own modules may import which.

@@ -26,6 +26,8 @@ import {
 } from "react";
 import type { Address } from "#address.ts";
 import type { ConsoleClient, StreamItem } from "#client/client.ts";
+import type { OfflineCache } from "#offline/offline.ts";
+import { cachedRow } from "#offline/summaries.ts";
 import { formatInstant, formatList } from "#format.ts";
 import { ErrorMessage } from "#errors/error-message.tsx";
 import {
@@ -53,6 +55,8 @@ import {
 export type Listed =
   | { readonly kind: "reading" }
   | { readonly kind: "listed"; readonly runs: readonly RunIndexRow[] }
+  /** With no Connection yet, the runs the browser's offline cache keeps, newest first. */
+  | { readonly kind: "cached"; readonly runs: readonly RunIndexRow[] }
   /** The engine refused, with this error. */
   | { readonly kind: "failed"; readonly error: unknown };
 
@@ -623,6 +627,18 @@ function ListedRuns({ listed }: { readonly listed: Listed }): ReactNode {
       );
     case "listed":
       return <RunTable runs={listed.runs} />;
+    case "cached":
+      return (
+        <>
+          <p role="status">
+            <Trans>
+              This browser's offline copy of the runs it last listed, newest first: the filter
+              applies, and every run shows, once the Console reconnects.
+            </Trans>
+          </p>
+          <RunTable runs={listed.runs} />
+        </>
+      );
     default:
       return listed satisfies never;
   }
@@ -652,6 +668,8 @@ interface RunsState {
 type RunsAction =
   | { readonly kind: "filtered"; readonly filter: RunListParams }
   | { readonly kind: "read"; readonly listed: Listed }
+  /** The offline cache's runs, shown only until the engine answers. */
+  | { readonly kind: "cached"; readonly runs: readonly RunIndexRow[] }
   | { readonly kind: "streamed"; readonly item: StreamItem };
 
 /** The field `name` of `value`, if it is an object that has one. */
@@ -736,6 +754,10 @@ function reduce(state: RunsState, action: RunsAction): RunsState {
       return { ...state, filter: action.filter };
     case "read":
       return { ...state, listed: action.listed };
+    case "cached":
+      return state.listed.kind === "reading"
+        ? { ...state, listed: { kind: "cached", runs: action.runs } }
+        : state;
     case "streamed":
       return streamed(state, action.item);
     default:
@@ -743,13 +765,26 @@ function reduce(state: RunsState, action: RunsAction): RunsState {
   }
 }
 
-/** The Runs screen over `client`, its filter kept in `address`. */
+/** Whether `value` reads as a Run index row the offline cache kept. */
+function isRow(value: unknown): value is RunIndexRow {
+  return typeof member(value, "run_id") === "string" && Array.isArray(member(value, "tags"));
+}
+
+/** The rows the offline cache keeps, newest first. */
+async function cachedRuns(offline: OfflineCache): Promise<RunIndexRow[]> {
+  const kept = (await offline.all("run_summary")).filter(isRow);
+  return kept.toSorted((left, right) => right.started_at.localeCompare(left.started_at));
+}
+
+/** The Runs screen over `client`, its filter kept in `address`, each run it lists kept in `offline`. */
 export function Runs({
   client,
   address,
+  offline,
 }: {
   readonly client: ConsoleClient;
   readonly address: Address;
+  readonly offline?: OfflineCache | undefined;
 }): ReactNode {
   const connection = useSyncExternalStore(
     (changed) => client.watch(changed),
@@ -771,6 +806,9 @@ export function Runs({
       let listed: Listed;
       try {
         listed = { kind: "listed", runs: (await client.call("run.list", filter)).runs };
+        for (const row of listed.runs) {
+          void offline?.put("run_summary", row.run_id, cachedRow(row));
+        }
       } catch (error) {
         listed = { kind: "failed", error };
       }
@@ -782,7 +820,25 @@ export function Runs({
     return () => {
       current = false;
     };
-  }, [client, connection, filter, reads]);
+  }, [client, connection, filter, reads, offline]);
+
+  const waiting = state.listed.kind === "reading";
+  useEffect(() => {
+    if (connection === "connected" || !waiting || offline === undefined) {
+      return undefined;
+    }
+    let current = true;
+    const show = async (): Promise<void> => {
+      const runs = await cachedRuns(offline);
+      if (current && runs.length > 0) {
+        dispatch({ kind: "cached", runs });
+      }
+    };
+    void show();
+    return () => {
+      current = false;
+    };
+  }, [connection, waiting, offline]);
 
   useEffect(() => {
     const subscription = client.subscribe("events");

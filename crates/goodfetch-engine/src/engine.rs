@@ -273,6 +273,7 @@ impl Engine {
                     url,
                     sign_in,
                     content,
+                    offline_cache,
                 },
             ) => {
                 let sign_ins = SignInDriver::new(SignIns {
@@ -298,6 +299,7 @@ impl Engine {
                         runs: runs.clone(),
                         clock,
                         content,
+                        offline_cache,
                     },
                     owner.child(),
                 ));

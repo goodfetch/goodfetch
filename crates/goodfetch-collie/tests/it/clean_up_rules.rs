@@ -319,10 +319,10 @@ fn loads(
 
 /// The targets of the requests `clean-up.test` received, in order.
 fn requests(proving_ground: &ProvingGround) -> Vec<String> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .of_the_case()
         .filter(|request| request["host"] == json!("clean-up.test"))
         .filter_map(|request| request["target"].as_str().map(str::to_owned))
         .collect()

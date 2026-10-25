@@ -54,10 +54,10 @@ fn seed(proving_ground: &ProvingGround, path: &str, label: &str) -> Value {
 /// Each request the site received for a corpus article, in order: its
 /// target and the cookies it carried.
 fn articles(proving_ground: &ProvingGround) -> Vec<(String, Value)> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .of_the_case()
         .filter(|request| {
             request["target"]
                 .as_str()
@@ -172,10 +172,10 @@ fn failures(engine: &mut Attached, run_id: &str) -> BTreeMap<String, (Value, Val
 
 /// The `Accept-Encoding` of each request `host` received, in order.
 fn accept_encodings(proving_ground: &ProvingGround, host: &str) -> Vec<Value> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .every()
         .filter(|request| {
             request["host"]
                 .as_str()
@@ -198,10 +198,10 @@ fn accept_encodings(proving_ground: &ProvingGround, host: &str) -> Vec<Value> {
 
 /// How many requests the site received for `target` on `host` so far.
 fn requests_for(proving_ground: &ProvingGround, host: &str, target: &str) -> usize {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .of_the_case()
         .filter(|request| {
             request["host"]
                 .as_str()

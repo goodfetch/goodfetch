@@ -253,11 +253,9 @@ impl Program {
     /// Whether the Proving ground received a request for `path` on `host`.
     pub(crate) fn requested(&self, host: &str, path: &str) -> bool {
         self.proving_ground
-            .observations()
-            .expect("the Proving ground answers")["requests"]
-            .as_array()
-            .into_iter()
-            .flatten()
+            .received_requests()
+            .expect("the Proving ground answers")
+            .of_the_case()
             .any(|request| request["host"] == json!(host) && request["target"] == json!(path))
     }
 

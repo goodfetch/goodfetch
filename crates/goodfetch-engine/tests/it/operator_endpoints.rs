@@ -19,7 +19,8 @@ use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
 use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
 use goodfetch_test_support::{
-    Answer, Family, Outcome, ProvingGround, Refusal, Route, SsrfCase, SsrfTable, TestEnv, run_cases,
+    Answer, Family, Outcome, ProvingGround, ReceivedRequests, Refusal, Route, SsrfCase, SsrfTable,
+    TestEnv, run_cases,
 };
 use hyper::Request;
 use hyper::body::Bytes;
@@ -216,10 +217,8 @@ fn every_operator_endpoint_case_of_the_ssrf_table_is_refused_before_it_connects(
 
 /// The hosts of the page requests the Proving ground received.
 fn requested_hosts(observations: &Value) -> Vec<String> {
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(observations)
+        .every()
         .map(|request| request["host"].as_str().unwrap().to_owned())
         .collect()
 }

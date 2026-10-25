@@ -68,10 +68,10 @@ fn store(
 /// cookies it sent.
 #[cfg(unix)]
 fn storage_requests(proving_ground: &ProvingGround, prefix: &str) -> Vec<(String, Value)> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .of_the_case()
         .filter(|request| {
             request["host"] == json!("scope.test")
                 && request["target"]
@@ -575,10 +575,10 @@ fn ads_loaded(
         json!(200),
         "{loaded}"
     );
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .of_the_case()
         .filter(|request| {
             request["host"] == json!("clean-up.test") && request["target"] == json!(AD)
         })

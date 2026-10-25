@@ -437,13 +437,12 @@ fn page_request_on_a_document_tier_goes_through_the_gate_and_never_escalates() {
     assert!(engine.finish());
 
     let (got, body, refused) = &answers[0];
-    let requests = proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    let requests = proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .of_the_case()
         .filter(|request| request["host"] == ROBOTS_HOST)
         .map(|request| request["target"].as_str().unwrap().to_owned())
-        .filter(|target| target != "/robots.txt")
         .collect::<Vec<_>>();
     assert_eq!(
         (

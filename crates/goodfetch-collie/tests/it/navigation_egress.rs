@@ -24,13 +24,12 @@ use std::time::{Duration, Instant};
 
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, CaseDomains, EgressRule, Family, Outcome, ProvingGround, Refusal,
-    SsrfCase, SsrfTable, TestEnv, browser_cache, run_cases,
+    SsrfCase, SsrfTable, TestEnv, browser_cache, robots_txt_read, run_cases,
 };
 use serde_json::{Map, Value, json};
 
 use crate::attached::{Attached, hello};
 use crate::page::{BROWSER_DEADLINE, opened};
-use crate::proxy::robots_txt_read;
 use crate::run::call;
 
 /// The Proving ground's own seed for these tests.
@@ -141,12 +140,17 @@ fn error(answer: &Value) -> (Value, Value) {
     (code, details)
 }
 
-/// The requests the Proving ground received, as `(host, target)`.
+/// The requests the Proving ground received that a navigation's hop may
+/// have sent, as `(host, target)`: neither the browser's own for an icon
+/// nor the engine's robots.txt read of a loaded document's origin, which
+/// starts once the document loaded and which the navigation never waits
+/// for (ADR 0086), so it may reach the site before or after the navigation
+/// answers.
 fn requests(proving_ground: &ProvingGround) -> Vec<(String, String)> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    proving_ground
+        .received_requests()
+        .unwrap()
+        .of_the_case()
         .map(|request| {
             (
                 request["host"].as_str().unwrap_or_default().to_owned(),
@@ -157,21 +161,15 @@ fn requests(proving_ground: &ProvingGround) -> Vec<(String, String)> {
 }
 
 /// How many requests for a page, not the browser's own for an icon, the
-/// Proving ground received.
+/// Proving ground received: a robots.txt read included, so a count taken
+/// after [`robots_txt_read`] still sees one a later navigation started.
 fn pages_requested(proving_ground: &ProvingGround) -> usize {
-    requests(proving_ground)
-        .iter()
-        .filter(|(_, target)| target != "/favicon.ico")
+    proving_ground
+        .received_requests()
+        .unwrap()
+        .every()
+        .filter(|request| request["target"] != "/favicon.ico")
         .count()
-}
-
-/// Whether a request is one a navigation's hop sent: neither the browser's
-/// own for an icon nor the engine's robots.txt read of a loaded document's
-/// origin, which starts once the document loaded and which the navigation
-/// never waits for (ADR 0086), so it may reach the site before or after
-/// the navigation answers.
-fn sent_by_a_hop(target: &str) -> bool {
-    target != "/favicon.ico" && target != "/robots.txt"
 }
 
 /// Covers: story:4-5, error:egress_refused, operation:page.goto
@@ -200,7 +198,7 @@ fn a_chain_whose_third_hop_leaves_the_policy_is_refused_at_that_hop() {
     let reached = |requests: &[(String, String)]| {
         requests
             .iter()
-            .filter(|(host, target)| host == "catalog.test" && sent_by_a_hop(target))
+            .filter(|(host, _)| host == "catalog.test")
             .count()
     };
     assert_eq!(
@@ -252,7 +250,7 @@ fn run_case(
         requests(proving_ground)
             .into_iter()
             .skip(before)
-            .filter(|(host, target)| !(*host == own.0 && *target == own.1) && sent_by_a_hop(target))
+            .filter(|(host, target)| !(*host == own.0 && *target == own.1))
             .map(|_| proving_ground.address().ip())
             .collect()
     };

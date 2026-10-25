@@ -793,6 +793,12 @@ number = 6
 kind = "error"
 prefix = "browser_required"
 
+# A call on the document of a page with no document (ADR 0119; #931).
+[[area]]
+number = 6
+kind = "error"
+prefix = "response_not_document"
+
 # The refusal the page's navigation gate raises, which area 6 declares
 # (spec #578; #720 builds the gate).
 [[area]]

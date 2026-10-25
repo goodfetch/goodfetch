@@ -19,10 +19,14 @@ use goodfetch_protocol::foxhound::fetch::{
     BROWSER_REQUIRED, BrowserRequiredDetails, FETCH_TIER, FETCH_TIERS, FetchTier,
 };
 use goodfetch_protocol::settings::{
-    SETTING_INVALID, SETTING_NOT_APPLICABLE, SettingInvalidDetails, SettingNotApplicableDetails,
-    SettingsLayer,
+    SESSION_SOURCE, SETTING_INVALID, SETTING_NOT_APPLICABLE, SettingInvalidDetails,
+    SettingNotApplicableDetails, SettingsLayer,
 };
 use serde_json::{Map, Value, json};
+
+/// What the keys inside a Label's `session.source` start with, once its
+/// shape is spelled out key by key.
+const SESSION_SOURCE_KEYS: &str = "session.source.";
 
 /// The Labels a crawl declares, each with its own `fetch.tier`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -47,7 +51,8 @@ impl LabelTiers {
     /// # Errors
     ///
     /// `setting_not_applicable` for a key a Label does not take here (every
-    /// key but `fetch.tier`), and `setting_invalid` for a `fetch.tier` that
+    /// key but `fetch.tier` and `session.source`, which the Session pool
+    /// reads), and `setting_invalid` for a `fetch.tier` that
     /// names no tier.
     pub fn of(labels: &BTreeMap<String, LabelDeclaration>) -> Result<Self, CallError> {
         let mut tiers = BTreeMap::new();
@@ -56,11 +61,15 @@ impl LabelTiers {
             flatten("", &declaration.settings, &mut keys);
             let mut tier = SetTier::Unset;
             for (key, value) in keys {
+                // The Session pool reads a Label's own Session source.
+                if key == SESSION_SOURCE.name || key.starts_with(SESSION_SOURCE_KEYS) {
+                    continue;
+                }
                 if key != FETCH_TIER.name {
                     return Err(CallError::new(
                         &SETTING_NOT_APPLICABLE,
                         format!(
-                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine: only `fetch.tier` is set per Label; set `{key}` for the Run instead."
+                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine: only `fetch.tier` and `session.source` are set per Label; set `{key}` for the Run instead."
                         ),
                         &SettingNotApplicableDetails {
                             key,

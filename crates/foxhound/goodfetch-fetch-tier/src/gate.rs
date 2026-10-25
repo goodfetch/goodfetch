@@ -142,6 +142,22 @@ impl fmt::Debug for Gate {
     }
 }
 
+/// The navigation gate of the pages browser-fetch sends a crawl request's
+/// hops from: it admits each at once, since the redirect chain already
+/// took each hop through [`ChainGate`] (ADR 0118).
+#[derive(Debug)]
+pub(crate) struct Admitted;
+
+impl NavigationGate for Admitted {
+    fn admit<'a>(&'a self, _navigation: &'a Navigation) -> Admission<'a> {
+        Box::pin(async { Ok(Permit::unlimited()) })
+    }
+
+    fn judge_document(&self, _response: &DocumentResponse<'_>) -> Result<(), Refusal> {
+        Ok(())
+    }
+}
+
 /// The lease check of the pages one attempt handed over: the attempt's.
 pub(crate) struct Lease(Arc<HandOver>);
 

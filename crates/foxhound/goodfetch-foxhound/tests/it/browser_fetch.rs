@@ -1,0 +1,442 @@
+//! Browser-fetch (spec #579; ADR 0020; pitfall H20), on Foxhound's
+//! executable against the Proving ground and Chrome for Testing: a Session
+//! that may move to the browser, any Session under `fetch.tier: auto`,
+//! sends its HTTP tier's requests from inside its pool Session's browser
+//! context, so the cookies a page set in the browser are sent by the HTTP
+//! tier's next request in the same Session and by no other Session (the
+//! tier parity of cookies, Foxhound's half), and the site sees one TLS
+//! fingerprint across both tiers.
+
+use std::collections::BTreeMap;
+use std::time::Duration;
+
+use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
+use serde_json::{Value, json};
+
+use crate::crawl::Attached;
+use crate::frontier::{Inside, crawl_declaring};
+
+/// The Proving ground's seed.
+const SEED: u64 = 769;
+
+/// The host of the `access` family's corpus pages.
+const HOST: &str = "access.test";
+
+/// An engine whose pages launch Chrome for Testing from the test's cache.
+fn engine(env: &TestEnv) -> Attached {
+    let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
+    Attached::start_with(env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    })
+}
+
+/// The settings of a crawl that reaches every host of `proving_ground` on
+/// `tier`, one Session in each pool at a time.
+fn settings(proving_ground: &ProvingGround, tier: &str) -> Value {
+    let resolve: serde_json::Map<String, Value> = proving_ground
+        .description()
+        .resolve
+        .iter()
+        .map(|(host, address)| (host.clone(), json!([address])))
+        .collect();
+    json!({
+        "network": { "resolve": resolve },
+        "fetch": { "tier": tier },
+        "session": { "pool": { "max_size": 1 } },
+    })
+}
+
+/// A seed of `label` at `path` of the corpus.
+fn seed(proving_ground: &ProvingGround, path: &str, label: &str) -> Value {
+    json!({ "url": proving_ground.url(HOST, path), "label": label })
+}
+
+/// Each request the site received for a corpus article, in order: its
+/// target and the cookies it carried.
+fn articles(proving_ground: &ProvingGround) -> Vec<(String, Value)> {
+    proving_ground.observations().unwrap()["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| {
+            request["target"]
+                .as_str()
+                .is_some_and(|target| target.starts_with("/corpus/article"))
+        })
+        .map(|request| {
+            (
+                request["target"].as_str().unwrap().to_owned(),
+                request["cookies"].clone(),
+            )
+        })
+        .collect()
+}
+
+/// The handler: on a browser page of the Label `a` it sets the cookie
+/// `who=a` once; it answers no Record.
+fn handler(set: &mut bool) -> impl FnMut(&mut Inside<'_>, &Value) -> Value + '_ {
+    move |inside, handle| {
+        if handle["tier"] == "browser" && handle["crawl_request"]["label"] == "a" && !*set {
+            *set = true;
+            let _ = inside.call(
+                "page.evaluate",
+                &json!({
+                    "page_id": handle["page_id"],
+                    "function": "() => { document.cookie = 'who=a; path=/'; }",
+                }),
+            );
+        }
+        json!({ "result": { "records": [] } })
+    }
+}
+
+/// Under `auto`, each of a Label's first requests is a sample: its run on
+/// `http`, then on `browser`. The cookie the first sample's browser page
+/// set is sent by the `http` run of the Label's next request, in the same
+/// pool Session, and never by a request of the Label `b`, whose pool is
+/// its own.
+///
+/// Covers: story:5-123, story:5-121
+#[test]
+fn a_cookie_the_browser_sample_set_is_sent_by_the_http_tiers_next_request_in_its_session_only() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+
+    let mut set = false;
+    let finished = crawl_declaring(
+        &mut engine,
+        "cookie-parity",
+        &[
+            seed(&proving_ground, "/corpus/article?n=1", "a"),
+            seed(&proving_ground, "/corpus/article?n=2", "a"),
+            seed(&proving_ground, "/corpus/article?n=3", "b"),
+        ],
+        &json!({
+            "a": {},
+            "b": { "settings": { "session": { "source": null } } },
+        }),
+        &settings(&proving_ground, "auto"),
+        &mut handler(&mut set),
+    );
+    assert!(engine.finish());
+
+    let who = json!([["who", "a"]]);
+    let none = json!([]);
+    assert_eq!(
+        (articles(&proving_ground), &finished["result"]["lifecycle"]),
+        (
+            vec![
+                // The first sample: on `http`, then on `browser`.
+                ("/corpus/article?n=1".to_owned(), none.clone()),
+                ("/corpus/article?n=1".to_owned(), none.clone()),
+                // The next, after the browser page set its cookie.
+                ("/corpus/article?n=2".to_owned(), who.clone()),
+                ("/corpus/article?n=2".to_owned(), who),
+                // Another Session's.
+                ("/corpus/article?n=3".to_owned(), none.clone()),
+                ("/corpus/article?n=3".to_owned(), none),
+            ],
+            &json!("finished")
+        )
+    );
+}
+
+/// Each request of the Run `run_id` that ended unsuccessful, by URL: its
+/// Error code, its network error and the timeout it names, if any.
+fn failures(engine: &mut Attached, run_id: &str) -> BTreeMap<String, (Value, Value, Value)> {
+    let answer = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": run_id }),
+        &mut |_| None,
+    );
+    answer["result"]["outcomes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no outcomes: {answer}"))
+        .iter()
+        .filter(|outcome| !outcome["error"].is_null())
+        .map(|outcome| {
+            let error = &outcome["error"];
+            (
+                outcome["request"]["url"].as_str().unwrap().to_owned(),
+                (
+                    error["code"].clone(),
+                    error["details"]["error"].clone(),
+                    error["details"]["limit"]["key"].clone(),
+                ),
+            )
+        })
+        .collect()
+}
+
+/// The `Accept-Encoding` of each request `host` received, in order.
+fn accept_encodings(proving_ground: &ProvingGround, host: &str) -> Vec<Value> {
+    proving_ground.observations().unwrap()["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| {
+            request["host"]
+                .as_str()
+                .is_some_and(|seen| seen.starts_with(host))
+        })
+        .map(|request| {
+            request["headers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|header| {
+                    header[0]
+                        .as_str()
+                        .is_some_and(|name| name.eq_ignore_ascii_case("accept-encoding"))
+                })
+                .map_or(Value::Null, |header| header[1].clone())
+        })
+        .collect()
+}
+
+/// How many requests the site received for `target` on `host` so far.
+fn requests_for(proving_ground: &ProvingGround, host: &str, target: &str) -> usize {
+    proving_ground.observations().unwrap()["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| {
+            request["host"]
+                .as_str()
+                .is_some_and(|seen| seen.starts_with(host))
+                && request["target"] == target
+        })
+        .count()
+}
+
+/// The transport conformance gate (pitfall H13's acceptance test) on
+/// browser-fetch, the `http` tier of a Session that may move: each content
+/// coding page decodes as the browser decodes it, the text served to the
+/// handler, or fails with `navigation_failed` naming
+/// `net::ERR_CONTENT_DECODING_FAILED`, a body compressed twice and labelled
+/// once included; the browser asks for its own codings, as its own
+/// navigation does; a `page.request` asking for no redirect gets the 301
+/// as it came, nothing sent to its `Location`; and a page answering after
+/// 8 s ends at a 1 s `timeout.first_byte` with `deadline_exceeded` naming
+/// it.
+///
+/// **Over plain HTTP:** the browser cannot trust the Proving ground's
+/// authority, so the pages are fetched over `http://`, where Chrome asks
+/// for and decodes only `gzip` and `deflate`: the `br` and `zstd` pages
+/// fail there as Chrome's own navigation fails them, which the browser
+/// tier would too.
+///
+/// Covers: story:5-121, story:5-128
+#[test]
+fn browser_fetch_passes_the_transport_conformance_gate() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let mut settings = settings(&proving_ground, "auto");
+    settings["site_preferences"] = json!({ "respect_robots_txt": false });
+    settings["crawl"] = json!({ "retry": { "max": 0 } });
+    let redirect = proving_ground.url("fetch-edge.test", "/redirect/301");
+
+    let mut texts = BTreeMap::new();
+    let mut redirected = None;
+    let seeds: Vec<Value> = (1..=11)
+        .map(|ordinal| {
+            json!({
+                "url": proving_ground.url(&format!("{ordinal}.content-coding.test"), "/page"),
+                "label": "page",
+            })
+        })
+        .collect();
+    let finished = crawl_declaring(
+        &mut engine,
+        "codings",
+        &seeds,
+        &json!({ "page": {} }),
+        &settings,
+        &mut |inside, handle| {
+            if handle["tier"] != "http" {
+                return json!({ "result": { "records": [] } });
+            }
+            let url = handle["crawl_request"]["url"].as_str().unwrap().to_owned();
+            let read = inside.call(
+                "page.formats",
+                &json!({ "page_id": handle["page_id"], "formats": { "markdown": true } }),
+            );
+            texts.insert(url, read["result"]["markdown"].clone());
+            if redirected.is_none() {
+                let answer = inside.call(
+                    "page.request",
+                    &json!({ "page_id": handle["page_id"], "url": redirect, "max_redirects": 0 }),
+                );
+                redirected = Some((
+                    answer["result"]["status"].clone(),
+                    answer["result"]["headers"]["location"].is_string(),
+                    requests_for(&proving_ground, "fetch-edge.test", "/target"),
+                ));
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    let failed = failures(&mut engine, "codings");
+
+    let mut slow = settings.clone();
+    slow["timeout"] = json!({ "first_byte": 1_000 });
+    let slow_url = proving_ground.url("6.incidents.test", "/catalog/2");
+    let finished = crawl_declaring(
+        &mut engine,
+        "slow",
+        &[json!({ "url": slow_url, "label": "page" })],
+        &json!({ "page": {} }),
+        &slow,
+        &mut |_, _| json!({ "result": { "records": [] } }),
+    );
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    let timed_out = failures(&mut engine, "slow");
+    assert!(engine.finish());
+
+    let decoding_failed = (
+        json!("navigation_failed"),
+        json!("net::ERR_CONTENT_DECODING_FAILED"),
+        Value::Null,
+    );
+    for ordinal in 1..=11 {
+        let url = proving_ground.url(&format!("{ordinal}.content-coding.test"), "/page");
+        // 3, 10 and 11 hold `br` or `zstd`, which Chrome decodes over
+        // HTTPS only.
+        if [1, 2, 3, 6, 7, 10, 11].contains(&ordinal) {
+            assert_eq!(failed.get(&url), Some(&decoding_failed), "{url}");
+        } else {
+            let text = texts
+                .get(&url)
+                .and_then(Value::as_str)
+                .unwrap_or_else(|| panic!("{url} not served: {failed:?}"));
+            assert!(
+                text.contains(&format!(
+                    "Content coding page {ordinal}, decoded once and as labelled."
+                )),
+                "{url}: {text}"
+            );
+        }
+    }
+    assert_eq!(failed.len(), 7, "{failed:?}");
+    let asked = accept_encodings(&proving_ground, "8.content-coding.test");
+    assert!(
+        asked.len() >= 2 && asked.iter().all(|coding| coding == &asked[0]),
+        "on `http` as on `browser`: {asked:?}"
+    );
+    assert_eq!(redirected, Some((json!(301), true, 0)));
+    assert_eq!(
+        timed_out.get(&slow_url),
+        Some(&(
+            json!("deadline_exceeded"),
+            Value::Null,
+            json!("timeout.first_byte")
+        ))
+    );
+}
+
+/// The JA4 of each TLS handshake the site's `host` received from the
+/// observation `from` on, in order, without the extensions a resumed
+/// handshake adds.
+fn handshakes(proving_ground: &ProvingGround, host: &str, from: usize) -> Vec<String> {
+    proving_ground.observations().unwrap()["tls_handshakes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .skip(from)
+        .filter(|handshake| handshake["sni"] == host)
+        .map(|handshake| handshake["ja4_base"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// How many TLS handshakes the site recorded so far.
+fn handshakes_so_far(proving_ground: &ProvingGround) -> usize {
+    proving_ground.observations().unwrap()["tls_handshakes"]
+        .as_array()
+        .unwrap()
+        .len()
+}
+
+/// A crawl of one corpus article on `tier`, robots.txt not read, whose
+/// handler reaches `https_url` from its page: through `page.request` on
+/// the `http` tier, through `page.goto` on `browser`. Neither trusts the
+/// Proving ground's certificate, so each request ends at its handshake,
+/// whose `ClientHello` the site still records. Answers the tier of each
+/// run of the handler.
+fn reach_over_tls(
+    engine: &mut Attached,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    tier: &str,
+    https_url: &str,
+) -> Vec<Value> {
+    let mut settings = settings(proving_ground, tier);
+    settings["site_preferences"] = json!({ "respect_robots_txt": false });
+    let mut tiers = Vec::new();
+    let finished = crawl_declaring(
+        engine,
+        run_id,
+        &[seed(proving_ground, "/corpus/article?n=1", "a")],
+        &json!({ "a": {} }),
+        &settings,
+        &mut |inside, handle| {
+            tiers.push(handle["tier"].clone());
+            let method = if handle["tier"] == "browser" {
+                "page.goto"
+            } else {
+                "page.request"
+            };
+            let reached = inside.call(
+                method,
+                &json!({ "page_id": handle["page_id"], "url": https_url }),
+            );
+            assert!(reached.get("error").is_some(), "{reached}");
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    tiers
+}
+
+/// Under `auto`, the Session's `http` run and its `browser` run show the
+/// site one TLS `ClientHello`, the browser's, since its HTTP goes through
+/// browser-fetch; a Session forced onto `http`, which never moves, shows
+/// reqwest's own, another.
+///
+/// Covers: story:5-121
+#[test]
+fn a_session_that_may_move_shows_one_tls_fingerprint_on_the_http_and_browser_tiers() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let https_url = proving_ground
+        .url(HOST, "/corpus/article?n=2")
+        .replacen("http://", "https://", 1);
+
+    let moving = reach_over_tls(&mut engine, &proving_ground, "moving", "auto", &https_url);
+    let seen = handshakes_so_far(&proving_ground);
+    let staying = reach_over_tls(&mut engine, &proving_ground, "staying", "http", &https_url);
+    assert!(engine.finish());
+
+    let reqwest = handshakes(&proving_ground, HOST, seen);
+    let all = handshakes(&proving_ground, HOST, 0);
+    let moving_handshakes = &all[..all.len() - reqwest.len()];
+    assert_eq!(
+        (moving, staying),
+        (vec![json!("http"), json!("browser")], vec![json!("http")])
+    );
+    assert!(moving_handshakes.len() >= 2, "{moving_handshakes:?}");
+    assert!(
+        moving_handshakes
+            .iter()
+            .all(|ja4| ja4 == &moving_handshakes[0]),
+        "one fingerprint across the tiers: {moving_handshakes:?}"
+    );
+    assert!(
+        !reqwest.is_empty() && reqwest.iter().all(|ja4| ja4 != &moving_handshakes[0]),
+        "reqwest {reqwest:?}, the browser {moving_handshakes:?}"
+    );
+}

@@ -98,7 +98,10 @@ use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Pending, Registered};
-use crate::page_value::{BrowserPages, HandlerPages, Opening, PooledSession, ProgramPages};
+use crate::page_value::{
+    BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages, Opening, PageValue,
+    PooledSession, ProgramPages,
+};
 use crate::proxy;
 use crate::recovery;
 use crate::sessions::{self, OpenPage, PageEvent, Sessions};
@@ -771,6 +774,72 @@ impl BrowserPages for Opener {
         context: &'a CallContext,
     ) -> Opening<'a, Result<(), CallError>> {
         Box::pin(async move { self.pages.sessions.retire(run_id, pooled, context).await })
+    }
+
+    fn fetch<'a>(
+        &'a self,
+        run_id: &'a RunId,
+        pooled: &'a PooledSession,
+        value: PageValue,
+        request: &'a EngineFetch,
+        context: &'a CallContext,
+    ) -> Opening<'a, Result<EngineFetched, CallError>> {
+        Box::pin(async move {
+            let session = self
+                .pages
+                .sessions
+                .pool_session(run_id, &pooled.id, pooled.source.clone(), context)
+                .await?;
+            let (run, own) = self.pages.sessions.own_settings(&session).await?;
+            let steps = self
+                .pages
+                .interception
+                .engine_requests_of(&run, &own)
+                .await?;
+            let limits = run
+                .settings()
+                .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+            let headers: BTreeMap<String, String> = request.headers.iter().cloned().collect();
+            let post_data = request
+                .body
+                .as_deref()
+                .map(|body| data_encoding::BASE64.encode(body));
+            let sent = browser_fetch::Request {
+                url: &request.url,
+                method: (request.method != "GET").then_some(request.method.as_str()),
+                headers: (!headers.is_empty()).then_some(&headers),
+                post_data: post_data.as_deref(),
+                max_redirects: 0,
+                option: "fetch.redirect.max",
+                limits,
+            };
+            // A cancelled fetch closes the engine's page as it drops.
+            let engine_page = self.pages.sessions.engine_page(&session, &value).await?;
+            let fetched = browser_fetch::send(engine_page.driver(), &steps, &sent).await;
+            engine_page.close().await;
+            let fetched = fetched?;
+            let headers = fetched
+                .response
+                .headers
+                .iter()
+                .flat_map(|(name, values)| {
+                    values
+                        .split('\n')
+                        .map(move |value| (name.clone(), value.to_owned()))
+                })
+                .collect();
+            Ok(EngineFetched {
+                url: fetched.response.url,
+                status: fetched.response.status,
+                headers,
+                body: match fetched.body {
+                    browser_fetch::Body::Whole(bytes) => FetchedBody::Whole(bytes),
+                    browser_fetch::Body::Cut { received, expected } => {
+                        FetchedBody::Cut { received, expected }
+                    }
+                },
+            })
+        })
     }
 }
 

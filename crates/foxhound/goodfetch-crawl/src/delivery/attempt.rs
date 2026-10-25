@@ -534,6 +534,16 @@ impl On<'_> {
             .gating
             .hand_over(run, leased, lease, self.in_flight)
             .await;
+        // A Session that may move to the browser, under `auto`, sends its
+        // HTTP from inside its browser, so its fingerprint and cookies stay
+        // the Session's on both tiers (ADR 0020; pitfall H20).
+        let in_browser;
+        let http = if choice.forced.is_none() {
+            in_browser = tiers.in_browser(http, run, self.in_browser, &hand_over, self.context);
+            &in_browser
+        } else {
+            http
+        };
         let fetched = tokio::select! {
             biased;
             document = async {

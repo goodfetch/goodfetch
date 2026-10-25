@@ -397,6 +397,7 @@ impl serve::Observe for Unobserved {
     fn unauthenticated(&self) {}
     fn terminated(&self, _: &str, _: Option<&goodfetch_engine::tls::ExceptionUsed>) {}
     fn stopped(&self, _: &str, _: &str, _: &terminate::Stop) {}
+    fn client_hello(&self, _: &str, _: client_hello::ClientHello) {}
 }
 
 /// The relaying of the scenarios: a domain policy of a hundred entries, as

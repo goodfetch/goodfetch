@@ -3,7 +3,8 @@
 //! credentials checked first, then the egress policy on the host and on
 //! every address the connection may use, which the relay resolves itself,
 //! then the connection opened to those addresses alone, or through the
-//! Session's upstream proxy, and the bytes passed both ways unchanged.
+//! Session's upstream proxy, and the bytes passed both ways unchanged, a
+//! tunnel's ClientHello noted as it passes.
 
 use std::future::Future;
 use std::io;
@@ -15,6 +16,7 @@ use goodfetch_engine::endpoint::same_token;
 use goodfetch_engine::tls::ExceptionUsed;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
+use super::client_hello::{ClientHello, Noting};
 use super::head::{self, Head, Target, Unread};
 use super::terminate::{self, Stop, Terminated, Terminating};
 
@@ -130,6 +132,9 @@ pub(crate) trait Observe: Sync {
     /// The relay stopped a terminated connection to `url` that `method`
     /// asked for, before any byte of the browser's went up.
     fn stopped(&self, url: &str, method: &str, stop: &Stop);
+    /// The browser opened TLS with `hello` on a tunnel to `authority` that
+    /// the relay passes as it is.
+    fn client_hello(&self, authority: &str, hello: ClientHello);
 }
 
 /// How the relay judges and routes a Session's connections.
@@ -532,8 +537,9 @@ async fn socks5_connect(
 }
 
 /// Passes the bytes of `head`'s connection both ways, `rest` first, as they
-/// are, or through the terminating mode for a tunnel to a host the Run
-/// lists for a certificate exception.
+/// are, a tunnel's ClientHello noted as it passes, or through the
+/// terminating mode for a tunnel to a host the Run lists for a certificate
+/// exception.
 async fn forward<B, S, O>(
     browser: B,
     site: S,
@@ -553,7 +559,12 @@ where
         .as_deref()
         .filter(|terminating| terminating.terminates(host));
     let (Target::Tunnel { .. }, Some(terminating)) = (&head.target, terminating) else {
-        return pass(browser, site, &rest).await;
+        if let Target::Absolute { .. } = head.target {
+            return pass(browser, site, &rest).await;
+        }
+        let authority = head.target.authority();
+        let noted = |hello| observe.client_hello(&authority, hello);
+        return pass(Noting::new(browser, &rest, noted), site, &rest).await;
     };
     let passed = |used: Option<&ExceptionUsed>| observe.terminated(host, used);
     match terminate::terminate(browser, site, (rest, host), terminating, passed).await {

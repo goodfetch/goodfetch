@@ -73,9 +73,16 @@ fn target_sources(observations: &Value) -> Vec<IpAddr> {
         .collect()
 }
 
+/// It runs on the real-time runtime: under the paused clock, a busy host's
+/// slow DNS fixture let auto-advance pass the resolver's query timeout.
 /// Covers: story:4-44, setting:egress.local_addresses
-#[test]
-fn a_fetch_through_a_session_bound_to_a_loopback_alias_leaves_from_it_and_so_does_its_dns_query() {
+#[tokio::test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a real name server's socket stays off the paused clock, so the test runs on the real-time runtime `tokio::test` builds (TESTING.md, Time)"
+)]
+async fn a_fetch_through_a_session_bound_to_a_loopback_alias_leaves_from_it_and_so_does_its_dns_query()
+ {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let target: SocketAddr = proving_ground
@@ -104,14 +111,11 @@ fn a_fetch_through_a_session_bound_to_a_loopback_alias_leaves_from_it_and_so_doe
         delays: Delays::BUILT_IN,
     };
     let url = format!("http://1.catalog.test:{}/", target.port());
-    let runtime = goodfetch_test_support::runtime();
 
-    let status = runtime.block_on(async {
-        traffic
-            .get(&url, Waiter::Call)
-            .await
-            .map(|response| response.status())
-    });
+    let status = traffic
+        .get(&url, Waiter::Call)
+        .await
+        .map(|response| response.status());
     let observations = proving_ground.observations().unwrap();
 
     assert_eq!(

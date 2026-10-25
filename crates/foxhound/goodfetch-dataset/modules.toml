@@ -1,4 +1,6 @@
 # Which of goodfetch-dataset's top-level modules may import which (ADR 0126).
 [modules]
-declaration = ["records"]
-records = []
+declaration = ["records", "rejections"]
+records = ["rejections"]
+rejected_records = ["declaration", "rejections"]
+rejections = []

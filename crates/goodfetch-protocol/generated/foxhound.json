@@ -6091,6 +6091,26 @@
       ],
       "type": "object"
     },
+    "RecordIssue": {
+      "description": "One way a Record does not hold for its Dataset.",
+      "properties": {
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What is wrong there.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Where in the Record, a JSON Pointer: empty for the Record itself.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "message"
+      ],
+      "type": "object"
+    },
     "RecordingReport": {
       "description": "What a Run did with the Response recording its start named (ADR 0105).",
       "properties": {
@@ -6197,6 +6217,93 @@
         "domain",
         "removed",
         "domains"
+      ],
+      "type": "object"
+    },
+    "RejectedRecord": {
+      "description": "One entry of a Dataset's rejection table.",
+      "properties": {
+        "data": {
+          "arrived_in": "0.1",
+          "description": "The Record as JSON, as it was pushed, never parsed by the schema it\nfailed."
+        },
+        "hook": {
+          "arrived_in": "0.1",
+          "description": "The Hook that rejected it; absent when the engine's own check did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "issues": {
+          "arrived_in": "0.1",
+          "description": "Each issue the check found, by its path, a JSON Pointer into the\nRecord; empty when a Hook rejected it with none.",
+          "items": {
+            "$ref": "#/$defs/RecordIssue"
+          },
+          "type": "array"
+        },
+        "number": {
+          "arrived_in": "0.1",
+          "description": "Its place in the Dataset's rejection table, from 1, in commit\norder with no gaps, which `run.rejected_records`'s `after` takes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why it was rejected.",
+          "type": "string"
+        },
+        "request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt pushed it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "That request's URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "number",
+        "data",
+        "reason",
+        "issues",
+        "request_id",
+        "url"
+      ],
+      "type": "object"
+    },
+    "RejectedRecords": {
+      "description": "One page of `run.rejected_records`.",
+      "properties": {
+        "ended": {
+          "arrived_in": "0.1",
+          "description": "Whether the table is read to its end: the Run has ended, or has no\nlive writer, and no entry follows `next`.",
+          "type": "boolean"
+        },
+        "next": {
+          "arrived_in": "0.1",
+          "description": "The number the next page starts after.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "The entries after `after`, in number order.",
+          "items": {
+            "$ref": "#/$defs/RejectedRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "records",
+        "next",
+        "ended"
       ],
       "type": "object"
     },
@@ -7549,6 +7656,41 @@
       },
       "required": [
         "run_id"
+      ],
+      "type": "object"
+    },
+    "RunRejectedRecordsParams": {
+      "additionalProperties": false,
+      "description": "What `run.rejected_records` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "after": {
+          "arrived_in": "0.1",
+          "description": "The number of the last entry a reader handled; absent, from the\nfirst.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset whose rejection table to read.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset"
       ],
       "type": "object"
     },
@@ -12680,7 +12822,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Pushes one Record into a Dataset the crawl declares from inside a handler's attempt, a handler context's `push`, and answers once it is staged: it commits once with the attempt's other outputs when the handler returns, and is discarded with them when the attempt ends any other way. The Record is checked first: a Dataset the crawl does not declare fails with `dataset_unknown`; a Record that is no JSON object, fails its Dataset's JSON Schema or lacks one of its key's fields fails with `record_invalid`, naming each issue's path, and is not staged, while the attempt keeps what it staged before. An attempt that already ended fails with `attempt_ended`.",
+      "description": "Pushes one Record into a Dataset the crawl declares from inside a handler's attempt, a handler context's `push`, and answers once it is staged: it commits once with the attempt's other outputs when the handler returns, and is discarded with them when the attempt ends any other way. The Record is checked first: a Dataset the crawl does not declare fails with `dataset_unknown`; a Record that is no JSON object, fails its Dataset's JSON Schema or lacks one of its key's fields fails with `record_invalid`, naming each issue's path, and is not staged: its rejection is staged instead, entering the Dataset's rejection table (`run.rejected_records`) if the attempt commits, while the attempt keeps what it staged before. An attempt that already ended fails with `attempt_ended`.",
       "events": [],
       "kind": "round_trip",
       "name": "crawl_request.push",
@@ -13929,6 +14071,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunProgress"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads one Dataset's rejection table from a crawl's committed state: each Record rejected rather than committed, numbered from 1 in commit order, with the Record as JSON, the reason, each issue's path, the Hook when one rejected it, and the request's ID and URL. It starts at the first entry, or after `after`, the number a reader last handled. While the Run is live and nothing follows, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and no entry follows. A reader never slows the Run. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.rejected_records",
+      "params": {
+        "$ref": "#/$defs/RunRejectedRecordsParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RejectedRecords"
       },
       "stability": "experimental"
     },

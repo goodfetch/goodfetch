@@ -3,39 +3,59 @@
 //! from 1 per Dataset, in commit order, with no gaps, beside the crawl
 //! request whose attempt committed it. Only Records that passed their
 //! Dataset's check, a [`Checked`] value, are committed, inside the write
-//! that commits their attempt.
+//! that commits their attempt, with the rejections the attempt staged,
+//! which enter their Datasets' rejection tables.
 
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::outcomes::DatasetRecords;
 use rusqlite::Connection;
 
+use crate::rejections::{self, Rejection};
+
 /// Records, in the order they were pushed, each of which holds for the
-/// Dataset it names: the only value [`commit`] takes.
+/// Dataset it names, and the rejections of those that did not: the only
+/// value [`commit`] takes.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Checked(Vec<PushedRecord>);
+pub struct Checked {
+    records: Vec<PushedRecord>,
+    rejected: Vec<Rejection>,
+}
 
 impl Checked {
     /// Records the check found holding.
     pub(crate) fn new(records: Vec<PushedRecord>) -> Self {
-        Self(records)
+        Self {
+            records,
+            rejected: Vec::new(),
+        }
     }
 
-    /// Puts `later`'s Records after these.
+    /// The rejection of a Record the check refused.
+    pub(crate) fn rejected(rejection: Rejection) -> Self {
+        Self {
+            records: Vec::new(),
+            rejected: vec![rejection],
+        }
+    }
+
+    /// Puts `later`'s Records and rejections after these.
     pub fn append(&mut self, mut later: Self) {
-        self.0.append(&mut later.0);
+        self.records.append(&mut later.records);
+        self.rejected.append(&mut later.rejected);
     }
 
     /// The Records, in order.
     #[must_use]
     pub fn records(&self) -> &[PushedRecord] {
-        &self.0
+        &self.records
     }
 }
 
 /// Commits `records`, which the attempt of the crawl request `work_item`
 /// staged, in `connection`'s transaction: each Record takes its Dataset's
-/// next number. Answers, per Dataset in the order first pushed, how many
-/// it committed.
+/// next number, and each of its rejections its Dataset's next number in
+/// its rejection table. Answers, per Dataset in the order first pushed
+/// (those only rejected after), how many it committed and rejected.
 ///
 /// # Errors
 ///
@@ -65,5 +85,6 @@ pub fn commit(
             }),
         }
     }
+    rejections::write(connection, work_item, &records.rejected, &mut counted)?;
     Ok(counted)
 }

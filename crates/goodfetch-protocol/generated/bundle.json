@@ -8279,6 +8279,26 @@
       ],
       "type": "object"
     },
+    "RecordIssue": {
+      "description": "One way a Record does not hold for its Dataset.",
+      "properties": {
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What is wrong there.",
+          "type": "string"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Where in the Record, a JSON Pointer: empty for the Record itself.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "message"
+      ],
+      "type": "object"
+    },
     "RecordingReport": {
       "description": "What a Run did with the Response recording its start named (ADR 0105).",
       "properties": {
@@ -8385,6 +8405,93 @@
         "domain",
         "removed",
         "domains"
+      ],
+      "type": "object"
+    },
+    "RejectedRecord": {
+      "description": "One entry of a Dataset's rejection table.",
+      "properties": {
+        "data": {
+          "arrived_in": "0.1",
+          "description": "The Record as JSON, as it was pushed, never parsed by the schema it\nfailed."
+        },
+        "hook": {
+          "arrived_in": "0.1",
+          "description": "The Hook that rejected it; absent when the engine's own check did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "issues": {
+          "arrived_in": "0.1",
+          "description": "Each issue the check found, by its path, a JSON Pointer into the\nRecord; empty when a Hook rejected it with none.",
+          "items": {
+            "$ref": "#/$defs/RecordIssue"
+          },
+          "type": "array"
+        },
+        "number": {
+          "arrived_in": "0.1",
+          "description": "Its place in the Dataset's rejection table, from 1, in commit\norder with no gaps, which `run.rejected_records`'s `after` takes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why it was rejected.",
+          "type": "string"
+        },
+        "request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt pushed it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "That request's URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "number",
+        "data",
+        "reason",
+        "issues",
+        "request_id",
+        "url"
+      ],
+      "type": "object"
+    },
+    "RejectedRecords": {
+      "description": "One page of `run.rejected_records`.",
+      "properties": {
+        "ended": {
+          "arrived_in": "0.1",
+          "description": "Whether the table is read to its end: the Run has ended, or has no\nlive writer, and no entry follows `next`.",
+          "type": "boolean"
+        },
+        "next": {
+          "arrived_in": "0.1",
+          "description": "The number the next page starts after.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "The entries after `after`, in number order.",
+          "items": {
+            "$ref": "#/$defs/RejectedRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "records",
+        "next",
+        "ended"
       ],
       "type": "object"
     },
@@ -9940,6 +10047,41 @@
       },
       "required": [
         "run_id"
+      ],
+      "type": "object"
+    },
+    "RunRejectedRecordsParams": {
+      "additionalProperties": false,
+      "description": "What `run.rejected_records` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "after": {
+          "arrived_in": "0.1",
+          "description": "The number of the last entry a reader handled; absent, from the\nfirst.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset whose rejection table to read.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset"
       ],
       "type": "object"
     },

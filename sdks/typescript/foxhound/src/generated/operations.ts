@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated";
-import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, FailedRequests, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, FailedRequests, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
 
 /** The params and result of each of Foxhound's operations. */
 export interface FoxhoundOperationTypes {
@@ -16,6 +16,7 @@ export interface FoxhoundOperationTypes {
   "run.add_seeds": { params: RunAddSeedsParams; result: RunSeedsAdded };
   "run.failed_requests": { params: RunFailedRequestsParams; result: FailedRequests };
   "run.outcomes": { params: RunOutcomesParams; result: CrawlRequestOutcomes };
+  "run.rejected_records": { params: RunRejectedRecordsParams; result: RejectedRecords };
   "run.seeds": { params: RunSeedsParams; result: RunSeeds };
   "sample.crawl": { params: SampleCrawlParams; result: SampleCrawlResult };
 }
@@ -74,7 +75,7 @@ export class FoxhoundOperations {
   }
 
   /**
-   * Pushes one Record into a Dataset the crawl declares from inside a handler's attempt, a handler context's `push`, and answers once it is staged: it commits once with the attempt's other outputs when the handler returns, and is discarded with them when the attempt ends any other way. The Record is checked first: a Dataset the crawl does not declare fails with `dataset_unknown`; a Record that is no JSON object, fails its Dataset's JSON Schema or lacks one of its key's fields fails with `record_invalid`, naming each issue's path, and is not staged, while the attempt keeps what it staged before. An attempt that already ended fails with `attempt_ended`.
+   * Pushes one Record into a Dataset the crawl declares from inside a handler's attempt, a handler context's `push`, and answers once it is staged: it commits once with the attempt's other outputs when the handler returns, and is discarded with them when the attempt ends any other way. The Record is checked first: a Dataset the crawl does not declare fails with `dataset_unknown`; a Record that is no JSON object, fails its Dataset's JSON Schema or lacks one of its key's fields fails with `record_invalid`, naming each issue's path, and is not staged: its rejection is staged instead, entering the Dataset's rejection table (`run.rejected_records`) if the attempt commits, while the attempt keeps what it staged before. An attempt that already ended fails with `attempt_ended`.
    *
    * @experimental
    */
@@ -116,6 +117,15 @@ export class FoxhoundOperations {
    */
   runOutcomes(params: RunOutcomesParams, options: CallOptions = {}): Promise<CrawlRequestOutcomes> {
     return this.#caller.call("run.outcomes", params, options);
+  }
+
+  /**
+   * Reads one Dataset's rejection table from a crawl's committed state: each Record rejected rather than committed, numbered from 1 in commit order, with the Record as JSON, the reason, each issue's path, the Hook when one rejected it, and the request's ID and URL. It starts at the first entry, or after `after`, the number a reader last handled. While the Run is live and nothing follows, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and no entry follows. A reader never slows the Run. A Dataset the crawl does not declare fails with `dataset_unknown`.
+   *
+   * @experimental
+   */
+  runRejectedRecords(params: RunRejectedRecordsParams, options: CallOptions = {}): Promise<RejectedRecords> {
+    return this.#caller.call("run.rejected_records", params, options);
   }
 
   /**

@@ -206,6 +206,7 @@ fn outcomes(engine: &mut Attached, run_id: &str) -> Vec<Value> {
 /// object), `dataset_unknown` names the Datasets the crawl declares. The
 /// attempt keeps what it pushed before, so only the two valid Records
 /// commit, each Dataset numbering from 1; the outcome counts them per
+/// Dataset, with the rejections of the refused Records of a declared
 /// Dataset, and a request that pushed nothing says so.
 ///
 /// Covers: story:6-267, story:6-268, story:6-269, operation:crawl_request.push, error:record_invalid, error:dataset_unknown, operation:run.outcomes
@@ -285,8 +286,8 @@ fn a_pushed_record_is_checked_against_its_dataset_and_only_one_that_holds_is_sta
                 json!({
                     "request": "1", "kind": "succeeded", "nothing_committed": null, "error": null,
                     "records": [
-                        { "dataset": "books", "committed": 1, "dropped": 0, "rejected": 0 },
-                        { "dataset": "notes", "committed": 1, "dropped": 0, "rejected": 0 },
+                        { "dataset": "books", "committed": 1, "dropped": 0, "rejected": 1 },
+                        { "dataset": "notes", "committed": 1, "dropped": 0, "rejected": 2 },
                     ],
                 }),
                 json!({

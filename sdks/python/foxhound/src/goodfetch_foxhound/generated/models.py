@@ -507,6 +507,66 @@ class OutcomesAfter(RootModel[OutcomesAfter1 | Now]):
     """Where `run.outcomes` starts: after a position, or from the next commit."""
 
 
+class RecordIssue(BaseModel):
+    """One way a Record does not hold for its Dataset."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    message: str
+    """What is wrong there."""
+    path: str
+    """Where in the Record, a JSON Pointer: empty for the Record itself."""
+
+
+class RejectedRecord(BaseModel):
+    """One entry of a Dataset's rejection table."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: Any
+    """
+    The Record as JSON, as it was pushed, never parsed by the schema it
+    failed.
+    """
+    hook: str | None = None
+    """The Hook that rejected it; absent when the engine's own check did."""
+    issues: list[RecordIssue]
+    """
+    Each issue the check found, by its path, a JSON Pointer into the
+    Record; empty when a Hook rejected it with none.
+    """
+    number: Annotated[int, Field(ge=0)]
+    """
+    Its place in the Dataset's rejection table, from 1, in commit
+    order with no gaps, which `run.rejected_records`'s `after` takes.
+    """
+    reason: str
+    """Why it was rejected."""
+    request_id: str
+    """The ID of the crawl request whose attempt pushed it."""
+    url: str
+    """That request's URL."""
+
+
+class RejectedRecords(BaseModel):
+    """One page of `run.rejected_records`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ended: bool
+    """
+    Whether the table is read to its end: the Run has ended, or has no
+    live writer, and no entry follows `next`.
+    """
+    next: Annotated[int, Field(ge=0)]
+    """The number the next page starts after."""
+    records: list[RejectedRecord]
+    """The entries after `after`, in number order."""
+
+
 class RequestCounts(BaseModel):
     """How a crawl's requests ended (ADR 0079)."""
 
@@ -613,6 +673,24 @@ class RunOutcomesParams(BaseModel):
     """Only outcomes of these kinds; absent, every kind."""
     labels: list[str] | None = None
     """Only outcomes of requests of these Labels; absent, every Label."""
+    run_id: RunId
+    """The crawl's Run."""
+
+
+class RunRejectedRecordsParams(BaseModel):
+    """What `run.rejected_records` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    after: Annotated[int | None, Field(ge=0)] = None
+    """
+    The number of the last entry a reader handled; absent, from the
+    first.
+    """
+    dataset: str
+    """The Dataset whose rejection table to read."""
     run_id: RunId
     """The crawl's Run."""
 

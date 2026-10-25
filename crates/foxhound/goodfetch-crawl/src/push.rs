@@ -3,11 +3,13 @@
 //! it with its attempt while the attempt's lease holds; it commits once
 //! with the attempt or is discarded with it. A Record that does not hold
 //! is refused with `dataset_unknown` or `record_invalid` and not staged,
-//! the attempt keeping what it staged before; an attempt that ended
+//! the attempt keeping what it staged before; a `record_invalid` Record's
+//! rejection is staged in its place, so it enters its Dataset's rejection
+//! table if the attempt commits; an attempt that ended
 //! refuses it with `attempt_ended`, and a declared Effect's body with
 //! `effect_staging_refused`.
 
-use goodfetch_dataset::Datasets;
+use goodfetch_dataset::{Datasets, Refused};
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, PushedRecord};
 use goodfetch_protocol::foxhound::dataset::{
@@ -55,12 +57,12 @@ async fn push(
             if !staging.holds(&work_item, lease_epoch) {
                 return Ok(None);
             }
-            let checked =
-                match Datasets::read(connection)?.check(vec![PushedRecord { dataset, data }]) {
-                    Ok(checked) => checked,
-                    Err(refused) => return Ok(Some(Err(refused))),
-                };
-            Ok(staging.push(&work_item, lease_epoch, checked))
+            match Datasets::read(connection)?.check_pushed(PushedRecord { dataset, data }) {
+                Ok(checked) => Ok(staging.push(&work_item, lease_epoch, checked)),
+                Err(Refused { error, rejected }) => Ok(staging
+                    .push(&work_item, lease_epoch, rejected)
+                    .map(|staged| staged.and(Err(error)))),
+            }
         })
         .await;
     match answered {

@@ -1235,6 +1235,84 @@ export interface OutcomeRequest1 {
   url: string;
 }
 /**
+ * One way a Record does not hold for its Dataset.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RecordIssue".
+ */
+export interface RecordIssue {
+  /**
+   * What is wrong there.
+   */
+  message: string;
+  /**
+   * Where in the Record, a JSON Pointer: empty for the Record itself.
+   */
+  path: string;
+}
+/**
+ * One entry of a Dataset's rejection table.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RejectedRecord".
+ */
+export interface RejectedRecord {
+  /**
+   * The Record as JSON, as it was pushed, never parsed by the schema it
+   * failed.
+   */
+  data: {
+    [k: string]: unknown;
+  };
+  /**
+   * The Hook that rejected it; absent when the engine's own check did.
+   */
+  hook?: string | null;
+  /**
+   * Each issue the check found, by its path, a JSON Pointer into the
+   * Record; empty when a Hook rejected it with none.
+   */
+  issues: RecordIssue[];
+  /**
+   * Its place in the Dataset's rejection table, from 1, in commit
+   * order with no gaps, which `run.rejected_records`'s `after` takes.
+   */
+  number: number;
+  /**
+   * Why it was rejected.
+   */
+  reason: string;
+  /**
+   * The ID of the crawl request whose attempt pushed it.
+   */
+  request_id: string;
+  /**
+   * That request's URL.
+   */
+  url: string;
+}
+/**
+ * One page of `run.rejected_records`.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RejectedRecords".
+ */
+export interface RejectedRecords {
+  /**
+   * Whether the table is read to its end: the Run has ended, or has no
+   * live writer, and no entry follows `next`.
+   */
+  ended: boolean;
+  /**
+   * The number the next page starts after.
+   */
+  next: number;
+  /**
+   * The entries after `after`, in number order.
+   */
+  records: RejectedRecord[];
+}
+/**
  * One request a crawl starts from (ADR 0093): a URL, the Label that picks
  * its handler and its Payload, and how it is sent and identified.
  *
@@ -1372,6 +1450,27 @@ export interface RunOutcomesParams {
    * Only outcomes of requests of these Labels; absent, every Label.
    */
   labels?: string[] | null;
+  /**
+   * The crawl's Run.
+   */
+  run_id: RunId;
+}
+/**
+ * What `run.rejected_records` takes.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RunRejectedRecordsParams".
+ */
+export interface RunRejectedRecordsParams {
+  /**
+   * The number of the last entry a reader handled; absent, from the
+   * first.
+   */
+  after?: number | null;
+  /**
+   * The Dataset whose rejection table to read.
+   */
+  dataset: string;
   /**
    * The crawl's Run.
    */

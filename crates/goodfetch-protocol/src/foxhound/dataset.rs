@@ -67,7 +67,7 @@ pub struct CrawlRequestPushed {}
 /// `crawl_request.push`.
 pub const CRAWL_REQUEST_PUSH: Operation = Operation {
     name: "crawl_request.push",
-    description: "Pushes one Record into a Dataset the crawl declares from inside a handler's attempt, a handler context's `push`, and answers once it is staged: it commits once with the attempt's other outputs when the handler returns, and is discarded with them when the attempt ends any other way. The Record is checked first: a Dataset the crawl does not declare fails with `dataset_unknown`; a Record that is no JSON object, fails its Dataset's JSON Schema or lacks one of its key's fields fails with `record_invalid`, naming each issue's path, and is not staged, while the attempt keeps what it staged before. An attempt that already ended fails with `attempt_ended`.",
+    description: "Pushes one Record into a Dataset the crawl declares from inside a handler's attempt, a handler context's `push`, and answers once it is staged: it commits once with the attempt's other outputs when the handler returns, and is discarded with them when the attempt ends any other way. The Record is checked first: a Dataset the crawl does not declare fails with `dataset_unknown`; a Record that is no JSON object, fails its Dataset's JSON Schema or lacks one of its key's fields fails with `record_invalid`, naming each issue's path, and is not staged: its rejection is staged instead, entering the Dataset's rejection table (`run.rejected_records`) if the attempt commits, while the attempt keeps what it staged before. An attempt that already ended fails with `attempt_ended`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::SdkOnly,

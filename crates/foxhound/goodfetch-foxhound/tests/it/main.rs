@@ -35,6 +35,7 @@ mod path_budgets;
 mod payload;
 mod politeness;
 mod redundant_requests;
+mod rejections;
 mod robots_txt;
 mod scope;
 mod seeds;

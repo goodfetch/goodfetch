@@ -49,8 +49,8 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/foxhound/goodfetch-dataset/src/lib.rs",
-        2,
-        "holds no value: the Datasets a crawl declares (names, schemas, keys) and the Records its handlers pushed, the program's own data; masking Secret values in Records is #972's",
+        3,
+        "holds no value: the Datasets a crawl declares (names, schemas, keys), the Records its handlers pushed, and the rejection table's rejected Records with the check's reason and issues (paths into the Record and the schema's messages), the program's own data; masking Secret values in Records and rejected Records is #972's",
     ),
     (
         "crates/foxhound/goodfetch-frontier/src/bounds.rs",

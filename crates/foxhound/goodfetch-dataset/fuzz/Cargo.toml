@@ -1,0 +1,26 @@
+# goodfetch-dataset's cargo-fuzz targets (ADR 0067; TESTING.md, Fuzzing),
+# outside the workspace: each target's body is a plain function of the
+# Dataset crate, whose seeds and past crashers `fuzz_replay!` replays from
+# `fuzz/<target>/` on every OS. Build and run with the pinned nightly:
+# `cargo fuzz run rejection fuzz/rejection/seeds`.
+[package]
+name = "goodfetch-dataset-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+goodfetch-dataset = { path = ".." }
+libfuzzer-sys = "0.4.10"
+
+[[bin]]
+name = "rejection"
+path = "fuzz_targets/rejection.rs"
+test = false
+doc = false
+bench = false

@@ -189,7 +189,7 @@ impl Staging {
             .contains_key(&(work_item.to_owned(), lease_epoch))
     }
 
-    /// Stages `records`, which held for their Datasets, with the attempt of
+    /// Stages `records`, as their Datasets checked them, with the attempt of
     /// `work_item` under `lease_epoch`, after those it staged before:
     /// `None` once the attempt ended, or the refusal of a declared
     /// Effect's body.

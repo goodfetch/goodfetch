@@ -1,0 +1,1 @@
+{"reason":"A Record of the Dataset `books` does not hold, so it was not staged: at `/price`, \"cheap\" is not of type \"number\"","issues":[{"path":"/price","message":"\"cheap\" is not of type \"number\""}]}

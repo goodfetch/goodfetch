@@ -41,7 +41,7 @@ pub(crate) enum Case {
     CloseDelimitedBodyIsWhole,
     UnprocessedRequestIsResent,
     RedirectLoopCostsItsCountAndOne,
-    RedirectsSendFetchsMethods,
+    RedirectsSendTheFetchMethods,
     OtherRedirectsAreNotOk,
     HopsGoThroughTheGate,
     HopsGoThroughTheFrontier,
@@ -68,8 +68,8 @@ impl Case {
             "a-redirect-loop-fails-with-too-many-redirects-at-a-cost-of-fetch-redirect-max-and-one-requests" => {
                 Some(Self::RedirectLoopCostsItsCountAndOne)
             }
-            "each-redirect-status-sends-its-next-hop-with-fetchs-method-and-body" => {
-                Some(Self::RedirectsSendFetchsMethods)
+            "each-redirect-status-sends-its-next-hop-with-the-method-and-body-fetch-specifies" => {
+                Some(Self::RedirectsSendTheFetchMethods)
             }
             "a-3xx-fetch-does-not-follow-fails-with-response-not-ok-unless-crawl-handle-statuses-lists-it" => {
                 Some(Self::OtherRedirectsAreNotOk)
@@ -103,7 +103,7 @@ impl Case {
             Self::CloseDelimitedBodyIsWhole => edge::close_delimited(connection, site, checks),
             Self::UnprocessedRequestIsResent => edge::resent(connection, site, checks),
             Self::RedirectLoopCostsItsCountAndOne => chain::redirect_loop(connection, site, checks),
-            Self::RedirectsSendFetchsMethods => chain::redirect_methods(connection, site, checks),
+            Self::RedirectsSendTheFetchMethods => chain::redirect_methods(connection, site, checks),
             Self::OtherRedirectsAreNotOk => chain::not_followed(connection, site, checks),
             Self::HopsGoThroughTheGate => chain::gated_hops(connection, site, checks),
             Self::HopsGoThroughTheFrontier => chain::frontier_hops(connection, site, checks),

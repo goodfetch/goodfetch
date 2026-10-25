@@ -82,6 +82,7 @@ scale = []
 scope = []
 sitemaps = []
 statuses = []
+tiers = []
 traps = []
 
 [submodules.model]

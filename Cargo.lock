@@ -1895,6 +1895,7 @@ dependencies = [
  "proptest-state-machine",
  "rstest",
  "rusqlite",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",

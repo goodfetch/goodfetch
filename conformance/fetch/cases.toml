@@ -11,7 +11,7 @@ product = "foxhound"
 
 [suite]
 name = "fetch"
-version = "3"
+version = "4"
 
 [[capability]]
 name = "fetch.tier.http"
@@ -43,7 +43,7 @@ id = "a-redirect-loop-fails-with-too-many-redirects-at-a-cost-of-fetch-redirect-
 covers = ["story:5-124", "setting:fetch.redirect.max", "error:too_many_redirects"]
 
 [[capability.case]]
-id = "each-redirect-status-sends-its-next-hop-with-fetchs-method-and-body"
+id = "each-redirect-status-sends-its-next-hop-with-the-method-and-body-fetch-specifies"
 covers = ["story:5-124"]
 
 [[capability.case]]

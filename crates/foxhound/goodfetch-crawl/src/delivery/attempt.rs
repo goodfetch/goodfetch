@@ -40,10 +40,6 @@
 //! 0093). A handler that lets a `site_preferences_refused` its own
 //! navigation raised escape ends its request `skipped` with that
 //! refusal's reason, not `failed` (ADR 0093).
-//!
-//! Size: one attempt of a crawl request, on each tier it may run on (the
-//! request alone, `http`, a sample on both, `browser`) and the escalation
-//! between them, which share the attempt's lease, gate and answer.
 
 use std::sync::Arc;
 

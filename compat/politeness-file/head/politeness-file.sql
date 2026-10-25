@@ -1,5 +1,11 @@
 PRAGMA foreign_keys=OFF;
 BEGIN TRANSACTION;
+CREATE TABLE crawl_delays (
+            key TEXT NOT NULL,
+            location TEXT NOT NULL,
+            delay INTEGER NOT NULL,
+            PRIMARY KEY (key, location)
+        ) STRICT;
 CREATE TABLE domain_limits (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,

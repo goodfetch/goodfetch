@@ -24,7 +24,7 @@ use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use goodfetch_protocol::catalog::Metric;
 use goodfetch_protocol::entries::MODULES;
@@ -261,8 +261,9 @@ fn metrics_answer_the_ops_token_with_the_runtimes_metrics_under_bounded_labels()
     );
 }
 
-/// A collector stand-in on loopback: it answers every OTLP/HTTP request
-/// with 200 and hands each one's path and body to the test.
+/// A collector stand-in on loopback: it hands each OTLP/HTTP request's
+/// path and body to the test, then answers it with 200, so an export the
+/// Daemon saw answered is already the test's.
 fn collector() -> (SocketAddr, mpsc::Receiver<(String, Vec<u8>)>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -293,20 +294,77 @@ fn collector() -> (SocketAddr, mpsc::Receiver<(String, Vec<u8>)>) {
             }
             let mut body = vec![0; length];
             reader.read_exact(&mut body).unwrap();
-            stream
-                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
-                .unwrap();
             if sent.send((path, body)).is_err() {
                 return;
             }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+                .unwrap();
         }
     });
     (address, received)
 }
 
+/// The metrics a Collie Daemon has a series of once a Client ran a Run and
+/// the Resource governor sampled the machine and the filesystems of the
+/// Daemon's own folders (ADRs 0050 and 0122): `goodfetch.browser.running`
+/// has none, since no browser ran, and [`INODES`] joins them only where the
+/// filesystem reports its inodes.
+const SAMPLED: [&str; 9] = [
+    "goodfetch.client.connected",
+    "goodfetch.daemon.draining",
+    "goodfetch.governor.pressure_source",
+    "goodfetch.governor.saturation",
+    "goodfetch.governor.target",
+    "goodfetch.run.active",
+    "goodfetch.run.ended",
+    "goodfetch.storage.available",
+    "goodfetch.storage.level",
+];
+
+/// The inodes' metric, which only a filesystem that reports its inodes
+/// gives a series.
+const INODES: &str = "goodfetch.storage.inodes.available";
+
+/// How long a test waits for the governor's samples to reach the metrics;
+/// a failure, never a measure.
+const SAMPLE_DEADLINE: Duration = Duration::from_secs(30);
+
+/// The protocol's name of each metric `/metrics` at `address` serves a
+/// series of.
+fn scraped(address: SocketAddr, token: &str) -> BTreeSet<&'static str> {
+    let (_, text) = get(address, "/metrics", Some(token));
+    series(&text)
+        .iter()
+        .filter_map(|(name, _, _)| declared(name))
+        .map(|metric| metric.name)
+        .collect()
+}
+
+/// What [`scraped`] reads once it holds each of [`SAMPLED`]: the
+/// governor samples on its own clock, and its first sample may come
+/// before the Daemon's folders are held, so their filesystems' series wait
+/// for a later one. Fails the test past [`SAMPLE_DEADLINE`] with the last
+/// read.
+fn sampled(address: SocketAddr, token: &str) -> BTreeSet<&'static str> {
+    let deadline = Instant::now() + SAMPLE_DEADLINE;
+    loop {
+        let read = scraped(address, token);
+        if SAMPLED.iter().all(|name| read.contains(name)) {
+            return read;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the metrics never held each sampled metric: {read:?}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// With `otlp.metrics_endpoint` set, the foreground Daemon exports its
 /// metrics there over OTLP/HTTP in protobuf, once more as it exits on
-/// `SIGTERM`.
+/// `SIGTERM`: its last export holds every metric it had a series of. Its
+/// ops listener tells the test when the governor's samples reached them.
 ///
 /// Covers: story:3-103, setting:otlp.metrics_endpoint
 #[test]
@@ -314,18 +372,27 @@ fn with_otlp_metrics_endpoint_set_the_collector_receives_the_runtimes_metrics() 
     let env = TestEnv::new();
     let (collector, exports) = collector();
     env.user_configuration(&format!(
-        "daemon.address = \"{ANY_PORT}\"\notlp.metrics_endpoint = \"http://{collector}/v1/metrics\"\n"
+        "daemon.address = \"{ANY_PORT}\"\nops.address = \"127.0.0.1:0\"\notlp.metrics_endpoint = \"http://{collector}/v1/metrics\"\n"
     ));
     let mut daemon = Foreground::start(&env, COLLIE, &[]);
+    let ops: SocketAddr = daemon.record("the ops listener serves")["address"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     let endpoint = daemon.serving();
     let mut client = opened(&env, &endpoint);
     client.call(1, "run.start", &json!({ "run_id": "exported" }));
     client.call(2, "run.finish", &json!({ "run_id": "exported" }));
     drop(client);
+    let sampled = sampled(ops, &ops_token(&env));
 
     let exited = daemon.terminate();
 
-    let (path, body) = exports.recv_timeout(EXPORT_DEADLINE).unwrap();
+    let (path, body) = std::iter::once(exports.recv_timeout(EXPORT_DEADLINE).unwrap())
+        .chain(exports.try_iter())
+        .last()
+        .unwrap();
     let request = ExportMetricsServiceRequest::decode(body.as_slice()).unwrap();
     let names: BTreeSet<String> = request
         .resource_metrics
@@ -334,21 +401,14 @@ fn with_otlp_metrics_endpoint_set_the_collector_receives_the_runtimes_metrics() 
         .flat_map(|scope| &scope.metrics)
         .map(|metric| metric.name.clone())
         .collect();
+    let expected: BTreeSet<String> = SAMPLED
+        .into_iter()
+        .chain(sampled.contains(INODES).then_some(INODES))
+        .map(str::to_owned)
+        .collect();
     assert_eq!(
         (exited, path, names),
-        (
-            true,
-            "/v1/metrics".to_owned(),
-            BTreeSet::from([
-                "goodfetch.client.connected".to_owned(),
-                "goodfetch.daemon.draining".to_owned(),
-                "goodfetch.governor.pressure_source".to_owned(),
-                "goodfetch.governor.saturation".to_owned(),
-                "goodfetch.governor.target".to_owned(),
-                "goodfetch.run.active".to_owned(),
-                "goodfetch.run.ended".to_owned(),
-            ])
-        )
+        (true, "/v1/metrics".to_owned(), expected)
     );
 }
 

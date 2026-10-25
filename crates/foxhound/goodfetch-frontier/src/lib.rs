@@ -49,10 +49,14 @@ pub use rules::{
     TABLES as RULES_TABLES, completeness_reasons as learned_completeness_reasons, learned_rules,
 };
 pub use scope::{Narrowing, Patterns, Scope, Strategy as ScopeStrategy, TABLES as SCOPE_TABLES};
-pub use url::document_base;
+pub use url::{document_base, resolve_link};
 
 /// A URL as the WHATWG URL Standard parsed it.
 pub use ::url::Url;
+
+/// A document's encoding, as the WHATWG Encoding Standard names it, in
+/// which its links' queries are percent-encoded (ADR 0120).
+pub use ::encoding_rs::Encoding;
 
 /// What Foxhound's Frontier adds to the engine: `run.seeds`, its per-domain
 /// queues as the gate in admission, with its per-domain Politeness as the

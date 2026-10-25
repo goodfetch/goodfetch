@@ -2,13 +2,15 @@
 
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated";
-import type { CrawlRequestEnqueueParams, CrawlRequestOutcomes, CrawlRunReport, CrawlStartParams, Enqueued, FailedRequests, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, FailedRequests, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
 
 /** The params and result of each of Foxhound's operations. */
 export interface FoxhoundOperationTypes {
   "crawl.serve": { params: RunParams; result: CrawlRunReport };
   "crawl.start": { params: CrawlStartParams; result: RunStarted };
   "crawl_request.enqueue": { params: CrawlRequestEnqueueParams; result: Enqueued };
+  "crawl_request.enqueue_links": { params: CrawlRequestEnqueueLinksParams; result: EnqueuedLinks };
+  "crawl_request.links": { params: CrawlRequestLinksParams; result: CrawlRequestLinks };
   "run.add_seed": { params: RunAddSeedParams; result: Enqueued };
   "run.add_seeds": { params: RunAddSeedsParams; result: RunSeedsAdded };
   "run.failed_requests": { params: RunFailedRequestsParams; result: FailedRequests };
@@ -50,6 +52,24 @@ export class FoxhoundOperations {
    */
   crawlRequestEnqueue(params: CrawlRequestEnqueueParams): Promise<Enqueued> {
     return this.#caller.call("crawl_request.enqueue", params, {});
+  }
+
+  /**
+   * Adds every link a locator matches on the page a handler's attempt was given, a handler context's `enqueueLinks`, each a `GET` of its `href` resolved against the document's base URL (its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself), its query percent-encoded in the document's encoding as a browser encodes it, and answers each matched element in document order: added, with its crawl request's ID and URL; not added, with its reason, as `crawl_request.enqueue` answers; `no_link` for an element without an `href`; or `skipped_by_payload` for one whose entry in `payloads` is `null`. Every link takes `payload`, or its own entry of `payloads`, the program's Payload function's answers for the elements `crawl_request.links` read; a Payload that does not fit its Label fails the call with `payload_invalid` and adds none. `include` and `exclude` only narrow the crawl's scope; a pattern the engine cannot match fails with `pattern_unsupported`. A page no fetch tier serves fails with `closed`, and an attempt whose lease no longer holds with `attempt_ended`.
+   *
+   * @experimental
+   */
+  crawlRequestEnqueueLinks(params: CrawlRequestEnqueueLinksParams): Promise<EnqueuedLinks> {
+    return this.#caller.call("crawl_request.enqueue_links", params, {});
+  }
+
+  /**
+   * Reads each element a locator matches on the page a handler's attempt was given, in document order, as a handler context's `enqueueLinks` gives them to its Payload function: its `href` as written, its URL (the `href` resolved against the document's base URL, its query percent-encoded in the document's encoding, as a browser encodes it), its text and its attributes. A page no fetch tier serves fails with `closed`, a selector that is no CSS selector with `invalid_params`, and an attempt whose lease no longer holds with `attempt_ended`.
+   *
+   * @experimental
+   */
+  crawlRequestLinks(params: CrawlRequestLinksParams): Promise<CrawlRequestLinks> {
+    return this.#caller.call("crawl_request.links", params, {});
   }
 
   /**

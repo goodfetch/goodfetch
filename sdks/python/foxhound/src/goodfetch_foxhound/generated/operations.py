@@ -10,7 +10,7 @@ from typing import Any, cast
 from goodfetch_collie_client.generated.operations import AsyncCaller, Caller
 
 from goodfetch_collie_client.generated.models import RunParams, RunStarted
-from .models import CrawlRequestEnqueueParams, CrawlRequestOutcomes, CrawlRunReport, CrawlStartParams, Enqueued, FailedRequests, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
+from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, FailedRequests, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
 
 
 def _fields(result: object) -> dict[str, Any]:
@@ -45,6 +45,20 @@ class AsyncFoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return Enqueued.model_construct(**_fields(await self._caller.call("crawl_request.enqueue", params)))
+
+    async def crawl_request_enqueue_links(self, params: CrawlRequestEnqueueLinksParams) -> EnqueuedLinks:
+        """Adds every link a locator matches on the page a handler's attempt was given, a handler context's `enqueueLinks`, each a `GET` of its `href` resolved against the document's base URL (its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself), its query percent-encoded in the document's encoding as a browser encodes it, and answers each matched element in document order: added, with its crawl request's ID and URL; not added, with its reason, as `crawl_request.enqueue` answers; `no_link` for an element without an `href`; or `skipped_by_payload` for one whose entry in `payloads` is `null`. Every link takes `payload`, or its own entry of `payloads`, the program's Payload function's answers for the elements `crawl_request.links` read; a Payload that does not fit its Label fails the call with `payload_invalid` and adds none. `include` and `exclude` only narrow the crawl's scope; a pattern the engine cannot match fails with `pattern_unsupported`. A page no fetch tier serves fails with `closed`, and an attempt whose lease no longer holds with `attempt_ended`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return EnqueuedLinks.model_construct(**_fields(await self._caller.call("crawl_request.enqueue_links", params)))
+
+    async def crawl_request_links(self, params: CrawlRequestLinksParams) -> CrawlRequestLinks:
+        """Reads each element a locator matches on the page a handler's attempt was given, in document order, as a handler context's `enqueueLinks` gives them to its Payload function: its `href` as written, its URL (the `href` resolved against the document's base URL, its query percent-encoded in the document's encoding, as a browser encodes it), its text and its attributes. A page no fetch tier serves fails with `closed`, a selector that is no CSS selector with `invalid_params`, and an attempt whose lease no longer holds with `attempt_ended`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return CrawlRequestLinks.model_construct(**_fields(await self._caller.call("crawl_request.links", params)))
 
     async def run_add_seed(self, params: RunAddSeedParams) -> Enqueued:
         """Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl fails with `run_not_found`.
@@ -113,6 +127,20 @@ class FoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return Enqueued.model_construct(**_fields(self._caller.call("crawl_request.enqueue", params)))
+
+    def crawl_request_enqueue_links(self, params: CrawlRequestEnqueueLinksParams) -> EnqueuedLinks:
+        """Adds every link a locator matches on the page a handler's attempt was given, a handler context's `enqueueLinks`, each a `GET` of its `href` resolved against the document's base URL (its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself), its query percent-encoded in the document's encoding as a browser encodes it, and answers each matched element in document order: added, with its crawl request's ID and URL; not added, with its reason, as `crawl_request.enqueue` answers; `no_link` for an element without an `href`; or `skipped_by_payload` for one whose entry in `payloads` is `null`. Every link takes `payload`, or its own entry of `payloads`, the program's Payload function's answers for the elements `crawl_request.links` read; a Payload that does not fit its Label fails the call with `payload_invalid` and adds none. `include` and `exclude` only narrow the crawl's scope; a pattern the engine cannot match fails with `pattern_unsupported`. A page no fetch tier serves fails with `closed`, and an attempt whose lease no longer holds with `attempt_ended`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return EnqueuedLinks.model_construct(**_fields(self._caller.call("crawl_request.enqueue_links", params)))
+
+    def crawl_request_links(self, params: CrawlRequestLinksParams) -> CrawlRequestLinks:
+        """Reads each element a locator matches on the page a handler's attempt was given, in document order, as a handler context's `enqueueLinks` gives them to its Payload function: its `href` as written, its URL (the `href` resolved against the document's base URL, its query percent-encoded in the document's encoding, as a browser encodes it), its text and its attributes. A page no fetch tier serves fails with `closed`, a selector that is no CSS selector with `invalid_params`, and an attempt whose lease no longer holds with `attempt_ended`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return CrawlRequestLinks.model_construct(**_fields(self._caller.call("crawl_request.links", params)))
 
     def run_add_seed(self, params: RunAddSeedParams) -> Enqueued:
         """Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl fails with `run_not_found`.

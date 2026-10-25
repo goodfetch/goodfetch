@@ -46,6 +46,9 @@ httpdate.workspace = true
 # Period Limits count in an explicit IANA time zone (ADR 0041), read from the
 # system database, or a bundled one where the OS has none.
 jiff = { workspace = true, features = ["tzdb-zoneinfo", "tzdb-bundle-platform"] }
+# The addresses of `egress.local_addresses`' interface at each Session's
+# start, on every OS (ADR 0044).
+netdev.workspace = true
 # The runtime's metrics, through OpenTelemetry's API: the meter is a value
 # the executable gives the engine, a no-op one otherwise (ADR 0050). The
 # Trace context each request carries, the request spans' parents and links,

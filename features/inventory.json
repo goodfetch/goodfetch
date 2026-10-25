@@ -900,6 +900,17 @@
       ]
     },
     {
+      "id": "error:browser_sandbox_unavailable",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:call_cancelled",
       "kind": "error",
       "area": 3,

@@ -15,6 +15,8 @@
 //! listener, and the SSRF case table with IANA's special-purpose registries,
 //! its runner and the Scripted resolver, the hostile-input case tables,
 //! `NoExec`, which starts a child that may start no other program on Linux,
+//! the hosts that refuse Chromium's sandbox its user namespace
+//! (`under_default_seccomp`, `under_apparmor_restriction`),
 //! `DnsNamespace`, which starts a child on Linux whose resolver is the
 //! Proving ground's DNS fixture,
 //! and the Secret canaries, planted and searched for in every encoding
@@ -82,6 +84,11 @@ mod tools;
 mod trace;
 mod transition_tables;
 mod unicode;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod user_namespaces;
 mod variables;
 
 pub use browsers::{
@@ -181,6 +188,13 @@ pub use tools::{Product, Tool, Tools, ToolsError, tools};
 pub use trace::{subscriber, subscriber_writing_to};
 pub use transition_tables::refused_matches;
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub use user_namespaces::{
+    apparmor_restricts_user_namespaces, under_apparmor_restriction, under_default_seccomp,
+};
 pub use variables::{
     DNS_NAMESPACE_VARIABLE, ENGINE_VARIABLE, LAZYFS_VARIABLE, MAX_SEED, RECORDS_VARIABLE,
     RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite, SuiteError,

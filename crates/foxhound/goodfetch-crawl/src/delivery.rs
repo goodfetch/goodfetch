@@ -87,7 +87,7 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::completeness;
-use crate::lease::{CommitError, Leases};
+use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::serving::{Crawls, Opened, Server};
@@ -917,8 +917,6 @@ async fn settle(
         answer,
         ..
     } = attempt;
-    let id = leased.crawl_request.id.clone();
-    let epoch = leased.lease_epoch;
     let failure =
         |failure, retryable| retried_or_failed(policy, leased.attempt, failure, retryable);
     let unsuccessful = match answer {
@@ -968,19 +966,7 @@ async fn settle(
             details,
         } => {
             let held = held_past_bound(&details, run.clock().wall(), longest_wait).is_some();
-            // The handler's error is kept in run state: no value the Run
-            // resolved stays in it (spec #564).
-            let masks = run.secrets().mask().masks();
-            let mut kept = Value::Object(details);
-            masks.apply_value(&mut kept, Scope::Kept);
-            let Value::Object(details) = kept else {
-                unreachable!("invariant: masking an object leaves an object")
-            };
-            let failed = Failure {
-                code,
-                message: masks.apply(&message, Scope::Kept).into_owned(),
-                details,
-            };
+            let failed = kept_failure(run, code, &message, details);
             match block_cause(&failed.code, &failed.details) {
                 Some(cause) => Unsuccessful::Blocked(cause),
                 None if held => Unsuccessful::Failed(failed.with_fix(RETRY_AFTER_FIX)),
@@ -988,6 +974,36 @@ async fn settle(
             }
         }
     };
+    end_unsuccessful(run, &lease, &leased, unsuccessful).await
+}
+
+/// A handler's failure as the Run's state keeps it: no value the Run
+/// resolved stays in its message or details (spec #564).
+fn kept_failure(run: &Run, code: String, message: &str, details: Map<String, Value>) -> Failure {
+    let masks = run.secrets().mask().masks();
+    let mut kept = Value::Object(details);
+    masks.apply_value(&mut kept, Scope::Kept);
+    let Value::Object(details) = kept else {
+        unreachable!("invariant: masking an object leaves an object")
+    };
+    Failure {
+        code,
+        message: masks.apply(message, Scope::Kept).into_owned(),
+        details,
+    }
+}
+
+/// Ends `leased`'s work item `unsuccessful` while its lease holds,
+/// counting its failure's code in the Run's outcomes, then releases
+/// `lease`. Answers whether the work item waits again for a retry.
+async fn end_unsuccessful(
+    run: &Run,
+    lease: &WorkItemLease,
+    leased: &Leased,
+    unsuccessful: Unsuccessful,
+) -> bool {
+    let id = leased.crawl_request.id.clone();
+    let epoch = leased.lease_epoch;
     let retried = matches!(unsuccessful, Unsuccessful::Retried(_));
     let recorded = match &unsuccessful {
         Unsuccessful::Retried(failure) | Unsuccessful::Failed(failure) => {

@@ -135,12 +135,23 @@ fn books(schema: &Value) -> Value {
     })
 }
 
+/// A handler that records each request's ID in `handled` and leaves it
+/// unanswered.
+fn holding(handled: &mut Vec<Value>) -> impl FnMut(&Value) -> Option<Value> + '_ {
+    |params| {
+        handled.push(params["crawl_request"]["id"].clone());
+        None
+    }
+}
+
 /// A start under the ID of a Run, ADR 0102's resume, after the Label
 /// `book`'s Payload schema gained a required field its three pending
 /// Payloads lack is refused before any work, and one whose new schema
 /// they fit goes on with the Run: the run file kept each Label's schema
 /// hash. The first book's attempt is left unanswered meanwhile, so all
-/// three are pending, one of them leased.
+/// three are pending, one of them leased: the engine may send that
+/// attempt after `crawl.start` replies, so the later starts wait for its
+/// `crawl_request.handle` (ADR 0064).
 ///
 /// Covers: story:6-223, error:payload_schema_changed, operation:crawl.start
 #[test]
@@ -149,25 +160,44 @@ fn a_start_under_its_run_id_after_a_payload_schema_changed_is_refused_when_a_pen
     let env = TestEnv::new();
     let mut engine = Attached::start(&env);
     let mut handled = Vec::new();
-    let mut hold = |params: &Value| {
-        handled.push(params["crawl_request"]["id"].clone());
-        None
-    };
 
-    let started = engine.call("start", "crawl.start", &books(&book_schema()), &mut hold);
+    let started = engine.call(
+        "start",
+        "crawl.start",
+        &books(&book_schema()),
+        &mut holding(&mut handled),
+    );
+    while handled.is_empty() {
+        let message = engine
+            .next()
+            .expect("the engine sends the first book's attempt");
+        if message["method"] == "crawl_request.handle" {
+            handled.push(message["params"]["crawl_request"]["id"].clone());
+        }
+    }
     let mut titled = book_schema();
     titled["properties"]["title"] = json!({ "type": "string" });
     let mut required = titled.clone();
     required["required"] = json!(["isbn", "title"]);
-    let refused = engine.call("again", "crawl.start", &books(&required), &mut hold);
+    let refused = engine.call(
+        "again",
+        "crawl.start",
+        &books(&required),
+        &mut holding(&mut handled),
+    );
     let mut more = books(&titled);
     more["labels"]["author"] = json!({ "payload": { "type": "object" } });
-    let compatible = engine.call("compatible", "crawl.start", &more, &mut hold);
+    let compatible = engine.call(
+        "compatible",
+        "crawl.start",
+        &more,
+        &mut holding(&mut handled),
+    );
     engine.call(
         "abort",
         "run.abort",
         &json!({ "run_id": "changed" }),
-        &mut hold,
+        &mut holding(&mut handled),
     );
     assert!(engine.finish());
 

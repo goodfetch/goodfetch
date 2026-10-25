@@ -147,6 +147,9 @@ wreq-util = { version = "=0.2.0", default-features = false, features = ["emulati
 # at the versions `wreq` takes: BoringSSL's `btls`, `http2` (h2's) and
 # `wreq-proto` (hyper's).
 btls = { version = "=0.5.6", default-features = false }
+# Collie's TLS relay's async streams over `btls` (ADR 0124), at the same
+# version, for its terminating mode.
+tokio-btls = { version = "=0.5.6", default-features = false }
 http2 = { version = "=0.5.20", default-features = false }
 wreq-proto = { version = "=0.2.6", default-features = false }
 # Mozilla's root certificates whole, which BoringSSL's certificate store

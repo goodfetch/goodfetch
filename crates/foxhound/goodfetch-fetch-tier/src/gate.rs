@@ -123,6 +123,35 @@ pub struct HandOver {
     pub page_check: Option<PageCheck>,
 }
 
+impl HandOver {
+    /// Records `hop`'s send as the last start of its domain key for every
+    /// run sharing it (ADR 0086), when the Run's Politeness opened.
+    pub(crate) async fn sending(&self, hop: &Hop) {
+        let Some(politeness) = &self.politeness else {
+            return;
+        };
+        let run = &self.run;
+        let key = self.keys.key(hop.url.as_str());
+        if let Err(error) =
+            goodfetch_frontier::started_again(politeness, &key, run.clock().wall()).await
+        {
+            tracing::warn!(%error, run_id = %run.id(), "a request's start at its send was not recorded");
+        }
+    }
+
+    /// Records `hop`'s `latency` for its domain key, for every run sharing
+    /// it, while the Run's adaptive delay is on.
+    pub(crate) async fn answered(&self, hop: &Hop, latency: Duration) {
+        let Some(politeness) = self.politeness.as_ref().filter(|_| self.adaptive_delay) else {
+            return;
+        };
+        let key = self.keys.key(hop.url.as_str());
+        if let Err(error) = goodfetch_frontier::latency_measured(politeness, &key, latency).await {
+            tracing::warn!(%error, run_id = %self.run.id(), "a response's latency was not recorded for its domain");
+        }
+    }
+}
+
 /// The navigation gate of the pages one attempt handed over.
 pub(crate) struct Gate(Arc<HandOver>);
 
@@ -579,40 +608,13 @@ impl HopGate for ChainGate {
     /// at the site than the delay (ADR 0086). It also moves the token the
     /// admission took from the domain's rate to the send, when later.
     fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
-        Box::pin(async move {
-            let hand_over = &self.hand_over;
-            let Some(politeness) = &hand_over.politeness else {
-                return;
-            };
-            let run = &hand_over.run;
-            let key = hand_over.keys.key(hop.url.as_str());
-            if let Err(error) =
-                goodfetch_frontier::started_again(politeness, &key, run.clock().wall()).await
-            {
-                tracing::warn!(%error, run_id = %run.id(), "a request's start at its send was not recorded");
-            }
-        })
+        Box::pin(self.hand_over.sending(hop))
     }
 
     /// Records the hop's latency for its domain key, for every run sharing
     /// it, while the Run's adaptive delay is on (spec #582's Settings).
     fn answered<'a>(&'a self, hop: &'a Hop, latency: Duration) -> Gating<'a, ()> {
-        Box::pin(async move {
-            let hand_over = &self.hand_over;
-            let Some(politeness) = hand_over
-                .politeness
-                .as_ref()
-                .filter(|_| hand_over.adaptive_delay)
-            else {
-                return;
-            };
-            let key = hand_over.keys.key(hop.url.as_str());
-            if let Err(error) =
-                goodfetch_frontier::latency_measured(politeness, &key, latency).await
-            {
-                tracing::warn!(%error, run_id = %hand_over.run.id(), "a response's latency was not recorded for its domain");
-            }
-        })
+        Box::pin(self.hand_over.answered(hop, latency))
     }
 
     fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {

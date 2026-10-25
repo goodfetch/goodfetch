@@ -9,6 +9,8 @@ duckdb = { path = "../duckdb" }
 goodfetch-test-support = { path = "../goodfetch-test-support" }
 goodfetch-frontier = { path = "../goodfetch-frontier" }
 goodfetch-engine = { path = "../goodfetch-engine" }
+goodfetch-page = { path = "../goodfetch-page" }
+wreq = { path = "../wreq" }
 
 [dev-dependencies]
 goodfetch-simulation = { path = "../goodfetch-simulation" }

@@ -5,7 +5,9 @@
 //! lists.
 //!
 //! The proxies are `open`, `refusing_tunnels` (it refuses `CONNECT`),
-//! `limited` (one request at a time, `429` to any other meanwhile),
+//! `limited` (one page request at a time, until it read the site's
+//! answer, `429` to any other meanwhile; a robots.txt or an icon goes
+//! uncounted),
 //! `down` (an address where nothing listens, which no other program can
 //! take), `socks5` (a SOCKS5 proxy
 //! behind the authenticated proxies' credentials), and one authenticated

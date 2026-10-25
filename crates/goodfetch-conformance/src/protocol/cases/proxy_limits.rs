@@ -4,6 +4,10 @@
 //! at a time and answers any other `429` with `Proxy-Status`, as a vendor's
 //! plan does, and on its quiet page, which gives a browser nothing to load
 //! after its document, so each navigation is one relay the proxy records.
+//! The proxy stops counting a request once it read the site's answer,
+//! before the browser loads it, and counts none for the robots.txt the
+//! engine reads of each document's origin or the icon the browser asks
+//! for, so what a navigation meets there follows from the Permits alone.
 //! A proxy's own 429 is a proxy error, never a Block cause, and lowers the
 //! proxy's ceiling for the user's other runs, which then take turns instead
 //! of failing; `politeness.proxy.concurrency` and `politeness.proxy.rate`

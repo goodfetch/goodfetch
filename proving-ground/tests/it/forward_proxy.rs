@@ -231,6 +231,49 @@ fn the_limited_proxy_answers_too_many_requests_to_one_sent_while_it_relays_anoth
     );
 }
 
+/// The limited proxy stops counting a request once it read the site's whole
+/// answer, before its client receives any of it: a client that keeps its
+/// connection open after reading the answer holds no room, so a request
+/// sent once the answer arrived is relayed (FQ57: the engine admits the
+/// next navigation once the page loaded, and nothing orders the client's
+/// close before it).
+/// Covers: story:5-90
+#[test]
+fn the_limited_proxy_relays_a_request_sent_once_the_answer_before_arrived() {
+    let proving_ground = ProvingGround::start(SEED);
+    let url = format!("http://catalog.test:{}/catalog/1", proving_ground.port());
+    let proxy = proving_ground.proxy("limited");
+
+    let (first, open) = clients::raw_kept_open(&proxy, &absolute(&url, None));
+    let second = clients::raw(&proxy, &absolute(&url, None));
+    drop(open);
+
+    assert_eq!((first.status(), second.status()), (200, 200));
+}
+
+/// The limited proxy counts the pages a client loads, never a site's
+/// robots.txt or its icon, which an engine reads and a browser asks for of
+/// their own beside a page (ADRs 0086 and 0088): one sent while it relays a
+/// page is relayed too.
+/// Covers: story:5-90
+#[rstest]
+#[case::robots_txt("/robots.txt")]
+#[case::icon("/favicon.ico")]
+fn the_limited_proxy_counts_no_robots_txt_or_icon(#[case] path: &str) {
+    let proving_ground = ProvingGround::start(SEED);
+    let page = format!("http://catalog.test:{}/catalog/1", proving_ground.port());
+    let beside = format!("http://catalog.test:{}{path}", proving_ground.port());
+    let proxy = proving_ground.proxy("limited");
+
+    let (first, second) = std::thread::scope(|scope| {
+        let first = scope.spawn(|| clients::raw(&proxy, &absolute(&page, None)));
+        let second = scope.spawn(|| clients::raw(&proxy, &absolute(&beside, None)));
+        (first.join().unwrap(), second.join().unwrap())
+    });
+
+    assert_eq!((first.status(), second.status() == 429), (200, false));
+}
+
 #[test]
 fn the_down_proxy_refuses_every_connection() {
     let proving_ground = ProvingGround::start(SEED);

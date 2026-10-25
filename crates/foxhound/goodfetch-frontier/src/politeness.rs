@@ -472,55 +472,31 @@ pub async fn started_again(
         .await
 }
 
-/// Takes in `connection` the next start of `key` for a document after the
-/// robots.txt at `location` its attempt read at `now`: `fetched`, when its
-/// attempt fetched it, that fetch's response arrival, else the fetch of the
-/// copy it read. While that fetch is less than `spacing` before `now`, the
-/// document may have been admitted before its Crawl-delay was known, so it
-/// starts no sooner than `spacing` after that fetch and after the last
-/// start any sharing run took, which it then becomes; answers when it is.
-/// Otherwise its admission kept the delay: `None`.
+/// Takes in `connection` the next start of `key` for a request that may go
+/// `spacing` after `after`: no sooner than `spacing` after the last start
+/// any sharing run took either, which it then becomes. Answers when it is.
 pub(crate) fn start_taken(
     connection: &Connection,
     key: &str,
-    location: &str,
-    fetched: Option<SystemTime>,
+    after: SystemTime,
     spacing: Duration,
-    now: SystemTime,
-) -> rusqlite::Result<Option<SystemTime>> {
-    let after = match fetched {
-        Some(fetched) => milliseconds_from(fetched),
-        // The copy keeps the millisecond its fetch ended in: it ended
-        // before the next.
-        None => match robots_txt::stored(connection, location)? {
-            Some(copy) => copy.fetched_at.saturating_add(1),
-            None => return Ok(None),
-        },
-    };
-    let spacing = duration_milliseconds(spacing);
-    if after.saturating_add(spacing) <= milliseconds(now) {
-        return Ok(None);
-    }
+) -> rusqlite::Result<SystemTime> {
     let mut limits = Limits::read(connection, key)?;
+    let after = milliseconds_from(after);
     let start = limits
         .last_start
         .map_or(after, |last| last.max(after))
-        .saturating_add(spacing);
+        .saturating_add(duration_milliseconds(spacing));
     limits.last_start = Some(start);
     limits.write(connection, key)?;
-    Ok(Some(moment(start)))
+    Ok(moment(start))
 }
 
 /// Takes the next start of `key`, for every run sharing `politeness`, for
-/// a document whose attempt read the robots.txt at `location` at `now`
-/// ([`start_taken`]): `spacing` after that robots.txt's fetch, `fetched`
-/// when the attempt fetched it, while that fetch is less than `spacing`
-/// before, and after the last start any sharing run took. So two runs that
-/// read robots.txt at once, before either knew its Crawl-delay, start
-/// their documents `spacing` apart, and the site receives neither sooner
-/// than `spacing` after the robots.txt request (ADR 0086). Answers when it
-/// is, for the caller to wait until then; `None` when the document's
-/// admission kept the delay.
+/// a request that may go `spacing` after `after`, such as a handler's
+/// navigation after the last start of its own key: no sooner than
+/// `spacing` after the last start any sharing run took either (ADR 0086).
+/// Answers when it is; the caller waits until then.
 ///
 /// # Errors
 ///
@@ -532,6 +508,67 @@ pub(crate) fn start_taken(
 pub async fn start_after(
     politeness: &Politeness,
     key: &str,
+    after: SystemTime,
+    spacing: Duration,
+) -> Result<SystemTime, PolitenessError> {
+    let key = key.to_owned();
+    politeness
+        .transact(move |connection| start_taken(connection, &key, after, spacing))
+        .await
+}
+
+/// Takes in `connection` the next start of `key` for a document after the
+/// robots.txt at `location` its attempt read at `now`: `fetched`, when its
+/// attempt fetched it, that fetch's response arrival, else the fetch of the
+/// copy it read. While that fetch is less than `spacing` before `now`, the
+/// document may have been admitted before its Crawl-delay was known, so it
+/// starts no sooner than `spacing` after that fetch and after the last
+/// start any sharing run took ([`start_taken`]); answers when it is.
+/// Otherwise its admission kept the delay: `None`.
+pub(crate) fn document_start_taken(
+    connection: &Connection,
+    key: &str,
+    location: &str,
+    fetched: Option<SystemTime>,
+    spacing: Duration,
+    now: SystemTime,
+) -> rusqlite::Result<Option<SystemTime>> {
+    let after = match fetched {
+        Some(fetched) => fetched,
+        // The copy keeps the millisecond its fetch ended in: it ended
+        // before the next.
+        None => match robots_txt::stored(connection, location)? {
+            Some(copy) => moment(copy.fetched_at.saturating_add(1)),
+            None => return Ok(None),
+        },
+    };
+    if after + spacing <= now {
+        return Ok(None);
+    }
+    start_taken(connection, key, after, spacing).map(Some)
+}
+
+/// Takes the next start of `key`, for every run sharing `politeness`, for
+/// a document whose attempt read the robots.txt at `location` at `now`
+/// ([`document_start_taken`]): `spacing` after that robots.txt's fetch,
+/// `fetched` when the attempt fetched it, while that fetch is less than
+/// `spacing` before, and after the last start any sharing run took. So two
+/// runs that read robots.txt at once, before either knew its Crawl-delay,
+/// start their documents `spacing` apart, and the site receives neither
+/// sooner than `spacing` after the robots.txt request (ADR 0086). Answers
+/// when it is, for the caller to wait until then; `None` when the
+/// document's admission kept the delay.
+///
+/// # Errors
+///
+/// When the Politeness file's transaction failed.
+///
+/// # Cancel safety
+///
+/// Dropping the future does not withdraw a transaction already queued.
+pub async fn start_after_robots_txt(
+    politeness: &Politeness,
+    key: &str,
     location: &str,
     fetched: Option<SystemTime>,
     spacing: Duration,
@@ -539,7 +576,9 @@ pub async fn start_after(
 ) -> Result<Option<SystemTime>, PolitenessError> {
     let (key, location) = (key.to_owned(), location.to_owned());
     politeness
-        .transact(move |connection| start_taken(connection, &key, &location, fetched, spacing, now))
+        .transact(move |connection| {
+            document_start_taken(connection, &key, &location, fetched, spacing, now)
+        })
         .await
 }
 

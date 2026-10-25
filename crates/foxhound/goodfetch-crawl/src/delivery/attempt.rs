@@ -331,7 +331,7 @@ async fn read_robots_txt(run: &Run, http: &HttpTier, leased: &Leased) -> Option<
     };
     let fetched = arrived.await.ok();
     let start = match &politeness {
-        Some(politeness) => goodfetch_frontier::start_after(
+        Some(politeness) => goodfetch_frontier::start_after_robots_txt(
             politeness,
             &leased.waiting.key,
             location.as_str(),

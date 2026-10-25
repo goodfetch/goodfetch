@@ -27,7 +27,7 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use super::{Backoff, DomainRule, TABLES, crawl_delay_asked, start_taken};
+use super::{Backoff, DomainRule, TABLES, crawl_delay_asked, document_start_taken};
 use crate::robots_txt;
 
 const KEY: &str = "shop.test";
@@ -428,8 +428,8 @@ fn documents_after_robots_txt_fetched_at_once_start_a_delay_apart() {
 
     let now = at(10) + milliseconds(10);
     let starts = (
-        start_taken(&file, KEY, SHOP, Some(at(10)), crawl_delay, now).unwrap(),
-        start_taken(
+        document_start_taken(&file, KEY, SHOP, Some(at(10)), crawl_delay, now).unwrap(),
+        document_start_taken(
             &file,
             KEY,
             SHOP,
@@ -461,7 +461,8 @@ fn a_start_after_a_moment_inside_a_millisecond_is_never_sooner_than_the_delay_af
     let crawl_delay = Duration::from_secs(5);
     let arrived = at(10) + Duration::from_micros(400);
 
-    let start = start_taken(&file, KEY, SHOP, Some(arrived), crawl_delay, arrived).unwrap();
+    let start =
+        document_start_taken(&file, KEY, SHOP, Some(arrived), crawl_delay, arrived).unwrap();
 
     assert_eq!(start, Some(at(15) + milliseconds(1)));
 }
@@ -487,8 +488,8 @@ fn a_document_after_a_copy_another_run_fetched_within_the_delay_starts_the_delay
     let now = at(10) + milliseconds(20);
 
     let starts = (
-        start_taken(&file, KEY, SHOP, None, crawl_delay, now).unwrap(),
-        start_taken(
+        document_start_taken(&file, KEY, SHOP, None, crawl_delay, now).unwrap(),
+        document_start_taken(
             &file,
             KEY,
             SHOP,
@@ -520,7 +521,7 @@ fn a_document_after_a_copy_fetched_a_delay_or_more_before_takes_no_start() {
     crawl_delay_asked(&file, KEY, SHOP, Some(crawl_delay)).unwrap();
     unlimited().started(&file, KEY, at(10)).unwrap();
 
-    let start = start_taken(&file, KEY, SHOP, None, crawl_delay, at(10)).unwrap();
+    let start = document_start_taken(&file, KEY, SHOP, None, crawl_delay, at(10)).unwrap();
     let next = unlimited().admit(&file, KEY, 0, at(11)).unwrap();
 
     assert_eq!((start, next), (None, Verdict::Until(at(15), Hold::Delay)));

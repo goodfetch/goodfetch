@@ -327,7 +327,12 @@ pub(crate) fn intercept(count: usize, blocking: &steps::Blocking) -> usize {
 /// The relay scenarios' Session credentials, as the browser sends them.
 const RELAY_AUTHORIZATION: &str = "Basic Z29vZGZldGNoOnNlc3Npb24tc2VjcmV0";
 
-/// The network beyond the relay: every name is the address it names, and
+/// The public address every site of the relay scenarios resolves to.
+const SITE_ADDRESS: std::net::IpAddr =
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 31, 196, 7));
+
+/// The network beyond the relay: every name resolves to [`SITE_ADDRESS`],
+/// an address to itself, and
 /// each connection's far end goes to the scenario, which reads it.
 struct InMemory {
     far_ends: tokio::sync::mpsc::UnboundedSender<DuplexStream>,
@@ -341,8 +346,8 @@ impl serve::Network for InMemory {
         host: &str,
         port: u16,
     ) -> impl Future<Output = Option<serve::Resolved>> + Send {
-        let address = host.parse().ok();
-        std::future::ready(address.map(|address| serve::Resolved {
+        let address = host.parse().unwrap_or(SITE_ADDRESS);
+        std::future::ready(Some(serve::Resolved {
             addresses: vec![std::net::SocketAddr::new(address, port)],
             mapped: false,
         }))
@@ -379,9 +384,7 @@ fn relaying() -> serve::Relaying {
         .collect();
     serve::Relaying {
         policy: Policy::new(&allowed, &["tracker.example.test"])
-            .expect("invariant: the scenario's hosts are hosts")
-            .with_private_ranges(&["192.31.196.0/24"])
-            .expect("invariant: the scenario's range is a range"),
+            .expect("invariant: the scenario's hosts are hosts"),
         authorization: RELAY_AUTHORIZATION.to_owned(),
         upstream: serve::Upstream::Direct,
         bypasses: Box::new(|_| false),
@@ -399,7 +402,7 @@ async fn relayed_connection(
 ) -> usize {
     let (mut browser, relayed) = tokio::io::duplex(1 << 16);
     let request = format!(
-        "CONNECT 192.31.196.7:443 HTTP/1.1\r\nHost: 192.31.196.7:443\r\nProxy-Authorization: {RELAY_AUTHORIZATION}\r\n\r\n"
+        "CONNECT site-7.example.test:443 HTTP/1.1\r\nHost: site-7.example.test:443\r\nProxy-Authorization: {RELAY_AUTHORIZATION}\r\n\r\n"
     );
     let chunk = vec![0x5a; 16 * 1024];
     let (_, (), read) = tokio::join!(
@@ -414,6 +417,10 @@ async fn relayed_connection(
                 .read_exact(&mut established)
                 .await
                 .expect("invariant: the relay opens the tunnel");
+            assert!(
+                established.starts_with(b"HTTP/1.1 200"),
+                "invariant: the relay opens the tunnel"
+            );
             let mut left = sent;
             while left > 0 {
                 let part = left.min(chunk.len());

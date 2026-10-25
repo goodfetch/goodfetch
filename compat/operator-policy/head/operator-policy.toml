@@ -216,6 +216,7 @@ max_crawl_delay = 30000
 
 [settings.crawl]
 sample_pages = 4
+handle_statuses = [4]
 domain_keys = { "example.test" = "example" }
 keep_alive = true
 max_depth = 4
@@ -247,6 +248,12 @@ coalesce = true
 [settings.fetch.hedge]
 enabled = true
 max_percent = 4
+
+[settings.fetch.redirect]
+max = 4
+
+[settings.fetch.refresh]
+max_delay = 30000
 
 [settings.paid_fetch]
 domains = ["example"]
@@ -473,6 +480,7 @@ max_crawl_delay = 30000
 
 [lock.crawl]
 sample_pages = 4
+handle_statuses = [4]
 domain_keys = { "example.test" = "example" }
 keep_alive = true
 max_depth = 4
@@ -504,6 +512,12 @@ coalesce = true
 [lock.fetch.hedge]
 enabled = true
 max_percent = 4
+
+[lock.fetch.redirect]
+max = 4
+
+[lock.fetch.refresh]
+max_delay = 30000
 
 [lock.paid_fetch]
 domains = ["example"]
@@ -632,6 +646,12 @@ max_size = 4
 
 [cap.fetch.hedge]
 max_percent = 4
+
+[cap.fetch.redirect]
+max = 4
+
+[cap.fetch.refresh]
+max_delay = 30000
 
 [cap.session.pool]
 max_size = 4

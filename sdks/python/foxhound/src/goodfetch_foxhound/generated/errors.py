@@ -75,6 +75,14 @@ class PayloadSchemaChangedError(ProgramError):
         super().__init__(message, code="payload_schema_changed", group="program", retryable=False)
 
 
+class ResponseNotOKError(PageError):
+    """The response is not one a handler is handed: a 3xx that is not one of Fetch's redirect statuses (301, 302, 303, 307, 308), or a redirect whose `Location` is missing, does not parse or names no HTTP(S) URL. The details name the response's `url` and `status`, and a `fix` naming `crawl.handle_statuses`, which hands a status to the handler. Not retried: the site answers the same again."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="response_not_ok", group="page", retryable=False)
+
+
 class ResponseUnavailableError(PageError):
     """The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retry_after` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back."""
 
@@ -100,6 +108,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "lease_lost": LeaseLostError,
     "payload_invalid": PayloadInvalidError,
     "payload_schema_changed": PayloadSchemaChangedError,
+    "response_not_ok": ResponseNotOKError,
     "response_unavailable": ResponseUnavailableError,
     "sample_crawl_refused": SampleCrawlRefusedError,
 }

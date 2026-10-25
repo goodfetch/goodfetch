@@ -166,6 +166,42 @@ pub const BROWSER_REQUIRED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+fn nineteen() -> Value {
+    Value::from(19_u64)
+}
+
+fn hundred_seconds() -> Value {
+    Value::from(100_000_u64)
+}
+
+/// The most redirects `fetch.redirect.max` takes: as many as the pinned
+/// browser follows in a navigation (ADR 0118).
+pub const REDIRECT_MAX_LIMIT: u64 = 19;
+
+/// `fetch.redirect.max` (ADR 0118; pitfall U12).
+pub const FETCH_REDIRECT_MAX: Setting = Setting {
+    name: "fetch.redirect.max",
+    description: "How many redirects a crawl request's fetch follows, a refresh stub's hop counted as one: 19 by default, as many as the browser follows in a navigation, from 1 to 19; any other value is refused with `setting_invalid` when the crawl starts. One more fails the request with `too_many_redirects`, so a redirect loop costs a site this many requests and one more. To hand a redirect to the handler unfollowed, list its status in `crawl.handle_statuses`.",
+    kind: ValueKind::Count,
+    default: nineteen,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `fetch.refresh.max_delay` (ADR 0118; pitfall U13).
+pub const FETCH_REFRESH_MAX_DELAY: Setting = Setting {
+    name: "fetch.refresh.max_delay",
+    description: "The longest delay of a refresh stub a crawl request's fetch follows: a `Refresh` header, or a `<meta http-equiv=\"refresh\">` outside `<noscript>`, to another URL with a delay up to this is followed at once as one more hop, counted in `fetch.redirect.max`. 100 s by default; `0` follows instant refreshes only, and `null` any delay. A refresh with no URL or to the document's own is never followed.",
+    kind: ValueKind::Duration,
+    default: hundred_seconds,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -180,6 +216,8 @@ pub const ENTRIES: Entries = Entries {
         FETCH_HEDGE_ENABLED,
         FETCH_HEDGE_MAX_PERCENT,
         FETCH_COALESCE,
+        FETCH_REDIRECT_MAX,
+        FETCH_REFRESH_MAX_DELAY,
     ],
     hook_stages: &[],
     shared_type_values: &[],

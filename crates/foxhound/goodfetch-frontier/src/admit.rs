@@ -36,7 +36,7 @@ use rusqlite::Connection;
 use url::Url;
 
 use crate::bounds::{Bounds, count_admitted, count_refused};
-use crate::identity::{Declared, Seen, identities, keyed, seen, visit_all};
+use crate::identity::{Declared, Key, Seen, identities, keyed, seen, visit_all};
 use crate::rules;
 use crate::scope::{Narrowing, Scope};
 use crate::url::{parse, parse_link};
@@ -164,7 +164,8 @@ pub fn admit(
     if let Judgment::Refused(_) = judge(&request, policy) {
         return Ok(not_added(NotAddedReason::DomainPolicy));
     }
-    let identities = identities(connection, &url, declared)?;
+    let key = Key::of(&url);
+    let identities = identities(connection, &key, declared)?;
     match seen(connection, &identities)? {
         Seen::New => {}
         Seen::Visited(_) => return Ok(not_added(NotAddedReason::Duplicate)),
@@ -175,8 +176,7 @@ pub fn admit(
             return Ok(not_added(NotAddedReason::Duplicate));
         }
     }
-    let key = keyed(&url);
-    if let Some((reason, rule)) = rules::refuses(connection, &key)? {
+    if let Some((reason, rule)) = rules::refuses(connection, key.url())? {
         rules::merged(connection, rule, url.as_str())?;
         return Ok(not_added(reason));
     }
@@ -189,7 +189,7 @@ pub fn admit(
     let id = add(&url)?;
     count_admitted(connection, budget)?;
     visit_all(connection, &identities, &id)?;
-    rules::admitted(connection, &key, from.map(keyed).as_ref())?;
+    rules::admitted(connection, key.url(), from.map(keyed).as_ref())?;
     if narrowing.is_none() {
         Scope::widen(connection, &url)?;
     }

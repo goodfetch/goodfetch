@@ -37,6 +37,13 @@
 //! The page holds the lease through every wait (`LeaseCheck::permit_wait`),
 //! which the crawl renews and names in the Run's live status. A request of
 //! no HTTP(S) URL goes ungated.
+//!
+//! The same gate admits each hop after the first of a crawl request's
+//! redirect chain on a document tier ([`ChainGate`]; ADR 0118), after the
+//! Frontier's checks of the hop: a hop leaving the crawl's scope ends the
+//! request `skipped` with `out_of_scope`, and one to a key the Frontier
+//! admitted for another request with `duplicate` (ADR 0120); a refusal ends
+//! it `skipped` with its reason.
 
 use std::fmt;
 use std::sync::Arc;
@@ -48,14 +55,19 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch, Fetched, Judgment, Rule};
 use goodfetch_engine::runs::Run;
-use goodfetch_frontier::DomainKeys;
+use goodfetch_frontier::{DomainKeys, Scope};
 use goodfetch_page::page_value::{
     Admission, DocumentResponse, Navigation, NavigationGate, Permit, Refusal,
 };
 use goodfetch_page::robots_txt::{Group, ProductToken, applicable_rules};
+use goodfetch_protocol::foxhound::frontier::HttpMethod;
+use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::page::SitePreference;
 use tokio::sync::oneshot;
 use url::Url;
+
+use crate::chain::{Gating, HopGate, Skip, Stop};
+use crate::driver::Hop;
 
 /// Fetches the robots.txt at a location for a Run, as the crawl's HTTP
 /// tier does (`HttpTier::robots_txt_fetch`).
@@ -415,5 +427,125 @@ fn applying(fetched: &Fetched, operator: Option<&ProductToken>, url: &Url) -> Ap
                 crawl_delay,
             }
         }
+    }
+}
+
+/// The gate of a crawl request's redirect chain on a document tier: the
+/// attempt's navigation gate, after the Frontier's checks of each hop.
+pub(crate) struct ChainGate {
+    pub(crate) hand_over: Arc<HandOver>,
+    /// The crawl request's ID.
+    pub(crate) crawl_request: String,
+}
+
+impl ChainGate {
+    /// What the Frontier says of `hop`: whether it leaves the scope or
+    /// reaches a key admitted for another request. A run file that cannot
+    /// answer leaves the hop to the navigation gate.
+    async fn frontier(&self, hop: &Hop) -> goodfetch_frontier::Hop {
+        let run = &self.hand_over.run;
+        let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
+        run.state()
+            .write(move |connection| {
+                let scope = Scope::read(connection)?;
+                goodfetch_frontier::redirect_hop(
+                    connection,
+                    &scope,
+                    &id,
+                    &url,
+                    &method,
+                    body.as_deref(),
+                )
+            })
+            .await
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, run_id = %run.id(), "a redirect hop was not checked by the Frontier");
+                goodfetch_frontier::Hop::Follow
+            })
+    }
+}
+
+/// What the Frontier takes of `hop` of `crawl_request`.
+fn frontier_hop(crawl_request: &str, hop: &Hop) -> (String, Url, HttpMethod, Option<Vec<u8>>) {
+    (
+        crawl_request.to_owned(),
+        hop.url.clone(),
+        HttpMethod::parse(hop.method.as_str()).unwrap_or_else(|_| HttpMethod::get()),
+        hop.body.as_ref().map(|body| body.to_vec()),
+    )
+}
+
+impl HopGate for ChainGate {
+    fn admit<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<Permit, Stop>> {
+        Box::pin(async move {
+            let skipped = |reason, message: String| Err(Stop::Skipped(Skip { reason, message }));
+            match self.frontier(hop).await {
+                goodfetch_frontier::Hop::OutOfScope => {
+                    return skipped(
+                        SkipReason::OutOfScope,
+                        format!("A redirect to `{}` leaves the crawl's scope.", hop.url),
+                    );
+                }
+                goodfetch_frontier::Hop::Duplicate => {
+                    return skipped(
+                        SkipReason::Duplicate,
+                        format!(
+                            "A redirect to `{}` reaches a page the crawl admitted for another request.",
+                            hop.url
+                        ),
+                    );
+                }
+                goodfetch_frontier::Hop::Follow => {}
+            }
+            let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
+            match Gate::new(Arc::clone(&self.hand_over))
+                .admitted(&hop.url)
+                .await
+            {
+                Ok(permit) => Ok(permit),
+                Err(refusal) => skipped(skip_reason(refusal.reason), refusal.message),
+            }
+        })
+    }
+
+    fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()> {
+        Box::pin(async move {
+            let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
+            let clock = self.hand_over.run.clock();
+            if let Ok(wait) = until.duration_since(clock.wall()) {
+                clock.sleep(wait).await;
+            }
+        })
+    }
+
+    fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
+        Box::pin(async move {
+            let run = &self.hand_over.run;
+            let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
+            let recorded = run
+                .state()
+                .write(move |connection| {
+                    goodfetch_frontier::redirect_reached(
+                        connection,
+                        &id,
+                        &url,
+                        &method,
+                        body.as_deref(),
+                    )
+                })
+                .await;
+            if let Err(error) = recorded {
+                tracing::warn!(%error, run_id = %run.id(), "a redirect's final URL was not recorded");
+            }
+        })
+    }
+}
+
+/// The skip a site preference's refusal of a hop ends its request with.
+fn skip_reason(reason: SitePreference) -> SkipReason {
+    match reason {
+        SitePreference::RobotsTxt => SkipReason::RobotsTxt,
+        SitePreference::CrawlDelay => SkipReason::CrawlDelay,
+        SitePreference::UseSignals => SkipReason::UseSignals,
     }
 }

@@ -35,20 +35,24 @@ use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, Observer, PageValue, ProgramPages, ServedDocument,
 };
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
-use goodfetch_protocol::foxhound::fetch::{FETCH_HEDGE_ENABLED, FETCH_TIER, FetchTier};
+use goodfetch_protocol::foxhound::fetch::{
+    FETCH_HEDGE_ENABLED, FETCH_REDIRECT_MAX, FETCH_TIER, FetchTier, REDIRECT_MAX_LIMIT,
+};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{BodyHandle, Navigated, PageId, SessionId};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, NETWORK_RESOLVE, SettingsLayer,
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, NETWORK_RESOLVE, SETTING_INVALID,
+    SettingInvalidDetails, SettingsLayer,
 };
 use url::Url;
 
 use crate::canonical::canonical;
+use crate::chain::{Following, Stop, follow};
 use crate::choice::{LabelTiers, SetTier, TierChoice, Unserved, unserved};
 use crate::document::{Matched, SelectorInvalid, decode, matched};
 use crate::driver::{Deadlines, Hop, fetch};
-use crate::gate::{Gate, HandOver, Lease, RobotsTxtFetch};
+use crate::gate::{ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::redundant::{Redundant, Requester};
 use crate::transports::{Reqwest, TransportConfig};
 use crate::use_signals::UseSignals;
@@ -172,7 +176,7 @@ impl FetchTiers {
     /// Hands the pages that open in `hand_over`'s Run over to its attempt
     /// until the answer drops: each takes the attempt's navigation gate and
     /// lease check (the `gate` module).
-    pub fn hand_over(&self, hand_over: HandOver) -> HandedOver {
+    pub fn hand_over(&self, hand_over: Arc<HandOver>) -> HandedOver {
         let run = hand_over.run.id().clone();
         let mut handed = lock(&self.served.handed);
         handed.last += 1;
@@ -181,7 +185,7 @@ impl FetchTiers {
             .by_run
             .entry(run.clone())
             .or_default()
-            .push((number, Arc::new(hand_over)));
+            .push((number, hand_over));
         HandedOver {
             served: Arc::clone(&self.served),
             run,
@@ -198,9 +202,12 @@ impl FetchTiers {
     ///
     /// `capability_unavailable` for `discovered_api`, `browser_fetch` and
     /// `light_browser`; `setting_not_applicable` for hedges switched on
-    /// while a domain admits one request at a time (ADR 0086).
+    /// while a domain admits one request at a time (ADR 0086);
+    /// `setting_invalid` for a `fetch.redirect.max` outside 1 to 19 (ADR
+    /// 0118).
     pub fn check(settings: &Resolved, labels: &LabelTiers) -> Result<(), CallError> {
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_HEDGE_ENABLED)?;
+        refuse_redirect_max(settings)?;
         let run = forced(settings).map(|(tier, layer)| (tier, layer, None));
         let by_label = labels
             .forced()
@@ -264,19 +271,27 @@ impl FetchTiers {
             transport: Arc::new(transport),
             deadlines: Deadlines::of(settings),
             redundant: Arc::new(Redundant::of(settings)),
+            following: Following::of(settings),
         })
     }
 
     /// Fetches `request`'s document on `tier` for `run`, sent for
     /// `requester`, and opens a page served from it, whose ID the handler
     /// is given, its calls served as `choice` says. An identical request in
-    /// flight from its Session answers it instead, and a slow one is
-    /// hedged (ADR 0040; the `redundant` module).
+    /// flight from its Session answers its first hop instead, and a slow
+    /// one is hedged (ADR 0040; the `redundant` module). Its redirects and
+    /// refresh stubs are followed as the browser follows them (ADR 0118;
+    /// the `chain` module), each hop after the first through the
+    /// Frontier's checks and the navigation gate of `hand_over`, the
+    /// attempt's.
     ///
     /// # Errors
     ///
-    /// The fetch driver's: `deadline_exceeded`, `egress_refused` or
-    /// `navigation_failed` with its network error.
+    /// [`Stop::Failed`] with the fetch driver's errors (`deadline_exceeded`,
+    /// `egress_refused`, `navigation_failed` with its network error,
+    /// `response_truncated`) or the chain's (`too_many_redirects`,
+    /// `response_not_ok`, `response_unavailable`); [`Stop::Skipped`] for a
+    /// hop the Frontier or the gate refuses.
     ///
     /// # Cancel safety
     ///
@@ -289,9 +304,10 @@ impl FetchTiers {
         request: &CrawlRequest,
         requester: &Requester<'_>,
         choice: &TierChoice,
-    ) -> Result<PageId, CallError> {
+        hand_over: &Arc<HandOver>,
+    ) -> Result<PageId, Stop> {
         let url = Url::parse(&request.url).map_err(|error| {
-            CallError::new(
+            Stop::Failed(CallError::new(
                 &goodfetch_protocol::page::NAVIGATION_FAILED,
                 format!(
                     "The crawl request's URL `{}` does not parse: {error}.",
@@ -301,7 +317,7 @@ impl FetchTiers {
                     url: Some(request.url.clone()),
                     error: None,
                 },
-            )
+            ))
         })?;
         let hop = Hop {
             url,
@@ -315,16 +331,31 @@ impl FetchTiers {
             // A crawl request is a read whatever its method (ADR 0106).
             read: true,
         };
-        let fetched = tier
-            .redundant
-            .fetch(
-                tier.transport.as_ref(),
-                &tier.deadlines,
-                run,
-                &hop,
-                requester,
-            )
-            .await?;
+        let gate = ChainGate {
+            hand_over: Arc::clone(hand_over),
+            crawl_request: request.id.clone(),
+        };
+        let clock = run.clock();
+        let mut first = true;
+        let fetched = follow(hop, &tier.following, &gate, &clock, |hop| {
+            let lead = std::mem::replace(&mut first, false);
+            async move {
+                if lead {
+                    tier.redundant
+                        .fetch(
+                            tier.transport.as_ref(),
+                            &tier.deadlines,
+                            run,
+                            &hop,
+                            requester,
+                        )
+                        .await
+                } else {
+                    fetch(tier.transport.as_ref(), &hop, &tier.deadlines, &clock).await
+                }
+            }
+        })
+        .await?;
         let url = fetched.url.to_string();
         let content_type = fetched
             .headers
@@ -630,6 +661,8 @@ pub struct HttpTier {
     deadlines: Deadlines,
     /// Its Run's hedges and requests in flight, which no other Run shares.
     redundant: Arc<Redundant>,
+    /// What its requests' redirect chains follow.
+    following: Following,
 }
 
 /// How many redirects a robots.txt fetch follows: RFC 9309 §2.3.1.2's
@@ -732,6 +765,30 @@ pub async fn record_tier(
         entry["call"] = serde_json::json!(call);
     }
     goodfetch_page::provenance(run, &entry).await;
+}
+
+/// Refuses a `fetch.redirect.max` outside 1 to 19, as many redirects as
+/// the browser follows (ADR 0118), with `setting_invalid`.
+fn refuse_redirect_max(settings: &Resolved) -> Result<(), CallError> {
+    let Some(effective) = settings.get(FETCH_REDIRECT_MAX.name) else {
+        return Ok(());
+    };
+    let max = effective.value.as_u64().unwrap_or_default();
+    if (1..=REDIRECT_MAX_LIMIT).contains(&max) {
+        return Ok(());
+    }
+    Err(CallError::new(
+        &SETTING_INVALID,
+        format!(
+            "`fetch.redirect.max` is {max} in {}, but a fetch follows from 1 to {REDIRECT_MAX_LIMIT} redirects, as many as the browser follows: list a redirect status in `crawl.handle_statuses` to hand it to the handler unfollowed.",
+            effective.layer.as_str()
+        ),
+        &SettingInvalidDetails {
+            key: FETCH_REDIRECT_MAX.name.to_owned(),
+            layer: Some(effective.layer),
+            reason: format!("expected a count from 1 to {REDIRECT_MAX_LIMIT}, found `{max}`"),
+        },
+    ))
 }
 
 /// The tier `fetch.tier` forces and the layer that set it; `None` under

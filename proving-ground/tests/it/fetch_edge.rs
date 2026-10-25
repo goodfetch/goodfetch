@@ -533,6 +533,25 @@ fn sniffed_bodies_and_an_untyped_redirect_carry_no_content_type() {
     );
 }
 
+/// A PDF whose chunked body never ends (ADR 0119): it keeps coming past a
+/// mebibyte.
+#[test]
+fn the_endless_pdf_names_its_type_and_never_ends() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let arrived = raw_clients::get_prefix(&proving_ground, HOST, "/endless/pdf", 1 << 20);
+
+    assert_eq!(
+        (
+            arrived.status(),
+            arrived.header("content-type").as_deref(),
+            arrived.header("transfer-encoding").as_deref(),
+        ),
+        (Some(200), Some("application/pdf"), Some("chunked"))
+    );
+    assert!(arrived.body().len() >= 1 << 19, "{}", arrived.body().len());
+}
+
 #[test]
 fn redirects_are_served_as_each_case_needs() {
     let proving_ground = ProvingGround::start(SEED);

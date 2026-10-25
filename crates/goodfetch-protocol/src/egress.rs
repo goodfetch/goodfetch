@@ -15,6 +15,9 @@
 //! rules before any connection, and one they refuse raises
 //! `cdp_url_not_allowed` (ADR 0115), naming the rule, the address and the
 //! settings layer that gave it.
+//!
+//! [`local_addresses`] holds ADR 0044's: `egress.local_addresses`, the
+//! rotation's block sizes and `local_address_unavailable`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -24,6 +27,14 @@ use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion, Setting, ValueKind,
 };
 use crate::settings::SettingsLayer;
+
+mod local_addresses;
+
+pub use local_addresses::{
+    EGRESS_LOCAL_ADDRESSES, EGRESS_ROTATION_BLOCK_IPV4, EGRESS_ROTATION_BLOCK_IPV6,
+    IPV4_BLOCK_SHAPE, IPV6_BLOCK_SHAPE, Ipv6Prefix, LOCAL_ADDRESS_UNAVAILABLE,
+    LOCAL_ADDRESSES_SHAPE, LocalAddressFailure, LocalAddressUnavailableDetails, LocalAddresses,
+};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -331,7 +342,11 @@ pub const ENTRIES: Entries = Entries {
     operations: &[],
     events: &[],
     handler_requests: &[],
-    error_codes: &[EGRESS_REFUSED, CDP_URL_NOT_ALLOWED],
+    error_codes: &[
+        EGRESS_REFUSED,
+        CDP_URL_NOT_ALLOWED,
+        LOCAL_ADDRESS_UNAVAILABLE,
+    ],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[
@@ -339,6 +354,9 @@ pub const ENTRIES: Entries = Entries {
         EGRESS_BLOCKED_DOMAINS,
         EGRESS_OFFLINE,
         EGRESS_NO_PRIVATE_ENDPOINTS,
+        EGRESS_LOCAL_ADDRESSES,
+        EGRESS_ROTATION_BLOCK_IPV4,
+        EGRESS_ROTATION_BLOCK_IPV6,
     ],
     hook_stages: &[],
     shared_type_values: &[],

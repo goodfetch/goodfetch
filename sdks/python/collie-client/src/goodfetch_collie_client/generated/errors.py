@@ -290,6 +290,14 @@ class LimitReachedError(RefusedError):
         super().__init__(message, code="limit_reached", group="refused", retryable=False)
 
 
+class LocalAddressUnavailableError(UnavailableError):
+    """`egress.local_addresses` yields no address this host can send from: a listed address the host does not hold, an interface it does not have or that holds no address, or an IPv6 prefix with none of the host's addresses in it and, on Linux, not routed locally with `net.ipv6.ip_nonlocal_bind` on. The binding is never ignored: assign the address, correct the value, or route the prefix to the host."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="local_address_unavailable", group="unavailable", retryable=False)
+
+
 class LoggedOutError(PageError):
     """The document the navigation reached is a login page, even one answered with a 200: the Session's login is lost, judged by its Page check's `login_page`, or by the built-in detector when it declares none. The page stays on the login page, the Session open with its cookies. The details name the URL, the status and what judged it."""
 
@@ -720,6 +728,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "header_value_invalid": HeaderValueInvalidError,
     "limit_not_understood": LimitNotUnderstoodError,
     "limit_reached": LimitReachedError,
+    "local_address_unavailable": LocalAddressUnavailableError,
     "logged_out": LoggedOutError,
     "name_lookup_failed": NameLookupFailedError,
     "name_not_resolved": NameNotResolvedError,

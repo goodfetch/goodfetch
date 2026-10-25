@@ -207,6 +207,8 @@ mimalloc = { version = "0.1.48", default-features = false }
 # goodfetch-test-support's `NoExec`, which installs its seccomp filter and
 # starts its child with raw system calls on Linux (ADR 0067).
 libc = { version = "0.2.191", default-features = false }
+# A local address's interface, read on every OS (ADR 0044).
+netdev = { version = "0.46.3", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
 # `xtask journeys check` validates each Journey file against its committed
 # JSON Schema (ADR 0063), and goodfetch-test-support's own tests validate the

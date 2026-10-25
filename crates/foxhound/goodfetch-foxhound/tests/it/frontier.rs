@@ -242,7 +242,11 @@ pub(crate) fn not_added(reason: &str, url: &str) -> Value {
     json!({ "kind": "not_added", "reason": reason, "url": url })
 }
 
-/// Covers: story:6-201, story:6-202, story:6-211, operation:run.seeds, operation:crawl.start, operation:crawl_request.enqueue
+/// Only `http` and `https` URLs enter the Frontier: a seed or an enqueue
+/// of `ftp:`, `file:`, `gopher:` or `data:` is `unsupported_scheme`, and one
+/// that does not parse `invalid_url` (ADRs 0118 and 0120, SC-03).
+///
+/// Covers: story:6-201, story:6-202, story:6-211, story:4-100, operation:run.seeds, operation:crawl.start, operation:crawl_request.enqueue
 #[test]
 fn each_seed_is_answered_as_an_enqueue_is_and_run_seeds_lists_the_answers() {
     let env = TestEnv::new();
@@ -255,6 +259,9 @@ fn each_seed_is_answered_as_an_enqueue_is_and_run_seeds_lists_the_answers() {
         "/guide/",
         &unfetchable,
         "http://",
+        "file:///etc/passwd",
+        "gopher://1.links.test/1",
+        "data:text/html,hi",
     ]
     .into_iter()
     .map(|url| json!({ "url": url, "label": "shelf" }))
@@ -298,6 +305,9 @@ fn each_seed_is_answered_as_an_enqueue_is_and_run_seeds_lists_the_answers() {
                 not_added("invalid_url", "/guide/"),
                 not_added("unsupported_scheme", &unfetchable),
                 not_added("invalid_url", "http://"),
+                not_added("unsupported_scheme", "file:///etc/passwd"),
+                not_added("unsupported_scheme", "gopher://1.links.test/1"),
+                not_added("unsupported_scheme", "data:text/html,hi"),
             ]),
             json!([
                 not_added("duplicate", &shelf),
@@ -308,6 +318,9 @@ fn each_seed_is_answered_as_an_enqueue_is_and_run_seeds_lists_the_answers() {
                 not_added("duplicate", "/guide/"),
                 not_added("unsupported_scheme", &unfetchable),
                 not_added("invalid_url", "http://"),
+                not_added("unsupported_scheme", "file:///etc/passwd"),
+                not_added("unsupported_scheme", "gopher://1.links.test/1"),
+                not_added("unsupported_scheme", "data:text/html,hi"),
             ]),
         )
     );

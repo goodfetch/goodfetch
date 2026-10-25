@@ -62,6 +62,8 @@ pub(crate) struct Opened {
     pub(crate) seeded: Arc<Notify>,
     /// Where its attempts stage their outputs until they commit.
     pub(crate) staging: Staging,
+    /// The Run's domain policy, which judges each redirect hop.
+    pub(crate) egress: Arc<Policy>,
 }
 
 /// The live crawls of one engine.
@@ -77,11 +79,12 @@ impl Crawls {
         let seeded = Arc::new(Notify::new());
         let staging = Staging::default();
         run.stage_attempt_writes_through(Arc::new(staging.clone()));
+        let egress = Arc::new(egress);
         self.0.lock().await.insert(
             run.id().clone(),
             Live {
                 run: run.clone(),
-                egress: Arc::new(egress),
+                egress: Arc::clone(&egress),
                 joining,
                 seeded: Arc::clone(&seeded),
                 staging: staging.clone(),
@@ -91,6 +94,7 @@ impl Crawls {
             joined,
             seeded,
             staging,
+            egress,
         }
     }
 

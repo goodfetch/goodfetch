@@ -9,12 +9,12 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{ProvingGround, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
-use crate::frontier::{Inside, added, crawl_under};
+use crate::frontier::{Inside, added, crawl_declaring, crawl_under};
 
 /// The crawl's one seed.
 const SEED: &str = "https://shop.test/a";
@@ -216,5 +216,61 @@ fn an_attempt_that_fails_for_good_leaves_no_link_seed_or_key() {
     assert_eq!(
         (handled, work_items(&env, "failed"), keys(&env, "failed")),
         (1, vec![SEED.to_owned()], Vec::new())
+    );
+}
+
+/// A crawl conformance case (ADR 0093): under `fetch.tier: auto`, the
+/// script-rendered feed's attempt runs its handler on `http`, then again in
+/// the browser, as a sample, where `http` cannot serve its wait; what the
+/// `http` run staged is discarded with its answer, and the browser run's
+/// commit is the one that counts.
+///
+/// Covers: story:6-236, operation:crawl_request.enqueue, operation:locator.wait_for_count
+#[test]
+fn an_escalated_attempts_first_run_leaves_none_of_what_it_staged() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, 869).unwrap();
+    let mut engine = crate::fetch_tiers::engine(&env);
+    let feed = proving_ground.url("rendered.test", "/feed");
+
+    let mut runs = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        "escalated",
+        &[json!({ "url": feed, "label": "page" })],
+        &json!({ "page": {}, "child": {} }),
+        &crate::fetch_tiers::settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &mut |inside, handle| {
+            if handle["crawl_request"]["label"] != "page" {
+                return json!({ "result": { "records": [] } });
+            }
+            let tier = handle["tier"].as_str().unwrap().to_owned();
+            let enqueued = inside.enqueue(handle, &format!("/feed?from={tier}"), "child", None);
+            runs.push((tier, enqueued));
+            let waited = inside.call(
+                "locator.wait_for_count",
+                &json!({
+                    "locator": { "page_id": handle["page_id"], "selector": "li.item" },
+                    "count": { "min": 1 },
+                }),
+            );
+            match waited.get("error") {
+                Some(error) => json!({ "error": error }),
+                None => json!({ "result": { "records": [] } }),
+            }
+        },
+    );
+    assert!(engine.finish());
+
+    let from = |tier: &str| proving_ground.url("rendered.test", &format!("/feed?from={tier}"));
+    assert_eq!(
+        (runs, work_items(&env, "escalated")),
+        (
+            vec![
+                ("http".to_owned(), added("2", &from("http"))),
+                ("browser".to_owned(), added("3", &from("browser"))),
+            ],
+            vec![feed.clone(), from("browser")],
+        )
     );
 }

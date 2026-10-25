@@ -18,3 +18,7 @@ work_items = []
 
 [submodules.enqueue]
 links = []
+
+[submodules.delivery]
+attempt = []
+politeness = ["attempt"]

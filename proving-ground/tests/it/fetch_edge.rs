@@ -502,6 +502,9 @@ fn redirects_are_served_as_each_case_needs() {
     let proving_ground = ProvingGround::start(SEED);
     let port = proving_ground.port().to_owned();
     let cross_origin = format!("https://{HTTP1}:{port}/target");
+    let address = format!("http://127.0.0.1:{port}/address/target");
+    let hex = format!("http://0x7f.0.0.1:{port}/address/target");
+    let punycode = format!("http://xn--bcher-kva.test:{port}/target");
     let redirects = [
         ("/redirect/loop", 302, Some("/redirect/loop")),
         ("/redirect/301", 301, Some("/target")),
@@ -515,6 +518,12 @@ fn redirects_are_served_as_each_case_needs() {
         ("/redirect/cross-origin", 302, Some(cross_origin.as_str())),
         ("/redirect/hops/2", 302, Some("/redirect/hops/1")),
         ("/redirect/robots", 302, Some("/private/target")),
+        ("/redirect/file", 302, Some("file:///etc/passwd")),
+        ("/redirect/gopher", 302, Some("gopher://fetch-edge.test/1")),
+        ("/redirect/data", 302, Some("data:text/html,hi")),
+        ("/redirect/address", 302, Some(address.as_str())),
+        ("/redirect/address/hex", 302, Some(hex.as_str())),
+        ("/redirect/punycode", 302, Some(punycode.as_str())),
     ];
 
     for (path, status, location) in redirects {

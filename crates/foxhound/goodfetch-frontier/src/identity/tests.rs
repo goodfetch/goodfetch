@@ -1,3 +1,8 @@
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
 use goodfetch_engine::egress::Policy;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
 use proptest::prelude::*;
@@ -5,7 +10,9 @@ use rstest::rstest;
 use rusqlite::Connection;
 use url::Url;
 
-use super::{Declared, Hop, TABLES, redirect_hop, redirect_reached, url_key};
+use goodfetch_protocol::foxhound::outcomes::SkipReason;
+
+use super::{Declared, Hop, TABLES, redirect_hop, redirect_reached, rewrite, url_key};
 use crate::admit::{Candidate, admit};
 use crate::bounds;
 use crate::scope::{self, Patterns, Scope, Strategy as ScopeStrategy};
@@ -197,6 +204,7 @@ fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
         redirect_hop(
             &connection,
             &Scope::read(&connection).unwrap(),
+            &every_host(),
             crawl_request,
             &Url::parse(url).unwrap(),
             &get,
@@ -275,6 +283,7 @@ fn a_redirect_hop_leaving_the_scope_is_out_of_scope() {
         redirect_hop(
             &connection,
             &scope,
+            &every_host(),
             "1",
             &Url::parse(url).unwrap(),
             &get,
@@ -299,6 +308,133 @@ fn a_redirect_hop_leaving_the_scope_is_out_of_scope() {
             Hop::OutOfScope,
             Hop::OutOfScope,
             Hop::Duplicate
+        ]
+    );
+}
+
+/// The seeds `urls` admitted under `scope`, every host allowed, in the run
+/// file `connection`.
+fn seeded(connection: &Connection, scope: &Scope, urls: &[&str]) {
+    let get = HttpMethod::get();
+    for (at, url) in urls.iter().enumerate() {
+        let candidate = Candidate::Seed {
+            url,
+            declared: Declared {
+                method: &get,
+                body: None,
+                key: None,
+            },
+        };
+        admit(connection, scope, &every_host(), candidate, |_| {
+            Ok((at + 1).to_string())
+        })
+        .unwrap();
+    }
+}
+
+/// A redirect hop is judged by the scope, then by the domain policy, then
+/// by the visited set (ADRs 0093 and 0120): a hop to a host the policy
+/// refuses, in any spelling the WHATWG parser reads as that host, is
+/// `domain_policy`, a key admitted for another request on it included; an
+/// off-site hop the policy refuses too stays `out_of_scope`; and a hop to
+/// another spelling of a seed's host is in scope and followed.
+///
+/// Covers: story:4-95, story:4-97, setting:egress.blocked_domains
+#[test]
+fn a_redirect_hop_the_domain_policy_refuses_is_domain_policy_after_the_scope() {
+    let connection = run_file();
+    let get = HttpMethod::get();
+    let scope = Scope::new(
+        ScopeStrategy::SameHostname,
+        Patterns::default(),
+        Patterns::default(),
+    );
+    seeded(
+        &connection,
+        &scope,
+        &[
+            "http://bücher.test/",
+            "http://127.0.0.1/",
+            "http://127.0.0.2/",
+            "http://bücher.test/taken",
+        ],
+    );
+    let policy = Policy::new(&["*"], &["bücher.test", "127.0.0.1", "elsewhere.test"]).unwrap();
+    let hop = |url: &str| {
+        redirect_hop(
+            &connection,
+            &scope,
+            &policy,
+            "1",
+            &Url::parse(url).unwrap(),
+            &get,
+            None,
+        )
+        .unwrap()
+    };
+
+    let hops = [
+        hop("http://xn--bcher-kva.test/a"),
+        hop("http://BÜCHER.test/b"),
+        hop("http://0x7f000001/c"),
+        hop("http://2130706433/d"),
+        hop("http://bücher.test/taken"),
+        hop("http://elsewhere.test/"),
+        hop("http://0x7f000002/e"),
+        hop("http://127.2/f"),
+    ];
+
+    assert_eq!(
+        hops,
+        [
+            Hop::DomainPolicy,
+            Hop::DomainPolicy,
+            Hop::DomainPolicy,
+            Hop::DomainPolicy,
+            Hop::DomainPolicy,
+            Hop::OutOfScope,
+            Hop::Follow,
+            Hop::Follow,
+        ]
+    );
+}
+
+/// A Hook's rewrite is judged as an enqueue is (ADRs 0093 and 0104): one
+/// leaving the scope ends its request `skipped` with `out_of_scope`, one in
+/// scope to a host the domain policy refuses, in any spelling, with
+/// `domain_policy`, an off-site host the policy refuses too staying
+/// `out_of_scope`; one in scope to an allowed host is followed.
+///
+/// Covers: story:4-97, setting:egress.blocked_domains
+#[test]
+fn a_hook_rewrite_is_judged_by_the_scope_then_the_domain_policy() {
+    let connection = run_file();
+    let scope = Scope::new(
+        ScopeStrategy::SameDomain,
+        Patterns::default(),
+        Patterns::default(),
+    );
+    seeded(&connection, &scope, &["http://shop.test/"]);
+    let policy = Policy::new(&["*"], &["admin.shop.test", "elsewhere.test"]).unwrap();
+    let judged =
+        |url: &str| rewrite(&connection, &scope, &policy, &Url::parse(url).unwrap()).unwrap();
+
+    let rewrites = [
+        judged("http://shop.test/b"),
+        judged("http://cdn.shop.test/a"),
+        judged("http://ADMIN.shop.test/"),
+        judged("http://elsewhere.test/"),
+        judged("http://outlet.test/"),
+    ];
+
+    assert_eq!(
+        rewrites,
+        [
+            None,
+            None,
+            Some(SkipReason::DomainPolicy),
+            Some(SkipReason::OutOfScope),
+            Some(SkipReason::OutOfScope),
         ]
     );
 }

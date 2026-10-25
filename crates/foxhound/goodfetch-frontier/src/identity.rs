@@ -15,8 +15,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use data_encoding::HEXLOWER;
+use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
+use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use rusqlite::{Connection, OptionalExtension as _};
 use sha2::{Digest as _, Sha256};
 use url::{Position, Url};
@@ -320,6 +322,9 @@ pub enum Hop {
     /// Its key was admitted for another request: the request ends
     /// `skipped` with `duplicate`, and its handler does not run.
     Duplicate,
+    /// Its host is one the Run's domain policy refuses: the request ends
+    /// `skipped` with `domain_policy`, and its handler does not run.
+    DomainPolicy,
 }
 
 /// The identity of a request to `url` declared so: the declared key, kept
@@ -371,10 +376,12 @@ pub(crate) fn visit(
 }
 
 /// Where a redirect hop of the crawl request `crawl_request` to `url`,
-/// sent with `method` and `body`, leads it within `scope` (ADRs 0093 and
-/// 0120): `OutOfScope` when it leaves the scope, `Duplicate` when that
-/// identity was admitted for another request, else `Follow`, a hop back to
-/// the request's own identity included.
+/// sent with `method` and `body`, leads it within `scope` and under the
+/// Run's domain policy `policy` (ADRs 0093, 0118 and 0120), judged in that
+/// order: `OutOfScope` when it leaves the scope, `DomainPolicy` when the
+/// policy refuses its host, `Duplicate` when that identity was admitted for
+/// another request, else `Follow`, a hop back to the request's own
+/// identity included.
 ///
 /// # Errors
 ///
@@ -382,13 +389,16 @@ pub(crate) fn visit(
 pub fn redirect_hop(
     connection: &Connection,
     scope: &Scope,
+    policy: &Policy,
     crawl_request: &str,
     url: &Url,
     method: &HttpMethod,
     body: Option<&[u8]>,
 ) -> rusqlite::Result<Hop> {
-    if !scope.admits(connection, url, Narrowing::none())? {
-        return Ok(Hop::OutOfScope);
+    match rewrite(connection, scope, policy, url)? {
+        Some(SkipReason::OutOfScope) => return Ok(Hop::OutOfScope),
+        Some(_) => return Ok(Hop::DomainPolicy),
+        None => {}
     }
     let hop = identities(
         connection,
@@ -407,6 +417,31 @@ pub fn redirect_hop(
         } if visitor != crawl_request => Hop::Duplicate,
         _ => Hop::Follow,
     })
+}
+
+/// Why a crawl request sent on to `url`, by a Hook's rewrite or a redirect
+/// hop, ends `skipped`, judged as an enqueue is (ADRs 0093, 0104 and 0120):
+/// `out_of_scope` when it leaves `scope`, else `domain_policy` when the
+/// Run's domain policy `policy` refuses its host, each read as the WHATWG
+/// parser leaves it; `None` when it goes on.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub fn rewrite(
+    connection: &Connection,
+    scope: &Scope,
+    policy: &Policy,
+    url: &Url,
+) -> rusqlite::Result<Option<SkipReason>> {
+    if !scope.admits(connection, url, Narrowing::none())? {
+        return Ok(Some(SkipReason::OutOfScope));
+    }
+    let request = Request {
+        url: url.as_str(),
+        kind: RequestKind::Fetch,
+    };
+    Ok(matches!(judge(&request, policy), Judgment::Refused(_)).then_some(SkipReason::DomainPolicy))
 }
 
 /// Records the final URL `url` a redirect led the crawl request

@@ -221,6 +221,17 @@ impl WorkItemLease {
         }
     }
 
+    /// Discards what its attempt staged so far and stages anew, as its
+    /// handler runs again on another tier with its first answer discarded:
+    /// an escalation or a sample's browser run (ADR 0093).
+    pub(crate) fn restage(&self) {
+        let epoch = self.0.state.borrow().lease.epoch();
+        self.0.leases.staging.discard(&self.0.work_item, epoch);
+        if self.check().is_ok() {
+            self.0.leases.staging.open(&self.0.work_item, epoch);
+        }
+    }
+
     /// Discards what its attempt staged and did not commit.
     fn discard(&self) {
         let epoch = self.0.state.borrow().lease.epoch();

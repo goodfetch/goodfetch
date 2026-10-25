@@ -46,7 +46,7 @@ const SCRIPTED_PATH: &str = "/feed";
 const ITEMS: &str = "li.product, li.item";
 
 /// An engine whose pages launch Chrome for Testing from the test's cache.
-fn engine(env: &TestEnv) -> Attached {
+pub(crate) fn engine(env: &TestEnv) -> Attached {
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
     engine_on(env, &cache)
 }
@@ -62,7 +62,7 @@ fn engine_on(env: &TestEnv, cache: &std::path::Path) -> Attached {
 
 /// The settings of a crawl that reaches every host of `proving_ground`,
 /// with `more` merged in.
-fn settings(proving_ground: &ProvingGround, more: &Value) -> Value {
+pub(crate) fn settings(proving_ground: &ProvingGround, more: &Value) -> Value {
     let resolve: serde_json::Map<String, Value> = proving_ground
         .description()
         .resolve

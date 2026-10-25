@@ -59,8 +59,8 @@ pub use redundant::Requester;
 pub use refresh::fuzz_refresh;
 pub use sniffing::sniff;
 pub use tiers::{
-    Chosen, FetchTiers, HandedOver, HttpTier, Judged, PAGE_CHECK_CALL, ServedLinks, Signed,
-    record_tier,
+    Chosen, FetchTiers, HandedOver, HttpTier, Judged, PAGE_CHECK_CALL, Race, RaceEnd, ServedLinks,
+    Signed, record_race, record_tier,
 };
 pub use transports::{AddressCheck, Reqwest, TransportConfig, TransportUnavailable, Wreq};
 pub use use_signals::{Purpose, UseSignals};

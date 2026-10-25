@@ -169,7 +169,7 @@ pub(crate) fn tiers(env: &TestEnv, run_id: &str) -> Vec<Value> {
 }
 
 /// The kind each request ended with, by URL, and its error's code.
-fn outcomes(engine: &mut Attached, run_id: &str) -> Vec<(String, Value, Value)> {
+pub(crate) fn outcomes(engine: &mut Attached, run_id: &str) -> Vec<(String, Value, Value)> {
     let answer = engine.call(
         "outcomes",
         "run.outcomes",
@@ -844,7 +844,7 @@ const SHELL_PATH: &str = "/shell";
 
 /// A Label's declaration whose `session.page_check` expects an element the
 /// CSS selector `selector` finds, its other settings `more`.
-fn expecting(selector: &str, more: &Value) -> Value {
+pub(crate) fn expecting(selector: &str, more: &Value) -> Value {
     let mut settings = json!({
         "session": { "page_check": { "expected_page": { "kind": "css", "selector": selector } } },
     });
@@ -856,7 +856,9 @@ fn expecting(selector: &str, more: &Value) -> Value {
 
 /// A handler that records the URL and tier of each request it is given
 /// and answers no Record.
-fn recording(seen: &mut Vec<(String, Value)>) -> impl FnMut(&mut Inside<'_>, &Value) -> Value + '_ {
+pub(crate) fn recording(
+    seen: &mut Vec<(String, Value)>,
+) -> impl FnMut(&mut Inside<'_>, &Value) -> Value + '_ {
     move |_, handle| {
         seen.push((
             handle["crawl_request"]["url"].as_str().unwrap().to_owned(),

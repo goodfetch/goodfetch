@@ -981,6 +981,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 263
+title = "As a crawl developer, I want `fetch.tier_race` to start browser-fetch and, after the Label-on-domain's median browser-fetch latency (500 ms before any sample), a full navigation in the same Session, the first result passing the Page check and the Label's comparison winning and the other cancelled, both counted in Politeness and Usage and the race in Provenance, so that a latency-sensitive crawl gets its page sooner (CO-16, ADRs 0040, 0086)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 309
 title = "As a crawl developer, I want Completeness `incomplete` for a depth, request or path-budget cutoff, a Model allowance skip or a stop, and `unverified` for offset pagination, a learned trap, a URL cap, or pages left at `payment_required` or `consent_required`, each reason named in the report with its count, so that a crawl never reads as complete when it is not (ADRs 0005, 0045, 0048, 0107, 0120; pain 10)."
 milestone = "M1 Core"

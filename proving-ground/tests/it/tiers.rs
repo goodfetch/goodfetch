@@ -43,6 +43,50 @@ fn products_are_in_the_markup_and_blog_posts_only_in_the_script() {
     );
 }
 
+/// `?hold=<ms>`, from 1 to 5000, holds the answer that long and names the
+/// hold in `Server-Timing`, as the `pacing` family does, so a fetch on one
+/// tier is still in flight when a fetch on another starts; a hold out of
+/// range is ignored.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test measures how long the Proving ground holds a request, outside any engine's Clock (ADR 0059)"
+)]
+fn a_hold_in_the_query_holds_the_answer_and_names_it_in_server_timing() {
+    let proving_ground = ProvingGround::start(SEED);
+    let asked = std::time::Instant::now();
+    let held = proving_ground.get(&proving_ground.url("tiers.test", "/blog/2?hold=400"));
+    let waited = asked.elapsed();
+    let unheld = |path: &str| {
+        let answer = proving_ground.get(&proving_ground.url("tiers.test", path));
+        (
+            answer.status,
+            answer.header("server-timing").map(str::to_owned),
+        )
+    };
+
+    assert_eq!(
+        (
+            held.status,
+            held.header("server-timing"),
+            field(&held.body, r#"data-names="([^"]+)""#).is_some(),
+            waited >= std::time::Duration::from_millis(400),
+            unheld("/products/2"),
+            unheld("/products/2?hold=0"),
+            unheld("/products/2?hold=5001"),
+        ),
+        (
+            200,
+            Some("hold;dur=400"),
+            true,
+            true,
+            (200, None),
+            (200, None),
+            (200, None),
+        )
+    );
+}
+
 /// The states page holds one visible heading and, in its own markup, an
 /// element hidden by each of the `hidden` attribute, an ancestor's inline
 /// `display: none` and an inline `visibility:hidden`, beside a link to a

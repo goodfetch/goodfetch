@@ -16,11 +16,13 @@
 //! other local process can use the relay: a connection without them gets
 //! a `407` and no relayed byte. The relay tunnels (`CONNECT`) and forwards
 //! absolute-form HTTP requests ([`serve`]), leaving the bytes, the TLS
-//! handshake among them, unchanged. A Session with an upstream proxy is
-//! chained through it, its credentials sent by the relay; the address
-//! check runs before anything goes to the proxy. Every refusal is recorded
-//! in the Run trace as a request that failed, and kept for the call whose
-//! navigation it failed.
+//! handshake among them, unchanged; it notes the browser's ClientHello as
+//! it passes, which its own look at a certificate the browser refused
+//! sends again, so the site sees the browser's fingerprint alone. A
+//! Session with an upstream proxy is chained through it, its credentials
+//! sent by the relay; the address check runs before anything goes to the
+//! proxy. Every refusal is recorded in the Run trace as a request that
+//! failed, and kept for the call whose navigation it failed.
 //!
 //! A host the Run lists for an invalid-certificate exception (ADR 0042)
 //! is terminated instead ([`terminate`]): the relay presents the browser a
@@ -70,6 +72,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
 use self::authority::Authority;
+use self::client_hello::ClientHello;
 use self::serve::{Met, Network, Observe, Relaying, Resolved, Unreached, Upstream};
 use self::terminate::{Stop, Terminating};
 
@@ -79,6 +82,10 @@ const USERNAME: &str = "goodfetch";
 
 /// The most refusals a relay keeps for the calls that wait on them.
 const KEPT_REFUSALS: usize = 64;
+
+/// The most ClientHello messages a relay keeps, the latest of each
+/// authority, for its own look at a certificate the browser refused.
+const KEPT_CLIENT_HELLOS: usize = 64;
 
 /// The relay of one Session: its loopback address and credentials, closed
 /// with every connection it relays when dropped or when its Run stops.
@@ -284,6 +291,7 @@ impl EgressRelay {
             met,
             refusals: Mutex::new(VecDeque::new()),
             unreached: Mutex::new(BTreeMap::new()),
+            client_hellos: Mutex::new(VecDeque::new()),
             sequence: AtomicU64::new(0),
         });
         let stop = CancellationToken::new();
@@ -364,8 +372,13 @@ impl EgressRelay {
     /// How the certificate of `url`'s host fails the engine's per-host
     /// decision, for a load the browser refused on it: the relay opens a
     /// handshake of its own to the host, through itself, so the same
-    /// egress checks and upstream proxy hold, and sends nothing past it.
-    /// None when the certificate passes or no handshake opens.
+    /// egress checks and upstream proxy hold, with the ClientHello the
+    /// browser last sent that host through the relay, so the site sees the
+    /// browser's fingerprint alone (ADR 0042), and sends nothing past it.
+    /// None when the certificate passes, the relay saw no ClientHello of
+    /// the browser's for the host or cannot send all of it again
+    /// ([`terminate::mirrors`]), or no handshake opens: the browser's own
+    /// name of the failure stands then.
     ///
     /// # Cancel safety
     ///
@@ -377,6 +390,10 @@ impl EgressRelay {
             host => host.to_string(),
         };
         let authority = head::authority(&host, url.port_or_known_default()?);
+        let hello = self
+            .record
+            .client_hello_of(&authority)
+            .filter(terminate::mirrors)?;
         let mut stream = TcpStream::connect(self.address).await.ok()?;
         let request = format!(
             "CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\nProxy-Authorization: {}\r\n\r\n",
@@ -388,7 +405,7 @@ impl EgressRelay {
             return None;
         }
         let examiner = self.examiner.get_or_init(|| self.trust.examiner());
-        let chain = match terminate::upstream(stream, &host, None).await {
+        let chain = match terminate::upstream(stream, &host, Some(&hello)).await {
             Ok(upstream) => Some(upstream.chain),
             Err((chain, _)) => chain,
         }?;
@@ -467,6 +484,9 @@ struct Record {
     unreached: Mutex<BTreeMap<String, (u64, Unreached)>>,
     /// The number of the latest refusal.
     sequence: AtomicU64,
+    /// The latest ClientHello the browser sent on a tunnel the relay
+    /// passed as it is, of each authority, the latest last.
+    client_hellos: Mutex<VecDeque<(String, ClientHello)>>,
 }
 
 impl Observe for Record {
@@ -519,6 +539,15 @@ impl Observe for Record {
         });
     }
 
+    fn client_hello(&self, authority: &str, hello: ClientHello) {
+        let mut hellos = lock(&self.client_hellos);
+        hellos.retain(|(kept, _)| kept != authority);
+        hellos.push_back((authority.to_owned(), hello));
+        if hellos.len() > KEPT_CLIENT_HELLOS {
+            hellos.pop_front();
+        }
+    }
+
     fn stopped(&self, url: &str, method: &str, stop: &Stop) {
         tracing::debug!(?stop, "the egress relay stopped a terminated connection");
         self.keep(url, method, Refusal::Certificate(stop.clone()));
@@ -544,6 +573,16 @@ impl Observe for Record {
 const TLS_TERMINATED: &str = "tls_terminated";
 
 impl Record {
+    /// The latest ClientHello the browser sent on a tunnel to `authority`
+    /// that the relay passed as it is.
+    fn client_hello_of(&self, authority: &str) -> Option<ClientHello> {
+        lock(&self.client_hellos)
+            .iter()
+            .rev()
+            .find(|(kept, _)| kept == authority)
+            .map(|(_, hello)| hello.clone())
+    }
+
     /// Keeps `refusal` of a load of `url` that `method` asked for, for the
     /// call it fails, and records it in the Run trace.
     fn keep(&self, url: &str, method: &str, refusal: Refusal) {

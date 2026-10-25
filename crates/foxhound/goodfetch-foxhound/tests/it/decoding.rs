@@ -93,8 +93,7 @@ fn record(id: &str, markdown: &Value) -> Value {
         .unwrap_or_default()
         .lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .last()
+        .rfind(|line| !line.is_empty())
         .unwrap_or_default();
     json!({ "id": id, "text": text })
 }

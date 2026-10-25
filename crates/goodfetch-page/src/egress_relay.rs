@@ -222,41 +222,47 @@ impl EgressRelay {
 
     /// The `proxyServer` the Session's browser context takes.
     pub(crate) fn browser_server(&self) -> String {
-        format!("http://{}", self.address)
+        format!("http://{}", self.endpoint().address)
     }
 
-    /// Where the relay's refusals stand now, for [`Self::refusal_since`].
+    /// Where the relay's refusals stand now, for [`Self::take_refusal`].
     pub(crate) fn mark(&self) -> u64 {
         self.record.sequence.load(Ordering::Acquire)
     }
 
-    /// The refusal the relay made since `mark` for a connection to `url`'s
-    /// host and port, else its latest one since then: what failed a
-    /// navigation to `url` that began at `mark`, whose later hops the
-    /// relay may have refused.
-    pub(crate) fn refusal_since(&self, mark: u64, url: &str) -> Option<Refused> {
-        let authority = url::Url::parse(url).ok().and_then(|url| {
-            let host = match url.host()? {
-                url::Host::Ipv6(address) => address.to_string(),
-                host => host.to_string(),
-            };
-            Some(head::authority(&host, url.port_or_known_default()?))
-        });
-        let refusals = lock(&self.record.refusals);
-        let since: Vec<&(u64, String, Refused)> = refusals
-            .iter()
-            .filter(|(sequence, _, _)| *sequence > mark)
-            .collect();
-        since
-            .iter()
-            .rev()
-            .find(|(_, refused_authority, _)| Some(refused_authority) == authority.as_ref())
-            .or_else(|| since.last())
-            .map(|(_, _, refused)| Refused {
-                url: url.to_owned(),
-                ..refused.clone()
-            })
+    /// Takes the refusal that failed a load of `url`, once: with `mark`,
+    /// where the refusals stood as a navigation to `url` began, the latest
+    /// since then for `url`'s host and port, else the latest since then, as
+    /// the navigation's later hops go elsewhere; without one, the latest
+    /// for `url`'s host and port. Each refusal fails one load.
+    pub(crate) fn take_refusal(&self, url: &str, mark: Option<u64>) -> Option<Refused> {
+        let authority = authority_of(url);
+        let mut refusals = lock(&self.record.refusals);
+        let matching =
+            |entry: &(u64, String, Refused)| authority.as_deref() == Some(entry.1.as_str());
+        let at = match mark {
+            Some(mark) => refusals
+                .iter()
+                .rposition(|entry| entry.0 > mark && matching(entry))
+                .or_else(|| refusals.iter().rposition(|entry| entry.0 > mark)),
+            None => refusals.iter().rposition(matching),
+        }?;
+        let (_, _, refused) = refusals.remove(at)?;
+        Some(Refused {
+            url: url.to_owned(),
+            ..refused
+        })
     }
+}
+
+/// `url`'s host and port, as the relay keys its refusals.
+fn authority_of(url: &str) -> Option<String> {
+    let url = url::Url::parse(url).ok()?;
+    let host = match url.host()? {
+        url::Host::Ipv6(address) => address.to_string(),
+        host => host.to_string(),
+    };
+    Some(head::authority(&host, url.port_or_known_default()?))
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -279,16 +285,7 @@ struct Record {
 
 impl Observe for Record {
     fn refused(&self, refused: &Refused, method: &str) {
-        let authority = url::Url::parse(&refused.url)
-            .ok()
-            .and_then(|url| {
-                let host = match url.host()? {
-                    url::Host::Ipv6(address) => address.to_string(),
-                    host => host.to_string(),
-                };
-                Some(head::authority(&host, url.port_or_known_default()?))
-            })
-            .unwrap_or_default();
+        let authority = authority_of(&refused.url).unwrap_or_default();
         {
             let mut refusals = lock(&self.refusals);
             let sequence = self.sequence.fetch_add(1, Ordering::AcqRel) + 1;

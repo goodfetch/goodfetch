@@ -56,7 +56,7 @@ use crate::proxy_provider::{Chosen, ProxyDriver, ProxyUsage, Refusal, Wanted, li
 
 /// The rule that sends loopback through the proxy too, as Playwright does,
 /// so a Session's every request takes its proxy.
-const PROXIED_LOOPBACK: &str = "<-loopback>";
+pub(crate) const PROXIED_LOOPBACK: &str = "<-loopback>";
 
 /// A Session's proxy, as it opened.
 pub(crate) struct SessionProxy {

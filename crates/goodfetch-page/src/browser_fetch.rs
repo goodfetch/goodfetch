@@ -36,7 +36,6 @@ use goodfetch_engine::response_limits::Limits;
 use goodfetch_protocol::page::{
     PageResponse, RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
 };
-use secrecy::ExposeSecret as _;
 
 use crate::driver::PageDriver;
 use crate::errors::{network_error, site_preferences_refused};
@@ -138,10 +137,7 @@ pub(crate) async fn send(
                 resource_type: None,
                 request_stage: Some(fetch::RequestStage::Request),
             }]),
-            handle_auth_requests: driver
-                .proxy()
-                .is_some_and(crate::proxy::SessionProxy::answers_authentication)
-                .then_some(true),
+            handle_auth_requests: driver.answers_authentication().then_some(true),
         })
         .await?;
     // A wait for the navigation gate's permits counts against no timeout.
@@ -164,6 +160,9 @@ struct Load<'a> {
     chain: Vec<String>,
     /// Whether the Session's proxy was given its credentials already.
     authenticated: bool,
+    /// Where the Session's egress relay's refusals stood as the load
+    /// began, if it has a relay.
+    relay_mark: Option<u64>,
     /// The response, once it arrived, and its bytes, once read.
     answered: Option<(PageResponse, Vec<u8>)>,
     /// The permit the page's navigation gate gave the hop under way, held
@@ -180,6 +179,7 @@ impl<'a> Load<'a> {
             network_id: None,
             chain: Vec::new(),
             authenticated: false,
+            relay_mark: driver.relay().map(crate::egress_relay::EgressRelay::mark),
             answered: None,
             permit: None,
         }
@@ -496,8 +496,15 @@ impl<'a> Load<'a> {
                 let url = self.chain.last().map_or(self.request.url, String::as_str);
                 Err(self
                     .driver
-                    .proxy()
-                    .and_then(|proxy| proxy.failure(url, error.name()))
+                    .relay()
+                    .and_then(|relay| {
+                        Some(relay.take_refusal(url, Some(self.relay_mark?))?.error())
+                    })
+                    .or_else(|| {
+                        self.driver
+                            .proxy()
+                            .and_then(|proxy| proxy.failure(url, error.name()))
+                    })
                     .unwrap_or_else(|| network_error(url, error.name())))
             }
         }
@@ -570,33 +577,29 @@ impl<'a> Load<'a> {
     /// Answers a 407 or 401: the Session's proxy's with its credentials,
     /// once; a site's as the browser would with none.
     async fn authenticate(&mut self, required: fetch::AuthRequiredEvent) {
-        let proxy = self
-            .driver
-            .proxy()
-            .filter(|_| required.auth_challenge.source == Some(fetch::AuthChallengeSource::Proxy));
-        let response =
-            match proxy.and_then(crate::proxy::SessionProxy::credentials) {
-                Some((username, password)) if !self.authenticated => {
-                    self.authenticated = true;
-                    fetch::AuthChallengeResponse {
-                        response: fetch::AuthChallengeResponseResponse::ProvideCredentials,
-                        username: Some(username.to_owned()),
-                        password: Some(password.map_or_else(String::new, |password| {
-                            password.expose_secret().to_owned()
-                        })),
-                    }
+        let proxied = required.auth_challenge.source == Some(fetch::AuthChallengeSource::Proxy)
+            && (self.driver.proxy().is_some() || self.driver.relay().is_some());
+        let credentials = self.driver.proxy_credentials().filter(|_| proxied);
+        let response = match credentials {
+            Some((username, password)) if !self.authenticated => {
+                self.authenticated = true;
+                fetch::AuthChallengeResponse {
+                    response: fetch::AuthChallengeResponseResponse::ProvideCredentials,
+                    username: Some(username.to_owned()),
+                    password: Some(password.to_owned()),
                 }
-                _ if proxy.is_some() => fetch::AuthChallengeResponse {
-                    response: fetch::AuthChallengeResponseResponse::CancelAuth,
-                    username: None,
-                    password: None,
-                },
-                _ => fetch::AuthChallengeResponse {
-                    response: fetch::AuthChallengeResponseResponse::Default,
-                    username: None,
-                    password: None,
-                },
-            };
+            }
+            _ if proxied => fetch::AuthChallengeResponse {
+                response: fetch::AuthChallengeResponseResponse::CancelAuth,
+                username: None,
+                password: None,
+            },
+            _ => fetch::AuthChallengeResponse {
+                response: fetch::AuthChallengeResponseResponse::Default,
+                username: None,
+                password: None,
+            },
+        };
         self.send(&fetch::ContinueWithAuthParams {
             request_id: required.request_id,
             auth_challenge_response: response,

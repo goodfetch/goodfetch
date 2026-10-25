@@ -8,6 +8,10 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 #![expect(
+    clippy::unused_async_trait_impl,
+    reason = "the test network answers at once, through the async interface the relay calls"
+)]
+#![expect(
     clippy::disallowed_methods,
     reason = "each far end of the test network runs as a local task beside the relay, on the test's own runtime (ADR 0060)"
 )]

@@ -155,7 +155,7 @@ async fn start(
     };
     if !found {
         for seed in params.seeds.iter() {
-            payloads.check(&seed.label, seed.payload.as_ref())?;
+            work_items::check_seed(&payloads, seed)?;
         }
     }
     let seeding = egress.clone();

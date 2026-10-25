@@ -93,6 +93,11 @@ const WRITERS: &[(&str, usize, &str)] = &[
         "holds no value: the crawl's seeds, from its inputs",
     ),
     (
+        "crates/foxhound/goodfetch-frontier/src/sitemap.rs",
+        2,
+        "holds no value: a sitemap seed's sitemaps (URLs, the seed's rules) and their entries' counts by reason",
+    ),
+    (
         "crates/foxhound/goodfetch-session-pool/src/store.rs",
         2,
         "holds no value: Session pool entries: identities and counts, settings by reference",

@@ -42,9 +42,6 @@
 //! refusal's reason, not `failed` (ADR 0093).
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
-
-use std::collections::BTreeSet;
 
 use goodfetch_engine::CallContext;
 use goodfetch_engine::CallError;
@@ -52,22 +49,18 @@ use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
-use goodfetch_engine::politeness::Politeness;
-use goodfetch_engine::robots_txt::{self, Fetch, Fetched};
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, PooledSession, Purpose,
-    Requester, RobotsTxtFetch, Stop, TierChoice,
+    Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, PooledSession, Requester,
+    RobotsTxtFetch, Stop, TierChoice,
 };
-use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt};
+use goodfetch_frontier::DomainKeys;
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
     LEASE_LOST, WORK_ITEM_LEASED,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
-use goodfetch_protocol::foxhound::frontier::HttpBody;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
@@ -75,15 +68,9 @@ use goodfetch_protocol::foxhound::settings::{
     POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MAX_CRAWL_DELAY, SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
     SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
 };
-use goodfetch_protocol::page::{
-    NAVIGATION_FAILED, PageId, SITE_PREFERENCES_REFUSED, SitePreference,
-};
-use goodfetch_protocol::run::PointInTime;
+use goodfetch_protocol::page::{NAVIGATION_FAILED, PageId};
 use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
 use goodfetch_protocol::settings::page_check::PageCheck;
-use goodfetch_protocol::site_preferences::{
-    SITE_PREFERENCES_PURPOSE, SITE_PREFERENCES_RESPECT_USE_SIGNALS,
-};
 use goodfetch_session_pool::Effect;
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
@@ -91,7 +78,15 @@ use tokio::sync::oneshot;
 use crate::lease::{CommitError, WorkItemLease};
 use crate::progress::SharedInFlight;
 use crate::tier_choice::{self, AttemptPlan, Sampled};
-use crate::work_items::{self, Leased};
+use crate::work_items::Leased;
+
+mod learning;
+mod site_preferences;
+
+use learning::learn;
+use site_preferences::{
+    escaped_refusal, read_robots_txt, robots_txt_refusal, share_robots_txt, use_signals_refusal,
+};
 
 /// The Error code of a page the site refused, which Collie's page raises
 /// with the Block cause in its details (ADRs 0035 and 0079); declared with
@@ -287,163 +282,6 @@ impl LeaseCheck for HandlerLease {
         });
         PermitWait::holding(stop)
     }
-}
-
-/// The Politeness the crawl's Run shares, once it opened: from then on
-/// the Run reads robots.txt from the copy its user's runs share there
-/// (ADR 0086). A Politeness file that cannot open leaves the Run its own
-/// copy.
-async fn share_robots_txt(run: &Run) -> Option<Politeness> {
-    let settings = run.settings()?.resolved();
-    match run.politeness(settings).await {
-        Ok((politeness, _)) => {
-            let shared = politeness.clone();
-            run.share_robots_txt(|| Arc::new(SharedRobotsTxt::new(shared, run.clock())));
-            Some(politeness)
-        }
-        Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), "the shared robots.txt copy is out of reach; the crawl reads its own");
-            None
-        }
-    }
-}
-
-/// Reads the robots.txt of `leased`'s origin, as the crawl's Run reads it:
-/// from the copy its user's runs share, fetched on `http` only when the
-/// copy has none to use. The Crawl-delay it asks for is recorded for the
-/// request's domain key, for every run sharing the domain. A robots.txt
-/// fetch is a request of the domain: while the one the attempt made, or
-/// the one whose copy it read, is less than the delay before, the document
-/// starts `politeness.domain.delay` after that fetch's response arrived,
-/// or the Crawl-delay when the crawl waits it out and it is longer, and no
-/// sooner than that after the start another sharing run took meanwhile;
-/// that start is taken in the Politeness file for every run sharing the
-/// domain. Counted from the response's arrival, the site never receives
-/// the document sooner than the delay after the robots.txt request,
-/// whatever that request's connection cost. Answers what applies, or
-/// `None` for a URL with no robots.txt.
-async fn read_robots_txt(run: &Run, http: &HttpTier, leased: &Leased) -> Option<Arc<Fetched>> {
-    let location = goodfetch_frontier::Url::parse(&leased.crawl_request.url)
-        .ok()
-        .and_then(|url| robots_txt::location(&url))?;
-    let politeness = share_robots_txt(run).await;
-    let (arriving, arrived) = oneshot::channel::<SystemTime>();
-    let fetch: Fetch<'_> = Box::pin(async {
-        let answer = http.robots_txt(run, &location).await;
-        let _ = arriving.send(run.clock().wall());
-        answer
-    });
-    let read = run.robots_txt().copy(&location, fetch).await;
-    let Some(settings) = run.settings().map(|settings| settings.resolved().clone()) else {
-        return Some(read);
-    };
-    let asked = crawl_delay_asked(&settings, &read);
-    if let Some(politeness) = &politeness
-        && let Err(error) = goodfetch_frontier::crawl_delay_read(
-            politeness,
-            &leased.waiting.key,
-            location.as_str(),
-            asked,
-        )
-        .await
-    {
-        tracing::warn!(%error, run_id = %run.id(), "a host's Crawl-delay was not recorded for its domain");
-    }
-    let delay = settings
-        .duration(POLITENESS_DOMAIN_DELAY.name)
-        .max(asked.filter(|asked| waits_out(&settings, *asked)))
-        .filter(|delay| !delay.is_zero());
-    let Some(delay) = delay else {
-        return Some(read);
-    };
-    let fetched = arrived.await.ok();
-    let start = match &politeness {
-        Some(politeness) => goodfetch_frontier::start_after_robots_txt(
-            politeness,
-            &leased.waiting.key,
-            location.as_str(),
-            fetched,
-            delay,
-            run.clock().wall(),
-        )
-        .await
-        .unwrap_or_else(|error| {
-            tracing::warn!(%error, run_id = %run.id(), "a document's start after its robots.txt was not recorded");
-            fetched.map(|fetched| fetched + delay)
-        }),
-        None => fetched.map(|fetched| fetched + delay),
-    };
-    if let Some(wait) = start.and_then(|start| start.duration_since(run.clock().wall()).ok()) {
-        run.clock().sleep(wait).await;
-    }
-    Some(read)
-}
-
-/// The Crawl-delay the robots.txt `read` asks of a crawl under `settings`,
-/// its operator token's group merged with Foxhound's (ADR 0086).
-fn crawl_delay_asked(settings: &Resolved, read: &Fetched) -> Option<Duration> {
-    let operator_token = settings
-        .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
-        .as_str();
-    goodfetch_fetch_tier::crawl_delay(read, operator_token)
-}
-
-/// Whether a crawl under `settings` waits out the Crawl-delay `asked`:
-/// while `site_preferences.respect_robots_txt` is on, up to
-/// `site_preferences.max_crawl_delay` (ADR 0086).
-fn waits_out(settings: &Resolved, asked: Duration) -> bool {
-    settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
-        && settings
-            .duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)
-            .is_some_and(|max| asked <= max)
-}
-
-/// What the AI-use signals the response of the served page `page_id`
-/// carried say of its request while `site_preferences.respect_use_signals`
-/// is on (ADRs 0086 and 0093): nothing when none refuses the Run's
-/// `site_preferences.purpose`, else the attempt's answer, its handler
-/// never run.
-fn use_signals_refusal(run: &Run, tiers: &FetchTiers, page_id: &PageId) -> Option<Answer> {
-    let settings = run.settings()?.resolved();
-    if settings.boolean(SITE_PREFERENCES_RESPECT_USE_SIGNALS.name) != Some(true) {
-        return None;
-    }
-    let purpose = settings
-        .value(SITE_PREFERENCES_PURPOSE.name)
-        .as_str()
-        .and_then(Purpose::named)?;
-    tiers
-        .use_signals(page_id)
-        .refusing(purpose)
-        .map(|_| Answer::Refused(SkipReason::UseSignals))
-}
-
-/// What the robots.txt `read` for `leased`'s request says of it while
-/// `site_preferences.respect_robots_txt` is on (ADR 0086): nothing when
-/// it allows it and asks for no Crawl-delay above
-/// `site_preferences.max_crawl_delay`, else the attempt's answer, sent
-/// nothing.
-fn robots_txt_refusal(run: &Run, leased: &Leased, read: Option<&Fetched>) -> Option<Answer> {
-    let settings = run.settings()?.resolved();
-    if settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) == Some(false) {
-        return None;
-    }
-    let read = read?;
-    if let Fetched::Unreachable(reason) = read {
-        return Some(Answer::RobotsTxtUnreachable(format!(
-            "The site's robots.txt could not be read ({reason}), and no earlier copy applies, so the request was not sent."
-        )));
-    }
-    let url = goodfetch_frontier::Url::parse(&leased.crawl_request.url).ok()?;
-    let operator_token = settings
-        .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
-        .as_str();
-    if goodfetch_fetch_tier::disallowing(read, operator_token, &url).is_some() {
-        return Some(Answer::Refused(SkipReason::RobotsTxt));
-    }
-    crawl_delay_asked(settings, read)
-        .filter(|asked| !waits_out(settings, *asked))
-        .map(|_| Answer::Refused(SkipReason::CrawlDelay))
 }
 
 pub(super) struct Attempt {
@@ -833,98 +671,6 @@ async fn record_tier(run: &Run, leased: &Leased, choice: &TierChoice, how: Chose
         how,
     )
     .await;
-}
-
-/// Hands the Frontier the page `page_id` the tiers fetched for `leased`'s
-/// crawl request, with its page signature and its `rel=canonical`, before
-/// its handler runs, so the links the handler then enqueues count against
-/// what the page taught (ADRs 0005 and 0120); in the same commit, each
-/// pending request a rule it taught merges ends `skipped` with
-/// `duplicate`. Answers those requests, by ID with the domain key they
-/// wait under, which leave their queues. A run file that cannot take it
-/// loses only what the page would have taught.
-async fn learn(
-    run: &Run,
-    tiers: &FetchTiers,
-    page_id: &PageId,
-    leased: &Leased,
-) -> Vec<(String, String)> {
-    let Some(signed) = tiers.signature(page_id).await else {
-        return Vec::new();
-    };
-    let Ok(url) = goodfetch_frontier::Url::parse(&signed.url) else {
-        return Vec::new();
-    };
-    let request = leased.crawl_request.clone();
-    let ended_at = run.point_in_time();
-    let learned = run
-        .state()
-        .write(move |connection| {
-            let mut merged = Merged {
-                ended_at,
-                ended: Vec::new(),
-            };
-            goodfetch_frontier::learn(
-                connection,
-                PageSeen {
-                    crawl_request: &request.id,
-                    url: &url,
-                    method: &request.method,
-                    body: request.body.as_ref().map(HttpBody::bytes),
-                    signature: signed.signature,
-                    canonical: signed.canonical.as_ref(),
-                },
-                &mut merged,
-            )?;
-            Ok(merged.ended)
-        })
-        .await;
-    learned.unwrap_or_else(|error| {
-        tracing::warn!(%error, run_id = %run.id(), "the Frontier could not learn from a fetched page");
-        Vec::new()
-    })
-}
-
-/// The crawl's side of a rule learned later: the pending requests it
-/// merged, ended at `ended_at`, by ID with their domain key.
-struct Merged {
-    ended_at: PointInTime,
-    ended: Vec<(String, String)>,
-}
-
-impl EndMerged for Merged {
-    fn end_merged(
-        &mut self,
-        connection: &rusqlite::Connection,
-        crawl_requests: &BTreeSet<String>,
-    ) -> rusqlite::Result<Vec<String>> {
-        let ended = work_items::end_merged(connection, crawl_requests, &self.ended_at)?;
-        Ok(ended
-            .into_iter()
-            .map(|(id, url, key)| {
-                if let Some(key) = key {
-                    self.ended.push((id, key));
-                }
-                url
-            })
-            .collect())
-    }
-}
-
-/// The skip reason of a handler's failure that is a `site_preferences_refused`
-/// its own navigation raised and it let escape: the request ends `skipped`
-/// with that refusal's reason, not `failed`, since the site asked not to be
-/// crawled there (ADR 0093).
-fn escaped_refusal(code: &str, details: &Map<String, Value>) -> Option<SkipReason> {
-    if code != SITE_PREFERENCES_REFUSED.name {
-        return None;
-    }
-    let reason = details.get("reason").cloned()?;
-    match serde_json::from_value::<SitePreference>(reason).ok()? {
-        SitePreference::RobotsTxt => Some(SkipReason::RobotsTxt),
-        SitePreference::CrawlDelay => Some(SkipReason::CrawlDelay),
-        SitePreference::UseSignals => Some(SkipReason::UseSignals),
-    }
 }
 
 /// The handler request of one attempt, bounded by its lease.

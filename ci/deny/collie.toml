@@ -70,7 +70,7 @@ reason = "in Collie, only the TLS relay's crate takes BoringSSL (ADR 0124)"
 
 [[bans.deny]]
 crate = "btls-sys"
-wrappers = ["btls"]
+wrappers = ["btls", "goodfetch-page"]
 reason = "in Collie, only the TLS relay's crate takes BoringSSL (ADR 0124)"
 
 # reqwest, the HTTP fetch tier's transport: Foxhound's alone (spec #579,

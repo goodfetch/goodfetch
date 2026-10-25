@@ -34,6 +34,8 @@ use goodfetch_protocol::foxhound::fetch::FetchTier;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
+use crate::tier_race::Raced;
+
 /// How many samples a Label on a domain, or one of its segments, takes
 /// before it moves to `http` (`fetch.sample.count`'s built-in, #768).
 pub(crate) const SAMPLES: usize = 3;
@@ -62,6 +64,9 @@ pub(crate) enum AttemptPlan {
     On(TierChoice),
     /// A sample: on `http`, then on `browser`, whose run commits.
     Sample(Sampled),
+    /// A race of browser-fetch against a navigation (`fetch.tier_race`;
+    /// the `tier_race` module), whose winner's run commits.
+    Race(Raced),
 }
 
 /// The unit a sample counts for.

@@ -151,6 +151,9 @@ btls = { version = "=0.5.6", default-features = false }
 # Collie's TLS relay's async streams over `btls` (ADR 0124), at the same
 # version, for its terminating mode.
 tokio-btls = { version = "=0.5.6", default-features = false }
+# BoringSSL's own functions that `btls` has no method for, at the same
+# version: the relay's request of the browser's trust anchor IDs.
+btls-sys = { version = "=0.5.6", default-features = false }
 http2 = { version = "=0.5.20", default-features = false }
 wreq-proto = { version = "=0.2.6", default-features = false }
 # Mozilla's root certificates whole, which BoringSSL's certificate store

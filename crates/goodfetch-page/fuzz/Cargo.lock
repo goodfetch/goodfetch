@@ -1405,6 +1405,7 @@ version = "0.0.0"
 dependencies = [
  "brotli-decompressor",
  "btls",
+ "btls-sys",
  "data-encoding",
  "flate2",
  "futures-util",

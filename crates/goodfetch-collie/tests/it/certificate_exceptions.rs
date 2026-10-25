@@ -245,13 +245,19 @@ fn no_session_cookie_is_sent_to_a_host_reached_through_an_exception() {
 }
 
 /// A host the relay only tunnels, its certificate refused by Chromium
-/// itself, is `certificate_invalid` too, named by the relay's own look at
-/// the certificate: Chromium names a self-signed certificate as it names an
-/// unknown issuer, the relay tells them apart. Nothing reaches the site.
+/// itself, is `certificate_invalid` too, and the site sees one TLS
+/// fingerprint, the browser's (ADR 0042): the relay's own look at the
+/// certificate, which would tell a self-signed certificate from an unknown
+/// issuer, sends the browser's ClientHello again only when its BoringSSL
+/// carries all of it. Chrome for Testing offers ML-DSA signature
+/// algorithms it does not, so the relay opens no handshake of its own and
+/// Chromium's name stands: both are `unknown_issuer`. Nothing reaches the
+/// site.
 ///
 /// Covers: error:certificate_invalid, operation:page.goto
 #[test]
-fn a_certificate_chromium_refuses_on_a_tunnelled_host_is_named_by_the_relay() {
+fn a_certificate_chromium_refuses_on_a_tunnelled_host_is_invalid_and_the_site_sees_one_fingerprint()
+{
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut program = started(&env, &proving_ground, "tunnelled", &json!({}), &[]);
@@ -275,7 +281,7 @@ fn a_certificate_chromium_refuses_on_a_tunnelled_host_is_named_by_the_relay() {
             (
                 json!("certificate_invalid"),
                 json!("self-signed.certificates.test"),
-                json!("self_signed")
+                json!("unknown_issuer")
             ),
             (
                 json!("certificate_invalid"),
@@ -288,6 +294,21 @@ fn a_certificate_chromium_refuses_on_a_tunnelled_host_is_named_by_the_relay() {
     assert_eq!(
         provenance(&env, "tunnelled", "tls_terminated"),
         Vec::<Value>::new()
+    );
+    let handshakes: Vec<(Value, Value)> = proving_ground.observations().unwrap()["tls_handshakes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|handshake| {
+            handshake["sni"]
+                .as_str()
+                .is_some_and(|host| host.ends_with(".certificates.test"))
+        })
+        .map(|handshake| (handshake["sni"].clone(), handshake["ja4_base"].clone()))
+        .collect();
+    assert!(
+        handshakes.len() >= 2 && handshakes.iter().all(|(_, ja4)| ja4 == &handshakes[0].1),
+        "one fingerprint, the browser's: {handshakes:?}"
     );
 }
 

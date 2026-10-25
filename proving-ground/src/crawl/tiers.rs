@@ -14,11 +14,15 @@
 //!   and waits from markup (spec #582's served-call table).
 //!
 //! `n` runs from 1 to 99, written without leading zeros; each listing holds
-//! three entries named from the seed and `n`.
+//! three entries named from the seed and `n`. A query `hold=<ms>`, from 1
+//! to [`MAX_HOLD_MS`], holds the answer that long and names the hold in
+//! `Server-Timing: hold;dur=<ms>`, so a fetch on one tier is still in
+//! flight when a fetch on another starts (`fetch.tier_race`, CO-16).
 
 use std::fmt::Write as _;
+use std::time::Duration;
 
-use super::{Page, Visit, canonical_number, document, name};
+use super::{Held, Page, Visit, canonical_number, document, name};
 
 pub(super) const HOST: &str = "tiers.test";
 pub(super) const FAMILY: &str = "tiers";
@@ -31,6 +35,9 @@ const PAGES: u64 = 99;
 
 /// The entries of each listing.
 const ENTRIES: u64 = 3;
+
+/// The longest hold a query asks for that is honoured.
+const MAX_HOLD_MS: u64 = 5_000;
 
 /// The script that adds a script-rendered listing's entries, from the
 /// names its `data-names` holds.
@@ -79,7 +86,7 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
         .map(|entry| name(visit.seed, &[FAMILY_PLACE, number, entry]))
         .collect();
     let title = format!("{kind} {number}");
-    Page::ok(if scripted {
+    let page = Page::ok(if scripted {
         document(
             &title,
             &format!(
@@ -96,5 +103,17 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
             &title,
             &format!("<h1>{title}</h1>\n<ul class=\"products\">\n{entries}</ul>\n"),
         )
-    })
+    });
+    let hold = visit
+        .request
+        .parameter("hold")
+        .and_then(|hold| hold.parse::<u64>().ok())
+        .filter(|hold| (1..=MAX_HOLD_MS).contains(hold));
+    match hold {
+        None => page,
+        Some(hold) => Page {
+            held: Some(Held::after(Duration::from_millis(hold))),
+            ..page.header("server-timing", format!("hold;dur={hold}"))
+        },
+    }
 }

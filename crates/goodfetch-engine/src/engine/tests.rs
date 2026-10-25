@@ -27,6 +27,7 @@ mod layout;
 mod lifecycle;
 mod list;
 mod log;
+mod masking;
 mod needs_you;
 mod ops;
 mod pauses;

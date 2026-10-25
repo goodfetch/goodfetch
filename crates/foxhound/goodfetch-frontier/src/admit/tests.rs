@@ -192,6 +192,54 @@ fn an_enqueue_resolves_against_its_documents_base_and_is_answered_as_a_seed_is()
 /// request added is fetched at its own URL: its parameters in their order,
 /// its tracking parameters kept.
 ///
+/// A link's `href` resolves against its document's base URL with its
+/// query in the document's encoding, the URL it is fetched at and keyed
+/// by: a `Shift_JIS` page's link is a request apart from a handler's enqueue
+/// of the same text, which is UTF-8, and the call's `include` narrows the
+/// scope (ADR 0120).
+///
+/// Covers: story:6-232, story:6-233
+#[test]
+fn a_links_href_is_admitted_at_its_url_in_its_documents_encoding() {
+    let mut frontier = Frontier::new();
+    frontier.seed("http://shop.test/");
+    let base = Url::parse("http://shop.test/books/").unwrap();
+    let only_search = Patterns::globs(&["**/search?*".to_owned()]).unwrap();
+    let none = Patterns::default();
+    let mut link = |href: &str| {
+        frontier.admit(Candidate::Href {
+            href,
+            base: &base,
+            encoding: encoding_rs::SHIFT_JIS,
+            from: &base,
+            narrowing: Narrowing {
+                include: &only_search,
+                exclude: &none,
+            },
+            depth: 1,
+        })
+    };
+
+    let answers = [
+        link("../search?q=日本"),
+        link("/search?q=日本"),
+        link("../about"),
+    ];
+    let enqueued = frontier.enqueue("/search?q=日本", 1);
+
+    assert_eq!(
+        (answers, enqueued),
+        (
+            [
+                added("2", "http://shop.test/search?q=%93%FA%96{"),
+                not_added(NotAddedReason::Duplicate, "/search?q=日本"),
+                not_added(NotAddedReason::OutOfScope, "../about"),
+            ],
+            added("3", "http://shop.test/search?q=%E6%97%A5%E6%9C%AC"),
+        )
+    );
+}
+
 /// Covers: story:6-213
 #[test]
 fn a_url_of_an_admitted_key_is_a_duplicate_and_the_request_keeps_its_own_url() {

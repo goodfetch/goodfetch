@@ -4,7 +4,12 @@
 //! why. `run.seeds` lists the answers each seed of a crawl got when its Run
 //! began, and `crawl_request.enqueue` adds a request from inside a
 //! handler's attempt, resolving a relative URL against the document's base
-//! URL. A crawl request is sent with a method and a body, which with its
+//! URL; `crawl_request.links` reads the elements a locator matches on
+//! the attempt's page, as an `enqueueLinks` Payload function reads them,
+//! and `crawl_request.enqueue_links` adds their links, each `href`'s query
+//! percent-encoded in its document's encoding, answering each element
+//! added, not added with its reason, `no_link` or `skipped_by_payload`.
+//! A crawl request is sent with a method and a body, which with its
 //! URL's key make its identity, unless the program declares its `key`.
 //! `run.add_seed` adds a seed to a running crawl, and `run.add_seeds` takes
 //! a stream of them under credits, answering each in order. The
@@ -31,6 +36,13 @@ use crate::catalog::{
 use crate::foxhound::crawl::Seed;
 use crate::jsonrpc::RequestId;
 use crate::run::RunId;
+
+mod links;
+
+pub use links::{
+    CRAWL_REQUEST_ENQUEUE_LINKS, CRAWL_REQUEST_LINKS, CrawlRequestEnqueueLinksParams,
+    CrawlRequestLinks, CrawlRequestLinksParams, EnqueuedLink, EnqueuedLinks, MatchedLink,
+};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -848,6 +860,8 @@ pub const ENTRIES: Entries = Entries {
         RUN_ADD_SEED,
         RUN_ADD_SEEDS,
         CRAWL_REQUEST_ENQUEUE,
+        CRAWL_REQUEST_LINKS,
+        CRAWL_REQUEST_ENQUEUE_LINKS,
     ],
     events: &[],
     handler_requests: &[],

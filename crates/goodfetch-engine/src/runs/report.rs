@@ -22,6 +22,7 @@ use goodfetch_protocol::usage::{
 use rusqlite::{Connection, OptionalExtension as _};
 
 use super::CompletenessReason;
+use crate::mask::{Masks, Scope};
 
 /// The Usage kind of Paid fetches, which only Foxhound charges (ADR 0045),
 /// named here since every Run's report carries them (ADR 0101).
@@ -334,6 +335,28 @@ pub(super) fn count(
         (usage_kind, currency.unwrap_or_default(), delta),
     )?;
     Ok(())
+}
+
+/// `report` with every value a Run resolved masked, as what the engine
+/// keeps: its error, its warnings and every other text of it. A report
+/// whose masked form no longer reads as one, which no value of a Run
+/// should cause, keeps its texts but its error's and warnings'.
+pub(super) fn masked(report: RunReport, masks: &Masks) -> RunReport {
+    let Ok(mut value) = serde_json::to_value(&report) else {
+        return report;
+    };
+    let unmasked = value.clone();
+    masks.apply_value(&mut value, Scope::Kept);
+    if value == unmasked {
+        return report;
+    }
+    serde_json::from_value(value).unwrap_or_else(|_| {
+        let mut report = report;
+        for warning in &mut report.warnings {
+            warning.message = masks.apply(&warning.message, Scope::Kept).into_owned();
+        }
+        report
+    })
 }
 
 /// Records `warning` among the Run's warnings, in the order handed over.

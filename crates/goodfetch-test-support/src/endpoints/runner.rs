@@ -6,6 +6,7 @@
 //! or a wrong address, fails instead of passing every row. No row is ever
 //! skipped: a row whose attempt cannot be built fails.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::net::SocketAddr;
 
@@ -13,7 +14,7 @@ use serde_json::{Map, Value};
 
 use super::connection::ListenerAddress;
 use super::sign_in::SignIns;
-use super::table::{EndpointTable, Expected, ListenerKind, Rule, SignInRoutes, Transport};
+use super::table::{EndpointTable, Expected, ListenerKind, Row, Rule, SignInRoutes, Transport};
 use super::{http, json_rpc, websocket};
 
 /// The method of the first message that is not a `hello`.
@@ -117,7 +118,8 @@ pub struct Listener {
     kind: ListenerKind,
     endpoint: Endpoint,
     token: String,
-    other_listener_token: Option<String>,
+    /// The token each row that presents a token of its own presents.
+    given: BTreeMap<Rule, String>,
 }
 
 impl Listener {
@@ -127,15 +129,40 @@ impl Listener {
             kind,
             endpoint,
             token: token.into(),
-            other_listener_token: None,
+            given: BTreeMap::new(),
         }
     }
 
     /// The valid token of another listener, which the
     /// `token_from_another_listener` row presents.
     #[must_use]
-    pub fn with_other_listener_token(mut self, token: impl Into<String>) -> Self {
-        self.other_listener_token = Some(token.into());
+    pub fn with_other_listener_token(self, token: impl Into<String>) -> Self {
+        self.giving(Rule::TokenFromAnotherListener, token)
+    }
+
+    /// The token of the listener's earlier launch, which the
+    /// `token_expired` row presents.
+    #[must_use]
+    pub fn with_expired_token(self, token: impl Into<String>) -> Self {
+        self.giving(Rule::TokenExpired, token)
+    }
+
+    /// A token the listener took until it was replaced, which the
+    /// `token_revoked` row presents.
+    #[must_use]
+    pub fn with_revoked_token(self, token: impl Into<String>) -> Self {
+        self.giving(Rule::TokenRevoked, token)
+    }
+
+    /// A token of the same Daemon scoped to another listener or use, which
+    /// the `token_scoped_elsewhere` row presents.
+    #[must_use]
+    pub fn with_scoped_elsewhere_token(self, token: impl Into<String>) -> Self {
+        self.giving(Rule::TokenScopedElsewhere, token)
+    }
+
+    fn giving(mut self, rule: Rule, token: impl Into<String>) -> Self {
+        self.given.insert(rule, token.into());
         self
     }
 }
@@ -210,6 +237,7 @@ impl Observed {
                 },
             ) => observed == status,
             (Expected::StatusOnly, Self::Answered { body_length, .. }) => body_length == 0,
+            (Expected::Accepted, observed) => observed.accepts(),
             _ => false,
         }
     }
@@ -242,9 +270,9 @@ pub enum Failure {
         /// Why.
         message: String,
     },
-    /// The row presents another listener's token, which the listener's
-    /// description lacks.
-    NoOtherListenerToken,
+    /// The row presents a token of its own, such as another listener's or
+    /// an expired one, which the listener's description lacks.
+    TokenNotGiven,
 }
 
 /// A row the listener failed.
@@ -272,6 +300,14 @@ pub enum EndpointRunError {
         /// What it did.
         observed: Observed,
     },
+    /// No row of the listener's column cites the advisory.
+    #[error("no row of {listener:?}'s column cites {advisory}")]
+    NoRowCites {
+        /// The listener's kind.
+        listener: ListenerKind,
+        /// The advisory.
+        advisory: String,
+    },
     /// Rows the listener failed.
     #[error("the listener failed {} rows of the endpoint table: {failures:?}", failures.len())]
     Rows {
@@ -298,6 +334,37 @@ impl<A: AuditVerifier> EndpointRunner<A> {
 
     /// Applies every row of `listener`'s column to it.
     pub fn run(&mut self, listener: &Listener) -> Result<(), EndpointRunError> {
+        self.run_rows(listener, |_| true)
+    }
+
+    /// Applies the rows of `listener`'s column that cite `advisory`, such
+    /// as `CVE-2025-49596`: its regression test. A column with no such row
+    /// fails rather than passing nothing.
+    pub fn run_advisory(
+        &mut self,
+        listener: &Listener,
+        advisory: &str,
+    ) -> Result<(), EndpointRunError> {
+        let cited = |row: &Row| row.advisories.iter().any(|cited| cited == advisory);
+        if !self
+            .table
+            .rules
+            .values()
+            .any(|row| cited(row) && row.listeners.contains_key(&listener.kind))
+        {
+            return Err(EndpointRunError::NoRowCites {
+                listener: listener.kind,
+                advisory: advisory.to_owned(),
+            });
+        }
+        self.run_rows(listener, cited)
+    }
+
+    fn run_rows(
+        &mut self,
+        listener: &Listener,
+        chosen: impl Fn(&Row) -> bool,
+    ) -> Result<(), EndpointRunError> {
         let reach = match (&listener.endpoint, listener.kind.transport()) {
             (Endpoint::JsonRpc { address, hello }, Transport::JsonRpcStream) => {
                 Reach::JsonRpc { address, hello }
@@ -353,6 +420,9 @@ impl<A: AuditVerifier> EndpointRunner<A> {
             let Some(&expected) = row.listeners.get(&listener.kind) else {
                 continue;
             };
+            if !chosen(row) {
+                continue;
+            }
             if let Some(failure) = apply(&mut self.audit, listener, &reach, rule, expected) {
                 failures.push(RowFailure { rule, failure });
             }
@@ -378,17 +448,21 @@ fn apply(
     let observed = match rule {
         Rule::TokenMissing => reach.attempt(token, Attempt::Token(None)),
         Rule::TokenWrong => reach.attempt(token, Attempt::Token(Some(&reach.wrong_token(token)))),
-        Rule::TokenFromAnotherListener => {
-            let Some(other) = &listener.other_listener_token else {
-                return Some(Failure::NoOtherListenerToken);
+        Rule::TokenFromAnotherListener
+        | Rule::TokenExpired
+        | Rule::TokenRevoked
+        | Rule::TokenScopedElsewhere => {
+            let Some(given) = listener.given.get(&rule) else {
+                return Some(Failure::TokenNotGiven);
             };
-            reach.attempt(token, Attempt::OtherListener(other))
+            reach.attempt(token, Attempt::Given(given))
         }
         Rule::TokenForAnotherFile => reach.attempt(token, Attempt::OtherFile),
         Rule::TokenInQueryString => reach.attempt(token, Attempt::TokenInQuery),
         Rule::HostForeign => reach.attempt(token, Attempt::ForeignHost),
         Rule::OriginForeign => reach.attempt(token, Attempt::ForeignOrigin),
         Rule::OriginMissing => reach.attempt(token, Attempt::NoOrigin),
+        Rule::OriginMissingWithoutHeaderToken => reach.attempt(token, Attempt::TokenInCookie),
         Rule::HelloNotFirst => reach.attempt(token, Attempt::NotHello),
         Rule::ProbesAnswerStatusOnly => {
             return PROBES
@@ -423,8 +497,10 @@ enum Attempt<'a> {
     Valid,
     /// The valid message or request with this token, or none.
     Token(Option<&'a str>),
-    /// The valid message or request with another listener's valid token.
-    OtherListener(&'a str),
+    /// The valid message or request with a token the listener's
+    /// description gives a row: another listener's, an expired, a revoked
+    /// or an out-of-scope one.
+    Given(&'a str),
     /// The valid signature on another file's address.
     OtherFile,
     /// An HTTP request carrying the valid token in its query string only.
@@ -434,8 +510,12 @@ enum Attempt<'a> {
     /// An HTTP request or WebSocket handshake with the valid token and a
     /// foreign `Origin`.
     ForeignOrigin,
-    /// A WebSocket handshake without an `Origin`, then the valid `hello`.
+    /// A WebSocket handshake or a request without an `Origin`, then the
+    /// valid `hello`, or with the valid header token.
     NoOrigin,
+    /// An HTTP request without an `Origin` whose valid token is only a
+    /// cookie.
+    TokenInCookie,
     /// A first message with the valid token that is no `hello`.
     NotHello,
     /// A request without a token for one of the ops listener's probes.
@@ -496,7 +576,7 @@ impl Reach<'_> {
             Self::JsonRpc { address, hello } => {
                 let message = match attempt {
                     Attempt::Token(token) => hello.message("hello", token),
-                    Attempt::OtherListener(token) => hello.message("hello", Some(token)),
+                    Attempt::Given(token) => hello.message("hello", Some(token)),
                     Attempt::NotHello => hello.message(NOT_HELLO, Some(token)),
                     Attempt::Valid
                     | Attempt::TokenInQuery
@@ -507,6 +587,7 @@ impl Reach<'_> {
                     | Attempt::SignOutWithoutCsrf
                     | Attempt::SignedOut
                     | Attempt::SignInTooOften
+                    | Attempt::TokenInCookie
                     | Attempt::OtherFile => hello.message("hello", Some(token)),
                 };
                 json_rpc::attempt(address, &message)
@@ -527,9 +608,10 @@ impl Reach<'_> {
                     | Attempt::SignOutWithoutCsrf
                     | Attempt::SignedOut
                     | Attempt::SignInTooOften
+                    | Attempt::TokenInCookie
                     | Attempt::OtherFile => {}
                     Attempt::Token(token) => message = hello.message("hello", token),
-                    Attempt::OtherListener(token) => message = hello.message("hello", Some(token)),
+                    Attempt::Given(token) => message = hello.message("hello", Some(token)),
                     Attempt::TokenInQuery => {
                         handshake.target = format!("/?access_token={}", percent_encoded(token));
                         message = hello.message("hello", None);
@@ -547,6 +629,7 @@ impl Reach<'_> {
                 protected_path,
             } => {
                 let authority = address.to_string();
+                let cookie = format!("token={token}");
                 let mut request = http::Request {
                     target: (*protected_path).to_owned(),
                     host: &authority,
@@ -562,8 +645,12 @@ impl Reach<'_> {
                     | Attempt::SignedOut
                     | Attempt::SignInTooOften
                     | Attempt::OtherFile => {}
+                    Attempt::TokenInCookie => {
+                        request.bearer = None;
+                        request.cookie = Some(&cookie);
+                    }
                     Attempt::Token(token) => request.bearer = token,
-                    Attempt::OtherListener(token) => request.bearer = Some(token),
+                    Attempt::Given(token) => request.bearer = Some(token),
                     Attempt::TokenInQuery => {
                         request.target =
                             format!("{protected_path}?access_token={}", percent_encoded(token));
@@ -625,10 +712,11 @@ fn signed_address(
         | Attempt::Probe(_)
         | Attempt::SignOutWithoutCsrf
         | Attempt::SignedOut
-        | Attempt::SignInTooOften => {}
+        | Attempt::SignInTooOften
+        | Attempt::TokenInCookie => {}
         Attempt::Token(None) => path.clone_into(&mut request.target),
         Attempt::Token(Some(other)) => other.clone_into(&mut request.target),
-        Attempt::OtherListener(other) => {
+        Attempt::Given(other) => {
             path.clone_into(&mut request.target);
             request.cookie = Some(other);
         }
@@ -660,7 +748,7 @@ impl SignedInReach<'_> {
         let first = |method: &str| serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": self.hello });
         let mut message = first("hello");
         match attempt {
-            Attempt::Valid | Attempt::Probe(_) | Attempt::OtherFile => {}
+            Attempt::Valid | Attempt::Probe(_) | Attempt::OtherFile | Attempt::TokenInCookie => {}
             Attempt::SignOutWithoutCsrf => return sign_ins.sign_out(token, None),
             Attempt::SignedOut => match sign_ins.signed_out(self.link_token) {
                 Some(ended) => handshake.cookie = Some(signed_in(&ended)),
@@ -670,7 +758,7 @@ impl SignedInReach<'_> {
                 return sign_ins.too_often(&wrong_token(self.link_token), SIGN_IN_ATTEMPTS);
             }
             Attempt::Token(token) => handshake.cookie = token.map(signed_in),
-            Attempt::OtherListener(token) => handshake.cookie = Some(signed_in(token)),
+            Attempt::Given(token) => handshake.cookie = Some(signed_in(token)),
             Attempt::TokenInQuery => {
                 handshake.target = format!("{}?access_token={}", self.path, percent_encoded(token));
                 handshake.cookie = None;

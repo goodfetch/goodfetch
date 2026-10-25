@@ -165,7 +165,7 @@ fn a_label_with_a_session_source_keeps_its_cookies_in_its_own_pool_and_labels_wi
 /// its replacement is a new Session at the next proxy tier, whose browser
 /// context holds none of the cookies the blocked one held.
 ///
-/// Covers: story:5-138, error:blocked
+/// Covers: story:5-138
 #[test]
 fn a_blocked_pool_session_is_retired_and_its_replacement_is_a_new_session_without_its_cookies() {
     let env = TestEnv::new();

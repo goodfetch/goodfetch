@@ -215,12 +215,13 @@ impl Sessions {
         }
         let browser = in_browser.browser();
         self.follow_popups(session, &open, &driver).await;
+        let life = PageLife::new(page.clone(), driver.value().lease().cloned());
         let opened = OpenPage {
             clock: run.clock(),
             run,
             session: session.clone(),
             driver,
-            life: PageLife::new(page.clone()),
+            life,
             action_timeout,
             hiding,
             sheets,

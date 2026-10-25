@@ -17,6 +17,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use goodfetch_engine::CallError;
+use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::transition::{InvalidTransition, Refusal};
 use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
 use goodfetch_protocol::governor::PAGE_MEMORY_EXCEEDED;
@@ -39,7 +40,7 @@ use crate::errors::{
 const ENDING_WAIT: Duration = Duration::from_secs(5);
 
 /// How a page ended, as its table's event names it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub(crate) enum Ending {
     /// The program closed it or its Session (`Close`): what was closed.
     Closed(ClosedValue),
@@ -59,6 +60,10 @@ pub(crate) enum Ending {
         /// The cap, with its value and layer.
         limit: SettingLimit,
     },
+    /// Its crawl handler's lease ended (`LeaseEnded`): what its lease check
+    /// raised for the command it withheld, which its calls in flight raise
+    /// too.
+    LeaseEnded(CallError),
 }
 
 impl Ending {
@@ -70,6 +75,7 @@ impl Ending {
             Self::BrowserQuit => PageEvent::BrowserQuit,
             Self::BrowserCrash(_) => PageEvent::BrowserCrash,
             Self::MemoryExceeded { .. } => PageEvent::MemoryExceeded,
+            Self::LeaseEnded(_) => PageEvent::LeaseEnded,
         }
     }
 }
@@ -90,11 +96,17 @@ struct PageShared {
     calls: watch::Sender<usize>,
     /// Set once it was found past its memory cap.
     past_cap: OnceLock<()>,
+    /// Its lease check, a crawl handler's page's (ADR 0087); none on a page
+    /// a program opens.
+    lease: Option<Arc<dyn LeaseCheck>>,
+    /// Set once its lease ended it, so its target closes.
+    ended_by_lease: watch::Sender<bool>,
 }
 
 impl PageLife {
-    /// The page `page_id`, `Open`.
-    pub(crate) fn new(page_id: PageId) -> Self {
+    /// The page `page_id`, `Open`, under the lease check `lease` when it is
+    /// a crawl handler's.
+    pub(crate) fn new(page_id: PageId, lease: Option<Arc<dyn LeaseCheck>>) -> Self {
         Self {
             shared: Arc::new(PageShared {
                 page_id,
@@ -102,8 +114,42 @@ impl PageLife {
                 ended: watch::Sender::new(None),
                 calls: watch::Sender::new(0),
                 past_cap: OnceLock::new(),
+                lease,
+                ended_by_lease: watch::Sender::new(false),
             }),
         }
+    }
+
+    /// Waits until the page's lease ended it (`LeaseEnded`, P31), after
+    /// which the engine closes its target.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future gives up the wait.
+    pub(crate) async fn ended_by_lease(&self) {
+        let mut ended = self.shared.ended_by_lease.subscribe();
+        let _ = ended.wait_for(|ended| *ended).await;
+    }
+
+    /// `error`, which a call on the page failed with: once its lease check
+    /// refuses, that is the lease's end, which moves the page to `Closing`
+    /// (spec #594's P31, decision 13), its calls in flight raising `error`
+    /// and its later ones `closed`.
+    pub(crate) fn withheld(&self, error: CallError) -> CallError {
+        let Some(lease) = &self.shared.lease else {
+            return error;
+        };
+        if lease.check().is_ok() {
+            return error;
+        }
+        match self.end(&Ending::LeaseEnded(error.clone())) {
+            Ok(PageEffect::Close) => {
+                self.shared.ended_by_lease.send_replace(true);
+            }
+            Ok(_) => {}
+            Err(refused) => tracing::error!(%refused, "a page's lease end was refused"),
+        }
+        error
     }
 
     /// Where the page is.
@@ -172,7 +218,7 @@ impl PageLife {
             biased;
             answered = &mut work => match answered {
                 Ok(answer) => Ok(answer),
-                Err(error) => Err(self.settled(error).await),
+                Err(error) => Err(self.withheld(self.settled(error).await)),
             },
             Some(error) = ending(&mut ended) => Err(error),
         }
@@ -287,6 +333,7 @@ impl PageLife {
             (PageEffect::Close, Ending::Closed(closed)) => {
                 Some(cancelled(StoppedBy::Program, *closed))
             }
+            (PageEffect::Close, Ending::LeaseEnded(withheld)) => Some(withheld.clone()),
             (PageEffect::Close, Ending::MemoryExceeded { memory, limit }) => Some(
                 page_memory_exceeded(&self.shared.page_id, *memory, limit.clone()),
             ),

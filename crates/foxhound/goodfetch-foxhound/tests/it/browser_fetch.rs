@@ -140,3 +140,106 @@ fn a_cookie_the_browser_sample_set_is_sent_by_the_http_tiers_next_request_in_its
         )
     );
 }
+
+/// The JA4 of each TLS handshake the site's `host` received from the
+/// observation `from` on, in order, without the extensions a resumed
+/// handshake adds.
+fn handshakes(proving_ground: &ProvingGround, host: &str, from: usize) -> Vec<String> {
+    proving_ground.observations().unwrap()["tls_handshakes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .skip(from)
+        .filter(|handshake| handshake["sni"] == host)
+        .map(|handshake| handshake["ja4_base"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// How many TLS handshakes the site recorded so far.
+fn handshakes_so_far(proving_ground: &ProvingGround) -> usize {
+    proving_ground.observations().unwrap()["tls_handshakes"]
+        .as_array()
+        .unwrap()
+        .len()
+}
+
+/// A crawl of one corpus article on `tier`, robots.txt not read, whose
+/// handler reaches `https_url` from its page: through `page.request` on
+/// the `http` tier, through `page.goto` on `browser`. Neither trusts the
+/// Proving ground's certificate, so each request ends at its handshake,
+/// whose `ClientHello` the site still records. Answers the tier of each
+/// run of the handler.
+fn reach_over_tls(
+    engine: &mut Attached,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    tier: &str,
+    https_url: &str,
+) -> Vec<Value> {
+    let mut settings = settings(proving_ground, tier);
+    settings["site_preferences"] = json!({ "respect_robots_txt": false });
+    let mut tiers = Vec::new();
+    let finished = crawl_declaring(
+        engine,
+        run_id,
+        &[seed(proving_ground, "/corpus/article?n=1", "a")],
+        &json!({ "a": {} }),
+        &settings,
+        &mut |inside, handle| {
+            tiers.push(handle["tier"].clone());
+            let method = if handle["tier"] == "browser" {
+                "page.goto"
+            } else {
+                "page.request"
+            };
+            let reached = inside.call(
+                method,
+                &json!({ "page_id": handle["page_id"], "url": https_url }),
+            );
+            assert!(reached.get("error").is_some(), "{reached}");
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    tiers
+}
+
+/// Under `auto`, the Session's `http` run and its `browser` run show the
+/// site one TLS `ClientHello`, the browser's, since its HTTP goes through
+/// browser-fetch; a Session forced onto `http`, which never moves, shows
+/// reqwest's own, another.
+///
+/// Covers: story:5-121
+#[test]
+fn a_session_that_may_move_shows_one_tls_fingerprint_on_the_http_and_browser_tiers() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let https_url = proving_ground
+        .url(HOST, "/corpus/article?n=2")
+        .replacen("http://", "https://", 1);
+
+    let moving = reach_over_tls(&mut engine, &proving_ground, "moving", "auto", &https_url);
+    let seen = handshakes_so_far(&proving_ground);
+    let staying = reach_over_tls(&mut engine, &proving_ground, "staying", "http", &https_url);
+    assert!(engine.finish());
+
+    let reqwest = handshakes(&proving_ground, HOST, seen);
+    let all = handshakes(&proving_ground, HOST, 0);
+    let moving_handshakes = &all[..all.len() - reqwest.len()];
+    assert_eq!(
+        (moving, staying),
+        (vec![json!("http"), json!("browser")], vec![json!("http")])
+    );
+    assert!(moving_handshakes.len() >= 2, "{moving_handshakes:?}");
+    assert!(
+        moving_handshakes
+            .iter()
+            .all(|ja4| ja4 == &moving_handshakes[0]),
+        "one fingerprint across the tiers: {moving_handshakes:?}"
+    );
+    assert!(
+        !reqwest.is_empty() && reqwest.iter().all(|ja4| ja4 != &moving_handshakes[0]),
+        "reqwest {reqwest:?}, the browser {moving_handshakes:?}"
+    );
+}

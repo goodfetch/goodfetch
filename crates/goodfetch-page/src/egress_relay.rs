@@ -630,7 +630,6 @@ impl Network for Tcp {
                     .iter()
                     .map(|address| SocketAddr::new(*address, port))
                     .collect(),
-                mapped: true,
             });
         }
         let addresses = match &self.local {
@@ -638,10 +637,7 @@ impl Network for Tcp {
             None => http_client::lookup(host, port, &Resolve::new()).await,
         }
         .ok()?;
-        Some(Resolved {
-            addresses,
-            mapped: false,
-        })
+        Some(Resolved { addresses })
     }
 
     async fn connect(&self, address: SocketAddr) -> io::Result<TcpStream> {

@@ -5114,6 +5114,29 @@
       "const": "2.0",
       "description": "JSON-RPC's version, always \"2.0\"."
     },
+    "KeyValueStoreAttempt": {
+      "additionalProperties": false,
+      "description": "The crawl attempt a Key-value store call is made through: a handler's\n`ctx.run`, which is bound to its attempt (ADR 0093). Only a crawl's Run\nhas attempts.",
+      "properties": {
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt makes the call.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "crawl_request_id",
+        "lease_epoch"
+      ],
+      "type": "object"
+    },
     "KeyValueStoreBytes": {
       "description": "Bytes the store holds for a key, with their content type.",
       "properties": {
@@ -5199,6 +5222,18 @@
         "_meta": {
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
+        },
+        "attempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyValueStoreAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The crawl attempt whose handler's `ctx.run` reads or deletes the\nkey: a read sees what the attempt staged, and a delete is staged\nwith the attempt (ADR 0093). Absent, the call reads or commits at\nonce."
         },
         "key": {
           "arrived_in": "0.1",
@@ -5308,6 +5343,18 @@
         "_meta": {
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
+        },
+        "attempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyValueStoreAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The crawl attempt whose handler's `ctx.run` sets the key: the write\nis staged with the attempt and commits with it, or is discarded\nwith it (ADR 0093). Absent, the value is committed at once."
         },
         "key": {
           "arrived_in": "0.1",
@@ -14793,6 +14840,18 @@
                     "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
                     "type": "boolean"
                   },
+                  "private_ranges": {
+                    "description": "The ranges and hosts that addresses a page can reach may use although they are not globally reachable, for tests against a local site or an intranet: CIDR ranges such as `127.0.0.0/8`, IP addresses, and host names, each name's connections allowed any address that is not globally reachable. A cloud-metadata address (`169.254.169.254`, `fd00:ec2::254`, `100.100.100.200`) is reached only when listed by its exact address, never through a range or a host name that covers it. Empty by default; set by the program's own code, configuration or an Operator policy, by a Recipe only where the Operator policy's `egress.recipe_private_ranges` allows it, and never by a Client acting for a model, whose value is `setting_locked`. A run that lists any records it once in the Audit log as `private_addresses_allowed` and in its Run report's `weakened`.",
+                    "items": {
+                      "description": "A CIDR range such as `127.0.0.0/8`, an IP address such as `169.254.169.254`, or a host name such as `intranet.example`.",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "recipe_private_ranges": {
+                    "description": "Whether a Recipe may set `egress.private_ranges`. `false` by default, so a Recipe's value is `setting_locked`; set only in an Operator policy.",
+                    "type": "boolean"
+                  },
                   "rotation_block": {
                     "additionalProperties": false,
                     "properties": {
@@ -17048,6 +17107,18 @@
                   },
                   "offline": {
                     "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
+                    "type": "boolean"
+                  },
+                  "private_ranges": {
+                    "description": "The ranges and hosts that addresses a page can reach may use although they are not globally reachable, for tests against a local site or an intranet: CIDR ranges such as `127.0.0.0/8`, IP addresses, and host names, each name's connections allowed any address that is not globally reachable. A cloud-metadata address (`169.254.169.254`, `fd00:ec2::254`, `100.100.100.200`) is reached only when listed by its exact address, never through a range or a host name that covers it. Empty by default; set by the program's own code, configuration or an Operator policy, by a Recipe only where the Operator policy's `egress.recipe_private_ranges` allows it, and never by a Client acting for a model, whose value is `setting_locked`. A run that lists any records it once in the Audit log as `private_addresses_allowed` and in its Run report's `weakened`.",
+                    "items": {
+                      "description": "A CIDR range such as `127.0.0.0/8`, an IP address such as `169.254.169.254`, or a host name such as `intranet.example`.",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "recipe_private_ranges": {
+                    "description": "Whether a Recipe may set `egress.private_ranges`. `false` by default, so a Recipe's value is `setting_locked`; set only in an Operator policy.",
                     "type": "boolean"
                   },
                   "rotation_block": {
@@ -19321,6 +19392,18 @@
                   },
                   "offline": {
                     "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
+                    "type": "boolean"
+                  },
+                  "private_ranges": {
+                    "description": "The ranges and hosts that addresses a page can reach may use although they are not globally reachable, for tests against a local site or an intranet: CIDR ranges such as `127.0.0.0/8`, IP addresses, and host names, each name's connections allowed any address that is not globally reachable. A cloud-metadata address (`169.254.169.254`, `fd00:ec2::254`, `100.100.100.200`) is reached only when listed by its exact address, never through a range or a host name that covers it. Empty by default; set by the program's own code, configuration or an Operator policy, by a Recipe only where the Operator policy's `egress.recipe_private_ranges` allows it, and never by a Client acting for a model, whose value is `setting_locked`. A run that lists any records it once in the Audit log as `private_addresses_allowed` and in its Run report's `weakened`.",
+                    "items": {
+                      "description": "A CIDR range such as `127.0.0.0/8`, an IP address such as `169.254.169.254`, or a host name such as `intranet.example`.",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "recipe_private_ranges": {
+                    "description": "Whether a Recipe may set `egress.private_ranges`. `false` by default, so a Recipe's value is `setting_locked`; set only in an Operator policy.",
                     "type": "boolean"
                   },
                   "rotation_block": {

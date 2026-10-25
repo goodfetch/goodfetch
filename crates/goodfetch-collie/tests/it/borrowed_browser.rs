@@ -573,7 +573,11 @@ fn a_local_address_is_refused_on_a_borrowed_and_a_third_party_cdp_browser() {
                     SITE: ["127.0.0.1"],
                     "cloud-browser.test": [PUBLIC],
                 } },
-                "egress": { "local_addresses": ["127.0.0.1"] },
+                "egress": {
+                    "local_addresses": ["127.0.0.1"],
+                    // The launched Session's site, on loopback.
+                    "private_ranges": [SITE],
+                },
             },
         }),
     );

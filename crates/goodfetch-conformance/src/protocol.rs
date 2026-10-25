@@ -370,6 +370,7 @@ pub(crate) fn hello_as(
         reason: why.to_string(),
     };
     let id = connection.request(HELLO, &params).map_err(unanswered)?;
+    connection.set_for_model(surface.acts_for_model());
     let answer = connection.first_answer(id).map_err(unanswered)?.message;
     if let Some(error) = answer.get("error") {
         return Err(ProtocolSuiteError::HelloRefused {

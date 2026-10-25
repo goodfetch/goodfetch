@@ -488,15 +488,16 @@ fn truncated(url: &str, received: usize, expected: Option<u64>) -> CallError {
 }
 
 /// Judges a hop to `url` under the Session's egress policy `egress` before
-/// anything is sent (ADR 0017): its URL, and, when the connection goes
-/// `direct`, the address the URL names in place of a host, which the
-/// transport connects to without asking its resolver.
+/// anything is sent (ADR 0017): its URL, and the address the URL names in
+/// place of a host, which no resolver answers: a transport connects to it
+/// without a lookup, and a proxy, which would connect to it, is never sent
+/// it.
 ///
 /// # Errors
 ///
 /// [`Refused`] by the domain policy, or by the address check for an address
 /// a page may not reach.
-pub(crate) fn judged(url: &Url, egress: &Policy, direct: bool) -> Result<(), Refused> {
+pub(crate) fn judged(url: &Url, egress: &Policy) -> Result<(), Refused> {
     let request = egress::Request {
         url: url.as_str(),
         kind: RequestKind::Fetch,
@@ -505,8 +506,8 @@ pub(crate) fn judged(url: &Url, egress: &Policy, direct: bool) -> Result<(), Ref
         return Err(refused);
     }
     let address = match url.host() {
-        Some(Host::Ipv4(address)) if direct => IpAddr::V4(address),
-        Some(Host::Ipv6(address)) if direct => IpAddr::V6(address),
+        Some(Host::Ipv4(address)) => IpAddr::V4(address),
+        Some(Host::Ipv6(address)) => IpAddr::V6(address),
         _ => return Ok(()),
     };
     let port = url.port_or_known_default().unwrap_or_default();

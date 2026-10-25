@@ -16,6 +16,10 @@
 //! `cdp_url_not_allowed` (ADR 0115), naming the rule, the address and the
 //! settings layer that gave it.
 //!
+//! [`private_ranges`] holds `egress.private_ranges`, the ranges and hosts
+//! a page may reach although not globally reachable, and the Operator
+//! policy's allowance for a Recipe to set it.
+//!
 //! [`local_addresses`] holds ADR 0044's: `egress.local_addresses`, the
 //! rotation's block sizes and `local_address_unavailable`.
 
@@ -29,11 +33,15 @@ use crate::catalog::{
 use crate::settings::SettingsLayer;
 
 mod local_addresses;
+mod private_ranges;
 
 pub use local_addresses::{
     EGRESS_LOCAL_ADDRESSES, EGRESS_ROTATION_BLOCK_IPV4, EGRESS_ROTATION_BLOCK_IPV6,
     IPV4_BLOCK_SHAPE, IPV6_BLOCK_SHAPE, Ipv6Prefix, LOCAL_ADDRESS_UNAVAILABLE,
     LOCAL_ADDRESSES_SHAPE, LocalAddressFailure, LocalAddressUnavailableDetails, LocalAddresses,
+};
+pub use private_ranges::{
+    EGRESS_PRIVATE_RANGES, EGRESS_RECIPE_PRIVATE_RANGES, PRIVATE_RANGES_SHAPE, PrivateRange,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -354,6 +362,8 @@ pub const ENTRIES: Entries = Entries {
         EGRESS_BLOCKED_DOMAINS,
         EGRESS_OFFLINE,
         EGRESS_NO_PRIVATE_ENDPOINTS,
+        EGRESS_PRIVATE_RANGES,
+        EGRESS_RECIPE_PRIVATE_RANGES,
         EGRESS_LOCAL_ADDRESSES,
         EGRESS_ROTATION_BLOCK_IPV4,
         EGRESS_ROTATION_BLOCK_IPV6,

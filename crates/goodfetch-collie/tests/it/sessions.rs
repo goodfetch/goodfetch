@@ -500,7 +500,13 @@ fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state
         &mut resumed,
         1,
         "run.resume",
-        &json!({ "run_id": "resumed", "settings": { "network": { "resolve": resolve } } }),
+        &json!({
+            "run_id": "resumed",
+            "settings": {
+                "network": { "resolve": resolve },
+                "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
+            },
+        }),
     );
     let own_page = page_in(&mut resumed, 2, &own);
     let stored = store(&mut resumed, 3, &proving_ground, &own_page, "own");
@@ -626,7 +632,13 @@ fn a_sessions_own_filter_list_settings_choose_its_pages_clean_up_over_the_runs_a
         &mut resumed,
         1,
         "run.resume",
-        &json!({ "run_id": "cleaned", "settings": { "network": { "resolve": resolve } } }),
+        &json!({
+            "run_id": "cleaned",
+            "settings": {
+                "network": { "resolve": resolve },
+                "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
+            },
+        }),
     );
     let own_page = page_in(&mut resumed, 2, &own);
     let after_the_resume = ads_loaded(&mut resumed, 3, &proving_ground, &own_page);

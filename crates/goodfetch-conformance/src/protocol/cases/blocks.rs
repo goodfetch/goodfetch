@@ -511,11 +511,24 @@ fn owners(
         "an Agent's Client, through the MCP server, opens its own Connection",
         opened.is_ok(),
     );
+    // A Client acting for a model never lists private ranges: user
+    // configuration lists the site's hosts while its Run goes.
+    let major = target
+        .environment
+        .get("GOODFETCH_HOME")
+        .and_then(|home| super::consent::walls::major_of(home, "conformance-blocked-program"));
+    checks.check("the engine's per-major folder is found", major.is_some());
+    let before = major
+        .as_deref()
+        .and_then(|major| super::consent::walls::configure(major, Some(&site.configured_hosts())));
     let met = if opened.is_ok() {
         meets_blocks(&mut agent, target, site, "agent", checks)
     } else {
         Ok(())
     };
+    if let Some(major) = &major {
+        super::consent::walls::configure(major, before.as_deref());
+    }
     connection.keep(agent.take_exchanged());
     agent.close();
     met

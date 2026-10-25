@@ -23,8 +23,8 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use goodfetch_test_support::{
-    BROWSERS_PATH_VARIABLE, CaseDomains, EgressRule, Family, Outcome, ProvingGround, Refusal,
-    SsrfCase, SsrfTable, TestEnv, browser_cache, run_cases,
+    Answer, BROWSERS_PATH_VARIABLE, Family, Outcome, ProvingGround, Refusal, SsrfCase, SsrfTable,
+    TestEnv, browser_cache, run_cases,
 };
 use serde_json::{Map, Value, json};
 
@@ -48,11 +48,16 @@ const CASE_HOST: &str = "http://redirect.ssrf.test/";
 const HOP_DEADLINE: Duration = Duration::from_secs(10);
 
 /// A Connection to an Attached engine whose `hello` names `surface`, and
-/// the Proving ground's hosts mapped in each Run's `network.resolve`.
+/// the Proving ground's hosts mapped in each Run's `network.resolve`,
+/// which a program's Run lists in `egress.private_ranges`, since the relay
+/// judges a mapping's answers as any other; a Client acting for a model
+/// lists none.
 struct Program<'env> {
     engine: Attached<'env>,
     next_id: i64,
     resolve: Map<String, Value>,
+    private_ranges: Vec<String>,
+    for_model: bool,
 }
 
 impl<'env> Program<'env> {
@@ -78,8 +83,21 @@ impl<'env> Program<'env> {
         Self {
             engine,
             next_id: 0,
+            private_ranges: proving_ground
+                .description()
+                .resolve
+                .keys()
+                .cloned()
+                .collect(),
             resolve,
+            for_model: surface == "mcp",
         }
+    }
+
+    /// Maps `host` to `addresses` in the Runs it starts from now on, as a
+    /// case's lookups answer, without listing it in their private ranges.
+    fn map(&mut self, host: &str, addresses: &[String]) {
+        self.resolve.insert(host.to_owned(), json!(addresses));
     }
 
     fn call(&mut self, method: &str, params: &Value) -> Value {
@@ -89,10 +107,13 @@ impl<'env> Program<'env> {
 
     /// Starts the Run `run_id` whose domain policy allows `allowed`.
     fn run(&mut self, run_id: &str, allowed: &[&str]) {
-        let settings = json!({
+        let mut settings = json!({
             "network": { "resolve": self.resolve },
             "egress": { "allowed_domains": allowed },
         });
+        if !self.for_model {
+            settings["egress"]["private_ranges"] = json!(self.private_ranges);
+        }
         let started = self.call(
             "run.start",
             &json!({ "run_id": run_id, "settings": settings }),
@@ -295,9 +316,10 @@ fn run_case(
 /// The SSRF table's thin runner on Chromium (ADR 0067), for the redirect
 /// family: each case's page as the Proving ground serves it, every status
 /// and kind of redirect and every scheme other than HTTP's, a hop to a
-/// private address refused by the egress relay, one to a private name by
-/// the domain policy until #622. Positive controls: the same kinds to an allowed page go
-/// through.
+/// private address or to a name that resolves to one refused by the
+/// egress relay, the name's answer given by the Run's `network.resolve`
+/// mapping, which the relay judges as any other. Positive controls: the
+/// same kinds to an allowed page go through.
 ///
 /// Covers: story:4-5, story:4-10, error:egress_refused
 #[test]
@@ -307,28 +329,7 @@ fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium() {
     let cache = browser_cache(&env).unwrap();
     let public = proving_ground.address().ip();
     let table = SsrfTable::committed().unwrap();
-    // A hop to a name the table resolves privately would need the name in
-    // the Run's `network.resolve` mapping, whose answers the relay judges
-    // only once tests list their ranges (#622): it runs under a domain
-    // policy that refuses the name until then.
-    let cases: Vec<SsrfCase> = table
-        .cases_of(Family::Redirect)
-        .map(|case| match &case.refusal {
-            Refusal::EgressRefused {
-                rule: EgressRule::PrivateAddress,
-            } if case.lookups.len() > 1 => SsrfCase {
-                domains: Some(CaseDomains {
-                    allowed: vec!["redirects.test".to_owned()],
-                    blocked: Vec::new(),
-                }),
-                refusal: Refusal::EgressRefused {
-                    rule: EgressRule::DomainPolicy,
-                },
-                ..case.clone()
-            },
-            _ => case.clone(),
-        })
-        .collect();
+    let cases: Vec<SsrfCase> = table.cases_of(Family::Redirect).cloned().collect();
     let controls = SsrfTable::parse(
         r#"
         [[cases]]
@@ -356,6 +357,21 @@ fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium() {
     )
     .unwrap();
     let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    // A hop to a name the table resolves privately reaches the relay with
+    // the name's answer from the Run's mapping, which no range lists.
+    for case in &cases {
+        for lookup in case.lookups.iter().skip(1) {
+            let addresses: Vec<String> = lookup
+                .answers
+                .iter()
+                .filter_map(|answer| match answer {
+                    Answer::Address(address) => Some(address.to_string()),
+                    Answer::Public => None,
+                })
+                .collect();
+            program.map(&lookup.name, &addresses);
+        }
+    }
     // One Run per domain policy, which its pages share.
     let mut runs: Vec<Vec<String>> = Vec::new();
     let mut run_for = |program: &mut Program<'_>, case: &SsrfCase| -> String {

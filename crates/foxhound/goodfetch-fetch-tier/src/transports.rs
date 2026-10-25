@@ -7,7 +7,9 @@
 //! `network.resolve` mapping, then the engine's resolver) and verifies
 //! certificates under the engine's [`Trust`]. Neither follows a redirect,
 //! resends anything, decodes a content coding or sets a timeout of its
-//! own: the driver does each.
+//! own: the driver does each. In a Session that may move to the browser,
+//! browser-fetch (`in_browser`) takes their place, sending from inside the
+//! Session's browser context (ADR 0020).
 //!
 //! **Connections (ADR 0118):** it keeps a pool of idle connections for
 //! [`Reuse::Allowed`] hops and opens a new one, kept for nothing, for

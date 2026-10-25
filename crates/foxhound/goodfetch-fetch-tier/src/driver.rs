@@ -7,8 +7,10 @@
 //! enum, [`TransportFailure`], with the Error code each variant ends an
 //! attempt with (ADR 0118). Cancelling a fetch is dropping it. A fetch is
 //! one hop: the `chain` module follows a crawl request's redirects and
-//! refresh stubs over it (#762); retries and cookies join with their
-//! tickets.
+//! refresh stubs over it (#762); retries join with their ticket. A
+//! Session that may move to the browser keeps its cookies in its browser
+//! context, which browser-fetch sends from (`transports`); a Session that
+//! never moves keeps none yet.
 //!
 //! **Cut bodies (ADR 0118; pitfall H15):** once a hop's head arrived, any
 //! failure of its body, or a compressed stream that stops before its end,

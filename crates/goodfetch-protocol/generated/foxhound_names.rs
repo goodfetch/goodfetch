@@ -5,7 +5,7 @@
 pub const COMMANDS: &[&str] = &[];
 
 /// The error codes only Foxhound carries.
-pub const ERROR_CODES: &[&str] = &["attempt_ended", "browser_required", "client_gone", "handler_failed", "handler_lost", "lease_lost", "payload_invalid", "payload_schema_changed", "response_not_document", "response_not_ok", "response_unavailable", "sample_crawl_refused"];
+pub const ERROR_CODES: &[&str] = &["attempt_ended", "browser_required", "client_gone", "effect_staging_refused", "handler_failed", "handler_lost", "lease_lost", "payload_invalid", "payload_schema_changed", "response_not_document", "response_not_ok", "response_unavailable", "sample_crawl_refused"];
 
 /// The error groups only Foxhound carries.
 pub const ERROR_GROUPS: &[&str] = &[];

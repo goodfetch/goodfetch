@@ -25,12 +25,9 @@ pub(crate) const RELAY: &str = "goodfetch-relay";
 /// What a name resolved to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Resolved {
-    /// The addresses a connection may try, in order.
+    /// The addresses a connection may try, in order, each judged as
+    /// any answer is, a `network.resolve` mapping's too (ADR 0059).
     pub(crate) addresses: Vec<SocketAddr>,
-    /// Whether the Run's `network.resolve` mapping gave them, which the
-    /// relay does not judge until tests list their ranges in
-    /// `egress.private_ranges` (#622).
-    pub(crate) mapped: bool,
 }
 
 /// Where the relay's connections go out, and how names resolve.
@@ -239,9 +236,7 @@ where
         )
         .await;
     };
-    if !resolved.mapped
-        && let Err(refused) = egress::judge_addresses(&url, &resolved.addresses, &relaying.policy)
-    {
+    if let Err(refused) = egress::judge_addresses(&url, &resolved.addresses, &relaying.policy) {
         return refuse(
             &mut browser,
             &head,

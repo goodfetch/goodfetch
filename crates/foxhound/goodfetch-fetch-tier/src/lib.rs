@@ -50,5 +50,5 @@ pub use tiers::{
     Chosen, FetchTiers, HandedOver, HttpTier, Judged, PAGE_CHECK_CALL, ServedLinks, Signed,
     record_tier,
 };
-pub use transports::{Reqwest, TransportConfig, TransportUnavailable, Wreq};
+pub use transports::{AddressCheck, Reqwest, TransportConfig, TransportUnavailable, Wreq};
 pub use use_signals::{Purpose, UseSignals};

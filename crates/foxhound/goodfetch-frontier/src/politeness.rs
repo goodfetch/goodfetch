@@ -265,6 +265,16 @@ impl Limits {
     }
 }
 
+/// The first whole millisecond at or after `wall`, as the Politeness file
+/// keeps moments: a start counted from it is never sooner than from `wall`.
+fn milliseconds_from(wall: SystemTime) -> i64 {
+    let whole = milliseconds(wall);
+    let past = wall
+        .duration_since(moment(whole))
+        .is_ok_and(|past| !past.is_zero());
+    whole.saturating_add(i64::from(past))
+}
+
 fn duration_milliseconds(duration: Duration) -> i64 {
     i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
 }
@@ -472,9 +482,10 @@ pub(crate) fn start_taken(
 ) -> rusqlite::Result<SystemTime> {
     let mut limits = Limits::read(connection, key)?;
     let spacing = duration_milliseconds(spacing);
+    let after = milliseconds_from(after);
     let start = limits
         .last_start
-        .map_or(milliseconds(after), |last| last.max(milliseconds(after)))
+        .map_or(after, |last| last.max(after))
         .saturating_add(spacing);
     limits.last_start = Some(start);
     limits.write(connection, key)?;

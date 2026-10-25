@@ -422,6 +422,22 @@ fn documents_after_robots_txt_fetched_at_once_start_a_delay_apart() {
     );
 }
 
+/// A document's start after a robots.txt that arrived between two
+/// milliseconds is never sooner than the Crawl-delay after it: the
+/// Politeness file keeps whole milliseconds, so the start is the next one.
+///
+/// Covers: story:6-243
+#[test]
+fn a_start_after_a_moment_inside_a_millisecond_is_never_sooner_than_the_delay_after_it() {
+    let file = file();
+    let crawl_delay = Duration::from_secs(5);
+    let arrived = at(10) + Duration::from_micros(400);
+
+    let start = start_taken(&file, KEY, arrived, crawl_delay).unwrap();
+
+    assert_eq!(start, at(15) + milliseconds(1));
+}
+
 proptest! {
     /// Whatever the run's delay, its bound and the Crawl-delays its key's
     /// hosts ask for, the key admits a request at a wall reading exactly

@@ -112,25 +112,6 @@ impl Foreground {
         }
     }
 
-    /// Whether its log holds at least `count` records that `matches`,
-    /// reading it until it does or no line comes in time.
-    pub(crate) fn holds(&mut self, count: usize, matches: impl Fn(&Value) -> bool) -> bool {
-        let counted = |logged: &[String]| {
-            logged
-                .iter()
-                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-                .filter(|record| matches(record))
-                .count()
-        };
-        while counted(&self.logged) < count {
-            let Ok(line) = self.lines.recv_timeout(LOG_DEADLINE) else {
-                return false;
-            };
-            self.logged.push(line);
-        }
-        true
-    }
-
     /// The fields of the next refusal of a Connection it logs from here on,
     /// or `None` when it logs none within the deadline.
     pub(crate) fn refusal(&mut self) -> Option<Value> {

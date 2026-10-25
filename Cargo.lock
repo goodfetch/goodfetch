@@ -1918,6 +1918,7 @@ dependencies = [
  "serde_json_canonicalizer",
  "sha2 0.10.9",
  "sqlite-plugin",
+ "subtle",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -1962,6 +1963,7 @@ dependencies = [
  "btls",
  "bytes",
  "dom_query",
+ "encoding_rs",
  "flate2",
  "goodfetch-engine",
  "goodfetch-extractor",
@@ -2021,6 +2023,7 @@ name = "goodfetch-frontier"
 version = "0.0.0"
 dependencies = [
  "data-encoding",
+ "encoding_rs",
  "goodfetch-engine",
  "goodfetch-page",
  "goodfetch-protocol",

@@ -50,6 +50,7 @@ use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, InstalledSer
 
 use sha2::{Digest as _, Sha256};
 
+use crate::endpoint::new_token;
 use crate::home::Home;
 
 const RUNTIME_FILE: &str = "daemon.json";
@@ -74,9 +75,6 @@ fn read_token(path: &Path) -> io::Result<Option<String>> {
         Err(error) => Err(error),
     }
 }
-
-/// How many bytes of the OS generator a token takes.
-const TOKEN_BYTES: usize = 32;
 
 /// The Daemon's files of one major.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -412,21 +410,6 @@ impl DaemonFiles {
             .tempdir()?;
         Ok((folder.path().join(SOCKET), Some(folder)))
     }
-}
-
-/// A per-launch token from the OS generator, never from `Entropy` (ADR
-/// 0059): 32 bytes, in lowercase hex.
-///
-/// # Errors
-///
-/// When the OS generator gives nothing.
-pub fn new_token() -> Result<String, getrandom::Error> {
-    let mut bytes = [0; TOKEN_BYTES];
-    getrandom::fill(&mut bytes)?;
-    Ok(bytes.iter().fold(String::new(), |mut token, byte| {
-        let _ = write!(token, "{byte:02x}");
-        token
-    }))
 }
 
 fn remove(path: &Path) -> io::Result<()> {

@@ -21,7 +21,7 @@
 //! must open with a `hello` carrying that listener's token: anything else
 //! is closed without an answer, so a stranger learns nothing (ADRs 0024 and
 //! 0031). Each refusal is logged under [`REFUSAL_TARGET`], with its
-//! listener and its reason, until the Audit log records it (area 4). An
+//! listener and its reason, and recorded in the Audit log (`endpoint`). An
 //! Exposed Daemon's address carries its Connections as lines or over
 //! WebSocket (ADR 0049), whose refused handshakes are logged the same way.
 //! Only the Client of an Attached engine's stdio is told its private
@@ -66,6 +66,7 @@ use crate::clock::Clock;
 use crate::composition::{
     CallContext, CallError, CallInput, CallStream, ConnectionContext, DaemonSide, Handler,
 };
+use crate::endpoint::{REFUSAL_TARGET, same_token};
 use crate::events::{Credits, Events};
 use crate::log::{ConnectionLog, LogEvents};
 use crate::mask::{Masks, Scope};
@@ -94,9 +95,6 @@ const LINGER: Duration = Duration::from_secs(2);
 
 /// What a dispatch record names a method no catalog holds.
 const UNKNOWN_METHOD: &str = "(unknown)";
-
-/// The `tracing` target of a listener's refusals of a Connection.
-pub const REFUSAL_TARGET: &str = "goodfetch::rpc::refusal";
 
 /// What every Connection of an engine dispatches to.
 pub(crate) struct Dispatch {
@@ -240,6 +238,7 @@ enum Writing {
 async fn carriage(
     connection: Connection,
     access: &Access,
+    runs: &Runs,
 ) -> Option<(Reading, Writing, &'static str)> {
     let (mut reader, writer) = connection.split();
     let Access::Exposed(_, authorities) = access else {
@@ -268,7 +267,9 @@ async fn carriage(
             WEBSOCKET_LISTENER,
         )),
         Err(NotOpened::Refused(refusal)) => {
-            tracing::warn!(target: REFUSAL_TARGET, listener = WEBSOCKET_LISTENER, reason = refusal.reason(), "a WebSocket handshake whose `Host` or `Origin` is not the Daemon's was refused");
+            runs.refusals()
+                .refused(WEBSOCKET_LISTENER, refusal.reason())
+                .await;
             None
         }
         Err(NotOpened::Failed(error)) => {
@@ -294,7 +295,7 @@ pub(crate) async fn serve(
     access: Access,
     clock: Clock,
 ) {
-    let Some((reading, writing, listener)) = carriage(connection, &access).await else {
+    let Some((reading, writing, listener)) = carriage(connection, &access, &runs).await else {
         return;
     };
     serve_carried(
@@ -1146,32 +1147,24 @@ impl Session<'_> {
         if known { method } else { UNKNOWN_METHOD }
     }
 
-    /// Logs the listener's refusal of the Connection, with its reason; on
-    /// the Console's WebSocket, also records it in the Audit log through
-    /// its sign-in driver.
+    /// Logs the listener's refusal of the Connection, with its reason, and
+    /// records it in the Audit log: on the Console's WebSocket through its
+    /// sign-in driver, as the Console's.
     async fn refused(&self, reason: &'static str) {
         let listener = self.listener;
-        tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a Connection that did not open with `hello` and its token was closed");
         if let Access::Console(daemon) = &self.access
             && let Some(sign_ins) = daemon.sign_ins()
         {
+            tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a Connection that did not open with `hello` was closed");
             sign_ins.refused(listener, reason).await;
+        } else {
+            self.connection
+                .runs
+                .refusals()
+                .refused(listener, reason)
+                .await;
         }
     }
-}
-
-/// Whether two tokens are equal, in time that depends only on their
-/// lengths, so a Client cannot guess one byte at a time.
-fn same_token(given: &str, expected: &str) -> bool {
-    let (given, expected) = (given.as_bytes(), expected.as_bytes());
-    given.len() == expected.len()
-        && given
-            .iter()
-            .zip(expected)
-            .fold(0_u8, |difference, (left, right)| {
-                difference | (left ^ right)
-            })
-            == 0
 }
 
 /// `person_required`: `method` is a person's answer, which only the Console

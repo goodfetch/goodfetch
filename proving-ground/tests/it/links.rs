@@ -156,3 +156,55 @@ fn a_crawl_of_the_script_only_rooms_reaches_them_only_through_its_own_requests()
         assert!(!observations.contains(&format!("\"{path}\"")), "{path}");
     }
 }
+
+/// `links.test/answers/` links one page twice, an anchor with no `href`, a
+/// mail address, an off-site page, a URL that does not parse and two more
+/// pages, one carrying its ISBN: an `enqueueLinks` call's every answer.
+#[test]
+fn the_answers_page_links_every_answer_an_enqueue_links_call_gives() {
+    let proving_ground = ProvingGround::start(SEED);
+    let index = proving_ground.get(&proving_ground.url("links.test", "/answers/"));
+    let pages: Vec<u16> = (1..=3)
+        .map(|page| {
+            proving_ground
+                .get(&proving_ground.url("links.test", &format!("/answers/{page}")))
+                .status
+        })
+        .collect();
+
+    assert_eq!(index.status, 200);
+    assert!(
+        index.body.contains(
+            "<ul class=\"links\">\n<li><a href=\"/answers/1\">One</a></li>\n<li><a href=\"/answers/1#top\">One again</a></li>\n<li><a name=\"here\">No link</a></li>\n<li><a href=\"mailto:shop@links.test\">Mail</a></li>\n<li><a href=\"http://elsewhere.test/\">Elsewhere</a></li>\n<li><a href=\"http://[::1/\">Broken</a></li>\n<li><a href=\"2\">Two</a></li>\n<li><a href=\"3\" data-isbn=\"978-3\">Three</a></li>\n</ul>"
+        ),
+        "{}",
+        index.body
+    );
+    assert_eq!(pages, [200, 200, 200]);
+}
+
+/// `links.test/shift-jis/` is written in `Shift_JIS`, labelled so, and links
+/// `search?q=日本&k=한`, 한 written as a character reference since
+/// `Shift_JIS` has no 한; its search page answers any query.
+#[test]
+fn the_shift_jis_page_links_a_query_in_shift_jis() {
+    let proving_ground = ProvingGround::start(SEED);
+    let page = proving_ground.get_raw(&proving_ground.url("links.test", "/shift-jis/"));
+    let search = proving_ground.get(&proving_ground.url(
+        "links.test",
+        "/shift-jis/search?q=%93%FA%96{&k=%26%2354620%3B",
+    ));
+
+    let (text, _, malformed) = encoding_rs::SHIFT_JIS.decode(&page.body);
+    assert_eq!(
+        (
+            page.status,
+            page.content_type.as_deref(),
+            malformed,
+            text.contains("<a href=\"search?q=日本&amp;k=&#54620;\">日本</a>"),
+            search.status
+        ),
+        (200, Some("text/html; charset=Shift_JIS"), false, true, 200),
+        "{text}"
+    );
+}

@@ -74,6 +74,8 @@ sha2.workspace = true
 # The per-install layout's VFS, which keeps each Run's run file inside the
 # install database (ADR 0002), registered with the SQLite rusqlite bundles.
 sqlite-plugin.workspace = true
+# Endpoint tokens compared in constant time (ADR 0017).
+subtle.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 # The settings files (ADR 0028): read, and rewritten with every other byte kept (ADR 0098).

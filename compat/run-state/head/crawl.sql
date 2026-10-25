@@ -363,6 +363,12 @@ INSERT INTO "seeds" VALUES(18,'{"kind":"added","id":"15","url":"https://list.tes
 INSERT INTO "seeds" VALUES(19,'{"kind":"added","id":"16","url":"https://list.test/guide/"}');
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 INSERT INTO "tags" VALUES(0,'schedule:nightly');
+CREATE TABLE tier_choices (
+            label TEXT NOT NULL,
+            domain_key TEXT NOT NULL,
+            unit TEXT NOT NULL,
+            PRIMARY KEY (label, domain_key)
+        ) STRICT;
 CREATE TABLE usage (
         slice_id INTEGER NOT NULL,
         epoch INTEGER NOT NULL,

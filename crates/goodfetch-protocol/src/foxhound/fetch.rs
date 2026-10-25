@@ -77,7 +77,7 @@ fn auto() -> Value {
 /// `fetch.tier` (ADRs 0020 and 0093; spec #579).
 pub const FETCH_TIER: Setting = Setting {
     name: "fetch.tier",
-    description: "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it today fetches the request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+    description: "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first 3 requests of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all 3 gave the same Records, split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
     kind: ValueKind::Choice(FETCH_TIERS),
     default: auto,
     clearable: false,
@@ -85,6 +85,34 @@ pub const FETCH_TIER: Setting = Setting {
     weakens: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// `fetch.tier_race` (ADRs 0040 and 0093).
+pub const FETCH_TIER_RACE: Setting = Setting {
+    name: "fetch.tier_race",
+    description: "Whether a crawl request races its tiers: browser-fetch first, then the navigation after the Label-on-domain's median browser-fetch latency, the first result that passes the Page check and the Label's comparison winning, both counting in Politeness and Usage. Set for the Run only: a Label setting it is refused with `setting_not_applicable`. Off by default; switched on, the crawl's start is refused with `capability_unavailable` until the race is built.",
+    kind: ValueKind::Boolean,
+    default: off,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `fetch.encoding` (ADR 0119).
+pub const FETCH_ENCODING: Setting = Setting {
+    name: "fetch.encoding",
+    description: "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. A value that is no Encoding label is refused with `setting_invalid`; a valid one is refused with `capability_unavailable` at the crawl's start until every tier decodes in ADR 0119's order.",
+    kind: ValueKind::Text,
+    default: null,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn null() -> Value {
+    Value::Null
+}
 
 fn off() -> Value {
     Value::Bool(false)
@@ -213,6 +241,8 @@ pub const ENTRIES: Entries = Entries {
     metrics: &[],
     settings: &[
         FETCH_TIER,
+        FETCH_TIER_RACE,
+        FETCH_ENCODING,
         FETCH_HEDGE_ENABLED,
         FETCH_HEDGE_MAX_PERCENT,
         FETCH_COALESCE,

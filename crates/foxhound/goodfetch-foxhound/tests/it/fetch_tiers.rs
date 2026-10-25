@@ -1,16 +1,22 @@
 //! Crawl conformance cases, the tier lines (spec #579's `tiers`; ADRs
 //! 0020, 0023 and 0093), on Foxhound's executable against the Proving
 //! ground and Chrome for Testing: one handler runs unchanged on every tier.
-//! Under a `fetch.tier: auto` the Run sets, a request is served over HTTP
-//! from its document (the built-in default still hands a handler its
-//! request alone until the tier choice, #768, is built), and a call that tier cannot serve exactly, a wait
-//! for content a script-rendered page's document lacks, escalates the
-//! request to the browser, where the same handler runs again, neither a
-//! retry nor a failure; under a forced `http` tier the same call fails with
-//! `browser_required`; `fetch.tier` set on a Label forces that Label's
-//! requests only, and Provenance records each attempt's tier and how it
-//! was chosen; `page.request` on the document tier goes through the
-//! navigation gate and never escalates.
+//! Under a `fetch.tier: auto` the Run sets (the built-in default still
+//! hands a handler its request alone until #1602), the tier is learned per
+//! Label on a domain by sample comparison: the first three requests of a
+//! Label on a domain are samples, each run on `http`, served from its
+//! document, and then in the browser, whose run commits; a Label whose
+//! samples all gave the same Records moves to `http`, one whose samples
+//! differed stays on `browser`, and one whose samples disagree by first
+//! path segment is split by it, a segment whose own samples disagree
+//! staying on `browser`; the choice survives a resume. A call the `http`
+//! tier cannot serve exactly, a wait for content a script-rendered page's
+//! document lacks, escalates the request to the browser, where the same
+//! handler runs again, neither a retry nor a failure; under a forced `http`
+//! tier the same call fails with `browser_required`; `fetch.tier` set on a
+//! Label forces that Label's requests only, and Provenance records each
+//! attempt's tier and how it was chosen; `page.request` on the document
+//! tier goes through the navigation gate and never escalates.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -42,8 +48,15 @@ const ITEMS: &str = "li.product, li.item";
 /// An engine whose pages launch Chrome for Testing from the test's cache.
 fn engine(env: &TestEnv) -> Attached {
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
+    engine_on(env, &cache)
+}
+
+/// An engine whose pages launch Chrome for Testing from `cache`, a cache
+/// a test prepared once, so a second engine reuses it while the first's
+/// browser may still run.
+fn engine_on(env: &TestEnv, cache: &std::path::Path) -> Attached {
     Attached::start_with(env, Some(Duration::from_secs(60)), |command| {
-        command.env(BROWSERS_PATH_VARIABLE, &cache);
+        command.env(BROWSERS_PATH_VARIABLE, cache);
     })
 }
 
@@ -174,17 +187,18 @@ fn outcomes(engine: &mut Attached, run_id: &str) -> Vec<(String, Value, Value)> 
     outcomes
 }
 
-/// One handler under `fetch.tier: auto`: the static listing is served over
-/// HTTP, its wait answered from its document, while the script-rendered
-/// feed's wait, which its document cannot meet, escalates the request to
-/// the browser, where the same handler runs again in the same attempt and
-/// its wait is met; both end `succeeded`, and Provenance records `http`
-/// chosen by the engine for both, then `browser` by escalation, naming the
-/// call.
+/// One handler under `fetch.tier: auto`, each page the first of its Label
+/// on its domain and so a sample: the static listing is served over HTTP,
+/// its wait answered from its document, then in the browser; the
+/// script-rendered feed's wait, which its document cannot meet, ends its
+/// HTTP run, and the same handler runs again in the browser in the same
+/// attempt, where its wait is met; both end `succeeded`, and Provenance
+/// records each run as a sample, the feed's browser run naming the call
+/// its HTTP run could not serve.
 ///
-/// Covers: story:5-115, story:5-118, operation:locator.wait_for_count, error:attempt_ended
+/// Covers: story:5-115, story:5-118, story:6-257, operation:locator.wait_for_count, error:attempt_ended
 #[test]
-fn one_handler_serves_a_static_page_over_http_and_escalates_a_scripted_one_under_auto() {
+fn one_handler_runs_a_sample_of_a_static_page_and_of_a_scripted_one_on_both_tiers_under_auto() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
@@ -228,6 +242,7 @@ fn one_handler_serves_a_static_page_over_http_and_escalates_a_scripted_one_under
             &json!("finished"),
             vec![
                 (listing.clone(), json!(1), json!("http"), json!(true)),
+                (listing.clone(), json!(1), json!("browser"), json!(true)),
                 (
                     feed.clone(),
                     json!(1),
@@ -241,15 +256,10 @@ fn one_handler_serves_a_static_page_over_http_and_escalates_a_scripted_one_under
                 (feed, json!("succeeded"), Value::Null),
             ],
             vec![
-                json!(["page", "http", "engine", null, null]),
-                json!(["page", "http", "engine", null, null]),
-                json!([
-                    "page",
-                    "browser",
-                    "escalation",
-                    null,
-                    "locator.wait_for_count"
-                ]),
+                json!(["page", "http", "sample", null, null]),
+                json!(["page", "browser", "sample", null, null]),
+                json!(["page", "http", "sample", null, null]),
+                json!(["page", "browser", "sample", null, "locator.wait_for_count"]),
             ],
         )
     );
@@ -324,10 +334,10 @@ fn the_same_handler_under_a_forced_http_tier_fails_the_scripted_page_with_browse
 /// `fetch.tier` set on one Label forces its requests only: the feed under
 /// the Label `list`, forced to `http`, fails with `browser_required` naming
 /// that Label, while the same feed under the Label `page`, left at `auto`,
-/// escalates to the browser; Provenance records the first as forced by its
+/// is sampled on both tiers; Provenance records the first as forced by its
 /// Label.
 ///
-/// Covers: story:5-118, error:browser_required
+/// Covers: story:5-118, story:6-257, error:browser_required
 #[test]
 fn fetch_tier_on_a_label_forces_that_label_only_and_provenance_records_it_forced() {
     let env = TestEnv::new();
@@ -368,14 +378,8 @@ fn fetch_tier_on_a_label_forces_that_label_only_and_provenance_records_it_forced
             ],
             vec![
                 json!(["list", "http", "forced", "label", null]),
-                json!(["page", "http", "engine", null, null]),
-                json!([
-                    "page",
-                    "browser",
-                    "escalation",
-                    null,
-                    "locator.wait_for_count"
-                ]),
+                json!(["page", "http", "sample", null, null]),
+                json!(["page", "browser", "sample", null, "locator.wait_for_count"]),
             ],
         )
     );
@@ -385,11 +389,11 @@ fn fetch_tier_on_a_label_forces_that_label_only_and_provenance_records_it_forced
 /// `/private/`.
 const ROBOTS_HOST: &str = "1.access-policy.test";
 
-/// `page.request` on a page the `http` tier serves under `auto` is sent
-/// through the Session's HTTP transport and the navigation gate: an
-/// allowed URL answers its response, whose body `response.body` keeps, a
-/// URL robots.txt disallows is refused with `site_preferences_refused`
-/// before it leaves, and neither escalates the request: no browser runs
+/// `page.request` on a page the `http` tier serves is sent through the
+/// Session's HTTP transport and the navigation gate: an allowed URL answers
+/// its response, whose body `response.body` keeps, a URL robots.txt
+/// disallows is refused with `site_preferences_refused` before it leaves,
+/// and neither is refused as a call the tier cannot serve: no browser runs
 /// it, and it ends `succeeded`.
 ///
 /// Covers: story:5-115, operation:page.request, operation:response.body, error:site_preferences_refused
@@ -409,7 +413,7 @@ fn page_request_on_a_document_tier_goes_through_the_gate_and_never_escalates() {
         "tiers-request",
         &[json!({ "url": seed, "label": "page" })],
         &json!({ "page": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(&proving_ground, &json!({ "fetch": { "tier": "http" } })),
         &mut |inside, handle| {
             tiers_seen.push(handle["tier"].clone());
             let page_id = handle["page_id"].clone();
@@ -460,8 +464,371 @@ fn page_request_on_a_document_tier_goes_through_the_gate_and_never_escalates() {
             json!("robots_txt"),
             vec!["/catalog/1".to_owned(), "/catalog/2".to_owned()],
             vec![(seed, json!("succeeded"), Value::Null)],
-            vec![json!(["page", "http", "engine", null, null])],
+            vec![json!(["page", "http", "forced", "run", null])],
         ),
         "{answers:?}"
+    );
+}
+
+/// The `tiers` family's host: static listings at `/products/<n>`,
+/// script-rendered ones at `/blog/<n>`, and `/mixed/<n>` one or the other
+/// by the parity of `n`.
+const TIERS_HOST: &str = "tiers.test";
+
+/// The path of `url`, an absolute URL.
+fn path_of(url: &str) -> String {
+    format!("/{}", url.splitn(4, '/').nth(3).unwrap_or_default())
+}
+
+/// The handler that counts: it waits for at least one entry and pushes
+/// one Record with its URL and the count it waited for, so its runs on
+/// two tiers match where both see the same entries; a wait that fails ends
+/// the attempt. Each request it handles is kept as its path and tier.
+fn counting(seen: &mut Vec<(String, Value)>) -> impl FnMut(&mut Inside<'_>, &Value) -> Value + '_ {
+    move |inside, handle| {
+        let page_id = handle["page_id"].clone();
+        let waited = inside.call(
+            "locator.wait_for_count",
+            &json!({
+                "locator": { "page_id": page_id, "selector": ITEMS },
+                "count": { "min": 1 },
+            }),
+        );
+        let url = handle["crawl_request"]["url"].as_str().unwrap().to_owned();
+        seen.push((path_of(&url), handle["tier"].clone()));
+        match waited.get("error") {
+            Some(error) => json!({ "error": error }),
+            None => json!({ "result": { "records": [{
+                "dataset": "pages",
+                "data": { "url": url, "count": waited["result"]["count"] },
+            }] } }),
+        }
+    }
+}
+
+/// Seeds on [`TIERS_HOST`], each path with its Label.
+fn tier_seeds(proving_ground: &ProvingGround, seeds: &[(&str, &str)]) -> Vec<Value> {
+    seeds
+        .iter()
+        .map(|(path, label)| json!({ "url": proving_ground.url(TIERS_HOST, path), "label": label }))
+        .collect()
+}
+
+/// Each `fetch_tier` Provenance entry of `run_id`, as `<label> <tier>
+/// <chosen>`, with the call that escalated it when one did.
+fn chosen(env: &TestEnv, run_id: &str) -> Vec<String> {
+    tiers(env, run_id)
+        .iter()
+        .map(|entry| {
+            let mut line = format!(
+                "{} {} {}",
+                entry[0].as_str().unwrap(),
+                entry[1].as_str().unwrap(),
+                entry[2].as_str().unwrap()
+            );
+            if let Some(call) = entry[4].as_str() {
+                line = format!("{line} at {call}");
+            }
+            line
+        })
+        .collect()
+}
+
+/// `(path, tier)` for each handler request, from `(path, [tier, …])`.
+fn runs(expected: &[(&str, &[&str])]) -> Vec<(String, Value)> {
+    expected
+        .iter()
+        .flat_map(|(path, tiers)| tiers.iter().map(|tier| ((*path).to_owned(), json!(tier))))
+        .collect()
+}
+
+/// Under `fetch.tier: auto`, a Label of static pages is learned onto
+/// `http` and a Label of script-rendered pages onto `browser`, each on one
+/// domain by sample comparison: each Label's first three requests run on
+/// `http` and then in the browser, the static ones pushing the same Record
+/// on both, the script-rendered ones failing their wait on `http`; the
+/// next static page is fetched over HTTP alone, the next script-rendered
+/// one in the browser alone, and a script-rendered page of the learned
+/// static Label still escalates at the call `http` cannot serve. Every
+/// request succeeds, and Provenance names each run's tier and how it was
+/// chosen: a sample, the comparison's choice, or an escalation.
+///
+/// Covers: story:6-257, story:5-115, operation:locator.wait_for_count, error:attempt_ended
+#[test]
+fn a_label_of_static_pages_is_learned_onto_http_and_one_of_scripted_pages_onto_browser() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+
+    let mut seen = Vec::new();
+    let report = crawl_declaring(
+        &mut engine,
+        "tiers-learned",
+        &tier_seeds(
+            &proving_ground,
+            &[
+                ("/products/1", "static"),
+                ("/products/2", "static"),
+                ("/products/3", "static"),
+                ("/products/4", "static"),
+                ("/mixed/2", "static"),
+                ("/blog/1", "scripted"),
+                ("/blog/2", "scripted"),
+                ("/blog/3", "scripted"),
+                ("/blog/4", "scripted"),
+            ],
+        ),
+        &json!({ "static": {}, "scripted": {} }),
+        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &mut counting(&mut seen),
+    );
+    let ended = outcomes(&mut engine, "tiers-learned");
+    assert!(engine.finish());
+
+    let both: &[&str] = &["http", "browser"];
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            seen,
+            ended
+                .iter()
+                .filter(|(_, kind, _)| *kind == "succeeded")
+                .count(),
+            chosen(&env, "tiers-learned"),
+        ),
+        (
+            &json!("finished"),
+            runs(&[
+                ("/products/1", both),
+                ("/products/2", both),
+                ("/products/3", both),
+                ("/products/4", &["http"]),
+                ("/mixed/2", both),
+                ("/blog/1", both),
+                ("/blog/2", both),
+                ("/blog/3", both),
+                ("/blog/4", &["browser"]),
+            ]),
+            9,
+            [
+                "static http sample",
+                "static browser sample",
+                "static http sample",
+                "static browser sample",
+                "static http sample",
+                "static browser sample",
+                "static http compared",
+                "static http compared",
+                "static browser escalation at locator.wait_for_count",
+                "scripted http sample",
+                "scripted browser sample at locator.wait_for_count",
+                "scripted http sample",
+                "scripted browser sample at locator.wait_for_count",
+                "scripted http sample",
+                "scripted browser sample at locator.wait_for_count",
+                "scripted browser compared",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+        )
+    );
+}
+
+/// One Label whose `/products` and `/blog` pages disagree is split by the
+/// first segment of their paths: once its three samples disagree by
+/// segment, `/blog` stays on `browser` and `/products` goes on `http` once
+/// its own third sample matched; a segment first seen after the split,
+/// `/mixed`, is sampled on its own, and having disagreed stays on
+/// `browser`.
+///
+/// Covers: story:6-258, story:6-257
+#[test]
+fn a_label_whose_segments_disagree_is_split_by_first_segment_and_a_segment_that_disagrees_stays_on_browser()
+ {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+
+    let mut seen = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        "tiers-split",
+        &tier_seeds(
+            &proving_ground,
+            &[
+                ("/products/1", "page"),
+                ("/blog/1", "page"),
+                ("/products/2", "page"),
+                ("/products/3", "page"),
+                ("/blog/2", "page"),
+                ("/products/4", "page"),
+                ("/mixed/1", "page"),
+                ("/mixed/2", "page"),
+                ("/mixed/3", "page"),
+            ],
+        ),
+        &json!({ "page": {} }),
+        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &mut counting(&mut seen),
+    );
+    let ended = outcomes(&mut engine, "tiers-split");
+    assert!(engine.finish());
+
+    let both: &[&str] = &["http", "browser"];
+    assert_eq!(
+        (
+            seen,
+            ended
+                .iter()
+                .filter(|(_, kind, _)| *kind == "succeeded")
+                .count(),
+            chosen(&env, "tiers-split"),
+        ),
+        (
+            runs(&[
+                ("/products/1", both),
+                ("/blog/1", both),
+                ("/products/2", both),
+                ("/products/3", both),
+                ("/blog/2", &["browser"]),
+                ("/products/4", &["http"]),
+                ("/mixed/1", both),
+                ("/mixed/2", both),
+                ("/mixed/3", &["browser"]),
+            ]),
+            9,
+            [
+                "page http sample",
+                "page browser sample",
+                "page http sample",
+                "page browser sample at locator.wait_for_count",
+                "page http sample",
+                "page browser sample",
+                "page http sample",
+                "page browser sample",
+                "page browser compared",
+                "page http compared",
+                "page http sample",
+                "page browser sample",
+                "page http sample",
+                "page browser sample at locator.wait_for_count",
+                "page browser compared",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+        )
+    );
+}
+
+/// A crawl request's answer that pushes one Record naming its URL, the
+/// same on every tier.
+fn same_everywhere(params: &Value) -> Value {
+    json!({ "result": { "records": [{
+        "dataset": "pages",
+        "data": { "url": params["crawl_request"]["url"] },
+    }] } })
+}
+
+/// What a Label learned survives a resume: a crawl whose static Label was
+/// learned onto `http` by its three samples is killed while its fourth
+/// request is handled, and the resumed crawl takes that request and the
+/// next over HTTP alone, sampling nothing again; Provenance names each as
+/// the comparison's choice.
+///
+/// Covers: story:6-257, operation:run.resume
+#[test]
+fn the_tier_a_label_learned_survives_a_resume() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let seeds = tier_seeds(
+        &proving_ground,
+        &[
+            ("/products/1", "static"),
+            ("/products/2", "static"),
+            ("/products/3", "static"),
+            ("/products/4", "static"),
+            ("/products/5", "static"),
+        ],
+    );
+    let mut settings = settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } }));
+    settings["crawl"]["handler"] = json!({ "concurrency": 1 });
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut killed = engine_on(&env, &cache);
+    killed.send(&json!({
+        "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
+        "params": { "run_id": "tiers-kept", "seeds": seeds, "labels": { "static": {} }, "settings": settings },
+    }));
+    let mut before = Vec::new();
+    while before.len() < 7 {
+        let message = killed.next().unwrap();
+        if message["method"] == "crawl_request.handle" {
+            let params = &message["params"];
+            before.push((
+                path_of(params["crawl_request"]["url"].as_str().unwrap()),
+                params["tier"].clone(),
+            ));
+            if before.len() < 7 {
+                let mut reply = same_everywhere(params);
+                reply["jsonrpc"] = json!("2.0");
+                reply["id"] = message["id"].clone();
+                killed.send(&reply);
+            }
+        }
+    }
+    killed.kill();
+    let mut resuming = engine_on(&env, &cache);
+
+    let mut after = Vec::new();
+    let mut answer = |params: &Value| {
+        after.push((
+            path_of(params["crawl_request"]["url"].as_str().unwrap()),
+            params["tier"].clone(),
+        ));
+        Some(same_everywhere(params))
+    };
+    let resumed = resuming.call(
+        "resume",
+        "run.resume",
+        &json!({ "run_id": "tiers-kept", "settings": settings }),
+        &mut answer,
+    );
+    let finished = resuming.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": "tiers-kept" }),
+        &mut answer,
+    );
+    assert!(resuming.finish());
+
+    let both: &[&str] = &["http", "browser"];
+    let provenance = chosen(&env, "tiers-kept");
+    assert_eq!(
+        (
+            resumed.get("error"),
+            &finished["result"]["lifecycle"],
+            before,
+            after,
+            provenance
+                .iter()
+                .filter(|line| line.ends_with("sample"))
+                .count(),
+            provenance
+                .iter()
+                .filter(|line| !line.ends_with("sample"))
+                .collect::<std::collections::BTreeSet<_>>(),
+        ),
+        (
+            None,
+            &json!("finished"),
+            runs(&[
+                ("/products/1", both),
+                ("/products/2", both),
+                ("/products/3", both),
+                ("/products/4", &["http"]),
+            ]),
+            runs(&[("/products/4", &["http"]), ("/products/5", &["http"])]),
+            6,
+            std::collections::BTreeSet::from([&"static http compared".to_owned()]),
+        )
     );
 }

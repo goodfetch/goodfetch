@@ -34,7 +34,7 @@ use goodfetch_engine::tls::{
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secrets::SecretInputRefusedReason;
 use goodfetch_protocol::settings::SettingsLayer;
-use goodfetch_test_support::{ClientCertificate, ProvingGround, TestEnv};
+use goodfetch_test_support::{ClientCertificate, ProvingGround, ReceivedRequests, TestEnv};
 use rusqlite::Connection;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject as _;
@@ -197,10 +197,8 @@ impl Fixture {
     /// hosts of the requests, as the Proving ground saw them.
     fn seen(&self) -> (Value, Vec<Value>) {
         let observations = self.proving_ground.observations().unwrap();
-        let requests = observations["requests"]
-            .as_array()
-            .unwrap()
-            .iter()
+        let requests = ReceivedRequests::of(&observations)
+            .every()
             .map(|request| request["host"].clone())
             .collect();
         (observations["client_certificates"].clone(), requests)

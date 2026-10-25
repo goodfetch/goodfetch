@@ -96,10 +96,10 @@ fn refusal(answer: &Value) -> (Value, Value, Value) {
 
 /// How many requests for `path` the Proving ground received on `host`.
 fn requested(proving_ground: &ProvingGround, host: &str, path: &str) -> usize {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .of_the_case()
         .filter(|request| request["host"] == host && request["target"] == path)
         .count()
 }
@@ -238,10 +238,10 @@ const DELAY_MILLISECONDS: u64 = 1_000;
 /// Each request `host` received for one of `targets`, its target and
 /// arrival time in microseconds, in arrival order.
 fn arrivals(proving_ground: &ProvingGround, host: &str, targets: &[&str]) -> Vec<(String, u64)> {
-    let mut arrivals: Vec<(String, u64)> = proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    let mut arrivals: Vec<(String, u64)> = proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .every()
         .filter(|request| request["host"] == host)
         .filter_map(|request| {
             let target = request["target"].as_str()?;
@@ -1166,9 +1166,7 @@ fn past_the_lease(
 
 /// How many requests the Proving ground received, on every host.
 fn requested_in_all(proving_ground: &ProvingGround) -> usize {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
-        .map_or(0, Vec::len)
+    proving_ground.received_requests().unwrap().every().count()
 }
 
 /// The host whose robots.txt asks every crawler for a Crawl-delay of 2 s

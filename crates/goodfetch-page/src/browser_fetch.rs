@@ -202,8 +202,15 @@ impl<'a> Load<'a> {
         let navigate = driver.command(&navigation);
         let mut navigate = std::pin::pin!(navigate);
         let mut navigating = true;
+        // A page whose target went, as one its Session's close closed,
+        // sends no event more: the load ends with it.
+        let lost = driver.lost();
+        let mut lost = std::pin::pin!(lost);
         loop {
             tokio::select! {
+                _ = &mut lost => {
+                    return Err(network_error(self.request.url, "the browser closed the request's page"));
+                }
                 navigated = &mut navigate, if navigating => {
                     navigating = false;
                     match navigated {

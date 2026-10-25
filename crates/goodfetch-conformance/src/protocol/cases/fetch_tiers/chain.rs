@@ -166,16 +166,15 @@ fn crawl(
 /// since `serve` started: earlier cases' included.
 fn host_requests(site: &Site, host: &str) -> Vec<Value> {
     site.proving_ground
-        .observations()
-        .ok()
-        .and_then(|observations| observations["requests"].as_array().cloned())
+        .received_requests()
         .unwrap_or_default()
-        .into_iter()
+        .every()
         .filter(|request| {
             request["host"]
                 .as_str()
                 .is_some_and(|seen| seen.split(':').next() == Some(host))
         })
+        .cloned()
         .collect()
 }
 
@@ -711,11 +710,9 @@ fn added_live(
 /// host.
 fn addressed(site: &Site) -> usize {
     site.proving_ground
-        .observations()
-        .ok()
-        .and_then(|observations| observations["requests"].as_array().cloned())
+        .received_requests()
         .unwrap_or_default()
-        .iter()
+        .of_the_case()
         .filter(|request| request["target"] == json!("/address/target"))
         .count()
 }

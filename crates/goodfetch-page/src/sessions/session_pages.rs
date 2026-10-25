@@ -58,6 +58,50 @@ pub(super) struct Adopting {
     pub(super) observer: Option<Observer>,
 }
 
+/// A page its Session is taking in, until it is kept: if its taking in
+/// fails, or its future is dropped (a tier race's navigation that lost
+/// while its page opened), its events, dialogs and interception are taken
+/// out and its target closes, as an [`EnginePage`](super::EnginePage)'s
+/// does. Each of those parts holds the page's driver, and so its browser's
+/// handle on the Run trace's CDP log, whose writer the Run's end waits
+/// for: one left behind kept the Run from ever ending.
+struct TakenIn<'a> {
+    sessions: &'a Sessions,
+    page: PageId,
+    driver: PageDriver,
+    run: Run,
+    /// Its place in its browser, until it is kept.
+    in_browser: Option<InBrowser>,
+}
+
+impl TakenIn<'_> {
+    /// The page goes into its Session's table with nothing awaited first,
+    /// where its close, its Session's end or its Run's takes it out:
+    /// answers its place in its browser.
+    fn kept(mut self) -> InBrowser {
+        self.in_browser
+            .take()
+            .expect("invariant: a page being taken in holds its place until it is kept")
+    }
+}
+
+impl Drop for TakenIn<'_> {
+    fn drop(&mut self) {
+        let Some(in_browser) = self.in_browser.take() else {
+            return;
+        };
+        let pages = std::slice::from_ref(&self.page);
+        self.sessions.events.close(pages);
+        self.sessions.dialogs.close(pages);
+        self.sessions.interception.close_pages(pages);
+        let driver = self.driver.clone();
+        self.run.spawn(async move {
+            driver.close().await;
+            drop(in_browser);
+        });
+    }
+}
+
 /// How many calls listen to each Session's `page` event, each counted when
 /// its call arrives, so a page published while the call waits for its
 /// Session is not missed. Clones share them.
@@ -152,6 +196,11 @@ impl Sessions {
     /// Takes in the page `adopting` describes as one of its Session's: it is
     /// named, followed and announced, and its Session's popups handed back
     /// to it; `closed` when its Session closed meanwhile.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future before the page is in its Session's table
+    /// leaves none of its parts behind, and closes its target.
     pub(super) async fn adopt(&self, adopting: Adopting) -> Result<PageId, CallError> {
         let Adopting {
             open,
@@ -168,6 +217,14 @@ impl Sessions {
             let mut state = self.state.lock().await;
             state.opened_pages += 1;
             PageId(format!("page-{}", state.opened_pages))
+        };
+        let browser = in_browser.browser();
+        let taken_in = TakenIn {
+            sessions: self,
+            page: page.clone(),
+            driver: driver.clone(),
+            run: run.clone(),
+            in_browser: Some(in_browser),
         };
         // The page's events are read from before its requests pause, so
         // every request of the page is followed.
@@ -189,35 +246,25 @@ impl Sessions {
         self.events.insert(page.clone(), events);
         self.dialogs
             .start(page.clone(), driver.clone(), &run, driver.events());
-        let pages = std::slice::from_ref(&page);
-        let started = self.hold(
-            (&page, session),
-            &driver,
-            &run,
-            &open.settings,
-            (refusals, in_frames),
-        );
-        let (hiding, sheets) = match started.await {
-            Ok(started) => started,
-            Err(error) => {
-                self.events.close(pages);
-                self.dialogs.close(pages);
-                self.interception.close_pages(pages);
-                return Err(error);
-            }
-        };
+        let (hiding, sheets) = self
+            .hold(
+                (&page, session),
+                &driver,
+                &run,
+                &open.settings,
+                (refusals, in_frames),
+            )
+            .await?;
         let mut state = self.state.lock().await;
         if !state.sessions.contains_key(session) {
             drop(state);
-            self.events.close(pages);
-            self.dialogs.close(pages);
-            self.interception.close_pages(pages);
             return Err(session_closed(session));
         }
-        let browser = in_browser.browser();
         self.follow_popups(session, &open, &driver).await;
         let life = PageLife::new(page.clone(), driver.value().lease().cloned());
         let page_check = open.checking(driver.value().page_check());
+        // Nothing awaits from here until the page is in the table.
+        let in_browser = taken_in.kept();
         let opened = OpenPage {
             clock: run.clock(),
             run,

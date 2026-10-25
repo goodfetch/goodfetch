@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
+use crate::proving_ground::ReceivedRequests;
 
 /// What the identity page reports, beside that it ran.
 const IDENTITY_CHECKS: [&str; 11] = [
@@ -81,10 +82,8 @@ pub(super) fn reports(observations: &Value, path: &str) -> Vec<(String, String)>
 
 /// The values of the header `name` on every request to `host`.
 fn header_values(observations: &Value, host: &str, name: &str) -> Vec<String> {
-    observations["requests"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    ReceivedRequests::of(observations)
+        .every()
         .filter(|request| {
             request["host"]
                 .as_str()

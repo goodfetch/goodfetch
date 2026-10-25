@@ -18,7 +18,7 @@ use goodfetch_engine::tls::{CertificateExceptions, ClientCertificates, Trust};
 use goodfetch_protocol::response_limits::LimitSetting;
 use goodfetch_test_support::{
     ExpectedError, HostileTables, JsonChannel, LimitSetting as TableSetting, ProvingGround,
-    ResourceLimit, ServedBy, TestEnv,
+    ReceivedRequests, ResourceLimit, ServedBy, TestEnv,
 };
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject as _;
@@ -187,10 +187,8 @@ fn a_normal_compressed_page_and_json_at_the_depth_are_read() {
 /// connection record has them once each answer ended.
 fn sent_to(proving_ground: &ProvingGround, host: &str) -> Vec<u64> {
     let observations = proving_ground.observations().unwrap();
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(&observations)
+        .every()
         .filter(|request| {
             request["host"]
                 .as_str()

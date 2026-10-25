@@ -82,17 +82,16 @@ fn code_of(answer: &Value) -> &Value {
 /// ground received.
 fn received(site: &Site, host: &str, prefix: &str) -> Vec<Value> {
     site.proving_ground
-        .observations()
-        .ok()
-        .and_then(|observations| observations["requests"].as_array().cloned())
+        .received_requests()
         .unwrap_or_default()
-        .into_iter()
+        .of_the_case()
         .filter(|request| {
             request["host"] == json!(host)
                 && request["target"]
                     .as_str()
                     .is_some_and(|target| target.starts_with(prefix))
         })
+        .cloned()
         .collect()
 }
 

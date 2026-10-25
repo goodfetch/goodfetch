@@ -8,7 +8,7 @@
 //! the Records read before it are tolerated; the paths the task must not
 //! request are judged from the Proving ground's own observations.
 //!
-//! Three named hosts belong to no task. Two have robots.txt files holding the
+//! Five named hosts belong to no task. Two have robots.txt files holding the
 //! product-token groups a crawl's robots.txt selection is judged on (ADRs
 //! 0086 and 0090), and every other path is a page. On
 //! `tokens.access-policy.test` a group for `Goodfetch-Foxhound` disallows
@@ -21,7 +21,11 @@
 //! of 2 s for every crawler, 1.5 s after the request arrived, so a delay
 //! counted from the robots.txt request's send rather than its response's
 //! arrival, or a read of a copy another reader is still fetching, shows on
-//! the requests' arrivals.
+//! the requests' arrivals. A fifth, `stalled-robots.access-policy.test`,
+//! answers its robots.txt's head and the start of its body, the same
+//! Crawl-delay, and never the rest its length declares, over HTTP/1.1, so
+//! a reader of the whole file is still reading when its Session or Run
+//! ends.
 
 use std::time::Duration;
 
@@ -71,9 +75,22 @@ pub(super) const SLOW_ROBOTS_HOST: &str = "slow-robots.access-policy.test";
 /// How long [`SLOW_ROBOTS_HOST`] waits before it answers its robots.txt.
 const SLOW_ROBOTS_WAIT: Duration = Duration::from_millis(1_500);
 
+/// The named host whose robots.txt sends its head and the start of its
+/// body, and never [`STALLED_ROBOTS_REST`].
+pub(super) const STALLED_ROBOTS_HOST: &str = "stalled-robots.access-policy.test";
+
+/// The end of [`STALLED_ROBOTS_HOST`]'s robots.txt, which its length counts
+/// and which is never sent.
+const STALLED_ROBOTS_REST: &[u8] = b"# never sent\n";
+
 /// The family's named hosts, which belong to no task.
-pub(super) const NAMED_HOSTS: [&str; 4] =
-    [TOKENS_HOST, STAR_HOST, CRAWL_DELAY_HOST, SLOW_ROBOTS_HOST];
+pub(super) const NAMED_HOSTS: [&str; 5] = [
+    TOKENS_HOST,
+    STAR_HOST,
+    CRAWL_DELAY_HOST,
+    SLOW_ROBOTS_HOST,
+    STALLED_ROBOTS_HOST,
+];
 
 /// The robots.txt of [`CRAWL_DELAY_HOST`].
 const CRAWL_DELAY: &str = "User-agent: *
@@ -239,7 +256,7 @@ pub(super) fn answer(seed: u64, host: &str, request: &Request) -> Answer {
         TOKENS_HOST => Some(TOKENS),
         STAR_HOST => Some(STAR),
         CRAWL_DELAY_HOST => Some(CRAWL_DELAY),
-        SLOW_ROBOTS_HOST => Some(SLOW_ROBOTS),
+        SLOW_ROBOTS_HOST | STALLED_ROBOTS_HOST => Some(SLOW_ROBOTS),
         _ => None,
     } {
         return match request.path() {
@@ -247,6 +264,14 @@ pub(super) fn answer(seed: u64, host: &str, request: &Request) -> Answer {
                 SLOW_ROBOTS_WAIT,
                 Box::new(Answer::Page(Page::text(200, robots))),
             ),
+            "/robots.txt" if host == STALLED_ROBOTS_HOST => {
+                // Past what a browser sniffs of a body before it hands the
+                // response over, so the reader has the start in hand.
+                let mut page = Page::text(200, format!("{robots}#{}\n", "-".repeat(1024)));
+                let sent = page.body.len();
+                page.body.extend_from_slice(STALLED_ROBOTS_REST);
+                Answer::Stalled { page, sent }
+            }
             "/robots.txt" => Answer::Page(Page::text(200, robots)),
             path => Answer::Page(Page::html(
                 200,

@@ -154,9 +154,81 @@ struct ServedPage {
     choice: TierChoice,
     /// The first call its tier could not serve, under `auto`.
     escalated: Option<&'static str>,
-    /// Its `page.request`s so far.
+    /// Its `page.request`s and navigations so far.
     requests: u64,
     bodies: BTreeMap<String, BodyHandle>,
+    /// The URLs of its history's entries, oldest first, and the entry it
+    /// is at.
+    history: Vec<String>,
+    at: usize,
+}
+
+/// A document a fetch answered, read as a served page holds it: its text,
+/// its encoding, its `Link` header fields and its AI-use signals.
+struct Opened {
+    document: ServedDocument,
+    encoding: &'static Encoding,
+    links: Vec<(String, String)>,
+    use_signals: UseSignals,
+}
+
+impl Opened {
+    /// The document `fetched` answered for `run`, decoded.
+    fn of(run: &Run, fetched: crate::driver::Fetched) -> Self {
+        let url = fetched.url.to_string();
+        let content_type = fetched
+            .headers
+            .iter()
+            .find(|(name, _)| name == "content-type")
+            .map(|(_, value)| value.as_str());
+        let (html, encoding) = decode(&fetched.body, content_type);
+        let base_url = goodfetch_frontier::document_base(&url, base_href(&html).as_deref())
+            .map_or_else(|| url.clone(), |base| base.to_string());
+        let use_signals = UseSignals::of(&fetched.headers);
+        let links = fetched
+            .headers
+            .into_iter()
+            .filter(|(name, _)| name == "link")
+            .collect();
+        Self {
+            document: ServedDocument {
+                run: run.clone(),
+                url,
+                base_url,
+                html,
+            },
+            encoding,
+            links,
+            use_signals,
+        }
+    }
+}
+
+impl Pages {
+    /// Keeps what the served page `page_id` reads of its document
+    /// `opened` beside it: its encoding, links and AI-use signals.
+    fn opened(&mut self, page_id: &PageId, opened: Opened) {
+        self.encodings.insert(page_id.clone(), opened.encoding);
+        if opened.links.is_empty() {
+            self.links.remove(page_id);
+        } else {
+            self.links.insert(page_id.clone(), opened.links);
+        }
+        if opened.use_signals == UseSignals::default() {
+            self.use_signals.remove(page_id);
+        } else {
+            self.use_signals.insert(page_id.clone(), opened.use_signals);
+        }
+    }
+}
+
+/// Where a navigation's document goes in its served page's history.
+#[derive(Clone, Copy, Debug)]
+enum History {
+    /// A new entry after the one the page was at: `goto`.
+    Pushed,
+    /// This entry: `reload`, `goBack` and `goForward`.
+    At(usize),
 }
 
 /// How a served page fared against its Label's Page check.
@@ -457,35 +529,17 @@ impl FetchTiers {
             }
         })
         .await?;
-        let url = fetched.url.to_string();
         let status = fetched.status;
-        let content_type = fetched
-            .headers
-            .iter()
-            .find(|(name, _)| name == "content-type")
-            .map(|(_, value)| value.as_str());
-        let (html, encoding) = decode(&fetched.body, content_type);
-        let base_url = goodfetch_frontier::document_base(&url, base_href(&html).as_deref())
-            .map_or_else(|| url.clone(), |base| base.to_string());
-        let use_signals = UseSignals::of(&fetched.headers);
-        let links: Vec<(String, String)> = fetched
-            .headers
-            .into_iter()
-            .filter(|(name, _)| name == "link")
-            .collect();
-        let document = ServedDocument {
-            run: run.clone(),
-            url,
-            base_url,
-            html,
-        };
+        let opened = Opened::of(run, fetched);
         let mut pages = lock(&self.served.pages);
         pages.next += 1;
         let page_id = PageId(format!("document-{}", pages.next));
         pages.open.insert(
             page_id.clone(),
             ServedPage {
-                document,
+                history: vec![opened.document.url.clone()],
+                at: 0,
+                document: opened.document.clone(),
                 status,
                 http: tier.clone(),
                 choice: choice.clone(),
@@ -494,13 +548,7 @@ impl FetchTiers {
                 bodies: BTreeMap::new(),
             },
         );
-        pages.encodings.insert(page_id.clone(), encoding);
-        if !links.is_empty() {
-            pages.links.insert(page_id.clone(), links);
-        }
-        if use_signals != UseSignals::default() {
-            pages.use_signals.insert(page_id.clone(), use_signals);
-        }
+        pages.opened(&page_id, opened);
         Ok(page_id)
     }
 
@@ -754,6 +802,31 @@ impl FetchTiers {
         if let Some(page) = lock(&self.served.pages).open.get_mut(page_id) {
             page.bodies.insert(request_id.to_owned(), body);
         }
+    }
+
+    /// Puts the document `opened`, which a navigation of the served page
+    /// `page_id` reached, in its old one's place, where `at` says in the
+    /// page's history.
+    fn navigated(&self, page_id: &PageId, opened: Opened, at: History) {
+        let mut pages = lock(&self.served.pages);
+        let Some(page) = pages.open.get_mut(page_id) else {
+            return;
+        };
+        match at {
+            History::Pushed => {
+                page.history.truncate(page.at + 1);
+                page.history.push(opened.document.url.clone());
+                page.at = page.history.len() - 1;
+            }
+            History::At(entry) => {
+                page.at = entry;
+                if let Some(url) = page.history.get_mut(entry) {
+                    url.clone_from(&opened.document.url);
+                }
+            }
+        }
+        page.document = opened.document.clone();
+        pages.opened(page_id, opened);
     }
 
     /// The error of `call` on the served page `page_id`, which its tier

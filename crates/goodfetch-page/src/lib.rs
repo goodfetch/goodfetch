@@ -41,3 +41,9 @@ pub mod url_pattern;
 pub use clean_up_versions::manifest_file;
 pub use pages::{contribution, contribution_with};
 pub use trace::provenance;
+
+/// The egress relay's fuzz targets (ADR 0067), whose seeds and past
+/// crashers `fuzz_replay!` replays on every OS.
+pub use egress_relay::{
+    fuzz_client_hello as fuzz_relay_client_hello, fuzz_request_head as fuzz_relay_request_head,
+};

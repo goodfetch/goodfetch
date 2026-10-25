@@ -3,16 +3,22 @@
 //! refused with `browser_required` under a forced tier (the `choice`
 //! module's [`unserved`](crate::choice::unserved)).
 //!
-//! Which calls each tier serves exactly is area 6's table (#931); until it
-//! is written a document tier serves, besides `page.formats`, which the
-//! page crate reads from the document:
+//! Which calls each tier serves exactly is the `served_calls` table's: a
+//! call the table does not serve on the page's tier escalates or is
+//! refused at once. Of those it serves, a document tier answers, besides
+//! `page.formats`, which the page crate reads from the document:
 //!
-//! - `locator.wait_for` for `attached` or `detached`, and
-//!   `locator.wait_for_count`, when the document already meets them, its
-//!   CSS selector matched against the document's own markup; a document
-//!   with a declarative shadow root, whose matches the markup alone does
-//!   not give, and every other wait escalate, a static document never
-//!   changing;
+//! - `locator.wait_for` and `locator.wait_for_count` when the document
+//!   already meets them, its CSS selector matched against the document's
+//!   own markup, `visible` and `hidden` as the markup shows the element
+//!   (the `markup` module); `page.wait_for_url` when the page's URL already
+//!   matches; `page.wait_for_load_state` at once. A document with a
+//!   declarative shadow root, whose matches the markup alone does not
+//!   give, and a wait the document does not meet escalate, a static
+//!   document never changing;
+//! - `page.goto`, `page.reload`, `page.go_back` and `page.go_forward`,
+//!   fetched over the same tier through the gate (the `navigation`
+//!   module);
 //! - `page.request`, sent through the Session's HTTP transport, through
 //!   the navigation gate of the attempt that handed its Run's pages over,
 //!   each redirect it follows taking its own permit, and never escalated;
@@ -28,16 +34,20 @@ use bytes::Bytes;
 use data_encoding::BASE64;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallError, GuardAnswer};
+use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::events::{RESPONSE_BODY, ResponseBodyParams};
 use goodfetch_protocol::page::request::{MAX_REDIRECTS, PAGE_REQUEST, PageRequestParams};
+use goodfetch_protocol::page::route::UrlMatcher;
 use goodfetch_protocol::page::session_pages::PAGE_CLOSE;
 use goodfetch_protocol::page::waits::{
     Count, Counted, ElementState, LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, LocatorWaitForParams,
-    Reached, WaitForCountParams,
+    PAGE_WAIT_FOR_LOAD_STATE, PAGE_WAIT_FOR_URL, Reached, WaitForCountParams,
+    WaitForLoadStateParams, WaitForUrlParams,
 };
 use goodfetch_protocol::page::{
-    NAVIGATION_FAILED, NavigationFailedDetails, PAGE_FORMATS, PageId, PageResponse, RedirectLimit,
+    GotoParams, NAVIGATION_FAILED, NavigationFailedDetails, PAGE_FORMATS, PAGE_GO_BACK,
+    PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageId, PageResponse, RedirectLimit,
     SITE_PREFERENCES_REFUSED, SitePreferencesRefusedDetails, TOO_MANY_REDIRECTS,
     TooManyRedirectsDetails,
 };
@@ -50,6 +60,12 @@ use url::Url;
 use super::{FetchTiers, ServedPage};
 use crate::driver::{Fetched, Hop, fetch};
 use crate::gate::Gate;
+use crate::served_calls::{Verdict, verdict};
+use markup::{Shown, shown};
+use navigation::{Step, navigate};
+
+mod markup;
+mod navigation;
 
 /// The answer to the call `operation`, its params `params`, on the served
 /// page `page_id`; `None` for a page no tier serves, a call the page crate
@@ -65,6 +81,13 @@ pub(super) fn answer(
     if let Some(call) = page.escalated {
         return Some(ready(Err(tiers.unserved(page_id, call, false))));
     }
+    let forced = page.choice.forced.is_some();
+    match verdict(operation, page.choice.tier, forced) {
+        Some(Verdict::Serve(_)) => {}
+        Some(Verdict::Escalate | Verdict::BrowserRequired) | None => {
+            return Some(ready(Err(tiers.unserved(page_id, operation, false))));
+        }
+    }
     match operation {
         name if name == PAGE_FORMATS.name => None,
         name if name == PAGE_CLOSE.name => {
@@ -76,9 +99,8 @@ pub(super) fn answer(
             let wait = match params.state.unwrap_or_default() {
                 ElementState::Attached => Wait::One,
                 ElementState::Detached => Wait::None,
-                ElementState::Visible | ElementState::Hidden => {
-                    return Some(ready(Err(tiers.unserved(page_id, operation, true))));
-                }
+                ElementState::Visible => Wait::Shown(Shown::Visible),
+                ElementState::Hidden => Wait::Shown(Shown::Hidden),
             };
             Some(waited(
                 tiers,
@@ -101,6 +123,25 @@ pub(super) fn answer(
                 wait,
             ))
         }
+        name if name == PAGE_WAIT_FOR_URL.name => {
+            let params: WaitForUrlParams = read(params)?;
+            Some(ready(url_waited(tiers, page_id, &page, operation, &params)))
+        }
+        // A static document reached every load state once it was read.
+        name if name == PAGE_WAIT_FOR_LOAD_STATE.name => {
+            let _: WaitForLoadStateParams = read(params)?;
+            Some(ready(Ok(encoded(&Reached {}))))
+        }
+        name if [
+            PAGE_GOTO.name,
+            PAGE_RELOAD.name,
+            PAGE_GO_BACK.name,
+            PAGE_GO_FORWARD.name,
+        ]
+        .contains(&name) =>
+        {
+            navigated(tiers, page_id, page, name, params)
+        }
         name if name == PAGE_REQUEST.name => {
             let params: PageRequestParams = read(params)?;
             let tiers = tiers.clone();
@@ -119,6 +160,50 @@ pub(super) fn answer(
         }
         _ => Some(ready(Err(tiers.unserved(page_id, operation, false)))),
     }
+}
+
+/// `page.wait_for_url` with `params` on the served page `page_id`,
+/// `page`: reached when its URL already matches, else a call its tier
+/// cannot serve, a static document never navigating by itself.
+fn url_waited(
+    tiers: &FetchTiers,
+    page_id: &PageId,
+    page: &ServedPage,
+    operation: &'static str,
+    params: &WaitForUrlParams,
+) -> Result<Value, CallError> {
+    let pattern = match &params.url {
+        UrlMatcher::Glob { pattern } => UrlPattern::glob(pattern),
+        UrlMatcher::Regex { pattern } => UrlPattern::regex(pattern),
+    };
+    match pattern {
+        Err(unsupported) => Err(unsupported.into()),
+        Ok(pattern) if pattern.matches(&page.document.url) => Ok(encoded(&Reached {})),
+        Ok(_) => Err(tiers.unserved(page_id, operation, true)),
+    }
+}
+
+/// The navigation `operation`, with `params`, of the served page
+/// `page_id`, `page`: `None` for params that do not read.
+fn navigated(
+    tiers: &FetchTiers,
+    page_id: &PageId,
+    page: ServedPage,
+    operation: &str,
+    params: &Value,
+) -> Option<GuardAnswer> {
+    let step = match operation {
+        name if name == PAGE_GOTO.name => Step::To(read::<GotoParams>(params)?.url),
+        name if name == PAGE_RELOAD.name => Step::Reload,
+        name if name == PAGE_GO_BACK.name => Step::Back,
+        _ => Step::Forward,
+    };
+    let tiers = tiers.clone();
+    let page_id = page_id.clone();
+    Some(Box::pin(async move {
+        let navigated = navigate(&tiers, &page_id, page, step).await?;
+        Ok(encoded(&navigated))
+    }))
 }
 
 /// `params` as `P`, or `None` when they do not read.
@@ -145,6 +230,9 @@ enum Wait {
     None,
     /// A count of matches: `locator.wait_for_count`.
     Count(Count),
+    /// The one element visible, or hidden or absent, as the markup shows
+    /// it: `visible` or `hidden`.
+    Shown(Shown),
 }
 
 /// The wait `wait` on the served page `page_id`, answered at once when the
@@ -162,19 +250,29 @@ fn waited(
     let page_id = page_id.clone();
     Box::pin(async move {
         let html = page.document.html;
-        let count = page
+        let met = page
             .document
             .run
             .owner()
-            .blocking(move || matches(&html, &selector))
+            .blocking(move || match wait {
+                Wait::Shown(state) => {
+                    let shown = shown(&html, &selector)?;
+                    let met = shown == state || (state == Shown::Hidden && shown == Shown::Absent);
+                    met.then(|| encoded(&Reached {}))
+                }
+                Wait::One | Wait::None | Wait::Count(_) => {
+                    let count = matches(&html, &selector)?;
+                    match wait {
+                        Wait::One => (count == 1).then(|| encoded(&Reached {})),
+                        Wait::None => (count == 0).then(|| encoded(&Reached {})),
+                        Wait::Count(bounds) => (bounds.min.is_none_or(|min| count >= min)
+                            && bounds.max.is_none_or(|max| count <= max))
+                        .then(|| encoded(&Counted { count })),
+                        Wait::Shown(_) => None,
+                    }
+                }
+            })
             .await;
-        let met = count.and_then(|count| match wait {
-            Wait::One => (count == 1).then(|| encoded(&Reached {})),
-            Wait::None => (count == 0).then(|| encoded(&Reached {})),
-            Wait::Count(bounds) => (bounds.min.is_none_or(|min| count >= min)
-                && bounds.max.is_none_or(|max| count <= max))
-            .then(|| encoded(&Counted { count })),
-        });
         met.ok_or_else(|| tiers.unserved(&page_id, operation, true))
     })
 }
@@ -218,13 +316,9 @@ async fn request(
         ));
     }
     let run = page.document.run.clone();
-    let hand_over = tiers.handed_over(run.id()).ok_or_else(|| {
-        CallError::new(
-            &CLOSED,
-            format!("the page `{}` outlived its attempt", page_id.0),
-            &json!({ "page_id": page_id }),
-        )
-    })?;
+    let hand_over = tiers
+        .handed_over(run.id())
+        .ok_or_else(|| outlived(page_id))?;
     let gate = Gate::new(hand_over);
     let Asked {
         mut url,
@@ -375,6 +469,16 @@ async fn answered(
         request_id,
         from_service_worker: false,
     })
+}
+
+/// `closed` for a call on the served page `page_id` after the attempt
+/// that handed it over ended.
+fn outlived(page_id: &PageId) -> CallError {
+    CallError::new(
+        &CLOSED,
+        format!("the page `{}` outlived its attempt", page_id.0),
+        &json!({ "page_id": page_id }),
+    )
 }
 
 /// `navigation_failed` for a request to `url` that could not be sent.

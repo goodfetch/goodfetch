@@ -309,7 +309,7 @@ impl Site {
         if let Some(reply) = canaries::respond(self.seed, &self.canaries, &name, request) {
             return reply;
         }
-        if let Some(reply) = certificates::respond(&name) {
+        if let Some(reply) = certificates::respond(&name, request.path) {
             return reply;
         }
         if let Some(reply) = clean_up::respond(&name, request) {

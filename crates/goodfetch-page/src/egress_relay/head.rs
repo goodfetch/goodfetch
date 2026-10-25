@@ -131,7 +131,7 @@ pub(crate) async fn read(stream: &mut (impl AsyncRead + Unpin)) -> Result<(Head,
 }
 
 /// Parses `buffer`'s head, if whole: the head and its length.
-fn parse(buffer: &[u8]) -> Result<Option<(Head, usize)>, Unread> {
+pub(crate) fn parse(buffer: &[u8]) -> Result<Option<(Head, usize)>, Unread> {
     let mut fields = [httparse::EMPTY_HEADER; FIELD_LIMIT];
     let mut request = httparse::Request::new(&mut fields);
     let length = match request.parse(buffer) {

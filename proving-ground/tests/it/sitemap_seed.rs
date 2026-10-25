@@ -14,7 +14,7 @@ const SEED: u64 = 903;
 /// Each `<loc>` of `xml`, in order.
 fn locs(xml: &str) -> Vec<String> {
     Regex::new("<loc>([^<]+)</loc>")
-        .unwrap()
+        .expect("the pattern reads")
         .captures_iter(xml)
         .map(|found| found[1].to_owned())
         .collect()

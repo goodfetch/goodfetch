@@ -321,6 +321,7 @@ pub fn is_fetch(connection: &Connection, id: &str) -> rusqlite::Result<bool> {
 
 /// What a sitemap's read adds: an entry, with its Label, or the fetch of
 /// a sitemap it nests.
+#[derive(Clone, Copy, Debug)]
 pub enum Adding<'a> {
     /// An entry, a crawl request of this Label with no Payload.
     Entry(&'a str),

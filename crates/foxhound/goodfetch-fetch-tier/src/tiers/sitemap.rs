@@ -42,7 +42,7 @@ impl HttpTier {
     ) -> Result<Vec<u8>, CallError> {
         let clock = run.clock();
         let gate = SitemapHops {
-            clock: clock.clone(),
+            clock,
             politeness,
             keys,
             run,
@@ -53,7 +53,7 @@ impl HttpTier {
             &gate,
             &clock,
             |hop| {
-                let clock = clock.clone();
+
                 async move { fetch(self.transport.as_ref(), &hop, &self.deadlines, &clock).await }
             },
         )

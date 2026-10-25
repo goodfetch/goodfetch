@@ -116,55 +116,14 @@ pub fn admit(
     candidate: Candidate<'_>,
     add: impl FnOnce(&Url) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
-    let (given, parsed, from, declared, narrowing, depth) = match candidate {
-        Candidate::Seed { url, declared } => (url, parse(url, None), None, declared, None, 0),
-        Candidate::Href {
-            href,
-            base,
-            encoding,
-            from,
-            narrowing,
-            depth,
-        } => (
-            href,
-            parse_link(href, base, encoding),
-            Some(from),
-            Declared {
-                method: &LINK,
-                body: None,
-                key: None,
-            },
-            Some(narrowing),
-            depth,
-        ),
-        Candidate::Enqueue {
-            url,
-            base,
-            from,
-            declared,
-            narrowing,
-            depth,
-        } => (
-            url,
-            parse(url, Some(base)),
-            Some(from),
-            declared,
-            Some(narrowing),
-            depth,
-        ),
-        Candidate::SitemapEntry { url, sitemap } => (
-            url,
-            parse(url, Some(sitemap)),
-            None,
-            Declared {
-                method: &LINK,
-                body: None,
-                key: None,
-            },
-            Some(Narrowing::none()),
-            0,
-        ),
-    };
+    let Read {
+        given,
+        parsed,
+        from,
+        declared,
+        narrowing,
+        depth,
+    } = Read::of(candidate);
     let not_added = |reason: NotAddedReason| Enqueued::NotAdded {
         reason,
         url: given.to_owned(),
@@ -218,6 +177,81 @@ pub fn admit(
         id,
         url: url.into(),
     })
+}
+
+/// What a candidate gives the admission: its URL as given and as parsed,
+/// the URL of the page that gave it, how it is sent and identified, the
+/// patterns narrowing the scope for it (none for a seed, which the scope
+/// does not measure) and its depth.
+struct Read<'a> {
+    given: &'a str,
+    parsed: Result<Url, NotAddedReason>,
+    from: Option<&'a Url>,
+    declared: Declared<'a>,
+    narrowing: Option<Narrowing<'a>>,
+    depth: u32,
+}
+
+impl<'a> Read<'a> {
+    fn of(candidate: Candidate<'a>) -> Self {
+        let (given, parsed, from, declared, narrowing, depth) = match candidate {
+            Candidate::Seed { url, declared } => (url, parse(url, None), None, declared, None, 0),
+            Candidate::Href {
+                href,
+                base,
+                encoding,
+                from,
+                narrowing,
+                depth,
+            } => (
+                href,
+                parse_link(href, base, encoding),
+                Some(from),
+                Declared {
+                    method: &LINK,
+                    body: None,
+                    key: None,
+                },
+                Some(narrowing),
+                depth,
+            ),
+            Candidate::Enqueue {
+                url,
+                base,
+                from,
+                declared,
+                narrowing,
+                depth,
+            } => (
+                url,
+                parse(url, Some(base)),
+                Some(from),
+                declared,
+                Some(narrowing),
+                depth,
+            ),
+            Candidate::SitemapEntry { url, sitemap } => (
+                url,
+                parse(url, Some(sitemap)),
+                None,
+                Declared {
+                    method: &LINK,
+                    body: None,
+                    key: None,
+                },
+                Some(Narrowing::none()),
+                0,
+            ),
+        };
+        Self {
+            given,
+            parsed,
+            from,
+            declared,
+            narrowing,
+            depth,
+        }
+    }
 }
 
 #[cfg(test)]

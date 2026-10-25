@@ -23,6 +23,8 @@
 //!
 //! No task names the family: the engine's sitemap seed cases read it.
 
+use std::fmt::Write as _;
+
 use super::{Page, Visit, canonical_number, document, name};
 
 pub(super) const FAMILY: &str = "sitemap-seed";
@@ -122,7 +124,8 @@ fn index(sitemaps: &[String]) -> Page {
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
     );
     for sitemap in sitemaps {
-        text.push_str(&format!("<sitemap><loc>{sitemap}</loc></sitemap>\n"));
+        writeln!(text, "<sitemap><loc>{sitemap}</loc></sitemap>")
+            .expect("invariant: writing to a String succeeds");
     }
     text.push_str("</sitemapindex>\n");
     xml(text)
@@ -134,7 +137,8 @@ fn urlset(entries: &[String]) -> Page {
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
     );
     for entry in entries {
-        text.push_str(&format!("<url><loc>{entry}</loc></url>\n"));
+        writeln!(text, "<url><loc>{entry}</loc></url>")
+            .expect("invariant: writing to a String succeeds");
     }
     text.push_str("</urlset>\n");
     xml(text)

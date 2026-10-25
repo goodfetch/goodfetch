@@ -10,7 +10,7 @@
 //! browser does.
 
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::CallError;
 use goodfetch_page::page_value::Permit;
@@ -121,6 +121,14 @@ impl HopGate for Navigating {
                 clock.sleep(wait).await;
             }
         })
+    }
+
+    fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
+        Box::pin(self.hand_over.sending(hop))
+    }
+
+    fn answered<'a>(&'a self, hop: &'a Hop, latency: Duration) -> Gating<'a, ()> {
+        Box::pin(self.hand_over.answered(hop, latency))
     }
 
     fn reached<'a>(&'a self, _hop: &'a Hop) -> Gating<'a, ()> {

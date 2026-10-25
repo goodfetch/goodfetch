@@ -128,7 +128,7 @@ pub(crate) fn store(folder: &Path, source: &mut dyn Read) -> io::Result<(String,
     let sha256 = data_encoding::HEXLOWER.encode(&hasher.finalize());
     let kept = file(folder, &sha256).expect("invariant: a SHA-256 in lowercase hex names a file");
     partial.persist(&kept).map_err(|error| error.error)?;
-    super::save::sync_folder(&files);
+    crate::durable::sync_folder(&files);
     Ok((sha256, size))
 }
 

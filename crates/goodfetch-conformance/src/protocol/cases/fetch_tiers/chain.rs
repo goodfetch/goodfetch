@@ -6,7 +6,9 @@
 //! hop with Fetch's method and body; a 3xx Fetch does not follow fails with
 //! `response_not_ok` unless `crawl.handle_statuses` lists it; each hop goes
 //! through the navigation gate (robots.txt, the domain's delay) and the
-//! Frontier (a duplicate key, the scope); a redirect's `Retry-After` delays
+//! Frontier (a duplicate key, the scope); a hop leaving the scope, to a
+//! host the domain policy refuses or to an address the address check
+//! refuses ends its request `skipped`, live in `run.outcomes`; a redirect's `Retry-After` delays
 //! its next hop, or past the crawl's bound fails the request with
 //! `response_unavailable`; and a refresh stub within
 //! `fetch.refresh.max_delay` hands the handler its target. A cookie jar,
@@ -25,6 +27,9 @@ const HOST: &str = "fetch-edge.test";
 
 /// `run.outcomes`, Foxhound's.
 const RUN_OUTCOMES: &str = "run.outcomes";
+
+/// `run.add_seed`, Foxhound's.
+const RUN_ADD_SEED: &str = "run.add_seed";
 
 /// A domain's delay between request starts, which every hop waits out.
 const DOMAIN_DELAY_MS: u64 = 1_500;
@@ -316,15 +321,23 @@ pub(super) fn redirect_methods(
     Ok(())
 }
 
-/// A 300, a redirect with no `Location` and one to `ftp:` fail at once with
-/// `response_not_ok`, while a 301 `crawl.handle_statuses` lists reaches the
-/// handler unfollowed.
+/// A 300, a redirect with no `Location` and one to `ftp:`, `file:`,
+/// `gopher:` or `data:` fail at once with `response_not_ok`, so no crawl
+/// fetches another scheme, while a 301 `crawl.handle_statuses` lists
+/// reaches the handler unfollowed.
 pub(super) fn not_followed(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let failing = ["/redirect/300", "/redirect/no-location", "/redirect/ftp"];
+    let failing = [
+        "/redirect/300",
+        "/redirect/no-location",
+        "/redirect/ftp",
+        "/redirect/file",
+        "/redirect/gopher",
+        "/redirect/data",
+    ];
     let seeds = failing
         .iter()
         .chain(&["/redirect/301"])
@@ -455,6 +468,201 @@ pub(super) fn frontier_hops(
         requests_for(site, "elsewhere.test", "/offsite").is_empty(),
     );
     Ok(())
+}
+
+/// The redirects a crawl's own checks refuse, under `crawl.scope.strategy:
+/// all` narrowed by `crawl.scope.exclude` and `egress.blocked_domains`
+/// naming `bücher.test` (ADRs 0017, 0093, 0118 and 0120): one leaving the
+/// scope ends `skipped` with `out_of_scope`; one to `bücher.test` spelled
+/// in punycode, and one to the Proving ground's loopback address, dotted or
+/// in hex, which the address check refuses at that hop, end `skipped` with
+/// `domain_policy`; none of their targets is requested, and an in-scope
+/// chain reaches its handler (the positive control). The seeds are added
+/// to the live crawl after a `run.outcomes` call with `kinds: ["skipped",
+/// "blocked"]` and `after: "now"` is made, and each refusal reaches it as
+/// it happens with its reason; the Run report counts each reason.
+pub(super) fn refused_hops(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-fetch-edge-refused-hops";
+    let control = site.named_url(HOST, "/redirect/hops/1");
+    let refused: Vec<(Option<String>, &str)> = vec![
+        (site.named_url("scope.test", "/moved"), "out_of_scope"),
+        (site.named_url(HOST, "/redirect/punycode"), "domain_policy"),
+        (site.named_url(HOST, "/redirect/address"), "domain_policy"),
+        (
+            site.named_url(HOST, "/redirect/address/hex"),
+            "domain_policy",
+        ),
+    ];
+    checks.check(
+        "the Proving ground serves the fetch edge pages",
+        control.is_some() && refused.iter().all(|(url, _)| url.is_some()),
+    );
+    let Some(control) = control else {
+        return Ok(());
+    };
+    let earlier_offsite = requests_for(site, "elsewhere.test", "/offsite").len();
+    let earlier_target = requests_for(site, "xn--bcher-kva.test", "/target").len();
+    let settings = json!({
+        "fetch": { "tier": "http" },
+        "network": { "resolve": site.resolve },
+        "crawl": {
+            "keep_alive": true,
+            "scope": { "strategy": "all", "exclude": ["**/offsite"] },
+        },
+        "egress": { "blocked_domains": ["bücher.test"] },
+    });
+    handled_page(connection, run_id, &control, &settings, checks)?;
+    let urls: Vec<&str> = refused
+        .iter()
+        .filter_map(|(url, _)| url.as_deref())
+        .collect();
+    let outcomes = added_live(connection, run_id, &urls)?;
+    for (url, reason) in &refused {
+        let outcome = outcomes
+            .iter()
+            .find(|outcome| outcome["request"]["url"] == json!(url));
+        checks.check(
+            format!(
+                "`run.outcomes` after `now` yields {} `skipped` with `{reason}`",
+                url.as_deref().unwrap_or_default()
+            ),
+            ended(outcome, "skipped", reason),
+        );
+    }
+    checks.check(
+        "`run.outcomes` yields only the refusals",
+        outcomes.len() == refused.len(),
+    );
+    checks.check(
+        "no refused hop's target is requested",
+        requests_for(site, "elsewhere.test", "/offsite").len() == earlier_offsite
+            && requests_for(site, "xn--bcher-kva.test", "/target").len() == earlier_target
+            && addressed(site) == 0,
+    );
+    let finish = connection.request(RUN_FINISH.name, &json!({ "run_id": run_id }))?;
+    let report = connection.answer(finish)?.message;
+    checks.check(
+        "the Run finishes",
+        report["result"]["lifecycle"] == json!("finished"),
+    );
+    let skips = &report["result"]["requests"]["by_skip_reason"];
+    checks.check(
+        "the Run report counts 3 `domain_policy` and 1 `out_of_scope` skips",
+        skips.as_array().is_some_and(|skips| {
+            skips.contains(&json!({ "name": "domain_policy", "count": 3 }))
+                && skips.contains(&json!({ "name": "out_of_scope", "count": 1 }))
+        }),
+    );
+    Ok(())
+}
+
+/// Starts the crawl `run_id` under `settings` with the one seed `url`, an
+/// in-scope chain to `/redirect/hops/0`, and answers its handler once it
+/// checked the page it was handed is the chain's end.
+fn handled_page(
+    connection: &mut Connection,
+    run_id: &str,
+    url: &str,
+    settings: &Value,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let control = url;
+    let id = connection.request(
+        CRAWL_START,
+        &json!({
+            "run_id": run_id,
+            "seeds": [{ "url": control, "label": "page" }],
+            "settings": settings,
+        }),
+    )?;
+    let answer = connection.answer(id)?;
+    checks.check(
+        "`crawl.start` starts a new Run",
+        answer.message["result"]["started_as"] == json!("new"),
+    );
+    let mut queued: Vec<Value> = answer.others;
+    let handle = loop {
+        let message = if queued.is_empty() {
+            connection.next_within(DEADLINE * 4)?
+        } else {
+            queued.remove(0)
+        };
+        if message["method"] == json!(CRAWL_REQUEST_HANDLE) {
+            break message;
+        }
+    };
+    let read = connection.request(
+        PAGE_FORMATS.name,
+        &json!({ "page_id": handle["params"]["page_id"], "formats": { "markdown": true } }),
+    )?;
+    let formats = connection.answer(read)?;
+    checks.check(
+        "an in-scope chain reaches its handler",
+        formats.message["result"]["url"]
+            .as_str()
+            .is_some_and(|url| url.ends_with("/redirect/hops/0")),
+    );
+    connection.reply(&handle["id"], &json!({ "records": [] }))?;
+    Ok(())
+}
+
+/// The outcomes of kinds `skipped` and `blocked` a `run.outcomes` call
+/// made with `after: "now"` yields while each of `urls` is added to the
+/// live crawl `run_id` as a seed, until it yields as many as `urls`.
+fn added_live(
+    connection: &mut Connection,
+    run_id: &str,
+    urls: &[&str],
+) -> Result<Vec<Value>, Gone> {
+    let live = connection.request(
+        RUN_OUTCOMES,
+        &json!({ "run_id": run_id, "kinds": ["skipped", "blocked"], "after": "now" }),
+    )?;
+    for url in urls {
+        let add = connection.request(
+            RUN_ADD_SEED,
+            &json!({ "run_id": run_id, "seed": { "url": url, "label": "page" } }),
+        )?;
+        connection.answer(add)?;
+    }
+    let mut outcomes: Vec<Value> = Vec::new();
+    let mut page = connection.answer(live)?.message;
+    loop {
+        let read = page["result"]["outcomes"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        outcomes.extend(read);
+        if outcomes.len() >= urls.len() || page["result"]["ended"] == json!(true) {
+            return Ok(outcomes);
+        }
+        let next = connection.request(
+            RUN_OUTCOMES,
+            &json!({
+                "run_id": run_id,
+                "kinds": ["skipped", "blocked"],
+                "after": page["result"]["next"],
+            }),
+        )?;
+        page = connection.answer(next)?.message;
+    }
+}
+
+/// The requests the Proving ground received for `/address/target`, on any
+/// host.
+fn addressed(site: &Site) -> usize {
+    site.proving_ground
+        .observations()
+        .ok()
+        .and_then(|observations| observations["requests"].as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter(|request| request["target"] == json!("/address/target"))
+        .count()
 }
 
 /// A 302's `Retry-After` of 2 s delays its next hop by 2 s; one asking for

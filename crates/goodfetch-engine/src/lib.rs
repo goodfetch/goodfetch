@@ -75,6 +75,7 @@ pub mod run_trace;
 pub mod runs;
 pub mod secrets;
 pub mod settings;
+mod sqlite_wal;
 pub mod tasks;
 pub mod tls;
 pub mod trace;

@@ -221,7 +221,7 @@ export class CollieOperations {
   }
 
   /**
-   * Removes a key from a live Run's Key-value store and answers whether it existed.
+   * Removes a key from a live Run's Key-value store and answers whether it existed. Through a crawl attempt (`attempt`), the removal is staged with the attempt, and whether the key existed counts what the attempt staged.
    *
    * @experimental
    */
@@ -230,7 +230,7 @@ export class CollieOperations {
   }
 
   /**
-   * Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it.
+   * Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it. Through a crawl attempt (`attempt`), it reads what the attempt staged first.
    *
    * @experimental
    */
@@ -239,7 +239,7 @@ export class CollieOperations {
   }
 
   /**
-   * Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock.
+   * Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock. Through a crawl attempt (`attempt`), it reads what the attempt staged first.
    *
    * @experimental
    */
@@ -257,7 +257,7 @@ export class CollieOperations {
   }
 
   /**
-   * Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`.
+   * Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`. Through a crawl attempt (`attempt`), the write is staged with the attempt and commits or is discarded with it; once the attempt ended, it fails with `attempt_ended`.
    *
    * @experimental
    */

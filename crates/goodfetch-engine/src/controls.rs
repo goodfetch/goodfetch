@@ -7,10 +7,14 @@
 //! control in the Audit log, one warning through the host's logging, and
 //! the control in its Run report's `weakened`, as every setting whose value
 //! weakens is. With `security.audit_chain` off, the Run's other entries are
-//! written unchained.
+//! written unchained. A Run whose `egress.private_ranges` lists any range
+//! or host is recorded the same way, once, as `private_addresses_allowed`
+//! with what it listed (ADR 0016), and its Run report's `weakened` names
+//! it.
 
-use goodfetch_protocol::audit::{Actor, SECURITY_SWITCH_TURNED_OFF};
+use goodfetch_protocol::audit::{Actor, PRIVATE_ADDRESSES_ALLOWED, SECURITY_SWITCH_TURNED_OFF};
 use goodfetch_protocol::catalog::Setting;
+use goodfetch_protocol::egress::EGRESS_PRIVATE_RANGES;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::security::SECURITY_AUDIT_CHAIN;
 use goodfetch_protocol::settings::WeakenedSetting;
@@ -41,13 +45,17 @@ impl Controls {
     }
 
     /// The registered controls that `resolved`, a Run's settings, switches
-    /// off, each with its value and the layer that set it.
+    /// off, each with its value and the layer that set it, and its private
+    /// ranges when it lists any.
     pub fn switched_off(&self, resolved: &Resolved) -> SwitchedOff {
         SwitchedOff(
             resolved
                 .weakened()
                 .into_iter()
-                .filter(|weakened| self.0.contains(&weakened.key.as_str()))
+                .filter(|weakened| {
+                    self.0.contains(&weakened.key.as_str())
+                        || weakened.key == EGRESS_PRIVATE_RANGES.name
+                })
                 .collect(),
         )
     }
@@ -67,8 +75,8 @@ impl SwitchedOff {
     }
 
     /// Reports each one for the new Run `run_id`, once: a chained entry in
-    /// `audit`, recorded at `now`, and a warning through the host's
-    /// logging. Blocks on the Audit log.
+    /// `audit`, recorded at `now`, and, for a switched-off control, a
+    /// warning through the host's logging. Blocks on the Audit log.
     ///
     /// # Errors
     ///
@@ -81,6 +89,21 @@ impl SwitchedOff {
         now: Timestamp,
     ) -> Result<(), AuditError> {
         for switched in &self.0 {
+            let origin = Origin {
+                actor: Actor::Engine,
+                surface: None,
+                layer: Some(switched.layer),
+                run_id: Some(run_id.clone()),
+            };
+            if switched.key == EGRESS_PRIVATE_RANGES.name {
+                audit.record_chained(
+                    &origin,
+                    &PRIVATE_ADDRESSES_ALLOWED,
+                    json!({ "setting": switched.key, "ranges": switched.value }),
+                    now,
+                )?;
+                continue;
+            }
             tracing::warn!(
                 run_id = %run_id,
                 setting = %switched.key,
@@ -90,12 +113,7 @@ impl SwitchedOff {
                 switched.layer.as_str(),
             );
             audit.record_chained(
-                &Origin {
-                    actor: Actor::Engine,
-                    surface: None,
-                    layer: Some(switched.layer),
-                    run_id: Some(run_id.clone()),
-                },
+                &origin,
                 &SECURITY_SWITCH_TURNED_OFF,
                 json!({ "setting": switched.key, "value": switched.value }),
                 now,

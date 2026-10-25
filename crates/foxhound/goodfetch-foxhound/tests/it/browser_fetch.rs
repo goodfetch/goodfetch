@@ -41,6 +41,8 @@ fn settings(proving_ground: &ProvingGround, tier: &str) -> Value {
         .collect();
     json!({
         "network": { "resolve": resolve },
+        // The egress relay judges a mapping's answers as any other.
+        "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
         "fetch": { "tier": tier },
         "session": { "pool": { "max_size": 1 } },
     })

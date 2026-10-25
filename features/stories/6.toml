@@ -821,6 +821,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 236
+title = "As a crawl developer, I want enqueues, seeds, Records and Key-value store writes an attempt staged to commit together or be discarded together, so that a failed attempt leaves no stray link (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 237
+title = "As a crawl developer, I want an enqueue inside a declared Effect's body to fail with `effect_staging_refused`, so that a re-run that skips the body never loses a link silently (ADR 0106)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 238
 title = "As a crawl developer, I want `run.outcomes({ kinds: [\"skipped\", \"blocked\"], after: \"now\" })` to follow skipped and blocked links as they happen, each with its reason, in place of a callback, so that I can watch the crawl's refusals live (CO-11, ADR 0102)."
 milestone = "M1 Core"
@@ -992,6 +1010,15 @@ product = "foxhound"
 [[story]]
 id = 310
 title = "As a crawl developer, I want the report's `learnedRules` to list each rule with its evidence and the URLs it merged, so that every merge can be audited (ADRs 0005, 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 314
+title = "As an operator, I want an Operator policy able to cap or lock `crawl.*`, `fetch.*`, `sinks.*`, `politeness.*` and `site_preferences.*`, so that a shared Daemon can forbid turning robots.txt off (ADRs 0028, 0086)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

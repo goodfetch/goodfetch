@@ -16,7 +16,7 @@
 //! visited set, in the same run file, decides; it keeps the method and body
 //! it is sent with.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
 use goodfetch_engine::CallError;
@@ -84,6 +84,10 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             outcome TEXT NOT NULL
         ) STRICT",
         "CREATE INDEX IF NOT EXISTS outcomes_by_work_item ON outcomes (work_item, position)",
+        "CREATE TABLE IF NOT EXISTS work_item_positions (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            reserved INTEGER NOT NULL
+        ) STRICT",
     ],
 };
 
@@ -237,8 +241,9 @@ pub(crate) fn read_sitemap(
         return Ok(false);
     }
     let scope = Scope::read(connection)?;
+    let mut positions = Positions::of(connection)?;
     sitemap::read(connection, &scope, policy, id, document, |url, adding| {
-        add(connection, url, from_sitemap(adding))
+        add(connection, &mut positions, url, from_sitemap(adding))
     })?;
     connection.execute(
         "UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2",
@@ -248,10 +253,11 @@ pub(crate) fn read_sitemap(
 }
 
 /// Admits each seed through the Frontier under the Run's domain policy
-/// `policy`, as a pending work item at depth 0 when added, and answers each
-/// seed's answer, in order.
+/// `policy`, as a pending work item at depth 0 when added, at its position
+/// from `positions`, and answers each seed's answer, in order.
 pub(crate) fn admit_seeds(
     connection: &Connection,
+    positions: &mut Positions,
     scope: &Scope,
     policy: &Policy,
     seeds: &[Seed],
@@ -263,7 +269,12 @@ pub(crate) fn admit_seeds(
                 Seed::Request(seed) => seed,
                 Seed::Sitemap(seed) => {
                     return sitemap::admit_seed(connection, policy, seed, |url| {
-                        add(connection, url, from_sitemap(sitemap::Adding::Sitemap))
+                        add(
+                            connection,
+                            positions,
+                            url,
+                            from_sitemap(sitemap::Adding::Sitemap),
+                        )
                     });
                 }
             };
@@ -279,6 +290,7 @@ pub(crate) fn admit_seeds(
             admit(connection, scope, policy, candidate, |url| {
                 add(
                     connection,
+                    positions,
                     url,
                     Adding {
                         method: &seed.method,
@@ -295,21 +307,90 @@ pub(crate) fn admit_seeds(
         .collect()
 }
 
+/// The positions work items are added at, each its ID: after every work
+/// item the run file holds and every position reserved for one an attempt
+/// staged (ADR 0093), so a staged request keeps the ID its enqueue
+/// answered once its attempt commits, and a discarded one leaves a gap.
+#[derive(Debug)]
+pub(crate) struct Positions {
+    /// The positions an earlier staging of the admission being replayed
+    /// gave each URL it added.
+    kept: BTreeMap<String, u64>,
+    next: u64,
+    /// The positions given since the last [`Positions::taken`], by URL.
+    taken: BTreeMap<String, u64>,
+}
+
+impl Positions {
+    /// The positions after everything the run file `connection` holds.
+    pub(crate) fn of(connection: &Connection) -> rusqlite::Result<Self> {
+        let next: i64 = connection.query_row(
+            "SELECT max(
+                 (SELECT coalesce(max(position), 0) FROM work_items),
+                 (SELECT coalesce(max(reserved), 0) FROM work_item_positions)
+             ) + 1",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(Self {
+            kept: BTreeMap::new(),
+            next: u64::try_from(next).unwrap_or(1),
+            taken: BTreeMap::new(),
+        })
+    }
+
+    /// Gives each URL in `kept` the position it holds there from now on,
+    /// as an admission staged before is replayed.
+    pub(crate) fn keeping(&mut self, kept: BTreeMap<String, u64>) {
+        self.kept = kept;
+        self.taken.clear();
+    }
+
+    /// The position of the work item added at `url`.
+    fn take(&mut self, url: &str) -> u64 {
+        if let Some(kept) = self.kept.get(url) {
+            return *kept;
+        }
+        let position = self.next;
+        self.next += 1;
+        self.taken.insert(url.to_owned(), position);
+        position
+    }
+
+    /// The positions given since the last call, by URL.
+    pub(crate) fn taken(&mut self) -> BTreeMap<String, u64> {
+        std::mem::take(&mut self.taken)
+    }
+
+    /// Reserves in the run file every position given so far, so that no
+    /// later work item takes one, though none of it is written yet.
+    pub(crate) fn reserve(&self, connection: &Connection) -> rusqlite::Result<()> {
+        connection.execute(
+            "INSERT INTO work_item_positions (id, reserved) VALUES (1, ?1)
+             ON CONFLICT (id) DO UPDATE SET reserved = max(reserved, excluded.reserved)",
+            [integer(self.next.saturating_sub(1))],
+        )?;
+        Ok(())
+    }
+}
+
 /// Adds a request to `url`, the URL it is fetched at, as a pending work
-/// item, next in order, its Payload kept apart in the Frontier's own table,
-/// and answers its ID, its position.
+/// item at its position from `positions`, its Payload kept apart in the
+/// Frontier's own table, and answers its ID, its position.
 pub(crate) fn add(
     connection: &Connection,
+    positions: &mut Positions,
     url: &Url,
     adding: Adding<'_>,
 ) -> rusqlite::Result<String> {
+    let position = integer(positions.take(url.as_str()));
     connection.query_row(
         "INSERT INTO work_items
              (id, position, url, method, body, label, depth, status, attempts, lease_epoch, priority, forefront)
-         SELECT CAST(next AS TEXT), next, ?1, ?2, ?3, ?4, ?5, 'pending', 0, 0, ?6, CASE WHEN ?7 THEN next END
-         FROM (SELECT coalesce(max(position), 0) + 1 AS next FROM work_items)
+         VALUES (CAST(?1 AS TEXT), ?1, ?2, ?3, ?4, ?5, ?6, 'pending', 0, 0, ?7, CASE WHEN ?8 THEN ?1 END)
          RETURNING id",
         (
+            position,
             url.as_str(),
             adding.method.as_str(),
             adding.body.map(HttpBody::bytes),

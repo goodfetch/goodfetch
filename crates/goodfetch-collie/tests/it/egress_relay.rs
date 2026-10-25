@@ -10,9 +10,10 @@
 //! connects directly and Provenance names the rebinding gap.
 //!
 //! The Proving ground serves on loopback through the Run's
-//! `network.resolve` mapping, whose answers the relay does not judge until
-//! tests list their ranges in `egress.private_ranges` (#622); `localhost`
-//! and literal addresses are resolved, and judged, as any name is.
+//! `network.resolve` mapping, whose answers the relay judges as any other:
+//! each Run lists the mapped hosts in `egress.private_ranges`, so
+//! `localhost` and literal addresses, resolved and judged as any name is,
+//! stay refused.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -590,6 +591,7 @@ fn browsers_ja4(
     let (port, received) = client_hello_stand_in();
     let mut settings = settings.clone();
     settings["network"] = json!({ "resolve": { "hello.test": ["127.0.0.1"] } });
+    settings["egress"] = json!({ "private_ranges": ["hello.test"] });
     let cache = browser_cache(env).unwrap();
     let engine = Attached::start_waiting(env, crate::page::BROWSER_DEADLINE, |command| {
         command.env(goodfetch_test_support::BROWSERS_PATH_VARIABLE, &cache);

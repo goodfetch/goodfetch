@@ -46,6 +46,27 @@ pub struct KeyValueStoreKeyParams {
     /// The key.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub key: String,
+    /// The crawl attempt whose handler's `ctx.run` reads or deletes the
+    /// key: a read sees what the attempt staged, and a delete is staged
+    /// with the attempt (ADR 0093). Absent, the call reads or commits at
+    /// once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub attempt: Option<KeyValueStoreAttempt>,
+}
+
+/// The crawl attempt a Key-value store call is made through: a handler's
+/// `ctx.run`, which is bound to its attempt (ADR 0093). Only a crawl's Run
+/// has attempts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct KeyValueStoreAttempt {
+    /// The ID of the crawl request whose attempt makes the call.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub crawl_request_id: String,
+    /// The attempt's lease epoch, as `crawl_request.handle` gave it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lease_epoch: u64,
 }
 
 /// What `key_value_store.set` takes: the Run, the key and its value.
@@ -62,6 +83,12 @@ pub struct KeyValueStoreSetParams {
     /// refuses; a nested null is kept.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub value: Value,
+    /// The crawl attempt whose handler's `ctx.run` sets the key: the write
+    /// is staged with the attempt and commits with it, or is discarded
+    /// with it (ADR 0093). Absent, the value is committed at once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub attempt: Option<KeyValueStoreAttempt>,
 }
 
 /// Bytes the store keeps: on the wire, in Base64 (RFC 4648, with padding).
@@ -288,7 +315,7 @@ pub const VALUE_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
 /// `key_value_store.get`.
 pub const KEY_VALUE_STORE_GET: Operation = Operation {
     name: "key_value_store.get",
-    description: "Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it.",
+    description: "Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it. Through a crawl attempt (`attempt`), it reads what the attempt staged first.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -304,7 +331,7 @@ pub const KEY_VALUE_STORE_GET: Operation = Operation {
 /// `key_value_store.set`.
 pub const KEY_VALUE_STORE_SET: Operation = Operation {
     name: "key_value_store.set",
-    description: "Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`.",
+    description: "Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`. Through a crawl attempt (`attempt`), the write is staged with the attempt and commits or is discarded with it; once the attempt ended, it fails with `attempt_ended`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -320,7 +347,7 @@ pub const KEY_VALUE_STORE_SET: Operation = Operation {
 /// `key_value_store.get_bytes`.
 pub const KEY_VALUE_STORE_GET_BYTES: Operation = Operation {
     name: "key_value_store.get_bytes",
-    description: "Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock.",
+    description: "Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock. Through a crawl attempt (`attempt`), it reads what the attempt staged first.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -352,7 +379,7 @@ pub const KEY_VALUE_STORE_SET_BYTES: Operation = Operation {
 /// `key_value_store.delete`.
 pub const KEY_VALUE_STORE_DELETE: Operation = Operation {
     name: "key_value_store.delete",
-    description: "Removes a key from a live Run's Key-value store and answers whether it existed.",
+    description: "Removes a key from a live Run's Key-value store and answers whether it existed. Through a crawl attempt (`attempt`), the removal is staged with the attempt, and whether the key existed counts what the attempt staged.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,

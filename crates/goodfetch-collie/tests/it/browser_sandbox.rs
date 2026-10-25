@@ -53,7 +53,11 @@ struct Seen {
 fn open_a_page(env: &TestEnv, run_id: &str, change: impl FnOnce(&mut Command)) -> Seen {
     let proving_ground = ProvingGround::start(env, SEED).unwrap();
     let cache = browser_cache(env).unwrap();
-    let mut engine = started_with(env, &cache, &proving_ground, run_id, &Map::new(), change);
+    // The page navigates nowhere, so the Run lists no private range, which
+    // would join the report's `weakened`.
+    let settings = json!({ "egress": { "private_ranges": [] } });
+    let settings: Map<String, Value> = settings.as_object().cloned().unwrap_or_default();
+    let mut engine = started_with(env, &cache, &proving_ground, run_id, &settings, change);
     let opened = call(&mut engine, 2, "run.new_page", &json!({ "run_id": run_id }));
     let command_lines = browser_command_lines(env)
         .into_iter()

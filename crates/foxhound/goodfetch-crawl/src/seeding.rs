@@ -2,7 +2,8 @@
 //! RT-12): `run.add_seed` admits one seed through the Frontier, as the
 //! start admits its seeds, committed at once in the Run's state, and
 //! answers it as an enqueue is answered; named by a handler's attempt, it
-//! is bound to that attempt and fails with `attempt_ended` once the attempt
+//! is staged with that attempt as an enqueue is, committed or discarded
+//! with it (ADR 0093), and fails with `attempt_ended` once the attempt
 //! ended. Each seed added widens the crawl's scope, which the run file
 //! holds, by its host, as the start's seeds do; a seed whose host the
 //! Run's domain policy refuses is not added, with `domain_policy`. `run.add_seeds` takes a
@@ -34,7 +35,7 @@ use goodfetch_protocol::run::{RUN_NOT_FOUND, RUN_STATE_UNAVAILABLE, RunDetails, 
 use rusqlite::Connection;
 
 use crate::serving::{Crawls, LiveCrawl};
-use crate::work_items;
+use crate::work_items::{self, Positions};
 
 /// The handlers of `run.add_seed` and `run.add_seeds` on the live crawls of
 /// `crawls`.
@@ -87,6 +88,7 @@ async fn add_seed(
         run,
         egress,
         seeded,
+        staging,
     }) = crawls.live(&params.run_id).await
     else {
         return Err(not_live(&params.run_id));
@@ -99,7 +101,23 @@ async fn add_seed(
     let bound = attempt.clone();
     let answered = run
         .state()
-        .write(move |connection| admit_within(connection, &egress, &seed, bound.as_ref()))
+        .write(move |connection| match bound {
+            Some(attempt) => staging.admit(
+                connection,
+                &attempt.crawl_request_id.clone(),
+                attempt.lease_epoch,
+                move |connection, positions| {
+                    admit_within(connection, positions, &egress, &seed, Some(&attempt))
+                },
+            ),
+            None => admit_within(
+                connection,
+                &mut Positions::of(connection)?,
+                &egress,
+                &seed,
+                None,
+            ),
+        })
         .await
         .map_err(|error| unwritten(&run_id, &error))?;
     if let Some(answer) = answered {
@@ -117,11 +135,13 @@ async fn add_seed(
     ))
 }
 
-/// Admits `seed` under the Run's domain policy `egress`, while `attempt`,
-/// when given, holds its lease, once its Payload fits its Label's schema
-/// and the cap, else `payload_invalid`; `None` once that attempt ended.
+/// Admits `seed` under the Run's domain policy `egress`, at its position
+/// from `positions`, while `attempt`, when given, holds its lease, once
+/// its Payload fits its Label's schema and the cap, else
+/// `payload_invalid`; `None` once that attempt ended.
 fn admit_within(
     connection: &Connection,
+    positions: &mut Positions,
     egress: &Policy,
     seed: &Seed,
     attempt: Option<&SeedAttempt>,
@@ -137,6 +157,7 @@ fn admit_within(
     }
     let mut answers = work_items::admit_seeds(
         connection,
+        positions,
         &Scope::read(connection)?,
         egress,
         std::slice::from_ref(seed),
@@ -164,6 +185,7 @@ async fn add_seeds(
         run,
         egress,
         seeded,
+        ..
     }) = crawls.live(&params.run_id).await
     else {
         return Err(not_live(&params.run_id));
@@ -257,7 +279,14 @@ async fn admit_batch(
             if let Err(refused) = refused(connection, &seeds)? {
                 return Ok(Err(refused));
             }
-            work_items::admit_seeds(connection, &Scope::read(connection)?, &egress, &seeds).map(Ok)
+            work_items::admit_seeds(
+                connection,
+                &mut Positions::of(connection)?,
+                &Scope::read(connection)?,
+                &egress,
+                &seeds,
+            )
+            .map(Ok)
         })
         .await
         .map_err(|error| unwritten(run_id, &error))?

@@ -75,6 +75,8 @@ pub(crate) struct Connection {
     started: Started,
     next_id: i64,
     exchanged: Vec<Value>,
+    /// Whether its `hello` named a surface that acts for a model.
+    for_model: bool,
 }
 
 impl Connection {
@@ -83,7 +85,18 @@ impl Connection {
             started,
             next_id: 1,
             exchanged: Vec::new(),
+            for_model: false,
         }
+    }
+
+    /// Whether it acts for a model, as its `hello` said.
+    pub(crate) fn acts_for_model(&self) -> bool {
+        self.for_model
+    }
+
+    /// Marks it as acting for a model, or not, once its `hello` is sent.
+    pub(crate) fn set_for_model(&mut self, for_model: bool) {
+        self.for_model = for_model;
     }
 
     /// The token of the Daemon reached, if any.

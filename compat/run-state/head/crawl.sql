@@ -447,6 +447,11 @@ CREATE TABLE warnings (
         sessions TEXT NOT NULL,
         folder TEXT
     ) STRICT;
+CREATE TABLE work_item_positions (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            reserved INTEGER NOT NULL
+        ) STRICT;
+INSERT INTO "work_item_positions" VALUES(1,19);
 CREATE TABLE work_items (
             id TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL UNIQUE,

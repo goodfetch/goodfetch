@@ -418,7 +418,7 @@ fn a_private_address_is_reached_only_when_a_range_lists_it(
 }
 
 #[rstest]
-#[case::a_host_name("intranet.test")]
+#[case::a_wildcard_name("*.intranet.test")]
 #[case::a_prefix_too_long("10.0.0.0/33")]
 #[case::no_prefix_length("10.0.0.0/")]
 fn a_private_range_that_is_no_range_is_refused(#[case] entry: &str) {
@@ -445,4 +445,71 @@ fn only_a_policy_refusing_a_host_holds_the_browsers_own_connections(
     #[case] held: bool,
 ) {
     assert_eq!(policy(allowed, blocked).proxy_script().is_some(), held);
+}
+
+/// The Session's policy of a Run whose settings are `settings`.
+fn of_the_run(settings: Value) -> Policy {
+    let layers = Layers {
+        run: run_values(settings),
+        ..Layers::default()
+    };
+    Policy::of(&resolve(&layers, Product::Collie, Product::Collie).unwrap()).unwrap()
+}
+
+/// `egress.private_ranges` from the Run's settings (story 4-11): a range
+/// opens the addresses it covers to any host, a host name opens its own
+/// connections, not its subdomains', to private addresses, and neither
+/// opens a cloud-metadata address, which only its exact address does.
+/// Covers: story:4-11, setting:egress.private_ranges
+#[rstest]
+#[case::loopback_under_its_range("http://catalog.test/", "127.0.0.1", true)]
+#[case::another_loopback_address_under_its_range("http://catalog.test/", "127.4.5.6", true)]
+#[case::a_listed_hosts_private_answer("http://intranet.test/", "10.0.0.1", true)]
+#[case::a_listed_hosts_name_in_capitals("http://INTRANET.test/", "10.0.0.1", true)]
+#[case::an_unlisted_hosts_private_answer("http://elsewhere.test/", "10.0.0.1", false)]
+#[case::a_listed_hosts_subdomain("http://www.intranet.test/", "10.0.0.1", false)]
+#[case::metadata_through_a_listed_host("http://intranet.test/", "169.254.169.254", false)]
+#[case::metadata_under_a_range_that_covers_it("http://catalog.test/", "169.254.169.254", false)]
+#[case::metadata_listed_by_its_exact_address("http://catalog.test/", "100.100.100.200", true)]
+fn the_runs_private_ranges_open_what_they_list_and_metadata_only_by_its_address(
+    #[case] url: &str,
+    #[case] address: &str,
+    #[case] allowed: bool,
+) {
+    let session = of_the_run(json!({
+        "egress": {
+            "private_ranges": ["127.0.0.0/8", "169.254.0.0/16", "intranet.test", "100.100.100.200"],
+        }
+    }));
+
+    assert_eq!(
+        judge_addresses(url, &sockets(&[address]), &session),
+        if allowed {
+            Ok(())
+        } else {
+            Err(private(url, address, PRIVATE_RANGES))
+        }
+    );
+}
+
+/// `security.resolved_ip_check` off (story 4-17): the domain policy alone
+/// applies, so the private and metadata answers the check refuses are
+/// reached; on, its default, they are refused (positive control).
+/// Covers: story:4-17, setting:security.resolved_ip_check
+#[rstest]
+#[case::loopback("127.0.0.1")]
+#[case::a_private_network("10.0.0.1")]
+#[case::metadata("169.254.169.254")]
+fn with_the_resolved_address_check_off_private_answers_are_reached(#[case] address: &str) {
+    let url = "http://internal.test/";
+    let off = of_the_run(json!({ "security": { "resolved_ip_check": false } }));
+    let on = of_the_run(json!({}));
+
+    assert_eq!(
+        (
+            judge_addresses(url, &sockets(&[address]), &off),
+            judge_addresses(url, &sockets(&[address]), &on),
+        ),
+        (Ok(()), Err(private(url, address, PRIVATE_RANGES)))
+    );
 }

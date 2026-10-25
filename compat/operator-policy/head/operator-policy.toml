@@ -228,6 +228,7 @@ max_crawl_delay = 30000
 [settings.crawl]
 sample_pages = 4
 handle_statuses = [4]
+content_types = ["example"]
 domain_keys = { "example.test" = "example" }
 keep_alive = true
 max_depth = 4
@@ -509,6 +510,7 @@ max_crawl_delay = 30000
 [lock.crawl]
 sample_pages = 4
 handle_statuses = [4]
+content_types = ["example"]
 domain_keys = { "example.test" = "example" }
 keep_alive = true
 max_depth = 4

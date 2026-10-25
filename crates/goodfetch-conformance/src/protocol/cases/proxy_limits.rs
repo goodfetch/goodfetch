@@ -4,6 +4,13 @@
 //! at a time and answers any other `429` with `Proxy-Status`, as a vendor's
 //! plan does, and on its quiet page, which gives a browser nothing to load
 //! after its document, so each navigation is one relay the proxy records.
+//! The proxy stops counting a request once it read the site's answer,
+//! before the browser loads it, and counts none for the robots.txt the
+//! engine reads of each document's origin or the icon the browser asks
+//! for, so what a navigation meets there follows from the Permits alone.
+//! Two navigations the engine admits together meet there with the proxy's
+//! hold on: it keeps the first until the other's answer came, however late
+//! the browser sends either.
 //! A proxy's own 429 is a proxy error, never a Block cause, and lowers the
 //! proxy's ceiling for the user's other runs, which then take turns instead
 //! of failing; `politeness.proxy.concurrency` and `politeness.proxy.rate`
@@ -25,6 +32,7 @@ use super::proxies::server;
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::EngineTarget;
+use crate::proving_ground::ProvingGround;
 
 /// How long concurrent navigations may take to answer together, a wait
 /// for a Permit included.
@@ -116,6 +124,46 @@ fn together(
     connection: &mut Connection,
     gotos: &[(&PageOpened, String)],
 ) -> Result<Vec<Value>, Gone> {
+    answers_of(connection, gotos, || {})
+}
+
+/// Sends a `page.goto` for each page and URL at once through the `limited`
+/// proxy held, so the first to reach it stays there until another's answer
+/// came, then releases it, and answers each one's answer, in the order
+/// given: navigations the engine admits together meet at the proxy however
+/// late the browser sends one, while one the engine holds back answers
+/// nothing until the hold is released.
+fn meeting(
+    connection: &mut Connection,
+    site: &Site,
+    gotos: &[(&PageOpened, String)],
+    checks: &mut Checks,
+) -> Result<Vec<Value>, Gone> {
+    let held = site.proving_ground.set_limited_proxy_hold(true).is_ok();
+    checks.check(
+        "the Proving ground holds the limited proxy's first request",
+        held,
+    );
+    let release = || {
+        let _ = site.proving_ground.set_limited_proxy_hold(false);
+    };
+    let answers = answers_of(connection, gotos, release);
+    let released = site.proving_ground.set_limited_proxy_hold(false).is_ok();
+    checks.check(
+        "the Proving ground releases the limited proxy's hold",
+        released,
+    );
+    answers
+}
+
+/// Sends the `gotos` at once, calls `after_first` once the first answer
+/// came, and answers each one's answer, in the order given.
+fn answers_of(
+    connection: &mut Connection,
+    gotos: &[(&PageOpened, String)],
+    after_first: impl FnOnce(),
+) -> Result<Vec<Value>, Gone> {
+    let mut after_first = Some(after_first);
     let mut waiting = BTreeMap::new();
     for (at, (page, url)) in gotos.iter().enumerate() {
         let id = connection.request(
@@ -132,6 +180,9 @@ fn together(
         }
         if let Some(at) = message["id"].as_i64().and_then(|id| waiting.remove(&id)) {
             answers[at] = message;
+            if let Some(after_first) = after_first.take() {
+                after_first();
+            }
         }
     }
     Ok(answers)
@@ -175,6 +226,18 @@ fn relays(site: &Site, prefix: &str) -> Vec<(String, u64)> {
         .collect()
 }
 
+/// The Proving ground's microsecond now or a little before: the stamp of
+/// the latest connection it accepted, after a fresh client opened one.
+fn now(site: &Site) -> Option<u64> {
+    let fresh = ProvingGround::local(site.proving_ground.address());
+    let observations = fresh.observations().ok()?;
+    observations["connections"]
+        .as_array()?
+        .iter()
+        .filter_map(|connection| connection["at_microseconds"].as_u64())
+        .max()
+}
+
 /// How many of the relays to marks starting `prefix` the proxy refused
 /// with its own `429`.
 fn refused(site: &Site, prefix: &str) -> usize {
@@ -214,12 +277,14 @@ fn learned(
         checks,
     )?;
     if let ([one, two], [other]) = (first.as_slice(), second.as_slice()) {
-        let met = together(
+        let met = meeting(
             connection,
+            site,
             &[
                 (one, quiet(site, "learned-1", None)),
                 (two, quiet(site, "learned-2", None)),
             ],
+            checks,
         )?;
         checks.check(
             "of two navigations at once through the limited proxy, one loads and the other raises the proxy's own `proxy_unavailable`",
@@ -300,6 +365,7 @@ fn own_limits(
     );
     let pages = run_with_pages(connection, site, "conformance-proxy-rate", &rate, 3, checks)?;
     if let [one, two, three] = pages.as_slice() {
+        let sent = now(site);
         let answers = together(
             connection,
             &[
@@ -308,19 +374,27 @@ fn own_limits(
                 (three, quiet(site, "rate-3", None)),
             ],
         )?;
-        let starts: Vec<u64> = relays(site, "rate-")
+        let mut starts: Vec<u64> = relays(site, "rate-")
             .into_iter()
             .map(|(_, at)| at)
             .collect();
+        starts.sort_unstable();
         checks.check(
             "with `politeness.proxy.rate` 2, three navigations at once through the open proxy all load",
             tally(&answers, PROXY_UNAVAILABLE.name) == (3, 0) && starts.len() == 3,
         );
+        // The k-th to arrive started no sooner than k - 1 intervals after
+        // the first start, itself no sooner than they were sent; however
+        // late the browser or the proxy is, a request reaches the proxy
+        // only after its start, so the bound holds under any load.
         checks.check(
-            "with `politeness.proxy.rate` 2, the proxy receives them about half a second apart",
-            starts
-                .windows(2)
-                .all(|pair| pair[1].saturating_sub(pair[0]) >= 450_000),
+            "with `politeness.proxy.rate` 2, the proxy receives the second no sooner than half a second, and the third a second, after they were sent",
+            sent.is_some_and(|sent| {
+                starts
+                    .iter()
+                    .zip(0_u64..)
+                    .all(|(at, earlier)| at.saturating_sub(sent) >= earlier * 500_000)
+            }),
         );
     }
     finish_run(connection, "conformance-proxy-rate")
@@ -359,12 +433,14 @@ fn runs_own(
         checks,
     )?;
     if let ([one, two], [three, four]) = (own.as_slice(), sharing.as_slice()) {
-        let taught = together(
+        let taught = meeting(
             connection,
+            site,
             &[
                 (one, quiet(site, "alone-1", None)),
                 (two, quiet(site, "alone-2", None)),
             ],
+            checks,
         )?;
         let held = together(
             connection,
@@ -373,12 +449,14 @@ fn runs_own(
                 (two, quiet(site, "alone-4", None)),
             ],
         )?;
-        let unshared = together(
+        let unshared = meeting(
             connection,
+            site,
             &[
                 (three, quiet(site, "alone-5", None)),
                 (four, quiet(site, "alone-6", None)),
             ],
+            checks,
         )?;
         checks.check(
             "a Run that shares no Politeness meets the proxy's own 429 once, then holds its own navigations to the ceiling it learned",
@@ -420,12 +498,14 @@ fn sites_refusal(
             "a site's 429 through the proxy is never the proxy's own error",
             tally(&sites, PROXY_UNAVAILABLE.name).1 == 0,
         );
-        let after = together(
+        let after = meeting(
             connection,
+            site,
             &[
                 (one, quiet(site, "site-2", None)),
                 (two, quiet(site, "site-3", None)),
             ],
+            checks,
         )?;
         checks.check(
             "after a site's 429, two navigations at once still meet the proxy's own 429: no ceiling was lowered",

@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 
 use crate::clock::Clock;
@@ -75,6 +76,34 @@ impl Deadline {
         run.settings()
             .and_then(|settings| Self::of(settings.resolved(), setting))
             .unwrap_or_else(|| Self::declared(setting))
+    }
+
+    /// The deadline of a call whose own `timeout` param is `timeout`, the
+    /// timeout `setting` for that call alone (ADRs 0080 and 0083): `scope`,
+    /// the deadline its scope's settings give, when absent; none when
+    /// `null`; else the call's, which is that setting at the run layer.
+    ///
+    /// # Errors
+    ///
+    /// `invalid_params` for a `timeout` of 0, which would end the call at
+    /// once.
+    pub fn of_call(
+        scope: &Self,
+        setting: &Setting,
+        timeout: Option<Option<u64>>,
+    ) -> Result<Option<Self>, CallError> {
+        match timeout {
+            None => Ok(Some(scope.clone())),
+            Some(None) => Ok(None),
+            Some(Some(0)) => Err(CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                format!(
+                    "the call's timeout, its `{}`, is 0 ms, which would end it at once: give at least 1, or null for none",
+                    setting.name
+                ),
+            )),
+            Some(Some(millis)) => Ok(Some(Self::given(setting, millis, SettingsLayer::Run))),
+        }
     }
 
     /// How long it allows.

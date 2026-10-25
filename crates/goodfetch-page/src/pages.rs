@@ -51,6 +51,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::response_limits::Limits;
+use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, Contribution, Guard, Handler};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -724,6 +725,36 @@ struct Opener {
     pages: Pages,
 }
 
+/// A page [`Opener`] opened whose navigation has not answered yet: dropped
+/// so, as when its opening is cancelled, it closes on a task of its Run,
+/// its navigation with it.
+struct ClosingOnDrop {
+    sessions: Sessions,
+    run: Run,
+    page_id: Option<PageId>,
+}
+
+impl ClosingOnDrop {
+    /// Keeps the page open: its navigation answered.
+    fn disarm(mut self) {
+        self.page_id = None;
+    }
+}
+
+impl Drop for ClosingOnDrop {
+    fn drop(&mut self) {
+        let Some(page_id) = self.page_id.take() else {
+            return;
+        };
+        let sessions = self.sessions.clone();
+        self.run.spawn(async move {
+            if let Err(error) = sessions.close_page(&page_id, false).await {
+                tracing::debug!(%error, page_id = %page_id.0, "a cancelled handler's browser page was closed already");
+            }
+        });
+    }
+}
+
 impl BrowserPages for Opener {
     fn open<'a>(
         &'a self,
@@ -739,7 +770,13 @@ impl BrowserPages for Opener {
                 .new_pool_page(run_id, &pooled.id, pooled.source.clone(), context)
                 .await?;
             let page_id = opened.page_id;
-            match self
+            // Dropped before its navigation answered, the page closes.
+            let closing = ClosingOnDrop {
+                sessions: self.pages.sessions.clone(),
+                run: self.pages.sessions.page(&page_id).await?.run,
+                page_id: Some(page_id.clone()),
+            };
+            let navigated = self
                 .pages
                 .navigate(
                     &page_id,
@@ -748,8 +785,9 @@ impl BrowserPages for Opener {
                     None,
                     context,
                 )
-                .await
-            {
+                .await;
+            closing.disarm();
+            match navigated {
                 Ok(navigated) => Ok((page_id, navigated)),
                 Err(error) => {
                     self.close(&page_id).await;

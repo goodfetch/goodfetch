@@ -56,6 +56,10 @@ pub(crate) mod serve;
 )]
 pub(crate) mod steps;
 #[path = "../src/egress_relay/terminate.rs"]
+#[expect(
+    dead_code,
+    reason = "the scenario's relay terminates, so it never asks whether a tunnel's ClientHello can be mirrored whole"
+)]
 pub(crate) mod terminate;
 #[path = "../src/driver/world.rs"]
 mod world;
@@ -396,6 +400,7 @@ impl serve::Observe for Unobserved {
     fn unauthenticated(&self) {}
     fn terminated(&self, _: &str, _: Option<&goodfetch_engine::tls::ExceptionUsed>) {}
     fn stopped(&self, _: &str, _: &str, _: &terminate::Stop) {}
+    fn client_hello(&self, _: &str, _: client_hello::ClientHello) {}
 }
 
 /// The relaying of the scenarios: a domain policy of a hundred entries, as

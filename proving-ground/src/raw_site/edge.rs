@@ -172,6 +172,8 @@ fn redirect(rest: &str, request: &Request) -> Answer {
         // The Proving ground's own loopback address, dotted and in hex.
         "address" => to(302, &format!("http://127.0.0.1{port}/address/target")),
         "address/hex" => to(302, &format!("http://0x7f.0.0.1{port}/address/target")),
+        // A name every resolver answers with a loopback address.
+        "address/name" => to(302, &format!("http://localhost{port}/address/target")),
         // `bücher.test` in punycode.
         "punycode" => to(302, &format!("http://xn--bcher-kva.test{port}/target")),
         "robots" => to(302, "/private/target"),

@@ -504,6 +504,7 @@ fn redirects_are_served_as_each_case_needs() {
     let cross_origin = format!("https://{HTTP1}:{port}/target");
     let address = format!("http://127.0.0.1:{port}/address/target");
     let hex = format!("http://0x7f.0.0.1:{port}/address/target");
+    let name = format!("http://localhost:{port}/address/target");
     let punycode = format!("http://xn--bcher-kva.test:{port}/target");
     let redirects = [
         ("/redirect/loop", 302, Some("/redirect/loop")),
@@ -523,6 +524,7 @@ fn redirects_are_served_as_each_case_needs() {
         ("/redirect/data", 302, Some("data:text/html,hi")),
         ("/redirect/address", 302, Some(address.as_str())),
         ("/redirect/address/hex", 302, Some(hex.as_str())),
+        ("/redirect/address/name", 302, Some(name.as_str())),
         ("/redirect/punycode", 302, Some(punycode.as_str())),
     ];
 

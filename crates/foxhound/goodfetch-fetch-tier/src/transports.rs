@@ -27,16 +27,23 @@
 //! so ADR 0053's ceiling learning cannot tell a 429 from a 502 there.
 //!
 //! **The resolved-address check (ADR 0017):** a URL the egress policy
-//! refuses opens no connection, and the resolver's answers are judged
-//! before any connection, as is the address a URL names in place of a
-//! host, in any spelling, which no resolver answers (the driver's `judged`). The `network.resolve` mapping's addresses are
-//! not judged, as on the browser path, until `egress.private_ranges` is a
-//! setting a Run can declare (#622, #623). Through a proxy, which resolves
-//! the site's name itself, only the URL is judged.
+//! refuses opens no connection, nor does the address a URL names in place
+//! of a host, in any spelling, which no resolver answers (the driver's
+//! `judged`). Going direct, every address the resolver answers is judged in
+//! the connector, on each connection's own lookup, before the connection
+//! tries any of them, so neither a name answering a public and a private
+//! address nor one whose answer turns private between connections reaches
+//! the private one. Through a proxy, which would resolve the name again
+//! itself, the transport resolves and judges it before sending anything to
+//! the proxy. [`AddressCheck`] runs the same check ahead of a crawl
+//! request. The `network.resolve` mapping's addresses are not judged, as
+//! on the browser path, until `egress.private_ranges` is a setting a Run
+//! can declare (#622).
 
 use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::error::Error;
+use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -44,7 +51,7 @@ use std::task::{Context, Poll};
 use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::{
-    AnsweredBy, ConfigurationUnreadable, Dns, HostMapping, Resolution, ResolverConfiguration, Route,
+    AnsweredBy, Dns, HostMapping, Resolution, ResolverConfiguration, Route,
 };
 use goodfetch_engine::egress::{self, Policy, Refused};
 use goodfetch_engine::tls::Trust;
@@ -72,14 +79,14 @@ pub struct TransportConfig {
     pub egress: Policy,
     /// What the resolver's cache keeps time on.
     pub clock: Clock,
+    /// What the engine's own resolver reads: the system's configuration,
+    /// or the name servers a test gives.
+    pub resolver: ResolverConfiguration,
 }
 
 /// Why a transport could not be built.
 #[derive(Debug, thiserror::Error)]
 pub enum TransportUnavailable {
-    /// The system's resolver configuration could not be read.
-    #[error(transparent)]
-    Resolver(#[from] ConfigurationUnreadable),
     /// Its library refused the configuration, such as a proxy URL it does
     /// not take.
     #[error("the HTTP transport could not be built: {0}")]
@@ -94,10 +101,7 @@ pub struct Reqwest {
     /// Its clients offering HTTP/1.1 alone, for the origins that asked.
     http1: Clients,
     http1_origins: Http1Origins,
-    egress: Policy,
-    /// Whether its connections go to the site directly, not through a
-    /// proxy.
-    direct: bool,
+    resolver: Arc<Resolver>,
 }
 
 /// A pooled client and one that opens a new connection for each request.
@@ -113,10 +117,13 @@ impl Reqwest {
     ///
     /// # Errors
     ///
-    /// [`TransportUnavailable`] when the system's resolver configuration
-    /// cannot be read or reqwest refuses the proxy.
+    /// [`TransportUnavailable`] when reqwest refuses the proxy.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "both transports take their configuration alike, and `Wreq::new` consumes it"
+    )]
     pub fn new(config: TransportConfig) -> Result<Self, TransportUnavailable> {
-        let resolver = Arc::new(Resolver::new(&config)?);
+        let resolver = Arc::new(Resolver::new(&config));
         let clients = |alpn: &[&[u8]]| -> Result<Clients, TransportUnavailable> {
             let mut tls = config.trust.client_config();
             tls.alpn_protocols = alpn.iter().map(|protocol| protocol.to_vec()).collect();
@@ -158,9 +165,13 @@ impl Reqwest {
             any: clients(&[b"h2", b"http/1.1"])?,
             http1: clients(&[b"http/1.1"])?,
             http1_origins: Http1Origins::default(),
-            direct: config.proxy.is_none(),
-            egress: config.egress,
+            resolver,
         })
+    }
+
+    /// The address check of its connections, run ahead of a request.
+    pub fn address_check(&self) -> AddressCheck {
+        AddressCheck(Arc::clone(&self.resolver))
     }
 
     /// The client `hop` goes out on, as `reuse` allows.
@@ -188,7 +199,7 @@ fn build(builder: reqwest::ClientBuilder) -> reqwest::Result<reqwest::Client> {
 impl Transport for Reqwest {
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
-            judged(&hop.url, &self.egress, self.direct).map_err(TransportFailure::Egress)?;
+            self.resolver.before_sending(&hop.url).await?;
             let mut request = self
                 .client(hop, reuse)
                 .request(hop.method.clone(), hop.url.clone());
@@ -347,16 +358,32 @@ enum ResolveFailure {
     Egress(Refused),
 }
 
+impl From<ResolveFailure> for TransportFailure {
+    fn from(failure: ResolveFailure) -> Self {
+        match failure {
+            ResolveFailure::NotResolved => Self::NameNotResolved,
+            ResolveFailure::Egress(refused) => Self::Egress(refused),
+        }
+    }
+}
+
 /// The transport's resolver: the engine's [`Dns`], whose answers the
-/// Session's egress policy judges when the connection goes direct.
+/// Session's egress policy judges, those of the `network.resolve` mapping
+/// aside (#622): in the connector when the connection goes direct, so
+/// every address a connection may try is judged on its own lookup before
+/// it tries one; ahead of the request when it goes through a proxy, which
+/// would resolve the name again itself.
 struct Resolver {
     dns: Dns,
-    judged: Option<Policy>,
+    egress: Policy,
+    /// Whether its connections go to the site directly, not through a
+    /// proxy.
+    direct: bool,
 }
 
 impl Resolver {
     /// The resolver of a transport under `config`.
-    fn new(config: &TransportConfig) -> Result<Self, TransportUnavailable> {
+    fn new(config: &TransportConfig) -> Self {
         let dns = Dns::new(
             HostMapping::new(
                 config
@@ -364,40 +391,118 @@ impl Resolver {
                     .iter()
                     .map(|(host, addresses)| (host.as_str(), addresses.clone())),
             ),
-            ResolverConfiguration::system()?,
+            config.resolver.clone(),
             config.clock,
         );
-        Ok(Self {
+        Self {
             dns,
-            judged: config.proxy.is_none().then(|| config.egress.clone()),
-        })
+            egress: config.egress.clone(),
+            direct: config.proxy.is_none(),
+        }
     }
 
-    /// The addresses of `name`, judged when the connection goes direct and
-    /// the resolver answered them.
+    /// The addresses of `name` for the connector, judged when the
+    /// connection goes direct.
     fn addresses(
         &self,
         name: String,
     ) -> impl Future<Output = Result<Vec<SocketAddr>, ResolveFailure>> + Send + 'static {
-        let dns = self.dns.clone();
-        let judged = self.judged.clone();
-        async move {
-            let Ok(Resolution::Addresses {
-                addresses,
-                answered_by,
-            }) = dns.lookup(&name, Route::Direct).await
-            else {
-                return Err(ResolveFailure::NotResolved);
-            };
-            let addresses: Vec<SocketAddr> = addresses
-                .into_iter()
-                .map(|address| SocketAddr::new(address, 0))
-                .collect();
-            if let Some(policy) = judged.filter(|_| answered_by != AnsweredBy::Mapping) {
-                egress::judge_addresses(&name, &addresses, &policy)
-                    .map_err(ResolveFailure::Egress)?;
-            }
-            Ok(addresses)
+        lookup(
+            self.dns.clone(),
+            self.direct.then(|| self.egress.clone()),
+            name,
+        )
+    }
+
+    /// Judges a hop to `url` before it is sent: its URL and any address it
+    /// names in place of a host, and, through a proxy, the addresses its
+    /// name resolves to, the proxy's own lookup being out of the
+    /// transport's reach (ADR 0017).
+    async fn before_sending(&self, url: &Url) -> Result<(), ResolveFailure> {
+        judged(url, &self.egress).map_err(ResolveFailure::Egress)?;
+        if self.direct {
+            return Ok(());
+        }
+        self.resolved(url).await
+    }
+
+    /// Judges the addresses `url`'s name resolves to, whatever the route.
+    async fn resolved(&self, url: &Url) -> Result<(), ResolveFailure> {
+        let Some(url::Host::Domain(name)) = url.host() else {
+            return Ok(());
+        };
+        lookup(self.dns.clone(), Some(self.egress.clone()), name.to_owned())
+            .await
+            .map(|_| ())
+            .map_err(|failure| match failure {
+                ResolveFailure::Egress(refused) => ResolveFailure::Egress(Refused {
+                    url: url.to_string(),
+                    ..refused
+                }),
+                failure @ ResolveFailure::NotResolved => failure,
+            })
+    }
+}
+
+/// The addresses `dns` gives `name`, judged by `judged` when the resolver
+/// answered them.
+async fn lookup(
+    dns: Dns,
+    judged: Option<Policy>,
+    name: String,
+) -> Result<Vec<SocketAddr>, ResolveFailure> {
+    let Ok(Resolution::Addresses {
+        addresses,
+        answered_by,
+    }) = dns.lookup(&name, Route::Direct).await
+    else {
+        return Err(ResolveFailure::NotResolved);
+    };
+    let addresses: Vec<SocketAddr> = addresses
+        .into_iter()
+        .map(|address| SocketAddr::new(address, 0))
+        .collect();
+    if let Some(policy) = judged.filter(|_| answered_by != AnsweredBy::Mapping) {
+        egress::judge_addresses(&name, &addresses, &policy).map_err(ResolveFailure::Egress)?;
+    }
+    Ok(addresses)
+}
+
+/// The address check of a transport's connections, run ahead of a crawl
+/// request, so one whose host stands for an address the Session's egress
+/// policy refuses ends before anything is sent (ADR 0017): the URL, any
+/// address it names in place of a host, and the addresses its name
+/// resolves to through the transport's own resolver, whose cache it
+/// shares.
+#[derive(Clone, Debug)]
+pub struct AddressCheck(Arc<Resolver>);
+
+impl fmt::Debug for Resolver {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Resolver")
+            .field("direct", &self.direct)
+            .finish_non_exhaustive()
+    }
+}
+
+impl AddressCheck {
+    /// Judges `url` as the transport's connection to it would be judged.
+    /// A name that resolves to no address passes: its fetch then fails
+    /// with `name_not_resolved`.
+    ///
+    /// # Errors
+    ///
+    /// [`Refused`] by the domain policy or the address check.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future drops its lookup.
+    pub async fn check(&self, url: &Url) -> Result<(), Refused> {
+        judged(url, &self.0.egress)?;
+        match self.0.resolved(url).await {
+            Ok(()) | Err(ResolveFailure::NotResolved) => Ok(()),
+            Err(ResolveFailure::Egress(refused)) => Err(refused),
         }
     }
 }

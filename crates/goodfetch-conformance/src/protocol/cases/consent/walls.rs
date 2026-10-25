@@ -246,7 +246,7 @@ pub(super) fn walls_off(
     clippy::disallowed_methods,
     reason = "the harness is synchronous and runs no async worker"
 )]
-fn major_of(home: &str, run_id: &str) -> Option<PathBuf> {
+pub(crate) fn major_of(home: &str, run_id: &str) -> Option<PathBuf> {
     std::fs::read_dir(home)
         .ok()?
         .flatten()
@@ -260,7 +260,7 @@ fn major_of(home: &str, run_id: &str) -> Option<PathBuf> {
     clippy::disallowed_methods,
     reason = "the harness is synchronous and runs no async worker"
 )]
-fn configure(major: &std::path::Path, text: Option<&str>) -> Option<String> {
+pub(crate) fn configure(major: &std::path::Path, text: Option<&str>) -> Option<String> {
     let file = major.join(USER_CONFIGURATION);
     let before = std::fs::read_to_string(&file).ok();
     match text {
@@ -432,7 +432,7 @@ pub(super) fn settings(
         RUN_START.name,
         &json!({
             "run_id": "conformance-consent-widened",
-            "settings": site.mapped(&json!({ "consent": { "domains": [HOST] } })),
+            "settings": site.mapped(&json!({ "consent": { "domains": [HOST] } }), false),
         }),
     )?;
     let widened = connection.answer(id)?.message;

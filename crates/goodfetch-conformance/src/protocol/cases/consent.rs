@@ -25,7 +25,7 @@ use super::navigation::call;
 use super::{Checks, Site, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
 
-mod walls;
+pub(super) mod walls;
 
 /// The host the pages are served on.
 pub(super) const HOST: &str = "consent.test";

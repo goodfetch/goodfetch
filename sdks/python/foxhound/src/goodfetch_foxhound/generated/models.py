@@ -272,7 +272,10 @@ class HttpMethod(RootModel[str]):
 
 
 class LabelDeclaration(BaseModel):
-    """One Label a crawl declares (ADRs 0082 and 0093)."""
+    """
+    One Label a crawl declares (ADRs 0082 and 0093): its Payload's schema
+    and the settings its requests take over the Run's.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
@@ -281,6 +284,11 @@ class LabelDeclaration(BaseModel):
     """
     The JSON Schema its requests' Payloads are checked against, the
     side the program's schema parses from; none takes any Payload.
+    """
+    settings: dict[str, Any] | None = None
+    """
+    Its settings, nested by key: today `fetch.tier` alone, any other key
+    refused with `setting_not_applicable`.
     """
 
 
@@ -932,7 +940,8 @@ class CrawlStartParams(BaseModel):
     labels: dict[str, LabelDeclaration] | None = None
     """
     The crawl's Labels, by name, each with its Payload's JSON Schema or
-    none (ADRs 0082 and 0093). A Payload of a declared schema is checked
+    none, and its own settings (ADRs 0082 and 0093): a scope between the
+    Run and its requests. A Payload of a declared schema is checked
     against it at every enqueue; a Label the crawl does not declare
     takes any Payload.
     """

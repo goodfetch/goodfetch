@@ -61,6 +61,12 @@ INSERT INTO "domains" VALUES('shop.test',1767603604536,0);
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
 CREATE TABLE key_values (key TEXT NOT NULL PRIMARY KEY, value TEXT, content BLOB, content_type TEXT, file INTEGER, CHECK ((value IS NULL) <> (content_type IS NULL)), CHECK (content_type IS NULL OR ((content IS NULL) <> (file IS NULL)))) STRICT;
+CREATE TABLE labels (
+            name TEXT NOT NULL PRIMARY KEY,
+            declaration TEXT NOT NULL
+        ) STRICT;
+INSERT INTO "labels" VALUES('home','{"payload":{"type":["object","null"]}}');
+INSERT INTO "labels" VALUES('product','{}');
 CREATE TABLE learned_identities (
             identity TEXT NOT NULL PRIMARY KEY,
             rule INTEGER NOT NULL,

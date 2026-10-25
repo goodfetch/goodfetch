@@ -748,6 +748,13 @@ number = 6
 kind = "operation"
 prefix = "page.formats"
 
+# A call a forced fetch tier cannot serve exactly (ADR 0093): area 6's
+# served-call table (#931) raises it; #767 declares it first.
+[[area]]
+number = 6
+kind = "error"
+prefix = "browser_required"
+
 # The refusal the page's navigation gate raises, which area 6 declares
 # (spec #578; #720 builds the gate).
 [[area]]

@@ -1,0 +1,424 @@
+//! The calls a page served from a document answers itself (ADR 0093):
+//! what its tier serves exactly, and the rest escalated under `auto` or
+//! refused with `browser_required` under a forced tier (the `choice`
+//! module's [`unserved`](crate::choice::unserved)).
+//!
+//! Which calls each tier serves exactly is area 6's table (#931); until it
+//! is written a document tier serves, besides `page.formats`, which the
+//! page crate reads from the document:
+//!
+//! - `locator.wait_for` for `attached` or `detached`, and
+//!   `locator.wait_for_count`, when the document already meets them, its
+//!   CSS selector matched against the document's own markup; a document
+//!   with a declarative shadow root, whose matches the markup alone does
+//!   not give, and every other wait escalate, a static document never
+//!   changing;
+//! - `page.request`, sent through the Session's HTTP transport, through
+//!   the navigation gate of the attempt that handed its Run's pages over,
+//!   each redirect it follows taking its own permit, and never escalated;
+//!   its response's body is kept for `response.body`;
+//! - `page.close`, which closes the page.
+//!
+//! Any other call is one the tier cannot serve exactly. Once a call
+//! escalated, every later call on the page fails as it did.
+
+use std::collections::BTreeMap;
+
+use bytes::Bytes;
+use data_encoding::BASE64;
+use goodfetch_engine::runs::Run;
+use goodfetch_engine::{CallError, GuardAnswer};
+use goodfetch_protocol::connection::CLOSED;
+use goodfetch_protocol::page::events::{RESPONSE_BODY, ResponseBodyParams};
+use goodfetch_protocol::page::request::{MAX_REDIRECTS, PAGE_REQUEST, PageRequestParams};
+use goodfetch_protocol::page::session_pages::PAGE_CLOSE;
+use goodfetch_protocol::page::waits::{
+    Count, Counted, ElementState, LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, LocatorWaitForParams,
+    Reached, WaitForCountParams,
+};
+use goodfetch_protocol::page::{
+    NAVIGATION_FAILED, NavigationFailedDetails, PAGE_FORMATS, PageId, PageResponse, RedirectLimit,
+    SITE_PREFERENCES_REFUSED, SitePreferencesRefusedDetails, TOO_MANY_REDIRECTS,
+    TooManyRedirectsDetails,
+};
+use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use serde_json::{Value, json};
+use url::Url;
+
+use super::{FetchTiers, ServedPage};
+use crate::driver::{Fetched, Hop, fetch};
+use crate::gate::Gate;
+
+/// The answer to the call `operation`, its params `params`, on the served
+/// page `page_id`; `None` for a page no tier serves, a call the page crate
+/// answers from the document, or params that do not read, which the call's
+/// handler refuses.
+pub(super) fn answer(
+    tiers: &FetchTiers,
+    page_id: &PageId,
+    operation: &'static str,
+    params: &Value,
+) -> Option<GuardAnswer> {
+    let page = tiers.served_page(page_id)?;
+    if let Some(call) = page.escalated {
+        return Some(ready(Err(tiers.unserved(page_id, call, false))));
+    }
+    match operation {
+        name if name == PAGE_FORMATS.name => None,
+        name if name == PAGE_CLOSE.name => {
+            tiers.close(page_id);
+            Some(ready(Ok(json!({}))))
+        }
+        name if name == LOCATOR_WAIT_FOR.name => {
+            let params: LocatorWaitForParams = read(params)?;
+            let wait = match params.state.unwrap_or_default() {
+                ElementState::Attached => Wait::One,
+                ElementState::Detached => Wait::None,
+                ElementState::Visible | ElementState::Hidden => {
+                    return Some(ready(Err(tiers.unserved(page_id, operation, true))));
+                }
+            };
+            Some(waited(
+                tiers,
+                page_id,
+                page,
+                operation,
+                params.locator.selector,
+                wait,
+            ))
+        }
+        name if name == LOCATOR_WAIT_FOR_COUNT.name => {
+            let params: WaitForCountParams = read(params)?;
+            let wait = Wait::Count(params.count);
+            Some(waited(
+                tiers,
+                page_id,
+                page,
+                operation,
+                params.locator.selector,
+                wait,
+            ))
+        }
+        name if name == PAGE_REQUEST.name => {
+            let params: PageRequestParams = read(params)?;
+            let tiers = tiers.clone();
+            let page_id = page_id.clone();
+            Some(Box::pin(async move {
+                let response = request(&tiers, &page_id, page, params).await?;
+                Ok(encoded(&response))
+            }))
+        }
+        name if name == RESPONSE_BODY.name => {
+            let params: ResponseBodyParams = read(params)?;
+            match page.bodies.get(&params.request_id) {
+                Some(body) => Some(ready(Ok(encoded(body)))),
+                None => Some(ready(Err(tiers.unserved(page_id, operation, false)))),
+            }
+        }
+        _ => Some(ready(Err(tiers.unserved(page_id, operation, false)))),
+    }
+}
+
+/// `params` as `P`, or `None` when they do not read.
+fn read<P: DeserializeOwned>(params: &Value) -> Option<P> {
+    serde_json::from_value(params.clone()).ok()
+}
+
+/// An answer already known.
+fn ready(answer: Result<Value, CallError>) -> GuardAnswer {
+    Box::pin(std::future::ready(answer))
+}
+
+/// `value` as a call's result.
+fn encoded(value: &impl Serialize) -> Value {
+    serde_json::to_value(value).expect("invariant: a protocol type encodes as JSON")
+}
+
+/// What a locator wait on a static document waits for.
+#[derive(Clone, Copy)]
+enum Wait {
+    /// One element: `attached`.
+    One,
+    /// None: `detached`.
+    None,
+    /// A count of matches: `locator.wait_for_count`.
+    Count(Count),
+}
+
+/// The wait `wait` on the served page `page_id`, answered at once when the
+/// document already meets it; any other, which a static document never
+/// meets later, is a call its tier cannot serve.
+fn waited(
+    tiers: &FetchTiers,
+    page_id: &PageId,
+    page: ServedPage,
+    operation: &'static str,
+    selector: String,
+    wait: Wait,
+) -> GuardAnswer {
+    let tiers = tiers.clone();
+    let page_id = page_id.clone();
+    Box::pin(async move {
+        let html = page.document.html;
+        let count = page
+            .document
+            .run
+            .owner()
+            .blocking(move || matches(&html, &selector))
+            .await;
+        let met = count.and_then(|count| match wait {
+            Wait::One => (count == 1).then(|| encoded(&Reached {})),
+            Wait::None => (count == 0).then(|| encoded(&Reached {})),
+            Wait::Count(bounds) => (bounds.min.is_none_or(|min| count >= min)
+                && bounds.max.is_none_or(|max| count <= max))
+            .then(|| encoded(&Counted { count })),
+        });
+        met.ok_or_else(|| tiers.unserved(&page_id, operation, true))
+    })
+}
+
+/// How many elements of the markup `html` the CSS selector `selector`
+/// matches; `None` when the markup alone cannot tell, the selector being
+/// one the matcher does not parse or the document holding a declarative
+/// shadow root.
+pub(crate) fn matches(html: &str, selector: &str) -> Option<u64> {
+    if html.to_ascii_lowercase().contains("shadowrootmode") {
+        return None;
+    }
+    let matcher = dom_query::Matcher::new(selector).ok()?;
+    let document = dom_query::Document::from(html);
+    u64::try_from(document.select_matcher(&matcher).length()).ok()
+}
+
+/// `page.request` from the served page `page_id`, sent on its tier's HTTP
+/// transport through the navigation gate of the attempt that handed its
+/// Run's pages over, following up to its count of redirects as Fetch does,
+/// each hop through the gate; its response's body is kept for
+/// `response.body`.
+async fn request(
+    tiers: &FetchTiers,
+    page_id: &PageId,
+    page: ServedPage,
+    params: PageRequestParams,
+) -> Result<PageResponse, CallError> {
+    let max_redirects = params.max_redirects.unwrap_or(MAX_REDIRECTS);
+    if max_redirects > MAX_REDIRECTS {
+        return Err(CallError::new(
+            &SETTING_INVALID,
+            format!(
+                "`max_redirects` is {max_redirects}, above {MAX_REDIRECTS}, the most redirects a request follows"
+            ),
+            &SettingInvalidDetails {
+                key: "max_redirects".to_owned(),
+                layer: Some(SettingsLayer::Run),
+                reason: format!("{max_redirects} is above {MAX_REDIRECTS}"),
+            },
+        ));
+    }
+    let run = page.document.run.clone();
+    let hand_over = tiers.handed_over(run.id()).ok_or_else(|| {
+        CallError::new(
+            &CLOSED,
+            format!("the page `{}` outlived its attempt", page_id.0),
+            &json!({ "page_id": page_id }),
+        )
+    })?;
+    let gate = Gate::new(hand_over);
+    let Asked {
+        mut url,
+        mut method,
+        headers,
+        mut body,
+    } = asked(&params)?;
+    let mut chain = vec![url.to_string()];
+    loop {
+        let permit = gate
+            .admitted(&url)
+            .await
+            .map_err(|refusal| refused(url.as_str(), &refusal))?;
+        let hop = Hop {
+            url: url.clone(),
+            read: Hop::idempotent(&method),
+            method: method.clone(),
+            headers: headers.clone(),
+            body: body.clone(),
+        };
+        let fetched = fetch(
+            page.http.transport.as_ref(),
+            &hop,
+            &page.http.deadlines,
+            &run.clock(),
+        )
+        .await;
+        drop(permit);
+        let fetched = fetched?;
+        let next = location(&fetched);
+        match next {
+            // A count of 0 answers the 3xx itself.
+            Some(_) if max_redirects == 0 => {}
+            Some(next) => {
+                if chain.len() > usize::try_from(max_redirects).unwrap_or(usize::MAX) {
+                    return Err(too_many_redirects(&chain, max_redirects));
+                }
+                // Fetch's method rule: a 303 turns any method but `HEAD`
+                // into a `GET`, and a 301 or 302 a `POST`, dropping the body.
+                if (fetched.status == 303 && method != http::Method::HEAD)
+                    || (matches!(fetched.status, 301 | 302) && method == http::Method::POST)
+                {
+                    method = http::Method::GET;
+                    body = None;
+                }
+                chain.push(next.to_string());
+                url = next;
+                continue;
+            }
+            None => {}
+        }
+        return answered(tiers, page_id, &run, fetched).await;
+    }
+}
+
+/// What a `page.request` asks for: its first hop's URL, method, headers and
+/// body.
+struct Asked {
+    url: Url,
+    method: http::Method,
+    headers: Vec<(String, String)>,
+    body: Option<Bytes>,
+}
+
+/// What `params` ask for.
+///
+/// # Errors
+///
+/// `navigation_failed` for a URL, a method or a body that does not read.
+fn asked(params: &PageRequestParams) -> Result<Asked, CallError> {
+    let url = Url::parse(&params.url).map_err(|error| failed(&params.url, &error))?;
+    let method = params
+        .method
+        .as_deref()
+        .map(|method| http::Method::from_bytes(method.to_ascii_uppercase().as_bytes()))
+        .transpose()
+        .map_err(|error| failed(&params.url, &error))?
+        .unwrap_or(http::Method::GET);
+    let headers = params
+        .headers
+        .iter()
+        .flatten()
+        .map(|(name, value)| (name.to_ascii_lowercase(), value.clone()))
+        .collect();
+    let body = params
+        .post_data
+        .as_ref()
+        .map(|data| BASE64.decode(data.as_bytes()).map(Bytes::from))
+        .transpose()
+        .map_err(|error| failed(&params.url, &error))?;
+    Ok(Asked {
+        url,
+        method,
+        headers,
+        body,
+    })
+}
+
+/// Where the redirect `fetched` answers leads, for a redirect status with
+/// a `Location` that names an HTTP(S) URL.
+fn location(fetched: &Fetched) -> Option<Url> {
+    if !matches!(fetched.status, 301 | 302 | 303 | 307 | 308) {
+        return None;
+    }
+    fetched
+        .headers
+        .iter()
+        .find(|(name, _)| name == "location")
+        .and_then(|(_, to)| fetched.url.join(to).ok())
+        .filter(|to| matches!(to.scheme(), "http" | "https"))
+}
+
+/// The response `fetched` a `page.request` of the served page `page_id`
+/// got, as the call answers it, its body kept in `run`'s folder for
+/// `response.body`.
+async fn answered(
+    tiers: &FetchTiers,
+    page_id: &PageId,
+    run: &Run,
+    fetched: Fetched,
+) -> Result<PageResponse, CallError> {
+    let request_id = tiers.next_request(page_id);
+    let stored = run
+        .store_body(fetched.body)
+        .await
+        .map_err(|error| failed(fetched.url.as_str(), &error))?;
+    tiers.keep_body(page_id, &request_id, stored);
+    let mut headers = BTreeMap::<String, String>::new();
+    for (name, value) in fetched.headers {
+        headers
+            .entry(name)
+            .and_modify(|joined| {
+                joined.push_str(", ");
+                joined.push_str(&value);
+            })
+            .or_insert(value);
+    }
+    Ok(PageResponse {
+        url: fetched.url.to_string(),
+        status: fetched.status,
+        status_text: http::StatusCode::from_u16(fetched.status)
+            .ok()
+            .and_then(|status| status.canonical_reason())
+            .unwrap_or_default()
+            .to_owned(),
+        headers,
+        encoding: None,
+        request_id,
+        from_service_worker: false,
+    })
+}
+
+/// `navigation_failed` for a request to `url` that could not be sent.
+fn failed(url: &str, error: &impl std::fmt::Display) -> CallError {
+    CallError::new(
+        &NAVIGATION_FAILED,
+        format!("The request to {url} could not be sent: {error}."),
+        &NavigationFailedDetails {
+            url: Some(url.to_owned()),
+            error: None,
+        },
+    )
+}
+
+/// `site_preferences_refused` for the request to `url` the gate refused.
+fn refused(url: &str, refusal: &goodfetch_page::page_value::Refusal) -> CallError {
+    CallError::new(
+        &SITE_PREFERENCES_REFUSED,
+        format!("the site's preferences refused {url}: {}", refusal.message),
+        &SitePreferencesRefusedDetails {
+            url: url.to_owned(),
+            reason: refusal.reason,
+        },
+    )
+}
+
+/// `too_many_redirects` for `chain`, past `max_redirects`.
+fn too_many_redirects(chain: &[String], max_redirects: u32) -> CallError {
+    let first = chain.first().cloned().unwrap_or_default();
+    CallError::new(
+        &TOO_MANY_REDIRECTS,
+        format!(
+            "the request to {first} was redirected again after {max_redirects} redirects, past its `max_redirects`"
+        ),
+        &TooManyRedirectsDetails {
+            url: first.clone(),
+            hops: chain.iter().skip(1).cloned().collect(),
+            limit: RedirectLimit::Option {
+                name: "max_redirects".to_owned(),
+                count: max_redirects,
+            },
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests;

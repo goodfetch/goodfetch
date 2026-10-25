@@ -449,7 +449,7 @@ fn set_log_level(home: &Path, filter: &str) -> io::Result<()> {
         Some(table) => lines.insert(table + 1, level),
         None => lines.extend(["[settings]".to_owned(), level]),
     }
-    std::fs::write(file, lines.join("\n") + "\n")
+    replace(&file, &(lines.join("\n") + "\n"))
 }
 
 /// Writes `home`'s user configuration: [`TEST_SETTINGS`] and `log.level`
@@ -467,10 +467,21 @@ fn write_user_configuration(home: &Path, settings: &str, log_level: &str) -> io:
             !settings.contains(key)
         })
         .collect();
-    std::fs::write(
-        folder.join(USER_CONFIGURATION),
-        format!("version = \"0.1\"\n\n[settings]\n{defaults}{settings}"),
+    replace(
+        &folder.join(USER_CONFIGURATION),
+        &format!("version = \"0.1\"\n\n[settings]\n{defaults}{settings}"),
     )
+}
+
+/// Replaces `file` with `text` at once: an engine reading it meanwhile, as
+/// one the test started before does while the test starts another, reads
+/// it before or after, never cut.
+fn replace(file: &Path, text: &str) -> io::Result<()> {
+    let folder = file.parent().unwrap_or(Path::new("."));
+    let mut replacement = tempfile::NamedTempFile::new_in(folder)?;
+    io::Write::write_all(&mut replacement, text.as_bytes())?;
+    replacement.persist(file).map_err(|error| error.error)?;
+    Ok(())
 }
 
 #[cfg(unix)]

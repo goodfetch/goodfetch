@@ -27,16 +27,32 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use super::{Backoff, DomainRule, TABLES, crawl_delay_asked, start_taken};
+use super::{Backoff, DomainRule, TABLES, crawl_delay_asked, document_start_taken};
+use crate::robots_txt;
 
 const KEY: &str = "shop.test";
 
 fn file() -> Connection {
     let connection = Connection::open_in_memory().unwrap();
-    for statement in TABLES.statements {
+    for statement in TABLES
+        .statements
+        .iter()
+        .chain(robots_txt::TABLES.statements)
+    {
         connection.execute(statement, []).unwrap();
     }
     connection
+}
+
+/// Keeps in `file` a copy of the robots.txt at `location` fetched at
+/// `fetched_at`.
+fn copy_fetched(file: &Connection, location: &str, fetched_at: SystemTime) {
+    let copy = robots_txt::Copy {
+        fetched_at: goodfetch_engine::politeness::milliseconds(fetched_at),
+        status: 200,
+        body: b"User-agent: *\nCrawl-delay: 5\n".to_vec(),
+    };
+    robots_txt::store(file, location, &copy).unwrap();
 }
 
 fn rule(run: Value) -> DomainRule {
@@ -410,16 +426,105 @@ fn documents_after_robots_txt_fetched_at_once_start_a_delay_apart() {
     crawl_delay_asked(&file, KEY, SHOP, Some(crawl_delay)).unwrap();
     unlimited().started(&file, KEY, at(10)).unwrap();
 
+    let now = at(10) + milliseconds(10);
     let starts = (
-        start_taken(&file, KEY, at(10), crawl_delay).unwrap(),
-        start_taken(&file, KEY, at(10) + milliseconds(5), crawl_delay).unwrap(),
+        document_start_taken(&file, KEY, SHOP, Some(at(10)), crawl_delay, now).unwrap(),
+        document_start_taken(
+            &file,
+            KEY,
+            SHOP,
+            Some(at(10) + milliseconds(5)),
+            crawl_delay,
+            now,
+        )
+        .unwrap(),
     );
     let third = unlimited().admit(&file, KEY, 0, at(16)).unwrap();
 
     assert_eq!(
         (starts, third),
-        ((at(15), at(20)), Verdict::Until(at(25), Hold::Delay))
+        (
+            (Some(at(15)), Some(at(20))),
+            Verdict::Until(at(25), Hold::Delay)
+        )
     );
+}
+
+/// A document's start after a robots.txt that arrived between two
+/// milliseconds is never sooner than the Crawl-delay after it: the
+/// Politeness file keeps whole milliseconds, so the start is the next one.
+///
+/// Covers: story:6-243
+#[test]
+fn a_start_after_a_moment_inside_a_millisecond_is_never_sooner_than_the_delay_after_it() {
+    let file = file();
+    let crawl_delay = Duration::from_secs(5);
+    let arrived = at(10) + Duration::from_micros(400);
+
+    let start =
+        document_start_taken(&file, KEY, SHOP, Some(arrived), crawl_delay, arrived).unwrap();
+
+    assert_eq!(start, Some(at(15) + milliseconds(1)));
+}
+
+/// A run admitted before the Crawl-delay was known, which reads the copy
+/// another run fetched less than the Crawl-delay before instead of
+/// fetching robots.txt itself, starts its document the Crawl-delay after
+/// that fetch, and the run that fetched it the Crawl-delay after that.
+/// (The copy keeps whole milliseconds, so the fetch counts from the next.)
+///
+/// Covers: story:6-243
+#[test]
+fn a_document_after_a_copy_another_run_fetched_within_the_delay_starts_the_delay_after_that_fetch()
+{
+    let file = file();
+    let crawl_delay = Duration::from_secs(5);
+    unlimited().started(&file, KEY, at(10)).unwrap();
+    unlimited()
+        .started(&file, KEY, at(10) + milliseconds(1))
+        .unwrap();
+    copy_fetched(&file, SHOP, at(10) + milliseconds(8));
+    crawl_delay_asked(&file, KEY, SHOP, Some(crawl_delay)).unwrap();
+    let now = at(10) + milliseconds(20);
+
+    let starts = (
+        document_start_taken(&file, KEY, SHOP, None, crawl_delay, now).unwrap(),
+        document_start_taken(
+            &file,
+            KEY,
+            SHOP,
+            Some(at(10) + milliseconds(8)),
+            crawl_delay,
+            now,
+        )
+        .unwrap(),
+    );
+
+    assert_eq!(
+        starts,
+        (
+            Some(at(15) + milliseconds(9)),
+            Some(at(20) + milliseconds(9))
+        )
+    );
+}
+
+/// A document after a copy fetched at least the delay before takes no
+/// start of its own: its admission already kept the delay.
+///
+/// Covers: story:6-243
+#[test]
+fn a_document_after_a_copy_fetched_a_delay_or_more_before_takes_no_start() {
+    let file = file();
+    let crawl_delay = Duration::from_secs(5);
+    copy_fetched(&file, SHOP, at(0));
+    crawl_delay_asked(&file, KEY, SHOP, Some(crawl_delay)).unwrap();
+    unlimited().started(&file, KEY, at(10)).unwrap();
+
+    let start = document_start_taken(&file, KEY, SHOP, None, crawl_delay, at(10)).unwrap();
+    let next = unlimited().admit(&file, KEY, 0, at(11)).unwrap();
+
+    assert_eq!((start, next), (None, Verdict::Until(at(15), Hold::Delay)));
 }
 
 proptest! {

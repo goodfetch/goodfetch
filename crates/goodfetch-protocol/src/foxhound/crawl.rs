@@ -28,11 +28,60 @@ use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
+/// What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
+/// seeds the entries of a site's sitemaps.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Seed {
+    /// One request.
+    Request(RequestSeed),
+    /// The entries of a sitemap, or of the sitemaps a site's robots.txt
+    /// names.
+    Sitemap(SitemapSeed),
+}
+
+/// A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
+/// or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
+/// are read. The engine reads it, and every sitemap index it nests, once
+/// the Run is running, through the domain policy, Politeness and robots.txt,
+/// running no handler; each entry is checked as an enqueue is, at depth 0,
+/// with the Label of the first rule whose pattern matches its URL and no
+/// Payload, and one no rule matches is not added, with `no_rule`. The seed
+/// widens the crawl's scope by the host of the URL it names, and an entry
+/// outside the scope is not added, with `out_of_scope`, so a robots.txt
+/// seed admits its own host's entries from a sitemap on another host it
+/// names, and no other host's.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SitemapSeed {
+    /// The URL of the sitemap, or of the site's robots.txt.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sitemap: String,
+    /// The rules that give each entry its Label, in order: the first whose
+    /// pattern matches the entry's URL wins.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub rules: Vec<SitemapRule>,
+}
+
+/// One rule of a sitemap seed: a URL pattern, a glob as
+/// `crawl.scope.include` takes them, matched in the engine, and the Label
+/// it gives the entries it matches, which take no Payload.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SitemapRule {
+    /// The URL pattern.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub pattern: String,
+    /// The Label of the entries it matches.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub label: String,
+}
+
 /// One request a crawl starts from (ADR 0093): a URL, the Label that picks
 /// its handler and its Payload, and how it is sent and identified.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct Seed {
+pub struct RequestSeed {
     /// Its URL.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: String,

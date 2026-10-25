@@ -152,7 +152,7 @@ fn refused(connection: &Connection, seeds: &[Seed]) -> rusqlite::Result<Result<(
     let rules = PayloadRules::read(connection)?;
     Ok(seeds
         .iter()
-        .try_for_each(|seed| rules.check(&seed.label, seed.payload.as_ref())))
+        .try_for_each(|seed| work_items::check_seed(&rules, seed)))
 }
 
 async fn add_seeds(

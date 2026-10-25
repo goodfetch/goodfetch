@@ -29,6 +29,7 @@ mod robots_txt;
 mod rules;
 mod scope;
 pub mod seeds;
+pub mod sitemap;
 mod url;
 
 use std::sync::Arc;
@@ -72,6 +73,7 @@ pub fn contribution() -> Contribution {
         .with_handler(seeds::handler())
         .with_run_state_tables(queues::TABLES)
         .with_run_state_tables(seeds::TABLES)
+        .with_run_state_tables(sitemap::TABLES)
         .with_run_state_tables(identity::TABLES)
         .with_run_state_tables(scope::TABLES)
         .with_run_state_tables(bounds::TABLES)

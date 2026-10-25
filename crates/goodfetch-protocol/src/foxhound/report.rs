@@ -249,6 +249,10 @@ pub struct SitemapReport {
     /// How many of its entries were not.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub not_added: u64,
+    /// Those not added, by the reason the Frontier gave, `no_rule` for an
+    /// entry no rule of its sitemap seed matched, sorted by name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub not_added_by_reason: Vec<CountOf>,
 }
 
 /// Every entry this module defines.

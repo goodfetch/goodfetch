@@ -4,7 +4,9 @@
 //! Block cause, and those left pending; `records`, per Dataset, the Records
 //! its succeeded requests committed, dropped and rejected; `learned_rules`,
 //! the rules its Frontier learned, each with its evidence and every URL it
-//! merged (ADR 0005); and, for a crawl
+//! merged (ADR 0005); `sitemaps`, each sitemap its sitemap seeds read,
+//! with how many of its entries were added and not added, by reason (ADR
+//! 0093); and, for a crawl
 //! that finished with no seed reaching a handler, `nothingDone`'s
 //! `no_seed_handled`, counting its seeds by why each never reached one. A
 //! Run of another kind gets none of them.
@@ -41,6 +43,13 @@ impl ReportPart for CrawlParts {
             serde_json::to_value(goodfetch_frontier::learned_rules(connection)?)
                 .expect("invariant: learned rules encode"),
         );
+        let sitemaps = goodfetch_frontier::sitemap::reports(connection)?;
+        if !sitemaps.is_empty() {
+            report.kind_parts.insert(
+                "sitemaps".to_owned(),
+                serde_json::to_value(sitemaps).expect("invariant: sitemap counts encode"),
+            );
+        }
         let handled: bool = connection.query_row(
             "SELECT EXISTS (SELECT 1 FROM work_items WHERE attempts > 0)",
             [],

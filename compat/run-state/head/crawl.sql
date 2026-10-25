@@ -389,6 +389,11 @@ CREATE TABLE tier_choices (
             unit TEXT NOT NULL,
             PRIMARY KEY (label, domain_key)
         ) STRICT;
+CREATE TABLE url_fragments (
+            scope TEXT NOT NULL PRIMARY KEY,
+            keeps INTEGER NOT NULL
+        ) STRICT;
+INSERT INTO "url_fragments" VALUES('run',0);
 CREATE TABLE usage (
         slice_id INTEGER NOT NULL,
         epoch INTEGER NOT NULL,

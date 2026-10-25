@@ -66,3 +66,26 @@ fn the_states_page_hides_its_elements_in_its_own_markup() {
         (200, 1, true, true, true, true, false)
     );
 }
+
+/// The hash-routed app holds no view in its markup, only an empty
+/// `h1.view` its script fills from the fragment, links to `#/a` and `#/b`,
+/// and answers the same document whatever fragment the URL had, since a
+/// fragment never reaches the server (pitfall U05).
+#[test]
+fn the_routes_page_leaves_its_view_to_its_script_on_every_fragment() {
+    let proving_ground = ProvingGround::start(SEED);
+    let answer = proving_ground.get(&proving_ground.url("tiers.test", "/routes"));
+    let holds = |text: &str| answer.body.contains(text);
+
+    assert_eq!(
+        (
+            answer.status,
+            holds("<h1 class=\"view\"></h1>"),
+            holds("href=\"#/a\""),
+            holds("href=\"#/b\""),
+            holds("location.hash"),
+            holds("hashchange"),
+        ),
+        (200, true, true, true, true, true)
+    );
+}

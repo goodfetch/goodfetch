@@ -81,6 +81,7 @@ Decided in [URL identity and crawl-space rules beyond ADR 0005's learned rules](
   - Under `fetch.tier: auto`, the sample comparison chooses between those two.
   - Forcing `http`, `browser_fetch` or `discovered_api` on that Label fails the Run's start with `setting_not_applicable`, as ADR 0110 refuses kept responses under a forced `http` or `browser_fetch`. `discovered_api` is refused here too, though ADR 0110 admits it: its replayed calls cannot tell which call a fragment's view makes without running the page's scripts.
 - **Fixed for a Run's life.** `crawl.keep_url_fragment` is one of ADR 0102's keys fixed for a Run's life, since the keys of the requests already admitted would no longer match the new ones. A resume that changes it raises `setting_not_applicable`.
+  > Note (agent decision, pending owner review), 2026-10-25, [#939](https://github.com/goodfetch/goodfetch/issues/939): a request keeping its fragment has the key of its other rules followed by `#` and the fragment. Which requests keep it, the Run's value and each Label's own, is recorded in the run file when the Run begins and read back on every admission and resume; a `crawl.start` under the Run's ID whose values differ is refused with `setting_not_applicable`. Under `fetch.tier: auto`, and at the built-in default, such a request runs on `browser` (no `http` sample) until `light_browser` is built. A sitemap's entries and a redirect hop's key drop the fragment, as an HTTP redirect's fragment never reaches the server.
 
 ### Caps on a URL's shape
 

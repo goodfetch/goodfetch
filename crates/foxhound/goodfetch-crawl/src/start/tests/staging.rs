@@ -7,10 +7,6 @@
 //! attempt's retry stages them again and its commit is the one that counts:
 //! each request once, the Frontier's visited set and counts naming exactly
 //! the work items, and the key the retry wrote.
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};

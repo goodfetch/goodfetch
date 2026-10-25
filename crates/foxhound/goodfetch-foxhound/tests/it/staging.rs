@@ -122,7 +122,7 @@ fn record_the_page(handle: &Value) -> Value {
 ///
 /// Covers: story:6-236, operation:crawl_request.enqueue, operation:run.add_seed, operation:key_value_store.set, operation:key_value_store.get, operation:key_value_store.delete
 #[test]
-fn a_failed_attempts_enqueues_seeds_and_keys_are_discarded_and_its_retrys_commit() {
+fn a_failed_attempts_enqueues_seeds_and_keys_are_discarded_and_its_retry_commits_its_own() {
     let env = TestEnv::new();
     let mut engine = Attached::start(&env);
     let mut staged = Vec::new();

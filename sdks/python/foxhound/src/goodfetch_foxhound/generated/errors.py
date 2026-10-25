@@ -35,6 +35,14 @@ class ClientGoneError(UnavailableError):
         super().__init__(message, code="client_gone", group="unavailable", retryable=True)
 
 
+class EffectStagingRefusedError(ProgramError):
+    """The call would stage an output with its attempt (an enqueue, a seed added through `ctx.run`, a Record or a Key-value store write through `ctx.run`) while a declared Effect's body runs in that attempt. A re-run that finds the Effect in the Effect journal does not run the body again, so the output would be lost for good; nothing was staged. The details' `fix` says to stage it after the declaration, from the output the body returned."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="effect_staging_refused", group="program", retryable=False)
+
+
 class HandlerFailedError(ProgramError):
     """The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time."""
 
@@ -103,6 +111,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "attempt_ended": AttemptEndedError,
     "browser_required": BrowserRequiredError,
     "client_gone": ClientGoneError,
+    "effect_staging_refused": EffectStagingRefusedError,
     "handler_failed": HandlerFailedError,
     "handler_lost": HandlerLostError,
     "lease_lost": LeaseLostError,

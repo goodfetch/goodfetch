@@ -680,6 +680,22 @@ class InitScriptEnded(BaseModel):
     )
 
 
+class KeyValueStoreAttempt(BaseModel):
+    """
+    The crawl attempt a Key-value store call is made through: a handler's
+    `ctx.run`, which is bound to its attempt (ADR 0093). Only a crawl's Run
+    has attempts.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt makes the call."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+
+
 class KeyValueStoreContent(RootModel[str]):
     root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
     """Bytes the Key-value store keeps, in Base64 (RFC 4648, with padding)."""
@@ -3509,6 +3525,13 @@ class KeyValueStoreKeyParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    attempt: KeyValueStoreAttempt | None = None
+    """
+    The crawl attempt whose handler's `ctx.run` reads or deletes the
+    key: a read sees what the attempt staged, and a delete is staged
+    with the attempt (ADR 0093). Absent, the call reads or commits at
+    once.
+    """
     key: str
     """The key."""
     run_id: RunId
@@ -3555,6 +3578,12 @@ class KeyValueStoreSetParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    attempt: KeyValueStoreAttempt | None = None
+    """
+    The crawl attempt whose handler's `ctx.run` sets the key: the write
+    is staged with the attempt and commits with it, or is discarded
+    with it (ADR 0093). Absent, the value is committed at once.
+    """
     key: str
     """The key."""
     run_id: RunId

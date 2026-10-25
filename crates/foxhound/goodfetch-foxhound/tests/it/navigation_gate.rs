@@ -743,7 +743,8 @@ const EIGHT_DELAY_MILLISECONDS: u64 = 2_000;
 /// longer than its lease was granted for.
 ///
 /// Each seed is on a domain of its own, so the eight are handled at once,
-/// and the engine sends nothing for them under `auto`. Each is added once
+/// and the engine sends nothing for them under the built-in `fetch.tier`.
+/// Each is added once
 /// the handler before it opened its page in the Run, so each page takes the
 /// gate and lease of its own attempt, the one handed over last.
 ///
@@ -765,7 +766,11 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
             "crawl": { "handler": { "concurrency": HANDLERS } },
         }),
     );
-    settings["fetch"]["tier"] = json!("auto");
+    // The built-in tier: the engine sends nothing for the seeds and hands
+    // each handler its request alone (a set `auto` fetches them first, #767).
+    if let Some(settings) = settings.as_object_mut() {
+        settings.remove("fetch");
+    }
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
         "params": { "run_id": "eight", "seeds": [seed(1)], "settings": settings },

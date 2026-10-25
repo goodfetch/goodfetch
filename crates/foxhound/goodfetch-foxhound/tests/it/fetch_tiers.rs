@@ -832,3 +832,141 @@ fn the_tier_a_label_learned_survives_a_resume() {
         )
     );
 }
+
+/// A script-written app shell: its HTML holds an empty `#app`, which its
+/// inline script fills before the page loads.
+const SHELL_PATH: &str = "/shell";
+
+/// A Label's declaration whose `session.page_check` expects an element the
+/// CSS selector `selector` finds, its other settings `more`.
+fn expecting(selector: &str, more: &Value) -> Value {
+    let mut settings = json!({
+        "session": { "page_check": { "expected_page": { "kind": "css", "selector": selector } } },
+    });
+    if let (Some(settings), Some(more)) = (settings.as_object_mut(), more.as_object()) {
+        settings.extend(more.clone());
+    }
+    json!({ "settings": settings })
+}
+
+/// A handler that records the URL and tier of each request it is given
+/// and answers no Record.
+fn recording(seen: &mut Vec<(String, Value)>) -> impl FnMut(&mut Inside<'_>, &Value) -> Value + '_ {
+    move |_, handle| {
+        seen.push((
+            handle["crawl_request"]["url"].as_str().unwrap().to_owned(),
+            handle["tier"].clone(),
+        ));
+        json!({ "result": { "records": [] } })
+    }
+}
+
+/// Under `fetch.tier: auto`, a page whose document fails its Label's
+/// expected page over HTTP, the app shell whose heading only its script
+/// writes, is escalated to the browser instead of failing: its sample's
+/// handler is given the browser's page only, where the expected page
+/// passes, and it ends `succeeded`; a static listing whose document meets
+/// its Label's expected page is handled on HTTP, then in the browser as
+/// its sample's second run. Provenance records the shell's browser run as
+/// caused by `session.page_check`.
+///
+/// Covers: story:5-137, setting:session.page_check
+#[test]
+fn a_page_failing_its_labels_expected_page_over_http_escalates_under_auto_and_passes_in_the_browser()
+ {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let listing = proving_ground.url(STATIC_HOST, STATIC_PATH);
+    let shell = proving_ground.url(SCRIPTED_HOST, SHELL_PATH);
+
+    let mut seen = Vec::new();
+    let report = crawl_declaring(
+        &mut engine,
+        "expected-auto",
+        &[
+            json!({ "url": listing, "label": "list" }),
+            json!({ "url": shell, "label": "app" }),
+        ],
+        &json!({
+            "list": expecting("li.product", &json!({})),
+            "app": expecting("#app h1.title", &json!({})),
+        }),
+        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &mut recording(&mut seen),
+    );
+    let ended = outcomes(&mut engine, "expected-auto");
+    assert!(engine.finish());
+
+    seen.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut chosen = tiers(&env, "expected-auto");
+    chosen.sort_by_key(Value::to_string);
+    assert_eq!(
+        (&report["result"]["lifecycle"], seen, ended, chosen),
+        (
+            &json!("finished"),
+            vec![
+                (listing.clone(), json!("http")),
+                (listing.clone(), json!("browser")),
+                (shell.clone(), json!("browser")),
+            ],
+            vec![
+                (listing, json!("succeeded"), Value::Null),
+                (shell, json!("succeeded"), Value::Null),
+            ],
+            vec![
+                json!(["app", "browser", "sample", null, "session.page_check"]),
+                json!(["app", "http", "sample", null, null]),
+                json!(["list", "browser", "sample", null, null]),
+                json!(["list", "http", "sample", null, null]),
+            ],
+        )
+    );
+}
+
+/// A page failing its Label's expected page fails with `page_check_failed`
+/// where nothing escalates it: the app shell under a Label forcing `http`,
+/// whose document lacks the heading, and the same shell under a Label
+/// forcing `browser`, which expects an element its script never writes.
+/// No handler runs and both end `failed` with it.
+///
+/// Covers: story:5-137, setting:session.page_check, error:page_check_failed
+#[test]
+fn a_page_failing_its_expected_page_fails_with_page_check_failed_under_a_forced_http_tier_and_on_the_browser_tier()
+ {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let shell = proving_ground.url(SCRIPTED_HOST, SHELL_PATH);
+    let also = format!("{shell}?copy=1");
+
+    let mut seen = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        "expected-forced",
+        &[
+            json!({ "url": shell, "label": "http" }),
+            json!({ "url": also, "label": "browser" }),
+        ],
+        &json!({
+            "http": expecting("#app h1.title", &json!({ "fetch": { "tier": "http" } })),
+            "browser": expecting("#app h2.missing", &json!({ "fetch": { "tier": "browser" } })),
+        }),
+        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &mut recording(&mut seen),
+    );
+    let ended = outcomes(&mut engine, "expected-forced");
+    assert!(engine.finish());
+
+    assert_eq!(
+        (seen, ended, tiers(&env, "expected-forced")),
+        (
+            Vec::new(),
+            vec![
+                (shell, json!("failed"), json!("page_check_failed")),
+                (also, json!("failed"), json!("page_check_failed")),
+            ],
+            vec![json!(["http", "http", "forced", "label", null])],
+        )
+    );
+}

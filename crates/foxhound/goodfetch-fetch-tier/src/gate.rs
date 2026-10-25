@@ -63,6 +63,7 @@ use goodfetch_page::robots_txt::{Group, ProductToken, applicable_rules};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::page::SitePreference;
+use goodfetch_protocol::settings::page_check::PageCheck;
 use tokio::sync::oneshot;
 use url::Url;
 
@@ -106,6 +107,10 @@ pub struct HandOver {
     pub max_crawl_delay: Option<Duration>,
     /// The attempt's lease.
     pub lease: Arc<dyn LeaseCheck>,
+    /// The Page check its crawl request's Label declares of its own, which
+    /// judges the browser pages the attempt opens in place of their
+    /// Session's (ADR 0093).
+    pub page_check: Option<PageCheck>,
 }
 
 /// The navigation gate of the pages one attempt handed over.

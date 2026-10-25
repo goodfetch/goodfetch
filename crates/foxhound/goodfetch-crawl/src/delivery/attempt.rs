@@ -57,7 +57,8 @@ use goodfetch_engine::robots_txt::{self, Fetch, Fetched};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    Chosen, FetchTiers, HandOver, HttpTier, Purpose, Requester, RobotsTxtFetch, Stop, TierChoice,
+    Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, Purpose, Requester,
+    RobotsTxtFetch, Stop, TierChoice,
 };
 use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt};
 use goodfetch_protocol::block::BlockCause;
@@ -78,6 +79,8 @@ use goodfetch_protocol::page::{
     NAVIGATION_FAILED, PageId, SITE_PREFERENCES_REFUSED, SitePreference,
 };
 use goodfetch_protocol::run::PointInTime;
+use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
+use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::site_preferences::{
     SITE_PREFERENCES_PURPOSE, SITE_PREFERENCES_RESPECT_USE_SIGNALS,
 };
@@ -133,22 +136,26 @@ pub(super) struct Tiering {
     tiers: FetchTiers,
     http: Option<HttpTier>,
     plan: AttemptPlan,
+    /// The Page check the request's Label declares of its own.
+    page_check: Option<PageCheck>,
     second_copies: SecondCopies,
 }
 
 impl Tiering {
     /// `plan` on the Run's `tiers` and `http` tier, its hedges taking
-    /// `second_copies`.
+    /// `second_copies`, the request's Label declaring `page_check`.
     pub(super) fn of(
         tiers: &FetchTiers,
         http: Option<&HttpTier>,
         plan: AttemptPlan,
+        page_check: Option<PageCheck>,
         second_copies: &SecondCopies,
     ) -> Self {
         Self {
             tiers: tiers.clone(),
             http: http.cloned(),
             plan,
+            page_check,
             second_copies: second_copies.clone(),
         }
     }
@@ -171,11 +178,13 @@ const SAMPLED: TierChoice = TierChoice {
 
 /// What an attempt's handler pages are gated with (the fetch tiers'
 /// `gate`): the tiers that hand them over, room beside the Run's own
-/// requests and how robots.txt is fetched.
+/// requests and how robots.txt is fetched; and the Page check of its
+/// request's Label, which judges them in place of their Session's.
 pub(super) struct Gating {
     pub(super) tiers: FetchTiers,
     pub(super) second_copies: SecondCopies,
     pub(super) robots: Option<RobotsTxtFetch>,
+    pub(super) page_check: Option<PageCheck>,
 }
 
 impl Gating {
@@ -221,6 +230,7 @@ impl Gating {
                 request_id: leased.crawl_request.id.clone(),
                 in_flight: Arc::clone(in_flight),
             }),
+            page_check: self.page_check.clone(),
         })
     }
 }
@@ -572,7 +582,7 @@ impl On<'_> {
     ) -> (Answer, Vec<(String, String)>) {
         let (run, merged) = match self.on_http(tiering, http, choice, Chosen::AsChosen).await {
             Ok(ran) => ran,
-            Err(answer) => return (answer, Vec::new()),
+            Err(ended) => return ended,
         };
         let answer = match run.escalated {
             // The first answer, whatever it says, is discarded.
@@ -602,7 +612,7 @@ impl On<'_> {
             .await
         {
             Ok(ran) => ran,
-            Err(answer) => return (answer, Vec::new(), None),
+            Err((answer, merged)) => return (answer, merged, None),
         };
         if matches!(run.answer, Answer::LeaseEnded | Answer::ClientGone) {
             return (run.answer, merged, None);
@@ -644,17 +654,20 @@ impl On<'_> {
 
     /// One run on the `http` tier: its origin's robots.txt read and its
     /// document fetched under the lease, the Frontier taught its page, the
-    /// tier recorded as `how` says, and the handler given a page served
-    /// from it, closed once it answered. Answers the run and the pending
-    /// requests the page's rules merged, or the attempt's answer when it
-    /// ended before its handler ran.
+    /// tier recorded as `how` says, the page judged by its Label's Page
+    /// check, else the Run's (ADR 0093), and the handler given a page
+    /// served from it, closed once it answered. A page failing its expected
+    /// page under `auto` escalates at `session.page_check` without its
+    /// handler running. Answers the run and the pending requests the page's
+    /// rules merged, or, when the attempt ended before its handler ran, its
+    /// answer and those requests.
     async fn on_http(
         &self,
         tiering: &Tiering,
         http: &HttpTier,
         choice: &TierChoice,
         how: Chosen,
-    ) -> Result<(HttpRun, Vec<(String, String)>), Answer> {
+    ) -> Result<(HttpRun, Vec<(String, String)>), (Answer, Vec<(String, String)>)> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let requester = Requester {
             request_id: &leased.crawl_request.id,
@@ -693,13 +706,43 @@ impl On<'_> {
             } => document,
             _ = lease.ended() => Err(Answer::LeaseEnded),
         };
-        let page_id = fetched?;
+        let page_id = fetched.map_err(|answer| (answer, Vec::new()))?;
         if let Some(refused) = use_signals_refusal(run, tiers, &page_id) {
             tiers.close(&page_id);
-            return Err(refused);
+            return Err((refused, Vec::new()));
         }
         let merged = learn(run, tiers, &page_id, leased).await;
         record_tier(run, leased, choice, how).await;
+        let check = tiering.page_check.clone().or_else(|| run_page_check(run));
+        let judged = match &check {
+            Some(check) => tiers.judge(&page_id, check).await,
+            None => Some(Judged::Passed),
+        };
+        match judged {
+            Some(Judged::Passed) | None => {}
+            Some(Judged::Failed(error)) => {
+                tiers.close(&page_id);
+                return Err((failed(&error), merged));
+            }
+            Some(Judged::Escalated) => {
+                tiers.close(&page_id);
+                // Its handler never ran: the run escalates at the Page
+                // check, and the caller runs the request in the browser.
+                let answer = Answer::Failed {
+                    code: PAGE_CHECK_FAILED.to_owned(),
+                    retryable: false,
+                    message: "The page failed its expected page on the `http` tier.".to_owned(),
+                    details: Map::new(),
+                };
+                return Ok((
+                    HttpRun {
+                        answer,
+                        escalated: Some(PAGE_CHECK_CALL),
+                    },
+                    merged,
+                ));
+            }
+        }
         self.in_flight
             .lock()
             .await
@@ -751,6 +794,19 @@ impl On<'_> {
         tiers.close_browser(&page_id).await;
         answer
     }
+}
+
+/// The Run's own `session.page_check`, which judges the pages of a Label
+/// that declares none (ADR 0093).
+fn run_page_check(run: &Run) -> Option<PageCheck> {
+    let settings = run.settings()?;
+    let value = settings
+        .resolved()
+        .get(SESSION_PAGE_CHECK.name)?
+        .value
+        .clone();
+    // The setting's shape was checked where it was set.
+    serde_json::from_value::<Option<PageCheck>>(value).ok()?
 }
 
 /// An attempt that ended with `error` before its handler was asked.

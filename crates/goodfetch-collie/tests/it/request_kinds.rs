@@ -197,10 +197,10 @@ impl<'env> Program<'env> {
 /// How many requests to `host` whose target starts with `target` the
 /// Proving ground received.
 fn received(proving_ground: &ProvingGround, host: &str, target: &str) -> usize {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    proving_ground
+        .received_requests()
+        .unwrap()
+        .of_the_case()
         .filter(|request| {
             request["host"] == json!(host)
                 && request["target"]

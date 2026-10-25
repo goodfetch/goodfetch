@@ -15,7 +15,7 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -81,10 +81,8 @@ fn crawl_shop(settings: &Value) -> Crawled {
     );
     let observations = proving_ground.observations().unwrap();
     assert!(engine.finish());
-    let received: Vec<String> = observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    let received: Vec<String> = ReceivedRequests::of(&observations)
+        .of_the_case()
         .map(|request| request["target"].as_str().unwrap().to_owned())
         .collect();
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");

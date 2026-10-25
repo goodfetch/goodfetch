@@ -20,7 +20,9 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_fetch_tier::{Deadlines, Hop, HttpProfile, Wreq, fetch};
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
-use goodfetch_test_support::{CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache};
+use goodfetch_test_support::{
+    CHROME_FOR_TESTING_BUILD, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
+};
 use serde_json::Value;
 use url::Url;
 
@@ -98,10 +100,8 @@ fn chrome_loads(env: &TestEnv, proving_ground: &ProvingGround, url: &str) {
 
 /// The first request the Proving ground received for `target` on [`HOST`].
 fn request_for(observations: &Value, target: &str) -> Value {
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(observations)
+        .of_the_case()
         .find(|request| {
             request["host"]
                 .as_str()

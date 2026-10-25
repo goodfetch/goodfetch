@@ -12,7 +12,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -89,10 +89,8 @@ fn crawl_archive(settings: &Value) -> Crawled {
     );
     let observations = proving_ground.observations().unwrap();
     assert!(engine.finish());
-    let received = observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    let received = ReceivedRequests::of(&observations)
+        .every()
         .map(|request| request["target"].as_str().unwrap().to_owned())
         .collect();
     crawled(&env, "archive", answers, received, &report)

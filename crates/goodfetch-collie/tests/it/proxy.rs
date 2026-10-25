@@ -23,7 +23,8 @@ use std::collections::BTreeSet;
 use std::sync::mpsc;
 
 use goodfetch_test_support::{
-    Canaries, Canary, Hit, Output, ProvingGround, SecretKind, TestEnv, browser_cache, cli, pty,
+    Canaries, Canary, Hit, Output, ProvingGround, ReceivedRequests, SecretKind, TestEnv,
+    browser_cache, cli, pty, robots_txt_read,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -1406,38 +1407,6 @@ fn an_unpriced_provider_under_a_currency_limit_is_refused_naming_its_price() {
     );
 }
 
-/// The Run trace's Provenance entries of the Run `run_id` for a
-/// robots.txt reading.
-fn robots_txt_readings(env: &TestEnv, run_id: &str) -> Vec<Value> {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join("provenance.jsonl");
-    std::fs::read_to_string(file)
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|entry| entry["action"] == json!("robots_txt"))
-        .collect()
-}
-
-/// Waits until the Run `run_id` recorded a robots.txt reading, a minute at
-/// most: the engine's page that read it is closed by then, and the read's
-/// request, if it sent one, has reached the site, as it came before its
-/// answer.
-pub(crate) fn robots_txt_read(env: &TestEnv, run_id: &str) {
-    for _ in 0..600 {
-        if !robots_txt_readings(env, run_id).is_empty() {
-            return;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-    panic!("the Run recorded no robots.txt reading within a minute");
-}
-
 /// The engine's pages of the browser-fetch tier send their one request
 /// each and nothing more (ADRs 0020 and 0121): the robots.txt read of a
 /// document's origin and a `page.request` each reach the site once,
@@ -1490,10 +1459,8 @@ fn the_robots_txt_read_and_page_request_each_send_one_request_through_the_sessio
         .iter()
         .map(|relay| (relay["proxy"].clone(), relay["target"].clone()))
         .collect();
-    let received: Vec<(Value, Value)> = observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    let received: Vec<(Value, Value)> = ReceivedRequests::of(&observations)
+        .every()
         .map(|request| (request["host"].clone(), request["target"].clone()))
         .collect();
 

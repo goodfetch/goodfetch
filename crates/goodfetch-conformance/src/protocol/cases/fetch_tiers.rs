@@ -194,15 +194,10 @@ fn http_tier(connection: &mut Connection, site: &Site, checks: &mut Checks) -> R
         "the Run finishes",
         finished["result"]["lifecycle"] == json!("finished"),
     );
-    let requests = site
-        .proving_ground
-        .observations()
-        .ok()
-        .and_then(|observations| observations["requests"].as_array().cloned())
-        .unwrap_or_default();
+    let requests = site.proving_ground.received_requests().unwrap_or_default();
     let target = target_of(&url);
     let seen = requests
-        .iter()
+        .of_the_case()
         .filter(|request| request["task"] == json!(TASK) && request["target"].as_str() == target)
         .count();
     checks.check("the site saw one request for the page", seen == 1);

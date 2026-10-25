@@ -24,6 +24,7 @@ mod learned_rules;
 mod limits;
 mod navigation_gate;
 mod outcomes;
+mod pacing;
 mod path_budgets;
 mod payload;
 mod politeness;

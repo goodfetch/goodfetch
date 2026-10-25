@@ -68,6 +68,8 @@ struct Recording {
     reached: Mutex<Vec<String>>,
     /// Each hop as it was sent, with how many hops were admitted then.
     sent: Mutex<Vec<(String, usize)>>,
+    /// Each hop as its answer arrived, with how long after its send.
+    answered: Mutex<Vec<(String, Duration)>>,
 }
 
 impl HopGate for Recording {
@@ -114,6 +116,15 @@ impl HopGate for Recording {
                 .lock()
                 .unwrap()
                 .push((hop.url.path().to_owned(), admitted));
+        })
+    }
+
+    fn answered<'a>(&'a self, hop: &'a Hop, latency: Duration) -> Gating<'a, ()> {
+        Box::pin(async move {
+            self.answered
+                .lock()
+                .unwrap()
+                .push((hop.url.path().to_owned(), latency));
         })
     }
 }
@@ -261,6 +272,38 @@ fn each_hop_is_told_to_the_gate_as_it_is_sent() {
             ("/redirect/hops/1".to_owned(), 1),
             ("/redirect/hops/0".to_owned(), 2),
         ]
+    );
+}
+
+/// Each hop's latency, from its send to its answer's arrival, is told to
+/// the gate, for the domain's adaptive delay (spec #582's Settings): the
+/// `pacing` host held its answer as long as its `Server-Timing` names, and
+/// the latency is no shorter.
+///
+/// Covers: story:6-247
+#[test]
+fn each_hops_latency_is_told_to_the_gate_once_its_answer_arrived() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    proving_ground.set_time_step(5).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let gate = Recording::default();
+    let first = Hop::get(Url::parse(&proving_ground.url("pacing.test", "/")).unwrap());
+
+    let fetched = followed(&transport, first, &defaults(), &gate).unwrap();
+
+    let held = Duration::from_millis(
+        fetched
+            .headers
+            .iter()
+            .find(|(name, _)| name == "server-timing")
+            .and_then(|(_, value)| value.strip_prefix("hold;dur=")?.parse().ok())
+            .expect("a Server-Timing hold"),
+    );
+    let answered = gate.answered.lock().unwrap().clone();
+    assert!(
+        matches!(answered.as_slice(), [(path, latency)] if path == "/" && *latency >= held),
+        "{answered:?} after a hold of {held:?}"
     );
 }
 

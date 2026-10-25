@@ -60,7 +60,7 @@ pub struct CrawlRunReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub learned_rules: Option<Vec<LearnedRule>>,
-    /// Its sitemaps, as its progress gives them.
+    /// Each sitemap seed's sitemaps, as its progress gives them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub sitemaps: Option<Vec<SitemapReport>>,
@@ -237,22 +237,60 @@ pub enum EquivalentForm {
     IndexPhp,
 }
 
-/// A sitemap a crawl read (ADR 0102).
+/// How many sitemaps a sitemap seed could not read [`SitemapReport`] lists
+/// one by one; the rest are counted.
+pub const SITEMAP_FAILURES_LISTED: usize = 20;
+
+/// A sitemap seed's sitemaps (ADR 0102): those it read, those it could
+/// not, and its entries added and not added, counted, never listed, since
+/// a sitemap holds up to 50,000.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SitemapReport {
-    /// Its URL.
+    /// The sitemap or robots.txt the seed named.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub url: String,
-    /// How many of its entries were added.
+    pub seed: String,
+    /// How many of its sitemaps were read, nested ones included; a
+    /// robots.txt is none.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub read: u64,
+    /// How many of its sitemaps could not be read.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub failed: u64,
+    /// The first 20 of those, by URL, each with why.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub failures: Vec<SitemapFailure>,
+    /// How many of its sitemaps' entries were added.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub added: u64,
-    /// How many of its entries were not.
+    /// How many of its sitemaps' entries were not.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub not_added: u64,
     /// Those not added, by the reason the Frontier gave, `no_rule` for an
-    /// entry no rule of its sitemap seed matched, sorted by name.
+    /// entry no rule of the seed matched, sorted by name.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub not_added_by_reason: Vec<CountOf>,
+}
+
+/// A sitemap a sitemap seed could not read (ADR 0102; pitfall U19).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SitemapFailure {
+    /// Its URL.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// Why, as a name: its fetch's Error code (`response_unavailable`,
+    /// `response_not_ok` for a status or a file that is no sitemap the
+    /// crawl reads, `response_limit_exceeded`), its skip reason
+    /// (`robots_txt`), its Block cause, or the reason the Frontier did not
+    /// add a nested sitemap (`domain_policy`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub code: String,
+    /// The status its site answered, when one answered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: Option<u16>,
+    /// Why, in words.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub message: String,
 }
 
 /// Every entry this module defines.

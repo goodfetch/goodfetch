@@ -2648,7 +2648,7 @@
         },
         "sitemaps": {
           "arrived_in": "0.1",
-          "description": "Its sitemaps, as its progress gives them.",
+          "description": "Each sitemap seed's sitemaps, as its progress gives them.",
           "items": {
             "$ref": "#/$defs/SitemapReport"
           },
@@ -11790,30 +11790,29 @@
         }
       ]
     },
-    "SitemapReport": {
-      "description": "A sitemap a crawl read (ADR 0102).",
+    "SitemapFailure": {
+      "description": "A sitemap a sitemap seed could not read (ADR 0102; pitfall U19).",
       "properties": {
-        "added": {
+        "code": {
           "arrived_in": "0.1",
-          "description": "How many of its entries were added.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
+          "description": "Why, as a name: its fetch's Error code (`response_unavailable`,\n`response_not_ok` for a status or a file that is no sitemap the\ncrawl reads, `response_limit_exceeded`), its skip reason\n(`robots_txt`), its Block cause, or the reason the Frontier did not\nadd a nested sitemap (`domain_policy`).",
+          "type": "string"
         },
-        "not_added": {
+        "message": {
           "arrived_in": "0.1",
-          "description": "How many of its entries were not.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
+          "description": "Why, in words.",
+          "type": "string"
         },
-        "not_added_by_reason": {
+        "status": {
           "arrived_in": "0.1",
-          "description": "Those not added, by the reason the Frontier gave, `no_rule` for an\nentry no rule of its sitemap seed matched, sorted by name.",
-          "items": {
-            "$ref": "#/$defs/CountOf"
-          },
-          "type": "array"
+          "description": "The status its site answered, when one answered.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "arrived_in": "0.1",
@@ -11823,6 +11822,69 @@
       },
       "required": [
         "url",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "SitemapReport": {
+      "description": "A sitemap seed's sitemaps (ADR 0102): those it read, those it could\nnot, and its entries added and not added, counted, never listed, since\na sitemap holds up to 50,000.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "How many of its sitemaps' entries were added.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failed": {
+          "arrived_in": "0.1",
+          "description": "How many of its sitemaps could not be read.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failures": {
+          "arrived_in": "0.1",
+          "description": "The first 20 of those, by URL, each with why.",
+          "items": {
+            "$ref": "#/$defs/SitemapFailure"
+          },
+          "type": "array"
+        },
+        "not_added": {
+          "arrived_in": "0.1",
+          "description": "How many of its sitemaps' entries were not.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_added_by_reason": {
+          "arrived_in": "0.1",
+          "description": "Those not added, by the reason the Frontier gave, `no_rule` for an\nentry no rule of the seed matched, sorted by name.",
+          "items": {
+            "$ref": "#/$defs/CountOf"
+          },
+          "type": "array"
+        },
+        "read": {
+          "arrived_in": "0.1",
+          "description": "How many of its sitemaps were read, nested ones included; a\nrobots.txt is none.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seed": {
+          "arrived_in": "0.1",
+          "description": "The sitemap or robots.txt the seed named.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "seed",
+        "read",
+        "failed",
+        "failures",
         "added",
         "not_added",
         "not_added_by_reason"

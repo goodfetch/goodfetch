@@ -236,6 +236,13 @@ CREATE TABLE sitemap_entries (
             count INTEGER NOT NULL,
             PRIMARY KEY (work_item, reason)
         ) STRICT, WITHOUT ROWID;
+CREATE TABLE sitemap_failures (
+            url TEXT NOT NULL PRIMARY KEY,
+            seed TEXT NOT NULL,
+            code TEXT NOT NULL,
+            status INTEGER,
+            message TEXT NOT NULL
+        ) STRICT;
 CREATE TABLE sitemaps (
             work_item TEXT NOT NULL PRIMARY KEY,
             url TEXT NOT NULL UNIQUE,

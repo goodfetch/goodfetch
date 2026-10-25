@@ -18,6 +18,17 @@
 //!   `/books/7`.
 //! - `sitemap-partner.test/cross.xml` lists `sitemap-seed.test/books/4`
 //!   and the partner's own `/books/5`; the partner has no robots.txt.
+//! - `/limits-index.xml` is an index of `/sitemaps/plain.xml` (`/books/11`
+//!   and `/books/12`), of `/sitemaps/packed.xml.gz`, a gzip file
+//!   (`application/gzip`) listing `/books/13` and `/books/14`, of the
+//!   `sitemaps` family's index of 50,048 sitemaps on `sitemaps.test`, past
+//!   sitemaps.org's 50,000 URLs, of `/sitemaps/oversized.xml`, which lists
+//!   `/books/15` and is padded to one byte past sitemaps.org's 50 MB, of
+//!   `/sitemaps/bomb.xml.gz`, a decompression bomb (a small gzip file
+//!   decoding to 10 MiB of spaces), of `/sitemaps/broken.xml`, whose XML
+//!   breaks off, of `/sitemaps/error.xml`, which answers `500`, and of
+//!   `/sitemaps/missing.xml`, which answers `404`. The large files are
+//!   generated on request, never committed (ADR 0062).
 //! - Every `/books/<n>`, `/authors/<n>` and `/about` is an article with its
 //!   ID, on either host; any other path is `404`.
 //!
@@ -25,7 +36,9 @@
 
 use std::fmt::Write as _;
 
-use super::{Page, Visit, canonical_number, document, name};
+use hyper::StatusCode;
+
+use super::{Page, Visit, canonical_number, document, name, sitemaps};
 
 pub(super) const FAMILY: &str = "sitemap-seed";
 
@@ -87,6 +100,30 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
             on(BLOCKED, "/sitemap.xml"),
         ]),
         (HOST, "/private/hidden.xml") => urlset(&[on(HOST, "/books/99")]),
+        (HOST, "/limits-index.xml") => index(&[
+            on(HOST, "/sitemaps/plain.xml"),
+            on(HOST, "/sitemaps/packed.xml.gz"),
+            on(sitemaps::HOST, "/sitemap-index.xml"),
+            on(HOST, "/sitemaps/oversized.xml"),
+            on(HOST, "/sitemaps/bomb.xml.gz"),
+            on(HOST, "/sitemaps/broken.xml"),
+            on(HOST, "/sitemaps/error.xml"),
+            on(HOST, "/sitemaps/missing.xml"),
+        ]),
+        (HOST, "/sitemaps/plain.xml") => urlset(&[on(HOST, "/books/11"), on(HOST, "/books/12")]),
+        (HOST, "/sitemaps/packed.xml.gz") => sitemaps::gzip(&urlset_text(&[
+            on(HOST, "/books/13"),
+            on(HOST, "/books/14"),
+        ])),
+        (HOST, "/sitemaps/oversized.xml") => oversized(&on(HOST, "/books/15")),
+        (HOST, "/sitemaps/bomb.xml.gz") => bomb(),
+        (HOST, "/sitemaps/broken.xml") => {
+            xml("<?xml version=\"1.0\"?>\n<urlset><url><loc>/books/16</loc></url>\n".to_owned())
+        }
+        (HOST, "/sitemaps/error.xml") => Page {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            ..xml("<error/>\n".to_owned())
+        },
         (PARTNER, "/cross.xml") => urlset(&[on(HOST, "/books/4"), on(PARTNER, "/books/5")]),
         (BLOCKED, "/sitemap.xml") => urlset(&[on(HOST, "/books/7")]),
         (_, path) => page(visit.seed, path),
@@ -133,6 +170,32 @@ fn index(sitemaps: &[String]) -> Page {
 
 /// A sitemap of `entries`, written as given.
 fn urlset(entries: &[String]) -> Page {
+    xml(String::from_utf8(urlset_text(entries)).expect("invariant: a sitemap's text is UTF-8"))
+}
+
+/// sitemaps.org's most bytes of one sitemap, uncompressed: 50 MB.
+const MAX_SITEMAP_BYTES: usize = 52_428_800;
+
+/// A sitemap of `entry` padded with spaces to one byte past
+/// sitemaps.org's 50 MB, generated on request.
+fn oversized(entry: &str) -> Page {
+    let mut text = urlset_text(&[entry.to_owned()]);
+    text.resize(MAX_SITEMAP_BYTES + 1, b' ');
+    Page {
+        body: text.into(),
+        ..xml(String::new())
+    }
+}
+
+/// A decompression bomb as ADR 0067's note on #312 shapes one: a small
+/// `.gz` file that decodes to 10 MiB of one repeated byte, generated on
+/// request.
+fn bomb() -> Page {
+    sitemaps::gzip(&vec![b' '; 10 * 1024 * 1024])
+}
+
+/// The text of a sitemap of `entries`, written as given.
+fn urlset_text(entries: &[String]) -> Vec<u8> {
     let mut text = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
     );
@@ -141,5 +204,5 @@ fn urlset(entries: &[String]) -> Page {
             .expect("invariant: writing to a String succeeds");
     }
     text.push_str("</urlset>\n");
-    xml(text)
+    text.into_bytes()
 }

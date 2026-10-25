@@ -94,8 +94,8 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/foxhound/goodfetch-frontier/src/sitemap.rs",
-        2,
-        "holds no value: a sitemap seed's sitemaps (URLs, the seed's rules) and their entries' counts by reason",
+        3,
+        "holds no value: a sitemap seed's sitemaps (URLs, the seed's rules), their entries' counts by reason, and each it could not read with the engine's own error code, status and message, no handler's",
     ),
     (
         "crates/foxhound/goodfetch-session-pool/src/store.rs",

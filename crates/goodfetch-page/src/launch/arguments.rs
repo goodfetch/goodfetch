@@ -60,6 +60,11 @@ pub(crate) struct Launch<'a> {
     /// The Run's domain policy as a proxy auto-config script, when it
     /// refuses any host.
     pub(crate) proxy_script: Option<&'a str>,
+    /// The SHA-256 of the egress relay's certificate authority's key, in
+    /// base64, when the Run lists an invalid-certificate exception: the
+    /// browser takes the leaves the relay presents for the listed hosts
+    /// (ADR 0042).
+    pub(crate) relay_authority: Option<&'a str>,
 }
 
 /// The command line, and the warnings it comes with.
@@ -112,6 +117,9 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
     );
     arguments.extend(chromium_background_traffic_off());
     arguments.push(WEBRTC_POLICY.to_owned());
+    if let Some(spki) = launch.relay_authority {
+        arguments.push(format!("--ignore-certificate-errors-spki-list={spki}"));
+    }
     if let Some(script) = launch.proxy_script {
         arguments.push(format!(
             "--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,{}",

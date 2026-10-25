@@ -36,6 +36,9 @@ use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NavigationFailedDetails, PageId, RequestFailed, ServiceWorkerRequest,
     SessionId,
 };
+use goodfetch_protocol::secrets::{
+    SECRET_INPUT_REFUSED, SecretInputRefusedDetails, SecretInputRefusedReason,
+};
 use tokio::sync::oneshot;
 
 use super::answers::{Answer, Answers, Fulfillment, Reply, already_handled};
@@ -372,6 +375,10 @@ impl Held {
 
 /// The header of the Session's cookies.
 const COOKIE: &str = "cookie";
+
+/// What `secret_input_refused` names the Session's cookies by: the SDK's
+/// entry that reads them.
+const SESSION_COOKIES: &str = "session.cookies";
 
 /// The answer to an authentication challenge, with `credentials` when it
 /// gives them.
@@ -743,6 +750,15 @@ impl PageContext {
             },
             other => other,
         };
+        // Step 7's guard of the Session's cookies: none goes to a host the
+        // egress relay terminates for a certificate exception (ADR 0042).
+        // The browser adds them itself as the request leaves, so a request
+        // that would carry one is failed instead.
+        if matches!(stepped, Ok(steps::Sent::Continue(_)))
+            && let Some(withheld) = self.withhold_cookies(held).await
+        {
+            return Err(withheld);
+        }
         let command = match stepped {
             Ok(steps::Sent::Continue(command)) => {
                 // Step 6: the page's navigation gate; its lease check is
@@ -810,6 +826,66 @@ impl PageContext {
             }
         }
         Ok(())
+    }
+
+    /// Fails `held` with [`Self::cookies_withheld`]'s refusal, which the
+    /// navigation waiting on it raises.
+    async fn withhold_cookies(&self, held: &Held) -> Option<CallError> {
+        let withheld = self.cookies_withheld(held.url()).await?;
+        if held.navigation {
+            self.state.leave(withheld.clone());
+        }
+        self.run.record_outcome(withheld.code());
+        self.fail(
+            &held.paused.request_id,
+            network::ErrorReason::BlockedByClient,
+        )
+        .await;
+        Some(withheld)
+    }
+
+    /// `secret_input_refused` when the browser would send `url`'s request
+    /// a cookie of the Session's to a host its egress relay terminates for
+    /// an invalid-certificate exception: a cookie its own host set alone
+    /// goes back to it, as the site's own state.
+    async fn cookies_withheld(&self, url: &str) -> Option<CallError> {
+        let relay = self.driver.relay()?;
+        let host = url::Url::parse(url).ok()?.host_str()?.to_ascii_lowercase();
+        if !relay.terminates(&host) {
+            return None;
+        }
+        let cookies = match self
+            .driver
+            .command(&network::GetCookiesParams {
+                urls: Some(vec![url.to_owned()]),
+            })
+            .await
+        {
+            Ok(found) => found.cookies,
+            Err(failure) => {
+                tracing::debug!(
+                    ?failure,
+                    "the browser named no cookies, so the request goes without a check"
+                );
+                return None;
+            }
+        };
+        let session = cookies.into_iter().find(|cookie| {
+            cookie.domain.trim_start_matches('.') != host || cookie.domain.starts_with('.')
+        })?;
+        Some(CallError::new(
+            &SECRET_INPUT_REFUSED,
+            format!(
+                "The Session's cookie `{}` was not sent to {host}: the host is reached through an invalid-certificate exception, so whoever holds its key may not be the site (ADR 0042).",
+                session.name
+            ),
+            &SecretInputRefusedDetails {
+                placeholder: session.name,
+                reference: SESSION_COOKIES.to_owned(),
+                domain: host,
+                reason: SecretInputRefusedReason::InvalidCertificateException,
+            },
+        ))
     }
 
     /// On a Borrowed browser, judges the addresses the engine resolves the

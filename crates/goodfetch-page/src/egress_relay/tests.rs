@@ -27,11 +27,13 @@ use std::sync::Mutex;
 
 use data_encoding::BASE64;
 use goodfetch_engine::egress::{Policy, Refused};
+use goodfetch_engine::tls::ExceptionUsed;
 use goodfetch_protocol::egress::EgressRule;
 use goodfetch_test_support::{Family, ResolverHandle, ScriptedResolver, SsrfTable};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, duplex};
 
 use super::serve::{Met, Network, Observe, Relaying, Resolved, Served, Unreached, Upstream, serve};
+use super::terminate::Stop;
 
 /// The address that stands for a public one.
 const PUBLIC: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 31, 196, 1));
@@ -48,6 +50,7 @@ fn relaying(policy: Policy, upstream: Upstream) -> Relaying {
         authorization: authorization(),
         upstream,
         bypasses: Box::new(|_| false),
+        terminating: None,
     }
 }
 
@@ -171,6 +174,8 @@ impl Network for Scripted {
 #[derive(Default)]
 struct Told {
     refused: Mutex<Vec<(Refused, String)>>,
+    terminated: Mutex<Vec<(String, Option<ExceptionUsed>)>>,
+    stopped: Mutex<Vec<(String, Stop)>>,
     met: Mutex<Vec<Met>>,
     unauthenticated: Mutex<usize>,
     unreached: Mutex<Vec<(String, Unreached)>>,
@@ -199,6 +204,20 @@ impl Observe for Told {
 
     fn unauthenticated(&self) {
         *self.unauthenticated.lock().unwrap() += 1;
+    }
+
+    fn terminated(&self, host: &str, used: Option<&ExceptionUsed>) {
+        self.terminated
+            .lock()
+            .unwrap()
+            .push((host.to_owned(), used.cloned()));
+    }
+
+    fn stopped(&self, url: &str, _: &str, stop: &Stop) {
+        self.stopped
+            .lock()
+            .unwrap()
+            .push((url.to_owned(), stop.clone()));
     }
 }
 
@@ -579,4 +598,45 @@ fn a_name_with_no_address_is_unreached_by_name_and_the_browser_fails_it() {
         ]
     );
     assert_eq!(network.connections(), vec![]);
+}
+
+/// The relay reads a ClientHello whole, from one record or several, and
+/// refuses records of another protocol.
+/// Covers: story:4-40
+#[test]
+fn a_client_hello_is_read_from_its_records_whole_or_split() {
+    let seed = |name: &str| {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("fuzz/relay_client_hello/seeds")
+                .join(name),
+        )
+        .unwrap()
+    };
+    let read = |name: &str| {
+        super::client_hello::parse(&seed(name)).map(|hello| {
+            (
+                hello.alpn,
+                hello.server_name,
+                hello.versions.contains(&0x0304),
+            )
+        })
+    };
+
+    assert_eq!(
+        [
+            read("h2 and http1.1"),
+            read("split over two records"),
+            read("not a handshake"),
+        ],
+        [
+            Ok((
+                vec![b"h2".to_vec(), b"http/1.1".to_vec()],
+                Some("site.listed.test".to_owned()),
+                true
+            )),
+            Ok((vec![b"h2".to_vec()], Some("split.test".to_owned()), true)),
+            Err(super::client_hello::Unread::Malformed),
+        ]
+    );
 }

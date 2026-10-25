@@ -50,6 +50,7 @@ use crate::driver::{
     Behind, BorrowedBrowser, Carried, LocalBrowser, Origins, PageDriver, SessionDriver,
     SessionEgress,
 };
+use crate::egress_relay::authority::Authority;
 use crate::trace::CommandLog;
 pub(crate) use rules::Placement;
 use rules::{Limits, Seats, Use};
@@ -65,6 +66,10 @@ struct Shared {
     home: Home,
     pins: Pins,
     limits: Limits,
+    /// The egress relay's certificate authority, when the Run lists an
+    /// invalid-certificate exception: every browser of the Run trusts it,
+    /// and every Session's relay signs with it (ADR 0042).
+    authority: Option<Arc<Authority>>,
     /// The Run trace's CDP log, which its browsers share.
     log: Arc<OnceCell<CommandLog>>,
     browsers: SyncMutex<Browsers>,
@@ -157,16 +162,24 @@ impl Pool {
     /// cache of `home` and the builds `pins` names.
     pub(crate) fn new(run: Run, home: Home, pins: Pins) -> Self {
         let limits = Limits::of(run.settings().map(RunSettings::resolved));
+        let authority = authority_of(&run);
         Self {
             shared: Arc::new(Shared {
                 run,
                 home,
                 pins,
                 limits,
+                authority,
                 log: Arc::default(),
                 browsers: SyncMutex::default(),
             }),
         }
+    }
+
+    /// The egress relay's certificate authority of the Run, when it lists
+    /// an invalid-certificate exception.
+    pub(crate) fn authority(&self) -> Option<Arc<Authority>> {
+        self.shared.authority.clone()
     }
 
     /// A seat for a Session whose requests leave through `egress`, its
@@ -247,6 +260,7 @@ impl Pool {
                         self.shared.pins.clone(),
                         number,
                         Arc::clone(&self.shared.log),
+                        self.shared.authority.clone(),
                     )),
                     own: seat.placement == Placement::OwnProcess,
                     seated: BTreeMap::new(),
@@ -773,6 +787,24 @@ impl SeatShared {
         place.left.retain(|(left, _)| *left != number);
         if place.at.as_ref().is_some_and(|(at, _)| *at == number) {
             self.leave(&mut place).await;
+        }
+    }
+}
+
+/// The egress relay's certificate authority of `run`, made in memory now,
+/// constrained to the domains its `tls.accept_invalid_certs` lists: none
+/// when it lists none. A Run whose authority cannot be made has none: its
+/// listed hosts are tunnelled, and the browser refuses their certificates.
+fn authority_of(run: &Run) -> Option<Arc<Authority>> {
+    let domains = run.certificate_exceptions().ok()?.domains();
+    if domains.is_empty() {
+        return None;
+    }
+    match Authority::new(domains) {
+        Ok(authority) => Some(Arc::new(authority)),
+        Err(error) => {
+            tracing::warn!(%error, "the egress relay has no certificate authority, so no host is terminated");
+            None
         }
     }
 }

@@ -21,35 +21,55 @@
 //! check runs before anything goes to the proxy. Every refusal is recorded
 //! in the Run trace as a request that failed, and kept for the call whose
 //! navigation it failed.
+//!
+//! A host the Run lists for an invalid-certificate exception (ADR 0042)
+//! is terminated instead ([`terminate`]): the relay presents the browser a
+//! leaf of the Run's in-memory [`authority`], which Chromium trusts by its
+//! key's hash, and connects upstream through BoringSSL with the browser's
+//! own ClientHello, under the Run's pins. Each host it terminated is
+//! recorded once in the Run's Provenance with the Session's relay, the
+//! exception it passed through and the key the host presented; a pin that
+//! changed stops the host with `certificate_changed` before any byte of the
+//! browser's goes up.
 #![expect(
     clippy::disallowed_types,
     reason = "the egress relay opens its own loopback listener and its connections out, in this module only (ADR 0060)"
 )]
 
+pub(crate) mod authority;
+pub(crate) mod client_hello;
 pub(crate) mod head;
 pub(crate) mod serve;
+pub(crate) mod terminate;
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use data_encoding::BASE64;
+use goodfetch_engine::CallError;
 use goodfetch_engine::egress::{Policy, Refused};
 use goodfetch_engine::endpoint::{REFUSAL_TARGET, new_token};
 use goodfetch_engine::http_client::{self, Resolve};
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved as ResolvedSettings;
+use goodfetch_engine::tls::{CertificateInvalid, Examiner, ExceptionKind, ExceptionUsed, Trust};
+use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::RequestFailed;
 use goodfetch_protocol::security::SECURITY_RAW_CDP_EGRESS_PROXY;
 use goodfetch_protocol::settings::NETWORK_RESOLVE;
+use serde_json::json;
+use tokio::io::AsyncWriteExt as _;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
+use self::authority::Authority;
 use self::serve::{Met, Network, Observe, Relaying, Resolved, Unreached, Upstream};
+use self::terminate::{Stop, Terminating};
 
 /// The user name of every Session's relay credentials; the password is the
 /// Session's own.
@@ -63,8 +83,50 @@ const KEPT_REFUSALS: usize = 64;
 pub(crate) struct EgressRelay {
     address: SocketAddr,
     password: String,
+    authorization: String,
     record: Arc<Record>,
+    /// What it terminates, when the Run lists a certificate exception.
+    terminating: Option<Arc<Terminating>>,
+    /// The per-host decision on a certificate the browser refused, made
+    /// on its first use.
+    examiner: OnceLock<Examiner>,
     _closed_when_dropped: DropGuard,
+}
+
+/// A connection the relay refused or stopped before any byte of the
+/// browser's left for its site, kept for the call whose load it failed.
+#[derive(Clone, Debug)]
+pub(crate) enum Refusal {
+    /// The egress policy refused it.
+    Egress(Refused),
+    /// The terminating mode stopped it on its certificate.
+    Certificate(Stop),
+}
+
+impl Refusal {
+    /// The failure the call that waited for the load answers with.
+    pub(crate) fn error(&self) -> CallError {
+        match self {
+            Self::Egress(refused) => refused.error(),
+            Self::Certificate(Stop::Changed(changed)) => changed.error(),
+            Self::Certificate(Stop::Invalid(invalid)) => invalid.error(),
+        }
+    }
+
+    /// The failure as a request's event carries it.
+    fn failure(&self) -> ErrorData {
+        match self {
+            Self::Egress(refused) => refused.failure(),
+            Self::Certificate(_) => {
+                let error = self.error();
+                ErrorData {
+                    code: error.code().to_owned(),
+                    retryable: error.retryable(),
+                    details: error.details().cloned().unwrap_or_default(),
+                }
+            }
+        }
+    }
 }
 
 /// `relay_for(session)`: where the Session's browser connects, and the
@@ -138,7 +200,11 @@ impl EgressRelay {
     /// # Errors
     ///
     /// The bind's failure, or the OS generator's.
-    pub(crate) async fn open(run: &Run, chain: Option<Chain>) -> io::Result<Self> {
+    pub(crate) async fn open(
+        run: &Run,
+        chain: Option<Chain>,
+        authority: Option<Arc<Authority>>,
+    ) -> io::Result<Self> {
         type Bypasses = Box<dyn Fn(&str) -> bool + Send + Sync>;
         let (upstream, address, bypasses, met): (_, _, Bypasses, _) = match chain {
             None => (Upstream::Direct, None, Box::new(|_: &str| false), None),
@@ -171,17 +237,30 @@ impl EgressRelay {
             .into_iter()
             .map(|(host, addresses)| (host.to_ascii_lowercase(), addresses))
             .collect();
+        let terminating = match authority {
+            Some(authority) => Some(Arc::new(Terminating {
+                authority,
+                exceptions: run.certificate_exceptions().map_err(io::Error::other)?,
+                examiner: Trust::default_roots().examiner(),
+            })),
+            None => None,
+        };
         let relaying = Relaying {
             policy,
-            authorization,
+            authorization: authorization.clone(),
             upstream,
             bypasses,
+            terminating: terminating.clone(),
         };
         let network = Tcp {
             mapping,
             upstream: address,
         };
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
+        let address = listener.local_addr()?;
         let record = Arc::new(Record {
+            address,
+            terminated: Mutex::new(BTreeSet::new()),
             run: run.clone(),
             log: Arc::new(RequestLog::new(
                 run.owner().child(),
@@ -193,8 +272,6 @@ impl EgressRelay {
             unreached: Mutex::new(BTreeMap::new()),
             sequence: AtomicU64::new(0),
         });
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
-        let address = listener.local_addr()?;
         let stop = CancellationToken::new();
         run.spawn(accept(
             listener,
@@ -206,7 +283,10 @@ impl EgressRelay {
         Ok(Self {
             address,
             password,
+            authorization,
             record,
+            terminating,
+            examiner: OnceLock::new(),
             _closed_when_dropped: stop.drop_guard(),
         })
     }
@@ -236,11 +316,11 @@ impl EgressRelay {
     /// since then for `url`'s host and port, else the latest since then, as
     /// the navigation's later hops go elsewhere; without one, the latest
     /// for `url`'s host and port. Each refusal fails one load.
-    pub(crate) fn take_refusal(&self, url: &str, mark: Option<u64>) -> Option<Refused> {
+    pub(crate) fn take_refusal(&self, url: &str, mark: Option<u64>) -> Option<Refusal> {
         let authority = authority_of(url);
         let mut refusals = lock(&self.record.refusals);
         let matching =
-            |entry: &(u64, String, Refused)| authority.as_deref() == Some(entry.1.as_str());
+            |entry: &(u64, String, Refusal)| authority.as_deref() == Some(entry.1.as_str());
         let at = match mark {
             Some(mark) => refusals
                 .iter()
@@ -248,11 +328,59 @@ impl EgressRelay {
                 .or_else(|| refusals.iter().rposition(|entry| entry.0 > mark)),
             None => refusals.iter().rposition(matching),
         }?;
-        let (_, _, refused) = refusals.remove(at)?;
-        Some(Refused {
-            url: url.to_owned(),
-            ..refused
+        let (_, _, refusal) = refusals.remove(at)?;
+        Some(match refusal {
+            Refusal::Egress(refused) => Refusal::Egress(Refused {
+                url: url.to_owned(),
+                ..refused
+            }),
+            certificate @ Refusal::Certificate(_) => certificate,
         })
+    }
+
+    /// Whether the relay terminates `host`'s connections: its domain is
+    /// listed for an invalid-certificate exception.
+    pub(crate) fn terminates(&self, host: &str) -> bool {
+        self.terminating
+            .as_deref()
+            .is_some_and(|terminating| terminating.terminates(host))
+    }
+
+    /// How the certificate of `url`'s host fails the engine's per-host
+    /// decision, for a load the browser refused on it: the relay opens a
+    /// handshake of its own to the host, through itself, so the same
+    /// egress checks and upstream proxy hold, and sends nothing past it.
+    /// None when the certificate passes or no handshake opens.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes its connection.
+    pub(crate) async fn examine(&self, url: &str) -> Option<CertificateInvalid> {
+        let url = url::Url::parse(url).ok()?;
+        let host = match url.host()? {
+            url::Host::Ipv6(address) => address.to_string(),
+            host => host.to_string(),
+        };
+        let authority = head::authority(&host, url.port_or_known_default()?);
+        let mut stream = TcpStream::connect(self.address).await.ok()?;
+        let request = format!(
+            "CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\nProxy-Authorization: {}\r\n\r\n",
+            self.authorization
+        );
+        stream.write_all(request.as_bytes()).await.ok()?;
+        let answer = head::answer(&mut stream).await.ok()?;
+        if !(200..300).contains(&answer.status) {
+            return None;
+        }
+        let examiner = self
+            .examiner
+            .get_or_init(|| Trust::default_roots().examiner());
+        let chain = match terminate::upstream(stream, &host, None).await {
+            Ok(upstream) => Some(upstream.chain),
+            Err((chain, _)) => chain,
+        }?;
+        let failure = examiner.examine(&host, &chain).ok()?.failure?;
+        Some(CertificateInvalid { host, failure })
     }
 }
 
@@ -311,12 +439,16 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// What a relay records of its connections.
 struct Record {
+    /// The relay's own address, which names its Session in Provenance.
+    address: SocketAddr,
+    /// The hosts it terminated, each recorded once.
+    terminated: Mutex<BTreeSet<String>>,
     run: Run,
     log: Arc<RequestLog>,
     /// Tells the Session's upstream proxy what a connection to it met.
     met: Option<Box<dyn Fn(Met) + Send + Sync>>,
     /// Its latest refusals, each with its number and authority.
-    refusals: Mutex<VecDeque<(u64, String, Refused)>>,
+    refusals: Mutex<VecDeque<(u64, String, Refusal)>>,
     /// The sites it could not reach itself since it last reached them,
     /// each with the number of the latest refusal then, by authority.
     unreached: Mutex<BTreeMap<String, (u64, Unreached)>>,
@@ -339,29 +471,44 @@ impl Observe for Record {
     }
 
     fn refused(&self, refused: &Refused, method: &str) {
-        let authority = authority_of(&refused.url).unwrap_or_default();
-        {
-            let mut refusals = lock(&self.refusals);
-            let sequence = self.sequence.fetch_add(1, Ordering::AcqRel) + 1;
-            refusals.push_back((sequence, authority, refused.clone()));
-            if refusals.len() > KEPT_REFUSALS {
-                refusals.pop_front();
-            }
-        }
         tracing::debug!(%refused, "the egress relay refused a connection");
-        let failure = refused.failure();
-        self.run.record_outcome(&failure.code);
-        let log = Arc::clone(&self.log);
-        let failed = RequestFailed {
-            url: refused.url.clone(),
-            method: method.to_owned(),
-            failure,
-        };
+        self.keep(&refused.url, method, Refusal::Egress(refused.clone()));
+    }
+
+    fn terminated(&self, host: &str, used: Option<&ExceptionUsed>) {
+        if !lock(&self.terminated).insert(host.to_owned()) {
+            return;
+        }
+        let exception = used.map(|used| match used.kind {
+            ExceptionKind::TrustOnFirstUse => "trust_on_first_use",
+            ExceptionKind::Any => "any",
+            _ => "other",
+        });
+        let entry = json!({
+            "action": TLS_TERMINATED,
+            "relay": self.address.to_string(),
+            "host": host,
+            "exception": exception,
+            "spki_sha256": used.map(|used| used.certificate.to_string()),
+        });
+        let run = self.run.clone();
         self.run.spawn(async move {
-            if let Err(error) = log.request_failed(&failed).await {
-                tracing::warn!(%error, "the Run trace did not take a connection the egress relay refused");
+            if let Err(error) = goodfetch_engine::run_trace::provenance(
+                run.owner(),
+                run.folder(),
+                run.secrets().mask(),
+                &entry,
+            )
+            .await
+            {
+                tracing::warn!(%error, "the Run's Provenance did not take a host the egress relay terminated");
             }
         });
+    }
+
+    fn stopped(&self, url: &str, method: &str, stop: &Stop) {
+        tracing::debug!(?stop, "the egress relay stopped a terminated connection");
+        self.keep(url, method, Refusal::Certificate(stop.clone()));
     }
 
     fn upstream(&self, met: Met) {
@@ -377,6 +524,38 @@ impl Observe for Record {
             reason = "token_wrong",
             "a connection to a Session's egress relay gave no credentials, or wrong ones, and was refused"
         );
+    }
+}
+
+/// What a Session's Provenance names a host its relay terminated by.
+const TLS_TERMINATED: &str = "tls_terminated";
+
+impl Record {
+    /// Keeps `refusal` of a load of `url` that `method` asked for, for the
+    /// call it fails, and records it in the Run trace.
+    fn keep(&self, url: &str, method: &str, refusal: Refusal) {
+        let authority = authority_of(url).unwrap_or_default();
+        let failure = refusal.failure();
+        {
+            let mut refusals = lock(&self.refusals);
+            let sequence = self.sequence.fetch_add(1, Ordering::AcqRel) + 1;
+            refusals.push_back((sequence, authority, refusal));
+            if refusals.len() > KEPT_REFUSALS {
+                refusals.pop_front();
+            }
+        }
+        self.run.record_outcome(&failure.code);
+        let log = Arc::clone(&self.log);
+        let failed = RequestFailed {
+            url: url.to_owned(),
+            method: method.to_owned(),
+            failure,
+        };
+        self.run.spawn(async move {
+            if let Err(error) = log.request_failed(&failed).await {
+                tracing::warn!(%error, "the Run trace did not take a connection the egress relay refused");
+            }
+        });
     }
 }
 
@@ -481,5 +660,39 @@ async fn accept(
     }
 }
 
+/// The fuzz target of the relay's request heads (ADR 0067): any bytes, read
+/// as a browser's head and forwarded, never panic.
+pub fn fuzz_request_head(data: &[u8]) {
+    if let Ok(Some((head, _))) = head::parse(data) {
+        let _ = head.target.url();
+        let _ = head.target.authority();
+        let _ = head.forwarded(true, Some("Basic Z29vZGZldGNoOng="));
+    }
+}
+
+/// The fuzz target of the ClientHello the relay mirrors (ADR 0067): any
+/// bytes, read as the records of a browser's ClientHello, never panic.
+pub fn fuzz_client_hello(data: &[u8]) {
+    let _ = client_hello::parse(data);
+}
+
+#[cfg(test)]
+mod terminate_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod request_head_fuzz {
+    goodfetch_test_support::fuzz_replay!(
+        crate::egress_relay::fuzz_request_head,
+        "fuzz/relay_request_head"
+    );
+}
+
+#[cfg(test)]
+mod client_hello_fuzz {
+    goodfetch_test_support::fuzz_replay!(
+        crate::egress_relay::fuzz_client_hello,
+        "fuzz/relay_client_hello"
+    );
+}

@@ -54,6 +54,7 @@ use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::tls::CertificateInvalid;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::functions::World;
 use goodfetch_protocol::page::{
@@ -75,8 +76,10 @@ pub(crate) use self::popups::{OnPopup, PopupHandler};
 pub(crate) use self::service_workers::{OnWorker, ServiceWorkers};
 use crate::borrowed::CdpUrl;
 use crate::egress_relay::EgressRelay;
+use crate::egress_relay::authority::Authority;
 use crate::errors::{
-    Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,
+    self, Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects,
+    truncated,
 };
 use crate::launch::launch;
 use crate::page_value::{self, PageValue};
@@ -415,6 +418,8 @@ pub(crate) struct LocalBrowser {
     /// Browser data folder with it: a launch whose browser did not come up
     /// waits for it before it takes the same folder.
     released: Mutex<Option<CancellationToken>>,
+    /// The egress relay's certificate authority, which it trusts.
+    authority: Option<Arc<Authority>>,
 }
 
 impl LocalBrowser {
@@ -424,6 +429,7 @@ impl LocalBrowser {
         pins: Pins,
         number: u64,
         log: Arc<OnceCell<CommandLog>>,
+        authority: Option<Arc<Authority>>,
     ) -> Self {
         let stopping = run.cancellation().child_token();
         Self {
@@ -435,6 +441,7 @@ impl LocalBrowser {
             stopping,
             launched: OnceCell::new(),
             released: Mutex::new(None),
+            authority,
         }
     }
 
@@ -479,7 +486,10 @@ impl Connect for LocalBrowser {
                     &self.run,
                     &self.home,
                     &self.pins,
-                    self.number,
+                    (
+                        self.number,
+                        self.authority.as_deref().map(Authority::spki_sha256),
+                    ),
                     attempt.clone(),
                 )
                 .await?;
@@ -1493,7 +1503,7 @@ impl PageDriver {
                 })))
             }
             Ok(Ok(arrived)) => Ok(arrived),
-            Ok(Err(Ended::Failed(error))) => Err(self.failed(&url, error.name(), relay_mark)),
+            Ok(Err(Ended::Failed(error))) => Err(self.failed(&url, error.name(), relay_mark).await),
             Ok(Err(Ended::Interrupted)) => Err(interrupted(&url)),
             Ok(Err(Ended::TooManyRedirects(chain))) => Err(too_many_redirects(&url, chain)),
             Ok(Err(Ended::Truncated { received, expected })) => {
@@ -1524,19 +1534,33 @@ impl PageDriver {
     /// `mark` as it began: the relay's refusal, else the proxy's own
     /// failure, else the site's, named as the browser names it when it
     /// connects itself, since behind the relay it sees only the relay's
-    /// answer.
-    fn failed(&self, url: &str, error: &str, mark: Option<u64>) -> CallError {
+    /// answer. A certificate the browser refused is `certificate_invalid`,
+    /// named by the relay's own look at it where it can.
+    async fn failed(&self, url: &str, error: &str, mark: Option<u64>) -> CallError {
         let name = self
             .relay()
             .and_then(|relay| relay.net_error(url, error, mark))
             .unwrap_or(error);
-        self.refused_by_relay(mark, url)
-            .or_else(|| {
-                self.egress
-                    .proxy
-                    .as_ref()
-                    .and_then(|proxy| proxy.failure(url, name))
-            })
+        if let Some(refused) = self.refused_by_relay(mark, url) {
+            return refused;
+        }
+        if let Some(failure) = errors::certificate_failure(name) {
+            let examined = match self.relay() {
+                Some(relay) => relay.examine(url).await,
+                None => None,
+            };
+            let host = url::Url::parse(url)
+                .ok()
+                .and_then(|url| url.host_str().map(str::to_owned))
+                .unwrap_or_default();
+            return examined
+                .unwrap_or(CertificateInvalid { host, failure })
+                .error();
+        }
+        self.egress
+            .proxy
+            .as_ref()
+            .and_then(|proxy| proxy.failure(url, name))
             .unwrap_or_else(|| network_error(url, name))
     }
 

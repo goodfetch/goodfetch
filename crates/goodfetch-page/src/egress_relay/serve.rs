@@ -8,12 +8,15 @@
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_engine::endpoint::same_token;
+use goodfetch_engine::tls::ExceptionUsed;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 use super::head::{self, Head, Target, Unread};
+use super::terminate::{self, Stop, Terminated, Terminating};
 
 /// The name the relay gives its own member of a `Proxy-Status` field (RFC
 /// 9209).
@@ -121,6 +124,12 @@ pub(crate) trait Observe: Sync {
     fn upstream(&self, met: Met);
     /// A client gave no credentials, or wrong ones.
     fn unauthenticated(&self);
+    /// The relay terminated a connection to `host` and relayed it, through
+    /// `used` when an exception let it pass (ADR 0042).
+    fn terminated(&self, host: &str, used: Option<&ExceptionUsed>);
+    /// The relay stopped a terminated connection to `url` that `method`
+    /// asked for, before any byte of the browser's went up.
+    fn stopped(&self, url: &str, method: &str, stop: &Stop);
 }
 
 /// How the relay judges and routes a Session's connections.
@@ -134,6 +143,8 @@ pub(crate) struct Relaying {
     /// Whether a URL goes around the upstream proxy, as `proxy.bypass`
     /// says.
     pub(crate) bypasses: Box<dyn Fn(&str) -> bool + Send + Sync>,
+    /// The hosts it terminates, and how, when the Run lists any.
+    pub(crate) terminating: Option<Arc<Terminating>>,
 }
 
 /// How one connection ended.
@@ -247,7 +258,15 @@ where
     };
     match upstream {
         Upstream::Direct => {
-            direct(browser, &head, rest, &resolved.addresses, network, observe).await
+            direct(
+                browser,
+                &head,
+                rest,
+                &resolved.addresses,
+                (relaying, network),
+                observe,
+            )
+            .await
         }
         Upstream::Http { authorization } => {
             through_http(
@@ -255,12 +274,14 @@ where
                 &head,
                 rest,
                 authorization.as_deref(),
-                network,
+                (relaying, network),
                 observe,
             )
             .await
         }
-        Upstream::Socks5 => through_socks5(browser, &head, rest, network, observe).await,
+        Upstream::Socks5 => {
+            through_socks5(browser, &head, rest, (relaying, network), observe).await
+        }
     }
 }
 
@@ -313,7 +334,7 @@ async fn direct<B, N, O>(
     head: &Head,
     rest: Vec<u8>,
     addresses: &[SocketAddr],
-    network: &N,
+    (relaying, network): (&Relaying, &N),
     observe: &O,
 ) -> Served
 where
@@ -347,7 +368,7 @@ where
     if opened.is_err() {
         return Served::Failed;
     }
-    pass(browser, site, &rest).await
+    forward(browser, site, rest, head, relaying, observe).await
 }
 
 /// Relays through an HTTP proxy: a tunnel through its own tunnel to the
@@ -358,7 +379,7 @@ async fn through_http<B, N, O>(
     head: &Head,
     rest: Vec<u8>,
     authorization: Option<&str>,
-    network: &N,
+    (relaying, network): (&Relaying, &N),
     observe: &O,
 ) -> Served
 where
@@ -418,7 +439,7 @@ where
     if browser.write_all(ESTABLISHED).await.is_err() {
         return Served::Failed;
     }
-    pass(browser, proxy, &rest).await
+    forward(browser, proxy, rest, head, relaying, observe).await
 }
 
 /// Relays through a SOCKS5 proxy that asks for no credentials, giving it
@@ -427,7 +448,7 @@ async fn through_socks5<B, N, O>(
     mut browser: B,
     head: &Head,
     rest: Vec<u8>,
-    network: &N,
+    (relaying, network): (&Relaying, &N),
     observe: &O,
 ) -> Served
 where
@@ -459,7 +480,7 @@ where
     if opened.is_err() {
         return Served::Failed;
     }
-    pass(browser, proxy, &rest).await
+    forward(browser, proxy, rest, head, relaying, observe).await
 }
 
 /// Opens a SOCKS5 tunnel to `host` on `port` over `proxy`, asking for no
@@ -508,6 +529,43 @@ async fn socks5_connect(
     let mut bound = vec![0; address + 2];
     proxy.read_exact(&mut bound).await?;
     Ok(())
+}
+
+/// Passes the bytes of `head`'s connection both ways, `rest` first, as they
+/// are, or through the terminating mode for a tunnel to a host the Run
+/// lists for a certificate exception.
+async fn forward<B, S, O>(
+    browser: B,
+    site: S,
+    rest: Vec<u8>,
+    head: &Head,
+    relaying: &Relaying,
+    observe: &O,
+) -> Served
+where
+    B: AsyncRead + AsyncWrite + Unpin + Send,
+    S: AsyncRead + AsyncWrite + Unpin + Send,
+    O: Observe,
+{
+    let host = head.target.host();
+    let terminating = relaying
+        .terminating
+        .as_deref()
+        .filter(|terminating| terminating.terminates(host));
+    let (Target::Tunnel { .. }, Some(terminating)) = (&head.target, terminating) else {
+        return pass(browser, site, &rest).await;
+    };
+    match terminate::terminate(browser, site, rest, host, terminating).await {
+        Terminated::Relayed { used, up, down } => {
+            observe.terminated(host, used.as_ref());
+            Served::Relayed { up, down }
+        }
+        Terminated::Stopped(stop) => {
+            observe.stopped(&head.target.url(), &head.method, &stop);
+            Served::Refused
+        }
+        Terminated::Failed => Served::Failed,
+    }
 }
 
 /// Passes bytes both ways until both ends close, `rest`, the browser's

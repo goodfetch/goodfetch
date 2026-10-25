@@ -85,6 +85,7 @@ use crate::borrowed::{CdpUrl, resolve_of};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::driver::{PageDriver, SessionEgress};
+use crate::egress_relay::authority::Authority;
 use crate::egress_relay::{self, EgressRelay};
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
@@ -365,10 +366,14 @@ impl Sessions {
         // Its proxy is drawn for the position it is about to take, which a
         // Session opening at the same moment may take first.
         self.reach(&run, context).await?;
-        let next = reached(&mut *self.state.lock().await, &run)?.last + 1;
+        let (next, authority) = {
+            let mut state = self.state.lock().await;
+            let runs = reached(&mut state, &run)?;
+            (runs.last + 1, runs.pool.authority())
+        };
         let proxy = open_proxy(&run, &settings, context, next).await?;
         no_proxy_under(borrowed.as_ref(), proxy.as_deref())?;
-        let relay = open_relay(&run, proxy.as_ref(), borrowed.is_some())
+        let relay = open_relay(&run, proxy.as_ref(), borrowed.is_some(), authority)
             .await
             .map_err(|error| unavailable(&run, &error, context))?;
         let (position, seat) = {
@@ -467,10 +472,14 @@ impl Sessions {
         borrowed: Option<&CdpUrl>,
         context: &CallContext,
     ) -> Result<u32, CallError> {
-        let next = reached(&mut *self.state.lock().await, run)?.last + 1;
+        let (next, authority) = {
+            let mut state = self.state.lock().await;
+            let runs = reached(&mut state, run)?;
+            (runs.last + 1, runs.pool.authority())
+        };
         let proxy = open_proxy(run, &Values::default(), context, next).await?;
         no_proxy_under(borrowed, proxy.as_deref())?;
-        let relay = open_relay(run, proxy.as_ref(), borrowed.is_some())
+        let relay = open_relay(run, proxy.as_ref(), borrowed.is_some(), authority)
             .await
             .map_err(|error| unavailable(run, &error, context))?;
         let (position, seat) = {
@@ -832,7 +841,7 @@ impl Sessions {
                 .map(|source| recorded_source(&source, run, context))
                 .transpose()?;
             let (proxy, relay, reopen_failed) =
-                reopened_egress(run, &settings, borrowed.is_some(), position, context).await;
+                reopened_egress(run, &settings, &pool, borrowed.as_ref(), position, context).await;
             let session = session_id(run.id(), position);
             let (seat, attributes) = match &borrowed {
                 Some(cdp_url) => (pool.borrowed_seat(cdp_url.clone()), BORROWED),
@@ -1262,14 +1271,16 @@ async fn mark_egress(open: &Session, session: &SessionId) {
 
 /// The proxy and egress relay of the Session at `position` of `run`
 /// reopened from run state with its own `settings`, and why it cannot open
-/// a page when either does not open. It keeps the proxy it opened with,
+/// a page when either does not open, its relay terminating as `pool`'s
+/// authority lets it. It keeps the proxy it opened with,
 /// so its address never changes under its cookies (SA-22); one on a
 /// Borrowed browser, `borrowed`, has neither (ADR 0056). One whose proxy
 /// or relay does not open raises why from each page it is asked for.
 async fn reopened_egress(
     run: &Run,
     settings: &Values,
-    borrowed: bool,
+    pool: &Pool,
+    borrowed: Option<&CdpUrl>,
     position: u32,
     context: &CallContext,
 ) -> (
@@ -1277,14 +1288,14 @@ async fn reopened_egress(
     Option<Arc<EgressRelay>>,
     Option<CallError>,
 ) {
-    if borrowed {
+    if borrowed.is_some() {
         return (None, None, None);
     }
     let proxy = match open_proxy(run, settings, context, position).await {
         Ok(proxy) => proxy,
         Err(error) => return (None, None, Some(error)),
     };
-    match open_relay(run, proxy.as_ref(), false).await {
+    match open_relay(run, proxy.as_ref(), false, pool.authority()).await {
         Ok(relay) => (proxy, relay, None),
         Err(error) => (proxy, None, Some(unavailable(run, &error, context))),
     }
@@ -1299,10 +1310,12 @@ fn egress(proxy: Option<&Arc<SessionProxy>>, relay: Option<&Arc<EgressRelay>>) -
 }
 
 /// The egress relay of a Session of `run` whose upstream proxy is `proxy`,
-/// while `security.raw_cdp_egress_proxy` is on: none on a Borrowed browser,
-/// whose network the engine does not hold (ADR 0056), with the switch off,
-/// or behind an `https://` proxy, which the relay does not chain through;
-/// such a Session is held by interception alone.
+/// while `security.raw_cdp_egress_proxy` is on or the Run has `authority`,
+/// the relay's certificate authority, for its certificate exceptions,
+/// which the switch never removes (ADR 0042): none on a Borrowed browser,
+/// whose network the engine does not hold (ADR 0056), with the switch off
+/// and no exception, or behind an `https://` proxy, which the relay does
+/// not chain through; such a Session is held by interception alone.
 ///
 /// # Errors
 ///
@@ -1311,12 +1324,13 @@ async fn open_relay(
     run: &Run,
     proxy: Option<&Arc<SessionProxy>>,
     borrowed: bool,
+    authority: Option<Arc<Authority>>,
 ) -> std::io::Result<Option<Arc<EgressRelay>>> {
     let on = run
         .settings()
         .map(RunSettings::resolved)
         .is_none_or(egress_relay::relayed);
-    if borrowed || !on {
+    if borrowed || (!on && authority.is_none()) {
         return Ok(None);
     }
     let chain = match proxy {
@@ -1326,7 +1340,7 @@ async fn open_relay(
             None => return Ok(None),
         },
     };
-    EgressRelay::open(run, chain)
+    EgressRelay::open(run, chain, authority)
         .await
         .map(|relay| Some(Arc::new(relay)))
 }

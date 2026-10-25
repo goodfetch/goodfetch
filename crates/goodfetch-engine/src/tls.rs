@@ -24,9 +24,8 @@ use std::io;
 use std::sync::{Arc, OnceLock};
 
 pub use client_certificates::{ClientCertificateFailure, ClientCertificates};
-pub(crate) use exceptions::Presented;
 pub use exceptions::{
-    CertificateChanged, CertificateExceptions, ExceptionKind, ExceptionUsed, PinBook,
+    CertificateChanged, CertificateExceptions, ExceptionKind, ExceptionUsed, PinBook, Presented,
 };
 
 use goodfetch_protocol::tls::{
@@ -252,6 +251,69 @@ impl Trust {
         };
         config.alpn_protocols = vec![b"http/1.1".to_vec()];
         config
+    }
+}
+
+/// The per-host decision for a TLS library other than rustls (ADR 0124):
+/// the egress relay's BoringSSL hands each certificate chain it receives
+/// to [`Examiner::examine`], which decides as the engine's own verifier
+/// does, so one implementation decides for both.
+#[derive(Debug)]
+pub struct Examiner(Verifier);
+
+/// A certificate chain an [`Examiner`] could not read.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("the certificate chain of `{host}` cannot be read")]
+pub struct Unreadable {
+    /// The host that presented it.
+    pub host: String,
+}
+
+impl Trust {
+    /// The decision of this trust for chains received outside rustls.
+    pub fn examiner(&self) -> Examiner {
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        Examiner(Verifier::new(self, &provider, None))
+    }
+}
+
+impl Examiner {
+    /// What `chain`, the DER certificates `host` presented, leaf first,
+    /// shows: the key of its leaf, and how it fails verification now, if
+    /// it does.
+    ///
+    /// # Errors
+    ///
+    /// [`Unreadable`] when there is no leaf, or it does not parse.
+    pub fn examine(&self, host: &str, chain: &[Vec<u8>]) -> Result<Presented, Unreadable> {
+        let unreadable = || Unreadable {
+            host: host.to_owned(),
+        };
+        let (leaf, rest) = chain.split_first().ok_or_else(unreadable)?;
+        let end_entity = CertificateDer::from(leaf.as_slice());
+        let intermediates: Vec<CertificateDer<'_>> = rest
+            .iter()
+            .map(|der| CertificateDer::from(der.as_slice()))
+            .collect();
+        let parsed = ParsedCertificate::try_from(&end_entity).map_err(|_| unreadable())?;
+        let key = KeyHash::of_public_key(parsed.subject_public_key_info().as_ref());
+        let name = domain_key(host).unwrap_or_else(|| host.to_owned());
+        let failure = match ServerName::try_from(name) {
+            Ok(server_name) => self
+                .0
+                .failure(
+                    &end_entity,
+                    &intermediates,
+                    &server_name,
+                    &[],
+                    UnixTime::now(),
+                )
+                .map_err(|_| unreadable())?,
+            Err(_) => Some(CertificateFailure::Known(
+                KnownCertificateFailure::NameMismatch,
+            )),
+        };
+        Ok(Presented { key, failure })
     }
 }
 
@@ -514,6 +576,37 @@ impl Verifier {
         }
     }
 
+    /// How `end_entity`, presented with `intermediates` by `server_name`,
+    /// fails verification: none when it verifies.
+    fn failure(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
+    ) -> Result<Option<CertificateFailure>, rustls::Error> {
+        match self.for_server(server_name).verify_server_cert(
+            end_entity,
+            intermediates,
+            server_name,
+            ocsp_response,
+            now,
+        ) {
+            Ok(_) => Ok(None),
+            Err(rustls::Error::InvalidCertificate(error)) => Ok(Some(
+                if matches!(error, CertificateError::UnknownIssuer)
+                    && self_signed(end_entity, now, &self.provider)
+                {
+                    CertificateFailure::Known(KnownCertificateFailure::SelfSigned)
+                } else {
+                    failure_of(&error)
+                },
+            )),
+            Err(other) => Err(other),
+        }
+    }
+
     /// The verifier for `server_name`.
     fn for_server(&self, server_name: &ServerName<'_>) -> &WebPkiServerVerifier {
         let host = server_name.to_str();
@@ -534,24 +627,10 @@ impl ServerCertVerifier for Verifier {
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        let failure = match self.for_server(server_name).verify_server_cert(
-            end_entity,
-            intermediates,
-            server_name,
-            ocsp_response,
-            now,
-        ) {
-            Ok(verified) if self.seen.is_none() => return Ok(verified),
-            Ok(_) => None,
-            Err(rustls::Error::InvalidCertificate(error)) => Some(
-                if matches!(error, CertificateError::UnknownIssuer)
-                    && self_signed(end_entity, now, &self.provider)
-                {
-                    CertificateFailure::Known(KnownCertificateFailure::SelfSigned)
-                } else {
-                    failure_of(&error)
-                },
-            ),
+        let failure = match self.failure(end_entity, intermediates, server_name, ocsp_response, now)
+        {
+            Ok(None) if self.seen.is_none() => return Ok(ServerCertVerified::assertion()),
+            Ok(failure) => failure,
             Err(other) => return Err(other),
         };
         let Some(seen) = &self.seen else {

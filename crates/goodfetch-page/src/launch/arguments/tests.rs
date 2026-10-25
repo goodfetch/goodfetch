@@ -24,6 +24,7 @@ fn launch(headless: bool, shared_memory: Option<u64>) -> Launch<'static> {
         resolve: &[],
         shared_memory,
         proxy_script: None,
+        relay_authority: None,
     }
 }
 
@@ -255,5 +256,33 @@ fn a_policy_script_reaches_the_browser_as_its_proxy_configuration() {
             has(&open, webrtc)
         ),
         (vec![script.to_owned()], Vec::new(), true, true)
+    );
+}
+
+/// Story 4-40: a Run with a certificate exception launches its browser
+/// trusting the egress relay's in-memory authority by its key's hash, and
+/// one with none trusts nothing more.
+#[test]
+fn a_run_with_a_relay_authority_trusts_it_by_its_key_hash_alone() {
+    let trusting = arguments(&Launch {
+        relay_authority: Some("c2hhMjU2LW9mLXRoZS1rZXk="),
+        ..launch(true, None)
+    });
+    let plain = arguments(&launch(true, None));
+    let flags = |built: &Arguments| -> Vec<String> {
+        built
+            .arguments
+            .iter()
+            .filter(|argument| argument.starts_with("--ignore-certificate-errors"))
+            .cloned()
+            .collect()
+    };
+
+    assert_eq!(
+        (flags(&trusting), flags(&plain)),
+        (
+            vec!["--ignore-certificate-errors-spki-list=c2hhMjU2LW9mLXRoZS1rZXk=".to_owned()],
+            Vec::new()
+        )
     );
 }

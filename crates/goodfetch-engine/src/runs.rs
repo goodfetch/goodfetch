@@ -137,8 +137,10 @@ use crate::run_state::{
 use crate::secrets::{Carried, Keychain, Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
 use crate::settings::{Resolved, RunSettings, Settings};
 use crate::tasks::TaskOwner;
+use crate::tls::{CertificateExceptions, InvalidDomain, PinBook};
 use crate::trace::Link;
 use crate::transition;
+use goodfetch_protocol::tls::TLS_ACCEPT_INVALID_CERTS;
 
 /// A Run's state, in its folder.
 const RUN_FILE: &str = "run.sqlite";
@@ -1085,6 +1087,8 @@ struct Shared {
     robots_txt: RunCopies,
     /// The copy a crawl's Run reads instead, once its crawl shared one.
     crawls_robots_txt: std::sync::OnceLock<Arc<dyn Copies>>,
+    /// The invalid-certificate exceptions its Sessions take, once read.
+    certificate_exceptions: std::sync::OnceLock<Result<CertificateExceptions, InvalidDomain>>,
 }
 
 impl std::fmt::Debug for Run {
@@ -1576,6 +1580,36 @@ impl Run {
     /// changes nothing and makes none.
     pub fn share_robots_txt(&self, copies: impl FnOnce() -> Arc<dyn Copies>) {
         self.shared.crawls_robots_txt.get_or_init(copies);
+    }
+
+    /// The invalid-certificate exceptions of its `tls.accept_invalid_certs`
+    /// (ADR 0042), pinning in the person's known-certificates store: one
+    /// value its Sessions share, so a host stopped as a changed key stays
+    /// stopped for every Session of the Run.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidDomain`] when an entry names no host.
+    pub fn certificate_exceptions(&self) -> Result<CertificateExceptions, InvalidDomain> {
+        self.shared
+            .certificate_exceptions
+            .get_or_init(|| {
+                let setting = self
+                    .settings()
+                    .map(|settings| settings.resolved().value(TLS_ACCEPT_INVALID_CERTS.name))
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                let book = PinBook {
+                    store: self.runs.limits().known_certificates.clone(),
+                    person: CALLER.to_owned(),
+                    run_id: Some(self.id.clone()),
+                    audit: Arc::new(self.runs.audit().clone()),
+                    owner: Arc::clone(&self.owner),
+                    clock: self.clock,
+                };
+                CertificateExceptions::listed(&setting, book, self.secrets().exception_hosts())
+            })
+            .clone()
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -4279,6 +4313,7 @@ impl Registry {
                 politeness: tokio::sync::OnceCell::new(),
                 robots_txt: RunCopies::default(),
                 crawls_robots_txt: std::sync::OnceLock::new(),
+                certificate_exceptions: std::sync::OnceLock::new(),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),

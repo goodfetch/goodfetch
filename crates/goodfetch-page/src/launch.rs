@@ -177,8 +177,9 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 
 /// Launches a browser of the Run from the Browser cache of `home`, under
 /// the Run's settings, on the Browser data folder numbered `number` in the Run's
-/// folder; its tasks are the Run's, and `stopping`, cancelled when the Run
-/// stops, closes it.
+/// folder, trusting `relay_authority`, the egress relay's key hash, when the Run has one;
+/// its tasks are the Run's, and `stopping`, cancelled when the Run stops,
+/// closes it.
 ///
 /// # Errors
 ///
@@ -194,7 +195,7 @@ pub(crate) async fn launch(
     run: &Run,
     home: &Home,
     pins: &Pins,
-    number: u64,
+    (number, relay_authority): (u64, Option<&str>),
     stopping: CancellationToken,
 ) -> Result<Launched, CallError> {
     let (executable, held, kind) = executable(run, home, pins).await?;
@@ -242,6 +243,7 @@ pub(crate) async fn launch(
         resolve: &resolve,
         shared_memory: shared_memory(run).await,
         proxy_script: proxy_script.as_deref(),
+        relay_authority,
     });
     for warning in &built.warnings {
         tracing::warn!(%warning, "the Run's browser launches degraded");

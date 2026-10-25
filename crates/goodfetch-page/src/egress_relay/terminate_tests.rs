@@ -33,8 +33,10 @@ use serde_json::json;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, duplex};
 
 use super::authority::Authority;
-use super::client_hello;
-use super::terminate::{Stop, Terminated, Terminating, failure_of, terminate, upstream};
+use super::client_hello::{self, ClientHello};
+use super::terminate::{
+    Stop, Terminated, Terminating, failure_of, mirrors, request_trust_anchors, terminate, upstream,
+};
 
 /// The person whose pins the tests keep.
 const PERSON: &str = "os_user";
@@ -469,7 +471,7 @@ fn a_handshake_that_ends_for_another_reason_is_named_by_boringssls_reason() {
 }
 
 /// The relay's upstream ClientHello carries the browser's own values, in
-/// the browser's order.
+/// the browser's order, the trust anchor IDs Chromium asks for among them.
 /// Covers: story:4-40
 #[test]
 fn the_upstream_client_hello_mirrors_the_browsers() {
@@ -488,6 +490,7 @@ fn the_upstream_client_hello_mirrors_the_browsers() {
                     .unwrap();
                 builder.enable_ocsp_stapling();
                 builder.enable_signed_cert_timestamps();
+                request_trust_anchors(&mut builder, b"\x03\x2a\x03\x04\x02\x2a\x05");
                 builder.set_verify(SslVerifyMode::NONE);
                 let ssl = builder
                     .build()
@@ -524,6 +527,7 @@ fn the_upstream_client_hello_mirrors_the_browsers() {
             &relay_hello.extensions,
             relay_hello.grease,
             &relay_hello.server_name,
+            &relay_hello.trust_anchors,
         ),
         (
             &browser_hello.cipher_suites,
@@ -535,7 +539,49 @@ fn the_upstream_client_hello_mirrors_the_browsers() {
             &browser_hello.extensions,
             browser_hello.grease,
             &browser_hello.server_name,
+            &browser_hello.trust_anchors,
         )
+    );
+    assert_eq!(
+        browser_hello.trust_anchors.as_deref(),
+        Some(&b"\x03\x2a\x03\x04\x02\x2a\x05"[..])
+    );
+}
+
+/// The relay sends a browser's ClientHello again for its own look at a
+/// certificate only when its BoringSSL carries every value of it: an
+/// ML-DSA signature algorithm, as Chrome for Testing offers, or a group,
+/// cipher suite, extension or certificate compression it does not send
+/// would show the site another fingerprint.
+/// Covers: story:4-40
+#[test]
+fn a_client_hello_is_mirrored_whole_only_when_boringssl_sends_each_of_its_values() {
+    let browser = ClientHello {
+        cipher_suites: vec![0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f],
+        extensions: vec![0, 5, 10, 13, 16, 18, 27, 43, 45, 51, 0xca34, 0xfe0d, 17_613],
+        groups: vec![0x11ec, 0x001d, 0x0017],
+        key_shares: vec![0x11ec, 0x001d],
+        signature_algorithms: vec![0x0403, 0x0804, 0x0401],
+        versions: vec![0x0304, 0x0303],
+        certificate_compression: vec![2],
+        ..ClientHello::default()
+    };
+    let with = |change: fn(&mut ClientHello)| {
+        let mut hello = browser.clone();
+        change(&mut hello);
+        mirrors(&hello)
+    };
+
+    assert_eq!(
+        [
+            mirrors(&browser),
+            with(|hello| hello.signature_algorithms.insert(0, 0x0904)),
+            with(|hello| hello.groups.push(0x0101)),
+            with(|hello| hello.cipher_suites.push(0x1304)),
+            with(|hello| hello.extensions.push(49)),
+            with(|hello| hello.certificate_compression.push(3)),
+        ],
+        [true, false, false, false, false, false]
     );
 }
 

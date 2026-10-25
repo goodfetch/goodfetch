@@ -69,7 +69,7 @@ rules = []
 authority = []
 client_hello = []
 head = []
-serve = ["head", "terminate"]
+serve = ["client_hello", "head", "terminate"]
 terminate = ["authority", "client_hello"]
 
 # Which of `proxy`'s own modules may import which.

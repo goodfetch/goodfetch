@@ -1094,19 +1094,21 @@ fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable
     );
 }
 
-/// `fetch.tier_race` and `fetch.encoding`, in the schema though the engine
-/// does neither yet: switched on or set, for the Run or, for
-/// `fetch.encoding`, for a Label, the crawl is refused before its Run
-/// begins with `capability_unavailable` naming the key; `fetch.tier_race`
-/// on a Label, which the Run alone sets, with `setting_not_applicable`;
-/// and a `fetch.encoding` that is no WHATWG Encoding label with
-/// `setting_invalid`.
+/// `fetch.encoding`, in the schema though the engine does not force an
+/// encoding yet: set for the Run or for a Label, the crawl is refused
+/// before its Run begins with `capability_unavailable` naming the key.
+/// `fetch.tier_race` switched on while a domain admits one request at a
+/// time, where its navigation could never start beside its browser-fetch,
+/// is refused with `setting_not_applicable` naming the key and the Run's
+/// layer (ADR 0086), as is `fetch.tier_race` on a Label, which the Run
+/// alone sets; a `fetch.encoding` that is no WHATWG Encoding label is
+/// refused with `setting_invalid`.
 #[rstest::rstest]
-/// Covers: setting:fetch.tier_race, error:capability_unavailable
-#[case::a_race_for_the_run(
-    json!({ "fetch": { "tier_race": true } }),
+/// Covers: story:6-263, setting:fetch.tier_race, error:setting_not_applicable
+#[case::a_race_one_request_at_a_time(
+    json!({ "fetch": { "tier_race": true }, "politeness": { "domain": { "concurrency": 1 } } }),
     json!({}),
-    json!(["capability_unavailable", "fetch.tier_race", "tier_race"])
+    json!(["setting_not_applicable", "fetch.tier_race", null])
 )]
 /// Covers: setting:fetch.encoding, error:capability_unavailable
 #[case::an_encoding_for_the_run(

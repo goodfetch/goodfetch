@@ -3,8 +3,8 @@
 //! before it answers, opens its upstream handshake through BoringSSL with
 //! the same values (cipher suites, groups and key shares, signature
 //! algorithms, ALPN, ALPS, certificate compression, OCSP and SCT requests,
-//! `record_size_limit`, delegated credentials, GREASE, ECH GREASE and the
-//! extension order), and hands the chain the site presents to the
+//! `record_size_limit`, delegated credentials, trust anchor IDs, GREASE,
+//! ECH GREASE and the extension order), and hands the chain the site presents to the
 //! engine's per-host decision and the Run's exception, before any byte of
 //! the browser's goes up. Only then does it finish the browser's handshake
 //! with a leaf of its in-memory authority, under the protocol the site
@@ -27,7 +27,8 @@ use std::task::{Context, Poll};
 use btls::pkey::PKey;
 use btls::ssl::{
     self, AlpnError, CertificateCompressionAlgorithm, CertificateCompressor, ExtensionType,
-    KeyShare, SslAcceptor, SslConnector, SslMethod, SslOptions, SslVerifyMode, SslVersion,
+    KeyShare, SslAcceptor, SslConnector, SslContextBuilder, SslMethod, SslOptions, SslVerifyMode,
+    SslVersion,
 };
 use btls::x509::X509;
 use goodfetch_engine::tls::{
@@ -357,6 +358,9 @@ fn connector(
     if let Some(limit) = hello.record_size_limit {
         builder.set_record_size_limit(limit);
     }
+    if let Some(ids) = &hello.trust_anchors {
+        request_trust_anchors(&mut builder, ids);
+    }
     for algorithm in &hello.certificate_compression {
         match *algorithm {
             1 => builder.add_certificate_compression_algorithm(Zlib)?,
@@ -377,10 +381,67 @@ fn connector(
     Ok(builder.build())
 }
 
+/// Whether the relay's upstream ClientHello carries every value of
+/// `hello`, the browser's, so the site sees the browser's own fingerprint:
+/// each cipher suite, group, key share, signature algorithm, certificate
+/// compression algorithm, version and extension is one this BoringSSL
+/// sends. A browser that offers more, such as ML-DSA signature algorithms,
+/// is mirrored only in part.
+pub(crate) fn mirrors(hello: &ClientHello) -> bool {
+    hello
+        .cipher_suites
+        .iter()
+        .all(|suite| cipher_name(*suite).is_some())
+        && hello
+            .groups
+            .iter()
+            .all(|group| group_name(*group).is_some())
+        && hello
+            .key_shares
+            .iter()
+            .all(|group| key_share(*group).is_some())
+        && hello
+            .signature_algorithms
+            .iter()
+            .chain(&hello.delegated_credentials)
+            .all(|scheme| signature_name(*scheme).is_some())
+        && hello
+            .certificate_compression
+            .iter()
+            .all(|algorithm| matches!(algorithm, 1 | 2))
+        && hello
+            .versions
+            .iter()
+            .all(|version| version_of(*version).is_some())
+        && hello
+            .extensions
+            .iter()
+            .all(|kind| BORINGSSL_EXTENSIONS.contains(kind))
+}
+
+/// Asks for the trust anchors `ids` names, each ID behind its one-byte
+/// length as a ClientHello's `trust_anchors` extension lists them, which
+/// `btls` has no method for; a list BoringSSL refuses is left out.
+#[expect(
+    unsafe_code,
+    reason = "btls has no method for `SSL_CTX_set1_requested_trust_anchors`, so the relay calls BoringSSL's own through btls-sys (ADR 0124)"
+)]
+pub(crate) fn request_trust_anchors(builder: &mut SslContextBuilder, ids: &[u8]) {
+    // SAFETY: `builder.as_ptr()` is the live `SSL_CTX` that `builder` owns
+    // for the whole call, and BoringSSL copies the `ids.len()` bytes `ids`
+    // points to before it returns, keeping no pointer to them.
+    let set = unsafe {
+        btls_sys::SSL_CTX_set1_requested_trust_anchors(builder.as_ptr(), ids.as_ptr(), ids.len())
+    };
+    if set != 1 {
+        tracing::debug!("BoringSSL refused the browser's trust anchor IDs; none are asked for");
+    }
+}
+
 /// The extensions BoringSSL can send, which an extension order may name.
-const BORINGSSL_EXTENSIONS: [u16; 25] = [
+const BORINGSSL_EXTENSIONS: [u16; 26] = [
     0, 5, 10, 11, 13, 16, 18, 21, 23, 27, 28, 34, 35, 41, 43, 45, 50, 51, 57, 0x3374, 0x4469,
-    17_513, 17_613, 0xfe0d, 0xff01,
+    17_513, 17_613, 0xca34, 0xfe0d, 0xff01,
 ];
 
 /// Each of `values` that `name` knows, joined as BoringSSL's lists are.

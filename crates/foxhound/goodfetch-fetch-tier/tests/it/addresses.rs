@@ -411,6 +411,77 @@ fn a_name_whose_answer_turns_private_is_refused_on_the_next_connection(#[case] s
     );
 }
 
+/// A host the `network.resolve` mapping gives an address.
+const MAPPED: &str = "mapped.test";
+
+/// What the Session lists in `egress.private_ranges` for the mapped host's
+/// answer, the watched target on loopback.
+#[derive(Clone, Copy, Debug)]
+enum Listing {
+    /// Nothing.
+    Nothing,
+    /// The mapped host's name.
+    Host,
+    /// The target's address.
+    Address,
+}
+
+/// The `network.resolve` mapping's answers are judged as the resolver's
+/// are (ADR 0017, #622): a mapped host whose address is private is refused
+/// before any connection, directly and, unsent to the proxy, through it,
+/// unless the Session lists the host or a range holding its address in
+/// `egress.private_ranges`, when it reaches the target.
+///
+/// Covers: story:4-102, error:egress_refused
+#[rstest]
+fn a_mapped_answer_to_a_private_address_is_refused_unless_its_host_or_range_is_listed(
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
+    #[values(Listing::Nothing, Listing::Host, Listing::Address)] listing: Listing,
+    #[values(false, true)] proxied: bool,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let target = target(&proving_ground);
+    let ranges = match listing {
+        Listing::Nothing => Vec::new(),
+        Listing::Host => vec![MAPPED.to_owned()],
+        Listing::Address => vec![target.ip().to_string()],
+    };
+    let through = proxied.then(|| proxy(&proving_ground, "open"));
+    let transport = built(
+        stack,
+        TransportConfig {
+            egress: policy(&every_host(), &ranges),
+            resolve: vec![(MAPPED.to_owned(), vec![target.ip()])],
+            ..crate::config(&proving_ground, through, &[])
+        },
+    );
+    let url = Url::parse(&format!("http://{MAPPED}:{}/", target.port())).unwrap();
+    let before = proving_ground.observations().unwrap();
+
+    let sent = match send(transport.as_ref(), &url) {
+        Err(TransportFailure::Egress(refused)) => Err((refused.rule, refused.address)),
+        other => Ok(other.is_ok()),
+    };
+
+    let after = proving_ground.observations().unwrap();
+    let opened = |listener: &str| connections(&after, listener) - connections(&before, listener);
+    match listing {
+        Listing::Nothing => assert_eq!(
+            (sent, opened("target"), opened("open")),
+            (Err((EgressRule::PrivateAddress, Some(target.ip()))), 0, 0)
+        ),
+        // Through the proxy, which knows no mapping, a listed host is
+        // sent on; the proxy's own lookup is its own to answer.
+        Listing::Host | Listing::Address if proxied => {
+            assert_eq!((sent.is_ok(), opened("open")), (true, 1));
+        }
+        Listing::Host | Listing::Address => {
+            assert_eq!((sent, opened("target")), (Ok(true), 1));
+        }
+    }
+}
+
 /// Rebinding end to end (ADR 0067): this test binary runs again in a
 /// `DnsNamespace` whose resolver is the Proving ground's DNS fixture, and
 /// there sends, on each transport with the system's resolver

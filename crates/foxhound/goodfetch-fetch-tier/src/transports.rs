@@ -36,9 +36,9 @@
 //! the private one. Through a proxy, which would resolve the name again
 //! itself, the transport resolves and judges it before sending anything to
 //! the proxy. [`AddressCheck`] runs the same check ahead of a crawl
-//! request. The `network.resolve` mapping's addresses are not judged, as
-//! on the browser path, until `egress.private_ranges` is a setting a Run
-//! can declare (#622).
+//! request. The `network.resolve` mapping's addresses are judged as the
+//! resolver's are, as on the browser path: a Run reaching a mapped host on
+//! a private address lists it in `egress.private_ranges`.
 
 use std::cell::Cell;
 use std::collections::BTreeSet;
@@ -50,9 +50,7 @@ use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::dns::{
-    AnsweredBy, Dns, HostMapping, Resolution, ResolverConfiguration, Route,
-};
+use goodfetch_engine::dns::{Dns, HostMapping, Resolution, ResolverConfiguration, Route};
 use goodfetch_engine::egress::{self, Policy, Refused};
 use goodfetch_engine::tls::Trust;
 use url::Url;
@@ -367,9 +365,9 @@ impl From<ResolveFailure> for TransportFailure {
     }
 }
 
-/// The transport's resolver: the engine's [`Dns`], whose answers the
-/// Session's egress policy judges, those of the `network.resolve` mapping
-/// aside (#622): in the connector when the connection goes direct, so
+/// The transport's resolver: the engine's [`Dns`], whose answers, the
+/// `network.resolve` mapping's included, the Session's egress policy
+/// judges: in the connector when the connection goes direct, so
 /// every address a connection may try is judged on its own lookup before
 /// it tries one; ahead of the request when it goes through a proxy, which
 /// would resolve the name again itself.
@@ -444,26 +442,26 @@ impl Resolver {
     }
 }
 
-/// The addresses `dns` gives `name`, judged by `judged` when the resolver
-/// answered them.
+/// The addresses `dns` gives `name`, the `network.resolve` mapping's as the
+/// resolver's, judged by `judged` when given.
 async fn lookup(
     dns: Dns,
     judged: Option<Policy>,
     name: String,
 ) -> Result<Vec<SocketAddr>, ResolveFailure> {
-    let Ok(Resolution::Addresses {
-        addresses,
-        answered_by,
-    }) = dns.lookup(&name, Route::Direct).await
-    else {
+    let Ok(Resolution::Addresses { addresses, .. }) = dns.lookup(&name, Route::Direct).await else {
         return Err(ResolveFailure::NotResolved);
     };
     let addresses: Vec<SocketAddr> = addresses
         .into_iter()
         .map(|address| SocketAddr::new(address, 0))
         .collect();
-    if let Some(policy) = judged.filter(|_| answered_by != AnsweredBy::Mapping) {
-        egress::judge_addresses(&name, &addresses, &policy).map_err(ResolveFailure::Egress)?;
+    if let Some(policy) = judged {
+        // The policy reads the host a URL names, so a host listed in
+        // `egress.private_ranges` opens its own connections; the hop's
+        // URL replaces this one in a refusal.
+        egress::judge_addresses(&format!("http://{name}/"), &addresses, &policy)
+            .map_err(ResolveFailure::Egress)?;
     }
     Ok(addresses)
 }

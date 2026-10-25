@@ -2471,6 +2471,54 @@
       ],
       "type": "object"
     },
+    "CrawlRequestPushParams": {
+      "additionalProperties": false,
+      "description": "What `crawl_request.push` takes: one Record an attempt pushes into one\nof its crawl's Datasets.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt pushes.",
+          "type": "string"
+        },
+        "data": {
+          "arrived_in": "0.1",
+          "description": "The Record."
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "crawl_request_id",
+        "lease_epoch",
+        "dataset",
+        "data"
+      ],
+      "type": "object"
+    },
+    "CrawlRequestPushed": {
+      "description": "What `crawl_request.push` answers once the Record is staged.",
+      "type": "object"
+    },
     "CrawlRunReport": {
       "additionalProperties": true,
       "description": "A crawl's Run report (ADR 0102): what a crawl adds to every Run's\nreport, a part no area supplied being absent. On the wire, a crawl's\nparts sit beside every Run's, which a reader of [`RunReport`] keeps among\nits `kind_parts`.",
@@ -2738,6 +2786,14 @@
         "_meta": {
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
+        },
+        "datasets": {
+          "arrived_in": "0.1",
+          "description": "The crawl's Datasets, each with its JSON Schema and its key (ADR\n0103): a second of one name fails the start with\n`dataset_duplicate`, and a key on a field the schema does not\nrequire with `dataset_key_invalid`. Its handlers push Records only\ninto these.",
+          "items": {
+            "$ref": "#/$defs/DatasetDeclaration"
+          },
+          "type": "array"
         },
         "labels": {
           "additionalProperties": {
@@ -3146,6 +3202,33 @@
           "description": "The service it removed, or `None` when none was installed."
         }
       },
+      "type": "object"
+    },
+    "DatasetDeclaration": {
+      "additionalProperties": false,
+      "description": "One Dataset a crawl declares (ADR 0103): its name, the JSON Schema its\nRecords are checked against, and the top-level fields that identify one\nRecord.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The top-level fields that identify one Record, each one the schema\nrequires; none when no field does.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, unique in the crawl.",
+          "type": "string"
+        },
+        "schema": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema its Records are checked against, the side the\nprogram's schema parses from; none takes any JSON object (ADR 0082)."
+        }
+      },
+      "required": [
+        "name"
+      ],
       "type": "object"
     },
     "DatasetRecords": {

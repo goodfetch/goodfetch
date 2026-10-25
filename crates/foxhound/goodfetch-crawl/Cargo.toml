@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 encoding_rs.workspace = true
+goodfetch-dataset.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-fetch-tier.workspace = true
 goodfetch-frontier.workspace = true

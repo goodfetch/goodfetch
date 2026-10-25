@@ -498,7 +498,7 @@ impl On<'_> {
                 // The browser's run takes a whole lease of its own, and
                 // stages anew: what the first run staged goes with it.
                 self.lease.renew(self.lease.length());
-                self.lease.restage();
+                drop(self.lease.restage());
                 self.browser(&tiering.tiers, choice, Chosen::Escalated(call))
                     .await
             }
@@ -511,7 +511,8 @@ impl On<'_> {
     /// unless that run ended the attempt, its run on `browser` under a
     /// whole lease of its own, whose answer is the attempt's. Answers it,
     /// the pending requests the page's rules merged, and whether the two
-    /// runs matched once the browser's answered with Records.
+    /// runs matched once the browser's answered: each run's Records, those
+    /// it pushed then those of its answer (ADR 0103).
     async fn sample(
         &self,
         tiering: &Tiering,
@@ -528,10 +529,11 @@ impl On<'_> {
             return (run.answer, merged, None);
         }
         self.lease.renew(self.lease.length());
-        self.lease.restage();
+        let cheaper_pushed = self.lease.restage();
         let answer = self
             .browser(&tiering.tiers, &BROWSER, Chosen::Sample(run.escalated))
             .await;
+        let browser_pushed = self.lease.pushed();
         let matched = match (&answer, &run) {
             (
                 Answer::Handled(CrawlRequestHandled {
@@ -546,14 +548,20 @@ impl On<'_> {
                         }),
                     escalated: None,
                 },
-            ) => Some(tier_choice::matches(Some(cheaper), records)),
+            ) => Some(tier_choice::matches(
+                Some(&[cheaper_pushed.records(), cheaper].concat()),
+                &[browser_pushed.records(), records].concat(),
+            )),
             (
                 Answer::Handled(CrawlRequestHandled {
                     records,
                     skipped: None,
                 }),
                 _,
-            ) => Some(tier_choice::matches(None, records)),
+            ) => Some(tier_choice::matches(
+                None,
+                &[browser_pushed.records(), records].concat(),
+            )),
             _ => None,
         };
         (answer, merged, matched)

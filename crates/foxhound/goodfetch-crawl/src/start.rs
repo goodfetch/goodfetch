@@ -10,8 +10,9 @@
 //! with `capability_unavailable` (spec #579). A
 //! Run ID that names a crawl of the same seeds returns it as it is; one of
 //! other seeds, or of a Run that is no crawl, fails with `run_conflict`.
-//! The crawl's Labels and `crawl.payload.max_size` are recorded with the
-//! Run, and a seed whose Payload does not fit them fails the start with
+//! The crawl's Datasets, refused with `dataset_duplicate` or
+//! `dataset_key_invalid` before the Run begins, its Labels and
+//! `crawl.payload.max_size` are recorded with the Run, and a seed whose Payload does not fit them fails the start with
 //! `payload_invalid` before the Run begins; under a Run ID that names a
 //! Run, whose seeds are not checked again, a Label whose Payload schema
 //! changed under a pending Payload that fails it refuses the start with
@@ -25,6 +26,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use goodfetch_dataset::Datasets;
 use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_error, start_error};
 use goodfetch_engine::runs::{EndedBy, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
@@ -46,6 +48,7 @@ use crate::enqueue;
 use crate::labels;
 use crate::outcomes;
 use crate::policy::domain_policy;
+use crate::push;
 use crate::seeding;
 use crate::servable;
 use crate::serving::Crawls;
@@ -53,7 +56,7 @@ use crate::tier_choice::{self, TierChoices};
 use crate::work_items;
 
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
-/// a handler's enqueue, the seeds added to a running crawl, the reads of
+/// a handler's enqueue and push, the seeds added to a running crawl, the reads of
 /// its outcomes, the work items', Records' and outcomes' tables of every
 /// run file, and the driver a resumed crawl starts again with. Its crawl
 /// requests are fetched on the tiers of `tiers` (spec #579), the value
@@ -63,6 +66,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let starting = tiers.clone();
     let serving = crawls.clone();
     let enqueuing = crawls.clone();
+    let pushing = crawls.clone();
     let resuming = crawls.clone();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
@@ -75,6 +79,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
             serve(params, context, serving.clone())
         }))
         .with_handler(enqueue::handler(enqueuing))
+        .with_handler(push::handler(pushing))
         .with_handler(read_links)
         .with_handler(enqueue_links)
         .with_handler(add_seed)
@@ -152,6 +157,7 @@ async fn start(
     servable::check(settings.resolved(), &label_settings)?;
     let fragments = labels::Fragments::of(settings.resolved(), &label_settings);
     let labels = labels::Declared::of(&params.labels, fragments.clone())?;
+    let datasets = Datasets::declare(&params.datasets)?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
     let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
     let bounds = Bounds::of_settings(settings.resolved());
@@ -191,6 +197,7 @@ async fn start(
                 payloads.record(connection)?;
                 labels::record(connection, &declared)?;
                 fragments.record(connection)?;
+                datasets.record(connection)?;
                 let answers = work_items::admit_seeds(
                     connection,
                     &mut work_items::Positions::of(connection)?,

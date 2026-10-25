@@ -1883,6 +1883,7 @@ name = "goodfetch-crawl"
 version = "0.0.0"
 dependencies = [
  "encoding_rs",
+ "goodfetch-dataset",
  "goodfetch-engine",
  "goodfetch-fetch-tier",
  "goodfetch-frontier",
@@ -1902,6 +1903,20 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "goodfetch-dataset"
+version = "0.0.0"
+dependencies = [
+ "data-encoding",
+ "goodfetch-engine",
+ "goodfetch-protocol",
+ "jsonschema",
+ "rusqlite",
+ "serde_json",
+ "sha2 0.10.9",
+ "tracing",
 ]
 
 [[package]]
@@ -2041,6 +2056,7 @@ version = "0.0.0"
 dependencies = [
  "goodfetch-collie",
  "goodfetch-crawl",
+ "goodfetch-dataset",
  "goodfetch-engine",
  "goodfetch-fetch-tier",
  "goodfetch-foxhound",

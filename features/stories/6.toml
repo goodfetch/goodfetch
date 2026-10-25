@@ -1026,6 +1026,42 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 266
+title = "As a crawl developer, I want `crawl.dataset(name, { schema, key })` to declare a typed Dataset with no I/O, a duplicate name failing with `dataset_duplicate` and a key on a field the schema does not require with `dataset_key_invalid`, so that a misspelled Dataset is a type error (CO-25, ADRs 0082, 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 267
+title = "As a crawl developer, I want `ctx.push(dataset, record)` to check the Record against its schema natively and in the engine, raise `record_invalid` naming each issue's path, and stage a valid one with its attempt, so that a bad Record never commits silently (ADR 0103; pitfall D01)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 268
+title = "As a crawl developer, I want each Dataset to number its committed Records from 1, in commit order, with no gaps, so that a reader resumes after a number (ADRs 0008, 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 269
+title = "As a crawl developer, I want a `succeeded` outcome to count, per Dataset, the Records committed, dropped and rejected, and say why when it committed nothing, so that an empty page is visible (ADR 0103; pitfall D02)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 309
 title = "As a crawl developer, I want Completeness `incomplete` for a depth, request or path-budget cutoff, a Model allowance skip or a stop, and `unverified` for offset pagination, a learned trap, a URL cap, or pages left at `payment_required` or `consent_required`, each reason named in the report with its count, so that a crawl never reads as complete when it is not (ADRs 0005, 0045, 0048, 0107, 0120; pain 10)."
 milestone = "M1 Core"

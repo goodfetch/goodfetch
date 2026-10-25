@@ -39,8 +39,8 @@ struct Crawl {
 }
 
 impl Crawl {
-    /// Starts a crawl of `seeds` pages under `run_id`, its handler timeout
-    /// 1 ms.
+    /// Starts a crawl of `seeds` pages under `run_id`, declaring the
+    /// Dataset `pages`, its handler timeout 1 ms.
     fn start(
         connection: &mut Connection,
         run_id: &'static str,
@@ -52,7 +52,12 @@ impl Crawl {
             .collect();
         let id = connection.request(
             CRAWL_START,
-            &json!({ "run_id": run_id, "seeds": seeds, "settings": { "timeout": { "handler": 1 } } }),
+            &json!({
+                "run_id": run_id,
+                "seeds": seeds,
+                "datasets": [{ "name": "pages" }],
+                "settings": { "timeout": { "handler": 1 } },
+            }),
         )?;
         let answer = connection.answer(id)?;
         checks.check(

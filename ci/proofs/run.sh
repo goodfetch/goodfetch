@@ -103,14 +103,15 @@ else
 fi
 
 # What each Product ships: Collie's executable takes DuckDB, a test-only crate,
-# a Foxhound crate and BoringSSL through a crate other than the relay's, and a
-# test adapter only as a dev-dependency (not shipped); Foxhound's takes wreq,
-# its own, and a test adapter.
+# a Foxhound crate, wreq, and BoringSSL through the relay's crate (allowed)
+# and through another (refused), and a test adapter only as a
+# dev-dependency (not shipped); Foxhound's takes wreq, its own, and a test
+# adapter.
 output=$(DENY_FORMAT=json ci/deny/products.sh ci/proofs/product-bans/Cargo.toml 2>&1)
 codes=$(jq -R -r 'if startswith("product: ") then .
   else (fromjson? | select(.type == "diagnostic" and .fields.code == "banned")
     | .fields.message | capture("crate .(?<name>[a-z-]+) =").name) end' <<<"$output" | tr '\n' ' ')
-if [[ "$codes" == "product: collie duckdb goodfetch-frontier goodfetch-test-support tokio-btls product: foxhound goodfetch-scripted-model " ]]; then
+if [[ "$codes" == "product: collie duckdb goodfetch-frontier goodfetch-test-support tokio-btls wreq product: foxhound goodfetch-scripted-model " ]]; then
   pass "each Product's bans refuse what its executable must not ship, dev-dependencies aside"
 else
   fail product-bans "banned per Product: ${codes:-none}"

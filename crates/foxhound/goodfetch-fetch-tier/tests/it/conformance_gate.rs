@@ -4,8 +4,9 @@
 //! content-coding pages decodes every coding as Chrome does and fails
 //! where Chrome fails, follows no redirect itself and stops at the
 //! engine's timeouts. Malformed heads are refused and a folded one kept,
-//! as the `headers` family asks. Browser-fetch (A05-75) joins it as it
-//! lands.
+//! as the `headers` family asks. Browser-fetch, which sends from a
+//! Session's browser context, runs the gate on Foxhound's executable
+//! (`goodfetch-foxhound`'s `tests/it/browser_fetch.rs`).
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;

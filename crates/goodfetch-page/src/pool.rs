@@ -43,6 +43,8 @@ use goodfetch_engine::governor::{BrowserUse, GovernedBrowser, PageHold, footprin
 use goodfetch_engine::home::Home;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::tls::{CertificateExceptions, PinBook, Trust, trusted_cas};
+use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_TRUSTED_CAS};
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::borrowed::CdpUrl;
@@ -50,6 +52,8 @@ use crate::driver::{
     Behind, BorrowedBrowser, Carried, LocalBrowser, Origins, PageDriver, SessionDriver,
     SessionEgress, Visibility,
 };
+use crate::egress_relay::RelayTls;
+use crate::egress_relay::authority::Authority;
 use crate::trace::CommandLog;
 pub(crate) use rules::Placement;
 use rules::{Limits, Seats, Use};
@@ -65,6 +69,15 @@ struct Shared {
     home: Home,
     pins: Pins,
     limits: Limits,
+    /// The egress relay's certificate authority, when the Run lists an
+    /// invalid-certificate exception: every browser of the Run trusts it,
+    /// and every Session's relay signs with it (ADR 0042).
+    authority: Option<Arc<Authority>>,
+    /// The Run's exceptions, which every Session's relay shares, so a host
+    /// stopped as a changed key stays stopped for the whole Run.
+    exceptions: CertificateExceptions,
+    /// The authorities the Run's `tls.trusted_cas` trusts, read once.
+    trust: OnceCell<Trust>,
     /// The Run trace's CDP log, which its browsers share.
     log: Arc<OnceCell<CommandLog>>,
     browsers: SyncMutex<Browsers>,
@@ -157,15 +170,48 @@ impl Pool {
     /// cache of `home` and the builds `pins` names.
     pub(crate) fn new(run: Run, home: Home, pins: Pins) -> Self {
         let limits = Limits::of(run.settings().map(RunSettings::resolved));
+        let exceptions = exceptions_of(&run);
+        let authority = authority_of(&run, &exceptions);
         Self {
             shared: Arc::new(Shared {
                 run,
                 home,
                 pins,
                 limits,
+                authority,
+                exceptions,
+                trust: OnceCell::new(),
                 log: Arc::default(),
                 browsers: SyncMutex::default(),
             }),
+        }
+    }
+
+    /// What the Sessions' egress relays take of the Run's TLS settings:
+    /// its authority, when it lists an exception, its exceptions and the
+    /// authorities it trusts.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves the trust's files to the next call.
+    pub(crate) async fn relay_tls(&self) -> RelayTls {
+        let shared = &self.shared;
+        let trust = shared
+            .trust
+            .get_or_init(|| async {
+                let setting = shared
+                    .run
+                    .settings()
+                    .map(|settings| settings.resolved().value(TLS_TRUSTED_CAS.name).clone())
+                    .unwrap_or_default();
+                trusted_cas(&setting, shared.run.owner()).await
+            })
+            .await
+            .clone();
+        RelayTls {
+            authority: shared.authority.clone(),
+            exceptions: shared.exceptions.clone(),
+            trust,
         }
     }
 
@@ -247,6 +293,7 @@ impl Pool {
                         self.shared.pins.clone(),
                         number,
                         Arc::clone(&self.shared.log),
+                        self.shared.authority.clone(),
                     )),
                     own: seat.placement == Placement::OwnProcess,
                     seated: BTreeMap::new(),
@@ -778,4 +825,73 @@ impl SeatShared {
             self.leave(&mut place).await;
         }
     }
+}
+
+/// The egress relay's certificate authority of `run`, made in memory now,
+/// constrained to the domains its `tls.accept_invalid_certs` and
+/// `tls.trusted_cas` list, its key's
+/// hash and its domains recorded in the Run's Provenance: none when it
+/// lists none. A Run whose authority cannot be made has none: its
+/// listed hosts are tunnelled, and the browser refuses their certificates.
+fn authority_of(run: &Run, exceptions: &CertificateExceptions) -> Option<Arc<Authority>> {
+    let mut domains = exceptions.domains();
+    let trusted = run
+        .settings()
+        .map(|settings| settings.resolved().value(TLS_TRUSTED_CAS.name))
+        .and_then(serde_json::Value::as_object);
+    for domain in trusted.into_iter().flat_map(serde_json::Map::keys) {
+        let domain = domain.trim_end_matches('.').to_ascii_lowercase();
+        if !domains.contains(&domain) {
+            domains.push(domain);
+        }
+    }
+    if domains.is_empty() {
+        return None;
+    }
+    match Authority::new(domains.clone()) {
+        Ok(authority) => {
+            // Its key's hash alone is recorded: neither its key nor its
+            // certificate is written anywhere.
+            let entry = serde_json::json!({
+                "action": "relay_authority",
+                "spki_sha256": authority.spki_sha256(),
+                "domains": domains,
+            });
+            let recorded = run.clone();
+            run.spawn(async move { crate::trace::provenance(&recorded, &entry).await });
+            Some(Arc::new(authority))
+        }
+        Err(error) => {
+            tracing::warn!(%error, "the egress relay has no certificate authority, so no host is terminated");
+            None
+        }
+    }
+}
+
+/// The invalid-certificate exceptions of `run`'s `tls.accept_invalid_certs`,
+/// pinning in the person's known-certificates store; none, logged, when an
+/// entry names no host.
+fn exceptions_of(run: &Run) -> CertificateExceptions {
+    let setting = run
+        .settings()
+        .map(|settings| {
+            settings
+                .resolved()
+                .value(TLS_ACCEPT_INVALID_CERTS.name)
+                .clone()
+        })
+        .unwrap_or_default();
+    let book = PinBook {
+        store: run.known_certificates(),
+        person: run.person().to_owned(),
+        run_id: Some(run.id().clone()),
+        audit: Arc::new(run.audit_log()),
+        owner: Arc::new(run.owner().child()),
+        clock: run.clock(),
+    };
+    CertificateExceptions::listed(&setting, book, run.secrets().exception_hosts())
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "`tls.accept_invalid_certs` names no host, so it makes no exception");
+            CertificateExceptions::default()
+        })
 }

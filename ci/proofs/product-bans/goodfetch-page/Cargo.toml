@@ -1,0 +1,9 @@
+[package]
+name = "goodfetch-page"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# The TLS relay's crate, which Collie's bans let take BoringSSL.
+[dependencies]
+tokio-btls = { path = "../tokio-btls" }

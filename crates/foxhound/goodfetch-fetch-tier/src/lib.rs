@@ -7,7 +7,8 @@
 //! HTTP itself fills its one primitive, `send(hop)`, with a transport
 //! (`transports`: reqwest in `standard` and `identified` Sessions, `wreq`
 //! in HTTP-only `stealth` ones, presenting the Session's HTTP profile,
-//! `http_profile`). The
+//! `http_profile`, and browser-fetch, from inside the Session's browser
+//! context, in any Session that may move to the browser). The
 //! `tiers` module is the crate's one composition value (ADR 0087):
 //! [`FetchTiers`], which serves a crawl request on the tier `fetch.tier`
 //! names and hands its handler a Collie page served from the document.

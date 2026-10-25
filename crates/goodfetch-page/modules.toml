@@ -17,7 +17,7 @@ page_events = ["driver", "page_functions", "page_value", "url_pattern"]
 page_value = ["url_pattern"]
 page_functions = ["driver", "trace"]
 pages = ["blocks", "browser_fetch", "consent", "dialogs", "driver", "guard", "interception", "page_events", "page_functions", "page_value", "proxy", "recovery", "robots_txt", "sessions", "trace", "url_pattern"]
-pool = ["borrowed", "driver", "proxy", "trace"]
+pool = ["borrowed", "driver", "egress_relay", "proxy", "trace"]
 proxy = ["egress_relay", "proxy_provider"]
 proxy_provider = []
 recovery = ["driver", "trace", "url_pattern"]
@@ -66,8 +66,11 @@ rules = []
 
 # Which of `egress_relay`'s own modules may import which.
 [submodules.egress_relay]
+authority = []
+client_hello = []
 head = []
-serve = ["head"]
+serve = ["head", "terminate"]
+terminate = ["authority", "client_hello"]
 
 # Which of `proxy`'s own modules may import which.
 [submodules.proxy]

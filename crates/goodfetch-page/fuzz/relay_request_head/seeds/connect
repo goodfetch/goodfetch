@@ -1,0 +1,4 @@
+CONNECT site.test:443 HTTP/1.1
+Host: site.test:443
+Proxy-Authorization: Basic Z29vZGZldGNoOng=
+

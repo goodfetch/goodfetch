@@ -91,6 +91,78 @@ pub trait BrowserPages: Send + Sync {
         pooled: &'a SessionId,
         context: &'a CallContext,
     ) -> Opening<'a, Result<(), CallError>>;
+
+    /// Sends `request` from inside the Session of the live Run `run_id`
+    /// that the Product's Session pool names `pooled`, opened as
+    /// [`BrowserPages::open`] opens it, through the browser-fetch tier
+    /// (ADR 0020): from a page of its browser context the engine opens for
+    /// it and closes after, so its TLS and HTTP/2 fingerprint and its
+    /// cookies are the Session's own, as `page.request` sends one, but
+    /// following no redirect: a 3xx is answered as it came. That page
+    /// takes `value`, whose navigation gate the Product sets: one that
+    /// gates each hop itself admits it at once.
+    ///
+    /// # Errors
+    ///
+    /// Those of `run.new_session` and of `page.request`'s browser-fetch
+    /// tier: `egress_refused`, `navigation_failed` with the browser's
+    /// network error, `deadline_exceeded` naming `timeout.navigation`, the
+    /// Session's proxy's codes and `response_limit_exceeded`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes the page it was sent from.
+    fn fetch<'a>(
+        &'a self,
+        run_id: &'a RunId,
+        pooled: &'a PooledSession,
+        value: PageValue,
+        request: &'a EngineFetch,
+        context: &'a CallContext,
+    ) -> Opening<'a, Result<EngineFetched, CallError>>;
+}
+
+/// A request a Product sends from inside a Session's browser through
+/// [`BrowserPages::fetch`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EngineFetch {
+    /// Its URL.
+    pub url: String,
+    /// Its method; the browser's own `GET` when it is `GET`.
+    pub method: String,
+    /// Headers set over the browser's own, by name without regard to case.
+    pub headers: Vec<(String, String)>,
+    /// Its body, if any.
+    pub body: Option<Vec<u8>>,
+}
+
+/// What [`BrowserPages::fetch`] answers: the response and its body, its
+/// content codings decoded by the browser.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EngineFetched {
+    /// The URL that answered.
+    pub url: String,
+    /// Its status.
+    pub status: u16,
+    /// Its headers, their names lower-cased; a repeated one once per value.
+    pub headers: Vec<(String, String)>,
+    /// Its body.
+    pub body: FetchedBody,
+}
+
+/// A body [`BrowserPages::fetch`] read, as it arrived.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FetchedBody {
+    /// Whole: its bytes after any content coding.
+    Whole(Vec<u8>),
+    /// Broken off after `received` bytes of the `expected` its
+    /// `Content-Length` declared (ADR 0118).
+    Cut {
+        /// The bytes that arrived.
+        received: u64,
+        /// What its `Content-Length` declared, if it declared one.
+        expected: Option<u64>,
+    },
 }
 
 /// A Session of a Product's Session pool, as a browser page opens in it.

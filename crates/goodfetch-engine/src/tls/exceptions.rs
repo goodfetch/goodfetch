@@ -138,10 +138,12 @@ impl std::error::Error for CertificateChanged {}
 
 /// What a listed host's certificate showed in the handshake: its key, and
 /// how it failed verification, if it did.
-#[derive(Clone, Debug)]
-pub(crate) struct Presented {
-    pub(crate) key: KeyHash,
-    pub(crate) failure: Option<CertificateFailure>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Presented {
+    /// The SHA-256 of its public key.
+    pub key: KeyHash,
+    /// How it failed verification; none when it verified.
+    pub failure: Option<CertificateFailure>,
 }
 
 /// What a domain's entry in `tls.accept_invalid_certs` makes of its hosts.
@@ -221,8 +223,18 @@ impl CertificateExceptions {
         found.get()
     }
 
+    /// The domains listed for trust on first use or `any`, as the URL
+    /// parser leaves a host: the hosts the egress relay terminates are
+    /// these and their subdomains.
+    pub fn domains(&self) -> Vec<String> {
+        if self.book.is_none() {
+            return Vec::new();
+        }
+        self.listed.keys().cloned().collect()
+    }
+
     /// Whether `host`'s domain is listed for trust on first use or `any`.
-    pub(crate) fn covers(&self, host: &str) -> bool {
+    pub fn covers(&self, host: &str) -> bool {
         self.book.is_some() && self.entry_of(host).is_some()
     }
 
@@ -232,7 +244,7 @@ impl CertificateExceptions {
     /// # Cancel safety
     ///
     /// Dropping the future loses only the answer.
-    pub(crate) async fn stopped(&self, host: &str) -> Option<CertificateChanged> {
+    pub async fn stopped(&self, host: &str) -> Option<CertificateChanged> {
         let host = domain_key(host).unwrap_or_else(|| host.to_owned());
         self.run.lock().await.stopped.get(&host).cloned()
     }
@@ -266,7 +278,7 @@ impl CertificateExceptions {
     ///
     /// Dropping the future after the store's write leaves the pin in place
     /// and may lose its Audit log entry.
-    pub(crate) async fn admit(
+    pub async fn admit(
         &self,
         host: &str,
         presented: Presented,

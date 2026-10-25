@@ -1579,6 +1579,23 @@ impl Run {
         self.shared.crawls_robots_txt.get_or_init(copies);
     }
 
+    /// The user's known-certificates store, where its exceptions pin
+    /// (ADR 0042).
+    pub fn known_certificates(&self) -> KnownCertificates {
+        self.runs.limits().known_certificates.clone()
+    }
+
+    /// The user's Audit log, which records its security events.
+    pub fn audit_log(&self) -> AuditLog {
+        self.runs.audit().clone()
+    }
+
+    /// The person it acts for, whose partition of the user's stores it
+    /// reads: the OS user until accounts exist (ADR 0102).
+    pub fn person(&self) -> &'static str {
+        CALLER
+    }
+
     /// Its owner, whose tasks and blocking work stop with the Run.
     pub fn owner(&self) -> &TaskOwner {
         &self.owner

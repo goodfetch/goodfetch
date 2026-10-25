@@ -93,16 +93,19 @@ CREATE TABLE payloads (
             payload TEXT NOT NULL
         ) STRICT, WITHOUT ROWID;
 CREATE TABLE pool_sessions (
-            position INTEGER NOT NULL PRIMARY KEY,
+            pool TEXT NOT NULL,
+            position INTEGER NOT NULL,
             proxy_tier TEXT NOT NULL,
             opened_at INTEGER NOT NULL,
             uses INTEGER NOT NULL,
             error_score REAL NOT NULL,
-            retired_because TEXT
+            retired_because TEXT,
+            PRIMARY KEY (pool, position)
         ) STRICT;
 CREATE TABLE pool_tiers (
             domain_key TEXT NOT NULL PRIMARY KEY,
-            proxy_tier TEXT NOT NULL
+            proxy_tier TEXT NOT NULL,
+            browser INTEGER NOT NULL
         ) STRICT;
 CREATE TABLE records (
             dataset TEXT NOT NULL,
@@ -285,7 +288,7 @@ CREATE TABLE work_items (
             forefront INTEGER
         ) STRICT;
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
-CREATE INDEX pool_sessions_open ON pool_sessions (position)
+CREATE INDEX pool_sessions_open ON pool_sessions (pool, position)
             WHERE retired_because IS NULL;
 CREATE INDEX rules_pages_by_query ON rules_pages (host, path, query);
 CREATE INDEX rules_pages_by_url ON rules_pages (url);

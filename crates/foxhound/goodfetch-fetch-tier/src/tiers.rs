@@ -32,7 +32,7 @@ use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::Trust;
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_page::page_value::{
-    BrowserPages, HandlerPages, Observer, PageValue, ProgramPages, ServedDocument,
+    BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, ServedDocument,
 };
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
 use goodfetch_protocol::foxhound::fetch::{
@@ -615,7 +615,9 @@ impl FetchTiers {
     }
 
     /// Opens Collie's page on the browser tier for a handler of the live
-    /// Run `run_id`, in its default Session, for the call `context`, whose
+    /// Run `run_id`, in the Session of the crawl's Session pool that
+    /// serves the handler, `pooled`, its own browser context, for the call
+    /// `context`, whose
     /// Connection's Client then reaches it, and navigates it to `url`
     /// through its navigation gate: the attempt hands its Run's pages over
     /// first, so the page takes its value. Answers its ID and the
@@ -632,6 +634,7 @@ impl FetchTiers {
     pub async fn browser(
         &self,
         run_id: &RunId,
+        pooled: &PooledSession,
         url: &str,
         context: &CallContext,
     ) -> Result<(PageId, Navigated), CallError> {
@@ -641,7 +644,32 @@ impl FetchTiers {
                 "the engine's composition handed the fetch tiers no browser pages",
             ));
         };
-        pages.open(run_id, url, context).await
+        pages.open(run_id, pooled, url, context).await
+    }
+
+    /// Retires the browser context of the Session `pooled` of the Run
+    /// `run_id`'s Session pool, once the pool retired that Session and no
+    /// attempt holds it: its pages close, and the pool's replacement opens
+    /// a new one. One that never opened a browser page changes nothing.
+    ///
+    /// # Errors
+    ///
+    /// `internal`, for a Session its table does not let the pool retire.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the browser context open, until its
+    /// Run ends.
+    pub async fn retire_browser(
+        &self,
+        run_id: &RunId,
+        pooled: &SessionId,
+        context: &CallContext,
+    ) -> Result<(), CallError> {
+        match self.served.browser.get() {
+            Some(pages) => pages.retire(run_id, pooled, context).await,
+            None => Ok(()),
+        }
     }
 
     /// Closes the browser page `page_id` [`FetchTiers::browser`] opened.

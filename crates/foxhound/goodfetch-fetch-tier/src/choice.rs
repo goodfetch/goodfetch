@@ -22,14 +22,18 @@ use goodfetch_protocol::foxhound::fetch::{
 };
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
-    SESSION_PAGE_CHECK, SETTING_INVALID, SETTING_NOT_APPLICABLE, SettingInvalidDetails,
-    SettingNotApplicableDetails, SettingsLayer,
+    SESSION_PAGE_CHECK, SESSION_SOURCE, SETTING_INVALID, SETTING_NOT_APPLICABLE,
+    SettingInvalidDetails, SettingNotApplicableDetails, SettingsLayer,
 };
 use serde_json::{Map, Value, json};
 
+/// What the keys inside a Label's `session.source` start with, once its
+/// shape is spelled out key by key.
+const SESSION_SOURCE_KEYS: &str = "session.source.";
+
 /// The Labels a crawl declares, each with what it sets of its own: its
 /// `fetch.tier`, the `fetch.encoding` and the `session.page_check` it sets,
-/// if any (ADR 0093).
+/// if any (ADR 0093). Its `session.source` is the Session pool's to read.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LabelSettings {
     tiers: BTreeMap<String, SetTier>,
@@ -67,10 +71,11 @@ impl LabelSettings {
     /// # Errors
     ///
     /// `setting_not_applicable` for a key a Label does not take here (every
-    /// key but `fetch.tier`, `fetch.encoding` and `session.page_check`;
-    /// `fetch.tier_race` is the Run's only), and `setting_invalid` for a
-    /// `fetch.tier` that names no tier, a `fetch.encoding` that is no WHATWG
-    /// Encoding label or a `session.page_check` that is no Page check.
+    /// key but `fetch.tier`, `fetch.encoding`, `session.page_check` and
+    /// `session.source`, which the Session pool reads; `fetch.tier_race` is
+    /// the Run's only), and `setting_invalid` for a `fetch.tier` that names no
+    /// tier, a `fetch.encoding` that is no WHATWG Encoding label or a
+    /// `session.page_check` that is no Page check.
     pub fn of(labels: &BTreeMap<String, LabelDeclaration>) -> Result<Self, CallError> {
         let mut tiers = BTreeMap::new();
         let mut encodings = BTreeMap::new();
@@ -92,6 +97,10 @@ impl LabelSettings {
                     }
                     continue;
                 }
+                // The Session pool reads a Label's own Session source.
+                if key == SESSION_SOURCE.name || key.starts_with(SESSION_SOURCE_KEYS) {
+                    continue;
+                }
                 if key != FETCH_TIER.name {
                     let only = if key == FETCH_TIER_RACE.name {
                         " is set for the Run only"
@@ -101,7 +110,7 @@ impl LabelSettings {
                     return Err(CallError::new(
                         &SETTING_NOT_APPLICABLE,
                         format!(
-                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.encoding` and `session.page_check` are set per Label; set `{key}` for the Run instead."
+                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.encoding`, `session.page_check` and `session.source` are set per Label; set `{key}` for the Run instead."
                         ),
                         &SettingNotApplicableDetails {
                             key,

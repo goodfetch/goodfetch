@@ -39,6 +39,7 @@ pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
 };
 pub use gate::{HandOver, RobotsTxtFetch, crawl_delay, disallowing};
+pub use goodfetch_page::page_value::PooledSession;
 pub use http_profile::HttpProfile;
 pub use redundant::Requester;
 #[doc(hidden)]

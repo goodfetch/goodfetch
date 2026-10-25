@@ -19,6 +19,7 @@ mod fetch_tiers;
 mod frontier;
 mod governor;
 mod journeys;
+mod label_pools;
 mod learned_rules;
 mod limits;
 mod navigation_gate;

@@ -2194,6 +2194,7 @@ dependencies = [
  "goodfetch-protocol",
  "rstest",
  "rusqlite",
+ "serde_json",
 ]
 
 [[package]]

@@ -175,6 +175,25 @@ fn a_labels_page_check_is_read_whole() {
     );
 }
 
+/// A Label's `session.source`, which the Session pool reads, is taken
+/// beside its `fetch.tier`, whatever its shape, and changes no tier.
+///
+/// Covers: story:5-136
+#[rstest::rstest]
+#[case::fresh(json!({ "session": { "source": null }, "fetch": { "tier": "browser" } }))]
+#[case::a_source(json!({
+    "session": { "source": { "kind": "cdp_url", "url": "http://127.0.0.1:9222" } },
+    "fetch": { "tier": "browser" },
+}))]
+fn a_labels_session_source_is_taken_beside_its_tier(#[case] settings: Value) {
+    let tiers = LabelSettings::of(&declared(&[("account", settings)])).unwrap();
+
+    assert_eq!(
+        tiers.choose("account", SetTier::Unset),
+        forcing(FetchTier::Browser, Some("account"))
+    );
+}
+
 /// Under `auto` a call the tier cannot serve ends the attempt with
 /// `attempt_ended` naming the escalation; under a forced tier it fails
 /// with `browser_required` naming `fetch.tier`, the tier, the Label and

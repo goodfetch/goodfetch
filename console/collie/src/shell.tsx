@@ -22,6 +22,7 @@ import { EngineSettings } from "#engine-settings/engine-settings.tsx";
 import { formatCount } from "#format.ts";
 import { NeedsYouStore, READING, type NeedsYouState } from "#needs-you/needs-you-store.ts";
 import { NeedsYou } from "#needs-you/needs-you.tsx";
+import type { OfflineCache } from "#offline/offline.ts";
 import { ENGINE_SETTINGS, NEEDS_YOU, RUN, RUNS, paramsOf, type RouteParams } from "#routes.ts";
 import { RunPage } from "#runs/run-page.tsx";
 import { Runs } from "#runs/runs.tsx";
@@ -34,11 +35,16 @@ export interface ShellProps {
   readonly route: string;
   /** The page's address, whose query a screen keeps its view in; none by default. */
   readonly address?: Address | undefined;
+  /** The browser's offline cache of the page's sign-in; none while `console.offline_cache` is off. */
+  readonly offline?: OfflineCache | undefined;
+  /** Signs the page out, wiping its offline cache; none for a page that cannot. */
+  readonly onSignOut?: (() => void) | undefined;
 }
 
 /** What a screen shows over: the Console's Client, the page's address, the shell's "Needs you" and whether the page is read-only. */
 interface ScreenContext {
   readonly client: ConsoleClient;
+  readonly offline: OfflineCache | undefined;
   readonly address: Address;
   readonly needsYou: ShellNeedsYou;
   readonly readOnly: boolean;
@@ -71,7 +77,9 @@ const SCREENS: readonly Screen[] = [
     route: RUNS,
     name: msg`Runs`,
     inMenu: true,
-    content: ({ client, address }) => <Runs client={client} address={address} />,
+    content: ({ client, address, offline }) => (
+      <Runs client={client} address={address} offline={offline} />
+    ),
   },
   {
     route: ENGINE_SETTINGS,
@@ -83,8 +91,8 @@ const SCREENS: readonly Screen[] = [
     route: RUN,
     name: msg`Run`,
     inMenu: false,
-    content: ({ client, readOnly }, { run = "" }) => (
-      <RunPage key={run} client={client} runId={run} readOnly={readOnly} />
+    content: ({ client, readOnly, offline }, { run = "" }) => (
+      <RunPage key={run} client={client} runId={run} readOnly={readOnly} offline={offline} />
     ),
   },
 ];
@@ -140,6 +148,15 @@ function useReadOnly(client: ConsoleClient | undefined): boolean {
     return false;
   }
   return state === "read_only" || (state === "reconnecting" && client.engine !== undefined);
+}
+
+/** Whether the Client has a Connection now. */
+function useConnected(client: ConsoleClient | undefined): boolean {
+  const state = useSyncExternalStore(
+    (changed) => client?.watch(changed) ?? (() => {}),
+    () => client?.state,
+  );
+  return state === "connected";
 }
 
 /** The banner of a page with no Connection. */
@@ -214,7 +231,13 @@ function MenuLink({
 }
 
 /** The Console's shell. */
-export function Shell({ client, route, address = NO_ADDRESS }: ShellProps): ReactNode {
+export function Shell({
+  client,
+  route,
+  address = NO_ADDRESS,
+  offline,
+  onSignOut,
+}: ShellProps): ReactNode {
   const { i18n, t } = useLingui();
   const at = screenAt(route);
   const screen = at?.screen;
@@ -224,6 +247,7 @@ export function Shell({ client, route, address = NO_ADDRESS }: ShellProps): Reac
     document.title = title;
   }, [title]);
   const readOnly = useReadOnly(client);
+  const connected = useConnected(client);
   const needsYou = useNeedsYou(client);
   const waiting = countOf(needsYou.state);
   return (
@@ -247,6 +271,16 @@ export function Shell({ client, route, address = NO_ADDRESS }: ShellProps): Reac
               ) : null}
             </MenuLink>
           ))}
+          {client === undefined || onSignOut === undefined ? null : (
+            <button
+              type="button"
+              disabled={!connected}
+              onClick={onSignOut}
+              className="ms-auto rounded-sm underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none disabled:text-muted-foreground disabled:no-underline"
+            >
+              <Trans>Sign out</Trans>
+            </button>
+          )}
         </nav>
       </header>
       {at === undefined ? (
@@ -260,7 +294,7 @@ export function Shell({ client, route, address = NO_ADDRESS }: ShellProps): Reac
               <NotSignedIn />
             </p>
           ) : (
-            at.screen.content({ client, address, needsYou, readOnly }, at.params)
+            at.screen.content({ client, address, needsYou, readOnly, offline }, at.params)
           )}
         </main>
       )}

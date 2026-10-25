@@ -3,7 +3,9 @@
 // ever sends; the page swaps it once for the Console's `HttpOnly` cookie at
 // `POST /sign-in`, then takes it out of the address, so neither the
 // address, the history nor a `Referer` keeps it. `GET /session` then says
-// whether the page is signed in, with the sign-in's CSRF token.
+// whether the page is signed in, with the sign-in's CSRF token and whether
+// `console.offline_cache` lets it cache run summaries; `POST /sign-out`
+// ends the sign-in.
 
 /** The parts of `window` signing in reads and changes. */
 export interface SignInPage {
@@ -17,9 +19,17 @@ function tokenOf(hash: string): string | undefined {
   return new URLSearchParams(hash.replace(/^#/, "")).get("token") ?? undefined;
 }
 
-/** A page signed in: the sign-in's CSRF token, which every `POST` of the page carries. */
+/** A page signed in: the sign-in's CSRF token, which every `POST` of the page carries, and whether it may cache run summaries. */
 export interface SignedIn {
   readonly csrfToken: string;
+  readonly offlineCache: boolean;
+}
+
+/** Whether `GET /session`'s body lets the page cache run summaries. */
+function offlineCacheOf(body: unknown): boolean {
+  return typeof body === "object" && body !== null && "offline_cache" in body
+    ? body.offline_cache === true
+    : false;
 }
 
 /** The CSRF token `GET /session`'s body names, if any. */
@@ -57,6 +67,19 @@ export async function signIn(page: SignInPage): Promise<SignedIn | undefined> {
   if (!session.ok) {
     return undefined;
   }
-  const csrfToken = csrfTokenOf(await session.json());
-  return csrfToken === undefined ? undefined : { csrfToken };
+  const body: unknown = await session.json();
+  const csrfToken = csrfTokenOf(body);
+  return csrfToken === undefined ? undefined : { csrfToken, offlineCache: offlineCacheOf(body) };
+}
+
+/** Ends the page's sign-in at `POST /sign-out`, with its CSRF token. */
+export async function signOut(
+  page: Pick<SignInPage, "location" | "fetch">,
+  signedIn: SignedIn,
+): Promise<void> {
+  await page.fetch(new URL("/sign-out", page.location.origin), {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "X-CSRF-Token": signedIn.csrfToken },
+  });
 }

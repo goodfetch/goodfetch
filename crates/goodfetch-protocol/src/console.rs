@@ -92,6 +92,23 @@ pub const CONTENT_PUBLIC_URL: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn on() -> serde_json::Value {
+    serde_json::Value::Bool(true)
+}
+
+/// `console.offline_cache` (ADR 0031): whether the Console caches run
+/// summaries in the browser, encrypted under its sign-in's key.
+pub const OFFLINE_CACHE: Setting = Setting {
+    name: "console.offline_cache",
+    description: "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
+    kind: ValueKind::Boolean,
+    default: on,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// The Console's port, taken by another program.
 pub const CONSOLE_PORT_IN_USE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "console_port_in_use",
@@ -161,7 +178,7 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[CONSOLE_PORT_IN_USE],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[ADDRESS, CONTENT_ADDRESS, CONTENT_PUBLIC_URL],
+    settings: &[ADDRESS, CONTENT_ADDRESS, CONTENT_PUBLIC_URL, OFFLINE_CACHE],
     hook_stages: &[],
     shared_type_values: &[],
 };

@@ -17,22 +17,22 @@
 feature = "screen:/needs-you"
 route = "/needs-you"
 sign_in = "signed-in"
-walk = ["link Overview", "link Needs you", "link Runs", "link Engine & settings"]
+walk = ["link Overview", "link Needs you", "link Runs", "link Engine & settings", "button Sign out"]
 
 [[screen]]
 feature = "screen:/settings"
 route = "/settings"
 sign_in = "signed-in"
-walk = ["link Overview", "link Needs you", "link Runs", "link Engine & settings", "button Project configuration", "textbox Run values", "button Explain"]
+walk = ["link Overview", "link Needs you", "link Runs", "link Engine & settings", "button Sign out", "button Project configuration", "textbox Run values", "button Explain"]
 
 [[screen]]
 feature = "screen:/runs"
 route = "/runs"
 sign_in = "signed-in"
-walk = ["link Overview", "link Needs you", "link Runs", "link Engine & settings", "searchbox Search", "combobox Lifecycle", "combobox Verdict", "combobox Completeness", "textbox Tags", "combobox Sort by", "combobox Order", "button More filters", "button Apply"]
+walk = ["link Overview", "link Needs you", "link Runs", "link Engine & settings", "button Sign out", "searchbox Search", "combobox Lifecycle", "combobox Verdict", "combobox Completeness", "textbox Tags", "combobox Sort by", "combobox Order", "button More filters", "button Apply"]
 
 [[screen]]
 feature = "screen:/runs/$run"
 route = "/runs/no-such-run"
 sign_in = "signed-in"
-walk = ["link Overview", "link Needs you", "link Runs", "link Engine & settings", "link All runs"]
+walk = ["link Overview", "link Needs you", "link Runs", "link Engine & settings", "button Sign out", "link All runs"]

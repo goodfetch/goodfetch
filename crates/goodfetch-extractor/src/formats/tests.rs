@@ -2,6 +2,7 @@
 //! generated documents; no owned code is mocked (ADR 0062).
 
 mod envelope;
+mod live_document;
 mod markdown;
 mod properties;
 mod unicode;

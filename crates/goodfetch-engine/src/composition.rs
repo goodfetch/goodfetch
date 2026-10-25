@@ -225,11 +225,13 @@ pub(crate) trait DaemonSide: Send + Sync {
 }
 
 /// What a streaming call sends its notifications with: its id, the credits
-/// its Client grants it and the Connection's writer.
+/// its Client grants it, the Connection's writer and the lines it writes
+/// of a notification's method and params.
 pub struct CallStream {
     pub(crate) id: RequestId,
     pub(crate) credits: Credits,
     pub(crate) outgoing: mpsc::Sender<Vec<u8>>,
+    pub(crate) line: fn(&str, &Value) -> Vec<u8>,
 }
 
 impl CallStream {
@@ -251,8 +253,10 @@ impl CallStream {
     /// Sends the Client the notification `method` with `params`; `false`
     /// once the Connection's writer is gone.
     pub async fn notify(&self, method: &str, params: &impl Serialize) -> bool {
+        let params =
+            serde_json::to_value(params).expect("invariant: a notification's params encode");
         self.outgoing
-            .send(crate::rpc::notification_line(method, params))
+            .send((self.line)(method, &params))
             .await
             .is_ok()
     }

@@ -183,6 +183,7 @@ fn get() -> Declared<'static> {
         method: &GET,
         body: None,
         key: None,
+        keeps_fragment: false,
     }
 }
 

@@ -189,6 +189,7 @@ fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
                     method: &get,
                     body: None,
                     key: None,
+                    keeps_fragment: false,
                 },
             },
             |_| {
@@ -271,6 +272,7 @@ fn a_redirect_hop_leaving_the_scope_is_out_of_scope() {
                 method: &get,
                 body: None,
                 key: None,
+                keeps_fragment: false,
             },
         };
         admit(&connection, &scope, &every_host(), candidate, |_| {
@@ -323,6 +325,7 @@ fn seeded(connection: &Connection, scope: &Scope, urls: &[&str]) {
                 method: &get,
                 body: None,
                 key: None,
+                keeps_fragment: false,
             },
         };
         admit(connection, scope, &every_host(), candidate, |_| {
@@ -441,4 +444,62 @@ fn a_hook_rewrite_is_judged_by_the_scope_then_the_domain_policy() {
 
 mod url_key_target {
     goodfetch_test_support::fuzz_replay!(crate::identity::fuzz_url_key, "fuzz/url_key");
+}
+
+/// What each seed of `urls` is answered, every host allowed, its key
+/// keeping the fragment when `keeps_fragment` is on: `true` when added.
+fn added_keeping(urls: &[&str], keeps_fragment: bool) -> Vec<bool> {
+    let connection = run_file();
+    let get = HttpMethod::get();
+    let mut added = 0;
+    urls.iter()
+        .map(|url| {
+            let candidate = Candidate::Seed {
+                url,
+                declared: Declared {
+                    method: &get,
+                    body: None,
+                    key: None,
+                    keeps_fragment,
+                },
+            };
+            let answer = admit(
+                &connection,
+                &Scope::default(),
+                &every_host(),
+                candidate,
+                |_| {
+                    added += 1;
+                    Ok(added.to_string())
+                },
+            )
+            .unwrap();
+            matches!(answer, Enqueued::Added { .. })
+        })
+        .collect()
+}
+
+/// A request whose Label keeps fragments (`crawl.keep_url_fragment`, ADR
+/// 0120; pitfall U05) keeps its URL's fragment in its key, so a hash-routed
+/// app's `#/a` and `#/b` are two requests and `#/a` twice is one, while
+/// the other rules still apply: a tracking parameter still splits nothing.
+/// With the setting off, the fragment is dropped and they are one.
+///
+/// Covers: story:6-221
+#[test]
+fn a_request_keeping_its_fragment_is_one_request_per_fragment() {
+    let routes = [
+        "http://app.test/#/a",
+        "http://app.test/#/b",
+        "http://app.test/?utm_source=x#/a",
+        "http://app.test/",
+    ];
+
+    assert_eq!(
+        (added_keeping(&routes, true), added_keeping(&routes, false)),
+        (
+            vec![true, true, false, true],
+            vec![true, false, false, false]
+        )
+    );
 }

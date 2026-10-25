@@ -105,6 +105,7 @@ fn get() -> Declared<'static> {
         method: &GET,
         body: None,
         key: None,
+        keeps_fragment: false,
     }
 }
 
@@ -211,6 +212,7 @@ fn a_links_href_is_admitted_at_its_url_in_its_documents_encoding() {
             href,
             base: &base,
             encoding: encoding_rs::SHIFT_JIS,
+            keeps_fragment: false,
             from: &base,
             narrowing: Narrowing {
                 include: &only_search,
@@ -290,6 +292,7 @@ fn a_post_with_two_bodies_is_two_requests_and_the_same_body_twice_is_one() {
                 method,
                 body,
                 key: None,
+                keeps_fragment: false,
             },
         })
     };

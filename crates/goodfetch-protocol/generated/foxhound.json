@@ -14559,6 +14559,22 @@
     {
       "arrived_in": "0.1",
       "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Whether a crawl request's identity keeps its URL's fragment, so a hash-routed app's views (`#/a`, `#/b`) are separate requests, set for the Run or for one of its Labels, whose own value wins for its requests (Crawlee's `keepUrlFragment`). Off by default: one URL with two fragments is one request. Only the tiers that run the page's scripts serve such a request: under `fetch.tier: auto` it runs on `browser`, and forcing `http`, `browser_fetch` or `discovered_api` where it is on fails the crawl's start with `setting_not_applicable`. Fixed for a Run's life: a start under the Run's ID that changes it is refused with `setting_not_applicable`.",
+      "name": "crawl.keep_url_fragment",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
       "clearable": true,
       "default": null,
       "description": "How deep a crawl goes, its seeds at depth 0 and each enqueue one level deeper than the request whose attempt added it: a deeper request is not added, with `max_depth`, and a Run that refused one ends `incomplete`. None by default; `null` clears it.",
@@ -15096,6 +15112,25 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": [],
+      "description": "URL patterns, each a glob or a regular expression matched in the engine, naming the responses of a crawl request's own navigation kept for its handler's `keptResponse` and `keptResponses`, set for the Run or for one of its Labels, whose own list wins for its requests. None by default: nothing is kept. Only a tier that runs the page's scripts, or `discovered_api`, can keep them: forcing `http` or `browser_fetch` where a list is set fails the crawl's start with `setting_not_applicable`; any other list set is refused at the start with `capability_unavailable` until the engine keeps responses.",
+      "name": "fetch.kept_responses.urls",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
       },
       "weakens": false
     },

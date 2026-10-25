@@ -162,6 +162,7 @@ impl Subject {
                 method: &get,
                 body: None,
                 key: None,
+                keeps_fragment: false,
             };
             admit(
                 connection,

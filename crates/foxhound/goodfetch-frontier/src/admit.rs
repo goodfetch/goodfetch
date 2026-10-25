@@ -78,6 +78,9 @@ pub enum Candidate<'a> {
         base: &'a Url,
         /// The document's encoding.
         encoding: &'static Encoding,
+        /// Whether its key keeps the fragment, as its Label's
+        /// `crawl.keep_url_fragment` says (ADR 0120).
+        keeps_fragment: bool,
         /// The URL of the crawl request whose attempt enqueued it.
         from: &'a Url,
         /// The call's own `include` and `exclude`, which narrow the crawl's
@@ -144,7 +147,7 @@ pub fn admit(
     if let Judgment::Refused(_) = judge(&request, policy) {
         return Ok(not_added(NotAddedReason::DomainPolicy));
     }
-    let key = Key::of(&url);
+    let key = Key::of(&url, declared.keeps_fragment);
     let identities = identities(connection, &key, declared)?;
     match seen(connection, &identities)? {
         Seen::New => {}
@@ -200,6 +203,7 @@ impl<'a> Read<'a> {
                 href,
                 base,
                 encoding,
+                keeps_fragment,
                 from,
                 narrowing,
                 depth,
@@ -211,6 +215,7 @@ impl<'a> Read<'a> {
                     method: &LINK,
                     body: None,
                     key: None,
+                    keeps_fragment,
                 },
                 Some(narrowing),
                 depth,
@@ -238,6 +243,7 @@ impl<'a> Read<'a> {
                     method: &LINK,
                     body: None,
                     key: None,
+                    keeps_fragment: false,
                 },
                 Some(Narrowing::none()),
                 0,

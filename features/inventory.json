@@ -5714,6 +5714,16 @@
       ]
     },
     {
+      "id": "setting:crawl.keep_url_fragment",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:crawl.max_depth",
       "kind": "setting",
       "area": 6,
@@ -6007,6 +6017,16 @@
       "id": "setting:fetch.hedge.max_percent",
       "kind": "setting",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:fetch.kept_responses.urls",
+      "kind": "setting",
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
@@ -18337,6 +18357,16 @@
       ]
     },
     {
+      "id": "story:6-221",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-222",
       "kind": "story",
       "area": 6,
@@ -18672,6 +18702,16 @@
     },
     {
       "id": "story:6-260",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-262",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

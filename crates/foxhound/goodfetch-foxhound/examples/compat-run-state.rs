@@ -312,6 +312,7 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                         method: &get,
                         body: None,
                         key: None,
+                        keeps_fragment: false,
                     },
                 },
                 |_| Err(rusqlite::Error::InvalidQuery),

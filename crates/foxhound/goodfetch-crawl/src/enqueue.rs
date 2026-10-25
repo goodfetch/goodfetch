@@ -117,6 +117,7 @@ fn add(
             method: &params.method,
             body: params.body.as_ref().map(HttpBody::bytes),
             key: params.key.as_deref(),
+            keeps_fragment: false,
         },
         narrowing: Narrowing::none(),
         depth: depth + 1,

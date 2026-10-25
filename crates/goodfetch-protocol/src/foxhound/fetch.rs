@@ -110,6 +110,22 @@ pub const FETCH_ENCODING: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `fetch.kept_responses.urls` (ADR 0110).
+pub const FETCH_KEPT_RESPONSES_URLS: Setting = Setting {
+    name: "fetch.kept_responses.urls",
+    description: "URL patterns, each a glob or a regular expression matched in the engine, naming the responses of a crawl request's own navigation kept for its handler's `keptResponse` and `keptResponses`, set for the Run or for one of its Labels, whose own list wins for its requests. None by default: nothing is kept. Only a tier that runs the page's scripts, or `discovered_api`, can keep them: forcing `http` or `browser_fetch` where a list is set fails the crawl's start with `setting_not_applicable`; any other list set is refused at the start with `capability_unavailable` until the engine keeps responses.",
+    kind: ValueKind::List(&ValueKind::Text),
+    default: no_patterns,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn no_patterns() -> Value {
+    Value::Array(Vec::new())
+}
+
 fn null() -> Value {
     Value::Null
 }
@@ -273,6 +289,7 @@ pub const ENTRIES: Entries = Entries {
         FETCH_COALESCE,
         FETCH_REDIRECT_MAX,
         FETCH_REFRESH_MAX_DELAY,
+        FETCH_KEPT_RESPONSES_URLS,
     ],
     hook_stages: &[],
     shared_type_values: &[],

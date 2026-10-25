@@ -271,6 +271,7 @@ pub(crate) fn admit_seeds(
                 method: &seed.method,
                 body: seed.body.as_ref().map(HttpBody::bytes),
                 key: seed.key.as_deref(),
+                keeps_fragment: false,
             };
             let candidate = Candidate::Seed {
                 url: &seed.url,

@@ -291,6 +291,7 @@ fn add(
                     href,
                     base: batch.base,
                     encoding: batch.encoding,
+                    keeps_fragment: false,
                     from: &from,
                     narrowing: batch.narrowing,
                     depth: depth + 1,

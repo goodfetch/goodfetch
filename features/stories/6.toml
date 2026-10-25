@@ -695,6 +695,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 221
+title = "As a crawl developer, I want `crawl.keep_url_fragment` on a Label whose requests are hash routes, served only by `light_browser` or `browser`, so that a hash-routed app's views are separate requests (ADR 0120; pitfall U05)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 222
 title = "As a crawl developer, I want a pending request that a rule learned later merges to end `skipped` with `duplicate`, so that the count of pages handled stays honest (ADR 0093)."
 milestone = "M1 Core"
@@ -959,6 +968,15 @@ id = 260
 title = "As a crawl developer, I want a wait for content a static document lacks, and a page failing its expected page, to escalate rather than pass empty, so that a script-rendered page never counts as an empty success (ADR 0093; P04; pitfall H22)."
 milestone = "M1 Core"
 journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 262
+title = "As a crawl developer, I want a Label that keeps responses while forcing `http` or `browser_fetch`, or that keeps fragments while forcing a document tier, to fail the Run's start with `setting_not_applicable`, so that a setting that can never serve is refused (ADRs 0110, 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
 status = "active"
 product = "foxhound"
 

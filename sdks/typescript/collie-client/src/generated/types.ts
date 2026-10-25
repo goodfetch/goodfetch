@@ -249,7 +249,8 @@ export type Enqueued =
         | "max_path_segments"
         | "max_segment_repeats"
         | "path_budget"
-        | "trap_path";
+        | "trap_path"
+        | "no_rule";
       /**
        * Its URL as it was given.
        */
@@ -535,7 +536,8 @@ export type NotAddedReason =
   | "max_path_segments"
   | "max_segment_repeats"
   | "path_budget"
-  | "trap_path";
+  | "trap_path"
+  | "no_rule";
 /**
  * Why a call that ends a Run did nothing (ADR 0102's G1).
  *
@@ -814,6 +816,14 @@ export type Tags1 = Tag[];
  * via the `definition` "RunWriter".
  */
 export type RunWriter = "live" | "none";
+/**
+ * What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
+ * seeds the entries of a site's sitemaps.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Seed".
+ */
+export type Seed = RequestSeed1 | SitemapSeed;
 /**
  * A Session's event a program listens to.
  *
@@ -4094,6 +4104,55 @@ export interface RefetchDomainRemoved {
   removed: boolean;
 }
 /**
+ * One request a crawl starts from (ADR 0093): a URL, the Label that picks
+ * its handler and its Payload, and how it is sent and identified.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RequestSeed".
+ */
+export interface RequestSeed {
+  /**
+   * The body it is sent with, if any.
+   */
+  body?: HttpBody | null;
+  /**
+   * Whether it goes ahead of every request its domain holds pending,
+   * whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+   * such requests, the later goes first; `false` by default.
+   */
+  forefront?: boolean;
+  /**
+   * Its identity in the Frontier, declared by the program in place of
+   * its method, its URL's key and its body's hash: a canonicalization
+   * of the program's own, which always wins (ADR 0005).
+   */
+  key?: string | null;
+  /**
+   * Its Label.
+   */
+  label: string;
+  /**
+   * The method it is sent with: `GET` by default.
+   */
+  method?: string;
+  /**
+   * The data the program attaches for its handler.
+   */
+  payload?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Its priority among the requests of its domain: higher goes first,
+   * and a priority never orders requests of different domains (ADR
+   * 0004); 0 by default.
+   */
+  priority?: number;
+  /**
+   * Its URL.
+   */
+  url: string;
+}
+/**
  * What `response.body` takes: the page and the request whose response's
  * body it reads.
  *
@@ -5326,13 +5385,9 @@ export interface SampleStorePutResult {
   replaced: boolean;
 }
 /**
- * One request a crawl starts from (ADR 0093): a URL, the Label that picks
- * its handler and its Payload, and how it is sent and identified.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Seed".
+ * One request.
  */
-export interface Seed {
+export interface RequestSeed1 {
   /**
    * The body it is sent with, if any.
    */
@@ -5373,6 +5428,39 @@ export interface Seed {
    * Its URL.
    */
   url: string;
+}
+/**
+ * The entries of a sitemap, or of the sitemaps a site's robots.txt
+ * names.
+ */
+export interface SitemapSeed {
+  /**
+   * The rules that give each entry its Label, in order: the first whose
+   * pattern matches the entry's URL wins.
+   */
+  rules: SitemapRule[];
+  /**
+   * The URL of the sitemap, or of the site's robots.txt.
+   */
+  sitemap: string;
+}
+/**
+ * One rule of a sitemap seed: a URL pattern, a glob as
+ * `crawl.scope.include` takes them, matched in the engine, and the Label
+ * it gives the entries it matches, which take no Payload.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SitemapRule".
+ */
+export interface SitemapRule {
+  /**
+   * The Label of the entries it matches.
+   */
+  label: string;
+  /**
+   * The URL pattern.
+   */
+  pattern: string;
 }
 /**
  * What `$/seeds` carries: the next seeds a Client streams to a
@@ -5620,6 +5708,33 @@ export interface SignInRevoked {
    * it had already ended.
    */
   revoked: boolean;
+}
+/**
+ * A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
+ * or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
+ * are read. The engine reads it, and every sitemap index it nests, once
+ * the Run is running, through the domain policy, Politeness and robots.txt,
+ * running no handler; each entry is checked as an enqueue is, at depth 0,
+ * with the Label of the first rule whose pattern matches its URL and no
+ * Payload, and one no rule matches is not added, with `no_rule`. The seed
+ * widens the crawl's scope by the host of the URL it names, and an entry
+ * outside the scope is not added, with `out_of_scope`, so a robots.txt
+ * seed admits its own host's entries from a sitemap on another host it
+ * names, and no other host's.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SitemapSeed".
+ */
+export interface SitemapSeed1 {
+  /**
+   * The rules that give each entry its Label, in order: the first whose
+   * pattern matches the entry's URL wins.
+   */
+  rules: SitemapRule[];
+  /**
+   * The URL of the sitemap, or of the site's robots.txt.
+   */
+  sitemap: string;
 }
 /**
  * What `events.subscribe` answers when its subscription ends without the

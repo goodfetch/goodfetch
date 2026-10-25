@@ -6616,6 +6616,11 @@
           "const": "trap_path",
           "description": "Its URL's path falls under a trap the Frontier learned and closed\n(ADR 0005): a path pattern whose pages brought no new page and no\nURL outside it, which leaves a finished Run `unverified`.",
           "type": "string"
+        },
+        {
+          "const": "no_rule",
+          "description": "A sitemap entry no rule of its sitemap seed matches (ADR 0093).",
+          "type": "string"
         }
       ]
     },
@@ -8454,6 +8459,67 @@
         }
       ],
       "description": "A request's id, which its reply carries back."
+    },
+    "RequestSeed": {
+      "additionalProperties": false,
+      "description": "One request a crawl starts from (ADR 0093): a URL, the Label that picks\nits handler and its Payload, and how it is sent and identified.",
+      "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The body it is sent with, if any."
+        },
+        "forefront": {
+          "arrived_in": "0.1",
+          "description": "Whether it goes ahead of every request its domain holds pending,\nwhatever their priority, as Crawlee's `forefront` (ADR 0005): of two\nsuch requests, the later goes first; `false` by default.",
+          "type": "boolean"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "Its Label.",
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "arrived_in": "0.1",
+          "description": "The method it is sent with: `GET` by default."
+        },
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The data the program attaches for its handler."
+        },
+        "priority": {
+          "arrived_in": "0.1",
+          "description": "Its priority among the requests of its domain: higher goes first,\nand a priority never orders requests of different domains (ADR\n0004); 0 by default.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "label"
+      ],
+      "type": "object"
     },
     "Resource": {
       "description": "A resource the governor can run out of (ADR 0122).",
@@ -10818,65 +10884,17 @@
       "type": "object"
     },
     "Seed": {
-      "additionalProperties": false,
-      "description": "One request a crawl starts from (ADR 0093): a URL, the Label that picks\nits handler and its Payload, and how it is sent and identified.",
-      "properties": {
-        "body": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/HttpBody"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "arrived_in": "0.1",
-          "description": "The body it is sent with, if any."
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RequestSeed",
+          "description": "One request."
         },
-        "forefront": {
-          "arrived_in": "0.1",
-          "description": "Whether it goes ahead of every request its domain holds pending,\nwhatever their priority, as Crawlee's `forefront` (ADR 0005): of two\nsuch requests, the later goes first; `false` by default.",
-          "type": "boolean"
-        },
-        "key": {
-          "arrived_in": "0.1",
-          "description": "Its identity in the Frontier, declared by the program in place of\nits method, its URL's key and its body's hash: a canonicalization\nof the program's own, which always wins (ADR 0005).",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "label": {
-          "arrived_in": "0.1",
-          "description": "Its Label.",
-          "type": "string"
-        },
-        "method": {
-          "$ref": "#/$defs/HttpMethod",
-          "arrived_in": "0.1",
-          "description": "The method it is sent with: `GET` by default."
-        },
-        "payload": {
-          "arrived_in": "0.1",
-          "description": "The data the program attaches for its handler."
-        },
-        "priority": {
-          "arrived_in": "0.1",
-          "description": "Its priority among the requests of its domain: higher goes first,\nand a priority never orders requests of different domains (ADR\n0004); 0 by default.",
-          "format": "int64",
-          "type": "integer"
-        },
-        "url": {
-          "arrived_in": "0.1",
-          "description": "Its URL.",
-          "type": "string"
+        {
+          "$ref": "#/$defs/SitemapSeed",
+          "description": "The entries of a sitemap, or of the sitemaps a site's robots.txt\nnames."
         }
-      },
-      "required": [
-        "url",
-        "label"
       ],
-      "type": "object"
+      "description": "What a crawl starts from (ADR 0093): a request, or a sitemap seed, which\nseeds the entries of a site's sitemaps."
     },
     "SeedAttempt": {
       "additionalProperties": false,
@@ -11742,6 +11760,14 @@
           "minimum": 0,
           "type": "integer"
         },
+        "not_added_by_reason": {
+          "arrived_in": "0.1",
+          "description": "Those not added, by the reason the Frontier gave, `no_rule` for an\nentry no rule of its sitemap seed matched, sorted by name.",
+          "items": {
+            "$ref": "#/$defs/CountOf"
+          },
+          "type": "array"
+        },
         "url": {
           "arrived_in": "0.1",
           "description": "Its URL.",
@@ -11751,7 +11777,53 @@
       "required": [
         "url",
         "added",
-        "not_added"
+        "not_added",
+        "not_added_by_reason"
+      ],
+      "type": "object"
+    },
+    "SitemapRule": {
+      "additionalProperties": false,
+      "description": "One rule of a sitemap seed: a URL pattern, a glob as\n`crawl.scope.include` takes them, matched in the engine, and the Label\nit gives the entries it matches, which take no Payload.",
+      "properties": {
+        "label": {
+          "arrived_in": "0.1",
+          "description": "The Label of the entries it matches.",
+          "type": "string"
+        },
+        "pattern": {
+          "arrived_in": "0.1",
+          "description": "The URL pattern.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern",
+        "label"
+      ],
+      "type": "object"
+    },
+    "SitemapSeed": {
+      "additionalProperties": false,
+      "description": "A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,\nor a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines\nare read. The engine reads it, and every sitemap index it nests, once\nthe Run is running, through the domain policy, Politeness and robots.txt,\nrunning no handler; each entry is checked as an enqueue is, at depth 0,\nwith the Label of the first rule whose pattern matches its URL and no\nPayload, and one no rule matches is not added, with `no_rule`. The seed\nwidens the crawl's scope by the host of the URL it names, and an entry\noutside the scope is not added, with `out_of_scope`, so a robots.txt\nseed admits its own host's entries from a sitemap on another host it\nnames, and no other host's.",
+      "properties": {
+        "rules": {
+          "arrived_in": "0.1",
+          "description": "The rules that give each entry its Label, in order: the first whose\npattern matches the entry's URL wins.",
+          "items": {
+            "$ref": "#/$defs/SitemapRule"
+          },
+          "type": "array"
+        },
+        "sitemap": {
+          "arrived_in": "0.1",
+          "description": "The URL of the sitemap, or of the site's robots.txt.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sitemap",
+        "rules"
       ],
       "type": "object"
     },

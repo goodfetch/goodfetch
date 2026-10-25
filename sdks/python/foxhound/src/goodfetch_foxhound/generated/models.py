@@ -391,6 +391,8 @@ class NotAddedReason(StrEnum):
     (ADR 0005): a path pattern whose pages brought no new page and no
     URL outside it, which leaves a finished Run `unverified`.
     """
+    no_rule = "no_rule"
+    """A sitemap entry no rule of its sitemap seed matches (ADR 0093)."""
 
 
 class NothingCommitted(StrEnum):
@@ -473,6 +475,45 @@ class RequestCounts(BaseModel):
     """How many were skipped."""
     succeeded: Annotated[int, Field(ge=0)]
     """How many succeeded."""
+
+
+class RequestSeed(BaseModel):
+    """
+    One request a crawl starts from (ADR 0093): a URL, the Label that picks
+    its handler and its Payload, and how it is sent and identified.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body: HttpBody | None = None
+    """The body it is sent with, if any."""
+    forefront: bool | None = None
+    """
+    Whether it goes ahead of every request its domain holds pending,
+    whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+    such requests, the later goes first; `false` by default.
+    """
+    key: str | None = None
+    """
+    Its identity in the Frontier, declared by the program in place of
+    its method, its URL's key and its body's hash: a canonicalization
+    of the program's own, which always wins (ADR 0005).
+    """
+    label: str
+    """Its Label."""
+    method: HttpMethod | None = None
+    """The method it is sent with: `GET` by default."""
+    payload: Any | None = None
+    """The data the program attaches for its handler."""
+    priority: int | None = None
+    """
+    Its priority among the requests of its domain: higher goes first,
+    and a priority never orders requests of different domains (ADR
+    0004); 0 by default.
+    """
+    url: str
+    """Its URL."""
 
 
 class RunAddSeedsParams(BaseModel):
@@ -605,45 +646,6 @@ class SamplePageFilterAdmitResult(BaseModel):
     """Whether the sample crawl visits the page."""
 
 
-class Seed(BaseModel):
-    """
-    One request a crawl starts from (ADR 0093): a URL, the Label that picks
-    its handler and its Payload, and how it is sent and identified.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    body: HttpBody | None = None
-    """The body it is sent with, if any."""
-    forefront: bool | None = None
-    """
-    Whether it goes ahead of every request its domain holds pending,
-    whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
-    such requests, the later goes first; `false` by default.
-    """
-    key: str | None = None
-    """
-    Its identity in the Frontier, declared by the program in place of
-    its method, its URL's key and its body's hash: a canonicalization
-    of the program's own, which always wins (ADR 0005).
-    """
-    label: str
-    """Its Label."""
-    method: HttpMethod | None = None
-    """The method it is sent with: `GET` by default."""
-    payload: Any | None = None
-    """The data the program attaches for its handler."""
-    priority: int | None = None
-    """
-    Its priority among the requests of its domain: higher goes first,
-    and a priority never orders requests of different domains (ADR
-    0004); 0 by default.
-    """
-    url: str
-    """Its URL."""
-
-
 class SeedAttempt(BaseModel):
     """
     The attempt a seed is added from: a handler's `ctx.run`, which is bound
@@ -657,13 +659,6 @@ class SeedAttempt(BaseModel):
     """The ID of the crawl request whose attempt adds the seed."""
     lease_epoch: Annotated[int, Field(ge=0)]
     """The attempt's lease epoch, as `crawl_request.handle` gave it."""
-
-
-class Seeds(RootModel[list[Seed]]):
-    """A crawl's seeds, at least one."""
-
-    root: Annotated[list[Seed], Field(min_length=1)]
-    """A crawl's seeds, at least one."""
 
 
 class SinkStatus(StrEnum):
@@ -691,8 +686,56 @@ class SitemapReport(BaseModel):
     """How many of its entries were added."""
     not_added: Annotated[int, Field(ge=0)]
     """How many of its entries were not."""
+    not_added_by_reason: list[CountOf]
+    """
+    Those not added, by the reason the Frontier gave, `no_rule` for an
+    entry no rule of its sitemap seed matched, sorted by name.
+    """
     url: str
     """Its URL."""
+
+
+class SitemapRule(BaseModel):
+    """
+    One rule of a sitemap seed: a URL pattern, a glob as
+    `crawl.scope.include` takes them, matched in the engine, and the Label
+    it gives the entries it matches, which take no Payload.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    """The Label of the entries it matches."""
+    pattern: str
+    """The URL pattern."""
+
+
+class SitemapSeed(BaseModel):
+    """
+    A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
+    or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
+    are read. The engine reads it, and every sitemap index it nests, once
+    the Run is running, through the domain policy, Politeness and robots.txt,
+    running no handler; each entry is checked as an enqueue is, at depth 0,
+    with the Label of the first rule whose pattern matches its URL and no
+    Payload, and one no rule matches is not added, with `no_rule`. The seed
+    widens the crawl's scope by the host of the URL it names, and an entry
+    outside the scope is not added, with `out_of_scope`, so a robots.txt
+    seed admits its own host's entries from a sitemap on another host it
+    names, and no other host's.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    rules: list[SitemapRule]
+    """
+    The rules that give each entry its Label, in order: the first whose
+    pattern matches the entry's URL wins.
+    """
+    sitemap: str
+    """The URL of the sitemap, or of the site's robots.txt."""
 
 
 class SkipReason(StrEnum):
@@ -932,35 +975,6 @@ class CrawlRequestOutcomes(BaseModel):
     """The outcomes that match, in commit order."""
 
 
-class CrawlStartParams(BaseModel):
-    """What `crawl.start` takes."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-    )
-    labels: dict[str, LabelDeclaration] | None = None
-    """
-    The crawl's Labels, by name, each with its Payload's JSON Schema or
-    none, and its own settings (ADRs 0082 and 0093): a scope between the
-    Run and its requests. A Payload of a declared schema is checked
-    against it at every enqueue; a Label the crawl does not declare
-    takes any Payload.
-    """
-    project: ProjectSettings | None = None
-    """The project configuration the Client found, layer 3 (ADR 0083)."""
-    run_id: Annotated[
-        str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
-    ] = None
-    """The Run's ID, as `run.start` takes it."""
-    seeds: Seeds
-    """The requests the crawl starts from."""
-    settings: dict[str, Any] | None = None
-    """The Run's settings, nested by key: the run layer (ADR 0083)."""
-    tags: Tags | None = None
-    """The Run's opaque tags."""
-
-
 class Enqueued2(BaseModel):
     """The Frontier did not admit it."""
 
@@ -1069,25 +1083,6 @@ class LearnedRule(BaseModel):
     """
 
 
-class RunAddSeedParams(BaseModel):
-    """What `run.add_seed` takes: one seed for a running crawl."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-    )
-    attempt: SeedAttempt | None = None
-    """
-    The attempt that adds it, when a handler adds it through its
-    context's `run`; absent, the program adds it from outside any
-    attempt.
-    """
-    run_id: RunId
-    """The crawl's Run."""
-    seed: Seed
-    """The seed."""
-
-
 class RunSeeds(BaseModel):
     """What `run.seeds` answers."""
 
@@ -1099,6 +1094,21 @@ class RunSeeds(BaseModel):
     Each seed's answer, in the order the start gave the seeds; none for
     a Run that is no crawl.
     """
+
+
+class Seed(RootModel[RequestSeed | SitemapSeed]):
+    root: RequestSeed | SitemapSeed
+    """
+    What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
+    seeds the entries of a site's sitemaps.
+    """
+
+
+class Seeds(RootModel[list[Seed]]):
+    """A crawl's seeds, at least one."""
+
+    root: Annotated[list[Seed], Field(min_length=1)]
+    """A crawl's seeds, at least one."""
 
 
 class SinkReport(BaseModel):
@@ -1212,3 +1222,51 @@ class CrawlRunReport(BaseModel):
     """What the areas warn of, each with a code and a message."""
     weakened: list[WeakenedSetting] | None = None
     """Every setting that weakened a safeguard for it (ADR 0028)."""
+
+
+class CrawlStartParams(BaseModel):
+    """What `crawl.start` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    labels: dict[str, LabelDeclaration] | None = None
+    """
+    The crawl's Labels, by name, each with its Payload's JSON Schema or
+    none, and its own settings (ADRs 0082 and 0093): a scope between the
+    Run and its requests. A Payload of a declared schema is checked
+    against it at every enqueue; a Label the crawl does not declare
+    takes any Payload.
+    """
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    run_id: Annotated[
+        str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
+    ] = None
+    """The Run's ID, as `run.start` takes it."""
+    seeds: Seeds
+    """The requests the crawl starts from."""
+    settings: dict[str, Any] | None = None
+    """The Run's settings, nested by key: the run layer (ADR 0083)."""
+    tags: Tags | None = None
+    """The Run's opaque tags."""
+
+
+class RunAddSeedParams(BaseModel):
+    """What `run.add_seed` takes: one seed for a running crawl."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    attempt: SeedAttempt | None = None
+    """
+    The attempt that adds it, when a handler adds it through its
+    context's `run`; absent, the program adds it from outside any
+    attempt.
+    """
+    run_id: RunId
+    """The crawl's Run."""
+    seed: Seed
+    """The seed."""

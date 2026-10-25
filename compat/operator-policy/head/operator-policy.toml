@@ -19,6 +19,7 @@ metrics_endpoint = "example"
 address = "example"
 content_address = "example"
 content_public_url = "example"
+offline_cache = true
 
 [settings.console.sign_in]
 idle_expiry = 30000
@@ -293,6 +294,7 @@ metrics_endpoint = "example"
 address = "example"
 content_address = "example"
 content_public_url = "example"
+offline_cache = true
 
 [lock.console.sign_in]
 idle_expiry = 30000

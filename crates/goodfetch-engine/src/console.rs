@@ -34,6 +34,7 @@ use std::convert::Infallible;
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use data_encoding::BASE64URL_NOPAD;
 use goodfetch_protocol::run::RunId;
 
 use http_body_util::{BodyExt as _, Either, Full, Limited};
@@ -51,7 +52,7 @@ use crate::composition::ConsoleBuild;
 use crate::content_origin::{BODIES, ContentFile, ContentKey, Shown};
 use crate::daemon::ContentOrigin;
 use crate::endpoint::REFUSAL_TARGET;
-use crate::people::{SignInDriver, SignInFailure, SignInRefused, sign_in_id};
+use crate::people::{OfflineKeyRefused, SignInDriver, SignInFailure, SignInRefused, sign_in_id};
 use crate::rpc::event_stream::EventStreamBody;
 use crate::rpc::{Authorities, CONSOLE_LISTENER, ConsoleConnection, ConsoleSocket, Refusal};
 use crate::runs::Runs;
@@ -100,6 +101,10 @@ const SIGN_IN: &str = "/sign-in";
 const SESSION: &str = "/session";
 /// Where the page ends its own sign-in.
 const SIGN_OUT: &str = "/sign-out";
+/// Where the page gets its offline cache key, new or unwrapped (ADR 0031).
+const OFFLINE_KEY: &str = "/offline-key";
+/// The longest body `POST /offline-key` reads: a wrapped key, in JSON.
+const MAX_OFFLINE_KEY_BYTES: usize = 1024;
 /// Where the Console's WebSocket opens.
 const PROTOCOL: &str = "/protocol";
 /// Where the page turns a file's handle into its signed content address:
@@ -138,6 +143,8 @@ pub(crate) struct Served {
     pub(crate) clock: Clock,
     /// The content origin, if it started.
     pub(crate) content: Option<ContentOrigin>,
+    /// `console.offline_cache`: whether the page may cache run summaries.
+    pub(crate) offline_cache: bool,
 }
 
 /// Which of its origins a connection of the Console reached.
@@ -167,6 +174,8 @@ struct Site {
     content: Option<Content>,
     /// The Console's policy, which names the content origin.
     policy: HeaderValue,
+    /// `console.offline_cache`.
+    offline_cache: bool,
 }
 
 /// Serves the Console `served` describes until `owner` stops, each
@@ -186,6 +195,7 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
         runs,
         clock,
         content,
+        offline_cache,
     } = served;
     let address = match listener.local_address() {
         Ok(address) => address,
@@ -212,6 +222,7 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
         content,
         policy: HeaderValue::from_str(&policy)
             .expect("invariant: the Console's policy is header text"),
+        offline_cache,
     });
     if let Some(listener) = content_listener {
         owner.spawn(accept(
@@ -388,6 +399,7 @@ impl Site {
             SIGN_IN => self.sign_in(request, from).await,
             SESSION => self.session(request.method(), request.headers()).await,
             SIGN_OUT => self.sign_out(request.method(), request.headers()).await,
+            OFFLINE_KEY => self.offline_key(request).await,
             PROTOCOL => {
                 let answered = self.handshake(request.method(), request.headers()).await;
                 if answered.status() == StatusCode::SWITCHING_PROTOCOLS {
@@ -630,8 +642,10 @@ impl Site {
     }
 
     /// `GET /session`: for a signed-in request, `200` with the sign-in's
-    /// CSRF token, `{"csrf_token": "…"}`, which only the Console's own
-    /// origin can read, and its cookie's expiry set again; `401` otherwise.
+    /// CSRF token and whether `console.offline_cache` is on,
+    /// `{"csrf_token": "…", "offline_cache": true}`, which only the
+    /// Console's own origin can read, and its cookie's expiry set again;
+    /// `401` otherwise.
     async fn session(&self, method: &Method, headers: &HeaderMap) -> Response<Full<Bytes>> {
         if method != Method::GET && method != Method::HEAD {
             return self.refused_method(&["GET", "HEAD"]);
@@ -644,7 +658,11 @@ impl Site {
         };
         let mut response = self.plain(StatusCode::OK);
         if method == Method::GET {
-            let body = serde_json::json!({ "csrf_token": csrf_token }).to_string();
+            let body = serde_json::json!({
+                "csrf_token": csrf_token,
+                "offline_cache": self.offline_cache,
+            })
+            .to_string();
             *response.body_mut() = Full::new(Bytes::from(body));
         }
         response.headers_mut().insert(
@@ -680,6 +698,76 @@ impl Site {
         let mut response = self.plain(StatusCode::NO_CONTENT);
         self.set_cookie(&mut response, "", 0);
         response
+    }
+
+    /// `POST /offline-key` (ADR 0031): for a signed-in request from the
+    /// Console's own origin with its CSRF token, the sign-in's offline cache
+    /// key, `{"key": "…", "wrapped": "…"}` in unpadded base64url: a new one
+    /// for the body `{}`, or the one `{"wrapped": "…"}` holds, which only
+    /// its own sign-in's cookie unwraps (`422` for another's). `404` while
+    /// `console.offline_cache` is off, so the page caches nothing.
+    async fn offline_key(&self, request: Request<Incoming>) -> Response<Full<Bytes>> {
+        if request.method() != Method::POST {
+            return self.refused_method(&["POST"]);
+        }
+        if let Some(refusal) = self.foreign(request.headers()) {
+            return self.refused(refusal.reason(), StatusCode::FORBIDDEN).await;
+        }
+        let Some(cookie) = self.cookie_of(request.headers()).map(str::to_owned) else {
+            return self
+                .refused(
+                    SignInRefused::TokenMissing.reason(),
+                    StatusCode::UNAUTHORIZED,
+                )
+                .await;
+        };
+        if self.sign_ins.principal(&cookie).await.is_none() {
+            return self
+                .refused(SignInRefused::TokenWrong.reason(), StatusCode::UNAUTHORIZED)
+                .await;
+        }
+        if let Err(reason) = self.csrf_checked(request.headers(), &cookie).await {
+            return self.refused(reason, StatusCode::FORBIDDEN).await;
+        }
+        if !self.offline_cache {
+            return self.plain(StatusCode::NOT_FOUND);
+        }
+        let Ok(body) = Limited::new(request.into_body(), MAX_OFFLINE_KEY_BYTES)
+            .collect()
+            .await
+        else {
+            return self.plain(StatusCode::PAYLOAD_TOO_LARGE);
+        };
+        let wrapped = match wrapped_of(&body.to_bytes()) {
+            Some(KeyAsked::New) => None,
+            Some(KeyAsked::Unwrapped(wrapped)) => Some(wrapped),
+            None => return self.plain(StatusCode::BAD_REQUEST),
+        };
+        match self.sign_ins.offline_key(&cookie, wrapped.as_deref()).await {
+            Ok(key) => {
+                let body = serde_json::json!({
+                    "key": BASE64URL_NOPAD.encode(key.key()),
+                    "wrapped": BASE64URL_NOPAD.encode(key.wrapped()),
+                })
+                .to_string();
+                let mut response = self.plain(StatusCode::OK);
+                *response.body_mut() = Full::new(Bytes::from(body));
+                response.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json"),
+                );
+                response
+            }
+            Err(OfflineKeyRefused::NotSignedIn) => {
+                self.refused(SignInRefused::TokenWrong.reason(), StatusCode::UNAUTHORIZED)
+                    .await
+            }
+            Err(OfflineKeyRefused::DoesNotOpen) => self.plain(StatusCode::UNPROCESSABLE_ENTITY),
+            Err(OfflineKeyRefused::Generator(error)) => {
+                tracing::error!(%error, "the OS generator gave no offline cache key");
+                self.plain(StatusCode::SERVICE_UNAVAILABLE)
+            }
+        }
     }
 
     /// Whether a signed-in `POST` carries the CSRF token of the sign-in
@@ -809,6 +897,33 @@ fn cookie_named<'headers>(headers: &'headers HeaderMap, name: &str) -> Option<&'
         })
 }
 
+/// What a `POST /offline-key` body asks for.
+#[derive(Debug, PartialEq, Eq)]
+enum KeyAsked {
+    /// `{}`: a new key.
+    New,
+    /// `{"wrapped": "<unpadded base64url>"}`: the key these bytes wrap.
+    Unwrapped(Vec<u8>),
+}
+
+/// What a `POST /offline-key` body asks for; none for a body that is
+/// neither form.
+fn wrapped_of(body: &[u8]) -> Option<KeyAsked> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Body {
+        wrapped: Option<String>,
+    }
+    let read: Body = serde_json::from_slice(body).ok()?;
+    match read.wrapped {
+        None => Some(KeyAsked::New),
+        Some(wrapped) => BASE64URL_NOPAD
+            .decode(wrapped.as_bytes())
+            .ok()
+            .map(KeyAsked::Unwrapped),
+    }
+}
+
 /// The link's token a `POST /sign-in` body carries: its text, trimmed;
 /// empty when it is no UTF-8.
 fn sign_in_token(body: &[u8]) -> &str {
@@ -817,10 +932,11 @@ fn sign_in_token(body: &[u8]) -> &str {
 
 /// The fuzz target `console_sign_in`'s body (ADR 0067): the inputs of the
 /// Console's sign-in endpoints, which any page or program may send, split
-/// at NUL bytes into a `Cookie` header, a `POST /sign-in` body and an
-/// `X-CSRF-Token` header. Each is read as the endpoints read it: a cookie's
-/// value is one of the header's pairs and its sign-in's identifier its
-/// first part, a body's token is trimmed text, and a CSRF token is header
+/// at NUL bytes into a `Cookie` header, a `POST /sign-in` or
+/// `POST /offline-key` body and an `X-CSRF-Token` header. Each is read as
+/// the endpoints read it: a cookie's value is one of the header's pairs and
+/// its sign-in's identifier its first part, a body's token is trimmed text,
+/// a body's wrapped key reads back as itself, and a CSRF token is header
 /// text. It panics only on a bug.
 pub fn fuzz_sign_in_endpoints(data: &[u8]) {
     const NAME: &str = "goodfetch_console_0.0";
@@ -856,6 +972,14 @@ pub fn fuzz_sign_in_endpoints(data: &[u8]) {
     }
     let token = sign_in_token(body);
     assert_eq!(token, token.trim(), "a sign-in token keeps its blanks");
+    if let Some(KeyAsked::Unwrapped(wrapped)) = wrapped_of(body) {
+        let encoded = BASE64URL_NOPAD.encode(&wrapped);
+        assert_eq!(
+            wrapped_of(format!("{{\"wrapped\":\"{encoded}\"}}").as_bytes()),
+            Some(KeyAsked::Unwrapped(wrapped)),
+            "a wrapped key does not read back as itself"
+        );
+    }
     let _ = headers.get(CSRF_HEADER).map(HeaderValue::to_str);
 }
 

@@ -36,6 +36,10 @@ const RESTRICTION_PROFILE: &str = "unprivileged_userns";
 /// (`kernel.apparmor_restrict_unprivileged_userns=1`), as Ubuntu 23.10 and
 /// later do.
 #[must_use]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test reads it on its own thread, never an async worker"
+)]
 pub fn apparmor_restricts_user_namespaces() -> bool {
     std::fs::read_to_string("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
         .is_ok_and(|value| value.trim() == "1")

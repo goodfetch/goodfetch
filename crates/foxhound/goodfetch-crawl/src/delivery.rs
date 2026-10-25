@@ -57,8 +57,8 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
+use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
-use goodfetch_engine::client::Client;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::Refusal;
@@ -66,7 +66,7 @@ use goodfetch_engine::mask::Scope;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
-use goodfetch_fetch_tier::{FetchTiers, HttpTier, RobotsTxtFetch};
+use goodfetch_fetch_tier::{FetchTiers, HttpTier, LabelTiers, RobotsTxtFetch, SetTier};
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
@@ -87,7 +87,8 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::completeness;
-use crate::lease::{CommitError, Leases};
+use crate::labels;
+use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::serving::{Crawls, Opened, Server};
@@ -97,13 +98,15 @@ use goodfetch_protocol::foxhound::progress::{InFlightPhase, InFlightRequest};
 mod attempt;
 mod politeness;
 
-use attempt::{Answer, Attempt, DocumentFetch, Gating, attempt, block_cause, effect, leased_count};
+use attempt::{Answer, Attempt, Gating, Tiering, attempt, block_cause, effect, leased_count};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 
 /// A Connection serving the crawl's handler requests, as the delivery
 /// keeps it.
 struct Serving {
-    client: Client,
+    /// The context of the call that joined it, whose Connection's Client
+    /// its handler requests go to.
+    context: CallContext,
     /// Closed once it takes no new work item; `None` for the Connection
     /// that started the crawl, which serves until it ends.
     left: Option<oneshot::Receiver<()>>,
@@ -117,7 +120,7 @@ impl Serving {
     /// A handler process that joined the crawl with `crawl.serve`.
     fn joined(server: Server) -> Self {
         Self {
-            client: server.client,
+            context: server.context,
             left: Some(server.left),
             in_flight: 0,
             gone: false,
@@ -144,43 +147,44 @@ impl Serving {
 /// leases to the next writer, which counts them as lost.
 pub(crate) async fn drive(
     run: Run,
-    client: Client,
+    context: CallContext,
     mut arrivals: Opened,
     crawls: Crawls,
     settings: RunSettings,
-    tiers: FetchTiers,
+    (tiers, labels): (FetchTiers, LabelTiers),
 ) {
     let mut servers = vec![Serving {
-        client,
+        context,
         left: None,
         in_flight: 0,
         gone: false,
     }];
-    // One HTTP tier for the Run, so its hops share connections (#763).
-    match FetchTiers::http(&run, settings.resolved()) {
-        Ok(http) => {
-            // The navigation gate fetches robots.txt on the Run's HTTP tier,
-            // or on one of its own when crawl requests take none.
-            let robots = match &http {
-                Some(http) => Some(http.robots_txt_fetch()),
-                None => FetchTiers::built(&run, settings.resolved())
-                    .inspect_err(|error| tracing::warn!(%error, run_id = %run.id(), "the navigation gate has no transport for robots.txt; every robots.txt it reads is unreachable"))
-                    .ok()
-                    .map(|tier| tier.robots_txt_fetch()),
-            };
-            let fetching = Fetching {
-                tiers: &tiers,
-                http: http.as_ref(),
-                robots,
-                in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
-            };
-            deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
-        }
-        Err(error) => {
+    let run_tier = FetchTiers::run_tier(settings.resolved());
+    // One HTTP tier for the Run, so its hops share connections (#763); the
+    // navigation gate fetches robots.txt on it too.
+    let http = match FetchTiers::built(&run, settings.resolved()) {
+        Ok(http) => Some(http),
+        // A request may take the `http` tier: the Run cannot go on.
+        Err(error) if labels.any() || run_tier != SetTier::Unset => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's HTTP tier could not be built");
             run.end(failed(&run, &error)).await;
+            crawls.close(run.id()).await;
+            return;
         }
-    }
+        Err(error) => {
+            tracing::warn!(%error, run_id = %run.id(), "the navigation gate has no transport for robots.txt; every robots.txt it reads is unreachable");
+            None
+        }
+    };
+    let fetching = Fetching {
+        tiers: &tiers,
+        http: http.as_ref(),
+        robots: http.as_ref().map(HttpTier::robots_txt_fetch),
+        labels: &labels,
+        run_tier,
+        in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
+    };
+    deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
     crawls.close(run.id()).await;
 }
 
@@ -354,7 +358,7 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
 /// As [`drive`]'s.
 pub(crate) async fn resume(
     run: Run,
-    client: Client,
+    context: CallContext,
     settings: RunSettings,
     crawls: Crawls,
     tiers: FetchTiers,
@@ -369,33 +373,45 @@ pub(crate) async fn resume(
             bounds.record(connection)?;
             goodfetch_frontier::payload::record_max_size(connection, &resolved)?;
             work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)?;
-            work_items::left(connection)
+            Ok((work_items::left(connection)?, labels::read(connection)?))
         })
         .await;
-    match left {
+    let left = left.map(|(left, declared)| {
+        let labels = LabelTiers::of(&declared).unwrap_or_else(|error| {
+            tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier");
+            LabelTiers::default()
+        });
+        (left, labels)
+    });
+    let labels = match left {
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
             run.end(failed(&run, &error)).await;
             return;
         }
-        Ok(0) => {
+        Ok((0, labels)) => {
             if let Err(error) = run.nothing_done(NothingDone::NothingPending).await {
                 tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's `nothingDone` was not kept");
             }
+            labels
         }
-        Ok(_) => {}
-    }
+        Ok((_, labels)) => labels,
+    };
     let egress = resumed_domain_policy(settings.resolved(), run.id());
     let opened = crawls.open(&run, egress).await;
-    drive(run, client, opened, crawls, settings, tiers).await;
+    drive(run, context, opened, crawls, settings, (tiers, labels)).await;
 }
 
-/// The tiers a Run's crawl requests are fetched on: under `fetch.tier:
-/// http`, its HTTP tier; else none, and each handler is given its request
-/// alone.
+/// The tiers a Run's crawl requests are fetched on: its HTTP tier, and the
+/// browser's pages through `tiers`, each request on the tier its Label and
+/// the Run's `fetch.tier` choose.
 struct Fetching<'a> {
     tiers: &'a FetchTiers,
     http: Option<&'a HttpTier>,
+    /// The Labels the crawl declares.
+    labels: &'a LabelTiers,
+    /// The tier the Run's own `fetch.tier` forces.
+    run_tier: SetTier,
     /// How the navigation gate fetches robots.txt.
     robots: Option<RobotsTxtFetch>,
     /// The requests in flight, as the Run's progress shows them.
@@ -412,10 +428,15 @@ impl Fetching<'_> {
         }
     }
 
-    /// What one attempt fetches its request's document with.
-    fn served(&self, second_copies: &SecondCopies) -> Option<DocumentFetch> {
-        self.http
-            .map(|http| DocumentFetch::of(self.tiers, http, second_copies))
+    /// The tier a request of `label` takes, and what its attempt fetches
+    /// its document with.
+    fn served(&self, label: &str, second_copies: &SecondCopies) -> Tiering {
+        Tiering::of(
+            self.tiers,
+            self.http,
+            self.labels.choose(label, self.run_tier),
+            second_copies,
+        )
     }
 }
 
@@ -489,18 +510,21 @@ async fn lease_to_servers(
                 policy.lease_length(),
             );
             server.in_flight += 1;
-            let fetches = pooled.fetching.http.is_some();
+            let tiering = pooled
+                .fetching
+                .served(&leased.crawl_request.label, &admission.second_copies());
+            let fetches = tiering.tier();
             pooled.fetching.in_flight.lock().await.began(
                 run,
                 InFlightRequest {
                     request_id: leased.crawl_request.id.clone(),
                     url: leased.crawl_request.url.clone(),
-                    phase: if fetches {
+                    phase: if fetches.is_some() {
                         InFlightPhase::Fetching
                     } else {
                         InFlightPhase::Handling
                     },
-                    tier: fetches.then(|| "http".to_owned()),
+                    tier: fetches.map(|tier| tier.as_str().to_owned()),
                     attempt: leased.attempt,
                     started_at: run.point_in_time(),
                 },
@@ -513,13 +537,10 @@ async fn lease_to_servers(
                 attempt(
                     run.clone(),
                     place,
-                    server.client.clone(),
+                    server.context.clone(),
                     (leased, session, leased_count(run)),
                     lease,
-                    (
-                        pooled.fetching.served(&admission.second_copies()),
-                        pooled.fetching.gating(&admission.second_copies()),
-                    ),
+                    (tiering, pooled.fetching.gating(&admission.second_copies())),
                     std::sync::Arc::clone(&pooled.fetching.in_flight),
                 ),
             ));
@@ -917,8 +938,6 @@ async fn settle(
         answer,
         ..
     } = attempt;
-    let id = leased.crawl_request.id.clone();
-    let epoch = leased.lease_epoch;
     let failure =
         |failure, retryable| retried_or_failed(policy, leased.attempt, failure, retryable);
     let unsuccessful = match answer {
@@ -968,19 +987,7 @@ async fn settle(
             details,
         } => {
             let held = held_past_bound(&details, run.clock().wall(), longest_wait).is_some();
-            // The handler's error is kept in run state: no value the Run
-            // resolved stays in it (spec #564).
-            let masks = run.secrets().mask().masks();
-            let mut kept = Value::Object(details);
-            masks.apply_value(&mut kept, Scope::Kept);
-            let Value::Object(details) = kept else {
-                unreachable!("invariant: masking an object leaves an object")
-            };
-            let failed = Failure {
-                code,
-                message: masks.apply(&message, Scope::Kept).into_owned(),
-                details,
-            };
+            let failed = kept_failure(run, code, &message, details);
             match block_cause(&failed.code, &failed.details) {
                 Some(cause) => Unsuccessful::Blocked(cause),
                 None if held => Unsuccessful::Failed(failed.with_fix(RETRY_AFTER_FIX)),
@@ -988,6 +995,36 @@ async fn settle(
             }
         }
     };
+    end_unsuccessful(run, &lease, &leased, unsuccessful).await
+}
+
+/// A handler's failure as the Run's state keeps it: no value the Run
+/// resolved stays in its message or details (spec #564).
+fn kept_failure(run: &Run, code: String, message: &str, details: Map<String, Value>) -> Failure {
+    let masks = run.secrets().mask().masks();
+    let mut kept = Value::Object(details);
+    masks.apply_value(&mut kept, Scope::Kept);
+    let Value::Object(details) = kept else {
+        unreachable!("invariant: masking an object leaves an object")
+    };
+    Failure {
+        code,
+        message: masks.apply(message, Scope::Kept).into_owned(),
+        details,
+    }
+}
+
+/// Ends `leased`'s work item `unsuccessful` while its lease holds,
+/// counting its failure's code in the Run's outcomes, then releases
+/// `lease`. Answers whether the work item waits again for a retry.
+async fn end_unsuccessful(
+    run: &Run,
+    lease: &WorkItemLease,
+    leased: &Leased,
+    unsuccessful: Unsuccessful,
+) -> bool {
+    let id = leased.crawl_request.id.clone();
+    let epoch = leased.lease_epoch;
     let retried = matches!(unsuccessful, Unsuccessful::Retried(_));
     let recorded = match &unsuccessful {
         Unsuccessful::Retried(failure) | Unsuccessful::Failed(failure) => {

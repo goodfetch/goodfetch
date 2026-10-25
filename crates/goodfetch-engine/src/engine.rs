@@ -16,7 +16,7 @@ use goodfetch_protocol::connection::EngineInstance;
 use goodfetch_protocol::connection::PrivateEndpoint;
 use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::governor::{SYSTEM_INFO, SystemInfo};
-use goodfetch_protocol::run::{RunKind, RunOwner};
+use goodfetch_protocol::run::RunOwner;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -45,7 +45,7 @@ use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
-use crate::runs::{CleanUpVersions, Driver, ProgressPart, ReportPart, Runs, RunsSetup};
+use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Runs, RunsSetup};
 use crate::secrets::{self, Keychain};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
@@ -65,7 +65,6 @@ pub struct Engine {
     dispatch: Arc<Dispatch>,
     tables: Vec<RunStateTables>,
     politeness_tables: Vec<PolitenessTables>,
-    drivers: BTreeMap<RunKind, Driver>,
     report_parts: Vec<Arc<dyn ReportPart>>,
     progress_parts: Vec<Arc<dyn ProgressPart>>,
     clean_up: Option<Arc<dyn CleanUpVersions>>,
@@ -112,12 +111,12 @@ impl Engine {
             dispatch: Arc::new(Dispatch {
                 identity: Arc::new(identity),
                 handlers: composition.handlers()?,
+                drivers: Arc::new(composition.drivers()),
                 log_events: None,
                 masks: Masks::new(),
             }),
             tables: composition.run_state_tables(),
             politeness_tables: composition.politeness_tables(),
-            drivers: composition.drivers(),
             report_parts: composition.report_parts(),
             progress_parts: composition.progress_parts(),
             clean_up: composition.clean_up_versions()?,
@@ -156,6 +155,7 @@ impl Engine {
         self.dispatch = Arc::new(Dispatch {
             identity: Arc::clone(&self.dispatch.identity),
             handlers: self.dispatch.handlers.clone(),
+            drivers: Arc::clone(&self.dispatch.drivers),
             log_events: Some(log_events),
             masks: self.dispatch.masks.clone(),
         });
@@ -170,6 +170,7 @@ impl Engine {
         self.dispatch = Arc::new(Dispatch {
             identity: Arc::clone(&self.dispatch.identity),
             handlers: self.dispatch.handlers.clone(),
+            drivers: Arc::clone(&self.dispatch.drivers),
             log_events: self.dispatch.log_events.clone(),
             masks,
         });
@@ -422,7 +423,6 @@ impl Engine {
                 },
                 install: install.map(Arc::new),
                 tables: self.tables.clone(),
-                drivers: self.drivers.clone(),
                 report_parts: self.report_parts.clone(),
                 progress_parts: self.progress_parts.clone(),
                 clean_up: self.clean_up.clone(),

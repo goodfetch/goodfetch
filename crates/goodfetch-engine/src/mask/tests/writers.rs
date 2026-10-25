@@ -33,6 +33,11 @@ const WRITING: [&str; 9] = [
 /// holds no resolved value, for the reason it says.
 const WRITERS: &[(&str, usize, &str)] = &[
     (
+        "crates/foxhound/goodfetch-crawl/src/labels.rs",
+        1,
+        "holds no value: the Labels a crawl declares, their Payloads' schemas and their `fetch.tier`",
+    ),
+    (
         "crates/foxhound/goodfetch-crawl/src/work_items.rs",
         4,
         "masked: a handler's failure is masked as `Scope::Kept` where the delivery receives it; work items, Records and outcomes hold URLs and the program's own data",
@@ -54,8 +59,8 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/foxhound/goodfetch-frontier/src/politeness.rs",
-        1,
-        "holds no value: per-domain Politeness state",
+        2,
+        "holds no value: per-domain Politeness state, and the Crawl-delay each robots.txt asks for by domain key and location, its origin without credentials",
     ),
     (
         "crates/foxhound/goodfetch-frontier/src/queues.rs",

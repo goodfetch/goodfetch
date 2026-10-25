@@ -51,7 +51,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::response_limits::Limits;
-use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
+use goodfetch_engine::{CallContext, CallError, Contribution, Guard, Handler};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::dialog::{
@@ -86,7 +86,9 @@ use goodfetch_protocol::page::{
     PAGE_GOTO, PAGE_RELOAD, PageFormats, PageId, PageParams, PageResponse, PressParams,
     RUN_NEW_PAGE, WaitUntil,
 };
+use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
+use serde_json::Value;
 
 use crate::blocks::{BlockClassifier, NoBlocks};
 use crate::browser_fetch;
@@ -96,7 +98,7 @@ use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Pending, Registered};
-use crate::page_value::{HandlerPages, ProgramPages};
+use crate::page_value::{BrowserPages, HandlerPages, Opening, ProgramPages};
 use crate::proxy;
 use crate::recovery;
 use crate::sessions::{self, OpenPage, PageEvent, Sessions};
@@ -166,7 +168,18 @@ pub fn contribution_with(
     let contribution = with_dialog_handlers(contribution, &pages.dialogs);
     let contribution = with_function_handlers(contribution, &pages);
     let contribution = waits::with_wait_handlers(contribution, &pages);
-    with_request_handler(contribution, &pages)
+    let contribution = with_request_handler(contribution, &pages);
+    pages.product.opened(Arc::new(Opener {
+        pages: pages.clone(),
+    }));
+    // A call on a page a fetch tier serves from a document is the
+    // Product's to answer, serve or refuse (ADR 0093).
+    let product = Arc::clone(&pages.product);
+    let guard: Guard = Arc::new(move |operation, params, context| {
+        let page_id = page_of(params)?;
+        product.call(&page_id, operation.name, params, context)
+    });
+    contribution.guarded(&guard)
 }
 
 /// Adds the handlers of `page.evaluate` and of `page.add_init_script`,
@@ -699,6 +712,69 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
                 }
             },
         ))
+}
+
+/// The browser pages the Product opens for its handlers itself: each in its
+/// Run's default Session, navigated as `page.goto` navigates.
+struct Opener {
+    pages: Pages,
+}
+
+impl BrowserPages for Opener {
+    fn open<'a>(
+        &'a self,
+        run_id: &'a RunId,
+        url: &'a str,
+        context: &'a CallContext,
+    ) -> Opening<'a, Result<(PageId, Navigated), CallError>> {
+        Box::pin(async move {
+            let opened = self
+                .pages
+                .sessions
+                .new_default_page(run_id, context)
+                .await?;
+            let page_id = opened.page_id;
+            match self
+                .pages
+                .navigate(
+                    &page_id,
+                    Destination::Url(url),
+                    WaitUntil::Load,
+                    None,
+                    context,
+                )
+                .await
+            {
+                Ok(navigated) => Ok((page_id, navigated)),
+                Err(error) => {
+                    self.close(&page_id).await;
+                    Err(error)
+                }
+            }
+        })
+    }
+
+    fn close<'a>(&'a self, page_id: &'a PageId) -> Opening<'a, ()> {
+        Box::pin(async move {
+            if let Err(error) = self.pages.sessions.close_page(page_id, false).await {
+                tracing::debug!(%error, page_id = %page_id.0, "a handler's browser page was closed already");
+            }
+        })
+    }
+}
+
+/// The page a call's params name, as a page call names it (`page_id`) or a
+/// locator's (`locator.page_id`).
+fn page_of(params: &Value) -> Option<PageId> {
+    params
+        .get("page_id")
+        .or_else(|| {
+            params
+                .get("locator")
+                .and_then(|locator| locator.get("page_id"))
+        })
+        .and_then(Value::as_str)
+        .map(|page_id| PageId(page_id.to_owned()))
 }
 
 /// The engine's pages, which every call of every Connection shares.

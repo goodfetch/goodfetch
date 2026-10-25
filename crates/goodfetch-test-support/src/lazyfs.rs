@@ -499,11 +499,22 @@ fn users_of(folder: &Path) -> Vec<String> {
 fn sync_tree(folder: &Path) -> io::Result<()> {
     for entry in std::fs::read_dir(folder)? {
         let entry = entry?;
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            sync_tree(&entry.path())?;
-        } else if kind.is_file() {
-            File::open(entry.path())?.sync_all()?;
+        let synced = entry.file_type().and_then(|kind| {
+            if kind.is_dir() {
+                sync_tree(&entry.path())
+            } else if kind.is_file() {
+                File::open(entry.path())?.sync_all()
+            } else {
+                Ok(())
+            }
+        });
+        match synced {
+            // Gone since the listing, it needs no sync: FUSE keeps a file
+            // unlinked while open, as SQLite's WAL is at its last close, as
+            // `.fuse_hidden…` until the kernel sends its release, after the
+            // close and so possibly during this walk.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            synced => synced?,
         }
     }
     Ok(())

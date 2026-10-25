@@ -32,6 +32,8 @@ import { useEffect, useReducer, useState, useSyncExternalStore, type ReactNode }
 import type { ConsoleClient } from "#client/client.ts";
 import { formatBytes, formatCount, formatInstant } from "#format.ts";
 import { ErrorMessage } from "#errors/error-message.tsx";
+import type { OfflineCache } from "#offline/offline.ts";
+import { cachedRun } from "#offline/summaries.ts";
 import { RUNS } from "#routes.ts";
 import { COMPLETENESS_NAMES, LIFECYCLE_NAMES, VERDICT_NAMES } from "./names.ts";
 
@@ -513,12 +515,18 @@ interface PageState {
 type PageAction =
   | { readonly kind: "read"; readonly read: RunRead }
   /** The run's axes changed, or the stream resynced. */
-  | { readonly kind: "woken" };
+  | { readonly kind: "woken" }
+  /** What the offline cache keeps of the run, shown only until the engine answers. */
+  | { readonly kind: "cached"; readonly run: ShownRun };
 
 function reduce(state: PageState, action: PageAction): PageState {
   switch (action.kind) {
     case "read":
       return { ...state, read: action.read };
+    case "cached":
+      return state.read.kind === "reading"
+        ? { ...state, read: { kind: "shown", run: action.run } }
+        : state;
     case "woken":
       // While it follows the run, the page reads every change by itself.
       return state.read.kind === "shown" && !state.read.run.progress.last
@@ -588,15 +596,26 @@ function shownOf(
   };
 }
 
-/** A run's page over `client`. */
+/** Whether `value` reads as a run's page the offline cache kept. */
+function isShown(value: unknown): value is ShownRun {
+  const progress = member(value, "progress");
+  return (
+    typeof member(progress, "run_id") === "string" &&
+    typeof member(member(value, "axes"), "lifecycle") === "string"
+  );
+}
+
+/** A run's page over `client`, what it shows kept in `offline`. */
 export function RunPage({
   client,
   runId,
   readOnly,
+  offline,
 }: {
   readonly client: ConsoleClient;
   readonly runId: string;
   readonly readOnly: boolean;
+  readonly offline?: OfflineCache | undefined;
 }): ReactNode {
   const connection = useSyncExternalStore(
     (changed) => client.watch(changed),
@@ -625,6 +644,7 @@ export function RunPage({
       ]);
       let shown = shownOf(progress, row, uncapped, undefined);
       dispatch({ kind: "read", read: { kind: "shown", run: shown } });
+      void offline?.put("run_page", runId, cachedRun(shown));
       while (!shown.progress.last) {
         const next = await client.call(
           "run.progress",
@@ -637,6 +657,7 @@ export function RunPage({
         ]);
         shown = shownOf(next, nextRow, nextUncapped, shown);
         dispatch({ kind: "read", read: { kind: "shown", run: shown } });
+        void offline?.put("run_page", runId, cachedRun(shown));
       }
     };
     follow().catch((error: unknown) => {
@@ -645,7 +666,25 @@ export function RunPage({
       }
     });
     return () => abort.abort();
-  }, [client, runId, connection, wakes]);
+  }, [client, runId, connection, wakes, offline]);
+
+  const waiting = read.kind === "reading";
+  useEffect(() => {
+    if (connection === "connected" || !waiting || offline === undefined) {
+      return undefined;
+    }
+    let current = true;
+    const show = async (): Promise<void> => {
+      const kept = await offline.get("run_page", runId);
+      if (current && isShown(kept)) {
+        dispatch({ kind: "cached", run: kept });
+      }
+    };
+    void show();
+    return () => {
+      current = false;
+    };
+  }, [connection, waiting, offline, runId]);
 
   useEffect(() => {
     const subscription = client.subscribe("events");

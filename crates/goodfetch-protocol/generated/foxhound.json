@@ -1246,6 +1246,87 @@
       ],
       "type": "object"
     },
+    "CrawlRequestEnqueueLinksParams": {
+      "additionalProperties": false,
+      "description": "What `crawl_request.enqueue_links` takes: every link a locator matches,\nto add from one attempt under one Label (ADR 0093).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt enqueues.",
+          "type": "string"
+        },
+        "exclude": {
+          "arrived_in": "0.1",
+          "description": "URL patterns a link must match none of, besides the crawl's scope.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "include": {
+          "arrived_in": "0.1",
+          "description": "URL patterns, globs as `crawl.scope.include`'s, of which a link must\nmatch one when there are any, besides the crawl's scope, which they\nonly narrow.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "Their Label.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator, on the page `crawl_request.handle` gave."
+        },
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The one Payload every link takes; never with `payloads`."
+        },
+        "payloads": {
+          "arrived_in": "0.1",
+          "description": "Each matched element's own Payload, in the order\n`crawl_request.links` answered them, as the program's Payload\nfunction returned it: `null` skips that link, reported\n`skipped_by_payload`. Never with `payload`.",
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "priority": {
+          "arrived_in": "0.1",
+          "default": 0,
+          "description": "Their priority among the requests of their domain, as\n`crawl_request.enqueue`'s; 0 by default.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "crawl_request_id",
+        "lease_epoch",
+        "locator",
+        "label"
+      ],
+      "type": "object"
+    },
     "CrawlRequestEnqueueParams": {
       "additionalProperties": false,
       "description": "What `crawl_request.enqueue` takes: one request to add, from one attempt\nof a crawl request.",
@@ -1441,6 +1522,62 @@
           "description": "Its handler's skip: the request ends `skipped` with the reason\n`handler`, and the attempt's Records are discarded."
         }
       },
+      "type": "object"
+    },
+    "CrawlRequestLinks": {
+      "description": "What `crawl_request.links` answers: each element its locator matched,\nin document order.",
+      "properties": {
+        "links": {
+          "arrived_in": "0.1",
+          "description": "The elements.",
+          "items": {
+            "$ref": "#/$defs/MatchedLink"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "links"
+      ],
+      "type": "object"
+    },
+    "CrawlRequestLinksParams": {
+      "additionalProperties": false,
+      "description": "What `crawl_request.links` takes: the locator whose elements an\nattempt's `enqueueLinks` reads before its Payload function runs.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt reads the links.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator, on the page `crawl_request.handle` gave."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "crawl_request_id",
+        "lease_epoch",
+        "locator"
+      ],
       "type": "object"
     },
     "CrawlRequestOutcome": {
@@ -2573,6 +2710,110 @@
           "type": "object"
         }
       ]
+    },
+    "EnqueuedLink": {
+      "description": "What became of one element an `enqueueLinks` locator matched.",
+      "oneOf": [
+        {
+          "description": "The Frontier admitted its link as a crawl request.",
+          "properties": {
+            "id": {
+              "arrived_in": "0.1",
+              "description": "The crawl request's ID within the Run.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "added",
+              "type": "string"
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "Its URL as parsed and resolved, the URL its handler receives.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The Frontier did not admit its link.",
+          "properties": {
+            "kind": {
+              "const": "not_added",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/NotAddedReason",
+              "arrived_in": "0.1",
+              "description": "Why."
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "Its `href`, as written.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The element has no `href`.",
+          "properties": {
+            "kind": {
+              "const": "no_link",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The program's Payload function skipped it, returning `null`.",
+          "properties": {
+            "kind": {
+              "const": "skipped_by_payload",
+              "type": "string"
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "Its `href`, as written.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EnqueuedLinks": {
+      "description": "What `crawl_request.enqueue_links` answers: what became of each element\nits locator matched, in document order.",
+      "properties": {
+        "links": {
+          "arrived_in": "0.1",
+          "description": "Each element's answer.",
+          "items": {
+            "$ref": "#/$defs/EnqueuedLink"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "links"
+      ],
+      "type": "object"
     },
     "EquivalentForm": {
       "description": "Two spellings of one host's URLs a learned `equivalent_form` merges\n(ADR 0120), each learned on evidence: a redirect from one to the\nother, pairs of pages of matching signatures, or pages whose\n`rel=canonical` differs from their URL only by it.",
@@ -3930,6 +4171,45 @@
       },
       "required": [
         "content"
+      ],
+      "type": "object"
+    },
+    "MatchedLink": {
+      "description": "One element an `enqueueLinks` locator matched, as its Payload function\nreads it (ADR 0093).",
+      "properties": {
+        "attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Its attributes, by name.",
+          "type": "object"
+        },
+        "href": {
+          "arrived_in": "0.1",
+          "description": "Its `href` attribute, as written; none for an element without one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "Its text content.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its `href` resolved against the document's base URL, its query\npercent-encoded in the document's encoding: the URL it is fetched\nat; none when it has no `href` or the `href` does not parse.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "text",
+        "attributes"
       ],
       "type": "object"
     },
@@ -11990,6 +12270,44 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/Enqueued"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Adds every link a locator matches on the page a handler's attempt was given, a handler context's `enqueueLinks`, each a `GET` of its `href` resolved against the document's base URL (its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself), its query percent-encoded in the document's encoding as a browser encodes it, and answers each matched element in document order: added, with its crawl request's ID and URL; not added, with its reason, as `crawl_request.enqueue` answers; `no_link` for an element without an `href`; or `skipped_by_payload` for one whose entry in `payloads` is `null`. Every link takes `payload`, or its own entry of `payloads`, the program's Payload function's answers for the elements `crawl_request.links` read; a Payload that does not fit its Label fails the call with `payload_invalid` and adds none. `include` and `exclude` only narrow the crawl's scope; a pattern the engine cannot match fails with `pattern_unsupported`. A page no fetch tier serves fails with `closed`, and an attempt whose lease no longer holds with `attempt_ended`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "crawl_request.enqueue_links",
+      "params": {
+        "$ref": "#/$defs/CrawlRequestEnqueueLinksParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/EnqueuedLinks"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads each element a locator matches on the page a handler's attempt was given, in document order, as a handler context's `enqueueLinks` gives them to its Payload function: its `href` as written, its URL (the `href` resolved against the document's base URL, its query percent-encoded in the document's encoding, as a browser encodes it), its text and its attributes. A page no fetch tier serves fails with `closed`, a selector that is no CSS selector with `invalid_params`, and an attempt whose lease no longer holds with `attempt_ended`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "crawl_request.links",
+      "params": {
+        "$ref": "#/$defs/CrawlRequestLinksParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/CrawlRequestLinks"
       },
       "stability": "experimental"
     },

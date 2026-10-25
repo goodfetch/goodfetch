@@ -18,6 +18,7 @@
 mod canonical;
 mod choice;
 mod decoding;
+mod document;
 mod driver;
 mod gate;
 mod hedging;
@@ -28,12 +29,13 @@ mod transports;
 mod use_signals;
 
 pub use choice::{Forced, LabelTiers, SetTier, TierChoice};
+pub use document::{Matched, SelectorInvalid};
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
 };
-pub use gate::{HandOver, RobotsTxtFetch, disallowing};
+pub use gate::{HandOver, RobotsTxtFetch, crawl_delay, disallowing};
 pub use http_profile::HttpProfile;
 pub use redundant::Requester;
-pub use tiers::{FetchTiers, HandedOver, HttpTier, Signed, record_tier};
+pub use tiers::{FetchTiers, HandedOver, HttpTier, ServedLinks, Signed, record_tier};
 pub use transports::{Reqwest, TransportConfig, TransportUnavailable, Wreq};
 pub use use_signals::{Purpose, UseSignals};

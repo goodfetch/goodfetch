@@ -10,8 +10,11 @@
 //! tier each request takes is the `choice` module's; a forced tier not
 //! built yet refuses the crawl's start.
 //!
-//! A served page's document is read as UTF-8, a byte that is none replaced,
-//! until #764 builds ADR 0119's charset order.
+//! A served page's document is read in its BOM's encoding, else its
+//! `Content-Type` charset's, else as UTF-8 (the `document` module), until
+//! #764 builds the rest of ADR 0119's charset order; the links a locator
+//! matches in it are read for `enqueueLinks` with that encoding, in which
+//! their queries are percent-encoded (ADR 0120).
 #![expect(
     clippy::disallowed_types,
     reason = "the served pages' table is read and written in one step, before any `.await` and never under another lock, so there is no lock order to test under loom (ADR 0060)"
@@ -21,6 +24,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use bytes::Bytes;
+use encoding_rs::Encoding;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
@@ -42,6 +46,7 @@ use url::Url;
 
 use crate::canonical::canonical;
 use crate::choice::{LabelTiers, SetTier, TierChoice, Unserved, unserved};
+use crate::document::{Matched, SelectorInvalid, decode, matched};
 use crate::driver::{Deadlines, Hop, fetch};
 use crate::gate::{Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::redundant::{Redundant, Requester};
@@ -107,6 +112,22 @@ struct Pages {
     links: BTreeMap<PageId, Vec<(String, String)>>,
     /// The AI-use signals each open page's response carried.
     use_signals: BTreeMap<PageId, UseSignals>,
+    /// The encoding each open page's document was decoded in.
+    encodings: BTreeMap<PageId, &'static Encoding>,
+}
+
+/// The elements a locator matched in a served page's document, with what
+/// their links resolve against.
+#[derive(Clone, Debug)]
+pub struct ServedLinks {
+    /// The URL the document was reached at.
+    pub url: String,
+    /// The document's base URL.
+    pub base_url: String,
+    /// The encoding it was decoded in.
+    pub encoding: &'static Encoding,
+    /// Each element matched, in document order.
+    pub elements: Vec<Matched>,
 }
 
 /// A page served from a document: the document, the tier that fetched it
@@ -305,7 +326,12 @@ impl FetchTiers {
             )
             .await?;
         let url = fetched.url.to_string();
-        let html = String::from_utf8_lossy(&fetched.body).into_owned();
+        let content_type = fetched
+            .headers
+            .iter()
+            .find(|(name, _)| name == "content-type")
+            .map(|(_, value)| value.as_str());
+        let (html, encoding) = decode(&fetched.body, content_type);
         let base_url = goodfetch_frontier::document_base(&url, base_href(&html).as_deref())
             .map_or_else(|| url.clone(), |base| base.to_string());
         let use_signals = UseSignals::of(&fetched.headers);
@@ -334,6 +360,7 @@ impl FetchTiers {
                 bodies: BTreeMap::new(),
             },
         );
+        pages.encodings.insert(page_id.clone(), encoding);
         if !links.is_empty() {
             pages.links.insert(page_id.clone(), links);
         }
@@ -392,12 +419,55 @@ impl FetchTiers {
         Some(signed)
     }
 
+    /// The elements the CSS selector `selector` matches in the served
+    /// page `page_id`'s document, read on its Run's blocking owner;
+    /// `None` when no tier serves that page, as a closed one.
+    ///
+    /// # Errors
+    ///
+    /// When `selector` is no CSS selector.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only what it reads; the page stays open.
+    pub async fn links(
+        &self,
+        page_id: &PageId,
+        selector: &str,
+    ) -> Option<Result<ServedLinks, SelectorInvalid>> {
+        let (served, encoding) = {
+            let pages = lock(&self.served.pages);
+            let served = pages.open.get(page_id)?.document.clone();
+            let encoding = pages
+                .encodings
+                .get(page_id)
+                .copied()
+                .unwrap_or(encoding_rs::UTF_8);
+            (served, encoding)
+        };
+        let selector = selector.to_owned();
+        let run = served.run.clone();
+        let read = run
+            .owner()
+            .blocking(move || {
+                matched(&served.html, &selector).map(|elements| ServedLinks {
+                    url: served.url,
+                    base_url: served.base_url,
+                    encoding,
+                    elements,
+                })
+            })
+            .await;
+        Some(read)
+    }
+
     /// Closes the served page `page_id`: later calls on it answer
     /// `closed`.
     pub fn close(&self, page_id: &PageId) {
         let mut pages = lock(&self.served.pages);
         pages.open.remove(page_id);
         pages.links.remove(page_id);
+        pages.encodings.remove(page_id);
         pages.use_signals.remove(page_id);
     }
 

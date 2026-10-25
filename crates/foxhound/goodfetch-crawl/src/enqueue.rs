@@ -145,5 +145,7 @@ fn add(
     .map(|enqueued| Some(Ok(enqueued)))
 }
 
+pub(crate) mod links;
+
 #[cfg(test)]
 mod tests;

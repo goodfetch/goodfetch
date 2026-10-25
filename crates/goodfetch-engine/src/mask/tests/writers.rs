@@ -59,8 +59,8 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/foxhound/goodfetch-frontier/src/politeness.rs",
-        1,
-        "holds no value: per-domain Politeness state",
+        2,
+        "holds no value: per-domain Politeness state, and the Crawl-delay each robots.txt asks for by domain key and location, its origin without credentials",
     ),
     (
         "crates/foxhound/goodfetch-frontier/src/queues.rs",

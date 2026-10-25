@@ -279,6 +279,43 @@ pub fn disallowing(fetched: &Fetched, operator_token: Option<&str>, url: &Url) -
     applying(fetched, operator.as_ref(), url).disallowed
 }
 
+/// The Crawl-delay the robots.txt `fetched` asks of a crawl whose
+/// `site_preferences.robots_txt_user_agent` is `operator_token` (ADRs 0086
+/// and 0090): the largest of the groups that apply, the groups for
+/// `goodfetch-foxhound` and for the token merged, else `*`'s; `None` when
+/// none asks for one, or with no file.
+pub fn crawl_delay(fetched: &Fetched, operator_token: Option<&str>) -> Option<Duration> {
+    let Fetched::File(file) = fetched else {
+        return None;
+    };
+    let operator = operator_token.and_then(|token| ProductToken::new(token).ok());
+    applying_groups(file, operator.as_ref())
+        .into_iter()
+        .filter_map(robots_txt::Group::crawl_delay)
+        .max()
+}
+
+/// The groups of `file` that apply to a crawl whose operator token is
+/// `operator` (ADRs 0086 and 0090).
+fn applying_groups<'a>(
+    file: &'a robots_txt::RobotsTxt,
+    operator: Option<&ProductToken>,
+) -> Vec<&'a robots_txt::Group> {
+    let groups: Vec<Group<usize>> = file
+        .groups()
+        .iter()
+        .enumerate()
+        .map(|(at, group)| Group {
+            user_agents: group.user_agents().to_vec(),
+            rules: vec![at],
+        })
+        .collect();
+    applicable_rules(&groups, operator)
+        .into_iter()
+        .filter_map(|at| file.groups().get(*at))
+        .collect()
+}
+
 /// What applies of `fetched` to `url` for a crawl whose operator token is
 /// `operator` (ADRs 0086 and 0090).
 fn applying(fetched: &Fetched, operator: Option<&ProductToken>, url: &Url) -> Applying {
@@ -292,27 +329,11 @@ fn applying(fetched: &Fetched, operator: Option<&ProductToken>, url: &Url) -> Ap
             crawl_delay: None,
         },
         Fetched::File(file) => {
-            let groups: Vec<Group<usize>> = file
-                .groups()
-                .iter()
-                .enumerate()
-                .map(|(at, group)| Group {
-                    user_agents: group.user_agents().to_vec(),
-                    rules: vec![at],
-                })
-                .collect();
-            let applying: Vec<usize> = applicable_rules(&groups, operator)
-                .into_iter()
-                .copied()
-                .collect();
-            let rules: Vec<&Rule> = applying
-                .iter()
-                .filter_map(|at| file.groups().get(*at))
-                .flat_map(robots_txt::Group::rules)
-                .collect();
+            let applying = applying_groups(file, operator);
+            let rules: Vec<&Rule> = applying.iter().flat_map(|group| group.rules()).collect();
             let crawl_delay = applying
                 .iter()
-                .filter_map(|at| file.groups().get(*at)?.crawl_delay())
+                .filter_map(|group| group.crawl_delay())
                 .max();
             let disallowed = match robots_txt::judge(rules, &robots_txt::target(url)) {
                 Judgment::Disallowed(rule) => Some(rule.to_string()),

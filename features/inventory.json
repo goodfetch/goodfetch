@@ -2571,6 +2571,26 @@
       ]
     },
     {
+      "id": "operation:crawl_request.enqueue_links",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:crawl_request.links",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:daemon.health",
       "kind": "operation",
       "area": 3,
@@ -18243,6 +18263,26 @@
       ]
     },
     {
+      "id": "story:6-232",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-233",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-239",
       "kind": "story",
       "area": 6,
@@ -18285,6 +18325,16 @@
     },
     {
       "id": "story:6-242",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-243",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

@@ -1964,6 +1964,7 @@ dependencies = [
  "bytes",
  "data-encoding",
  "dom_query",
+ "encoding_rs",
  "flate2",
  "goodfetch-engine",
  "goodfetch-extractor",
@@ -2024,6 +2025,7 @@ name = "goodfetch-frontier"
 version = "0.0.0"
 dependencies = [
  "data-encoding",
+ "encoding_rs",
  "goodfetch-engine",
  "goodfetch-page",
  "goodfetch-protocol",

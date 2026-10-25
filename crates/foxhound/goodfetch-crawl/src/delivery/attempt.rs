@@ -23,12 +23,18 @@
 //! robots.txt cannot be read, with no earlier copy, is not sent either, the
 //! failed fetch counting as one of its attempts and backing its domain
 //! off, and it ends `skipped` with `robots_txt` once its retries ran out.
-//! While `site_preferences.respect_use_signals` is on, a document whose
+//! The Crawl-delay the robots.txt asks for is recorded for the request's
+//! domain key, where every sharing run's admission folds it into the
+//! delay between starts; after a robots.txt fetched here the document
+//! waits it too. A Crawl-delay above `site_preferences.max_crawl_delay`
+//! is not waited: the request is never sent and ends `skipped` with
+//! `crawl_delay` (ADR 0086). While `site_preferences.respect_use_signals` is on, a document whose
 //! response carries an AI-use signal refusing the Run's Purpose is closed
 //! unhandled, its request `skipped` with `use_signals` (ADRs 0086 and
 //! 0093).
 
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use std::collections::BTreeSet;
 
@@ -41,6 +47,7 @@ use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch, Fetched};
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
     FetchTiers, HandOver, HandedOver, HttpTier, Purpose, Requester, RobotsTxtFetch, TierChoice,
 };
@@ -56,7 +63,7 @@ use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::foxhound::settings::{
-    POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
+    POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MAX_CRAWL_DELAY, SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
     SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
 };
 use goodfetch_protocol::page::NAVIGATION_FAILED;
@@ -264,37 +271,81 @@ async fn share_robots_txt(run: &Run) -> Option<Politeness> {
 
 /// Reads the robots.txt of `leased`'s origin, as the crawl's Run reads it:
 /// from the copy its user's runs share, fetched on `http` only when the
-/// copy has none to use. A fetch made here is a request of the domain:
-/// the document then waits `politeness.domain.delay`, and its start is
-/// recorded for every run sharing the domain. Answers what applies, or
-/// `None` for a URL with no robots.txt.
+/// copy has none to use. The Crawl-delay it asks for is recorded for the
+/// request's domain key, for every run sharing the domain. A fetch made
+/// here is a request of the domain: the document then starts
+/// `politeness.domain.delay` after it, or the Crawl-delay when the crawl
+/// waits it out and it is longer, and no sooner than that after the start
+/// another sharing run took meanwhile; that start is taken in the
+/// Politeness file for every run sharing the domain. Answers what applies, or `None` for a URL with no
+/// robots.txt.
 async fn read_robots_txt(run: &Run, http: &HttpTier, leased: &Leased) -> Option<Arc<Fetched>> {
     let location = goodfetch_frontier::Url::parse(&leased.crawl_request.url)
         .ok()
         .and_then(|url| robots_txt::location(&url))?;
     let politeness = share_robots_txt(run).await;
-    let (sending, sent) = oneshot::channel::<()>();
+    let (sending, sent) = oneshot::channel::<SystemTime>();
     let fetch: Fetch<'_> = Box::pin(async {
-        let _ = sending.send(());
+        let _ = sending.send(run.clock().wall());
         http.robots_txt(run, &location).await
     });
     let read = run.robots_txt().copy(&location, fetch).await;
-    let delay = run
-        .settings()
-        .and_then(|settings| settings.resolved().duration(POLITENESS_DOMAIN_DELAY.name))
-        .filter(|delay| !delay.is_zero());
-    let (Ok(()), Some(delay)) = (sent.await, delay) else {
+    let Some(settings) = run.settings().map(|settings| settings.resolved().clone()) else {
         return Some(read);
     };
-    run.clock().sleep(delay).await;
+    let asked = crawl_delay_asked(&settings, &read);
     if let Some(politeness) = &politeness
-        && let Err(error) =
-            goodfetch_frontier::started_again(politeness, &leased.waiting.key, run.clock().wall())
-                .await
+        && let Err(error) = goodfetch_frontier::crawl_delay_read(
+            politeness,
+            &leased.waiting.key,
+            location.as_str(),
+            asked,
+        )
+        .await
     {
-        tracing::warn!(%error, run_id = %run.id(), "a document's start after its robots.txt was not recorded");
+        tracing::warn!(%error, run_id = %run.id(), "a host's Crawl-delay was not recorded for its domain");
+    }
+    let delay = settings
+        .duration(POLITENESS_DOMAIN_DELAY.name)
+        .max(asked.filter(|asked| waits_out(&settings, *asked)))
+        .filter(|delay| !delay.is_zero());
+    let (Ok(fetched_at), Some(delay)) = (sent.await, delay) else {
+        return Some(read);
+    };
+    let start = match &politeness {
+        Some(politeness) => {
+            goodfetch_frontier::start_after(politeness, &leased.waiting.key, fetched_at, delay)
+                .await
+                .unwrap_or_else(|error| {
+                    tracing::warn!(%error, run_id = %run.id(), "a document's start after its robots.txt was not recorded");
+                    fetched_at + delay
+                })
+        }
+        None => fetched_at + delay,
+    };
+    if let Ok(wait) = start.duration_since(run.clock().wall()) {
+        run.clock().sleep(wait).await;
     }
     Some(read)
+}
+
+/// The Crawl-delay the robots.txt `read` asks of a crawl under `settings`,
+/// its operator token's group merged with Foxhound's (ADR 0086).
+fn crawl_delay_asked(settings: &Resolved, read: &Fetched) -> Option<Duration> {
+    let operator_token = settings
+        .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
+        .as_str();
+    goodfetch_fetch_tier::crawl_delay(read, operator_token)
+}
+
+/// Whether a crawl under `settings` waits out the Crawl-delay `asked`:
+/// while `site_preferences.respect_robots_txt` is on, up to
+/// `site_preferences.max_crawl_delay` (ADR 0086).
+fn waits_out(settings: &Resolved, asked: Duration) -> bool {
+    settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
+        && settings
+            .duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)
+            .is_some_and(|max| asked <= max)
 }
 
 /// What the AI-use signals the response of the served page `page_id`
@@ -319,7 +370,9 @@ fn use_signals_refusal(run: &Run, tiers: &FetchTiers, page_id: &PageId) -> Optio
 
 /// What the robots.txt `read` for `leased`'s request says of it while
 /// `site_preferences.respect_robots_txt` is on (ADR 0086): nothing when
-/// it allows it, else the attempt's answer, sent nothing.
+/// it allows it and asks for no Crawl-delay above
+/// `site_preferences.max_crawl_delay`, else the attempt's answer, sent
+/// nothing.
 fn robots_txt_refusal(run: &Run, leased: &Leased, read: Option<&Fetched>) -> Option<Answer> {
     let settings = run.settings()?.resolved();
     if settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) == Some(false) {
@@ -335,8 +388,12 @@ fn robots_txt_refusal(run: &Run, leased: &Leased, read: Option<&Fetched>) -> Opt
     let operator_token = settings
         .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
         .as_str();
-    goodfetch_fetch_tier::disallowing(read, operator_token, &url)
-        .map(|_| Answer::Refused(SkipReason::RobotsTxt))
+    if goodfetch_fetch_tier::disallowing(read, operator_token, &url).is_some() {
+        return Some(Answer::Refused(SkipReason::RobotsTxt));
+    }
+    crawl_delay_asked(settings, read)
+        .filter(|asked| !waits_out(settings, *asked))
+        .map(|_| Answer::Refused(SkipReason::CrawlDelay))
 }
 
 pub(super) struct Attempt {

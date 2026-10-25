@@ -15,6 +15,7 @@ from goodfetch_collie_client.generated.models import (
     EndingError,
     ExplainedSetting,
     Lifecycle,
+    Locator,
     NothingDone,
     PlanReport,
     PluginRun,
@@ -96,6 +97,70 @@ class CountOf(BaseModel):
     """The reason, code or cause."""
 
 
+class CrawlRequestEnqueueLinksParams(BaseModel):
+    """
+    What `crawl_request.enqueue_links` takes: every link a locator matches,
+    to add from one attempt under one Label (ADR 0093).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt enqueues."""
+    exclude: list[str] | None = None
+    """URL patterns a link must match none of, besides the crawl's scope."""
+    include: list[str] | None = None
+    """
+    URL patterns, globs as `crawl.scope.include`'s, of which a link must
+    match one when there are any, besides the crawl's scope, which they
+    only narrow.
+    """
+    label: str
+    """Their Label."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+    locator: Locator
+    """The locator, on the page `crawl_request.handle` gave."""
+    payload: Any | None = None
+    """The one Payload every link takes; never with `payloads`."""
+    payloads: list[Any] | None = None
+    """
+    Each matched element's own Payload, in the order
+    `crawl_request.links` answered them, as the program's Payload
+    function returned it: `null` skips that link, reported
+    `skipped_by_payload`. Never with `payload`.
+    """
+    priority: int | None = 0
+    """
+    Their priority among the requests of their domain, as
+    `crawl_request.enqueue`'s; 0 by default.
+    """
+    run_id: RunId
+    """The crawl's Run."""
+
+
+class CrawlRequestLinksParams(BaseModel):
+    """
+    What `crawl_request.links` takes: the locator whose elements an
+    attempt's `enqueueLinks` reads before its Payload function runs.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt reads the links."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+    locator: Locator
+    """The locator, on the page `crawl_request.handle` gave."""
+    run_id: RunId
+    """The crawl's Run."""
+
+
 class DatasetRecords(BaseModel):
     """
     What a succeeded request's commit did with its Records in one Dataset
@@ -141,6 +206,39 @@ class Enqueued1(BaseModel):
     Its URL as the WHATWG URL Standard parsed it, resolved against
     its base: the URL its handler receives.
     """
+
+
+class EnqueuedLink1(BaseModel):
+    """The Frontier admitted its link as a crawl request."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    id: str
+    """The crawl request's ID within the Run."""
+    kind: Literal["added"]
+    url: str
+    """Its URL as parsed and resolved, the URL its handler receives."""
+
+
+class EnqueuedLink3(BaseModel):
+    """The element has no `href`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["no_link"]
+
+
+class EnqueuedLink4(BaseModel):
+    """The program's Payload function skipped it, returning `null`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["skipped_by_payload"]
+    url: str
+    """Its `href`, as written."""
 
 
 class EquivalentForm(StrEnum):
@@ -219,6 +317,29 @@ class LearnedRuleKind(StrEnum):
     A listing pages by a cursor as well as by an offset: its offset
     URLs not yet fetched are not added, with `duplicate`, and the cursor
     is followed.
+    """
+
+
+class MatchedLink(BaseModel):
+    """
+    One element an `enqueueLinks` locator matched, as its Payload function
+    reads it (ADR 0093).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    attributes: dict[str, str]
+    """Its attributes, by name."""
+    href: str | None = None
+    """Its `href` attribute, as written; none for an element without one."""
+    text: str
+    """Its text content."""
+    url: str | None = None
+    """
+    Its `href` resolved against the document's base URL, its query
+    percent-encoded in the document's encoding: the URL it is fetched
+    at; none when it has no `href` or the `href` does not parse.
     """
 
 
@@ -651,6 +772,19 @@ class CrawlRequestEnqueueParams(BaseModel):
     """The URL to add, absolute or relative to the document's base URL."""
 
 
+class CrawlRequestLinks(BaseModel):
+    """
+    What `crawl_request.links` answers: each element its locator matched,
+    in document order.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    links: list[MatchedLink]
+    """The elements."""
+
+
 class CrawlRequestOutcome1(BaseModel):
     """Its handler returned, and what it staged was committed."""
 
@@ -844,6 +978,39 @@ class Enqueued(RootModel[Enqueued1 | Enqueued2]):
     The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
     value, never an error, since a request is one among many.
     """
+
+
+class EnqueuedLink2(BaseModel):
+    """The Frontier did not admit its link."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["not_added"]
+    reason: NotAddedReason
+    """Why."""
+    url: str
+    """Its `href`, as written."""
+
+
+class EnqueuedLink(
+    RootModel[EnqueuedLink1 | EnqueuedLink2 | EnqueuedLink3 | EnqueuedLink4]
+):
+    root: EnqueuedLink1 | EnqueuedLink2 | EnqueuedLink3 | EnqueuedLink4
+    """What became of one element an `enqueueLinks` locator matched."""
+
+
+class EnqueuedLinks(BaseModel):
+    """
+    What `crawl_request.enqueue_links` answers: what became of each element
+    its locator matched, in document order.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    links: list[EnqueuedLink]
+    """Each element's answer."""
 
 
 class FailedRequests(BaseModel):

@@ -59,6 +59,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let resuming = crawls.clone();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
+    let [read_links, enqueue_links] = enqueue::links::handlers(&crawls, &tiers);
     Contribution::new("goodfetch-crawl")
         .with_handler(Handler::new(&CRAWL_START, move |params, context| {
             start(params, context, crawls.clone(), starting.clone())
@@ -67,6 +68,8 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
             serve(params, context, serving.clone())
         }))
         .with_handler(enqueue::handler(enqueuing))
+        .with_handler(read_links)
+        .with_handler(enqueue_links)
         .with_handler(add_seed)
         .with_handler(add_seeds)
         .with_handler(read_outcomes)

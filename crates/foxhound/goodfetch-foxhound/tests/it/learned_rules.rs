@@ -64,7 +64,11 @@ fn crawl(
         .collect();
     // The `www.` host the `/forms/` pages link.
     resolve.insert("www.learning.test".to_owned(), json!([ip]));
-    let settings = json!({ "fetch": { "tier": "http" }, "network": { "resolve": resolve } });
+    let settings = json!({
+        "fetch": { "tier": "http" },
+        "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
+        "network": { "resolve": resolve },
+    });
     let mut engine = Attached::start(env);
 
     let mut answers = BTreeMap::new();

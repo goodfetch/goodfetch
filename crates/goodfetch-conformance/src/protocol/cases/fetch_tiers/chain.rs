@@ -90,7 +90,7 @@ fn crawl(
         return Ok(None);
     };
     settings["fetch"]["tier"] = json!("http");
-    settings["network"] = json!({ "resolve": site.resolve });
+    let settings = site.mapped(&settings, connection.acts_for_model());
     let id = connection.request(
         CRAWL_START,
         &json!({ "run_id": run_id, "seeds": seeds, "settings": settings }),
@@ -561,15 +561,17 @@ pub(super) fn refused_hops(
     };
     let earlier_offsite = requests_for(site, "elsewhere.test", "/offsite").len();
     let earlier_target = requests_for(site, "xn--bcher-kva.test", "/target").len();
-    let settings = json!({
-        "fetch": { "tier": "http" },
-        "network": { "resolve": site.resolve },
-        "crawl": {
-            "keep_alive": true,
-            "scope": { "strategy": "all", "exclude": ["**/offsite"] },
-        },
-        "egress": { "blocked_domains": ["bücher.test"] },
-    });
+    let settings = site.mapped(
+        &json!({
+            "fetch": { "tier": "http" },
+            "crawl": {
+                "keep_alive": true,
+                "scope": { "strategy": "all", "exclude": ["**/offsite"] },
+            },
+            "egress": { "blocked_domains": ["bücher.test"] },
+        }),
+        connection.acts_for_model(),
+    );
     handled_page(connection, run_id, &control, &settings, checks)?;
     let urls: Vec<&str> = refused
         .iter()

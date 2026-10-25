@@ -23,14 +23,19 @@ use crate::frontier::{Inside, crawl_with};
 const SEED: u64 = 863;
 
 /// The settings of a crawl under `fetch.tier: http` whose hosts `hosts`
-/// resolve to the Proving ground.
+/// resolve to the Proving ground, on loopback, which its private ranges
+/// list them for.
 fn served(proving_ground: &ProvingGround, hosts: &[&str]) -> Value {
     let ip = proving_ground.address().ip().to_string();
     let resolve: serde_json::Map<String, Value> = hosts
         .iter()
         .map(|host| ((*host).to_owned(), json!([ip])))
         .collect();
-    json!({ "fetch": { "tier": "http" }, "network": { "resolve": resolve } })
+    json!({
+        "fetch": { "tier": "http" },
+        "network": { "resolve": resolve },
+        "egress": { "private_ranges": hosts },
+    })
 }
 
 /// The attempt's fields every `crawl_request.*` call names, beside the

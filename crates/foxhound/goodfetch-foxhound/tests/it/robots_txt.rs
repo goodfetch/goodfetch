@@ -44,6 +44,7 @@ fn settings(proving_ground: &ProvingGround, host: &str, more: &Value) -> Value {
     let mut settings = json!({
         "fetch": { "tier": "http" },
         "network": { "resolve": { host: [ip] } },
+        "egress": { "private_ranges": [host] },
     });
     if let (Some(settings), Some(more)) = (settings.as_object_mut(), more.as_object()) {
         settings.extend(more.clone());
@@ -181,6 +182,7 @@ fn crawl_seeds(
     }
     let mut settings = json!({
         "fetch": { "tier": "http" },
+        "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
         "network": { "resolve": resolve },
     });
     if let (Some(settings), Some(more)) = (settings.as_object_mut(), more.as_object()) {

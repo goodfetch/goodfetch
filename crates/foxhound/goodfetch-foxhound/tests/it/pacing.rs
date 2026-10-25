@@ -49,6 +49,7 @@ fn settings(proving_ground: &ProvingGround, domain: &Value, backoff: &Value) -> 
     json!({
         "fetch": { "tier": "http" },
         "network": { "resolve": { HOST: [proving_ground.address().ip().to_string()] } },
+        "egress": { "private_ranges": [HOST] },
         "crawl": { "handler": { "concurrency": 8 } },
         "politeness": { "domain": politeness_domain, "backoff": backoff },
     })

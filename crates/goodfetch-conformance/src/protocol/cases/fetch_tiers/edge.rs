@@ -69,7 +69,7 @@ fn start(
         return Ok(None);
     };
     settings["fetch"] = json!({ "tier": "http" });
-    settings["network"] = json!({ "resolve": site.resolve });
+    let settings = site.mapped(&settings, connection.acts_for_model());
     let seeds: Vec<Value> = urls
         .iter()
         .map(|url| json!({ "url": url, "label": "page" }))

@@ -53,6 +53,9 @@ fn settings(proving_ground: &ProvingGround, more: &Value) -> Value {
     if let (Some(settings), Some(more)) = (settings.as_object_mut(), more.as_object()) {
         settings.extend(more.clone());
     }
+    // The Proving ground serves on loopback: its hosts are listed beside
+    // any egress setting `more` gives.
+    settings["egress"]["private_ranges"] = json!([SITE, PARTNER, BLOCKED, OVER_LIMIT]);
     settings
 }
 

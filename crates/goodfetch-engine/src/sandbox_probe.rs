@@ -169,7 +169,7 @@ static PROBED: OnceLock<Probed> = OnceLock::new();
 fn log(probed: &Probed) {
     match probed {
         Probed::Starts => tracing::debug!("Chromium's sandbox can start on this host"),
-        Probed::Restricted => tracing::info!(
+        Probed::Restricted => tracing::debug!(
             "AppArmor restricts unprivileged user namespaces on this host: each browser's own AppArmor profile decides whether its sandbox starts"
         ),
         Probed::Refused {

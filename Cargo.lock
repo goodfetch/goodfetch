@@ -2008,6 +2008,7 @@ dependencies = [
  "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-test-support",
+ "gungraun",
  "h2",
  "html5ever 0.39.0",
  "http",

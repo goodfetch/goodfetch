@@ -135,7 +135,7 @@ fn waited(handled: &Handled) -> Value {
     clippy::disallowed_methods,
     reason = "the test reads the Run's Provenance log from outside the engine, on no async worker"
 )]
-fn provenance(env: &TestEnv, run_id: &str, action: &str) -> Vec<Value> {
+pub(crate) fn provenance(env: &TestEnv, run_id: &str, action: &str) -> Vec<Value> {
     let file: PathBuf = env
         .home()
         .join("0.0")

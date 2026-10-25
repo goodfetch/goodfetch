@@ -380,6 +380,3 @@ pub fn fuzz_prescan(data: &[u8]) {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

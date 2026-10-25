@@ -1,7 +1,7 @@
 use encoding_rs::{Encoding, SHIFT_JIS, UTF_8, UTF_16BE, UTF_16LE, WINDOWS_1251, WINDOWS_1252};
 use rstest::rstest;
 
-use super::{Kind, Read, Source, content_type, decode, prescan, read, xml_declaration};
+use crate::charset::{Kind, Read, Source, content_type, decode, prescan, read, xml_declaration};
 
 /// 日本 in `Shift_JIS`, which is no UTF-8.
 const NIHON: &[u8] = &[0x93, 0xFA, 0x96, 0x7B];

@@ -593,6 +593,7 @@ impl On<'_> {
         // (ADR 0119).
         if let Some(call) = tiers.escalated(&page_id) {
             tiers.close(&page_id);
+            record_tier(run, leased, choice, how).await;
             let message =
                 "The document declares no encoding and is not UTF-8: only the browser reads it.";
             return Ok((

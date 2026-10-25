@@ -208,6 +208,3 @@ fn sniff_office(content: &[u8], path: &str) -> Option<&'static str> {
         (false, _) => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     })
 }
-
-#[cfg(test)]
-mod tests;

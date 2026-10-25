@@ -1,6 +1,6 @@
 use rstest::rstest;
 
-use super::sniff;
+use crate::sniffing::sniff;
 
 /// A response with no `Content-Type` is typed as Chromium's MIME sniffer
 /// (`net/base/mime_sniffer.cc`) types it: HTML by its first tag after

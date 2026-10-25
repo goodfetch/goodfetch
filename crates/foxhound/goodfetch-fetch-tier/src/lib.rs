@@ -19,6 +19,11 @@
 mod canonical;
 mod chain;
 mod charset;
+// The tests of the pure modules a benchmark compiles in through `#[path]`
+// sit beside them, declared here, so the benchmark builds without them.
+#[cfg(test)]
+#[path = "charset/tests.rs"]
+mod charset_tests;
 mod choice;
 mod decoding;
 mod document;
@@ -32,6 +37,9 @@ mod redundant;
 mod refresh;
 mod served_calls;
 mod sniffing;
+#[cfg(test)]
+#[path = "sniffing/tests.rs"]
+mod sniffing_tests;
 mod tiers;
 mod transports;
 mod use_signals;

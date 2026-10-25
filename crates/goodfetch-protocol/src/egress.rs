@@ -15,6 +15,9 @@
 //! rules before any connection, and one they refuse raises
 //! `cdp_url_not_allowed` (ADR 0115), naming the rule, the address and the
 //! settings layer that gave it.
+//!
+//! [`local_addresses`] holds ADR 0044's: `egress.local_addresses`, the
+//! rotation's block sizes and `local_address_unavailable`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

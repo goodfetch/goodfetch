@@ -284,22 +284,27 @@ async fn share_robots_txt(run: &Run) -> Option<Politeness> {
 /// Reads the robots.txt of `leased`'s origin, as the crawl's Run reads it:
 /// from the copy its user's runs share, fetched on `http` only when the
 /// copy has none to use. The Crawl-delay it asks for is recorded for the
-/// request's domain key, for every run sharing the domain. A fetch made
-/// here is a request of the domain: the document then starts
-/// `politeness.domain.delay` after it, or the Crawl-delay when the crawl
-/// waits it out and it is longer, and no sooner than that after the start
-/// another sharing run took meanwhile; that start is taken in the
-/// Politeness file for every run sharing the domain. Answers what applies, or `None` for a URL with no
-/// robots.txt.
+/// request's domain key, for every run sharing the domain. A robots.txt
+/// fetch is a request of the domain: while the one the attempt made, or
+/// the one whose copy it read, is less than the delay before, the document
+/// starts `politeness.domain.delay` after that fetch's response arrived,
+/// or the Crawl-delay when the crawl waits it out and it is longer, and no
+/// sooner than that after the start another sharing run took meanwhile;
+/// that start is taken in the Politeness file for every run sharing the
+/// domain. Counted from the response's arrival, the site never receives
+/// the document sooner than the delay after the robots.txt request,
+/// whatever that request's connection cost. Answers what applies, or
+/// `None` for a URL with no robots.txt.
 async fn read_robots_txt(run: &Run, http: &HttpTier, leased: &Leased) -> Option<Arc<Fetched>> {
     let location = goodfetch_frontier::Url::parse(&leased.crawl_request.url)
         .ok()
         .and_then(|url| robots_txt::location(&url))?;
     let politeness = share_robots_txt(run).await;
-    let (sending, sent) = oneshot::channel::<SystemTime>();
+    let (arriving, arrived) = oneshot::channel::<SystemTime>();
     let fetch: Fetch<'_> = Box::pin(async {
-        let _ = sending.send(run.clock().wall());
-        http.robots_txt(run, &location).await
+        let answer = http.robots_txt(run, &location).await;
+        let _ = arriving.send(run.clock().wall());
+        answer
     });
     let read = run.robots_txt().copy(&location, fetch).await;
     let Some(settings) = run.settings().map(|settings| settings.resolved().clone()) else {
@@ -321,21 +326,27 @@ async fn read_robots_txt(run: &Run, http: &HttpTier, leased: &Leased) -> Option<
         .duration(POLITENESS_DOMAIN_DELAY.name)
         .max(asked.filter(|asked| waits_out(&settings, *asked)))
         .filter(|delay| !delay.is_zero());
-    let (Ok(fetched_at), Some(delay)) = (sent.await, delay) else {
+    let Some(delay) = delay else {
         return Some(read);
     };
+    let fetched = arrived.await.ok();
     let start = match &politeness {
-        Some(politeness) => {
-            goodfetch_frontier::start_after(politeness, &leased.waiting.key, fetched_at, delay)
-                .await
-                .unwrap_or_else(|error| {
-                    tracing::warn!(%error, run_id = %run.id(), "a document's start after its robots.txt was not recorded");
-                    fetched_at + delay
-                })
-        }
-        None => fetched_at + delay,
+        Some(politeness) => goodfetch_frontier::start_after_robots_txt(
+            politeness,
+            &leased.waiting.key,
+            location.as_str(),
+            fetched,
+            delay,
+            run.clock().wall(),
+        )
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, run_id = %run.id(), "a document's start after its robots.txt was not recorded");
+            fetched.map(|fetched| fetched + delay)
+        }),
+        None => fetched.map(|fetched| fetched + delay),
     };
-    if let Ok(wait) = start.duration_since(run.clock().wall()) {
+    if let Some(wait) = start.and_then(|start| start.duration_since(run.clock().wall()).ok()) {
         run.clock().sleep(wait).await;
     }
     Some(read)

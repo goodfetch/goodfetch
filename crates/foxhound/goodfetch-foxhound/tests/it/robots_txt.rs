@@ -578,7 +578,12 @@ fn crawl_at_once(env: &TestEnv, proving_ground: &ProvingGround, host: &str, runs
 /// by either run, sooner than 5 s after the page before it, and the first
 /// no sooner than 5 s after the first robots.txt request. (Each run's
 /// robots.txt fetch, sent before the Crawl-delay is known, may go beside
-/// the other's.)
+/// the other's.) A page's delay counts from the start of the page before
+/// it, which the site sees only once its request arrived: the pages may
+/// arrive a little closer than their starts went, never 9/10 of the delay
+/// closer. The first page's delay counts from the robots.txt response's
+/// arrival, so the site never receives it sooner than 5 s after the
+/// robots.txt request.
 ///
 /// Covers: story:6-243, setting:site_preferences.max_crawl_delay, format:politeness-file
 #[test]
@@ -604,7 +609,7 @@ fn a_crawl_delay_spaces_two_concurrent_runs_on_one_domain_key() {
         .collect();
     let spaced = pages
         .windows(2)
-        .all(|pair| pair[1].saturating_sub(pair[0]) >= CRAWL_DELAY);
+        .all(|pair| pair[1].saturating_sub(pair[0]) >= CRAWL_DELAY * 9 / 10);
     let after_robots_txt = matches!(
         (first_robots_txt, pages.first()),
         (Some(robots), Some(page)) if page.saturating_sub(robots) >= CRAWL_DELAY

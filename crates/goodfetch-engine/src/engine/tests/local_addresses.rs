@@ -14,7 +14,7 @@ use super::{attached_on, engine_with, hello};
 
 /// Starts the Run `local` with `settings` and finishes it when it starts;
 /// answers the start's and the finish's replies.
-fn start_and_finish(env: &TestEnv, settings: Value) -> (Value, Value) {
+fn start_and_finish(env: &TestEnv, settings: &Value) -> (Value, Value) {
     let params = json!({ "run_id": "local", "settings": settings });
     attached_on(
         &engine_with(Product::Collie, None),
@@ -43,7 +43,7 @@ fn local_addresses_that_yield_no_usable_address_refuse_the_run(
 
     let (started, finished) = start_and_finish(
         &env,
-        json!({ "egress": { "local_addresses": local_addresses } }),
+        &json!({ "egress": { "local_addresses": local_addresses } }),
     );
 
     assert_eq!(
@@ -75,7 +75,7 @@ fn a_run_with_local_addresses_records_them_and_its_block_sizes_in_its_report() {
 
     let (started, finished) = start_and_finish(
         &env,
-        json!({ "egress": { "local_addresses": ["127.0.0.1"], "rotation_block": { "ipv4": 16 } } }),
+        &json!({ "egress": { "local_addresses": ["127.0.0.1"], "rotation_block": { "ipv4": 16 } } }),
     );
     let recorded: Vec<(&Value, &Value, &Value)> = finished["result"]["settings"]
         .as_array()

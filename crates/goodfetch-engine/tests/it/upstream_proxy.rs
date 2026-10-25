@@ -71,6 +71,7 @@ fn traffic(
             .with_private_ranges(ranges)
             .unwrap(),
         resolve,
+        local: None,
         proxy,
         trust: Trust::default_roots()
             .with_trusted_cas(

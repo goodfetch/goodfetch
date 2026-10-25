@@ -1,3 +1,12 @@
+#![expect(
+    clippy::disallowed_types,
+    reason = "the test host's interfaces change between Sessions behind a lock no loom test reaches"
+)]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Mutex;
@@ -75,11 +84,8 @@ impl Host for Table {
     }
 }
 
-fn rotation(value: serde_json::Value) -> Rotation {
-    Rotation::new(
-        LocalAddresses::parse(&value).unwrap(),
-        BlockSizes::default(),
-    )
+fn rotation(value: &serde_json::Value) -> Rotation {
+    Rotation::new(LocalAddresses::parse(value).unwrap(), BlockSizes::default())
 }
 
 fn prefix(text: &str) -> Ipv6Prefix {
@@ -89,12 +95,14 @@ fn prefix(text: &str) -> Ipv6Prefix {
     }
 }
 
+/// `text`'s address, none when it is none.
 fn v4(text: &str) -> Option<Ipv4Addr> {
-    Some(text.parse().unwrap())
+    text.parse().ok()
 }
 
+/// `text`'s address, none when it is none.
 fn v6(text: &str) -> Option<Ipv6Addr> {
-    Some(text.parse().unwrap())
+    text.parse().ok()
 }
 
 /// Each Session binds one address per family for its life; the next one
@@ -103,7 +111,7 @@ fn v6(text: &str) -> Option<Ipv6Addr> {
 #[test]
 fn each_session_holds_one_address_of_each_family_listed() {
     let host = Table::holding(&["192.0.2.10", "198.51.100.10", "2001:db8:1::10"]);
-    let rotation = rotation(json!(["192.0.2.10", "198.51.100.10", "2001:db8:1::10"]));
+    let rotation = rotation(&json!(["192.0.2.10", "198.51.100.10", "2001:db8:1::10"]));
 
     rotation.check(&host).unwrap();
     let first = rotation.next_session(&host).unwrap();
@@ -151,7 +159,7 @@ fn a_value_that_yields_no_usable_address_refuses_the_run(
         Table::holding(&["192.0.2.10", "2001:db8:1::10"]).with_interface("bare0", &["fe80::1"]);
 
     assert_eq!(
-        rotation(value).check(&host),
+        rotation(&value).check(&host),
         Err(Unavailable {
             entry: entry.to_owned(),
             failure
@@ -169,8 +177,8 @@ fn a_prefix_gives_the_hosts_addresses_inside_it_or_any_of_them_where_bindable() 
         any_of: vec![prefix("2001:db8:1::/48")],
         ..Table::default()
     };
-    let on_assigned = rotation(json!("2001:db8:1::/48"));
-    let on_bindable = rotation(json!("2001:db8:1::/48"));
+    let on_assigned = rotation(&json!("2001:db8:1::/48"));
+    let on_bindable = rotation(&json!("2001:db8:1::/48"));
 
     let assigned_sessions = [
         on_assigned.next_session(&assigned).unwrap(),
@@ -214,7 +222,7 @@ fn a_prefix_gives_the_hosts_addresses_inside_it_or_any_of_them_where_bindable() 
 #[test]
 fn an_interface_resolves_to_its_current_addresses_at_each_session_start() {
     let host = Table::default().with_interface("eth1", &["192.0.2.10", "fe80::1"]);
-    let rotation = rotation(json!("eth1"));
+    let rotation = rotation(&json!("eth1"));
     rotation.check(&host).unwrap();
 
     let before = rotation.next_session(&host).unwrap();
@@ -252,7 +260,7 @@ fn the_loopback_interface_resolves_to_its_addresses_through_the_os() {
     } else {
         "lo0"
     };
-    let rotation = rotation(json!(name));
+    let rotation = rotation(&json!(name));
 
     let session = rotation.next_session(&super::System).unwrap();
 

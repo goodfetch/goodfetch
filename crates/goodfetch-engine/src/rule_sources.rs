@@ -187,6 +187,7 @@ async fn send(
         trust: &trust,
         clock: fetching.clock,
         delays: fetching.delays,
+        local: None,
     };
     let server = Server {
         host,

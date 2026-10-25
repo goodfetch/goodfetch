@@ -15,6 +15,10 @@
 //!
 //! What the host holds is read through [`Host`]: the OS's own in
 //! [`System`], a table in tests.
+#![expect(
+    clippy::disallowed_types,
+    reason = "a Run's count of the Sessions it bound, an atomic counter nothing else synchronizes on, which no loom test reaches"
+)]
 
 mod host;
 

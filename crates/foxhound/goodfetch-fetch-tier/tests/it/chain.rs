@@ -70,8 +70,9 @@ struct Recording {
     released: Arc<Mutex<usize>>,
     waits: Mutex<Vec<(String, Duration)>>,
     reached: Mutex<Vec<String>>,
-    /// Each hop as it was sent, with how many hops were admitted then.
-    sent: Mutex<Vec<(String, usize)>>,
+    /// Each hop as it was sent, with how many hops were admitted then and
+    /// whether it was the chain's lead.
+    sent: Mutex<Vec<(String, usize, bool)>>,
     /// Each hop as its answer arrived, with how long after its send.
     answered: Mutex<Vec<(String, Duration)>>,
 }
@@ -113,13 +114,13 @@ impl HopGate for Recording {
         })
     }
 
-    fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
+    fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, ()> {
         Box::pin(async move {
             let admitted = self.admitted.lock().unwrap().len();
             self.sent
                 .lock()
                 .unwrap()
-                .push((hop.url.path().to_owned(), admitted));
+                .push((hop.url.path().to_owned(), admitted, lead));
         })
     }
 
@@ -248,10 +249,11 @@ fn a_chain_of_nineteen_redirects_reaches_its_document_each_hop_through_the_gate(
     assert_eq!(*gate.reached.lock().unwrap(), ["/redirect/hops/0"]);
 }
 
-/// Each hop is told to the gate as it is sent, the first included and
-/// each after it once admitted, so its domain's delay counts from its
-/// send, never from an admission whatever ran after it held back (ADR
-/// 0086).
+/// Each hop is told to the gate as it is sent, the first included, as
+/// the chain's lead, and each after it once admitted, so its domain's
+/// delay counts from its send, never from an admission whatever ran after
+/// it held back (ADR 0086), and only the request's own send takes a token
+/// of a rated run's sends.
 ///
 /// Covers: story:5-124
 #[test]
@@ -272,9 +274,9 @@ fn each_hop_is_told_to_the_gate_as_it_is_sent() {
     assert_eq!(
         *gate.sent.lock().unwrap(),
         [
-            ("/redirect/hops/2".to_owned(), 0),
-            ("/redirect/hops/1".to_owned(), 1),
-            ("/redirect/hops/0".to_owned(), 2),
+            ("/redirect/hops/2".to_owned(), 0, true),
+            ("/redirect/hops/1".to_owned(), 1, false),
+            ("/redirect/hops/0".to_owned(), 2, false),
         ]
     );
 }

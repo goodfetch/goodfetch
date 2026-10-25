@@ -174,12 +174,14 @@ fn the_adaptive_delay_lengthens_as_the_host_slows_within_the_delay_and_the_backo
 }
 
 /// Two runs, each in an engine of its own under one Goodfetch home,
-/// crawling six articles each of one domain key at once, each asking for
-/// 240 requests a minute with a burst of 1 and no delay of its own: the
-/// host receives the twelve pages together no closer than 250 ms apart,
-/// within the tenth a start's send may come after it, so the two runs
-/// together never pass the rate; with no rate they would arrive
-/// milliseconds apart.
+/// crawling three articles each of one domain key at once, each asking for
+/// 30 requests a minute with a burst of 1 and no delay of its own: the
+/// host receives the six pages together no closer than 2 s apart, within
+/// the tenth a start's send may come before the host sees it, so the two
+/// runs together never pass the rate; with no rate they would arrive
+/// milliseconds apart. (The interval is long enough for that tenth to
+/// cover a loaded host: there a page reached the Proving ground up to
+/// about 190 ms after its engine recorded the send, fix-queue item 77.)
 ///
 /// Covers: story:6-248, setting:politeness.domain.rate, setting:politeness.domain.burst, format:politeness-file
 #[test]
@@ -188,22 +190,22 @@ fn a_domain_rate_holds_two_runs_sharing_its_key_to_it() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let rated = settings(
         &proving_ground,
-        &json!({ "rate": 240, "burst": 1 }),
+        &json!({ "rate": 30, "burst": 1 }),
         &json!({}),
     );
 
     crawl_at_once(
         &env,
         &[
-            ("first", articles(&proving_ground, 1..=6), rated.clone()),
-            ("second", articles(&proving_ground, 7..=12), rated),
+            ("first", articles(&proving_ground, 1..=3), rated.clone()),
+            ("second", articles(&proving_ground, 4..=6), rated),
         ],
         &mut || {},
     );
     let gaps = gaps(&proving_ground);
 
     assert!(
-        gaps.len() == 11 && gaps.iter().all(|gap| *gap >= 225_000),
+        gaps.len() == 5 && gaps.iter().all(|gap| *gap >= 1_800_000),
         "{gaps:?}"
     );
 }

@@ -108,6 +108,10 @@ pub struct HandOver {
     /// `politeness.domain.adaptive_delay`: on, each hop's latency is
     /// recorded for its domain key, for every sharing run.
     pub adaptive_delay: bool,
+    /// `politeness.domain.rate` and `politeness.domain.burst`: the crawl
+    /// request's own send waits for a token of its domain's sends, every
+    /// sharing rated run's together; none waits for none.
+    pub rate: Option<goodfetch_frontier::Rate>,
     /// `site_preferences.respect_robots_txt`: off, robots.txt is neither
     /// read nor applied.
     pub respect_robots_txt: bool,
@@ -131,25 +135,40 @@ pub struct HandOver {
 
 impl HandOver {
     /// Records `hop`'s send as the last start of its domain key for every
-    /// run sharing it (ADR 0086), when the Run's Politeness opened.
-    pub(crate) async fn sending(&self, hop: &Hop) {
-        self.sent(hop.url.as_str()).await;
+    /// run sharing it (ADR 0086), when the Run's Politeness opened. The
+    /// `lead` send of a rated run, its crawl request's own, first waits for
+    /// a token of the key's sends, renewing the lease meanwhile.
+    pub(crate) async fn sending(&self, hop: &Hop, lead: bool) {
+        self.sent(hop.url.as_str(), lead).await;
     }
 
     /// Records the send of a request to `url` as the last start of its
-    /// domain key for every run sharing it (ADR 0086), when the Run's
-    /// Politeness opened: the later of it and the start already recorded
-    /// is kept.
-    async fn sent(&self, url: &str) {
+    /// domain key for every run sharing it (ADR 0086), at the moment the
+    /// Politeness file records it, when the Run's Politeness opened: the
+    /// later of it and the start already recorded is kept. A `lead` send
+    /// of a rated run first waits for a token of the key's sends, renewing
+    /// the lease meanwhile.
+    async fn sent(&self, url: &str, lead: bool) {
         let Some(politeness) = &self.politeness else {
             return;
         };
         let run = &self.run;
         let key = self.keys.key(url);
-        if let Err(error) =
-            goodfetch_frontier::started_again(politeness, &key, run.clock().wall()).await
-        {
-            tracing::warn!(%error, run_id = %run.id(), "a request's start at its send was not recorded");
+        let rate = self.rate.filter(|_| lead);
+        loop {
+            match goodfetch_frontier::started_at_send(politeness, &key, run.clock(), rate).await {
+                Ok(Some(until)) => {
+                    let _waiting = self.lease.permit_wait(url);
+                    if let Ok(wait) = until.duration_since(run.clock().wall()) {
+                        run.clock().sleep(wait).await;
+                    }
+                }
+                Ok(None) => return,
+                Err(error) => {
+                    tracing::warn!(%error, run_id = %run.id(), "a request's start at its send was not recorded");
+                    return;
+                }
+            }
         }
     }
 
@@ -254,7 +273,7 @@ impl NavigationGate for Gate {
     fn sending<'a>(&'a self, url: &'a str) -> Sending<'a> {
         Box::pin(async move {
             if Url::parse(url).is_ok_and(|url| matches!(url.scheme(), "http" | "https")) {
-                self.0.sent(url).await;
+                self.0.sent(url, false).await;
             }
         })
     }
@@ -682,9 +701,11 @@ impl HopGate for ChainGate {
     /// what ran between them (robots.txt, the Frontier's checks, the
     /// hand-over) would otherwise bring the next request that much closer
     /// at the site than the delay (ADR 0086). It also moves the token the
-    /// admission took from the domain's rate to the send, when later.
-    fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
-        Box::pin(self.hand_over.sending(hop))
+    /// admission took from the domain's rate to the send, when later; the
+    /// lead hop of a rated run first waits for a token of its domain's
+    /// sends.
+    fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, ()> {
+        Box::pin(self.hand_over.sending(hop, lead))
     }
 
     /// Records the hop's latency for its domain key, for every run sharing

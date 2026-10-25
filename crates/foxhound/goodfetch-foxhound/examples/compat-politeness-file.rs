@@ -11,7 +11,8 @@
 //! wake. A Collie Run's navigation through a proxy then has met the proxy's
 //! own 429, which halved that proxy's learned ceiling under its key. The
 //! crawls' shared robots.txt copy then keeps `shop.test`'s file, whose
-//! Crawl-delay is kept for its domain key, beside a response's latency, and
+//! Crawl-delay is kept for its domain key, beside a response's latency and
+//! a rated send's token of the key's sends, and
 //! `hold.test`'s 404 read as no rules, and a later 500 for `shop.test`
 //! leaves its file in place. A copy of the file taken then, its Run folder and wake endpoint
 //! written relative to the home, goes as SQL text into the folder given as
@@ -143,8 +144,9 @@ fn proxy_refusal(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
 /// `home`, as a second engine of the user: `shop.test` answers a file,
 /// `hold.test` a 404, and a fetch of `shop.test`'s a day later answers a
 /// 500, which keeps the file; the file's Crawl-delay of 2 s is kept for
-/// the `shop.test` domain key, as a crawl's attempt records it, and a
-/// response of 120 ms into its latency's mean.
+/// the `shop.test` domain key, as a crawl's attempt records it, a
+/// response of 120 ms into its latency's mean, and a send under a rate of
+/// 30 requests a minute into its sends' bucket.
 async fn robots_txt_copies(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let owner = TaskOwner::root(BlockingPolicy::Inline);
     let file = Politeness::open(
@@ -186,6 +188,13 @@ async fn robots_txt_copies(home: &Path) -> Result<(), Box<dyn std::error::Error>
     )
     .await?;
     goodfetch_frontier::latency_measured(&file, "shop.test", Duration::from_millis(120)).await?;
+    goodfetch_frontier::started_at_send(
+        &file,
+        "shop.test",
+        Clock::paused(at),
+        goodfetch_frontier::Rate::per_minute(30, 1),
+    )
+    .await?;
     copies.copy(&hold, answered(404, b"not found")).await;
     a_day_later.copy(&shop, answered(500, b"")).await;
     drop((copies, a_day_later, file));

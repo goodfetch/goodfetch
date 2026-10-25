@@ -178,7 +178,7 @@ pub const DATASET_DUPLICATE: ErrorCodeDefinition = ErrorCodeDefinition {
 /// A Record pushed into a Dataset the crawl does not declare (ADR 0103).
 pub const DATASET_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "dataset_unknown",
-    description: "A Record was pushed into, or `run.records` read, a Dataset the crawl does not declare, such as another crawl's, so the Record was not staged or nothing was read. The details name the Dataset and those the crawl declares.",
+    description: "A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged; `run.records` read such a Dataset, so nothing was read; or a start under the ID of a Run whose Dataset holds Records no longer declares it, a renamed one included, so the Run did no work and no Record is orphaned. The details name the Dataset and those the crawl declares. Declare the Dataset again, or start a new Run.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,
@@ -188,7 +188,7 @@ pub const DATASET_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
 /// A Dataset's key on a field its schema does not require (ADR 0103).
 pub const DATASET_KEY_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "dataset_key_invalid",
-    description: "A Dataset's key names a field that is no top-level field its JSON Schema requires, so a Record could lack it and the crawl was not started. The details name the Dataset and the field. Key a Dataset only by fields its schema requires.",
+    description: "A Dataset's key names a field that is no top-level field its JSON Schema requires, so a Record could lack it and the crawl was not started (`reason` `not_required`, naming the field); or a start under the ID of a Run changes the key of a Dataset that holds Records, so the Run did no work and a Sink's upsert never mixes two identities (`reason` `changed`, naming both keys). The details name the Dataset. Key a Dataset only by fields its schema requires, and keep its key for the Run's life or start a new Run.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,
@@ -230,9 +230,32 @@ pub struct DatasetKeyInvalidDetails {
     /// The Dataset's name.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub dataset: String,
-    /// The key's field that its schema does not require.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub field: String,
+    /// Why its key is refused.
+    #[serde(flatten)]
+    pub refused: KeyRefused,
+}
+
+/// Why a Dataset's key is refused, its `reason`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "reason", rename_all = "snake_case")]
+pub enum KeyRefused {
+    /// The key names a field that is no top-level field its schema
+    /// requires, as the Dataset is declared.
+    NotRequired {
+        /// That field.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        field: String,
+    },
+    /// At a resume, the key of a Dataset that holds Records differs from
+    /// the one the Run began with.
+    Changed {
+        /// The key the crawl declares now.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        key: Vec<String>,
+        /// The key the Run began with.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        began_with: Vec<String>,
+    },
 }
 
 /// One way a Record does not hold for its Dataset.

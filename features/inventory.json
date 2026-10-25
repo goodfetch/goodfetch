@@ -3384,7 +3384,7 @@
     {
       "id": "operation:run.records",
       "kind": "operation",
-      "area": null,
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
@@ -18937,6 +18937,16 @@
     },
     {
       "id": "story:6-271",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-272",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

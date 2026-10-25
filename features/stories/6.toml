@@ -1071,6 +1071,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 272
+title = "As a crawl developer, I want a resume refused with `dataset_unknown` when the crawl no longer declares a Dataset holding Records, and with `dataset_key_invalid` when its key changed, while a changed schema resumes and each Record keeps the hash of the schema it was committed under, so that no Record is orphaned or mis-keyed (ADR 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 309
 title = "As a crawl developer, I want Completeness `incomplete` for a depth, request or path-budget cutoff, a Model allowance skip or a stop, and `unverified` for offset pagination, a learned trap, a URL cap, or pages left at `payment_required` or `consent_required`, each reason named in the report with its count, so that a crawl never reads as complete when it is not (ADRs 0005, 0045, 0048, 0107, 0120; pain 10)."
 milestone = "M1 Core"

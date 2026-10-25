@@ -3,3 +3,4 @@
 declaration = ["records"]
 reader = ["declaration", "records"]
 records = []
+resume = ["declaration"]

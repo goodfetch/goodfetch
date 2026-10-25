@@ -49,8 +49,9 @@ pub struct Committing<'a> {
 }
 
 /// Commits `records`, which the attempt `committing` names staged, in
-/// `connection`'s transaction: each Record takes its Dataset's next number.
-/// Answers, per Dataset in the order first pushed, how many it committed.
+/// `connection`'s transaction: each Record takes its Dataset's next number
+/// and the hash of the schema the run file declares it with. Answers, per
+/// Dataset in the order first pushed, how many it committed.
 ///
 /// # Errors
 ///
@@ -61,8 +62,9 @@ pub fn commit(
     records: &Checked,
 ) -> rusqlite::Result<Vec<DatasetRecords>> {
     let mut insert = connection.prepare(
-        "INSERT INTO records (dataset, number, work_item, url, committed_at, data)
-         VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM records WHERE dataset = ?1), ?2, ?3, ?4, ?5)",
+        "INSERT INTO records (dataset, number, work_item, url, committed_at, data, schema_hash)
+         VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM records WHERE dataset = ?1), ?2, ?3, ?4, ?5,
+             (SELECT schema_hash FROM datasets WHERE name = ?1))",
     )?;
     let mut counted: Vec<DatasetRecords> = Vec::new();
     for record in records.records() {

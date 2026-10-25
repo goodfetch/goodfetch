@@ -8,25 +8,32 @@
 //! from 1, in commit order, with no gaps; and `run.records`, the cursor
 //! that reads them back, live, without slowing the crawl. The crawl's
 //! delivery (area 3) stages and commits; this crate says what may be
-//! committed, numbers it and reads it. Its own crate under `crates/foxhound/`, since only Foxhound links it
+//! committed, numbers it and reads it. A resume checks the crawl's
+//! declarations against those the Run began with, and a changed schema is
+//! recorded for the Records committed from then on, each keeping its
+//! schema's hash. Its own crate under `crates/foxhound/`, since only
+//! Foxhound links it
 //! (STYLE.md, reason 2).
 
 mod declaration;
 mod reader;
 mod records;
+mod resume;
 
 use goodfetch_engine::Contribution;
 use goodfetch_engine::run_state::RunStateTables;
 
 pub use declaration::Datasets;
 pub use records::{Checked, Committing, Query, commit, read};
+pub use resume::Began;
 
 /// The tables of a crawl's Datasets in every run file: `datasets`, each
 /// declared Dataset in the order declared, with its JSON Schema and that
 /// schema's hash (none for a Dataset without one) and its key as a JSON
 /// array; and `records`, each committed Record by its Dataset and its
 /// number, with the crawl request whose attempt committed it, that
-/// request's URL and the time of the commit.
+/// request's URL, the time of the commit and the hash of the schema it was
+/// committed under (none for a Dataset without one).
 pub const TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-dataset",
     statements: &[
@@ -44,6 +51,7 @@ pub const TABLES: RunStateTables = RunStateTables {
             url TEXT NOT NULL,
             committed_at TEXT NOT NULL,
             data TEXT NOT NULL,
+            schema_hash TEXT,
             PRIMARY KEY (dataset, number)
         ) STRICT",
     ],

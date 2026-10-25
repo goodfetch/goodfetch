@@ -121,6 +121,7 @@ CREATE TABLE records (
             url TEXT NOT NULL,
             committed_at TEXT NOT NULL,
             data TEXT NOT NULL,
+            schema_hash TEXT,
             PRIMARY KEY (dataset, number)
         ) STRICT;
 CREATE TABLE rules_canonicals (

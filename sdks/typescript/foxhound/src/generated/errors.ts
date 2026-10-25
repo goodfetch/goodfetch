@@ -40,7 +40,7 @@ export class DatasetDuplicateError extends ProgramError {
 }
 
 /**
- * A Dataset's key names a field that is no top-level field its JSON Schema requires, so a Record could lack it and the crawl was not started. The details name the Dataset and the field. Key a Dataset only by fields its schema requires.
+ * A Dataset's key names a field that is no top-level field its JSON Schema requires, so a Record could lack it and the crawl was not started (`reason` `not_required`, naming the field); or a start under the ID of a Run changes the key of a Dataset that holds Records, so the Run did no work and a Sink's upsert never mixes two identities (`reason` `changed`, naming both keys). The details name the Dataset. Key a Dataset only by fields its schema requires, and keep its key for the Run's life or start a new Run.
  */
 export class DatasetKeyInvalidError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {
@@ -49,7 +49,7 @@ export class DatasetKeyInvalidError extends ProgramError {
 }
 
 /**
- * A Record was pushed into, or `run.records` read, a Dataset the crawl does not declare, such as another crawl's, so the Record was not staged or nothing was read. The details name the Dataset and those the crawl declares.
+ * A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged; `run.records` read such a Dataset, so nothing was read; or a start under the ID of a Run whose Dataset holds Records no longer declares it, a renamed one included, so the Run did no work and no Record is orphaned. The details name the Dataset and those the crawl declares. Declare the Dataset again, or start a new Run.
  */
 export class DatasetUnknownError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {

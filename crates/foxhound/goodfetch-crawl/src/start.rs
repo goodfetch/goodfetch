@@ -21,12 +21,15 @@
 //! before the Run begins (ADRs 0110 and 0120), and which requests keep
 //! their URLs' fragments is recorded with the Run, so a start under its ID
 //! that changes `crawl.keep_url_fragment` is refused with
-//! `setting_not_applicable`.
+//! `setting_not_applicable`. Such a start that drops a Dataset holding
+//! Records is refused with `dataset_unknown`, and one that changes its key
+//! with `dataset_key_invalid` (ADR 0103); its declarations are recorded
+//! when the Run resumes.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use goodfetch_dataset::Datasets;
+use goodfetch_dataset::{Began, Datasets};
 use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_error, start_error};
 use goodfetch_engine::runs::{EndedBy, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
@@ -49,6 +52,7 @@ use crate::labels;
 use crate::outcomes;
 use crate::policy::domain_policy;
 use crate::push;
+use crate::redeclare::Redeclared;
 use crate::seeding;
 use crate::servable;
 use crate::serving::Crawls;
@@ -68,12 +72,20 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let enqueuing = crawls.clone();
     let pushing = crawls.clone();
     let resuming = crawls.clone();
+    let redeclared = Redeclared::default();
+    let redeclaring = redeclared.clone();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
     let [read_links, enqueue_links] = enqueue::links::handlers(&crawls, &tiers);
     Contribution::new("goodfetch-crawl")
         .with_handler(Handler::new(&CRAWL_START, move |params, context| {
-            start(params, context, crawls.clone(), starting.clone())
+            start(
+                params,
+                context,
+                crawls.clone(),
+                starting.clone(),
+                redeclared.clone(),
+            )
         }))
         .with_handler(Handler::new(&CRAWL_SERVE, move |params, context| {
             serve(params, context, serving.clone())
@@ -95,13 +107,12 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_driver(
             RunKind::Crawl,
             Arc::new(move |run, context, settings| {
-                Box::pin(delivery::resume(
-                    run,
-                    context,
-                    settings,
-                    resuming.clone(),
-                    tiers.clone(),
-                ))
+                let (redeclared, crawls, tiers) =
+                    (redeclaring.clone(), resuming.clone(), tiers.clone());
+                Box::pin(async move {
+                    redeclared.record(&run).await;
+                    delivery::resume(run, context, settings, crawls, tiers).await;
+                })
             }),
         )
 }
@@ -138,6 +149,7 @@ async fn start(
     context: CallContext,
     crawls: Crawls,
     tiers: FetchTiers,
+    redeclared: Redeclared,
 ) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
     let (settings, _) = context
@@ -164,12 +176,8 @@ async fn start(
     bounds.check().map_err(CallError::from)?;
     let egress = domain_policy(settings.resolved())?;
     let payloads = PayloadRules::of(settings.resolved(), &params.labels)?;
-    let found = match &run_id {
-        Some(run_id) => {
-            schema_unchanged(&context, run_id, payloads.clone(), fragments.clone()).await?
-        }
-        None => false,
-    };
+    let found =
+        schema_unchanged(&context, run_id.as_ref(), &payloads, &fragments, &datasets).await?;
     if !found {
         work_items::check_seeds(&payloads, params.seeds.iter())?;
     }
@@ -180,6 +188,7 @@ async fn start(
         serde_json::to_value(&seeds).expect("invariant: seeds encode as JSON"),
     )]);
     let declared = params.labels;
+    let redeclaring = datasets.clone();
     let started = context
         .runs()
         .start(Start {
@@ -234,23 +243,31 @@ async fn start(
             ));
             started
         }
-        Started::Existing(existing) => existing,
+        Started::Existing(existing) => redeclared.keep(existing, redeclaring, &crawls).await,
     })
 }
 
-/// Whether a Run `run_id` exists, which a start under its ID goes on with
-/// (ADR 0102), its seeds not admitted again, once it may go on under the
+/// Whether a Run `run_id` exists (never when the start names none), which
+/// a start under its ID goes on with (ADR 0102), its seeds not admitted
+/// again, once it may go on under the
 /// crawl's `declared` Labels: refused with `payload_schema_changed`
 /// before any work when a Label's Payload schema changed and a pending
-/// Payload of it fails the new one (ADR 0082), and with
+/// Payload of it fails the new one (ADR 0082), with
 /// `setting_not_applicable` when `fragments` differ from those the Run
-/// began with (ADR 0120).
+/// began with (ADR 0120), and with `dataset_unknown` or
+/// `dataset_key_invalid` when `datasets` drop or key anew a Dataset that
+/// holds Records (ADR 0103).
 async fn schema_unchanged(
     context: &CallContext,
-    run_id: &RunId,
-    declared: PayloadRules,
-    fragments: labels::Fragments,
+    run_id: Option<&RunId>,
+    declared: &PayloadRules,
+    fragments: &labels::Fragments,
+    datasets: &Datasets,
 ) -> Result<bool, CallError> {
+    let Some(run_id) = run_id else {
+        return Ok(false);
+    };
+    let declared = declared.clone();
     let failed = |error: RunError| run_error(error, context.identity());
     let mut reader = match context.runs().reader(run_id.clone()).await {
         Ok(reader) => reader,
@@ -263,12 +280,13 @@ async fn schema_unchanged(
             let changed = declared.schema_changed(connection, |label| {
                 work_items::pending_of(connection, label)
             })?;
-            Ok((began, changed))
+            Ok((began, Began::read(connection)?, changed))
         })
         .await
     {
-        Ok((began, changed)) => {
+        Ok((began, began_with, changed)) => {
             fragments.unchanged(&began, run_id.as_str())?;
+            datasets.resumes(&began_with, run_id.as_str())?;
             changed
         }
         Err(RunError::NotFound(_)) => return Ok(false),

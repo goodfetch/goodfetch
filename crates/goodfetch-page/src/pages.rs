@@ -987,13 +987,15 @@ impl Pages {
             limits,
         };
         // A cancelled call closes the engine's page as it drops.
+        // A command its lease check withheld ends the page (P31).
         let engine_page = self
             .sessions
             .engine_page(&page.session, page.driver.value())
-            .await?;
+            .await
+            .map_err(|error| page.life.withheld(error))?;
         let fetched = browser_fetch::send(engine_page.driver(), &steps, &request).await;
         engine_page.close().await;
-        let fetched = fetched?;
+        let fetched = fetched.map_err(|error| page.life.withheld(error))?;
         let kept = match fetched.body {
             browser_fetch::Body::Whole(bytes) => {
                 let handle = page.run.store_body(bytes).await.map_err(|error| {

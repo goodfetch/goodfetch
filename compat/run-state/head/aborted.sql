@@ -229,6 +229,12 @@ CREATE TABLE seeds (
         ) STRICT;
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 INSERT INTO "tags" VALUES(0,'manual');
+CREATE TABLE tier_choices (
+            label TEXT NOT NULL,
+            domain_key TEXT NOT NULL,
+            unit TEXT NOT NULL,
+            PRIMARY KEY (label, domain_key)
+        ) STRICT;
 CREATE TABLE usage (
         slice_id INTEGER NOT NULL,
         epoch INTEGER NOT NULL,

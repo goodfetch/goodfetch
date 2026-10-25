@@ -5930,6 +5930,16 @@
       ]
     },
     {
+      "id": "setting:fetch.encoding",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:fetch.hedge.enabled",
       "kind": "setting",
       "area": 3,
@@ -5971,6 +5981,16 @@
     },
     {
       "id": "setting:fetch.tier",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:fetch.tier_race",
       "kind": "setting",
       "area": 5,
       "milestone": null,
@@ -18457,6 +18477,26 @@
     },
     {
       "id": "story:6-255",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-257",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-258",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

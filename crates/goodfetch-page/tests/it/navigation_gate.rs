@@ -360,40 +360,45 @@ fn a_refused_navigation_raises_from_the_waiters_armed_for_it() {
 
 /// The lease check is asked before each command the page sends, a
 /// `page.request`'s included: once the lease ended, a navigation, a
-/// `page.request` and a click each raise the error the lease check gives
-/// (the Recording gate's `call_cancelled`, Foxhound's `attempt_ended`) and nothing
-/// reaches the site.
-/// Covers: operation:page.goto, operation:page.request, operation:locator.click
-#[test]
-fn a_page_whose_lease_ended_sends_nothing_more() {
+/// `page.request` or a click raises the error the lease check gives (the
+/// Recording gate's `call_cancelled`, Foxhound's `attempt_ended`) and
+/// nothing reaches the site; that moves the page to `Closing` (spec #594's
+/// P31), so its next call raises `closed`.
+#[rstest::rstest]
+/// Covers: operation:page.goto
+#[case::a_navigation("page.goto", "/after-goto")]
+/// Covers: operation:page.request
+#[case::a_page_request("page.request", "/after-request")]
+/// Covers: operation:locator.click
+#[case::a_click("locator.click", "/b")]
+fn a_page_whose_lease_ended_sends_nothing_more(#[case] method: &str, #[case] path: &str) {
     let gate = RecordingGate::new();
     with_handler_page(&gate, Map::new(), async |program| {
         let before = gate.lease_checks();
         program.goto(HISTORY, "/").await;
         let navigation_checks = gate.lease_checks() - before;
         let before = gate.lease_checks();
-        let url = program.proving_ground.url(HISTORY, "/b");
+        let url = program.proving_ground.url(HISTORY, "/c");
         let sent = program.on_page("page.request", json!({ "url": url })).await;
         assert!(sent.get("result").is_some(), "{sent}");
         let request_checks = gate.lease_checks() - before;
 
         gate.end_lease(LeaseEnded::Lost);
-        let goto = program
+        let refused = if method == "locator.click" {
+            program
+                .call(
+                    method,
+                    &json!({ "locator": { "page_id": program.page, "selector": "#next" } }),
+                )
+                .await
+        } else {
+            let url = program.proving_ground.url(HISTORY, path);
+            program.on_page(method, json!({ "url": url })).await
+        };
+        let later = program
             .on_page(
                 "page.goto",
-                json!({ "url": program.proving_ground.url(HISTORY, "/after-goto") }),
-            )
-            .await;
-        let request = program
-            .on_page(
-                "page.request",
-                json!({ "url": program.proving_ground.url(HISTORY, "/after-request") }),
-            )
-            .await;
-        let click = program
-            .call(
-                "locator.click",
-                &json!({ "locator": { "page_id": program.page, "selector": "#next" } }),
+                json!({ "url": program.proving_ground.url(HISTORY, "/after-close") }),
             )
             .await;
         let code = |answer: &Value| answer["error"]["data"]["code"].clone();
@@ -402,19 +407,17 @@ fn a_page_whose_lease_ended_sends_nothing_more() {
             (
                 navigation_checks > 0,
                 request_checks > 0,
-                code(&goto),
-                code(&request),
-                code(&click),
-                program.requested(HISTORY, "/after-goto"),
-                program.requested(HISTORY, "/after-request"),
-                program.requested(HISTORY, "/b"),
+                code(&refused),
+                code(&later),
+                program.requested(HISTORY, path),
+                program.requested(HISTORY, "/after-close"),
+                program.requested(HISTORY, "/c"),
             ),
             (
                 true,
                 true,
                 json!("call_cancelled"),
-                json!("call_cancelled"),
-                json!("call_cancelled"),
+                json!("closed"),
                 false,
                 false,
                 true,

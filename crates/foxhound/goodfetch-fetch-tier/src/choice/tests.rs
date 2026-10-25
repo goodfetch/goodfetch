@@ -6,7 +6,7 @@ use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use serde_json::{Value, json};
 
-use super::{Forced, LabelTiers, SetTier, TierChoice, Unserved, unserved};
+use super::{Choosing, Forced, LabelTiers, SetTier, TierChoice, Unserved, unserved};
 
 /// The Labels named in `labels`, each declared with its nested settings.
 fn declared(labels: &[(&str, Value)]) -> BTreeMap<String, LabelDeclaration> {
@@ -24,6 +24,10 @@ fn declared(labels: &[(&str, Value)]) -> BTreeMap<String, LabelDeclaration> {
         .collect()
 }
 
+fn forcing(tier: FetchTier, label: Option<&str>) -> Choosing {
+    Choosing::Forced(forced(tier, label))
+}
+
 fn forced(tier: FetchTier, label: Option<&str>) -> TierChoice {
     TierChoice {
         tier,
@@ -34,64 +38,64 @@ fn forced(tier: FetchTier, label: Option<&str>) -> TierChoice {
 }
 
 /// A Label's own `fetch.tier` forces its requests only, over the Run's;
-/// an `auto` set for a Label or the Run starts on `http`, while the
-/// built-in default hands the handler its request alone.
+/// an `auto` set for a Label or the Run leaves the tier to the engine's
+/// choice, while the built-in default hands the handler its request alone.
 #[rstest::rstest]
 #[case::label_forces_its_own(
     "list",
     SetTier::Forced(FetchTier::Browser),
-    Some(forced(FetchTier::Http, Some("list")))
+    forcing(FetchTier::Http, Some("list"))
 )]
 #[case::another_label_takes_the_runs(
     "page",
     SetTier::Forced(FetchTier::Browser),
-    Some(forced(FetchTier::Browser, None))
+    forcing(FetchTier::Browser, None)
 )]
-#[case::an_auto_the_run_set("page", SetTier::Auto, Some(engine()))]
+#[case::an_auto_the_run_set("page", SetTier::Auto, Choosing::Engine)]
 #[case::an_auto_the_label_set_under_a_forced_run(
     "auto",
     SetTier::Forced(FetchTier::Browser),
-    Some(engine())
+    Choosing::Engine
 )]
-#[case::an_auto_the_label_set_under_the_default("auto", SetTier::Unset, Some(engine()))]
-#[case::the_default_is_handed_alone("page", SetTier::Unset, None)]
-#[case::undeclared_under_the_default("other", SetTier::Unset, None)]
+#[case::an_auto_the_label_set_under_the_default("auto", SetTier::Unset, Choosing::Engine)]
+#[case::the_default_is_handed_alone("page", SetTier::Unset, Choosing::Alone)]
+#[case::undeclared_under_the_default("other", SetTier::Unset, Choosing::Alone)]
 #[case::undeclared_under_a_forced_run(
     "other",
     SetTier::Forced(FetchTier::Http),
-    Some(forced(FetchTier::Http, None))
+    forcing(FetchTier::Http, None)
 )]
-#[case::undeclared_under_an_auto_the_run_set("other", SetTier::Auto, Some(engine()))]
+#[case::undeclared_under_an_auto_the_run_set("other", SetTier::Auto, Choosing::Engine)]
 fn a_labels_tier_forces_its_own_requests_over_the_runs(
     #[case] label: &str,
     #[case] run: SetTier,
-    #[case] expected: Option<TierChoice>,
+    #[case] expected: Choosing,
 ) {
     let tiers = LabelTiers::of(&declared(&[
         ("list", json!({ "fetch": { "tier": "http" } })),
         ("page", json!({})),
-        ("auto", json!({ "fetch": { "tier": "auto" } })),
+        (
+            "auto",
+            json!({ "fetch": { "tier": "auto", "encoding": "shift_jis" } }),
+        ),
     ]))
     .unwrap();
 
     assert_eq!(tiers.choose(label, run), expected);
 }
 
-/// The engine's choice under `auto`: `http`, forced by no one.
-fn engine() -> TierChoice {
-    TierChoice {
-        tier: FetchTier::Http,
-        forced: None,
-    }
-}
-
-/// A Label key other than `fetch.tier` is refused with
-/// `setting_not_applicable`, and a `fetch.tier` naming no tier with
+/// A Label key other than `fetch.tier` and `fetch.encoding` is refused
+/// with `setting_not_applicable`, `fetch.tier_race` among them since it is
+/// set for the Run only; a `fetch.tier` naming no tier, and a
+/// `fetch.encoding` that is no WHATWG Encoding label, with
 /// `setting_invalid`, each naming the key.
 #[rstest::rstest]
 #[case::other_key(json!({ "timeout": { "handler": 5000 } }), "setting_not_applicable", "timeout.handler")]
 #[case::unknown_tier(json!({ "fetch": { "tier": "fast" } }), "setting_invalid", "fetch.tier")]
 #[case::not_text(json!({ "fetch": { "tier": 3 } }), "setting_invalid", "fetch.tier")]
+#[case::a_race(json!({ "fetch": { "tier_race": true } }), "setting_not_applicable", "fetch.tier_race")]
+#[case::unknown_encoding(json!({ "fetch": { "encoding": "klingon" } }), "setting_invalid", "fetch.encoding")]
+#[case::encoding_not_text(json!({ "fetch": { "encoding": 8 } }), "setting_invalid", "fetch.encoding")]
 fn a_label_setting_it_cannot_take_is_refused(
     #[case] settings: Value,
     #[case] code: &str,
@@ -105,6 +109,21 @@ fn a_label_setting_it_cannot_take_is_refused(
             error.details().and_then(|details| details["key"].as_str())
         ),
         (code, Some(key))
+    );
+}
+
+/// A Label's `fetch.encoding` is kept by its Label, its label as given.
+#[test]
+fn a_labels_encoding_is_kept_by_its_label() {
+    let tiers = LabelTiers::of(&declared(&[
+        ("list", json!({ "fetch": { "encoding": "Shift_JIS" } })),
+        ("page", json!({ "fetch": { "encoding": null } })),
+    ]))
+    .unwrap();
+
+    assert_eq!(
+        tiers.encodings().collect::<Vec<_>>(),
+        vec![("list", "Shift_JIS")]
     );
 }
 

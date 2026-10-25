@@ -36,7 +36,8 @@ use goodfetch_page::page_value::{
 };
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
 use goodfetch_protocol::foxhound::fetch::{
-    FETCH_HEDGE_ENABLED, FETCH_REDIRECT_MAX, FETCH_TIER, FetchTier, REDIRECT_MAX_LIMIT,
+    FETCH_ENCODING, FETCH_HEDGE_ENABLED, FETCH_REDIRECT_MAX, FETCH_TIER, FETCH_TIER_RACE,
+    FetchTier, REDIRECT_MAX_LIMIT,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{BodyHandle, Navigated, PageId, SessionId};
@@ -195,19 +196,58 @@ impl FetchTiers {
 
     /// Refuses a Run whose `fetch.tier`, its own or one of its Labels' in
     /// `labels`, forces a tier this engine does not build yet, with
-    /// `capability_unavailable` naming the setting, and one that hedges
-    /// where a hedge could never start.
+    /// `capability_unavailable` naming the setting, one that hedges
+    /// where a hedge could never start, and one that sets `fetch.tier_race`
+    /// or `fetch.encoding`, neither built yet.
     ///
     /// # Errors
     ///
     /// `capability_unavailable` for `discovered_api`, `browser_fetch` and
-    /// `light_browser`; `setting_not_applicable` for hedges switched on
-    /// while a domain admits one request at a time (ADR 0086);
-    /// `setting_invalid` for a `fetch.redirect.max` outside 1 to 19 (ADR
-    /// 0118).
+    /// `light_browser`, for `fetch.tier_race` switched on and for a
+    /// `fetch.encoding` set; `setting_invalid` for a Run's `fetch.encoding`
+    /// that is no WHATWG Encoding label and for a `fetch.redirect.max`
+    /// outside 1 to 19 (ADR 0118); `setting_not_applicable` for hedges
+    /// switched on while a domain admits one request at a time (ADR 0086).
     pub fn check(settings: &Resolved, labels: &LabelTiers) -> Result<(), CallError> {
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_HEDGE_ENABLED)?;
         refuse_redirect_max(settings)?;
+        if let Some(effective) = settings
+            .get(FETCH_TIER_RACE.name)
+            .filter(|effective| effective.value == serde_json::Value::Bool(true))
+        {
+            return Err(unbuilt(
+                FETCH_TIER_RACE.name,
+                effective.layer,
+                "tier_race",
+                "This engine does not race a crawl request's tiers yet, which `fetch.tier_race` asks for in {set}: switch `fetch.tier_race` off.",
+                "`fetch.tier_race: false`",
+                None,
+            ));
+        }
+        if let Some(effective) = settings
+            .get(FETCH_ENCODING.name)
+            .filter(|effective| !effective.value.is_null())
+        {
+            crate::choice::encoding("the Run", &effective.value)?;
+            return Err(unbuilt(
+                FETCH_ENCODING.name,
+                effective.layer,
+                "encoding",
+                "This engine does not force an encoding on a crawl request's document yet, which `fetch.encoding` asks for in {set}: leave `fetch.encoding` unset.",
+                "`fetch.encoding: null`",
+                None,
+            ));
+        }
+        if let Some((label, _)) = labels.encodings().next() {
+            return Err(unbuilt(
+                FETCH_ENCODING.name,
+                SettingsLayer::Run,
+                "encoding",
+                "This engine does not force an encoding on a crawl request's document yet, which `fetch.encoding` asks for in {set}: leave `fetch.encoding` unset.",
+                "`fetch.encoding: null`",
+                Some(label),
+            ));
+        }
         let run = forced(settings).map(|(tier, layer)| (tier, layer, None));
         let by_label = labels
             .forced()
@@ -731,11 +771,25 @@ impl HttpTier {
 /// Provenance's action for the tier a crawl request's attempt ran on.
 const FETCH_TIER_ACTION: &str = "fetch_tier";
 
+/// How an attempt's run came to be on its tier, for its Provenance.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Chosen {
+    /// As its [`TierChoice`] says: forced, or the comparison's choice.
+    AsChosen,
+    /// One run of a sample of the crawl's sample comparison; on the
+    /// browser, the call its cheaper run escalated at, if it did.
+    Sample(Option<&'static str>),
+    /// An escalation to the browser at this call, which the cheaper tier
+    /// could not serve.
+    Escalated(&'static str),
+}
+
 /// Records in `run`'s Provenance the tier `choice` names for an attempt of
 /// the crawl request `request_id` of `label`, and how it was chosen (ADR
-/// 0023): `forced`, with who forced it, the Run or the Label; `engine`
-/// under `auto`; or `escalation` to the browser, naming the call
-/// `escalated` that the cheaper tier could not serve.
+/// 0023): `forced`, with who forced it, the Run or the Label; `compared`
+/// under `auto`, the sample comparison's choice; `sample`, one run of a
+/// sample; or `escalation` to the browser, naming the call the cheaper
+/// tier could not serve.
 ///
 /// # Cancel safety
 ///
@@ -745,14 +799,19 @@ pub async fn record_tier(
     request_id: &str,
     label: &str,
     choice: &TierChoice,
-    escalated: Option<&'static str>,
+    how: Chosen,
 ) {
+    let (chosen, escalated) = match how {
+        Chosen::AsChosen => (choice.chosen(), None),
+        Chosen::Sample(call) => ("sample", call),
+        Chosen::Escalated(call) => ("escalation", Some(call)),
+    };
     let mut entry = serde_json::json!({
         "action": FETCH_TIER_ACTION,
         "crawl_request_id": request_id,
         "label": label,
         "tier": choice.tier.as_str(),
-        "chosen": if escalated.is_some() { "escalation" } else { choice.chosen() },
+        "chosen": chosen,
     });
     if let Some(forced) = &choice.forced {
         entry["forced_by"] = serde_json::json!(if forced.label.is_some() {
@@ -765,6 +824,33 @@ pub async fn record_tier(
         entry["call"] = serde_json::json!(call);
     }
     goodfetch_page::provenance(run, &entry).await;
+}
+
+/// `capability_unavailable` for `key`, set in `layer` or by the Label
+/// `label`, asking for `kind`, which this engine does not build: `message`
+/// with `{set}` naming where it was set, and `fix`.
+fn unbuilt(
+    key: &str,
+    layer: SettingsLayer,
+    kind: &str,
+    message: &str,
+    fix: &str,
+    label: Option<&str>,
+) -> CallError {
+    let set = label.map_or_else(
+        || layer.as_str().to_owned(),
+        |label| format!("the Label `{label}`"),
+    );
+    CallError::new(
+        &CAPABILITY_UNAVAILABLE,
+        message.replace("{set}", &set),
+        &CapabilityUnavailableDetails {
+            key: key.to_owned(),
+            layer,
+            kind: kind.to_owned(),
+            fix: fix.to_owned(),
+        },
+    )
 }
 
 /// Refuses a `fetch.redirect.max` outside 1 to 19, as many redirects as

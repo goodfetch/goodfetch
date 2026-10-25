@@ -278,6 +278,40 @@ fn a_log_level_keeps_the_settings_the_test_wrote_and_its_own_settings_win() {
     );
 }
 
+/// An engine reading the user configuration while the test sets a log
+/// level, as each engine a test starts beside another does, reads the file
+/// before or after, never cut: it always names its `version`.
+#[test]
+fn a_log_level_set_while_an_engine_reads_the_user_configuration_never_cuts_it() {
+    let env = test_env("env::tests::log_level_read");
+    let file = env
+        .home()
+        .join(crate::runtime_file::major_folder(env!("CARGO_PKG_VERSION")))
+        .join("configuration.toml");
+    let (done, finished) = std::sync::mpsc::channel::<()>();
+
+    let cut = std::thread::scope(|scope| {
+        let file = &file;
+        let reader = scope.spawn(move || {
+            let mut cut = 0_u32;
+            while finished.try_recv().is_err() {
+                let text = std::fs::read_to_string(file).unwrap_or_default();
+                if !text.starts_with("version = ") {
+                    cut += 1;
+                }
+            }
+            cut
+        });
+        for _ in 0..2_000 {
+            env.log_level("trace");
+        }
+        done.send(()).unwrap();
+        reader.join().unwrap()
+    });
+
+    assert_eq!(cut, 0);
+}
+
 /// Under `just coverage`, every executable a test starts writes its
 /// coverage profile where cargo-llvm-cov reads it (ADR 0072).
 #[test]

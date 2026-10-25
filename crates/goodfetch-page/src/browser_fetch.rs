@@ -5,7 +5,10 @@
 //! Session's browser context, whose scripts never run, which no service
 //! worker controls (`Network.setBypassServiceWorker`), and whose every other
 //! request is failed, so no page script reads the request or its response
-//! and no service worker answers it. The load passes steps 3 to 8 of the
+//! and no service worker answers it. The page is hidden, shown nowhere in
+//! the browser, so Chromium never asks the site for the `/favicon.ico` of the
+//! text document it loads, a request its own that would leave once the
+//! page's interception stopped (ticket #1608). The load passes steps 3 to 8 of the
 //! page's interception at each hop (its [`EngineRequests`]), the caller's method,
 //! headers and body set over the browser's own on its first.
 //!

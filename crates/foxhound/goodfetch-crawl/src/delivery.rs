@@ -48,7 +48,10 @@
 //! `goodfetch.work_item.retried`, on the meter the Run hands out (ADR 0050).
 //! A pending work item a rule the Frontier learned later merged leaves its
 //! domain's queue, and one the gate already took gives its turn back
-//! unsent.
+//! unsent. Each attempt runs on the tier the crawl's tier choice plans for
+//! its Label on its domain (`tier_choice`); a sample's outcome is
+//! classified, and the choice written in the run file, as its attempt
+//! settles, before the next admission.
 //!
 //! Size: one delivery loop, the admission, leases, attempts and settling it
 //! drives, kept whole so every work item's way from pending to its ending
@@ -66,7 +69,7 @@ use goodfetch_engine::mask::Scope;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
-use goodfetch_fetch_tier::{FetchTiers, HttpTier, LabelTiers, RobotsTxtFetch, SetTier};
+use goodfetch_fetch_tier::{Choosing, FetchTiers, HttpTier, LabelTiers, RobotsTxtFetch, SetTier};
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
@@ -92,6 +95,7 @@ use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::serving::{Crawls, Opened, Server};
+use crate::tier_choice::{self, AttemptPlan, TierChoices};
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
 use goodfetch_protocol::foxhound::progress::{InFlightPhase, InFlightRequest};
 
@@ -151,7 +155,7 @@ pub(crate) async fn drive(
     mut arrivals: Opened,
     crawls: Crawls,
     settings: RunSettings,
-    (tiers, labels): (FetchTiers, LabelTiers),
+    (tiers, labels, choices): (FetchTiers, LabelTiers, TierChoices),
 ) {
     let mut servers = vec![Serving {
         context,
@@ -182,6 +186,7 @@ pub(crate) async fn drive(
         robots: http.as_ref().map(HttpTier::robots_txt_fetch),
         labels: &labels,
         run_tier,
+        choices: tokio::sync::Mutex::new(choices),
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
     };
     deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
@@ -285,7 +290,7 @@ async fn deliver(
             }
             Some(ended) = attempts.join_next() => {
                 if let Ok(attempt) = ended {
-                    let pool = (&mut pool, &fetching.in_flight);
+                    let pool = (&mut pool, fetching);
                     settled(run, settings, &mut admission, pool, servers, attempt).await;
                 }
             }
@@ -346,7 +351,8 @@ async fn next_wake(wakes: Option<&mut Wakes>) -> Option<String> {
 }
 
 /// Drives a resumed crawl (ADRs 0002 and 0102), its bounds recorded again
-/// from its settings (an unreadable path budget fails it): each attempt its
+/// from its settings (an unreadable path budget fails it) and its Labels'
+/// tier choices read again from its run file: each attempt its
 /// committed state shows in flight, whose engine stopped without settling
 /// it, counts as `handler_lost` against `crawl.retry.max` and is retried or
 /// failed, then delivery goes on from the committed state, so the work
@@ -373,17 +379,21 @@ pub(crate) async fn resume(
             bounds.record(connection)?;
             goodfetch_frontier::payload::record_max_size(connection, &resolved)?;
             work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)?;
-            Ok((work_items::left(connection)?, labels::read(connection)?))
+            Ok((
+                work_items::left(connection)?,
+                labels::read(connection)?,
+                tier_choice::read(connection)?,
+            ))
         })
         .await;
-    let left = left.map(|(left, declared)| {
+    let left = left.map(|(left, declared, choices)| {
         let labels = LabelTiers::of(&declared).unwrap_or_else(|error| {
             tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier");
             LabelTiers::default()
         });
-        (left, labels)
+        (left, (labels, choices))
     });
-    let labels = match left {
+    let (labels, choices) = match left {
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
             run.end(failed(&run, &error)).await;
@@ -399,7 +409,15 @@ pub(crate) async fn resume(
     };
     let egress = resumed_domain_policy(settings.resolved(), run.id());
     let opened = crawls.open(&run, egress).await;
-    drive(run, context, opened, crawls, settings, (tiers, labels)).await;
+    drive(
+        run,
+        context,
+        opened,
+        crawls,
+        settings,
+        (tiers, labels, choices),
+    )
+    .await;
 }
 
 /// The tiers a Run's crawl requests are fetched on: its HTTP tier, and the
@@ -412,6 +430,8 @@ struct Fetching<'a> {
     labels: &'a LabelTiers,
     /// The tier the Run's own `fetch.tier` forces.
     run_tier: SetTier,
+    /// What each Label on each domain learned under `auto`.
+    choices: tokio::sync::Mutex<TierChoices>,
     /// How the navigation gate fetches robots.txt.
     robots: Option<RobotsTxtFetch>,
     /// The requests in flight, as the Run's progress shows them.
@@ -428,15 +448,44 @@ impl Fetching<'_> {
         }
     }
 
-    /// The tier a request of `label` takes, and what its attempt fetches
-    /// its document with.
-    fn served(&self, label: &str, second_copies: &SecondCopies) -> Tiering {
-        Tiering::of(
-            self.tiers,
-            self.http,
-            self.labels.choose(label, self.run_tier),
-            second_copies,
-        )
+    /// How `leased`'s attempt runs, as its Label and the Run's
+    /// `fetch.tier` choose and, under `auto`, as its Label on its domain
+    /// learned, and what it fetches its document with.
+    async fn served(&self, leased: &Leased, second_copies: &SecondCopies) -> Tiering {
+        let request = &leased.crawl_request;
+        let plan = match self.labels.choose(&request.label, self.run_tier) {
+            Choosing::Alone => AttemptPlan::Alone,
+            Choosing::Forced(choice) => AttemptPlan::On(choice),
+            Choosing::Engine => self.choices.lock().await.serve_attempt(
+                &request.label,
+                &leased.waiting.key,
+                &request.url,
+            ),
+        };
+        Tiering::of(self.tiers, self.http, plan, second_copies)
+    }
+
+    /// Classifies the sample `attempt` was, if it was one, and writes what
+    /// its Label on its domain now learned into the run file.
+    async fn classify(&self, run: &Run, attempt: &mut Attempt) {
+        let Some((sampled, matched)) = attempt.sampled.take() else {
+            return;
+        };
+        let unit = self
+            .choices
+            .lock()
+            .await
+            .classify(&sampled, matched)
+            .clone();
+        if let Err(error) = run
+            .state()
+            .write(move |connection| {
+                tier_choice::record(connection, &sampled.label, &sampled.domain_key, &unit)
+            })
+            .await
+        {
+            tracing::warn!(%error, run_id = %run.id(), "a Label's tier choice was not written; a resumed crawl samples it again");
+        }
     }
 }
 
@@ -512,7 +561,8 @@ async fn lease_to_servers(
             server.in_flight += 1;
             let tiering = pooled
                 .fetching
-                .served(&leased.crawl_request.label, &admission.second_copies());
+                .served(&leased, &admission.second_copies())
+                .await;
             let fetches = tiering.tier();
             pooled.fetching.in_flight.lock().await.began(
                 run,
@@ -661,11 +711,13 @@ async fn settled(
     run: &Run,
     settings: &RunSettings,
     admission: &mut Admission,
-    (pool, in_flight): (&mut SessionPool, &SharedInFlight),
+    (pool, fetching): (&mut SessionPool, &Fetching<'_>),
     servers: &mut [Serving],
     mut attempt: Attempt,
 ) {
-    in_flight
+    fetching.classify(run, &mut attempt).await;
+    fetching
+        .in_flight
         .lock()
         .await
         .ended(run, &attempt.leased.crawl_request.id);

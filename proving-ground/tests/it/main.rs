@@ -68,5 +68,6 @@ mod stop;
 mod task_list;
 #[cfg(target_os = "linux")]
 mod tc_netem;
+mod tiers;
 mod transport;
 mod traps;

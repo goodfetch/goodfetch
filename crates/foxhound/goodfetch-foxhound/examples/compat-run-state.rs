@@ -397,10 +397,18 @@ fn bound() -> Contribution {
                                 r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source) VALUES (1, 1, 0, '{}', 6178731391398722387, NULL), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115, NULL), (3, 0, 1, '{}', 4417291851073961183, '{"url":"ws://127.0.0.1:9222/devtools/browser/lent","layer":"run","acting_for_model":false}')"#,
                                 [],
                             )
+                            .map(drop)?;
+                        // What a Label learned on a domain (#926): a split
+                        // Label, one segment on `http`, one still sampled.
+                        connection
+                            .execute(
+                                r#"INSERT INTO tier_choices (label, domain_key, unit) VALUES ('home', 'shop.test', '{"kind":"split","segments":[{"name":"products","matched":3,"tier":"http"},{"name":"blog","matched":0,"tier":"browser"},{"name":"mixed","matched":1,"tier":null}]}')"#,
+                                [],
+                            )
                             .map(drop)
                     })
                     .await
-                    .expect("the Sessions are kept");
+                    .expect("the Sessions and a tier choice are kept");
             }
             Ok::<Value, CallError>(json!({ "run_id": "paused" }))
         },

@@ -242,6 +242,8 @@ max_size = 4
 
 [settings.fetch]
 tier = "auto"
+tier_race = true
+encoding = "example"
 coalesce = true
 
 [settings.fetch.hedge]

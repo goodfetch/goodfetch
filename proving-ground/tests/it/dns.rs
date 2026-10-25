@@ -202,3 +202,31 @@ fn a_proxy_resolves_an_alternating_name_anew_for_each_relay() {
         ]
     );
 }
+
+/// The connection record lists each query with the address it came from,
+/// so a test sees which local address a resolver asked from (ADR 0044).
+#[test]
+fn each_query_is_recorded_with_the_address_it_came_from() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    clients::dns_query(&proving_ground.dns(), "1.catalog.test", RecordType::Aaaa);
+    let observations = proving_ground.observations();
+    let queries: Vec<_> = observations["dns_queries"]
+        .as_array()
+        .expect("the record lists the DNS queries")
+        .iter()
+        .map(|query| {
+            let source: std::net::SocketAddr = query["source"].as_str().unwrap().parse().unwrap();
+            (
+                query["name"].clone(),
+                query["record_type"].clone(),
+                source.ip(),
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        queries,
+        [(json!("1.catalog.test"), json!("AAAA"), address("127.0.0.1"))]
+    );
+}

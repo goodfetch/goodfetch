@@ -26,6 +26,7 @@ mod key_value_store;
 mod layout;
 mod lifecycle;
 mod list;
+mod local_addresses;
 mod log;
 mod masking;
 mod needs_you;

@@ -22,7 +22,8 @@ use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::tls::{CertificateExceptions, ClientCertificates, Trust};
 use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
 use goodfetch_test_support::{
-    Answer, CaseDomains, Outcome, ProvingGround, Refusal, Runner, SsrfCase, SsrfTable, TestEnv,
+    Answer, CaseDomains, Outcome, ProvingGround, ReceivedRequests, Refusal, Runner, SsrfCase,
+    SsrfTable, TestEnv,
 };
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject as _;
@@ -83,10 +84,8 @@ fn target_url(proving_ground: &ProvingGround) -> String {
 
 /// The hosts and paths of the page requests the Proving ground received.
 fn requests(observations: &Value) -> Vec<Value> {
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(observations)
+        .every()
         .map(|request| json!([request["host"], request["target"]]))
         .collect()
 }

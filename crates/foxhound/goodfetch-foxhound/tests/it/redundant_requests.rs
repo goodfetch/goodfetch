@@ -18,7 +18,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -111,10 +111,8 @@ fn crawl_together(
 /// each by its connection's number.
 fn connections_for(proving_ground: &ProvingGround, target: &str) -> Vec<u64> {
     let observations = proving_ground.observations().unwrap();
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(&observations)
+        .of_the_case()
         .filter(|request| request["host"] == "pacing.test" && request["target"] == target)
         .map(|request| request["connection"].as_u64().unwrap())
         .collect()

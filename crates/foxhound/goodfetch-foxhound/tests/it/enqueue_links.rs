@@ -12,7 +12,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -86,11 +86,9 @@ fn pages(env: &TestEnv, run_id: &str) -> Vec<Value> {
 /// The targets the Proving ground received on `host`, robots.txt aside,
 /// in order.
 fn targets(observations: &Value, host: &str) -> Vec<String> {
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|request| request["host"] == host && request["target"] != "/robots.txt")
+    ReceivedRequests::of(observations)
+        .of_the_case()
+        .filter(|request| request["host"] == host)
         .map(|request| request["target"].as_str().unwrap().to_owned())
         .collect()
 }

@@ -16,7 +16,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -117,10 +117,8 @@ fn crawl_sitemap(proving_ground: &ProvingGround, seed: &Value, more: &Value) -> 
 /// The targets `host` received, in arrival order, with each arrival in
 /// microseconds.
 fn received(observations: &Value, host: &str) -> Vec<(String, u64)> {
-    let mut received: Vec<(String, u64)> = observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    let mut received: Vec<(String, u64)> = ReceivedRequests::of(observations)
+        .every()
         .filter(|request| request["host"] == host)
         .map(|request| {
             (

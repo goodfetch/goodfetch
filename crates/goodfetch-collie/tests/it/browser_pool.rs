@@ -243,10 +243,10 @@ fn store(
 /// with `prefix`, in arrival order: each one's target and the cookies it
 /// sent.
 fn storage_requests(proving_ground: &ProvingGround, prefix: &str) -> Vec<(String, Value)> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .of_the_case()
         .filter(|request| {
             request["host"] == json!("scope.test")
                 && request["target"]
@@ -407,6 +407,67 @@ fn an_idle_browser_closes_and_the_next_session_gets_a_new_one() {
         ((stored, stored_again), (while_open, once_idle, relaunched)),
         ((json!(200), json!(200)), (1, 0, 1))
     );
+}
+
+/// Whether the Run `run_id`'s trace recorded `method`, once it did, or
+/// after [`SETTLE`] whatever it recorded then.
+#[cfg(unix)]
+fn traced_once(env: &TestEnv, run_id: &str, method: &str) -> bool {
+    let deadline = Instant::now() + SETTLE;
+    loop {
+        let traced = crate::page::traced_methods(env, run_id).contains(method);
+        if traced || Instant::now() > deadline {
+            return traced;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// A Session that closes while the engine's own page still reads its
+/// document's robots.txt closes that page with its others, so the browser
+/// it held is idle past `governor.browser.recycle_idle` and closes: the
+/// stalled-robots host never sends its robots.txt's body, so the read is
+/// still waiting on it when the Session closes, far short of its
+/// `timeout.navigation`.
+/// Covers: story:3-62, setting:governor.browser.recycle_idle, operation:session.close
+#[cfg(unix)]
+#[test]
+fn a_session_closed_while_its_robots_txt_read_waits_leaves_its_browser_idle() {
+    const STALLED: &str = "stalled-robots.access-policy.test";
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut settings = pool(json!({ "recycle_idle": 500 }));
+    settings.insert("timeout".to_owned(), json!({ "navigation": 120_000 }));
+    let mut engine = started_with(&env, &cache, &proving_ground, "stalled", &settings, |_| {});
+
+    let session = new_session(&mut engine, 2, "stalled");
+    let page = page_in(&mut engine, 3, &session);
+    let went = call(
+        &mut engine,
+        4,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url(STALLED, "/catalog/1") }),
+    )["result"]["response"]["status"]
+        .clone();
+    // The engine's page asked for the robots.txt's body, which never ends.
+    let reading = traced_once(&env, "stalled", "Fetch.getResponseBody");
+    let _ = call(
+        &mut engine,
+        5,
+        "session.close",
+        &json!({ "session_id": session }),
+    );
+    let once_idle = browsers_once(&env, 0);
+    let _ = call(
+        &mut engine,
+        6,
+        "run.finish",
+        &json!({ "run_id": "stalled" }),
+    );
+    let _ = engine.finish();
+
+    assert_eq!((went, reading, once_idle), (json!(200), true, 0));
 }
 
 /// A browser is not idle while a Session is seated in it or opens a page

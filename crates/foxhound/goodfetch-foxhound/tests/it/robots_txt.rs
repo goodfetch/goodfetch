@@ -21,7 +21,7 @@
 
 use std::time::{Duration, Instant};
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -82,10 +82,9 @@ fn crawl(
 /// its other pages.
 fn received(proving_ground: &ProvingGround, host: &str) -> (usize, usize) {
     let observations = proving_ground.observations().unwrap();
-    let requests: Vec<&Value> = observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    let received = ReceivedRequests::of(&observations);
+    let requests: Vec<&Value> = received
+        .every()
         .filter(|request| request["host"] == host)
         .collect();
     let robots = requests
@@ -237,11 +236,9 @@ fn crawl_seeds(
 /// The paths `host` received, robots.txt left out.
 fn pages_received(proving_ground: &ProvingGround, host: &str) -> Vec<String> {
     let observations = proving_ground.observations().unwrap();
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|request| request["host"] == host && request["target"] != "/robots.txt")
+    ReceivedRequests::of(&observations)
+        .of_the_case()
+        .filter(|request| request["host"] == host)
         .map(|request| request["target"].as_str().unwrap().to_owned())
         .collect()
 }
@@ -563,10 +560,8 @@ const CRAWL_DELAY: u64 = 5_000_000;
 /// and when it arrived, in microseconds, in arrival order.
 pub(crate) fn arrivals(proving_ground: &ProvingGround, host: &str) -> Vec<(String, u64)> {
     let observations = proving_ground.observations().unwrap();
-    let mut arrivals: Vec<(String, u64)> = observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    let mut arrivals: Vec<(String, u64)> = ReceivedRequests::of(&observations)
+        .every()
         .filter(|request| request["host"] == host)
         .map(|request| {
             (

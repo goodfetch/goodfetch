@@ -58,10 +58,10 @@ fn code_and_network_error(error: &CallError) -> (String, Option<String>) {
 
 /// The page requests the Proving ground received for `host`.
 fn requests_to(proving_ground: &ProvingGround, host: &str) -> Vec<Value> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .every()
         .filter(|request| {
             request["host"]
                 .as_str()

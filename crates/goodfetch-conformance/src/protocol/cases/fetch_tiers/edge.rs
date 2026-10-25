@@ -95,17 +95,16 @@ fn requests_for(site: &Site, url: &str) -> Vec<Value> {
         return Vec::new();
     };
     site.proving_ground
-        .observations()
-        .ok()
-        .and_then(|observations| observations["requests"].as_array().cloned())
+        .received_requests()
         .unwrap_or_default()
-        .into_iter()
+        .of_the_case()
         .filter(|request| {
             request["host"]
                 .as_str()
                 .is_some_and(|host| host.split(':').next() == Some(HOST))
                 && request["target"] == json!(path)
         })
+        .cloned()
         .collect()
 }
 

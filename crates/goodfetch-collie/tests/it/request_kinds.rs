@@ -197,10 +197,10 @@ impl<'env> Program<'env> {
 /// How many requests to `host` whose target starts with `target` the
 /// Proving ground received.
 fn received(proving_ground: &ProvingGround, host: &str, target: &str) -> usize {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    proving_ground
+        .received_requests()
+        .unwrap()
+        .of_the_case()
         .filter(|request| {
             request["host"] == json!(host)
                 && request["target"]
@@ -486,13 +486,9 @@ fn refusals_from(env: &TestEnv, run_id: &str, from: usize) -> (usize, Vec<(Strin
 /// Proving ground, from its request `from` on.
 fn reached_from(proving_ground: &ProvingGround, kind: &str, from: usize) -> (usize, Vec<String>) {
     let target = format!("/request-kinds/reached?kind={kind}");
-    let observations = proving_ground.observations().unwrap();
-    let requests = observations["requests"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let requests = proving_ground.received_requests().unwrap();
     let reached = requests
-        .iter()
+        .every()
         .skip(from)
         .filter(|request| {
             request["target"]
@@ -501,7 +497,7 @@ fn reached_from(proving_ground: &ProvingGround, kind: &str, from: usize) -> (usi
         })
         .filter_map(|request| request["host"].as_str().map(str::to_ascii_lowercase))
         .collect();
-    (requests.len(), reached)
+    (requests.every().count(), reached)
 }
 
 /// The SSRF table's thin runner on Chromium (ADR 0067) for each kind of

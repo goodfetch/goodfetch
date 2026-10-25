@@ -40,6 +40,7 @@ mod service_workers;
 mod targets;
 mod world;
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -182,12 +183,51 @@ pub(crate) struct Browser {
     service_workers: Arc<service_workers::ServiceWorkerChoices>,
     /// What each browser context does with the popups its pages open.
     popups: Arc<popups::Popups>,
+    /// Its hidden pages still open, by their browser context.
+    hidden: Arc<HiddenPages>,
     /// The lease check of the page this connection drives, asked before
     /// each command it sends; none on the browser's own connection and on
     /// a page whose value has none (ADR 0087).
     lease: Option<Arc<dyn LeaseCheck>>,
     /// Its Run's deadlines, which its commands wait under.
     deadlines: Arc<Deadlines>,
+}
+
+/// A browser's hidden pages (`Target.createTarget`'s `hidden`, as an
+/// engine page is) still open, by their browser context: Chromium keeps a
+/// hidden page open past its context's disposal, its commands in flight
+/// left unanswered, so a Session's close closes its own first. Each page
+/// leaves the list as it closes.
+#[derive(Default)]
+struct HiddenPages(Mutex<BTreeMap<browser::BrowserContextID, BTreeSet<target::TargetID>>>);
+
+impl HiddenPages {
+    /// The page `page` opened hidden in the context `context`.
+    async fn opened(&self, context: &browser::BrowserContextID, page: &target::TargetID) {
+        self.0
+            .lock()
+            .await
+            .entry(context.clone())
+            .or_default()
+            .insert(page.clone());
+    }
+
+    /// The page `page` of the context `context` closed, if it was hidden.
+    async fn closed(&self, context: &browser::BrowserContextID, page: &target::TargetID) {
+        let mut contexts = self.0.lock().await;
+        if let Some(pages) = contexts.get_mut(context) {
+            pages.remove(page);
+            if pages.is_empty() {
+                contexts.remove(context);
+            }
+        }
+    }
+
+    /// The hidden pages of the context `context` still open, which leave
+    /// the list.
+    async fn take(&self, context: &browser::BrowserContextID) -> BTreeSet<target::TargetID> {
+        self.0.lock().await.remove(context).unwrap_or_default()
+    }
 }
 
 impl Browser {
@@ -395,6 +435,7 @@ impl Connect for BorrowedBrowser {
                     closing: self.run.cancellation().child_token(),
                     service_workers: Arc::default(),
                     popups: Arc::default(),
+                    hidden: Arc::default(),
                     lease: None,
                     deadlines: Deadlines::of(&self.run),
                 };
@@ -533,6 +574,7 @@ impl Connect for LocalBrowser {
                     closing: attempt,
                     service_workers: Arc::default(),
                     popups: Arc::default(),
+                    hidden: Arc::default(),
                     lease: None,
                     deadlines: Deadlines::of(&self.run),
                 };
@@ -648,10 +690,12 @@ impl<B: Connect> SessionDriver<B> {
             .cloned()
     }
 
-    /// Closes the Session's browser context, and with it every page in it;
-    /// the browser itself stays, for the Run's other Sessions. A browser
-    /// already gone has nothing left to close. On a Borrowed browser, only
-    /// the pages the Session opened close, and its default context stays.
+    /// Closes the Session's browser context, and with it every page in it,
+    /// its hidden pages closed first, which the context's disposal leaves
+    /// open; the browser itself stays, for the Run's other Sessions. A
+    /// browser already gone has nothing left to close. On a Borrowed
+    /// browser, only the pages the Session opened close, and its default
+    /// context stays.
     pub(crate) async fn close(&self) {
         let Some(context) = self.context.get() else {
             return;
@@ -671,6 +715,16 @@ impl<B: Connect> SessionDriver<B> {
                 }
             }
             return;
+        }
+        // Closed, each one's target detaches, and its commands in flight
+        // fail at once.
+        for target_id in browser.hidden.take(context).await {
+            if let Err(failure) = browser
+                .try_send(None, &target::CloseTargetParams { target_id })
+                .await
+            {
+                tracing::debug!(%failure, "a hidden page of the Session was gone already");
+            }
         }
         if let Err(failure) = browser
             .try_send(
@@ -718,6 +772,8 @@ impl<B: Connect> SessionDriver<B> {
         let frame = created.target_id.clone();
         if self.browser.borrowed() {
             self.opened.lock().await.push(created.target_id.clone());
+        } else if visibility == Visibility::Hidden {
+            browser.hidden.opened(&context, &created.target_id).await;
         }
         let prepared = async {
             let session = browser.attach_own(&created.target_id, &opening).await?;
@@ -728,6 +784,7 @@ impl<B: Connect> SessionDriver<B> {
         let session = match prepared.await {
             Ok(session) => session,
             Err(error) => {
+                browser.hidden.closed(&context, &created.target_id).await;
                 if let Err(failure) = browser
                     .send_unleased(
                         None,
@@ -1216,6 +1273,7 @@ impl PageDriver {
         {
             tracing::debug!(%failure, "the engine's page was gone already");
         }
+        self.browser.hidden.closed(&self.context, &self.frame).await;
     }
 
     /// Asks the page to close as a person closing its tab does: its

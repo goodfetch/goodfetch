@@ -1,8 +1,10 @@
 //! The network fixtures `serve` starts beside its site (spec #152, story 82),
 //! each on its own address of the site's host, which `serve`'s output line
-//! reports: the forward proxies, the DNS fixture, and the target, a listener
+//! reports: the forward proxies, the DNS fixture, the target, a listener
 //! that no test should reach, whose every connection the connection record
-//! lists.
+//! lists, and the UDP fixture, a socket whose every datagram the record
+//! lists, which a page's STUN and TURN servers over UDP name, so a test sees
+//! that no UDP left around a Session's proxy (ADR 0044).
 //!
 //! The proxies are `open`, `refusing_tunnels` (it refuses `CONNECT`),
 //! `limited` (one page request at a time, until it read the site's
@@ -25,7 +27,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::net::{TcpListener, TcpSocket, TcpStream, UdpSocket};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -42,6 +44,9 @@ const EXITS_PER_KIND: usize = 3;
 /// The most bytes of a request head the target reads before it answers.
 const TARGET_READ_LIMIT: usize = 64 * 1024;
 
+/// The most bytes of a datagram the UDP fixture reads.
+const DATAGRAM_LIMIT: usize = 64 * 1024;
+
 /// The target's answer to whatever reached it.
 const REACHED: &[u8] =
     b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 7\r\nConnection: close\r\n\r\nreached";
@@ -53,6 +58,7 @@ pub(crate) struct NetworkFixtures {
     down: Down,
     dns: DnsServer,
     target: TcpListener,
+    udp: UdpSocket,
     context: Arc<Context>,
 }
 
@@ -89,11 +95,15 @@ impl NetworkFixtures {
         let target = TcpListener::bind((host, 0))
             .await
             .context("binding the target")?;
+        let udp = UdpSocket::bind((host, 0))
+            .await
+            .context("binding the UDP fixture")?;
         Ok(Self {
             proxies,
             down,
             dns,
             target,
+            udp,
             context: Arc::new(Context {
                 observations,
                 zone,
@@ -104,7 +114,7 @@ impl NetworkFixtures {
     }
 
     /// What `serve`'s output line reports of them: `proxies` by name,
-    /// `proxy_credentials`, `dns` and `target`.
+    /// `proxy_credentials`, `dns`, `target` and `udp`.
     pub(crate) fn report(&self) -> Result<Map<String, Value>> {
         let mut proxies = BTreeMap::from([("down", self.down.address.to_string())]);
         for proxy in &self.proxies {
@@ -114,6 +124,10 @@ impl NetworkFixtures {
             .target
             .local_addr()
             .context("reading the target's address")?;
+        let udp = self
+            .udp
+            .local_addr()
+            .context("reading the UDP fixture's address")?;
         Ok(Map::from_iter([
             ("proxies".to_owned(), json!(proxies)),
             (
@@ -122,6 +136,7 @@ impl NetworkFixtures {
             ),
             ("dns".to_owned(), json!(self.dns.address()?.to_string())),
             ("target".to_owned(), json!(target.to_string())),
+            ("udp".to_owned(), json!(udp.to_string())),
         ]))
     }
 
@@ -135,6 +150,7 @@ impl NetworkFixtures {
             tracker.spawn(proxy.run(Arc::clone(&self.context), tracker.clone(), stop.clone()));
         }
         let observations = Arc::clone(&self.context.observations);
+        tracker.spawn(listen(self.udp, Arc::clone(&observations), stop.clone()));
         tracker.spawn(watch(
             self.target,
             observations,
@@ -243,6 +259,31 @@ async fn watch(
                 () = stop.cancelled() => {}
             }
         });
+    }
+}
+
+/// Records every datagram the UDP fixture receives until `stop`, answering
+/// none.
+async fn listen(udp: UdpSocket, observations: Arc<Observations>, stop: CancellationToken) {
+    let Ok(destination) = udp.local_addr() else {
+        return;
+    };
+    let mut buffer = vec![0; DATAGRAM_LIMIT];
+    loop {
+        let received = tokio::select! {
+            () = stop.cancelled() => return,
+            received = udp.recv_from(&mut buffer) => received,
+        };
+        // A failed read concerns only the client that sent it.
+        let Ok((length, source)) = received else {
+            continue;
+        };
+        observations.connection_record().udp_datagram(
+            observations.stamp(),
+            source,
+            destination,
+            length,
+        );
     }
 }
 

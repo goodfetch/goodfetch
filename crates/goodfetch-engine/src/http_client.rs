@@ -185,6 +185,44 @@ impl LocalBinding {
             Ok(Resolution::ByProxy) | Err(_) => Err(Failure::Network),
         }
     }
+
+    /// The addresses of `host` on `port`, as a Session holding these local
+    /// addresses resolves it before it connects, such as the egress relay
+    /// of a browser Session (ADR 0044): the `resolve` mapping's, its
+    /// literal address, or the engine's own resolver's, whose queries leave
+    /// from the Session's addresses.
+    ///
+    /// # Errors
+    ///
+    /// [`Failure::Network`] when the name has no address.
+    pub async fn lookup(
+        &self,
+        host: &str,
+        port: u16,
+        resolve: &Resolve,
+    ) -> Result<Vec<SocketAddr>, Failure> {
+        let server = Server {
+            host,
+            port,
+            plain: true,
+        };
+        self.addresses(&server, resolve).await
+    }
+
+    /// A TCP connection to `address`, bound to the Session's address of its
+    /// family.
+    ///
+    /// # Errors
+    ///
+    /// [`io::ErrorKind::AddrNotAvailable`] when the Session holds no address
+    /// of that family, so none is opened from another; else the
+    /// connection's own failure.
+    pub async fn connect(&self, address: SocketAddr) -> io::Result<TcpStream> {
+        let Some(local) = self.of(family_of(address.ip())) else {
+            return Err(io::ErrorKind::AddrNotAvailable.into());
+        };
+        attempt(address, Some(local)).await
+    }
 }
 
 impl std::fmt::Debug for LocalBinding {

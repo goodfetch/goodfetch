@@ -76,6 +76,9 @@ pub struct ProvingGroundFixtures {
     pub dns: String,
     /// The watched target's address, which answers `200 reached`.
     pub target: String,
+    /// The UDP fixture's address, whose every datagram the connection
+    /// record lists.
+    pub udp: String,
     /// The URL of the connection record, which lists every connection
     /// accepted and every relay a proxy made.
     pub connections: String,
@@ -105,6 +108,9 @@ struct ServeLine {
     proxy_credentials: ProxyCredentials,
     dns: String,
     target: String,
+    /// Absent from an older tag's line, which has no UDP fixture.
+    #[serde(default)]
+    udp: String,
 }
 
 /// The commit's Proving ground, serving one seed for one test. Its process
@@ -197,6 +203,7 @@ impl ProvingGround {
                 proxy_credentials: line.proxy_credentials,
                 dns: line.dns,
                 target: line.target,
+                udp: line.udp,
                 connections: format!("http://{}/observations", line.address),
             },
         };

@@ -24,6 +24,13 @@
 //! proxy. Every refusal is recorded in the Run trace as a request that
 //! failed, and kept for the call whose navigation it failed.
 //!
+//! A Session with local addresses (ADR 0044) goes through its relay
+//! whatever `security.raw_cdp_egress_proxy` says: each connection the
+//! relay opens, to a site or to the upstream proxy, leaves from the
+//! Session's address of its family, and each name it resolves is asked
+//! through the engine's own resolver from that address, so nothing the
+//! browser sends reveals the machine's other addresses.
+//!
 //! A host the Run lists for an invalid-certificate exception (ADR 0042)
 //! is terminated instead ([`terminate`]): the relay presents the browser a
 //! leaf of the Run's in-memory [`authority`], which Chromium trusts by its
@@ -53,9 +60,11 @@ use std::sync::{Mutex, OnceLock};
 
 use data_encoding::BASE64;
 use goodfetch_engine::CallError;
+use goodfetch_engine::dns::Dns;
 use goodfetch_engine::egress::{Policy, Refused};
 use goodfetch_engine::endpoint::{REFUSAL_TARGET, new_token};
-use goodfetch_engine::http_client::{self, Resolve};
+use goodfetch_engine::http_client::{self, LocalBinding, Resolve};
+use goodfetch_engine::local_addresses::SessionAddresses;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved as ResolvedSettings;
@@ -101,7 +110,18 @@ pub(crate) struct EgressRelay {
     /// The per-host decision on a certificate the browser refused, made
     /// on its first use.
     examiner: OnceLock<Examiner>,
+    /// The local addresses its connections leave from, when the Session
+    /// has them.
+    local: Option<SessionAddresses>,
     _closed_when_dropped: DropGuard,
+}
+
+/// A Session's local addresses at its relay (ADR 0044): the address of
+/// each family its connections bind, and the engine's resolution, whose
+/// queries the relay sends from them.
+pub(crate) struct Local {
+    pub(crate) addresses: SessionAddresses,
+    pub(crate) dns: Dns,
 }
 
 /// What a Session's relay takes of its Run's TLS settings (ADR 0042): the
@@ -215,12 +235,18 @@ pub(crate) fn relayed(settings: &ResolvedSettings) -> bool {
 
 impl EgressRelay {
     /// Opens the relay of a Session of `run`, chained through `chain` when
-    /// the Session has an upstream proxy, binding port 0 of loopback.
+    /// the Session has an upstream proxy, its connections leaving from
+    /// `local`'s addresses when it has them, binding port 0 of loopback.
     ///
     /// # Errors
     ///
     /// The bind's failure, or the OS generator's.
-    pub(crate) async fn open(run: &Run, chain: Option<Chain>, tls: RelayTls) -> io::Result<Self> {
+    pub(crate) async fn open(
+        run: &Run,
+        chain: Option<Chain>,
+        tls: RelayTls,
+        local: Option<Local>,
+    ) -> io::Result<Self> {
         type Bypasses = Box<dyn Fn(&str) -> bool + Send + Sync>;
         let (upstream, address, bypasses, met): (_, _, Bypasses, _) = match chain {
             None => (Upstream::Direct, None, Box::new(|_: &str| false), None),
@@ -273,9 +299,11 @@ impl EgressRelay {
             bypasses,
             terminating: terminating.clone(),
         };
+        let addresses = local.as_ref().map(|local| local.addresses);
         let network = Tcp {
             mapping,
             upstream: address,
+            local: local.map(|local| LocalBinding::new(local.addresses, &local.dns)),
         };
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let address = listener.local_addr()?;
@@ -310,8 +338,15 @@ impl EgressRelay {
             terminating,
             trust,
             examiner: OnceLock::new(),
+            local: addresses,
             _closed_when_dropped: stop.drop_guard(),
         })
+    }
+
+    /// The local addresses its connections leave from, when the Session
+    /// has them.
+    pub(crate) fn local_addresses(&self) -> Option<SessionAddresses> {
+        self.local
     }
 
     /// `relay_for(session)`: its loopback address and the Session's
@@ -612,11 +647,16 @@ impl Record {
 }
 
 /// The relay's network: TCP connections from this host, names resolved
-/// through the Run's `network.resolve` mapping, then the system resolver.
+/// through the Run's `network.resolve` mapping, then the system resolver;
+/// with the Session's local addresses, each connection bound to its address
+/// of the family and each name resolved by the engine's own resolver from
+/// them (ADR 0044).
 struct Tcp {
     mapping: BTreeMap<String, Vec<IpAddr>>,
     /// The upstream proxy's host and port, when there is one.
     upstream: Option<(String, u16)>,
+    /// The Session's local addresses, when it has them.
+    local: Option<LocalBinding>,
 }
 
 impl Network for Tcp {
@@ -631,14 +671,19 @@ impl Network for Tcp {
                     .collect(),
             });
         }
-        let addresses = http_client::lookup(host, port, &Resolve::new())
-            .await
-            .ok()?;
+        let addresses = match &self.local {
+            Some(local) => local.lookup(host, port, &Resolve::new()).await,
+            None => http_client::lookup(host, port, &Resolve::new()).await,
+        }
+        .ok()?;
         Some(Resolved { addresses })
     }
 
     async fn connect(&self, address: SocketAddr) -> io::Result<TcpStream> {
-        TcpStream::connect(address).await
+        match &self.local {
+            Some(local) => local.connect(address).await,
+            None => TcpStream::connect(address).await,
+        }
     }
 
     async fn connect_upstream(&self) -> io::Result<TcpStream> {
@@ -653,7 +698,7 @@ impl Network for Tcp {
             .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
         let mut last = io::Error::from(io::ErrorKind::NotFound);
         for address in resolved.addresses {
-            match TcpStream::connect(address).await {
+            match self.connect(address).await {
                 Ok(stream) => return Ok(stream),
                 Err(error) => last = error,
             }

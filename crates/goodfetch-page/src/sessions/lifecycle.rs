@@ -165,6 +165,20 @@ pub(crate) enum Source {
     HostedBrowserHost,
 }
 
+impl Source {
+    /// Whether the Session's browser is one this engine launches on this
+    /// machine, whose connections the egress relay binds to an address of
+    /// this machine (ADR 0044). A Borrowed browser, a third-party CDP
+    /// browser among them, and a Browser host's are not: an address of this
+    /// machine is never claimed for them (ADRs 0044 and 0056).
+    pub(crate) fn launched_here(self) -> bool {
+        match self {
+            Self::Launched | Self::ProfileDirectory | Self::InPlaceProfileDirectory => true,
+            Self::Borrowed | Self::PersonsBrowserHost | Self::HostedBrowserHost => false,
+        }
+    }
+}
+
 /// Who opened a Session, a fixed attribute.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(

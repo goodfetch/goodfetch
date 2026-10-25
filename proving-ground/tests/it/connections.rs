@@ -114,3 +114,40 @@ fn a_relay_to_an_address_where_nothing_listens_is_recorded_as_refused() {
         json!([down, "connection_refused"])
     );
 }
+
+/// Every datagram the UDP fixture receives is recorded with its source,
+/// so a test sees which address sent UDP, and none from where none came.
+#[test]
+fn a_datagram_to_the_udp_fixture_is_recorded_with_its_source() {
+    let proving_ground = ProvingGround::start(SEED);
+    let udp = proving_ground.udp();
+    let before = proving_ground.observations()["udp_datagrams"].clone();
+
+    let source = clients::udp_datagram(&udp, b"stun?");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let recorded = loop {
+        let recorded = proving_ground.observations()["udp_datagrams"].clone();
+        if recorded
+            .as_array()
+            .is_some_and(|datagrams| !datagrams.is_empty())
+            || std::time::Instant::now() > deadline
+        {
+            break recorded;
+        }
+    };
+
+    assert_eq!(before, json!([]));
+    assert_eq!(
+        recorded
+            .as_array()
+            .expect("the record lists the datagrams")
+            .iter()
+            .map(|datagram| (
+                datagram["source"].clone(),
+                datagram["destination"].clone(),
+                datagram["length"].clone()
+            ))
+            .collect::<Vec<_>>(),
+        [(json!(source.to_string()), json!(udp), json!(5))]
+    );
+}

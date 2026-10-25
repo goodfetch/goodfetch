@@ -481,6 +481,14 @@ pub(crate) struct DnsAnswer {
 
 /// Asks the DNS server at `server` for `name`'s records of one type, over
 /// UDP, as a stub resolver does (RFC 1035).
+/// Sends one datagram of `bytes` to `server` from a socket of its own, and
+/// returns the address it was sent from.
+pub(crate) fn udp_datagram(server: &str, bytes: &[u8]) -> std::net::SocketAddr {
+    let socket = UdpSocket::bind("127.0.0.1:0").expect("a UDP socket");
+    socket.send_to(bytes, server).expect("the datagram is sent");
+    socket.local_addr().expect("the socket's address")
+}
+
 pub(crate) fn dns_query(server: &str, name: &str, record_type: RecordType) -> DnsAnswer {
     let socket = UdpSocket::bind("127.0.0.1:0").expect("a UDP socket");
     socket

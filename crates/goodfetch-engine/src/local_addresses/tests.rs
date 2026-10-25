@@ -369,3 +369,23 @@ proptest! {
         prop_assert!(past_each_blocks_own);
     }
 }
+
+/// A Session drawn by its ordinal takes what the rotation gave it in turn,
+/// so a Session reopened from run state keeps its addresses, whichever
+/// Sessions were drawn since.
+/// Covers: story:4-44
+#[test]
+fn a_session_drawn_again_by_its_ordinal_keeps_its_addresses() {
+    let host = Table::holding(&["192.0.2.10", "198.51.100.10", "203.0.113.10"]);
+    let rotation = rotation(&json!(["192.0.2.10", "198.51.100.10", "203.0.113.10"]));
+    let in_turn: Vec<SessionAddresses> = (0..3)
+        .map(|_| rotation.next_session(&host).unwrap())
+        .collect();
+
+    let again: Vec<SessionAddresses> = [2, 0, 1]
+        .into_iter()
+        .map(|ordinal| rotation.session(&host, ordinal).unwrap())
+        .collect();
+
+    assert_eq!(again, vec![in_turn[2], in_turn[0], in_turn[1]]);
+}

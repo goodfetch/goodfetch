@@ -40,6 +40,7 @@ mod engine_choice;
 mod event_stream;
 mod events;
 mod exit_codes;
+mod extra_loopback;
 #[cfg(target_os = "linux")]
 mod governor;
 mod help;

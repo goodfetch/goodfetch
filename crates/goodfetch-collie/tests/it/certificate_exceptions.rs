@@ -244,6 +244,53 @@ fn no_session_cookie_is_sent_to_a_host_reached_through_an_exception() {
     );
 }
 
+/// A host the relay only tunnels, its certificate refused by Chromium
+/// itself, is `certificate_invalid` too, named by the relay's own look at
+/// the certificate: Chromium names a self-signed certificate as it names an
+/// unknown issuer, the relay tells them apart. Nothing reaches the site.
+///
+/// Covers: error:certificate_invalid, operation:page.goto
+#[test]
+fn a_certificate_chromium_refuses_on_a_tunnelled_host_is_named_by_the_relay() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut program = started(&env, &proving_ground, "tunnelled", &json!({}), &[]);
+    let page = program.new_page("tunnelled");
+
+    let refused: Vec<(Value, Value, Value)> = [
+        "self-signed.certificates.test",
+        "unknown-issuer.certificates.test",
+    ]
+    .iter()
+    .map(|host| {
+        let (code, details) = error(&program.goto(&page, &secure(&proving_ground, host, "/")));
+        (code, details["host"].clone(), details["failure"].clone())
+    })
+    .collect();
+    program.finish("tunnelled");
+
+    assert_eq!(
+        refused,
+        vec![
+            (
+                json!("certificate_invalid"),
+                json!("self-signed.certificates.test"),
+                json!("self_signed")
+            ),
+            (
+                json!("certificate_invalid"),
+                json!("unknown-issuer.certificates.test"),
+                json!("unknown_issuer")
+            ),
+        ]
+    );
+    assert_eq!(requests(&proving_ground), vec![]);
+    assert_eq!(
+        provenance(&env, "tunnelled", "tls_terminated"),
+        Vec::<Value>::new()
+    );
+}
+
 /// The DER prefix of a P-256 `SubjectPublicKeyInfo`, which the relay's
 /// authority's key has.
 const P256_SPKI: [u8; 26] = [

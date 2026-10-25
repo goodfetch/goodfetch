@@ -70,7 +70,13 @@ library_benchmark_group!(
     ]
 );
 
+// BoringSSL links libstdc++, whose emergency exception pool is allocated
+// while the loader starts the process, on a stack DHAT unwinds into frames
+// with no location, which gungraun cannot read: the pool is left out, as
+// no benchmark throws a C++ exception.
 main!(
-    config = LibraryBenchmarkConfig::default().default_tool(Tool::DHAT),
+    config = LibraryBenchmarkConfig::default()
+        .default_tool(Tool::DHAT)
+        .env("GLIBCXX_TUNABLES", "glibcxx.eh_pool.obj_count=0"),
     library_benchmark_groups = [guard, interception, egress_relay]
 );

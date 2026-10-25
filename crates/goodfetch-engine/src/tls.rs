@@ -254,6 +254,77 @@ impl Trust {
     }
 }
 
+/// What `setting`, a resolved value of `tls.trusted_cas`, trusts beside
+/// Mozilla's roots: each listed file read now on `owner`'s blocking work;
+/// a file that cannot be read, or an entry that names no host, is logged
+/// and trusts nothing.
+///
+/// # Cancel safety
+///
+/// Dropping the future loses only the answer.
+pub async fn trusted_cas(setting: &serde_json::Value, owner: &crate::tasks::TaskOwner) -> Trust {
+    let listed: Vec<(String, Vec<std::path::PathBuf>)> = setting
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(domain, files)| {
+            let files = files
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|file| file.as_str().map(std::path::PathBuf::from))
+                .collect();
+            (domain.clone(), files)
+        })
+        .collect();
+    let read = owner
+        .blocking(move || {
+            listed
+                .into_iter()
+                .map(|(domain, files)| {
+                    (
+                        domain,
+                        files
+                            .iter()
+                            .filter_map(|file| authorities_in(file))
+                            .flatten()
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .await;
+    read.into_iter().fold(
+        Trust::default_roots(),
+        |trust, (domain, authorities)| match trust.clone().with_trusted_cas(&domain, authorities) {
+            Ok(with) => with,
+            Err(error) => {
+                tracing::warn!(%error, "an entry of `tls.trusted_cas` names no host");
+                trust
+            }
+        },
+    )
+}
+
+/// The authorities `file` holds; none, logged, when it cannot be read.
+fn authorities_in(file: &std::path::Path) -> Option<Vec<CertificateDer<'static>>> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "it runs on the tasks module's blocking policy"
+    )]
+    let bytes = std::fs::read(file);
+    let read = bytes
+        .map_err(|error| error.to_string())
+        .and_then(|bytes| read_certificates(&bytes).map_err(|error| error.to_string()));
+    match read {
+        Ok(read) => Some(read),
+        Err(error) => {
+            tracing::warn!(%error, file = %file.display(), "a certificate authority of `tls.trusted_cas` cannot be read");
+            None
+        }
+    }
+}
+
 /// The per-host decision for a TLS library other than rustls (ADR 0124):
 /// the egress relay's BoringSSL hands each certificate chain it receives
 /// to [`Examiner::examine`], which decides as the engine's own verifier

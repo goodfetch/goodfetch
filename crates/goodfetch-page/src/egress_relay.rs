@@ -57,7 +57,9 @@ use goodfetch_engine::http_client::{self, Resolve};
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved as ResolvedSettings;
-use goodfetch_engine::tls::{CertificateInvalid, Examiner, ExceptionKind, ExceptionUsed, Trust};
+use goodfetch_engine::tls::{
+    CertificateExceptions, CertificateInvalid, Examiner, ExceptionKind, ExceptionUsed, Trust,
+};
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::RequestFailed;
 use goodfetch_protocol::security::SECURITY_RAW_CDP_EGRESS_PROXY;
@@ -93,6 +95,15 @@ pub(crate) struct EgressRelay {
     /// on its first use.
     examiner: OnceLock<Examiner>,
     _closed_when_dropped: DropGuard,
+}
+
+/// What a Session's relay takes of its Run's TLS settings (ADR 0042): the
+/// Run's authority, when it lists an exception, its exceptions and the
+/// authorities its `tls.trusted_cas` trusts.
+pub(crate) struct RelayTls {
+    pub(crate) authority: Option<Arc<Authority>>,
+    pub(crate) exceptions: CertificateExceptions,
+    pub(crate) trust: Trust,
 }
 
 /// A connection the relay refused or stopped before any byte of the
@@ -202,11 +213,7 @@ impl EgressRelay {
     /// # Errors
     ///
     /// The bind's failure, or the OS generator's.
-    pub(crate) async fn open(
-        run: &Run,
-        chain: Option<Chain>,
-        authority: Option<Arc<Authority>>,
-    ) -> io::Result<Self> {
+    pub(crate) async fn open(run: &Run, chain: Option<Chain>, tls: RelayTls) -> io::Result<Self> {
         type Bypasses = Box<dyn Fn(&str) -> bool + Send + Sync>;
         let (upstream, address, bypasses, met): (_, _, Bypasses, _) = match chain {
             None => (Upstream::Direct, None, Box::new(|_: &str| false), None),
@@ -239,16 +246,19 @@ impl EgressRelay {
             .into_iter()
             .map(|(host, addresses)| (host.to_ascii_lowercase(), addresses))
             .collect();
-        let trust = run.trust().await;
-        let terminating = match authority {
-            Some(authority) => Some(Arc::new(Terminating {
+        let RelayTls {
+            authority,
+            exceptions,
+            trust,
+        } = tls;
+        let terminating = authority.map(|authority| {
+            Arc::new(Terminating {
                 authority,
-                exceptions: run.certificate_exceptions().map_err(io::Error::other)?,
+                exceptions,
                 examiner: trust.examiner(),
                 trust: trust.clone(),
-            })),
-            None => None,
-        };
+            })
+        });
         let relaying = Relaying {
             policy,
             authorization: authorization.clone(),

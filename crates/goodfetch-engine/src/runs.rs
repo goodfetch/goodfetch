@@ -137,10 +137,8 @@ use crate::run_state::{
 use crate::secrets::{Carried, Keychain, Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
 use crate::settings::{Resolved, RunSettings, Settings};
 use crate::tasks::TaskOwner;
-use crate::tls::{CertificateExceptions, InvalidDomain, PinBook, Trust, read_certificates};
 use crate::trace::Link;
 use crate::transition;
-use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_TRUSTED_CAS};
 
 /// A Run's state, in its folder.
 const RUN_FILE: &str = "run.sqlite";
@@ -1087,10 +1085,6 @@ struct Shared {
     robots_txt: RunCopies,
     /// The copy a crawl's Run reads instead, once its crawl shared one.
     crawls_robots_txt: std::sync::OnceLock<Arc<dyn Copies>>,
-    /// The invalid-certificate exceptions its Sessions take, once read.
-    certificate_exceptions: std::sync::OnceLock<Result<CertificateExceptions, InvalidDomain>>,
-    /// The authorities its `tls.trusted_cas` trusts, once read.
-    trust: tokio::sync::OnceCell<Trust>,
 }
 
 impl std::fmt::Debug for Run {
@@ -1584,110 +1578,21 @@ impl Run {
         self.shared.crawls_robots_txt.get_or_init(copies);
     }
 
-    /// The invalid-certificate exceptions of its `tls.accept_invalid_certs`
-    /// (ADR 0042), pinning in the person's known-certificates store: one
-    /// value its Sessions share, so a host stopped as a changed key stays
-    /// stopped for every Session of the Run.
-    ///
-    /// # Errors
-    ///
-    /// [`InvalidDomain`] when an entry names no host.
-    pub fn certificate_exceptions(&self) -> Result<CertificateExceptions, InvalidDomain> {
-        self.shared
-            .certificate_exceptions
-            .get_or_init(|| {
-                let setting = self
-                    .settings()
-                    .map(|settings| settings.resolved().value(TLS_ACCEPT_INVALID_CERTS.name))
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let book = PinBook {
-                    store: self.runs.limits().known_certificates.clone(),
-                    person: CALLER.to_owned(),
-                    run_id: Some(self.id.clone()),
-                    audit: Arc::new(self.runs.audit().clone()),
-                    owner: Arc::clone(&self.owner),
-                    clock: self.clock,
-                };
-                CertificateExceptions::listed(&setting, book, self.secrets().exception_hosts())
-            })
-            .clone()
+    /// The user's known-certificates store, where its exceptions pin
+    /// (ADR 0042).
+    pub fn known_certificates(&self) -> KnownCertificates {
+        self.runs.limits().known_certificates.clone()
     }
 
-    /// What its `tls.trusted_cas` trusts beside Mozilla's roots (ADR 0042),
-    /// each listed file read once, on the Run's first ask; a file that
-    /// cannot be read is logged and trusts nothing.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future leaves the files to the next ask.
-    pub async fn trust(&self) -> Trust {
-        self.shared
-            .trust
-            .get_or_init(|| async {
-                let listed: Vec<(String, Vec<std::path::PathBuf>)> = self
-                    .settings()
-                    .map(|settings| settings.resolved().value(TLS_TRUSTED_CAS.name))
-                    .and_then(serde_json::Value::as_object)
-                    .into_iter()
-                    .flatten()
-                    .map(|(domain, files)| {
-                        let files = files
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .filter_map(|file| file.as_str().map(std::path::PathBuf::from))
-                            .collect();
-                        (domain.clone(), files)
-                    })
-                    .collect();
-                let read = self
-                    .owner
-                    .blocking(move || {
-                        listed
-                            .into_iter()
-                            .map(|(domain, files)| {
-                                let authorities: Vec<_> = files
-                                    .iter()
-                                    .filter_map(|file| {
-                                        #[expect(
-                                            clippy::disallowed_methods,
-                                            reason = "it runs on the tasks module's blocking policy"
-                                        )]
-                                        let bytes = std::fs::read(file);
-                                        match bytes.map_err(|error| error.to_string()).and_then(
-                                            |bytes| {
-                                                read_certificates(&bytes)
-                                                    .map_err(|error| error.to_string())
-                                            },
-                                        ) {
-                                            Ok(read) => Some(read),
-                                            Err(error) => {
-                                                tracing::warn!(%error, file = %file.display(), "a certificate authority of `tls.trusted_cas` cannot be read");
-                                                None
-                                            }
-                                        }
-                                    })
-                                    .flatten()
-                                    .collect();
-                                (domain, authorities)
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .await;
-                read.into_iter()
-                    .fold(Trust::default_roots(), |trust, (domain, authorities)| {
-                        match trust.clone().with_trusted_cas(&domain, authorities) {
-                            Ok(with) => with,
-                            Err(error) => {
-                                tracing::warn!(%error, "an entry of `tls.trusted_cas` names no host");
-                                trust
-                            }
-                        }
-                    })
-            })
-            .await
-            .clone()
+    /// The user's Audit log, which records its security events.
+    pub fn audit_log(&self) -> AuditLog {
+        self.runs.audit().clone()
+    }
+
+    /// The person it acts for, whose partition of the user's stores it
+    /// reads: the OS user until accounts exist (ADR 0102).
+    pub fn person(&self) -> &'static str {
+        CALLER
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -4391,8 +4296,6 @@ impl Registry {
                 politeness: tokio::sync::OnceCell::new(),
                 robots_txt: RunCopies::default(),
                 crawls_robots_txt: std::sync::OnceLock::new(),
-                certificate_exceptions: std::sync::OnceLock::new(),
-                trust: tokio::sync::OnceCell::new(),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),

@@ -3,7 +3,8 @@
 //! armed before a `pushState`, a `replaceState` and a hash change passes for
 //! each, on the Proving ground's single-page app; `networkidle` comes on the
 //! live board, whose WebSocket and server-sent events never end, and on the
-//! late board only once its request 400 ms after `load` finished; a
+//! late board only once its request, started at `load` and held past the
+//! 500 ms of quiet, finished; a
 //! response waiter sent before the click that triggers the response catches
 //! it, though the response came before its answer was read; the locator
 //! waits and the function wait resolve on the actionability pages that
@@ -236,7 +237,8 @@ fn url_within_the_document(
 
 /// B03: `networkidle` comes on the live board, whose WebSocket and
 /// server-sent events stay open, once its periodic requests stopped, and
-/// on the late board only once its request 400 ms after `load` finished,
+/// on the late board only once its request, started at `load` and held
+/// past the 500 ms of quiet, finished,
 /// on a page framing another site, whose frame the browser loads in a
 /// process of its own, and at once on a committed `about:blank`.
 fn network_idle(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> Result<(), Gone> {

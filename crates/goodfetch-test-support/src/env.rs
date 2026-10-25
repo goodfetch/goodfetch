@@ -475,12 +475,18 @@ fn write_user_configuration(home: &Path, settings: &str, log_level: &str) -> io:
 
 /// Replaces `file` with `text` at once: an engine reading it meanwhile, as
 /// one the test started before does while the test starts another, reads
-/// it before or after, never cut.
+/// it before or after, never cut. The text and the rename are synced: a
+/// LazyFS test's power cut after a write on its mounted home, such as the
+/// `log.level` each engine start sets, leaves the file as written, never
+/// empty.
 fn replace(file: &Path, text: &str) -> io::Result<()> {
     let folder = file.parent().unwrap_or(Path::new("."));
     let mut replacement = tempfile::NamedTempFile::new_in(folder)?;
     io::Write::write_all(&mut replacement, text.as_bytes())?;
+    replacement.as_file().sync_all()?;
     replacement.persist(file).map_err(|error| error.error)?;
+    #[cfg(unix)]
+    std::fs::File::open(folder)?.sync_all()?;
     Ok(())
 }
 

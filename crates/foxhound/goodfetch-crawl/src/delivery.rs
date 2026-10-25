@@ -184,6 +184,7 @@ pub(crate) async fn drive(
         tiers: &tiers,
         http: http.as_ref(),
         robots: http.as_ref().map(HttpTier::robots_txt_fetch),
+        egress: std::sync::Arc::clone(&arrivals.egress),
         labels: &labels,
         run_tier,
         choices: tokio::sync::Mutex::new(choices),
@@ -434,6 +435,8 @@ struct Fetching<'a> {
     choices: tokio::sync::Mutex<TierChoices>,
     /// How the navigation gate fetches robots.txt.
     robots: Option<RobotsTxtFetch>,
+    /// The Run's domain policy, which judges each redirect hop.
+    egress: std::sync::Arc<goodfetch_engine::egress::Policy>,
     /// The requests in flight, as the Run's progress shows them.
     in_flight: SharedInFlight,
 }
@@ -445,6 +448,7 @@ impl Fetching<'_> {
             tiers: self.tiers.clone(),
             second_copies: second_copies.clone(),
             robots: self.robots.clone(),
+            egress: std::sync::Arc::clone(&self.egress),
         }
     }
 

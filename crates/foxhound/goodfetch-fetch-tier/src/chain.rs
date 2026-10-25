@@ -19,6 +19,10 @@
 //! - **Each hop after the first goes through a [`HopGate`]**, which takes
 //!   its permit, held until its answer's head arrived, or ends the request
 //!   [skipped](Stop::Skipped). The first hop's permit is its admission's.
+//! - **A hop after the first that the transport's egress check refuses**,
+//!   its URL or the address it would connect to (ADRs 0017 and 0118), ends
+//!   the request `skipped` with `domain_policy`: a redirect is no way
+//!   around the policy, and its refusal is an outcome, not a failure.
 
 use std::collections::BTreeSet;
 use std::future::Future;
@@ -30,6 +34,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_page::page_value::Permit;
+use goodfetch_protocol::egress::EGRESS_REFUSED;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_HANDLE_STATUSES, RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE,
 };
@@ -122,7 +127,8 @@ pub trait HopGate: Send + Sync {
 ///
 /// [`Stop::Failed`] with `fetch`'s error, `too_many_redirects`,
 /// `response_not_ok` or `response_unavailable`; [`Stop::Skipped`] when
-/// `gate` skips a hop.
+/// `gate` skips a hop, and with `domain_policy` when `fetch` fails a hop
+/// after the first with `egress_refused`.
 ///
 /// # Cancel safety
 ///
@@ -143,7 +149,19 @@ where
     let mut hop = first;
     let mut permit: Option<Permit> = None;
     loop {
-        let fetched = fetch(hop.clone()).await.map_err(Stop::Failed)?;
+        let fetched = fetch(hop.clone()).await.map_err(|error| {
+            if hops.is_empty() || error.code() != EGRESS_REFUSED.name {
+                return Stop::Failed(error);
+            }
+            Stop::Skipped(Skip {
+                reason: SkipReason::DomainPolicy,
+                message: format!(
+                    "A redirect to `{}` reaches an address the Run's egress policy refuses: {}",
+                    hop.url,
+                    error.message()
+                ),
+            })
+        })?;
         // The hop's answer arrived: its permit is released (ADR 0118).
         drop(permit.take());
         let Some(next) = next_hop(&hop, &fetched, following)? else {

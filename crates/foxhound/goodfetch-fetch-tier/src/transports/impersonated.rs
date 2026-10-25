@@ -28,12 +28,12 @@ use std::error::Error;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
+use goodfetch_engine::egress::{Policy, Refused};
 use http_body_util::BodyExt as _;
 use url::Url;
 
 use super::{
-    CONNECTED, Http1Origins, MarkConnects, Resolver, TransportConfig, TransportUnavailable,
+    CONNECTED, Http1Origins, MarkConnects, Resolver, TransportConfig, TransportUnavailable, judged,
 };
 use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
 use crate::http_profile::HttpProfile;
@@ -48,6 +48,9 @@ pub struct Wreq {
     http1_origins: Http1Origins,
     trust: goodfetch_engine::tls::Trust,
     egress: Policy,
+    /// Whether its connections go to the site directly, not through a
+    /// proxy.
+    direct: bool,
 }
 
 impl std::fmt::Debug for Wreq {
@@ -139,6 +142,7 @@ impl Wreq {
             http1,
             http1_origins: Http1Origins::default(),
             trust: config.trust,
+            direct: config.proxy.is_none(),
             egress: config.egress,
         })
     }
@@ -175,13 +179,7 @@ fn build(builder: wreq::ClientBuilder) -> wreq::Result<wreq::Client> {
 impl Transport for Wreq {
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
-            let request = egress::Request {
-                url: hop.url.as_str(),
-                kind: RequestKind::Fetch,
-            };
-            if let Judgment::Refused(refused) = egress::judge(&request, &self.egress) {
-                return Err(TransportFailure::Egress(refused));
-            }
+            judged(&hop.url, &self.egress, self.direct).map_err(TransportFailure::Egress)?;
             // Every scope has its clients, so a host always finds one.
             let client = self.client(hop, reuse).ok_or(TransportFailure::Other)?;
             let mut request = client.request(hop.method.clone(), hop.url.as_str());

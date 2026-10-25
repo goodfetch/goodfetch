@@ -26,7 +26,8 @@
 //!
 //! **The resolved-address check (ADR 0017):** a URL the egress policy
 //! refuses opens no connection, and the resolver's answers are judged
-//! before any connection. The `network.resolve` mapping's addresses are
+//! before any connection, as is the address a URL names in place of a
+//! host, in any spelling, which no resolver answers ([`judged`]). The `network.resolve` mapping's addresses are
 //! not judged, as on the browser path, until `egress.private_ranges` is a
 //! setting a Run can declare (#622, #623). Through a proxy, which resolves
 //! the site's name itself, only the URL is judged.
@@ -90,6 +91,9 @@ pub struct Reqwest {
     http1: Clients,
     http1_origins: Http1Origins,
     egress: Policy,
+    /// Whether its connections go to the site directly, not through a
+    /// proxy.
+    direct: bool,
 }
 
 /// A pooled client and one that opens a new connection for each request.
@@ -150,6 +154,7 @@ impl Reqwest {
             any: clients(&[b"h2", b"http/1.1"])?,
             http1: clients(&[b"http/1.1"])?,
             http1_origins: Http1Origins::default(),
+            direct: config.proxy.is_none(),
             egress: config.egress,
         })
     }
@@ -179,13 +184,7 @@ fn build(builder: reqwest::ClientBuilder) -> reqwest::Result<reqwest::Client> {
 impl Transport for Reqwest {
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
-            let request = egress::Request {
-                url: hop.url.as_str(),
-                kind: RequestKind::Fetch,
-            };
-            if let Judgment::Refused(refused) = egress::judge(&request, &self.egress) {
-                return Err(TransportFailure::Egress(refused));
-            }
+            judged(&hop.url, &self.egress, self.direct).map_err(TransportFailure::Egress)?;
             let mut request = self
                 .client(hop, reuse)
                 .request(hop.method.clone(), hop.url.clone());
@@ -321,6 +320,32 @@ impl Body for ReqwestBody {
                 .map_err(|error| failure_of(&error, &self.url))
         })
     }
+}
+
+/// Judges a hop to `url` under the Session's egress policy `egress` before
+/// anything is sent (ADR 0017): its URL, and, when the connection goes
+/// `direct`, the address the URL names in place of a host, which the
+/// transport connects to without asking its resolver.
+///
+/// # Errors
+///
+/// [`Refused`] by the domain policy, or by the address check for an address
+/// a page may not reach.
+fn judged(url: &Url, egress: &Policy, direct: bool) -> Result<(), Refused> {
+    let request = egress::Request {
+        url: url.as_str(),
+        kind: RequestKind::Fetch,
+    };
+    if let Judgment::Refused(refused) = egress::judge(&request, egress) {
+        return Err(refused);
+    }
+    let address = match url.host() {
+        Some(url::Host::Ipv4(address)) if direct => IpAddr::V4(address),
+        Some(url::Host::Ipv6(address)) if direct => IpAddr::V6(address),
+        _ => return Ok(()),
+    };
+    let port = url.port_or_known_default().unwrap_or_default();
+    egress::judge_addresses(url.as_str(), &[SocketAddr::new(address, port)], egress)
 }
 
 /// `error`'s failure, an egress refusal naming the hop's URL.

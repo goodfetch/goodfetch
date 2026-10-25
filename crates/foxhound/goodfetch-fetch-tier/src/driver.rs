@@ -41,6 +41,7 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use url::{Host, Url};
 
+use crate::content_types::{Accepts, typed};
 use crate::decoding::{self, DecodingFailed};
 
 /// One hop of a fetch: one request as it leaves.
@@ -320,8 +321,14 @@ pub struct Fetched {
     pub status: u16,
     /// Its headers, their names lower-cased, in order.
     pub headers: Vec<(String, String)>,
-    /// Its body, decoded as its `Content-Encoding` lists.
+    /// Its body, decoded as its `Content-Encoding` lists; empty when it
+    /// was dropped for its type.
     pub body: Vec<u8>,
+    /// The type of a response that would reach the handler but whose
+    /// type the request's Label does not take (`crawl.content_types`,
+    /// ADR 0119), its body then dropped: unread when its head named the
+    /// type, read and sniffed when it named none.
+    pub unaccepted: Option<String>,
 }
 
 /// The engine's timeouts a fetch waits under.
@@ -368,7 +375,30 @@ pub async fn fetch(
     deadlines: &Deadlines,
     clock: &Clock,
 ) -> Result<Fetched, CallError> {
-    fetch_on(transport, hop, Reuse::Allowed, deadlines, clock).await
+    fetch_on(transport, hop, Reuse::Allowed, deadlines, clock, None).await
+}
+
+/// [`fetch`] of a crawl request's hop judged by `accepts`, its Label's
+/// `crawl.content_types` (ADR 0119): a response that would reach the
+/// handler with a type it does not take answers with its body dropped and
+/// its type in [`Fetched::unaccepted`], unread once its head named the
+/// type.
+///
+/// # Errors
+///
+/// As [`fetch`]'s.
+///
+/// # Cancel safety
+///
+/// As [`fetch`]'s.
+pub(crate) async fn fetch_accepting(
+    transport: &dyn Transport,
+    hop: &Hop,
+    deadlines: &Deadlines,
+    clock: &Clock,
+    accepts: Option<&Accepts>,
+) -> Result<Fetched, CallError> {
+    fetch_on(transport, hop, Reuse::Allowed, deadlines, clock, accepts).await
 }
 
 /// [`fetch`] on a new connection, never one an earlier hop left: a
@@ -386,17 +416,20 @@ pub(crate) async fn fetch_anew(
     hop: &Hop,
     deadlines: &Deadlines,
     clock: &Clock,
+    accepts: Option<&Accepts>,
 ) -> Result<Fetched, CallError> {
-    fetch_on(transport, hop, Reuse::Never, deadlines, clock).await
+    fetch_on(transport, hop, Reuse::Never, deadlines, clock, accepts).await
 }
 
-/// [`fetch`] whose first send goes on a connection `reuse` allows.
+/// [`fetch`] whose first send goes on a connection `reuse` allows, judged
+/// by `accepts` as [`fetch_accepting`] says.
 async fn fetch_on(
     transport: &dyn Transport,
     hop: &Hop,
     reuse: Reuse,
     deadlines: &Deadlines,
     clock: &Clock,
+    accepts: Option<&Accepts>,
 ) -> Result<Fetched, CallError> {
     let url = hop.url.as_str();
     let asked;
@@ -420,6 +453,24 @@ async fn fetch_on(
             .within(clock, "first_byte", answer(transport, hop, reuse))
             .await?
             .map_err(|failure| failure.error(url))?;
+        let declared = sent
+            .headers
+            .iter()
+            .find(|(name, _)| name == "content-type")
+            .map(|(_, value)| value.clone());
+        // A type the head names is judged before any byte of the body is
+        // read: the body is dropped unread, its connection with it.
+        if let (Some(accepts), Some(declared)) = (accepts, &declared)
+            && let Some(refused) = accepts.refused(sent.status, &typed(Some(declared), &[], "").0)
+        {
+            return Ok(Fetched {
+                url: hop.url.clone(),
+                status: sent.status,
+                headers: sent.headers,
+                body: Vec::new(),
+                unaccepted: Some(refused),
+            });
+        }
         let expected = content_length(&sent.headers);
         let mut body = Vec::new();
         // Any failure once the head arrived cuts the body (ADR 0118).
@@ -441,19 +492,27 @@ async fn fetch_on(
             DecodingFailed::Cut => truncated(url, received, expected),
             DecodingFailed::Corrupt => TransportFailure::ContentDecodingFailed.error(url),
         })?;
-        let content_type = sent
-            .headers
-            .iter()
-            .find(|(name, _)| name == "content-type")
-            .map(|(_, value)| value.as_str());
-        if decoding::still_compressed(content_type, &body) {
+        if decoding::still_compressed(declared.as_deref(), &body) {
             return Err(TransportFailure::ContentDecodingFailed.error(url));
         }
+        // With no type in its head, the body is sniffed as Chromium sniffs
+        // it, so it had to be read.
+        let unaccepted = match (accepts, &declared) {
+            (Some(accepts), None) => {
+                accepts.refused(sent.status, &typed(None, &body, hop.url.path()).0)
+            }
+            _ => None,
+        };
         Ok::<Fetched, CallError>(Fetched {
             url: hop.url.clone(),
             status: sent.status,
             headers: sent.headers,
-            body,
+            body: if unaccepted.is_some() {
+                Vec::new()
+            } else {
+                body
+            },
+            unaccepted,
         })
     };
     deadlines

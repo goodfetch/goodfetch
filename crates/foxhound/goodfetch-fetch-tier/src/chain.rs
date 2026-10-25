@@ -213,7 +213,8 @@ where
 /// refresh stub's within `fetch.refresh.max_delay`; `None` when it is the
 /// chain's document.
 fn next_hop(hop: &Hop, fetched: &Fetched, following: &Following) -> Result<Option<Hop>, Stop> {
-    if following.handled.contains(&fetched.status) {
+    // A response its Label does not take is the chain's end, unread.
+    if following.handled.contains(&fetched.status) || fetched.unaccepted.is_some() {
         return Ok(None);
     }
     let location = header(&fetched.headers, "location");

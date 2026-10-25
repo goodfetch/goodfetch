@@ -10,11 +10,16 @@
 //! tier each request takes is the `choice` module's; a forced tier not
 //! built yet refuses the crawl's start.
 //!
-//! A served page's document is read in its BOM's encoding, else its
-//! `Content-Type` charset's, else as UTF-8 (the `document` module), until
-//! #764 builds the rest of ADR 0119's charset order; the links a locator
-//! matches in it are read for `enqueueLinks` with that encoding, in which
-//! their queries are percent-encoded (ADR 0120).
+//! A served page's document is read in the encoding ADR 0119's order finds
+//! (the `charset` module); the links a locator matches in it are read for
+//! `enqueueLinks` with that encoding, in which their queries are
+//! percent-encoded (ADR 0120). Its request's Label takes only the types its
+//! `crawl.content_types` lists (the `content_types` module): another ends
+//! the request `skipped` with `content_type`, its body unread, and an
+//! accepted type that is no HTML or XHTML opens a page holding no
+//! document, which the Frontier learns nothing from and the Page check
+//! does not judge. Each page keeps its request's own response, whose body
+//! `response.body` reads.
 //!
 //! Size: the crate's one composition value and the pages it serves, each
 //! method a step of one served page's life, from its fetch on the tier
@@ -40,13 +45,14 @@ use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, ServedDocument,
 };
-use goodfetch_protocol::foxhound::crawl::CrawlRequest;
+use goodfetch_protocol::foxhound::crawl::{CRAWL_CONTENT_TYPES, CrawlRequest};
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_HEDGE_ENABLED, FETCH_REDIRECT_MAX, FETCH_TIER, FETCH_TIER_RACE,
     FetchTier, REDIRECT_MAX_LIMIT,
 };
+use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::{BodyHandle, Navigated, PageId, SessionId};
+use goodfetch_protocol::page::{BodyHandle, Navigated, PageId, PageResponse, SessionId};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
@@ -56,17 +62,17 @@ use goodfetch_protocol::settings::{
 use url::Url;
 
 use crate::canonical::canonical;
-use crate::chain::{Following, Stop, follow};
-use crate::charset::{self, Kind, Read, content_type};
+use crate::chain::{Following, Skip, Stop, follow};
+use crate::charset::{self, Kind, Read};
 use crate::choice::{
     ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
 };
+use crate::content_types::{Accepts, ContentTypes, is_document, typed};
 use crate::document::{Matched, SelectorInvalid, matched};
-use crate::driver::{Deadlines, Hop, Transport, fetch};
+use crate::driver::{Deadlines, Hop, Transport, fetch, fetch_accepting};
 use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::redundant::{Redundant, Requester};
-use crate::sniffing::sniff;
 use crate::transports::{AddressCheck, BrowserFetch, Reqwest, TransportConfig};
 use crate::use_signals::UseSignals;
 
@@ -167,12 +173,24 @@ struct ServedPage {
     /// is at.
     history: Vec<String>,
     at: usize,
+    /// The type of its response when that is no HTML document (ADR
+    /// 0119): the page then holds none.
+    not_document: Option<String>,
+    /// The encoding its document was read in and where that came from;
+    /// none for a page holding no document.
+    read: Option<Read>,
+    /// The response of its crawl request's own document and its body,
+    /// stored in the Run's folder only once `response.body` asks for it.
+    own: Option<(PageResponse, Bytes)>,
 }
 
 /// A document a fetch answered, read as a served page holds it: its text,
 /// its encoding, its `Link` header fields and its AI-use signals.
 struct Opened {
     document: ServedDocument,
+    /// The response's type when it is no HTML or XHTML document, its page
+    /// then holding none (ADR 0119).
+    not_document: Option<String>,
     encoding: &'static Encoding,
     /// The encoding ADR 0119's order found, and where; `None` when only a
     /// guess could read the document, its text then read as UTF-8 and
@@ -186,19 +204,30 @@ impl Opened {
     /// The document `fetched` answered for `run`, decoded in the encoding
     /// ADR 0119's order finds, `forced` being `fetch.encoding`'s: a
     /// response with no `Content-Type` is typed as Chromium's MIME sniffer
-    /// types it.
+    /// types it, and one of a type that is no HTML or XHTML holds no
+    /// document.
     fn of(run: &Run, fetched: crate::driver::Fetched, forced: Option<&'static Encoding>) -> Self {
         let url = fetched.url.to_string();
-        let (essence, charset) = fetched
+        let header = fetched
             .headers
             .iter()
             .find(|(name, _)| name == "content-type")
-            .map_or_else(
-                || (sniff(&fetched.body, fetched.url.path()).to_owned(), None),
-                |(_, value)| content_type(value),
-            );
-        let read = charset::read(&fetched.body, Kind::of(&essence), charset, forced);
+            .map(|(_, value)| value.as_str());
+        let (essence, charset) = typed(header, &fetched.body, fetched.url.path());
+        let not_document = (!is_document(&essence)).then_some(essence.clone());
+        let read = not_document
+            .is_none()
+            .then(|| {
+                charset::read(
+                    &fetched.body,
+                    Kind::of(&essence),
+                    charset.as_deref(),
+                    forced,
+                )
+            })
+            .flatten();
         let (html, encoding) = match read {
+            _ if not_document.is_some() => (String::new(), encoding_rs::UTF_8),
             Some(read) => {
                 tracing::debug!(run_id = %run.id(), url, encoding = read.encoding.name(), source = read.source.as_str(), "a document's encoding was found");
                 (charset::decode(&fetched.body, read), read.encoding)
@@ -223,6 +252,7 @@ impl Opened {
                 base_url,
                 html,
             },
+            not_document,
             encoding,
             read,
             links,
@@ -321,15 +351,17 @@ impl FetchTiers {
     /// Refuses a Run whose `fetch.tier`, its own or one of its Labels' in
     /// `labels`, forces a tier this engine does not build yet, with
     /// `capability_unavailable` naming the setting, one that hedges or
-    /// races its tiers where the second copy could never start, and one
-    /// whose `fetch.encoding` names no encoding.
+    /// races its tiers where the second copy could never start, one
+    /// whose `fetch.encoding` names no encoding, and one whose
+    /// `crawl.content_types` is no list of media ranges.
     ///
     /// # Errors
     ///
     /// `capability_unavailable` for `discovered_api`, `browser_fetch` and
     /// `light_browser`; `setting_invalid`
-    /// for a Run's `fetch.encoding` that is no WHATWG Encoding label and
-    /// for a `fetch.redirect.max` outside 1 to 19 (ADR 0118);
+    /// for a Run's `fetch.encoding` that is no WHATWG Encoding label, its
+    /// `crawl.content_types` that is no list of media ranges (ADR 0119)
+    /// and a `fetch.redirect.max` outside 1 to 19 (ADR 0118);
     /// `setting_not_applicable` for hedges or `fetch.tier_race` switched on
     /// while a domain admits one request at a time (ADR 0086).
     pub fn check(settings: &Resolved, labels: &LabelSettings) -> Result<(), CallError> {
@@ -338,6 +370,23 @@ impl FetchTiers {
         refuse_redirect_max(settings)?;
         if let Some(effective) = settings.get(FETCH_ENCODING.name) {
             crate::choice::encoding("the Run", &effective.value)?;
+        }
+        if let Some(effective) = settings.get(CRAWL_CONTENT_TYPES.name) {
+            ContentTypes::of(&effective.value).map_err(|reason| {
+                CallError::new(
+                    &SETTING_INVALID,
+                    format!(
+                        "`crawl.content_types` is {} in {}, which {reason}.",
+                        effective.value,
+                        effective.layer.as_str()
+                    ),
+                    &SettingInvalidDetails {
+                        key: CRAWL_CONTENT_TYPES.name.to_owned(),
+                        layer: Some(effective.layer),
+                        reason: format!("{} {reason}", effective.value),
+                    },
+                )
+            })?;
         }
         let run = forced(settings).map(|(tier, layer)| (tier, layer, None));
         let by_label = labels
@@ -476,39 +525,20 @@ impl FetchTiers {
         choice: &TierChoice,
         hand_over: &Arc<HandOver>,
     ) -> Result<PageId, Stop> {
-        let url = Url::parse(&request.url).map_err(|error| {
-            Stop::Failed(CallError::new(
-                &goodfetch_protocol::page::NAVIGATION_FAILED,
-                format!(
-                    "The crawl request's URL `{}` does not parse: {error}.",
-                    request.url
-                ),
-                &goodfetch_protocol::page::NavigationFailedDetails {
-                    url: Some(request.url.clone()),
-                    error: None,
-                },
-            ))
-        })?;
-        let hop = Hop {
-            url,
-            method: http::Method::from_bytes(request.method.as_str().as_bytes())
-                .unwrap_or(http::Method::GET),
-            headers: Vec::new(),
-            body: request
-                .body
-                .as_ref()
-                .map(|body| Bytes::copy_from_slice(body.bytes())),
-            // A crawl request is a read whatever its method (ADR 0106).
-            read: true,
-        };
+        let hop = first_hop(request)?;
         let gate = ChainGate {
             hand_over: Arc::clone(hand_over),
             crawl_request: request.id.clone(),
+        };
+        let accepts = Accepts {
+            types: hand_over.content_types.clone(),
+            handled: tier.following.handled.clone(),
         };
         let clock = run.clock();
         let mut first = true;
         let fetched = follow(hop, &tier.following, &gate, &clock, |hop| {
             let lead = std::mem::replace(&mut first, false);
+            let (accepts, clock) = (&accepts, &clock);
             async move {
                 if lead {
                     tier.redundant
@@ -516,22 +546,45 @@ impl FetchTiers {
                             tier.transport.as_ref(),
                             &tier.deadlines,
                             run,
-                            &hop,
+                            (&hop, Some(accepts)),
                             requester,
                         )
                         .await
                 } else {
-                    fetch(tier.transport.as_ref(), &hop, &tier.deadlines, &clock).await
+                    fetch_accepting(
+                        tier.transport.as_ref(),
+                        &hop,
+                        &tier.deadlines,
+                        clock,
+                        Some(accepts),
+                    )
+                    .await
                 }
             }
         })
         .await?;
+        if let Some(refused) = &fetched.unaccepted {
+            return Err(Stop::Skipped(Skip {
+                reason: SkipReason::ContentType,
+                message: format!(
+                    "`{}` answered `{refused}`, which its Label's `crawl.content_types` does not list: its body was not read.",
+                    fetched.url
+                ),
+            }));
+        }
         let status = fetched.status;
+        let (url, headers, body) = (
+            fetched.url.clone(),
+            fetched.headers.clone(),
+            Bytes::from(fetched.body.clone()),
+        );
         let opened = Opened::of(run, fetched, hand_over.encoding);
         // A document only a guess could read is never served: under a
         // forced tier it fails, and under `auto` its page escalates before
-        // its handler runs (ADR 0119).
+        // its handler runs (ADR 0119). A page holding no document is never
+        // decoded.
         let escalated = match (&opened.read, &choice.forced) {
+            _ if opened.not_document.is_some() => None,
             (Some(_), _) => None,
             (None, Some(forced)) => {
                 return Err(Stop::Failed(undeclared(
@@ -545,6 +598,9 @@ impl FetchTiers {
         let mut pages = lock(&self.served.pages);
         pages.next += 1;
         let page_id = PageId(format!("document-{}", pages.next));
+        let mut response =
+            calls::page_response(&url, status, headers, format!("{}-response", page_id.0));
+        response.encoding = opened.read.map(|read| read.encoding.name().to_owned());
         pages.open.insert(
             page_id.clone(),
             ServedPage {
@@ -557,6 +613,9 @@ impl FetchTiers {
                 escalated,
                 requests: 0,
                 bodies: BTreeMap::new(),
+                not_document: opened.not_document.clone(),
+                read: opened.read,
+                own: Some((response, body)),
             },
         );
         pages.opened(&page_id, opened);
@@ -573,15 +632,53 @@ impl FetchTiers {
             .unwrap_or_default()
     }
 
+    /// The response of the served page `page_id`'s crawl request's own
+    /// document, whose body `response.body` reads under its `request_id`;
+    /// `None` once the page closed.
+    pub fn response(&self, page_id: &PageId) -> Option<PageResponse> {
+        lock(&self.served.pages)
+            .open
+            .get(page_id)
+            .and_then(|page| page.own.as_ref())
+            .map(|(response, _)| response.clone())
+    }
+
+    /// The type of the served page `page_id`'s response when that is no
+    /// HTML document, the page then holding none (ADR 0119); `None` for a
+    /// document, or once the page closed.
+    pub fn not_document(&self, page_id: &PageId) -> Option<String> {
+        lock(&self.served.pages)
+            .open
+            .get(page_id)
+            .and_then(|page| page.not_document.clone())
+    }
+
+    /// The encoding the served page `page_id`'s document was read in and
+    /// where it came from, as Provenance records them (ADR 0119); `None`
+    /// for a page holding no document, or once it closed.
+    pub fn encoding(&self, page_id: &PageId) -> Option<DocumentEncoding> {
+        lock(&self.served.pages)
+            .open
+            .get(page_id)
+            .and_then(|page| page.read)
+            .map(|read| DocumentEncoding {
+                encoding: read.encoding.name().to_owned(),
+                source: Some(read.source.as_str()),
+            })
+    }
+
     /// The URL, the page signature and the `rel=canonical` of the served
     /// page `page_id`, which the Frontier learns from (ADRs 0005 and
     /// 0120), read on its Run's blocking owner; `None` once the page
-    /// closed.
+    /// closed, or for a page holding no document, which teaches nothing.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses only what it reads; the page stays open.
     pub async fn signature(&self, page_id: &PageId) -> Option<Signed> {
+        if self.served_page(page_id)?.not_document.is_some() {
+            return None;
+        }
         let served = self.document(page_id)?;
         let links = lock(&self.served.pages)
             .links
@@ -660,13 +757,17 @@ impl FetchTiers {
     /// page, or one its markup cannot judge, escalates under `auto` and
     /// fails under a forced tier, with `page_check_failed` or, unjudged,
     /// `browser_required`; a login page fails with `logged_out` on every
-    /// tier. `None` once the page closed.
+    /// tier. A page holding no document has no markup to judge: it passes.
+    /// `None` once the page closed.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses only the verdict; the page stays open.
     pub async fn judge(&self, page_id: &PageId, check: &PageCheck) -> Option<Judged> {
         let page = self.served_page(page_id)?;
+        if page.not_document.is_some() {
+            return Some(Judged::Passed);
+        }
         let ServedPage {
             document,
             status,
@@ -837,6 +938,8 @@ impl FetchTiers {
             }
         }
         page.document = opened.document.clone();
+        page.not_document.clone_from(&opened.not_document);
+        page.read = opened.read;
         pages.opened(page_id, opened);
     }
 
@@ -1001,6 +1104,18 @@ impl HttpTier {
 /// Provenance's action for the tier a crawl request's attempt ran on.
 const FETCH_TIER_ACTION: &str = "fetch_tier";
 
+/// The encoding a crawl request's document was read in and where it came
+/// from, as Provenance records them (ADR 0119; pitfall H17).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DocumentEncoding {
+    /// Its WHATWG name, such as `Shift_JIS`.
+    pub encoding: String,
+    /// Where it came from: `bom`, `setting`, `header`, `meta`, `utf8` or
+    /// `detected`; `None` where the browser read the document by a rule
+    /// the engine did not see.
+    pub source: Option<&'static str>,
+}
+
 /// How an attempt's run came to be on its tier, for its Provenance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Chosen {
@@ -1022,7 +1137,9 @@ pub enum Chosen {
 /// 0023): `forced`, with who forced it, the Run or the Label; `compared`
 /// under `auto`, the sample comparison's choice; `sample`, one run of a
 /// sample; `escalation` to the browser, naming the call the cheaper
-/// tier could not serve; or `race`, the winner of a tier race.
+/// tier could not serve; or `race`, the winner of a tier race; and the
+/// `encoding` its document was read in, with where it came from (ADR
+/// 0119), when it read one.
 ///
 /// # Cancel safety
 ///
@@ -1033,6 +1150,7 @@ pub async fn record_tier(
     label: &str,
     choice: &TierChoice,
     how: Chosen,
+    encoding: Option<&DocumentEncoding>,
 ) {
     let (chosen, escalated) = match how {
         Chosen::AsChosen => (choice.chosen(), None),
@@ -1053,6 +1171,12 @@ pub async fn record_tier(
         } else {
             "run"
         });
+    }
+    if let Some(encoding) = encoding {
+        entry["encoding"] = serde_json::json!(encoding.encoding);
+        if let Some(source) = encoding.source {
+            entry["encoding_source"] = serde_json::json!(source);
+        }
     }
     if let Some(call) = escalated {
         entry["call"] = serde_json::json!(call);
@@ -1168,6 +1292,39 @@ fn forced(settings: &Resolved) -> Option<(FetchTier, SettingsLayer)> {
     let effective = settings.get(FETCH_TIER.name)?;
     let tier = FetchTier::named(effective.value.as_str()?)?;
     Some((tier, effective.layer))
+}
+
+/// The first hop of `request`'s fetch.
+///
+/// # Errors
+///
+/// `navigation_failed` for a URL that does not parse.
+fn first_hop(request: &CrawlRequest) -> Result<Hop, Stop> {
+    let url = Url::parse(&request.url).map_err(|error| {
+        Stop::Failed(CallError::new(
+            &goodfetch_protocol::page::NAVIGATION_FAILED,
+            format!(
+                "The crawl request's URL `{}` does not parse: {error}.",
+                request.url
+            ),
+            &goodfetch_protocol::page::NavigationFailedDetails {
+                url: Some(request.url.clone()),
+                error: None,
+            },
+        ))
+    })?;
+    Ok(Hop {
+        url,
+        method: http::Method::from_bytes(request.method.as_str().as_bytes())
+            .unwrap_or(http::Method::GET),
+        headers: Vec::new(),
+        body: request
+            .body
+            .as_ref()
+            .map(|body| Bytes::copy_from_slice(body.bytes())),
+        // A crawl request is a read whatever its method (ADR 0106).
+        read: true,
+    })
 }
 
 /// The `href` of the document's first `<base>` element that has one.

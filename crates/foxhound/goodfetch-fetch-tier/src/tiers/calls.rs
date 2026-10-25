@@ -27,6 +27,12 @@
 //!
 //! Any other call is one the tier cannot serve exactly. Once a call
 //! escalated, every later call on the page fails as it did.
+//!
+//! On a page holding no document, whose accepted response is no HTML
+//! (ADR 0119), every call the table says reads, waits on or acts on the
+//! document fails at once with `response_not_document`, on every tier,
+//! never escalating; `response.body` reads its response's body, stored in
+//! the Run's folder once asked for.
 
 use std::collections::BTreeMap;
 
@@ -36,6 +42,7 @@ use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallError, GuardAnswer};
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::connection::CLOSED;
+use goodfetch_protocol::foxhound::fetch::{RESPONSE_NOT_DOCUMENT, ResponseNotDocumentDetails};
 use goodfetch_protocol::page::events::{RESPONSE_BODY, ResponseBodyParams};
 use goodfetch_protocol::page::request::{MAX_REDIRECTS, PAGE_REQUEST, PageRequestParams};
 use goodfetch_protocol::page::route::UrlMatcher;
@@ -60,7 +67,7 @@ use url::Url;
 use super::{FetchTiers, ServedPage};
 use crate::driver::{Fetched, Hop, fetch};
 use crate::gate::Gate;
-use crate::served_calls::{Verdict, verdict};
+use crate::served_calls::{Row, Verdict, verdict};
 use markup::{Shown, shown};
 use navigation::{Step, navigate};
 
@@ -78,6 +85,11 @@ pub(super) fn answer(
     params: &Value,
 ) -> Option<GuardAnswer> {
     let page = tiers.served_page(page_id)?;
+    if let Some(content_type) = &page.not_document
+        && Row::of(operation).is_some_and(Row::reads_document)
+    {
+        return Some(ready(Err(not_document(content_type, operation))));
+    }
     if let Some(call) = page.escalated {
         return Some(ready(Err(tiers.unserved(page_id, call, false))));
     }
@@ -153,10 +165,7 @@ pub(super) fn answer(
         }
         name if name == RESPONSE_BODY.name => {
             let params: ResponseBodyParams = read(params)?;
-            match page.bodies.get(&params.request_id) {
-                Some(body) => Some(ready(Ok(encoded(body)))),
-                None => Some(ready(Err(tiers.unserved(page_id, operation, false)))),
-            }
+            Some(body(tiers, page_id, page, operation, &params.request_id))
         }
         _ => Some(ready(Err(tiers.unserved(page_id, operation, false)))),
     }
@@ -204,6 +213,53 @@ fn navigated(
         let navigated = navigate(&tiers, &page_id, page, step, operation).await?;
         Ok(encoded(&navigated))
     }))
+}
+
+/// `response.body` of the request `request_id` on the served page
+/// `page_id`, `page`: a `page.request`'s or a navigation's body, kept, or
+/// its crawl request's own document's, stored once asked for.
+fn body(
+    tiers: &FetchTiers,
+    page_id: &PageId,
+    page: ServedPage,
+    operation: &'static str,
+    request_id: &str,
+) -> GuardAnswer {
+    if let Some(body) = page.bodies.get(request_id) {
+        return ready(Ok(encoded(body)));
+    }
+    match page.own {
+        Some((response, body)) if response.request_id == request_id => {
+            let tiers = tiers.clone();
+            let page_id = page_id.clone();
+            let run = page.document.run.clone();
+            Box::pin(async move {
+                let stored = run
+                    .store_body(body.to_vec())
+                    .await
+                    .map_err(|error| failed(&response.url, &error))?;
+                tiers.keep_body(&page_id, &response.request_id, stored.clone());
+                Ok(encoded(&stored))
+            })
+        }
+        _ => ready(Err(tiers.unserved(page_id, operation, false))),
+    }
+}
+
+/// `response_not_document` for the call `operation` on a page whose
+/// response, of the type `content_type`, holds no document (ADR 0119).
+fn not_document(content_type: &str, operation: &str) -> CallError {
+    CallError::new(
+        &RESPONSE_NOT_DOCUMENT,
+        format!(
+            "`{operation}` reads the page's document, but its response is `{content_type}`, which holds none."
+        ),
+        &ResponseNotDocumentDetails {
+            content_type: content_type.to_owned(),
+            call: operation.to_owned(),
+            fix: "Read the body from the handler's response (`ctx.response`); its page holds no document.".to_owned(),
+        },
+    )
 }
 
 /// `params` as `P`, or `None` when they do not read.
@@ -446,8 +502,25 @@ async fn answered(
         .await
         .map_err(|error| failed(fetched.url.as_str(), &error))?;
     tiers.keep_body(page_id, &request_id, stored);
+    Ok(page_response(
+        &fetched.url,
+        fetched.status,
+        fetched.headers,
+        request_id,
+    ))
+}
+
+/// The response from `url` with `status` and `headers`, whose body
+/// `response.body` reads under `request_id`, as a call answers it: its
+/// headers joined by name, as the browser joins them.
+pub(in crate::tiers) fn page_response(
+    url: &Url,
+    status: u16,
+    received: Vec<(String, String)>,
+    request_id: String,
+) -> PageResponse {
     let mut headers = BTreeMap::<String, String>::new();
-    for (name, value) in fetched.headers {
+    for (name, value) in received {
         headers
             .entry(name)
             .and_modify(|joined| {
@@ -456,10 +529,10 @@ async fn answered(
             })
             .or_insert(value);
     }
-    Ok(PageResponse {
-        url: fetched.url.to_string(),
-        status: fetched.status,
-        status_text: http::StatusCode::from_u16(fetched.status)
+    PageResponse {
+        url: url.to_string(),
+        status,
+        status_text: http::StatusCode::from_u16(status)
             .ok()
             .and_then(|status| status.canonical_reason())
             .unwrap_or_default()
@@ -468,7 +541,7 @@ async fn answered(
         encoding: None,
         request_id,
         from_service_worker: false,
-    })
+    }
 }
 
 /// `closed` for a call on the served page `page_id` after the attempt

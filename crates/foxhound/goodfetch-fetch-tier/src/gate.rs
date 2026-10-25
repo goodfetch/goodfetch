@@ -73,6 +73,7 @@ use tokio::sync::oneshot;
 use url::Url;
 
 use crate::chain::{Gating, HopGate, Skip, Stop};
+use crate::content_types::ContentTypes;
 use crate::driver::{Hop, judged};
 use crate::transports::AddressCheck;
 
@@ -135,6 +136,10 @@ pub struct HandOver {
     /// document, its Label's else the Run's (ADR 0119); none of the
     /// handler's own navigations takes it.
     pub encoding: Option<&'static encoding_rs::Encoding>,
+    /// The types `crawl.content_types` lets the crawl request's own
+    /// document be, its Label's else the Run's (ADR 0119); none of the
+    /// handler's own navigations is judged by them.
+    pub content_types: ContentTypes,
 }
 
 impl HandOver {

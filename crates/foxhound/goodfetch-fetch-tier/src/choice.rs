@@ -6,8 +6,8 @@
 //! Run the engine chooses: the crawl learns the tier per Label on a domain
 //! (`goodfetch-crawl`'s `tier_choice`), while a request left at the
 //! built-in default is handed to its handler alone, as before any tier was
-//! built, until #1602. A Label also takes `fetch.encoding` and
-//! `session.page_check`. A call the request's tier cannot serve exactly
+//! built, until #1602. A Label also takes `fetch.encoding`,
+//! `crawl.content_types` and `session.page_check`. A call the request's tier cannot serve exactly
 //! escalates the request to the browser under `auto`, and fails with
 //! `browser_required` under a forced tier, which nothing escalates.
 
@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 
 use encoding_rs::Encoding;
 use goodfetch_engine::CallError;
-use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, LabelDeclaration};
+use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, CRAWL_CONTENT_TYPES, LabelDeclaration};
 use goodfetch_protocol::foxhound::fetch::{
     BROWSER_REQUIRED, BrowserRequiredDetails, FETCH_ENCODING, FETCH_KEPT_RESPONSES_URLS,
     FETCH_TIER, FETCH_TIER_RACE, FETCH_TIERS, FetchTier,
@@ -28,13 +28,15 @@ use goodfetch_protocol::settings::{
 };
 use serde_json::{Map, Value, json};
 
+use crate::content_types::ContentTypes;
+
 /// What the keys inside a Label's `session.source` start with, once its
 /// shape is spelled out key by key.
 const SESSION_SOURCE_KEYS: &str = "session.source.";
 
 /// The Labels a crawl declares, each with what it sets of its own: its
-/// `fetch.tier`, the `fetch.encoding` and the `session.page_check` it sets,
-/// if any (ADR 0093), whether it keeps its URLs' fragments
+/// `fetch.tier`, the `fetch.encoding`, `crawl.content_types` (ADR 0119) and
+/// `session.page_check` it sets, if any (ADR 0093), whether it keeps its URLs' fragments
 /// (`crawl.keep_url_fragment`, ADR 0120) and whether it keeps responses
 /// for its handler (`fetch.kept_responses.urls`, ADR 0110), when it says.
 /// Its `session.source` is the Session pool's to read.
@@ -42,6 +44,7 @@ const SESSION_SOURCE_KEYS: &str = "session.source.";
 pub struct LabelSettings {
     tiers: BTreeMap<String, SetTier>,
     encodings: BTreeMap<String, String>,
+    content_types: BTreeMap<String, ContentTypes>,
     page_checks: BTreeMap<String, PageCheck>,
     fragments: BTreeMap<String, bool>,
     kept_responses: BTreeMap<String, bool>,
@@ -77,17 +80,20 @@ impl LabelSettings {
     /// # Errors
     ///
     /// `setting_not_applicable` for a key a Label does not take here (every
-    /// key but `fetch.tier`, `fetch.encoding`, `session.page_check`,
-    /// `crawl.keep_url_fragment`, `fetch.kept_responses.urls` and
-    /// `session.source`, which the Session pool reads; `fetch.tier_race` is
-    /// the Run's only), and `setting_invalid` for a `fetch.tier` that names no
-    /// tier, a `fetch.encoding` that is no WHATWG Encoding label, a
+    /// key but `fetch.tier`, `fetch.encoding`, `crawl.content_types`,
+    /// `session.page_check`, `crawl.keep_url_fragment`,
+    /// `fetch.kept_responses.urls` and `session.source`, which the Session
+    /// pool reads; `fetch.tier_race` is the Run's only), and
+    /// `setting_invalid` for a `fetch.tier` that names no tier, a
+    /// `fetch.encoding` that is no WHATWG Encoding label, a
+    /// `crawl.content_types` that is no list of media ranges, a
     /// `session.page_check` that is no Page check, a
     /// `crawl.keep_url_fragment` that is no Boolean or a
     /// `fetch.kept_responses.urls` that is no list of patterns.
     pub fn of(labels: &BTreeMap<String, LabelDeclaration>) -> Result<Self, CallError> {
         let mut tiers = BTreeMap::new();
         let mut encodings = BTreeMap::new();
+        let mut content_types = BTreeMap::new();
         let mut page_checks = BTreeMap::new();
         let mut fragments = BTreeMap::new();
         let mut kept_responses = BTreeMap::new();
@@ -100,6 +106,12 @@ impl LabelSettings {
                     if let Some(encoding) = encoding(name, &value)? {
                         encodings.insert(name.clone(), encoding);
                     }
+                    continue;
+                }
+                if key == CRAWL_CONTENT_TYPES.name {
+                    let types = ContentTypes::of(&value)
+                        .map_err(|reason| invalid(name, &key, &value, &reason))?;
+                    content_types.insert(name.clone(), types);
                     continue;
                 }
                 if key == SESSION_PAGE_CHECK.name {
@@ -138,7 +150,7 @@ impl LabelSettings {
                     return Err(CallError::new(
                         &SETTING_NOT_APPLICABLE,
                         format!(
-                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.encoding`, `fetch.kept_responses.urls`, `crawl.keep_url_fragment`, `session.page_check` and `session.source` are set per Label; set `{key}` for the Run instead."
+                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.encoding`, `fetch.kept_responses.urls`, `crawl.content_types`, `crawl.keep_url_fragment`, `session.page_check` and `session.source` are set per Label; set `{key}` for the Run instead."
                         ),
                         &SettingNotApplicableDetails {
                             key,
@@ -172,6 +184,7 @@ impl LabelSettings {
         Ok(Self {
             tiers,
             encodings,
+            content_types,
             page_checks,
             fragments,
             kept_responses,
@@ -212,6 +225,12 @@ impl LabelSettings {
             .map(String::as_str)
             .or(run)
             .and_then(|label| Encoding::for_label(label.as_bytes()))
+    }
+
+    /// The types `crawl.content_types` lets the own document of a request
+    /// of `label` be (ADR 0119): its Label's, else `run`, the Run's.
+    pub fn content_types(&self, label: &str, run: &ContentTypes) -> ContentTypes {
+        self.content_types.get(label).unwrap_or(run).clone()
     }
 
     /// The Page check the Label `label` declares of its own, if it does.

@@ -39,7 +39,8 @@ use goodfetch_protocol::usage::REQUESTS;
 use serde_json::json;
 use tokio::sync::watch;
 
-use crate::driver::{Deadlines, Fetched, Hop, Transport, fetch, fetch_anew};
+use crate::content_types::Accepts;
+use crate::driver::{Deadlines, Fetched, Hop, Transport, fetch_accepting, fetch_anew};
 use crate::hedging::{Budget, Latencies, repeatable};
 
 /// Provenance's action for a response a request shared with an identical
@@ -100,10 +101,13 @@ struct Identity {
     url: String,
     headers: Vec<(String, String)>,
     body: Option<Vec<u8>>,
+    /// The types its handler takes: requests that take others never share
+    /// an answer.
+    accepts: Option<Accepts>,
 }
 
 impl Identity {
-    fn of(session: &SessionId, hop: &Hop) -> Self {
+    fn of(session: &SessionId, hop: &Hop, accepts: Option<&Accepts>) -> Self {
         Self {
             session: session.clone(),
             method: hop.method.as_str().to_owned(),
@@ -114,6 +118,7 @@ impl Identity {
                 .map(|(name, value)| (name.to_ascii_lowercase(), value.clone()))
                 .collect(),
             body: hop.body.as_ref().map(|body| body.to_vec()),
+            accepts: accepts.cloned(),
         }
     }
 }
@@ -142,7 +147,8 @@ impl Redundant {
 
     /// Fetches `hop` through `transport` for `requester` of `run`: the
     /// answer of an identical request in flight from its Session when one
-    /// is, else its own, hedged when its route is slow.
+    /// is, else its own, hedged when its route is slow, its answer judged
+    /// by `accepts`, its Label's `crawl.content_types` (ADR 0119).
     ///
     /// # Errors
     ///
@@ -157,16 +163,23 @@ impl Redundant {
         transport: &dyn Transport,
         deadlines: &Deadlines,
         run: &Run,
-        hop: &Hop,
+        (hop, accepts): (&Hop, Option<&Accepts>),
         requester: &Requester<'_>,
     ) -> Outcome {
         let repeatable = repeatable(&hop.method, requester.declares_effect, requester.paid);
         if !(self.coalesces && repeatable) {
             return self
-                .sent(transport, deadlines, run, hop, requester, repeatable)
+                .sent(
+                    transport,
+                    deadlines,
+                    run,
+                    (hop, accepts),
+                    requester,
+                    repeatable,
+                )
                 .await;
         }
-        let identity = Identity::of(requester.session, hop);
+        let identity = Identity::of(requester.session, hop, accepts);
         loop {
             match self.join_or_lead(&identity, requester.request_id) {
                 Turn::Join(request_id, mut answered) => {
@@ -182,7 +195,14 @@ impl Redundant {
                 }
                 Turn::Lead(lead) => {
                     let outcome = self
-                        .sent(transport, deadlines, run, hop, requester, repeatable)
+                        .sent(
+                            transport,
+                            deadlines,
+                            run,
+                            (hop, accepts),
+                            requester,
+                            repeatable,
+                        )
                         .await;
                     lead.answer(outcome.clone());
                     return outcome;
@@ -220,7 +240,7 @@ impl Redundant {
         transport: &dyn Transport,
         deadlines: &Deadlines,
         run: &Run,
-        hop: &Hop,
+        (hop, accepts): (&Hop, Option<&Accepts>),
         requester: &Requester<'_>,
         repeatable: bool,
     ) -> Outcome {
@@ -229,12 +249,12 @@ impl Redundant {
             lock(&hedges.budget).sent();
         }
         let Some(hedges) = self.hedges.as_ref().filter(|_| repeatable) else {
-            return fetch(transport, hop, deadlines, &clock).await;
+            return fetch_accepting(transport, hop, deadlines, &clock, accepts).await;
         };
         let route = format!("{}@{}", requester.label, requester.domain_key);
         let threshold = lock(&hedges.latencies).threshold(&route);
         let started = clock.now();
-        let first = fetch(transport, hop, deadlines, &clock);
+        let first = fetch_accepting(transport, hop, deadlines, &clock, accepts);
         tokio::pin!(first);
         let outcome = match threshold {
             None => first.await,
@@ -248,7 +268,14 @@ impl Redundant {
                     Some(outcome) => outcome,
                     None => {
                         hedged(
-                            hedges, transport, deadlines, run, hop, requester, threshold, first,
+                            hedges,
+                            transport,
+                            deadlines,
+                            run,
+                            (hop, accepts),
+                            requester,
+                            threshold,
+                            first,
                         )
                         .await
                     }
@@ -318,7 +345,7 @@ async fn hedged(
     transport: &dyn Transport,
     deadlines: &Deadlines,
     run: &Run,
-    hop: &Hop,
+    (hop, accepts): (&Hop, Option<&Accepts>),
     requester: &Requester<'_>,
     threshold: Duration,
     mut first: std::pin::Pin<&mut impl Future<Output = Outcome>>,
@@ -345,7 +372,7 @@ async fn hedged(
         requester.second_copies.give_back(copy).await;
         return first.await;
     }
-    let hedge = fetch_anew(transport, hop, deadlines, &clock);
+    let hedge = fetch_anew(transport, hop, deadlines, &clock, accepts);
     tokio::pin!(hedge);
     let (outcome, answered_by) = tokio::select! {
         biased;

@@ -76,8 +76,8 @@ fn refusal(reply: &Value) -> Value {
 )]
 /// Covers: error:dataset_key_invalid
 #[case::a_key_on_a_field_the_schema_does_not_have(
-    json!([{ "name": "books", "schema": book_schema(), "key": ["isnb"] }]),
-    json!({ "code": "dataset_key_invalid", "details": { "dataset": "books", "field": "isnb" } }),
+    json!([{ "name": "books", "schema": book_schema(), "key": ["author"] }]),
+    json!({ "code": "dataset_key_invalid", "details": { "dataset": "books", "field": "author" } }),
 )]
 fn a_crawl_whose_datasets_cannot_be_declared_is_refused_before_its_run_begins(
     #[case] datasets: Value,

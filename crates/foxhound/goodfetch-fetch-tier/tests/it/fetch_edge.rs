@@ -73,10 +73,10 @@ fn get(proving_ground: &ProvingGround, over: Over, host: &str, path: &str) -> Ho
 
 /// The requests the Proving ground received for `path` on `host`.
 fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<Value> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .of_the_case()
         .filter(|request| {
             request["host"]
                 .as_str()

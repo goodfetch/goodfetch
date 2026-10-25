@@ -1,8 +1,8 @@
 //! Protocol fuzzing of Collie's Attached engine over stdio (ADR 0067):
 //! calls generated from the committed JSON Schema bundle, on a new engine
 //! with its own Goodfetch home for each sequence. Every invalid call gets a
-//! typed error and leaves the home's files as they were, its logs aside;
-//! every valid call gets a typed error or a result that meets its schema.
+//! typed error and leaves the home's files as they were, its logs aside and
+//! each SQLite database compared by what it holds; every valid call gets a typed error or a result that meets its schema.
 //! It runs `proptest_config()`'s cases on the test's seed, and declares no
 //! Feature: the protocol fuzzing story stays outside the Feature inventory.
 #![expect(
@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_test_support::{
     ProtocolFuzz, ProtocolSchema, ProtocolTransport, TestEnv, TransportFailure, proptest_config,
+    sql_dump,
 };
 use serde_json::Value;
 
@@ -100,8 +101,38 @@ impl Drop for Fuzzed<'_> {
 /// The Goodfetch home's log folder (ADR 0122), which records every call.
 const LOG_FOLDER: &str = "logs";
 
+/// What a SQLite database file starts with.
+const SQLITE_HEADER: &[u8] = b"SQLite format 3\0";
+
+/// The suffixes of the files SQLite keeps beside a database while
+/// connections use it: its write-ahead log, the log's shared-memory index
+/// and its rollback journal.
+const SQLITE_SIDE_FILES: [&str; 3] = ["-wal", "-shm", "-journal"];
+
+/// A hash of what the SQLite database at `path` holds: its schema and rows,
+/// as a connection reads them through its write-ahead log.
+fn database_hash(path: &Path) -> u64 {
+    let connection = rusqlite::Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .unwrap_or_else(|error| panic!("{} does not open: {error}", path.display()));
+    connection
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let dump = sql_dump(&connection)
+        .unwrap_or_else(|error| panic!("{} cannot be read: {error}", path.display()));
+    let mut hasher = DefaultHasher::new();
+    dump.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Every file under `home` but its logs, by its path there, with a hash of
-/// its bytes.
+/// its bytes, or of its schema and rows for a SQLite database, whose side
+/// files are left out: the engine's own reads of its Run index at each
+/// storage sample, whatever the calls, create and remove them, and a
+/// checkpoint moves the log into the database without changing what it
+/// holds.
 fn files(home: &Path) -> BTreeMap<PathBuf, u64> {
     let mut files = BTreeMap::new();
     let mut folders = vec![home.to_owned()];
@@ -114,13 +145,25 @@ fn files(home: &Path) -> BTreeMap<PathBuf, u64> {
             if path == home.join(LOG_FOLDER) {
                 continue;
             }
+            let side_file = path.file_name().is_some_and(|name| {
+                let name = name.to_string_lossy();
+                SQLITE_SIDE_FILES
+                    .iter()
+                    .any(|suffix| name.ends_with(suffix))
+            });
             if path.is_dir() {
                 folders.push(path);
-            } else {
-                let mut hasher = DefaultHasher::new();
-                std::fs::read(&path).unwrap().hash(&mut hasher);
+            } else if !side_file {
+                let bytes = std::fs::read(&path).unwrap();
+                let hash = if bytes.starts_with(SQLITE_HEADER) {
+                    database_hash(&path)
+                } else {
+                    let mut hasher = DefaultHasher::new();
+                    bytes.hash(&mut hasher);
+                    hasher.finish()
+                };
                 let relative = path.strip_prefix(home).unwrap().to_owned();
-                files.insert(relative, hasher.finish());
+                files.insert(relative, hash);
             }
         }
     }

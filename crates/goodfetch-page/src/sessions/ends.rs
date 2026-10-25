@@ -70,9 +70,10 @@ impl Sessions {
     }
 
     /// Follows the page `page_id`, which `page` is, of the Session `open`,
-    /// in its Run's browser `browser`, until it ends: a target the browser
-    /// destroyed, a renderer that crashed, or its browser lost, which ends
-    /// its Session too when the Session is seated there.
+    /// in its Run's browser `browser`, until it ends: its lease ended, which
+    /// closes its target, a target the browser destroyed, a renderer that
+    /// crashed, or its browser lost, which ends its Session too when the
+    /// Session is seated there.
     pub(super) fn watch(&self, page_id: PageId, page: OpenPage, open: Arc<Session>, browser: u64) {
         let sessions = self.clone();
         let OpenPage {
@@ -88,6 +89,16 @@ impl Sessions {
                 lost = driver.lost() => lost,
                 () = life.terminal() => return,
                 () = stopping.cancelled() => return,
+                () = life.ended_by_lease() => {
+                    // Its lease ended it (P31): the engine closes its target,
+                    // whatever the lease, and the close is confirmed (P29).
+                    driver.close().await;
+                    match life.end(&Ending::Destroyed) {
+                        Ok(effect) => sessions.page_ended(&page_id, &run, effect).await,
+                        Err(error) => tracing::error!(%error, "a page's end was refused"),
+                    }
+                    return;
+                }
             };
             let (ending, session_event) = match lost {
                 Lost::RendererCrashed => (Ending::RendererCrash, None),

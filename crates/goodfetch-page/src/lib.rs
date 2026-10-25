@@ -19,6 +19,7 @@ mod clean_up_versions;
 mod consent;
 mod dialogs;
 mod driver;
+mod egress_relay;
 mod errors;
 mod guard;
 mod hiding;

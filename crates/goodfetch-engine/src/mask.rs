@@ -394,7 +394,10 @@ impl Masks {
     /// A writer that masks what it passes to `inner` as `scope` says, a
     /// value split across writes included: it holds back the end of what
     /// it was given, as long as the longest form less one byte, until more
-    /// comes, it is finished or it drops.
+    /// comes, it is finished or it drops. It hands `inner` what it was given
+    /// in pieces, so a writer that takes each write as a whole line, such as
+    /// a log file other threads write too, needs each line masked whole
+    /// instead ([`Masks::apply_bytes`]).
     pub fn writer<W: Write>(&self, inner: W, scope: Scope) -> MaskWriter<W> {
         MaskWriter {
             masks: self.clone(),

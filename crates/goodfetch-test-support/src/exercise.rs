@@ -77,7 +77,7 @@ impl ExerciseRecord {
         {
             Ok(mut file) => {
                 let header = serde_json::json!({ "test": self.test });
-                writeln!(file, "{header}")?;
+                file.write_all(format!("{header}\n").as_bytes())?;
                 Ok(file)
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -104,8 +104,10 @@ impl ExerciseRecord {
         }
         for log in logs {
             let text = std::fs::read_to_string(&log)?;
+            // Each line in one write, its newline included, so no line an
+            // in-process subscriber appends meanwhile lands inside it.
             for line in text.lines().filter(|line| !line.trim().is_empty()) {
-                writeln!(file, "{line}")?;
+                file.write_all(format!("{line}\n").as_bytes())?;
             }
         }
         Ok(())

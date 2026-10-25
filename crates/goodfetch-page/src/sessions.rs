@@ -84,7 +84,8 @@ use self::lifecycle::{
 use crate::borrowed::{CdpUrl, resolve_of};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
-use crate::driver::{PageDriver, Visibility};
+use crate::driver::{PageDriver, SessionEgress, Visibility};
+use crate::egress_relay::{self, EgressRelay};
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
 use crate::interception::{Interception, SESSION_KEYS};
@@ -171,9 +172,13 @@ struct Session {
     life: SessionLife,
     /// Its one proxy, if it has one.
     proxy: Option<Arc<SessionProxy>>,
-    /// On a Borrowed browser, set once its Provenance records that it is
-    /// held to the policy by interception alone; none elsewhere.
-    interception_only: Option<OnceCell<()>>,
+    /// The egress relay its browser reaches the network through, unless
+    /// `security.raw_cdp_egress_proxy` is off or it is on a Borrowed
+    /// browser.
+    relay: Option<Arc<EgressRelay>>,
+    /// Set once its Provenance records how its network is held: by its
+    /// egress relay, or by interception alone.
+    egress_marked: OnceCell<()>,
     /// Why a Session reopened from run state cannot open a page, such as a
     /// proxy that did not open: raised by each page it is asked for, while
     /// the Run's other Sessions go on.
@@ -201,6 +206,10 @@ const BORROWED: Attributes = Attributes {
 /// The Provenance action of a Session held to the policy by interception
 /// alone.
 const INTERCEPTION_ONLY: &str = "interception_only";
+
+/// The Provenance action of a Session whose browser reaches the network
+/// through its egress relay.
+const EGRESS_RELAY: &str = "egress_relay";
 
 /// One page this engine holds: open, or crashed.
 #[derive(Clone)]
@@ -359,13 +368,18 @@ impl Sessions {
         let next = reached(&mut *self.state.lock().await, &run)?.last + 1;
         let proxy = open_proxy(&run, &settings, context, next).await?;
         no_proxy_under(borrowed.as_ref(), proxy.as_deref())?;
+        let relay = open_relay(&run, proxy.as_ref(), borrowed.is_some())
+            .await
+            .map_err(|error| unavailable(&run, &error, context))?;
         let (position, seat) = {
             let mut state = self.state.lock().await;
             let runs = reached(&mut state, &run)?;
             runs.last += 1;
             let seat = match &borrowed {
                 Some(cdp_url) => runs.pool.borrowed_seat(cdp_url.clone()),
-                None => runs.pool.seat(Placement::Shared, proxy.clone()),
+                None => runs
+                    .pool
+                    .seat(Placement::Shared, egress(proxy.as_ref(), relay.as_ref())),
             };
             (runs.last, seat)
         };
@@ -379,7 +393,8 @@ impl Sessions {
             settings: settings.clone(),
             life: life.clone(),
             proxy,
-            interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
+            egress_marked: OnceCell::new(),
+            relay,
             reopen_failed: None,
             held_frames: borrowed
                 .as_ref()
@@ -405,7 +420,7 @@ impl Sessions {
         }
         self.record(&run, position, false, &settings, borrowed.as_ref(), context)
             .await?;
-        mark_interception_only(&open, &session).await;
+        mark_egress(&open, &session).await;
         Ok(SessionOpened {
             session_id: session,
         })
@@ -455,13 +470,18 @@ impl Sessions {
         let next = reached(&mut *self.state.lock().await, run)?.last + 1;
         let proxy = open_proxy(run, &Values::default(), context, next).await?;
         no_proxy_under(borrowed, proxy.as_deref())?;
+        let relay = open_relay(run, proxy.as_ref(), borrowed.is_some())
+            .await
+            .map_err(|error| unavailable(run, &error, context))?;
         let (position, seat) = {
             let mut state = self.state.lock().await;
             let runs = reached(&mut state, run)?;
             runs.last += 1;
             let seat = match borrowed {
                 Some(cdp_url) => runs.pool.borrowed_seat(cdp_url.clone()),
-                None => runs.pool.seat(Placement::Shared, proxy.clone()),
+                None => runs
+                    .pool
+                    .seat(Placement::Shared, egress(proxy.as_ref(), relay.as_ref())),
             };
             (runs.last, seat)
         };
@@ -481,7 +501,8 @@ impl Sessions {
                     SessionState::Open,
                 ),
                 proxy,
-                interception_only: borrowed.map(|_| OnceCell::new()),
+                egress_marked: OnceCell::new(),
+                relay,
                 reopen_failed: None,
                 held_frames: borrowed.map(|_| session_pages::HeldFrames::default()),
                 injections: Injections::default(),
@@ -525,7 +546,7 @@ impl Sessions {
             })
             .await?;
         tracing::Span::current().record("page_id", page.0.as_str());
-        mark_interception_only(&open_session, session).await;
+        mark_egress(&open_session, session).await;
         Ok(PageOpened {
             page_id: page,
             session_id: session.clone(),
@@ -812,21 +833,15 @@ impl Sessions {
             let borrowed = source
                 .map(|source| recorded_source(&source, run, context))
                 .transpose()?;
-            // A reopened Session keeps the proxy it opened with, so its
-            // address never changes under its cookies (SA-22); one on a
-            // Borrowed browser has none (ADR 0056). One whose proxy does not
-            // open raises why from each page it is asked for.
-            let (proxy, reopen_failed) = match borrowed {
-                Some(_) => (None, None),
-                None => match open_proxy(run, &settings, context, position).await {
-                    Ok(proxy) => (proxy, None),
-                    Err(error) => (None, Some(error)),
-                },
-            };
+            let (proxy, relay, reopen_failed) =
+                reopened_egress(run, &settings, borrowed.is_some(), position, context).await;
             let session = session_id(run.id(), position);
             let (seat, attributes) = match &borrowed {
                 Some(cdp_url) => (pool.borrowed_seat(cdp_url.clone()), BORROWED),
-                None => (pool.seat(Placement::Shared, proxy.clone()), FRESH),
+                None => (
+                    pool.seat(Placement::Shared, egress(proxy.as_ref(), relay.as_ref())),
+                    FRESH,
+                ),
             };
             reopened.push(Session {
                 run: run.clone(),
@@ -835,7 +850,8 @@ impl Sessions {
                 settings,
                 life: SessionLife::new(session, attributes, SessionState::Open),
                 proxy,
-                interception_only: borrowed.as_ref().map(|_| OnceCell::new()),
+                egress_marked: OnceCell::new(),
+                relay,
                 reopen_failed,
                 held_frames: borrowed
                     .as_ref()
@@ -849,7 +865,7 @@ impl Sessions {
         }
         for open in reopened {
             let session = session_id(run.id(), open.position);
-            self.open_in_interception(&session, run, open.interception_only.is_some());
+            self.open_in_interception(&session, run, open.held_frames.is_some());
             state.sessions.insert(session, Arc::new(open));
         }
         state.runs.insert(run.id().clone(), runs);
@@ -1214,33 +1230,107 @@ fn no_proxy_under(
     ))
 }
 
-/// Records in its Run's Provenance, once, that the Session `session` on a
-/// Borrowed browser is held to the policy by interception alone: the
-/// engine resolves each request's host itself, but the browser resolves it
-/// again, so an answer that changes in between (DNS rebinding) reaches the
-/// browser (ADR 0056). Nothing for any other Session.
+/// Records in its Run's Provenance, once, how the network of the Session
+/// `session` is held: through its egress relay, at the relay's loopback
+/// address, which checks the address each connection uses; or, on a
+/// Borrowed browser or with no relay, by interception alone, the browser
+/// resolving each request's host itself, so an answer that changes after
+/// the engine's check (DNS rebinding) reaches the browser (ADR 0056).
 ///
 /// # Cancel safety
 ///
 /// Dropping the future may lose the entry.
-async fn mark_interception_only(open: &Session, session: &SessionId) {
-    let Some(marked) = &open.interception_only else {
-        return;
-    };
-    marked
+async fn mark_egress(open: &Session, session: &SessionId) {
+    open.egress_marked
         .get_or_init(|| async {
-            trace::provenance(
-                &open.run,
-                &json!({
+            let entry = match &open.relay {
+                Some(relay) => json!({
+                    "action": EGRESS_RELAY,
+                    "session_id": session,
+                    "egress": EGRESS_RELAY,
+                    "address": relay.endpoint().address.to_string(),
+                }),
+                None => json!({
                     "action": INTERCEPTION_ONLY,
                     "session_id": session,
                     "egress": INTERCEPTION_ONLY,
                     "gap": "dns_rebinding",
                 }),
-            )
-            .await;
+            };
+            trace::provenance(&open.run, &entry).await;
         })
         .await;
+}
+
+/// The proxy and egress relay of the Session at `position` of `run`
+/// reopened from run state with its own `settings`, and why it cannot open
+/// a page when either does not open. It keeps the proxy it opened with,
+/// so its address never changes under its cookies (SA-22); one on a
+/// Borrowed browser, `borrowed`, has neither (ADR 0056). One whose proxy
+/// or relay does not open raises why from each page it is asked for.
+async fn reopened_egress(
+    run: &Run,
+    settings: &Values,
+    borrowed: bool,
+    position: u32,
+    context: &CallContext,
+) -> (
+    Option<Arc<SessionProxy>>,
+    Option<Arc<EgressRelay>>,
+    Option<CallError>,
+) {
+    if borrowed {
+        return (None, None, None);
+    }
+    let proxy = match open_proxy(run, settings, context, position).await {
+        Ok(proxy) => proxy,
+        Err(error) => return (None, None, Some(error)),
+    };
+    match open_relay(run, proxy.as_ref(), false).await {
+        Ok(relay) => (proxy, relay, None),
+        Err(error) => (proxy, None, Some(unavailable(run, &error, context))),
+    }
+}
+
+/// What a Session's connections leave through: `proxy` and `relay`.
+fn egress(proxy: Option<&Arc<SessionProxy>>, relay: Option<&Arc<EgressRelay>>) -> SessionEgress {
+    SessionEgress {
+        proxy: proxy.cloned(),
+        relay: relay.cloned(),
+    }
+}
+
+/// The egress relay of a Session of `run` whose upstream proxy is `proxy`,
+/// while `security.raw_cdp_egress_proxy` is on: none on a Borrowed browser,
+/// whose network the engine does not hold (ADR 0056), with the switch off,
+/// or behind an `https://` proxy, which the relay does not chain through;
+/// such a Session is held by interception alone.
+///
+/// # Errors
+///
+/// The relay's bind failing.
+async fn open_relay(
+    run: &Run,
+    proxy: Option<&Arc<SessionProxy>>,
+    borrowed: bool,
+) -> std::io::Result<Option<Arc<EgressRelay>>> {
+    let on = run
+        .settings()
+        .map(RunSettings::resolved)
+        .is_none_or(egress_relay::relayed);
+    if borrowed || !on {
+        return Ok(None);
+    }
+    let chain = match proxy {
+        None => None,
+        Some(proxy) => match proxy.chain() {
+            Some(chain) => Some(chain),
+            None => return Ok(None),
+        },
+    };
+    EgressRelay::open(run, chain)
+        .await
+        .map(|relay| Some(Arc::new(relay)))
 }
 
 /// The live Run `run_id`; `run_ended` for one that ended `finished`, which

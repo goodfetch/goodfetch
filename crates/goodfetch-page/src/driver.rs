@@ -74,6 +74,7 @@ use self::permit_waits::PermitWaits;
 pub(crate) use self::popups::{OnPopup, PopupHandler};
 pub(crate) use self::service_workers::{OnWorker, ServiceWorkers};
 use crate::borrowed::CdpUrl;
+use crate::egress_relay::EgressRelay;
 use crate::errors::{
     Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,
 };
@@ -541,6 +542,15 @@ impl Connect for LocalBrowser {
     }
 }
 
+/// What a Session's connections leave through: its upstream proxy, if it
+/// has one, and the egress relay its browser reaches the network through,
+/// if it has one.
+#[derive(Clone, Default)]
+pub(crate) struct SessionEgress {
+    pub(crate) proxy: Option<Arc<SessionProxy>>,
+    pub(crate) relay: Option<Arc<EgressRelay>>,
+}
+
 /// The Session-level driver: one Session's browser context, its own
 /// cookies and storage (ADR 0037 / SA-10) and its one proxy, set on the
 /// context so no page or request has another (SA-22), in which it opens its
@@ -550,7 +560,7 @@ impl Connect for LocalBrowser {
 /// 0056).
 pub(crate) struct SessionDriver<B> {
     browser: B,
-    proxy: Option<Arc<SessionProxy>>,
+    egress: SessionEgress,
     context: OnceCell<browser::BrowserContextID>,
     /// The pages it opened in a Borrowed browser's default context, which
     /// its close closes.
@@ -558,12 +568,12 @@ pub(crate) struct SessionDriver<B> {
 }
 
 impl<B: Connect> SessionDriver<B> {
-    /// The driver of a Session of `browser` whose requests go through
-    /// `proxy`, if it has one.
-    pub(crate) fn new(browser: B, proxy: Option<Arc<SessionProxy>>) -> Self {
+    /// The driver of a Session of `browser` whose requests leave through
+    /// `egress`.
+    pub(crate) fn new(browser: B, egress: SessionEgress) -> Self {
         Self {
             browser,
-            proxy,
+            egress,
             context: OnceCell::new(),
             opened: Mutex::new(Vec::new()),
         }
@@ -598,13 +608,25 @@ impl<B: Connect> SessionDriver<B> {
                         )
                     });
                 }
-                let proxy = self.proxy.as_deref();
+                // Through its egress relay, every connection, loopback's
+                // included; else through its proxy, if it has one.
+                let (proxy_server, proxy_bypass_list) =
+                    match (&self.egress.relay, &self.egress.proxy) {
+                        (Some(relay), _) => (
+                            Some(relay.browser_server()),
+                            Some(crate::proxy::PROXIED_LOOPBACK.to_owned()),
+                        ),
+                        (None, Some(proxy)) => {
+                            (Some(proxy.browser_server()), Some(proxy.browser_bypass()))
+                        }
+                        (None, None) => (None, None),
+                    };
                 browser
                     .send(
                         None,
                         &target::CreateBrowserContextParams {
-                            proxy_server: proxy.map(SessionProxy::browser_server),
-                            proxy_bypass_list: proxy.map(SessionProxy::browser_bypass),
+                            proxy_server,
+                            proxy_bypass_list,
                             ..target::CreateBrowserContextParams::default()
                         },
                         &opening,
@@ -713,7 +735,7 @@ impl<B: Connect> SessionDriver<B> {
         Ok(PageDriver {
             browser,
             session,
-            proxy: self.proxy.clone(),
+            egress: self.egress.clone(),
             context,
             frame,
             started: Arc::new(watch::Sender::new(0)),
@@ -787,8 +809,8 @@ pub(crate) struct SerializedDocument {
 pub(crate) struct PageDriver {
     browser: Browser,
     session: TargetSession,
-    /// Its Session's proxy, if it has one.
-    proxy: Option<Arc<SessionProxy>>,
+    /// Its Session's proxy and egress relay.
+    egress: SessionEgress,
     /// Its Session's browser context.
     context: browser::BrowserContextID,
     /// The page's main frame.
@@ -995,7 +1017,40 @@ impl PageDriver {
 
     /// Its Session's proxy, if it has one.
     pub(crate) fn proxy(&self) -> Option<&SessionProxy> {
-        self.proxy.as_deref()
+        self.egress.proxy.as_deref()
+    }
+
+    /// Its Session's egress relay, if it has one.
+    pub(crate) fn relay(&self) -> Option<&EgressRelay> {
+        self.egress.relay.as_deref()
+    }
+
+    /// Whether the browser asks the engine for the credentials of the proxy
+    /// it connects to: its Session's egress relay's, or an HTTP or HTTPS
+    /// proxy's, whose 407 then reaches the engine.
+    pub(crate) fn answers_authentication(&self) -> bool {
+        self.relay().is_some()
+            || self
+                .proxy()
+                .is_some_and(SessionProxy::answers_authentication)
+    }
+
+    /// The credentials the engine answers the browser's proxy's 407 with:
+    /// the egress relay's own when the Session has one, which sends the
+    /// upstream proxy's itself, else its proxy's, if it has any.
+    pub(crate) fn proxy_credentials(&self) -> Option<(&str, &str)> {
+        if let Some(relay) = self.relay() {
+            let endpoint = relay.endpoint();
+            return Some((endpoint.username, endpoint.password));
+        }
+        self.proxy()?.credentials().map(|(username, password)| {
+            (
+                username,
+                password.map_or("", |password| {
+                    secrecy::ExposeSecret::expose_secret(password)
+                }),
+            )
+        })
     }
 
     /// The page carrying `value`, its Run reading time from `clock`: its
@@ -1004,8 +1059,8 @@ impl PageDriver {
     /// Session's proxy's.
     pub(crate) fn with_value(mut self, value: PageValue, clock: Clock) -> Self {
         self.browser.lease = value.lease().cloned();
-        self.waits =
-            (value.gate().is_some() || self.proxy.is_some()).then(|| PermitWaits::new(clock));
+        self.waits = (value.gate().is_some() || self.egress.proxy.is_some())
+            .then(|| PermitWaits::new(clock));
         self.value = value;
         self
     }
@@ -1046,7 +1101,11 @@ impl PageDriver {
     /// sends around the proxy. The wait counts against no deadline of the
     /// page, and its lease check holds the lease through it.
     pub(crate) async fn proxy_permit(&self, url: &str) -> Option<ProxyPermit> {
-        let proxy = self.proxy.as_deref().filter(|proxy| !proxy.bypasses(url))?;
+        let proxy = self
+            .egress
+            .proxy
+            .as_deref()
+            .filter(|proxy| !proxy.bypasses(url))?;
         let waiting = self.waits.as_ref().map(PermitWaits::begin);
         let holding = self.value.lease().map(|lease| lease.permit_wait(url));
         let permit = proxy.permit().await;
@@ -1073,7 +1132,48 @@ impl PageDriver {
         waited_for: &str,
         future: F,
     ) -> Result<F::Output, CallError> {
-        let deadline = &self.browser.deadlines.navigation;
+        Box::pin(self.within(Some(&self.browser.deadlines.navigation), waited_for, future)).await
+    }
+
+    /// The deadline of a navigation whose call's own `timeout` is
+    /// `timeout`: its Run's `timeout.navigation` when absent
+    /// ([`Deadline::of_call`]).
+    ///
+    /// # Errors
+    ///
+    /// `invalid_params` for a `timeout` of 0.
+    #[expect(
+        clippy::option_option,
+        reason = "the param's three states as the protocol carries them (ADR 0080): absent, `null` or a duration"
+    )]
+    pub(crate) fn navigation_deadline(
+        &self,
+        timeout: Option<Option<u64>>,
+    ) -> Result<Option<Deadline>, CallError> {
+        Deadline::of_call(
+            &self.browser.deadlines.navigation,
+            &TIMEOUT_NAVIGATION,
+            timeout,
+        )
+    }
+
+    /// Runs `future` within `deadline`, the page's waits for its gate's and
+    /// its proxy's permits not counted; with no deadline, until it ends.
+    ///
+    /// # Errors
+    ///
+    /// `deadline_exceeded` naming the deadline's setting and `waited_for`
+    /// once the deadline passed first; it counts as elapsed the time the
+    /// deadline counted, its permit waits left out (ADRs 0080 and 0093).
+    async fn within<F: Future>(
+        &self,
+        deadline: Option<&Deadline>,
+        waited_for: &str,
+        future: F,
+    ) -> Result<F::Output, CallError> {
+        let Some(deadline) = deadline else {
+            return Ok(future.await);
+        };
         let limit = deadline.duration();
         let done = match &self.waits {
             Some(waits) => waits.within(limit, future).await.ok(),
@@ -1313,11 +1413,14 @@ impl PageDriver {
         &self,
         destination: Destination<'_>,
         wait_until: WaitUntil,
+        deadline: Option<&Deadline>,
     ) -> Result<Arrived, CallError> {
         let Some((url, step)) = self.step_to(destination).await? else {
             return Ok(Arrived::Document(None));
         };
         let call = Call::Navigation { url: url.clone() };
+        // The relay's refusals from here on are this navigation's to raise.
+        let relay_mark = self.relay().map(EgressRelay::mark);
         let mut events = self.browser.connection.subscribe(Some(&self.session));
         let mut generation = 0;
         self.started.send_modify(|started| {
@@ -1379,7 +1482,8 @@ impl PageDriver {
         };
         let waiting = NavigationCall::start(&self.navigating);
         let followed = self
-            .within_navigation_deadline(
+            .within(
+                deadline,
                 waited_for(wait_until),
                 // Boxed: the deadline that leaves out permit waits keeps it
                 // in its own state across its sleeps.
@@ -1401,11 +1505,7 @@ impl PageDriver {
                 })))
             }
             Ok(Ok(arrived)) => Ok(arrived),
-            Ok(Err(Ended::Failed(error))) => Err(self
-                .proxy
-                .as_ref()
-                .and_then(|proxy| proxy.failure(&url, error.name()))
-                .unwrap_or_else(|| network_error(&url, error.name()))),
+            Ok(Err(Ended::Failed(error))) => Err(self.failed(&url, error.name(), relay_mark)),
             Ok(Err(Ended::Interrupted)) => Err(interrupted(&url)),
             Ok(Err(Ended::TooManyRedirects(chain))) => Err(too_many_redirects(&url, chain)),
             Ok(Err(Ended::Truncated { received, expected })) => {
@@ -1431,11 +1531,39 @@ impl PageDriver {
         Ok(frame.unreachable_url.unwrap_or(frame.url))
     }
 
+    /// The error of a navigation to `url` that failed with the browser's
+    /// network error `error`, the Session's egress relay standing at
+    /// `mark` as it began: the relay's refusal, else the proxy's own
+    /// failure, else the site's, named as the browser names it when it
+    /// connects itself, since behind the relay it sees only the relay's
+    /// answer.
+    fn failed(&self, url: &str, error: &str, mark: Option<u64>) -> CallError {
+        let name = self
+            .relay()
+            .and_then(|relay| relay.net_error(url, error, mark))
+            .unwrap_or(error);
+        self.refused_by_relay(mark, url)
+            .or_else(|| {
+                self.egress
+                    .proxy
+                    .as_ref()
+                    .and_then(|proxy| proxy.failure(url, name))
+            })
+            .unwrap_or_else(|| network_error(url, name))
+    }
+
+    /// `egress_refused` when the Session's egress relay refused a
+    /// connection since `mark`, as it was when the navigation to `url`
+    /// began: the browser reports that refusal only as a network error.
+    fn refused_by_relay(&self, mark: Option<u64>, url: &str) -> Option<CallError> {
+        Some(self.relay()?.take_refusal(url, Some(mark?))?.error())
+    }
+
     /// `proxy_unavailable` when `response`, the document's response to a
     /// navigation to `url`, is the Session's proxy's own, never the site's
     /// (the proxy-or-site rule).
     fn answered_by_proxy(&self, url: &str, response: &PageResponse) -> Option<CallError> {
-        let proxy = self.proxy.as_deref()?;
+        let proxy = self.egress.proxy.as_deref()?;
         let proxy_status = response.headers.get(PROXY_STATUS).map(String::as_str);
         if party(proxy.response(&response.url, proxy_status)) != Party::Proxy {
             return None;

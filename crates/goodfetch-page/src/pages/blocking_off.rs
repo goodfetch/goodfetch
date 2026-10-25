@@ -34,6 +34,13 @@ const BLOCKING_OFF: &str = "blocking_off";
 pub(super) struct FirstLoad<'a> {
     pub(super) destination: Destination<'a>,
     pub(super) wait_until: WaitUntil,
+    /// Its call's own `timeout` param (ADR 0080), which the load again
+    /// waits under too.
+    #[expect(
+        clippy::option_option,
+        reason = "the param's three states as the protocol carries them (ADR 0080): absent, `null` or a duration"
+    )]
+    pub(super) timeout: Option<Option<u64>>,
     /// Its document's response.
     pub(super) response: PageResponse,
     /// Its Page check's verdict.
@@ -108,12 +115,14 @@ impl Pages {
             Destination::Url(url) => Destination::Url(url),
             Destination::Reload | Destination::Back | Destination::Forward => Destination::Reload,
         };
+        let deadline = page.driver.navigation_deadline(first.timeout)?;
         let lists_off = self.interception.lists_off(page_id);
         let navigated = page
             .life
             .call(
                 PageEvent::Goto,
-                page.driver.navigate(again, first.wait_until),
+                page.driver
+                    .navigate(again, first.wait_until, deadline.as_ref()),
             )
             .await;
         let navigated = match self.left_failure(page_id) {

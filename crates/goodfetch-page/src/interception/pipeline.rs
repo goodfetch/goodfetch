@@ -36,7 +36,6 @@ use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NavigationFailedDetails, PageId, RequestFailed, ServiceWorkerRequest,
     SessionId,
 };
-use secrecy::ExposeSecret as _;
 use tokio::sync::oneshot;
 
 use super::answers::{Answer, Answers, Fulfillment, Reply, already_handled};
@@ -277,6 +276,7 @@ pub(super) async fn dispatch(mut events: Subscription, context: Arc<PageContext>
             }
             drop(permit);
             context.proxy_hop_failed(&failed);
+            context.refused_by_relay(&failed);
             continue;
         }
         if let Some(created) = event.read::<network::WebSocketCreatedEvent>() {
@@ -425,32 +425,29 @@ impl PageContext {
     /// navigation (ADR 0053). A site's own 401 goes on as the browser
     /// would answer it with no credentials.
     async fn authenticate(&self, required: fetch::AuthRequiredEvent) {
-        let proxy = self
-            .driver
-            .proxy()
-            .filter(|_| required.auth_challenge.source == Some(fetch::AuthChallengeSource::Proxy));
-        let response = match proxy {
-            None => answer_auth(fetch::AuthChallengeResponseResponse::Default, None),
-            Some(proxy) => {
-                let seen = lock(&self.authenticated).seen(&required.request_id);
-                match proxy.credentials() {
-                    Some((username, password)) if !seen => answer_auth(
-                        fetch::AuthChallengeResponseResponse::ProvideCredentials,
-                        Some((
-                            username,
-                            password.map_or("", |password| password.expose_secret()),
-                        )),
-                    ),
-                    _ => {
-                        let navigation = required.resource_type == network::ResourceType::Document
-                            && &required.frame_id == self.driver.main_frame();
-                        if navigation {
-                            self.state.leave(proxy.auth_failed(&required.request.url));
-                        }
-                        answer_auth(fetch::AuthChallengeResponseResponse::CancelAuth, None)
+        let proxied = required.auth_challenge.source == Some(fetch::AuthChallengeSource::Proxy)
+            && (self.driver.proxy().is_some() || self.driver.relay().is_some());
+        let response = if proxied {
+            let seen = lock(&self.authenticated).seen(&required.request_id);
+            match self.driver.proxy_credentials() {
+                Some(credentials) if !seen => answer_auth(
+                    fetch::AuthChallengeResponseResponse::ProvideCredentials,
+                    Some(credentials),
+                ),
+                // Behind the relay, a second 407 is the upstream proxy's
+                // refusal of the Session's credentials, which the relay
+                // passed on.
+                _ => {
+                    let navigation = required.resource_type == network::ResourceType::Document
+                        && &required.frame_id == self.driver.main_frame();
+                    if navigation && let Some(proxy) = self.driver.proxy() {
+                        self.state.leave(proxy.auth_failed(&required.request.url));
                     }
+                    answer_auth(fetch::AuthChallengeResponseResponse::CancelAuth, None)
                 }
             }
+        } else {
+            answer_auth(fetch::AuthChallengeResponseResponse::Default, None)
         };
         let answered = self
             .driver
@@ -892,6 +889,23 @@ impl PageContext {
         }
     }
 
+    /// Leaves for the waiting navigation, or the page's next call, the
+    /// egress relay's refusal of the document load that `failed` failed: a
+    /// hop the relay refused at the address it connects to, which the
+    /// browser reports only as a network error.
+    fn refused_by_relay(&self, failed: &network::LoadingFailedEvent) {
+        let (Some(relay), Some(_)) = (self.driver.relay(), self.sender.page_id()) else {
+            return;
+        };
+        if failed.r#type != network::ResourceType::Document {
+            return;
+        }
+        let document = Arc::clone(&*lock(&self.document));
+        if let Some(refused) = relay.take_refusal(&document, None) {
+            self.state.leave(refused.error());
+        }
+    }
+
     /// Ends the hop of the main frame's navigation that `failed` failed:
     /// its proxy's Permit goes back as the proxy's refusal when the proxy
     /// refused the tunnel, lowering the proxy's ceiling, and as a request
@@ -1305,6 +1319,11 @@ impl PageContext {
         let egress::Judgment::Refused(refused) = egress::judge(&request, &self.policy) else {
             return;
         };
+        // Behind the egress relay, the relay refuses it as it connects and
+        // records the refusal.
+        if self.driver.relay().is_some() {
+            return;
+        }
         if self.lookups.is_some() || self.driver.proxy().is_some() {
             tracing::warn!(%refused, "a WebSocket the domain policy refuses is not held where it connects: the Session's browser or proxy is not the engine's");
             return;

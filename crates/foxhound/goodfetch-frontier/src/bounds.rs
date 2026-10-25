@@ -183,11 +183,11 @@ impl Bounds {
     /// When the run file cannot be read.
     pub fn read(connection: &Connection) -> rusqlite::Result<Self> {
         let recorded = connection
-            .query_row(
+            .prepare_cached(
                 "SELECT max_depth, max_requests, max_url_length, max_path_segments, max_segment_repeats
                  FROM bounds WHERE id = 1",
-                [],
-                |row| {
+            )?
+            .query_row([], |row| {
                 let value = |index| row.get::<_, Option<i64>>(index).map(|value| value.map(count));
                 Ok(Self {
                     max_depth: value(0)?,
@@ -197,8 +197,7 @@ impl Bounds {
                     max_segment_repeats: value(4)?,
                     path_budgets: Vec::new(),
                 })
-                },
-            )
+            })
             .optional()?;
         let mut bounds = recorded.unwrap_or_default();
         let mut statement = connection.prepare_cached(
@@ -318,17 +317,19 @@ pub(crate) fn count_admitted(
     connection: &Connection,
     budget: Option<&PathBudget>,
 ) -> rusqlite::Result<()> {
-    connection.execute(
-        "INSERT INTO bounds_admitted (id, count) VALUES (1, 1)
-         ON CONFLICT (id) DO UPDATE SET count = count + 1",
-        [],
-    )?;
+    connection
+        .prepare_cached(
+            "INSERT INTO bounds_admitted (id, count) VALUES (1, 1)
+             ON CONFLICT (id) DO UPDATE SET count = count + 1",
+        )?
+        .execute([])?;
     if let Some(budget) = budget {
-        connection.execute(
-            "INSERT INTO bounds_path_counts (pattern, admitted, refused) VALUES (?1, 1, 0)
-             ON CONFLICT (pattern) DO UPDATE SET admitted = admitted + 1",
-            [&budget.pattern],
-        )?;
+        connection
+            .prepare_cached(
+                "INSERT INTO bounds_path_counts (pattern, admitted, refused) VALUES (?1, 1, 0)
+                 ON CONFLICT (pattern) DO UPDATE SET admitted = admitted + 1",
+            )?
+            .execute([&budget.pattern])?;
     }
     Ok(())
 }
@@ -347,21 +348,23 @@ pub(crate) fn count_refused(
     if reason == NotAddedReason::PathBudget
         && let Some(budget) = budget
     {
-        connection.execute(
-            "INSERT INTO bounds_path_counts (pattern, admitted, refused) VALUES (?1, 0, 1)
-             ON CONFLICT (pattern) DO UPDATE SET refused = refused + 1",
-            [&budget.pattern],
-        )?;
+        connection
+            .prepare_cached(
+                "INSERT INTO bounds_path_counts (pattern, admitted, refused) VALUES (?1, 0, 1)
+                 ON CONFLICT (pattern) DO UPDATE SET refused = refused + 1",
+            )?
+            .execute([&budget.pattern])?;
         return Ok(());
     }
     let Some(setting) = cut_by(reason) else {
         return Ok(());
     };
-    connection.execute(
-        "INSERT INTO bounds_refusals (setting, count) VALUES (?1, 1)
-         ON CONFLICT (setting) DO UPDATE SET count = count + 1",
-        [setting.name],
-    )?;
+    connection
+        .prepare_cached(
+            "INSERT INTO bounds_refusals (setting, count) VALUES (?1, 1)
+             ON CONFLICT (setting) DO UPDATE SET count = count + 1",
+        )?
+        .execute([setting.name])?;
     Ok(())
 }
 
@@ -509,11 +512,8 @@ fn cut_by(reason: NotAddedReason) -> Option<&'static Setting> {
 /// The count of requests the run file `connection` holds as admitted.
 fn admitted(connection: &Connection) -> rusqlite::Result<u64> {
     Ok(connection
-        .query_row(
-            "SELECT count FROM bounds_admitted WHERE id = 1",
-            [],
-            |row| row.get::<_, i64>(0),
-        )
+        .prepare_cached("SELECT count FROM bounds_admitted WHERE id = 1")?
+        .query_row([], |row| row.get::<_, i64>(0))
         .optional()?
         .map_or(0, count))
 }

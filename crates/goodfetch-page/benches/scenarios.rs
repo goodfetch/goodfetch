@@ -11,8 +11,12 @@
 //! against a page's routes, none of which answers it, judged by steps 3 to
 //! 7 under a domain policy of a hundred entries (the pipeline's `steps`,
 //! compiled in here) and sent on, or failed when refused, with the
-//! browser's answer read. Inputs are literals; no network, no sleep, no
-//! work whose amount depends on timing.
+//! browser's answer read. And the egress relay's connections (spec #564):
+//! a browser end and the network beyond the relay are in-memory streams,
+//! each connection's head read, its credentials checked, its host and
+//! address judged and its tunnel opened, then bytes forwarded through one
+//! tunnel. Inputs are literals; no network, no sleep, no work whose amount
+//! depends on timing.
 
 #[path = "../src/guard/check.rs"]
 #[expect(
@@ -20,6 +24,14 @@
     reason = "the scenario reads only a ready target's answer, never a waiting one's details"
 )]
 mod check;
+#[path = "../src/egress_relay/head.rs"]
+mod head;
+#[path = "../src/egress_relay/serve.rs"]
+#[expect(
+    dead_code,
+    reason = "the scenario's relay goes direct, so its upstream proxies' answers are never read"
+)]
+pub(crate) mod serve;
 #[path = "../src/interception/steps.rs"]
 #[expect(
     dead_code,
@@ -309,5 +321,162 @@ pub(crate) fn intercept(count: usize, blocking: &steps::Blocking) -> usize {
             pausing_browser(end, count)
         );
         sent_on
+    })
+}
+
+/// The relay scenarios' Session credentials, as the browser sends them.
+const RELAY_AUTHORIZATION: &str = "Basic Z29vZGZldGNoOnNlc3Npb24tc2VjcmV0";
+
+/// The public address every site of the relay scenarios resolves to.
+const SITE_ADDRESS: std::net::IpAddr =
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 31, 196, 7));
+
+/// The network beyond the relay: every name resolves to [`SITE_ADDRESS`],
+/// an address to itself, and
+/// each connection's far end goes to the scenario, which reads it.
+struct InMemory {
+    far_ends: tokio::sync::mpsc::UnboundedSender<DuplexStream>,
+}
+
+impl serve::Network for InMemory {
+    type Stream = DuplexStream;
+
+    fn resolve(
+        &self,
+        host: &str,
+        port: u16,
+    ) -> impl Future<Output = Option<serve::Resolved>> + Send {
+        let address = host.parse().unwrap_or(SITE_ADDRESS);
+        std::future::ready(Some(serve::Resolved {
+            addresses: vec![std::net::SocketAddr::new(address, port)],
+            mapped: false,
+        }))
+    }
+
+    fn connect(
+        &self,
+        _: std::net::SocketAddr,
+    ) -> impl Future<Output = std::io::Result<DuplexStream>> + Send {
+        let (near, far) = tokio::io::duplex(1 << 16);
+        let _ = self.far_ends.send(far);
+        std::future::ready(Ok(near))
+    }
+
+    fn connect_upstream(&self) -> impl Future<Output = std::io::Result<DuplexStream>> + Send {
+        std::future::ready(Err(std::io::ErrorKind::NotConnected.into()))
+    }
+}
+
+/// The relay tells no Session anything in the scenarios.
+struct Unobserved;
+
+impl serve::Observe for Unobserved {
+    fn unreached(&self, _: &str, _: serve::Unreached) {}
+    fn reached(&self, _: &str) {}
+    fn refused(&self, _: &goodfetch_engine::egress::Refused, _: &str) {}
+    fn upstream(&self, _: serve::Met) {}
+    fn unauthenticated(&self) {}
+}
+
+/// The relaying of the scenarios: a domain policy of a hundred entries, as
+/// the interception scenario's, and no upstream proxy.
+fn relaying() -> serve::Relaying {
+    let allowed: Vec<String> = (0..100)
+        .map(|index| format!("site-{index}.example.test"))
+        .collect();
+    serve::Relaying {
+        policy: Policy::new(&allowed, &["tracker.example.test"])
+            .expect("invariant: the scenario's hosts are hosts"),
+        authorization: RELAY_AUTHORIZATION.to_owned(),
+        upstream: serve::Upstream::Direct,
+        bypasses: Box::new(|_| false),
+    }
+}
+
+/// One browser connection through the relay: its authenticated `CONNECT`,
+/// then `sent` bytes through the tunnel once it opened, which the far end
+/// reads to the end; returns the bytes the far end read.
+async fn relayed_connection(
+    relaying: &serve::Relaying,
+    network: &InMemory,
+    far_ends: &mut tokio::sync::mpsc::UnboundedReceiver<DuplexStream>,
+    sent: usize,
+) -> usize {
+    let (mut browser, relayed) = tokio::io::duplex(1 << 16);
+    let request = format!(
+        "CONNECT site-7.example.test:443 HTTP/1.1\r\nHost: site-7.example.test:443\r\nProxy-Authorization: {RELAY_AUTHORIZATION}\r\n\r\n"
+    );
+    let chunk = vec![0x5a; 16 * 1024];
+    let (_, (), read) = tokio::join!(
+        serve::serve(relayed, relaying, network, &Unobserved),
+        async {
+            browser
+                .write_all(request.as_bytes())
+                .await
+                .expect("invariant: the relay reads the request");
+            let mut established = [0; 39];
+            browser
+                .read_exact(&mut established)
+                .await
+                .expect("invariant: the relay opens the tunnel");
+            assert!(
+                established.starts_with(b"HTTP/1.1 200"),
+                "invariant: the relay opens the tunnel"
+            );
+            let mut left = sent;
+            while left > 0 {
+                let part = left.min(chunk.len());
+                browser
+                    .write_all(&chunk[..part])
+                    .await
+                    .expect("invariant: the tunnel carries the bytes");
+                left -= part;
+            }
+            drop(browser);
+        },
+        async {
+            let mut far = far_ends
+                .recv()
+                .await
+                .expect("invariant: the relay connects once");
+            let mut buffer = vec![0; 16 * 1024];
+            let mut read = 0;
+            loop {
+                match far.read(&mut buffer).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => read += count,
+                }
+            }
+            drop(far);
+            read
+        }
+    );
+    read
+}
+
+/// `count` connections set up through the relay, each closed once its
+/// tunnel opened; returns how many opened.
+pub(crate) fn relay_connections(count: usize) -> usize {
+    let relaying = relaying();
+    runtime().block_on(async {
+        let (sender, mut far_ends) = tokio::sync::mpsc::unbounded_channel();
+        let network = InMemory { far_ends: sender };
+        let mut opened = 0;
+        for _ in 0..count {
+            relayed_connection(&relaying, &network, &mut far_ends, 0).await;
+            opened += 1;
+        }
+        opened
+    })
+}
+
+/// `mebibytes` MiB forwarded through one tunnel of the relay; returns the
+/// bytes the far end read.
+pub(crate) fn relay_tunnel(mebibytes: usize) -> usize {
+    let relaying = relaying();
+    runtime().block_on(async {
+        let (sender, mut far_ends) = tokio::sync::mpsc::unbounded_channel();
+        let network = InMemory { far_ends: sender };
+        relayed_connection(&relaying, &network, &mut far_ends, mebibytes << 20).await
     })
 }

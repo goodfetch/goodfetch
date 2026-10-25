@@ -144,8 +144,9 @@ pub(crate) enum Unsuccessful {
     Retried(Failure),
     /// Failed, with no retry left.
     Failed(Failure),
-    /// Skipped, by its handler with its message, or by the site's
-    /// preferences before its handler ran.
+    /// Skipped: by its handler with its message, by the site's
+    /// preferences before its handler ran, or at a hop of its document's
+    /// redirect chain.
     Skipped {
         reason: SkipReason,
         message: Option<String>,

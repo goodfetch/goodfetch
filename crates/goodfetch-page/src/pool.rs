@@ -47,9 +47,9 @@ use tokio::sync::{Mutex, OnceCell};
 
 use crate::borrowed::CdpUrl;
 use crate::driver::{
-    Behind, BorrowedBrowser, Carried, LocalBrowser, Origins, PageDriver, SessionDriver, Visibility,
+    Behind, BorrowedBrowser, Carried, LocalBrowser, Origins, PageDriver, SessionDriver,
+    SessionEgress, Visibility,
 };
-use crate::proxy::SessionProxy;
 use crate::trace::CommandLog;
 pub(crate) use rules::Placement;
 use rules::{Limits, Seats, Use};
@@ -169,11 +169,11 @@ impl Pool {
         }
     }
 
-    /// A seat for a Session whose requests go through `proxy`, if it has
-    /// one, in every browser it is seated in, placed under `placement` on
-    /// its first use.
-    pub(crate) fn seat(&self, placement: Placement, proxy: Option<Arc<SessionProxy>>) -> Seat {
-        self.seat_of(placement, proxy, None)
+    /// A seat for a Session whose requests leave through `egress`, its
+    /// proxy and its egress relay, in every browser it is seated in, placed
+    /// under `placement` on its first use.
+    pub(crate) fn seat(&self, placement: Placement, egress: SessionEgress) -> Seat {
+        self.seat_of(placement, egress, None)
     }
 
     /// A seat for a Session on the Borrowed browser at `cdp_url`, which
@@ -185,13 +185,17 @@ impl Pool {
             cdp_url,
             Arc::clone(&self.shared.log),
         );
-        self.seat_of(Placement::Shared, None, Some(Arc::new(browser)))
+        self.seat_of(
+            Placement::Shared,
+            SessionEgress::default(),
+            Some(Arc::new(browser)),
+        )
     }
 
     fn seat_of(
         &self,
         placement: Placement,
-        proxy: Option<Arc<SessionProxy>>,
+        egress: SessionEgress,
         borrowed: Option<Arc<BorrowedBrowser>>,
     ) -> Seat {
         let number = {
@@ -204,7 +208,7 @@ impl Pool {
                 pool: self.clone(),
                 number,
                 placement,
-                proxy,
+                egress,
                 borrowed,
                 origins: Origins::default(),
                 place: Mutex::new(Place::default()),
@@ -601,8 +605,9 @@ struct SeatShared {
     pool: Pool,
     number: u64,
     placement: Placement,
-    /// The Session's one proxy, which it keeps in every browser (SA-22).
-    proxy: Option<Arc<SessionProxy>>,
+    /// The Session's one proxy and its egress relay, which it keeps in
+    /// every browser (SA-22).
+    egress: SessionEgress,
     /// The Borrowed browser it is seated in for good, outside the pool.
     borrowed: Option<Arc<BorrowedBrowser>>,
     origins: Origins,
@@ -717,7 +722,7 @@ impl SeatShared {
         if let Some(borrowed) = &self.borrowed {
             let driver = Arc::new(SessionDriver::new(
                 Behind::Borrowed(Arc::clone(borrowed)),
-                None,
+                SessionEgress::default(),
             ));
             driver.open().await?;
             place.at = Some((BORROWED, Arc::clone(&driver)));
@@ -726,7 +731,7 @@ impl SeatShared {
         let (number, browser, opening) = self.pool.place(self);
         let driver = Arc::new(SessionDriver::new(
             Behind::Launched(browser),
-            self.proxy.clone(),
+            self.egress.clone(),
         ));
         let opened = match driver.open().await {
             Ok(()) => driver.restore(&place.carried).await,

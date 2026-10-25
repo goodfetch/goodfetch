@@ -597,6 +597,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             &params.page_id,
                             Destination::Url(&params.url),
                             params.wait_until.unwrap_or_default(),
+                            params.timeout,
                             &context,
                         )
                         .await
@@ -613,6 +614,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             &params.page_id,
                             Destination::Reload,
                             WaitUntil::Load,
+                            None,
                             &context,
                         )
                         .await
@@ -629,6 +631,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             &params.page_id,
                             Destination::Back,
                             WaitUntil::Load,
+                            None,
                             &context,
                         )
                         .await
@@ -645,6 +648,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             &params.page_id,
                             Destination::Forward,
                             WaitUntil::Load,
+                            None,
                             &context,
                         )
                         .await
@@ -732,7 +736,13 @@ impl BrowserPages for Opener {
             let page_id = opened.page_id;
             match self
                 .pages
-                .navigate(&page_id, Destination::Url(url), WaitUntil::Load, context)
+                .navigate(
+                    &page_id,
+                    Destination::Url(url),
+                    WaitUntil::Load,
+                    None,
+                    context,
+                )
                 .await
             {
                 Ok(navigated) => Ok((page_id, navigated)),
@@ -795,13 +805,20 @@ impl Pages {
     /// `about:blank`, is loaded only for the program's own code or the CLI
     /// on an engine without accounts, refused with `egress_refused`
     /// otherwise, and a `javascript:` URL runs only in a main frame whose
-    /// document's origin the domain policy allows.
+    /// document's origin the domain policy allows. The navigation waits
+    /// under the call's own `timeout` when it gives one, else under the
+    /// Run's `timeout.navigation` (ADR 0080).
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %page_id.0, operation = destination.operation(), run_id = tracing::field::Empty, url.origin = tracing::field::Empty))]
+    #[expect(
+        clippy::option_option,
+        reason = "the param's three states as the protocol carries them (ADR 0080): absent, `null` or a duration"
+    )]
     async fn navigate(
         &self,
         page_id: &PageId,
         destination: Destination<'_>,
         wait_until: WaitUntil,
+        timeout: Option<Option<u64>>,
         context: &CallContext,
     ) -> Result<Navigated, CallError> {
         let span = tracing::Span::current();
@@ -832,12 +849,14 @@ impl Pages {
             .reads_files()
             .then(|| self.interception.allow_files(page_id, navigator));
         let events = context.events();
+        let deadline = page.driver.navigation_deadline(timeout)?;
         let blocked_before = self.interception.lists_blocked(page_id);
         let navigated = page
             .life
             .call(
                 PageEvent::Goto,
-                page.driver.navigate(destination, wait_until),
+                page.driver
+                    .navigate(destination, wait_until, deadline.as_ref()),
             )
             .await;
         // A failure the interception left while the navigation ran, such
@@ -884,6 +903,7 @@ impl Pages {
         let first = blocking_off::FirstLoad {
             destination,
             wait_until,
+            timeout,
             response,
             judged,
             block,

@@ -1405,3 +1405,119 @@ fn an_unpriced_provider_under_a_currency_limit_is_refused_naming_its_price() {
         "{opened}"
     );
 }
+
+/// The Run trace's Provenance entries of the Run `run_id` for a
+/// robots.txt reading.
+fn robots_txt_readings(env: &TestEnv, run_id: &str) -> Vec<Value> {
+    let file = env
+        .home()
+        .join("0.0")
+        .join("runs")
+        .join(run_id)
+        .join("trace")
+        .join("provenance.jsonl");
+    std::fs::read_to_string(file)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|entry| entry["action"] == json!("robots_txt"))
+        .collect()
+}
+
+/// Waits until the Run `run_id` recorded a robots.txt reading, a minute at
+/// most: the engine's page that read it is closed by then.
+fn robots_txt_read(env: &TestEnv, run_id: &str) {
+    for _ in 0..600 {
+        if !robots_txt_readings(env, run_id).is_empty() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!("the Run recorded no robots.txt reading within a minute");
+}
+
+/// The engine's pages of the browser-fetch tier send their one request
+/// each and nothing more (ADRs 0020 and 0121): the robots.txt read of a
+/// document's origin and a `page.request` each reach the site once,
+/// through the Session's proxy, and Chromium asks neither site for
+/// `/favicon.ico` for the text document the engine's page loads, a
+/// request outside the page's interception that Politeness and Usage
+/// would never count. The `page.request` is sent while the robots.txt
+/// read is under way, as when an engine's page the browser showed let
+/// its icon's request out (4 runs of 5). The page the program opened names its
+/// icon inline, so it asks for none either; the Run's end closes the
+/// browser, after which no request can come.
+///
+/// Covers: story:5-88, operation:page.request, setting:proxy.server
+#[test]
+fn the_robots_txt_read_and_page_request_each_send_one_request_through_the_sessions_proxy() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let proxy = proxy_settings(&proving_ground, "http", "open", None);
+    let run_id = "engine-pages";
+    let mut engine = started_through(&env, &cache, &proving_ground, run_id, proxy, "");
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": run_id }),
+    ));
+    let document = proving_ground.url("scope.test", "/quiet?mark=read");
+    let requested = proving_ground.url("1.incidents.test", "/robots.txt");
+
+    let went = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": document }),
+    );
+    let sent = call(
+        &mut engine,
+        4,
+        "page.request",
+        &json!({ "page_id": page.page_id, "url": requested }),
+    );
+    robots_txt_read(&env, run_id);
+    let _ = call(&mut engine, 5, "run.finish", &json!({ "run_id": run_id }));
+    let _ = engine.finish();
+    let observations = proving_ground.observations().unwrap();
+    let relays: Vec<(Value, Value)> = observations["relays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|relay| (relay["proxy"].clone(), relay["target"].clone()))
+        .collect();
+    let received: Vec<(Value, Value)> = observations["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|request| (request["host"].clone(), request["target"].clone()))
+        .collect();
+
+    assert_eq!(
+        (
+            went["result"]["response"]["status"].clone(),
+            sent["result"]["status"].clone(),
+            relays,
+            received,
+        ),
+        (
+            json!(200),
+            json!(404),
+            vec![
+                (json!("open"), json!(document)),
+                (
+                    json!("open"),
+                    json!(proving_ground.url("scope.test", "/robots.txt"))
+                ),
+                (json!("open"), json!(requested)),
+            ],
+            vec![
+                (json!("scope.test"), json!("/quiet?mark=read")),
+                (json!("scope.test"), json!("/robots.txt")),
+                (json!("1.incidents.test"), json!("/robots.txt")),
+            ],
+        )
+    );
+}

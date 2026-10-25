@@ -848,6 +848,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 247
+title = "As a site owner, I want an opt-in adaptive delay, `politeness.domain.adaptive_delay`, that lengthens a domain's delay as its responses slow, never below `politeness.domain.delay`, so that a struggling site gets more room (CO-09) **(shape)**."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 248
+title = "As a user, I want an opt-in per-domain rate, `politeness.domain.rate`, enforced as a token bucket shared like the delay, so that I can cap a site at, say, 30 requests a minute on top of the delay (CO-09) **(shape)**."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 250
 title = "As a crawl developer, I want the pool to score each Session on its successes and blocks, rotate requests across Sessions, and retire one past `session.pool.max_error_score`, `session.pool.max_uses` or `session.pool.max_age`, so that a crawl keeps healthy identities (CO-12, ADRs 0006 and 0035; the keys **(shape)**)."
 milestone = "M1 Core"

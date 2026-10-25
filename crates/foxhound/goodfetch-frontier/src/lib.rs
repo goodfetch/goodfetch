@@ -43,8 +43,8 @@ pub use identity::{
 };
 pub use learn::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
 pub use politeness::{
-    crawl_delay_read, last_start, longest_wait, refuse_second_copies, start_after,
-    start_after_robots_txt, started_again,
+    crawl_delay_read, last_start, latency_measured, longest_wait, refuse_second_copies,
+    start_after, start_after_robots_txt, started_again,
 };
 pub use queues::DomainQueues;
 pub use robots_txt::SharedRobotsTxt;

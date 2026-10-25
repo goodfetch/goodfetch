@@ -6521,6 +6521,26 @@
       ]
     },
     {
+      "id": "setting:politeness.domain.adaptive_delay",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:politeness.domain.burst",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:politeness.domain.concurrency",
       "kind": "setting",
       "area": 3,
@@ -6532,6 +6552,16 @@
     },
     {
       "id": "setting:politeness.domain.delay",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:politeness.domain.rate",
       "kind": "setting",
       "area": 3,
       "milestone": null,
@@ -18480,6 +18510,26 @@
     },
     {
       "id": "story:6-246",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-247",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-248",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

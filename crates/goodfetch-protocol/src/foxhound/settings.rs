@@ -159,6 +159,50 @@ pub const POLITENESS_DOMAIN_DELAY: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn no() -> Value {
+    Value::Bool(false)
+}
+
+fn one() -> Value {
+    json!(1)
+}
+
+/// `politeness.domain.adaptive_delay` (spec #582's Settings; ADR 0086).
+pub const POLITENESS_DOMAIN_ADAPTIVE_DELAY: Setting = Setting {
+    name: "politeness.domain.adaptive_delay",
+    description: "Whether a domain key's delay between request starts lengthens as its responses slow: on, the delay is the longer of `politeness.domain.delay` and the exponentially weighted mean (weight 0.3) of the latency of its last responses on the `http` tier, that mean capped at `politeness.backoff.max`. It only lengthens the delay, never below `politeness.domain.delay`. Off by default.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `politeness.domain.rate` (spec #582's Settings; ADRs 0053 and 0086).
+pub const POLITENESS_DOMAIN_RATE: Setting = Setting {
+    name: "politeness.domain.rate",
+    description: "How many crawl requests a minute may start on one domain key, counted across every run of the user that shares Politeness, as a token bucket of `politeness.domain.burst` tokens refilled at this rate: 30 holds a site to 30 requests a minute. Each run is held to its own value; the delay between starts still applies. None by default.",
+    kind: ValueKind::Count,
+    default: null,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `politeness.domain.burst` (spec #582's Settings; ADRs 0053 and 0086).
+pub const POLITENESS_DOMAIN_BURST: Setting = Setting {
+    name: "politeness.domain.burst",
+    description: "How many crawl requests may start at once on one domain key under `politeness.domain.rate`, the size of its token bucket: 1 by default, so the starts are spread evenly over the minute. A value of 0 is read as 1.",
+    kind: ValueKind::Count,
+    default: one,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `politeness.backoff.enabled` (ADRs 0021, 0023 and 0086).
 pub const POLITENESS_BACKOFF_ENABLED: Setting = Setting {
     name: "politeness.backoff.enabled",
@@ -267,6 +311,9 @@ pub const ENTRIES: Entries = Entries {
         DELIVERY_REPORT_GUARANTEE_CLASS,
         POLITENESS_DOMAIN_CONCURRENCY,
         POLITENESS_DOMAIN_DELAY,
+        POLITENESS_DOMAIN_ADAPTIVE_DELAY,
+        POLITENESS_DOMAIN_RATE,
+        POLITENESS_DOMAIN_BURST,
         POLITENESS_BACKOFF_ENABLED,
         POLITENESS_BACKOFF_INITIAL,
         POLITENESS_BACKOFF_MAX,

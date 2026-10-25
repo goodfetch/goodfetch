@@ -120,6 +120,7 @@ impl Subject {
                 },
                 vec![
                     TABLES,
+                    goodfetch_dataset::TABLES,
                     VISITED_TABLES,
                     SCOPE_TABLES,
                     BOUNDS_TABLES,
@@ -235,7 +236,13 @@ impl Subject {
                     &ended_at,
                 )
             } else {
-                super::commit(connection, &id, lease_epoch, &[], &ended_at)
+                super::commit(
+                    connection,
+                    &id,
+                    lease_epoch,
+                    &goodfetch_dataset::Checked::default(),
+                    &ended_at,
+                )
             }
         });
     }

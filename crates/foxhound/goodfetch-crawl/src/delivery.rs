@@ -1102,6 +1102,15 @@ async fn settle(
                     Failure::new(LEASE_LOST.name, LEASE_LOST.description),
                     LEASE_LOST.retryable,
                 ),
+                Err(CommitError::Refused(refused)) => failure(
+                    kept_failure(
+                        run,
+                        refused.code().to_owned(),
+                        refused.message(),
+                        refused.details().cloned().unwrap_or_default(),
+                    ),
+                    refused.retryable(),
+                ),
                 Err(CommitError::RunState(error)) => {
                     tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
                     return false;

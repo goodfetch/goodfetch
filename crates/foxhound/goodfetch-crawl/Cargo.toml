@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+goodfetch-dataset.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-fetch-tier.workspace = true
 goodfetch-frontier.workspace = true

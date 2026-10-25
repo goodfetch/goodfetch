@@ -639,6 +639,81 @@ fn a_label_of_static_pages_is_learned_onto_http_and_one_of_scripted_pages_onto_b
     );
 }
 
+/// A sample comparison compares the Records each run pushed through
+/// `crawl_request.push` too (ADR 0103): static pages whose handler pushes,
+/// on each tier, a Record naming that tier, and answers none, disagree on
+/// every sample, so the Label goes on `browser`, not `http`.
+///
+/// Covers: story:6-257, story:6-267, operation:crawl_request.push
+#[test]
+fn a_sample_compares_the_records_each_run_pushed() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+
+    let mut seen = Vec::new();
+    let report = crawl_declaring(
+        &mut engine,
+        "tiers-pushed",
+        &tier_seeds(
+            &proving_ground,
+            &[
+                ("/products/1", "static"),
+                ("/products/2", "static"),
+                ("/products/3", "static"),
+                ("/products/4", "static"),
+            ],
+        ),
+        &json!({ "static": {} }),
+        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &mut |inside, handle| {
+            let url = handle["crawl_request"]["url"].as_str().unwrap().to_owned();
+            seen.push((path_of(&url), handle["tier"].clone()));
+            inside.call(
+                "crawl_request.push",
+                &json!({
+                    "run_id": handle["run_id"],
+                    "crawl_request_id": handle["crawl_request"]["id"],
+                    "lease_epoch": handle["lease_epoch"],
+                    "dataset": "pages",
+                    "data": { "url": url, "tier": handle["tier"] },
+                }),
+            );
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+
+    let both: &[&str] = &["http", "browser"];
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            seen,
+            chosen(&env, "tiers-pushed"),
+        ),
+        (
+            &json!("finished"),
+            runs(&[
+                ("/products/1", both),
+                ("/products/2", both),
+                ("/products/3", both),
+                ("/products/4", &["browser"]),
+            ]),
+            [
+                "static http sample",
+                "static browser sample",
+                "static http sample",
+                "static browser sample",
+                "static http sample",
+                "static browser sample",
+                "static browser compared",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+        )
+    );
+}
+
 /// One Label whose `/products` and `/blog` pages disagree is split by the
 /// first segment of their paths: once its three samples disagree by
 /// segment, `/blog` stays on `browser` and `/products` goes on `http` once

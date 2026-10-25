@@ -16,6 +16,7 @@ mod browser_fetch;
 mod completeness;
 mod crawl;
 mod daemon;
+mod datasets;
 mod enqueue_links;
 mod fetch_tiers;
 mod frontier;

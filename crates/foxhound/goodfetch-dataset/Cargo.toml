@@ -1,0 +1,24 @@
+[package]
+name = "goodfetch-dataset"
+description = "A Foxhound crawl's Datasets and their Records: each Dataset's declaration, schema and key, the checks a Record passes before it is staged, and each Dataset's numbering of its committed Records (ADRs 0082, 0087 and 0103)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+data-encoding.workspace = true
+goodfetch-engine.workspace = true
+goodfetch-protocol.workspace = true
+# Each Dataset's Records are checked against its JSON Schema (ADR 0082); no
+# remote or file reference is resolved.
+jsonschema.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

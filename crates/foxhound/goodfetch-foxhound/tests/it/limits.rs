@@ -82,7 +82,7 @@ fn killed_at(env: &TestEnv, moment: &Moment, log: &mut ObservationLog<Value>) {
             }),
             json!({
                 "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-                "params": { "run_id": "victim", "seeds": seeds("victim", VICTIM_SEEDS) },
+                "params": { "run_id": "victim", "seeds": seeds("victim", VICTIM_SEEDS), "datasets": [{ "name": "pages" }] },
             }),
         ] {
             stdin.write_all(&line(&message)).unwrap();
@@ -104,7 +104,7 @@ fn crawled_attached(mut engine: Attached, site: &str) -> Value {
     engine.call(
         "start",
         "crawl.start",
-        &json!({ "run_id": site, "seeds": seeds(site, SEEDS) }),
+        &json!({ "run_id": site, "seeds": seeds(site, SEEDS), "datasets": [{ "name": "pages" }] }),
         &mut |_| None,
     );
     let report = engine.call(
@@ -196,7 +196,7 @@ fn crawled_on_the_daemon(socket: &str, token: &str, site: &str) -> Value {
     client.call(
         "start",
         "crawl.start",
-        &json!({ "run_id": site, "seeds": seeds(site, SEEDS) }),
+        &json!({ "run_id": site, "seeds": seeds(site, SEEDS), "datasets": [{ "name": "pages" }] }),
     );
     client.call("finish", "run.finish", &json!({ "run_id": site }))["result"].clone()
 }

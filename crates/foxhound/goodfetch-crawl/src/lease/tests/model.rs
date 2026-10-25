@@ -20,6 +20,7 @@ use goodfetch_engine::lease::LeaseCheck as _;
 use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{PushedRecord, RequestSeed, Seed};
+use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
@@ -320,6 +321,7 @@ impl StateMachineTest for Subject {
                 },
                 vec![
                     work_items::TABLES,
+                    goodfetch_dataset::TABLES,
                     goodfetch_frontier::VISITED_TABLES,
                     goodfetch_frontier::SCOPE_TABLES,
                     goodfetch_frontier::BOUNDS_TABLES,
@@ -334,6 +336,13 @@ impl StateMachineTest for Subject {
             .unwrap();
             state
                 .write(move |connection| {
+                    goodfetch_dataset::Datasets::declare(&[DatasetDeclaration {
+                        name: "pages".to_owned(),
+                        schema: None,
+                        key: Vec::new(),
+                    }])
+                    .unwrap()
+                    .record(connection)?;
                     work_items::admit_seeds(
                         connection,
                         &mut work_items::Positions::of(connection)?,
@@ -443,6 +452,9 @@ impl StateMachineTest for Subject {
                         Ok(_) => true,
                         Err(CommitError::LeaseLost) => false,
                         Err(CommitError::RunState(error)) => panic!("the run file failed: {error}"),
+                        Err(CommitError::Refused(error)) => {
+                            panic!("a Record was refused: {error:?}")
+                        }
                     };
                     assert_eq!(
                         Some(counted),

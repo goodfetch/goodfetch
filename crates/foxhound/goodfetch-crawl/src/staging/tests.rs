@@ -28,6 +28,7 @@ fn leased() -> Connection {
     for statement in work_items::TABLES
         .statements
         .iter()
+        .chain(goodfetch_dataset::TABLES.statements)
         .chain(VISITED_TABLES.statements)
         .chain(SCOPE_TABLES.statements)
         .chain(BOUNDS_TABLES.statements)

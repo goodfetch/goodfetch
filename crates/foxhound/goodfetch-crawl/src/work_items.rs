@@ -19,17 +19,17 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
+use goodfetch_dataset::Checked;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit, payload, sitemap};
 use goodfetch_protocol::block::BlockCause;
-use goodfetch_protocol::foxhound::crawl::{CrawlRequest, PushedRecord, Seed};
+use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
 use goodfetch_protocol::foxhound::outcomes::{
-    AttemptError, CrawlRequestOutcome, DatasetRecords, Ending, NothingCommitted, OutcomeRequest,
-    SkipReason,
+    AttemptError, CrawlRequestOutcome, Ending, NothingCommitted, OutcomeRequest, SkipReason,
 };
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension as _};
@@ -60,13 +60,6 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             WHERE domain_key IS NULL",
         "CREATE INDEX IF NOT EXISTS work_items_by_domain
             ON work_items (status, domain_key, forefront DESC, priority DESC, position)",
-        "CREATE TABLE IF NOT EXISTS records (
-            dataset TEXT NOT NULL,
-            number INTEGER NOT NULL,
-            work_item TEXT NOT NULL,
-            data TEXT NOT NULL,
-            PRIMARY KEY (dataset, number)
-        ) STRICT",
         "CREATE TABLE IF NOT EXISTS attempt_errors (
             work_item TEXT NOT NULL,
             attempt INTEGER NOT NULL,
@@ -574,39 +567,21 @@ fn still_leased(connection: &Connection, id: &str, lease_epoch: u64) -> rusqlite
         .is_some())
 }
 
-/// Commits an attempt's Records, once, marks its work item succeeded and
-/// writes its outcome, ended at `ended_at`, when its lease is the one the
-/// run file holds; answers whether it did.
+/// Commits an attempt's Records, once, each numbered in its Dataset,
+/// marks its work item succeeded and writes its outcome, ended at
+/// `ended_at`, when its lease is the one the run file holds; answers
+/// whether it did.
 pub(crate) fn commit(
     connection: &Connection,
     id: &str,
     lease_epoch: u64,
-    records: &[PushedRecord],
+    records: &Checked,
     ended_at: &PointInTime,
 ) -> rusqlite::Result<bool> {
     if !still_leased(connection, id, lease_epoch)? {
         return Ok(false);
     }
-    let mut insert = connection.prepare(
-        "INSERT INTO records (dataset, number, work_item, data)
-         VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM records WHERE dataset = ?1), ?2, ?3)",
-    )?;
-    let mut counted: Vec<DatasetRecords> = Vec::new();
-    for record in records {
-        insert.execute((&record.dataset, id, record.data.to_string()))?;
-        match counted
-            .iter_mut()
-            .find(|counted| counted.dataset == record.dataset)
-        {
-            Some(counted) => counted.committed += 1,
-            None => counted.push(DatasetRecords {
-                dataset: record.dataset.clone(),
-                committed: 1,
-                dropped: 0,
-                rejected: 0,
-            }),
-        }
-    }
+    let counted = goodfetch_dataset::commit(connection, id, records)?;
     connection.execute(
         "UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2",
         (SUCCEEDED, id),

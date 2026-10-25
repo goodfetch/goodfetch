@@ -163,6 +163,10 @@ crate = "goodfetch-crawl"
 reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
+crate = "goodfetch-dataset"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
 crate = "goodfetch-fetch-tier"
 reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 

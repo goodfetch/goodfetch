@@ -27,8 +27,11 @@
 //! integer parameters and the page that linked it, teaches the rules in
 //! turn.
 
+use std::sync::LazyLock;
+
+use encoding_rs::Encoding;
 use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
-use goodfetch_protocol::foxhound::frontier::{Enqueued, NotAddedReason};
+use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
 use rusqlite::Connection;
 use url::Url;
 
@@ -36,7 +39,7 @@ use crate::bounds::{Bounds, count_admitted, count_refused};
 use crate::identity::{Declared, Seen, identities, keyed, seen, visit_all};
 use crate::rules;
 use crate::scope::{Narrowing, Scope};
-use crate::url::parse;
+use crate::url::{parse, parse_link};
 
 /// What the Frontier is asked to admit.
 #[derive(Clone, Copy, Debug)]
@@ -65,7 +68,28 @@ pub enum Candidate<'a> {
         /// Its depth: one deeper than the request whose attempt added it.
         depth: u32,
     },
+    /// The `href` of a link an `enqueueLinks` call matched: a `GET` with no
+    /// body, relative to `base` or absolute, its query percent-encoded in
+    /// its document's encoding (ADR 0120).
+    Href {
+        /// The `href`, as written.
+        href: &'a str,
+        /// The base URL of the document that holds the link.
+        base: &'a Url,
+        /// The document's encoding.
+        encoding: &'static Encoding,
+        /// The URL of the crawl request whose attempt enqueued it.
+        from: &'a Url,
+        /// The call's own `include` and `exclude`, which narrow the crawl's
+        /// scope.
+        narrowing: Narrowing<'a>,
+        /// Its depth: one deeper than the request whose attempt added it.
+        depth: u32,
+    },
 }
+
+/// A link's method: `GET`, with no body and no declared key.
+static LINK: LazyLock<HttpMethod> = LazyLock::new(HttpMethod::get);
 
 /// Admits `candidate` into the run file `connection` holds, within
 /// `scope`, which an added seed widens, and under the Run's domain policy
@@ -83,8 +107,27 @@ pub fn admit(
     candidate: Candidate<'_>,
     add: impl FnOnce(&Url) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
-    let (given, base, from, declared, narrowing, depth) = match candidate {
-        Candidate::Seed { url, declared } => (url, None, None, declared, None, 0),
+    let (given, parsed, from, declared, narrowing, depth) = match candidate {
+        Candidate::Seed { url, declared } => (url, parse(url, None), None, declared, None, 0),
+        Candidate::Href {
+            href,
+            base,
+            encoding,
+            from,
+            narrowing,
+            depth,
+        } => (
+            href,
+            parse_link(href, base, encoding),
+            Some(from),
+            Declared {
+                method: &LINK,
+                body: None,
+                key: None,
+            },
+            Some(narrowing),
+            depth,
+        ),
         Candidate::Enqueue {
             url,
             base,
@@ -94,7 +137,7 @@ pub fn admit(
             depth,
         } => (
             url,
-            Some(base),
+            parse(url, Some(base)),
             Some(from),
             declared,
             Some(narrowing),
@@ -105,7 +148,7 @@ pub fn admit(
         reason,
         url: given.to_owned(),
     };
-    let url = match parse(given, base) {
+    let url = match parsed {
         Ok(url) => url,
         Err(reason) => return Ok(not_added(reason)),
     };

@@ -1123,7 +1123,9 @@ fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable
 /// is refused before its Run begins with `setting_not_applicable` naming
 /// the key and the Run's layer (ADR 0086), as is `fetch.tier_race` on a
 /// Label, which the Run alone sets; a `fetch.encoding` that is no WHATWG
-/// Encoding label is refused with `setting_invalid`.
+/// Encoding label, and a `crawl.content_types` of the Run or a Label that
+/// is no list of media ranges (ADR 0119), are refused with
+/// `setting_invalid`.
 #[rstest::rstest]
 /// Covers: story:6-263, setting:fetch.tier_race, error:setting_not_applicable
 #[case::a_race_one_request_at_a_time(
@@ -1142,6 +1144,18 @@ fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable
     json!({ "fetch": { "encoding": "klingon" } }),
     json!({}),
     json!(["setting_invalid", "fetch.encoding", null])
+)]
+/// Covers: story:6-264, setting:crawl.content_types, error:setting_invalid
+#[case::content_types_that_are_no_media_ranges_for_the_run(
+    json!({ "crawl": { "content_types": ["*/html"] } }),
+    json!({}),
+    json!(["setting_invalid", "crawl.content_types", null])
+)]
+/// Covers: story:6-264, setting:crawl.content_types, error:setting_invalid
+#[case::content_types_that_are_no_media_ranges_for_a_label(
+    json!({}),
+    json!({ "pdf": { "settings": { "crawl": { "content_types": ["pdf"] } } } }),
+    json!(["setting_invalid", "crawl.content_types", null])
 )]
 fn a_crawl_setting_a_fetch_key_it_cannot_apply_is_refused_before_it_begins(
     #[case] settings: Value,

@@ -23,7 +23,7 @@ use crate::foxhound::fetch::FetchTier;
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
 use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
-use crate::page::PageId;
+use crate::page::{PageId, PageResponse};
 use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
@@ -292,6 +292,15 @@ pub struct CrawlRequestHandleParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub page_id: Option<PageId>,
+    /// The response of the request's own document, when the engine
+    /// fetched it: its final URL, status and headers as the site sent
+    /// them, the encoding its document was decoded with, and the
+    /// `request_id` whose body `response.body` reads (ADRs 0093 and 0119).
+    /// None when the handler is given the request alone, or when the
+    /// browser's navigation answered none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub response: Option<PageResponse>,
 }
 
 /// One Record a handler pushed into a Dataset (ADR 0103).
@@ -484,6 +493,25 @@ pub const CRAWL_HANDLE_STATUSES: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn html_and_xhtml() -> Value {
+    Value::Array(vec![
+        Value::from("text/html"),
+        Value::from("application/xhtml+xml"),
+    ])
+}
+
+/// `crawl.content_types` (ADR 0119; pitfall H16).
+pub const CRAWL_CONTENT_TYPES: Setting = Setting {
+    name: "crawl.content_types",
+    description: "The media types a Label's handler takes, each `type/subtype`, `type/*` or `*/*`, set for the Run or for one of its Labels, whose own list wins for its requests: `text/html` and `application/xhtml+xml` by default. A response that would reach the handler (a 2xx, or a status `crawl.handle_statuses` lists) of another type ends its request `skipped` with the reason `content_type` before its body is read, never retried. The type is the response's `Content-Type` essence, or, when it names none, the type the pinned Chromium's MIME sniffer gives its first 1,024 bytes; a response with neither a type nor a body is an empty HTML document. An accepted type that is not HTML or XHTML reaches the handler with its body in its response and a page holding no document, whose document calls fail with `response_not_document`. A handler's own navigations are not checked. A value that is no list of media ranges is refused with `setting_invalid` when the crawl starts.",
+    kind: ValueKind::List(&ValueKind::Text),
+    default: html_and_xhtml,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `crawl.retry.max` (ADR 0093).
 pub const CRAWL_RETRY_MAX: Setting = Setting {
     name: "crawl.retry.max",
@@ -609,6 +637,7 @@ pub const ENTRIES: Entries = Entries {
     settings: &[
         TIMEOUT_HANDLER,
         CRAWL_HANDLE_STATUSES,
+        CRAWL_CONTENT_TYPES,
         CRAWL_RETRY_MAX,
         CRAWL_RETRY_HANDLER_FAILED,
         CRAWL_HANDLER_CONCURRENCY,

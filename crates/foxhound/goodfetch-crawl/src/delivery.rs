@@ -70,12 +70,13 @@ use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
-    Choosing, FetchTiers, HttpTier, PooledSession, RobotsTxtFetch, SetTier, TierChoice,
+    Choosing, ContentTypes, FetchTiers, HttpTier, PooledSession, RobotsTxtFetch, SetTier,
+    TierChoice,
 };
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::foxhound::crawl::{
-    CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
-    WORK_ITEM_RETRIED,
+    CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED,
+    HANDLER_LOST, LEASE_LOST, WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::fetch::{FETCH_ENCODING, FETCH_TIER_RACE, FetchTier};
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
@@ -197,6 +198,9 @@ pub(crate) async fn drive(
             .value(FETCH_ENCODING.name)
             .as_str()
             .map(str::to_owned),
+        // Its shape was checked when the crawl started.
+        run_content_types: ContentTypes::of(settings.resolved().value(CRAWL_CONTENT_TYPES.name))
+            .unwrap_or_default(),
         choices: tokio::sync::Mutex::new(choices),
         races,
         latencies: tokio::sync::Mutex::new(Latencies::default()),
@@ -453,6 +457,8 @@ struct Fetching<'a> {
     run_tier: SetTier,
     /// The Run's own `fetch.encoding`, a WHATWG Encoding label.
     run_encoding: Option<String>,
+    /// The Run's own `crawl.content_types`.
+    run_content_types: ContentTypes,
     /// What each Label on each domain learned under `auto`.
     choices: tokio::sync::Mutex<TierChoices>,
     /// Whether the Run races its requests' tiers (`fetch.tier_race`).
@@ -483,6 +489,10 @@ impl Fetching<'_> {
                 .labels
                 .settings
                 .encoding(label, self.run_encoding.as_deref()),
+            content_types: self
+                .labels
+                .settings
+                .content_types(label, &self.run_content_types),
         }
     }
 

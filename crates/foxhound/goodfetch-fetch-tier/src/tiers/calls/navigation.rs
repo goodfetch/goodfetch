@@ -89,14 +89,16 @@ pub(super) async fn navigate(
     })
     .await
     .map_err(stopped)?;
-    // A handler's own navigation takes no `fetch.encoding` (ADR 0119); a
-    // document only a guess could read is never served.
+    // A handler's own navigation takes no `fetch.encoding` and no
+    // `crawl.content_types` (ADR 0119): a response that is no document
+    // leaves the page holding none, and a document only a guess could read
+    // is never served.
     let opened = Opened::of(&run, fetched.clone(), None);
-    if opened.read.is_none() {
+    if opened.read.is_none() && opened.not_document.is_none() {
         return Err(tiers.unserved(page_id, operation, false));
     }
     let mut response = answered(tiers, page_id, &run, fetched).await?;
-    response.encoding = Some(opened.encoding.name().to_owned());
+    response.encoding = opened.read.map(|read| read.encoding.name().to_owned());
     tiers.navigated(page_id, opened, at);
     Ok(Navigated {
         response: Some(response),

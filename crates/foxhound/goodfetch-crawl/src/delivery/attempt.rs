@@ -54,6 +54,10 @@
 //! 0093). A handler that lets a `site_preferences_refused` its own
 //! navigation raised escape ends its request `skipped` with that
 //! refusal's reason, not `failed` (ADR 0093).
+//!
+//! Size: one attempt's way from its tier plan to its answer, each run on a
+//! tier one method of [`On`], kept whole so every tier's run hands its
+//! handler the same request, response and Provenance.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -67,8 +71,8 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
-    AddressCheck, Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, PooledSession,
-    Requester, RobotsTxtFetch, Stop, TierChoice,
+    AddressCheck, Chosen, ContentTypes, DocumentEncoding, FetchTiers, HandOver, HttpTier, Judged,
+    PAGE_CHECK_CALL, PooledSession, Requester, RobotsTxtFetch, Stop, TierChoice,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -84,7 +88,7 @@ use goodfetch_protocol::foxhound::settings::{
     POLITENESS_DOMAIN_ADAPTIVE_DELAY, POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MAX_CRAWL_DELAY,
     SITE_PREFERENCES_RESPECT_ROBOTS_TXT, SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
 };
-use goodfetch_protocol::page::{NAVIGATION_FAILED, PageId};
+use goodfetch_protocol::page::{NAVIGATION_FAILED, PageId, PageResponse};
 use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_session_pool::Effect;
@@ -219,6 +223,9 @@ pub(super) struct Gating {
     /// The encoding `fetch.encoding` forces on the request's own
     /// document: its Label's, else the Run's (ADR 0119).
     pub(super) encoding: Option<&'static encoding_rs::Encoding>,
+    /// The types `crawl.content_types` lets the request's own document
+    /// be: its Label's, else the Run's (ADR 0119).
+    pub(super) content_types: ContentTypes,
 }
 
 impl Gating {
@@ -275,6 +282,7 @@ impl Gating {
             addresses: self.addresses.clone(),
             page_check: self.page_check.clone(),
             encoding: self.encoding,
+            content_types: self.content_types.clone(),
         })
     }
 }
@@ -396,7 +404,7 @@ pub(super) async fn attempt(
             details: Map::new(),
         },
         (AttemptPlan::Alone, _) => {
-            let params = on.params(None, None);
+            let params = on.params(None, None, None);
             let hand_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
             let handed_over = gating.tiers.hand_over(hand_over);
             let answer = handled(&run, context.client(), &params, &lease).await;
@@ -447,11 +455,13 @@ pub(super) async fn attempt(
     }
 }
 
-/// What a run on the `http` tier gave: the handler's answer and the call
-/// that escalated its page, if one did.
+/// What a run on the `http` tier gave: the handler's answer, the call
+/// that escalated its page, if one did, and whether its page held a
+/// document (ADR 0119).
 struct HttpRun {
     answer: Answer,
     escalated: Option<&'static str>,
+    document: bool,
 }
 
 /// What one attempt runs its handler with.
@@ -468,8 +478,14 @@ struct On<'a> {
 }
 
 impl On<'_> {
-    /// The handler request of the attempt on `tier`, its page `page_id`.
-    fn params(&self, tier: Option<FetchTier>, page_id: Option<PageId>) -> CrawlRequestHandleParams {
+    /// The handler request of the attempt on `tier`, its page `page_id`,
+    /// its request's own document answered `response`.
+    fn params(
+        &self,
+        tier: Option<FetchTier>,
+        page_id: Option<PageId>,
+        response: Option<PageResponse>,
+    ) -> CrawlRequestHandleParams {
         CrawlRequestHandleParams {
             run_id: self.run.id().clone(),
             crawl_request: self.leased.crawl_request.clone(),
@@ -478,6 +494,7 @@ impl On<'_> {
             session: self.session.clone(),
             tier,
             page_id,
+            response,
         }
     }
 
@@ -529,7 +546,9 @@ impl On<'_> {
             Ok(ran) => ran,
             Err((answer, merged)) => return (answer, merged, None),
         };
-        if matches!(run.answer, Answer::LeaseEnded | Answer::ClientGone) {
+        // A page holding no document has nothing to compare, and the
+        // browser would hold none either (ADR 0119): its answer stands.
+        if matches!(run.answer, Answer::LeaseEnded | Answer::ClientGone) || !run.document {
             return (run.answer, merged, None);
         }
         self.lease.renew(self.lease.length());
@@ -551,6 +570,7 @@ impl On<'_> {
                             skipped: None,
                         }),
                     escalated: None,
+                    ..
                 },
             ) => Some(tier_choice::matches(
                 Some(&[cheaper_pushed.records(), cheaper].concat()),
@@ -612,7 +632,7 @@ impl On<'_> {
         // (ADR 0119).
         if let Some(call) = tiers.escalated(&page_id) {
             tiers.close(&page_id);
-            record_tier(run, leased, choice, how).await;
+            record_tier(run, leased, choice, how, None).await;
             let message =
                 "The document declares no encoding and is not UTF-8: only the browser reads it.";
             return Ok((
@@ -621,7 +641,7 @@ impl On<'_> {
             ));
         }
         let merged = learn(run, tiers, &page_id, leased).await;
-        record_tier(run, leased, choice, how).await;
+        record_tier(run, leased, choice, how, tiers.encoding(&page_id).as_ref()).await;
         match judged(run, tiering, &page_id).await {
             Some(Judged::Passed) | None => {}
             Some(Judged::Failed(error)) => {
@@ -643,13 +663,25 @@ impl On<'_> {
             .lock()
             .await
             .went_on(run, &leased.crawl_request.id, InFlightPhase::Handling);
-        let params = self.params(Some(FetchTier::Http), Some(page_id.clone()));
+        let document = tiers.not_document(&page_id).is_none();
+        let params = self.params(
+            Some(FetchTier::Http),
+            Some(page_id.clone()),
+            tiers.response(&page_id),
+        );
         let handed_over = self.gating.tiers.hand_over(hand_over);
         let answer = handled(run, self.context.client(), &params, lease).await;
         drop(handed_over);
         let escalated = tiers.escalated(&page_id);
         tiers.close(&page_id);
-        Ok((HttpRun { answer, escalated }, merged))
+        Ok((
+            HttpRun {
+                answer,
+                escalated,
+                document,
+            },
+            merged,
+        ))
     }
 
     /// The document of the attempt's request fetched on `http` under the
@@ -708,14 +740,20 @@ impl On<'_> {
     }
 
     /// The handler request of the attempt on `tier`, given the page
-    /// `page_id`, bounded by its lease.
-    async fn handle(&self, page_id: &PageId, tier: FetchTier) -> Answer {
+    /// `page_id`, whose request's own document answered `response`,
+    /// bounded by its lease.
+    async fn handle(
+        &self,
+        page_id: &PageId,
+        tier: FetchTier,
+        response: Option<PageResponse>,
+    ) -> Answer {
         self.in_flight.lock().await.went_on(
             self.run,
             &self.leased.crawl_request.id,
             InFlightPhase::Handling,
         );
-        let params = self.params(Some(tier), Some(page_id.clone()));
+        let params = self.params(Some(tier), Some(page_id.clone()), response);
         handled(self.run, self.context.client(), &params, self.lease).await
     }
 
@@ -738,25 +776,49 @@ impl On<'_> {
             }
             _ = lease.ended() => Err(Answer::LeaseEnded),
         };
-        let page_id = match opened {
-            Ok((page_id, _)) => page_id,
+        let (page_id, navigated) = match opened {
+            Ok(opened) => opened,
             Err(answer) => return answer,
         };
         let browser = TierChoice {
             tier: FetchTier::Browser,
             forced: choice.forced.clone().filter(|_| how == Chosen::AsChosen),
         };
-        record_tier(run, leased, &browser, how).await;
+        record_tier(
+            run,
+            leased,
+            &browser,
+            how,
+            read_by_browser(navigated.response.as_ref()).as_ref(),
+        )
+        .await;
         self.in_flight
             .lock()
             .await
             .went_on(run, &leased.crawl_request.id, InFlightPhase::Handling);
-        let params = self.params(Some(FetchTier::Browser), Some(page_id.clone()));
+        let params = self.params(
+            Some(FetchTier::Browser),
+            Some(page_id.clone()),
+            navigated.response,
+        );
         let answer = handled(run, self.context.client(), &params, lease).await;
         drop(handed_over);
         tiers.close_browser(&page_id).await;
         answer
     }
+}
+
+/// The encoding the browser read a navigation's document in, as its
+/// `response` names it, `document.characterSet` (ADR 0119): where it came
+/// from is the browser's own, so only its guess, which the escalation's
+/// call names, is recorded as `detected`.
+pub(super) fn read_by_browser(response: Option<&PageResponse>) -> Option<DocumentEncoding> {
+    response
+        .and_then(|response| response.encoding.clone())
+        .map(|encoding| DocumentEncoding {
+            encoding,
+            source: None,
+        })
 }
 
 /// A run on the `http` tier that escalated at `call` before its handler
@@ -771,6 +833,7 @@ fn escalated_unhandled(code: &str, message: &str, call: &'static str) -> HttpRun
             details: Map::new(),
         },
         escalated: Some(call),
+        document: true,
     }
 }
 
@@ -823,14 +886,22 @@ fn failed(error: &CallError) -> Answer {
 }
 
 /// Records in the Run's Provenance the tier `choice` names for `leased`'s
-/// attempt, and how it came there, as `how` says (ADR 0023).
-async fn record_tier(run: &Run, leased: &Leased, choice: &TierChoice, how: Chosen) {
+/// attempt, how it came there, as `how` says (ADR 0023), and the
+/// `encoding` its document was read in (ADR 0119).
+async fn record_tier(
+    run: &Run,
+    leased: &Leased,
+    choice: &TierChoice,
+    how: Chosen,
+    encoding: Option<&DocumentEncoding>,
+) {
     goodfetch_fetch_tier::record_tier(
         run,
         &leased.crawl_request.id,
         &leased.crawl_request.label,
         choice,
         how,
+        encoding,
     )
     .await;
 }

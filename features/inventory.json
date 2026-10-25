@@ -5745,6 +5745,16 @@
       ]
     },
     {
+      "id": "setting:crawl.content_types",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:crawl.domain_keys",
       "kind": "setting",
       "area": 3,
@@ -18866,6 +18876,26 @@
     },
     {
       "id": "story:6-263",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-264",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-265",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

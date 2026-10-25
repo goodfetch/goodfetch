@@ -27,6 +27,10 @@
 //! - `/sniffed/<case>` serves a body with no `Content-Type`, typed by MIME
 //!   sniffing, and `/redirect/301/untyped` a 301 with neither a type nor a
 //!   body (ADR 0119).
+//! - `/endless/pdf` serves an `application/pdf` head and a chunked body
+//!   that never ends, over HTTP/1.1, so a crawl that skips the type before
+//!   its body is read ends at once, and one that reads it never does (ADR
+//!   0119; pitfall H16).
 
 use std::fmt::Write as _;
 
@@ -103,6 +107,11 @@ pub(super) fn answer(host: &str, request: &Request, earlier: u64) -> Answer {
         // An answer with no document, which a browser's navigation abandons.
         "/no-content" => Answer::Page(Page::text(204, "")),
         "/close-delimited" => Answer::Page(page(path).framed(Framing::Close)),
+        // A file no crawl may read before it judged its type (ADR 0119).
+        "/endless/pdf" => Answer::Filler {
+            page: Page::new(200, "application/pdf", Vec::new()).framed(Framing::Chunked),
+            length: None,
+        },
         // 日本語 in Shift_JIS, for `page.request`'s decoding cases (ADR 0119).
         "/text/shift-jis" => Answer::Page(Page::new(
             200,

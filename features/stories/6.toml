@@ -1026,6 +1026,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 264
+title = "As a crawl developer, I want `crawl.content_types` (HTML and XHTML by default, down to a Label) to skip any other response with `content_type` before its body is read, and an accepted non-HTML type to reach my handler with its body and a page holding no document, so that a PDF is neither downloaded unasked nor read as an empty page (ADR 0119; pitfall H16)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 265
+title = "As a crawl developer, I want Provenance to record each document's encoding and where it came from (`bom`, `setting`, `header`, `meta`, `utf8` or `detected`), so that mojibake can be traced (ADR 0119; pitfall H17)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 266
 title = "As a crawl developer, I want `crawl.dataset(name, { schema, key })` to declare a typed Dataset with no I/O, a duplicate name failing with `dataset_duplicate` and a key on a field the schema does not require with `dataset_key_invalid`, so that a misspelled Dataset is a type error (CO-25, ADRs 0082, 0103)."
 milestone = "M1 Core"

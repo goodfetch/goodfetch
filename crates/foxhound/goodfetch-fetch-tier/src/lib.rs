@@ -25,6 +25,7 @@ mod charset;
 #[path = "charset/tests.rs"]
 mod charset_tests;
 mod choice;
+mod content_types;
 mod decoding;
 mod document;
 mod driver;
@@ -48,6 +49,7 @@ pub use chain::{Following, Gating, HopGate, Skip, Stop, follow};
 #[doc(hidden)]
 pub use charset::fuzz_prescan;
 pub use choice::{Choosing, Forced, LabelSettings, SetTier, TierChoice};
+pub use content_types::ContentTypes;
 pub use document::{Matched, SelectorInvalid};
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
@@ -59,8 +61,8 @@ pub use redundant::Requester;
 pub use refresh::fuzz_refresh;
 pub use sniffing::sniff;
 pub use tiers::{
-    Chosen, FetchTiers, HandedOver, HttpTier, Judged, PAGE_CHECK_CALL, Race, RaceEnd, ServedLinks,
-    Signed, record_race, record_tier,
+    Chosen, DocumentEncoding, FetchTiers, HandedOver, HttpTier, Judged, PAGE_CHECK_CALL, Race,
+    RaceEnd, ServedLinks, Signed, record_race, record_tier,
 };
 pub use transports::{AddressCheck, Reqwest, TransportConfig, TransportUnavailable, Wreq};
 pub use use_signals::{Purpose, UseSignals};

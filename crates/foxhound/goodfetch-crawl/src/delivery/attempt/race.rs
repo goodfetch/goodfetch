@@ -14,13 +14,14 @@ use goodfetch_fetch_tier::{
     Chosen, FetchTiers, HttpTier, Judged, PooledSession, Race, RaceEnd, record_race,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
-use goodfetch_protocol::page::PageId;
+use goodfetch_protocol::page::{PageId, PageResponse};
 use goodfetch_protocol::usage::REQUESTS;
 use serde_json::Map;
 use tokio::sync::oneshot;
 
 use super::{
-    Answer, BROWSER, On, PAGE_CHECK_FAILED, RACED, Tiering, failed, judged, learn, record_tier,
+    Answer, BROWSER, On, PAGE_CHECK_FAILED, RACED, Tiering, failed, judged, learn, read_by_browser,
+    record_tier,
 };
 use crate::lease::WorkItemLease;
 use crate::tier_race::Raced;
@@ -83,9 +84,9 @@ impl On<'_> {
         // The loser is cancelled: browser-fetch's connection closed as its
         // future dropped, and a navigation not yet sent is never sent.
         drop(cancel);
-        if !matches!(ended.won, Won::Navigation(_)) {
+        if !matches!(ended.won, Won::Navigation(..)) {
             navigation.close();
-            if let Ok(Navigated::Opened(page_id)) = navigation.try_recv() {
+            if let Ok(Navigated::Opened(page_id, _)) = navigation.try_recv() {
                 tiers.close_browser(&page_id).await;
             }
         }
@@ -128,8 +129,10 @@ impl On<'_> {
             }
             Won::BrowserFetch(page_id) => {
                 let merged = learn(run, tiers, &page_id, leased).await;
-                record_tier(run, leased, &RACED, Chosen::Raced).await;
-                let answer = self.handle(&page_id, FetchTier::Http).await;
+                let encoding = tiers.encoding(&page_id);
+                record_tier(run, leased, &RACED, Chosen::Raced, encoding.as_ref()).await;
+                let response = tiers.response(&page_id);
+                let answer = self.handle(&page_id, FetchTier::Http, response).await;
                 let escalated = tiers.escalated(&page_id);
                 tiers.close(&page_id);
                 let answer = match escalated {
@@ -144,9 +147,10 @@ impl On<'_> {
                 };
                 (answer, merged)
             }
-            Won::Navigation(page_id) => {
-                record_tier(run, leased, &BROWSER, Chosen::Raced).await;
-                let answer = self.handle(&page_id, FetchTier::Browser).await;
+            Won::Navigation(page_id, response) => {
+                let encoding = read_by_browser(response.as_ref());
+                record_tier(run, leased, &BROWSER, Chosen::Raced, encoding.as_ref()).await;
+                let answer = self.handle(&page_id, FetchTier::Browser, response).await;
                 tiers.close_browser(&page_id).await;
                 (answer, Vec::new())
             }
@@ -185,7 +189,7 @@ impl RaceEnded {
     /// How the navigation ended, `sent` or not.
     fn navigation(&self, sent: bool) -> RaceEnd {
         match (&self.won, &self.navigation_lost) {
-            (Won::Navigation(_), _) => RaceEnd::Won,
+            (Won::Navigation(..), _) => RaceEnd::Won,
             (_, Some(Lost::Failed(_))) => RaceEnd::Failed,
             (_, Some(Lost::NotSent)) => RaceEnd::NotSent,
             _ if sent => RaceEnd::Cancelled,
@@ -236,7 +240,7 @@ async fn first_to_win(
                 Err(answer) => break Won::Ended(answer),
             },
             answered = &mut *navigation, if ended.navigation_lost.is_none() => match answered {
-                Ok(Navigated::Opened(page_id)) => break Won::Navigation(page_id),
+                Ok(Navigated::Opened(page_id, response)) => break Won::Navigation(page_id, response),
                 Ok(Navigated::Failed(error)) => ended.navigation_lost = Some(Lost::Failed(failed(&error))),
                 Ok(Navigated::NotSent) | Err(_) => ended.navigation_lost = Some(Lost::NotSent),
             },
@@ -252,8 +256,9 @@ async fn first_to_win(
 enum Won {
     /// Browser-fetch's page, served on `http`.
     BrowserFetch(PageId),
-    /// The navigation's page, in the browser.
-    Navigation(PageId),
+    /// The navigation's page, in the browser, and its document's
+    /// response.
+    Navigation(PageId, Option<PageResponse>),
     /// Neither: the attempt ends with the navigation's failure, else
     /// browser-fetch's.
     Neither,
@@ -264,8 +269,9 @@ enum Won {
 
 /// What a race's navigation answered.
 enum Navigated {
-    /// Its page, navigated, passed the Page check.
-    Opened(PageId),
+    /// Its page, navigated, passed the Page check, and its document's
+    /// response.
+    Opened(PageId, Option<PageResponse>),
     /// It failed, its Page check included.
     Failed(CallError),
     /// It was never sent: Usage had none left.
@@ -341,8 +347,9 @@ impl Navigation {
             return;
         };
         match opened {
-            Ok((page_id, _)) => {
-                if let Err(Navigated::Opened(page_id)) = navigated.send(Navigated::Opened(page_id))
+            Ok((page_id, answered)) => {
+                if let Err(Navigated::Opened(page_id, _)) =
+                    navigated.send(Navigated::Opened(page_id, answered.response))
                 {
                     self.tiers.close_browser(&page_id).await;
                 }

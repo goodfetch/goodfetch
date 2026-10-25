@@ -202,13 +202,6 @@ impl Row {
 
     /// Whether its calls read, wait on or act on the page's document, so
     /// fail with `response_not_document` on a page that has none.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the page with no document is #950's, which raises `response_not_document` for these rows"
-        )
-    )]
     pub(crate) fn reads_document(self) -> bool {
         !matches!(
             self,

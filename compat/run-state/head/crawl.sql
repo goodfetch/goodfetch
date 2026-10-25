@@ -183,18 +183,20 @@ CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
             work_item TEXT NOT NULL,
+            url TEXT NOT NULL,
+            committed_at TEXT NOT NULL,
             data TEXT NOT NULL,
             schema_hash TEXT,
             PRIMARY KEY (dataset, number)
         ) STRICT;
-INSERT INTO "records" VALUES('pages',1,'3','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4');
-INSERT INTO "records" VALUES('links',1,'3','{"href":"https://shop.test/broken"}',NULL);
-INSERT INTO "records" VALUES('pages',2,'14','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4');
-INSERT INTO "records" VALUES('links',2,'14','{"href":"https://shop.test/broken"}',NULL);
-INSERT INTO "records" VALUES('pages',3,'1','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4');
-INSERT INTO "records" VALUES('links',3,'1','{"href":"https://shop.test/broken"}',NULL);
-INSERT INTO "records" VALUES('pages',4,'19','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4');
-INSERT INTO "records" VALUES('links',4,'19','{"href":"https://shop.test/broken"}',NULL);
+INSERT INTO "records" VALUES('pages',1,'3','https://api.test/search','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4');
+INSERT INTO "records" VALUES('links',1,'3','https://api.test/search','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL);
+INSERT INTO "records" VALUES('pages',2,'14','https://shop.test/pages/1','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4');
+INSERT INTO "records" VALUES('links',2,'14','https://shop.test/pages/1','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL);
+INSERT INTO "records" VALUES('pages',3,'1','https://shop.test/','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4');
+INSERT INTO "records" VALUES('links',3,'1','https://shop.test/','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL);
+INSERT INTO "records" VALUES('pages',4,'19','https://outlet.test/sale','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4');
+INSERT INTO "records" VALUES('links',4,'19','https://outlet.test/sale','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL);
 CREATE TABLE rejected_records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,

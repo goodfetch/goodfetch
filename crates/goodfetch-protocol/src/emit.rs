@@ -53,6 +53,7 @@ use crate::daemon::{
 use crate::entries::MODULES;
 use crate::events::{CreditParams, EventBatch};
 use crate::formats::FORMATS;
+use crate::foxhound::dataset::RecordRead;
 use crate::foxhound::frontier::{EnqueuedBatch, SeedBatch};
 use crate::journey::{Journey, JourneyCatalog};
 use crate::jsonrpc::{META, TraceContext};
@@ -112,6 +113,7 @@ pub fn emit() -> Emitted {
         "key": { "params": generator.subschema_for::<KeyValueStoreKey>() },
         "seeds": { "params": generator.subschema_for::<SeedBatch>() },
         "enqueued": { "params": generator.subschema_for::<EnqueuedBatch>() },
+        "record": { "params": generator.subschema_for::<RecordRead>() },
         "meta": generator.subschema_for::<TraceContext>(),
     });
     let outputs = json!({

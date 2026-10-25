@@ -19,7 +19,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
-use goodfetch_dataset::Checked;
+use goodfetch_dataset::{Checked, Committing};
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::egress::Policy;
@@ -597,7 +597,16 @@ pub(crate) fn commit(
     if !still_leased(connection, id, lease_epoch)? {
         return Ok(false);
     }
-    let counted = goodfetch_dataset::commit(connection, id, records)?;
+    let url: String =
+        connection.query_row("SELECT url FROM work_items WHERE id = ?1", [id], |row| {
+            row.get(0)
+        })?;
+    let committing = Committing {
+        request_id: id,
+        url: &url,
+        at: ended_at,
+    };
+    let counted = goodfetch_dataset::commit(connection, committing, records)?;
     connection.execute(
         "UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2",
         (SUCCEEDED, id),

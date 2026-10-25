@@ -990,6 +990,7 @@ impl Session<'_> {
             id: id.clone(),
             credits,
             outgoing: self.outgoing.clone(),
+            line: notification_line,
         });
         let (input, call_input) = match handler.input() {
             Some(method) => {

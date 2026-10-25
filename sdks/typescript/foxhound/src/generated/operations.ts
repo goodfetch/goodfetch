@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated";
-import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, FailedRequests, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, FailedRequests, RecordsRead, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
 
 /** The params and result of each of Foxhound's operations. */
 export interface FoxhoundOperationTypes {
@@ -16,6 +16,7 @@ export interface FoxhoundOperationTypes {
   "run.add_seeds": { params: RunAddSeedsParams; result: RunSeedsAdded };
   "run.failed_requests": { params: RunFailedRequestsParams; result: FailedRequests };
   "run.outcomes": { params: RunOutcomesParams; result: CrawlRequestOutcomes };
+  "run.records": { params: RunRecordsParams; result: RecordsRead };
   "run.rejected_records": { params: RunRejectedRecordsParams; result: RejectedRecords };
   "run.seeds": { params: RunSeedsParams; result: RunSeeds };
   "sample.crawl": { params: SampleCrawlParams; result: SampleCrawlResult };
@@ -117,6 +118,15 @@ export class FoxhoundOperations {
    */
   runOutcomes(params: RunOutcomesParams, options: CallOptions = {}): Promise<CrawlRequestOutcomes> {
     return this.#caller.call("run.outcomes", params, options);
+  }
+
+  /**
+   * Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. A Dataset the crawl does not declare fails with `dataset_unknown`.
+   *
+   * @experimental
+   */
+  runRecords(params: RunRecordsParams, options: CallOptions = {}): Promise<RecordsRead> {
+    return this.#caller.call("run.records", params, options);
   }
 
   /**

@@ -49,7 +49,7 @@ export class DatasetKeyInvalidError extends ProgramError {
 }
 
 /**
- * A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged; or a start under the ID of a Run whose Dataset holds Records no longer declares it, a renamed one included, so the Run did no work and no Record is orphaned. The details name the Dataset and those the crawl declares. Declare the Dataset again, or start a new Run.
+ * A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged; `run.records` read such a Dataset, so nothing was read; or a start under the ID of a Run whose Dataset holds Records no longer declares it, a renamed one included, so the Run did no work and no Record is orphaned. The details name the Dataset and those the crawl declares. Declare the Dataset again, or start a new Run.
  */
 export class DatasetUnknownError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {

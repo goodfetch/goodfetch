@@ -3144,6 +3144,24 @@ class DaemonStatus(BaseModel):
     """Its Product version."""
 
 
+class DatasetRecord(BaseModel):
+    """One committed Record of a Dataset, as a reader reads it (ADR 0103)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    committed_at: PointInTime
+    """When it was committed."""
+    number: Annotated[int, Field(ge=0)]
+    """Its number in its Dataset, from 1, in commit order, with no gaps."""
+    request_id: str
+    """The ID of the crawl request whose attempt committed it."""
+    url: str
+    """That crawl request's URL."""
+    value: Any
+    """The Record, as JSON; the program's schema parses it."""
+
+
 class Dialog(BaseModel):
     """A dialog as its handler sees it."""
 
@@ -4047,6 +4065,18 @@ class ReachedLimit(BaseModel):
     """The Limit's scope."""
     usage_kind: str
     """The Usage kind it caps."""
+
+
+class RecordRead(BaseModel):
+    """What `$/record` carries: the next Record a `run.records` call reads."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: RequestId
+    """The id of the `run.records` call."""
+    record: DatasetRecord
+    """The Record."""
 
 
 class RefetchDomainRemoved(BaseModel):

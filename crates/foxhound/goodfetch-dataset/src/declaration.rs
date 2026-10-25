@@ -205,33 +205,53 @@ impl Datasets {
         Err(Refused { error, rejected })
     }
 
-    /// Whether the crawl declares the Dataset `name`.
-    ///
-    /// # Errors
-    ///
-    /// `dataset_unknown`, naming the Datasets the crawl declares.
-    pub fn known(&self, name: &str) -> Result<(), CallError> {
-        self.declared(name).map(drop)
-    }
-
     fn declared(&self, name: &str) -> Result<&DatasetDeclaration, CallError> {
         self.0
             .iter()
             .find(|declared| declared.name == name)
             .ok_or_else(|| {
-                CallError::new(
-                    &DATASET_UNKNOWN,
-                    format!("The crawl declares no Dataset `{name}`: name one the crawl declares."),
-                    &DatasetUnknownDetails {
-                        dataset: name.to_owned(),
-                        declared: self
-                            .0
-                            .iter()
-                            .map(|declared| declared.name.clone())
-                            .collect(),
-                    },
+                self.unknown(
+                    name,
+                    format!(
+                        "The crawl declares no Dataset `{name}`, so the Record was not staged: push it into one the crawl declares."
+                    ),
                 )
             })
+    }
+
+    /// Answers whether the crawl declares the Dataset `name`, for a reader
+    /// of its Records.
+    ///
+    /// # Errors
+    ///
+    /// `dataset_unknown`, naming the Datasets the crawl declares, when it
+    /// declares none of that name.
+    pub fn readable(&self, name: &str) -> Result<(), CallError> {
+        if self.0.iter().any(|declared| declared.name == name) {
+            return Ok(());
+        }
+        Err(self.unknown(
+            name,
+            format!(
+                "The crawl declares no Dataset `{name}`, so no Record was read: read one the crawl declares."
+            ),
+        ))
+    }
+
+    /// `dataset_unknown` for `name`, saying `message`.
+    fn unknown(&self, name: &str, message: String) -> CallError {
+        CallError::new(
+            &DATASET_UNKNOWN,
+            message,
+            &DatasetUnknownDetails {
+                dataset: name.to_owned(),
+                declared: self
+                    .0
+                    .iter()
+                    .map(|declared| declared.name.clone())
+                    .collect(),
+            },
+        )
     }
 
     fn check_one(&self, record: &PushedRecord) -> Result<(), CallError> {

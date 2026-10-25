@@ -242,7 +242,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged; or a start under the ID of a Run whose Dataset holds Records no longer declares it, a renamed one included, so the Run did no work and no Record is orphaned. The details name the Dataset and those the crawl declares. Declare the Dataset again, or start a new Run.",
+      "description": "A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged; `run.records` read such a Dataset, so nothing was read; or a start under the ID of a Run whose Dataset holds Records no longer declares it, a renamed one included, so the Run did no work and no Record is orphaned. The details name the Dataset and those the crawl declares. Declare the Dataset again, or start a new Run.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -3341,6 +3341,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunProgress"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+      "events": [],
+      "kind": "sequence",
+      "name": "run.records",
+      "params": {
+        "$ref": "#/$defs/RunRecordsParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RecordsRead"
       },
       "stability": "experimental"
     },

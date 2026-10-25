@@ -50,7 +50,7 @@ async fn rejected_records(
         })
         .await
         .map_err(failed)?
-        .known(&known)?;
+        .readable(&known)?;
     let mut after = params.after.unwrap_or_default();
     loop {
         let live = reader.is_live();

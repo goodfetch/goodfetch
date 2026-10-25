@@ -1089,6 +1089,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 271
+title = "As a crawl developer, I want `run.records(dataset, { after })` to read committed Records from the first, following the Run live as a cursor that never slows the crawl, so that a slow reader costs nothing (CO-29, ADR 0103)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 272
 title = "As a crawl developer, I want a resume refused with `dataset_unknown` when the crawl no longer declares a Dataset holding Records, and with `dataset_key_invalid` when its key changed, while a changed schema resumes and each Record keeps the hash of the schema it was committed under, so that no Record is orphaned or mis-keyed (ADR 0103)."
 milestone = "M1 Core"

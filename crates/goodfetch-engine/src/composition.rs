@@ -225,11 +225,41 @@ pub(crate) trait DaemonSide: Send + Sync {
 }
 
 /// What a streaming call sends its notifications with: its id, the credits
-/// its Client grants it and the Connection's writer.
-pub(crate) struct CallStream {
+/// its Client grants it, the Connection's writer and the lines it writes
+/// of a notification's method and params.
+pub struct CallStream {
     pub(crate) id: RequestId,
     pub(crate) credits: Credits,
     pub(crate) outgoing: mpsc::Sender<Vec<u8>>,
+    pub(crate) line: fn(&str, &Value) -> Vec<u8>,
+}
+
+impl CallStream {
+    /// The call's id, which its notifications name.
+    pub fn id(&self) -> &RequestId {
+        &self.id
+    }
+
+    /// Waits for at least one credit its Client grants, and spends at most
+    /// `most`: how many notifications it may send now.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future spends nothing.
+    pub async fn spend(&self, most: usize) -> usize {
+        self.credits.spend(most).await
+    }
+
+    /// Sends the Client the notification `method` with `params`; `false`
+    /// once the Connection's writer is gone.
+    pub async fn notify(&self, method: &str, params: &impl Serialize) -> bool {
+        let params =
+            serde_json::to_value(params).expect("invariant: a notification's params encode");
+        self.outgoing
+            .send((self.line)(method, &params))
+            .await
+            .is_ok()
+    }
 }
 
 /// The stream of input a call takes from its Client (ADR 0024): each
@@ -336,7 +366,7 @@ impl CallContext {
     /// # Panics
     ///
     /// When the handler does not stream: its calls carry no stream.
-    pub(crate) fn stream(&self) -> &CallStream {
+    pub fn stream(&self) -> &CallStream {
         self.stream
             .as_deref()
             .expect("invariant: a streaming handler's calls carry their stream")
@@ -464,7 +494,7 @@ impl Handler {
     /// The same handler, whose calls stream notifications under the credits
     /// their Client grants; only its calls get credits and a stream.
     #[must_use]
-    pub(crate) fn streaming(mut self) -> Self {
+    pub fn streaming(mut self) -> Self {
         self.streams = true;
         self
     }

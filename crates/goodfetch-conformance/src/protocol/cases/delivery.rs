@@ -4,11 +4,11 @@
 //! the harness, with a 1 ms `timeout.handler`, so a lease lasts its 10 s
 //! margin and a little more. The harness names the crawl's operations by
 //! their wire names, since only `goodfetch-protocol` names its Foxhound
-//! module (ADR 0099). Records are not read back yet: `run.records` (#961)
-//! will let these cases check that the late attempt's Records are absent
-//! and the retry's present once; until then they check what the protocol
-//! shows of each commit, that a work item whose commit counted is never
-//! asked for again and that the Run finishes complete.
+//! module (ADR 0099). Each case reads the Run's Records back through
+//! `run.records` once the Run finished, so it checks what committed: the
+//! retry's Record once and the late attempt's never; and that a work item
+//! whose commit counted is never asked for again and that the Run finishes
+//! complete.
 
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -26,6 +26,15 @@ const CRAWL_START: &str = "crawl.start";
 
 /// `crawl_request.handle`, Foxhound's handler request.
 const CRAWL_REQUEST_HANDLE: &str = "crawl_request.handle";
+
+/// `run.records`, Foxhound's cursor over a Dataset's Records.
+const RUN_RECORDS: &str = "run.records";
+
+/// `$/record`, the notification that carries one Record it reads.
+const RECORD: &str = "$/record";
+
+/// `$/credit`, by which a Client lets a streaming call send more.
+const CREDIT: &str = "$/credit";
 
 /// How long the harness waits for a lease to end: its 10 s margin over the
 /// 1 ms handler timeout, and room for a loaded machine.
@@ -87,6 +96,34 @@ impl Crawl {
         sent.extend(answer.others);
         Ok((answer.message, sent))
     }
+}
+
+/// The values of the Records of `pages` the finished Run `run_id`
+/// committed, in number order, as `run.records` reads them, and whether
+/// their numbers run from 1 with no gaps.
+fn committed(connection: &mut Connection, run_id: &str) -> Result<(Vec<Value>, bool), Gone> {
+    let id = connection.request(
+        RUN_RECORDS,
+        &json!({ "run_id": run_id, "dataset": "pages" }),
+    )?;
+    connection.notify(CREDIT, &json!({ "id": id, "credits": 64 }))?;
+    let answer = connection.answer(id)?;
+    let records: Vec<&Value> = answer
+        .others
+        .iter()
+        .filter(|message| is(message, RECORD) && message["params"]["id"] == json!(id))
+        .map(|message| &message["params"]["record"])
+        .collect();
+    let numbered = records
+        .iter()
+        .zip(1_u64..)
+        .all(|(record, number)| record["number"] == json!(number))
+        && answer.message["result"]["count"] == json!(records.len());
+    let values = records
+        .iter()
+        .map(|record| record["value"].clone())
+        .collect();
+    Ok((values, numbered))
 }
 
 fn is(message: &Value, method: &str) -> bool {
@@ -156,6 +193,11 @@ pub(super) fn at_least_once(connection: &mut Connection, checks: &mut Checks) ->
     connection.reply(&second["id"], &records(&json!({ "page": 1 })))?;
     let (answer, sent) = crawl.finish(connection)?;
     finished_complete(&answer, &sent, checks);
+    let (read, numbered) = committed(connection, "at-least-once")?;
+    checks.check(
+        "`run.records` reads the retry's Record once, numbered 1",
+        read == [json!({ "page": 1 })] && numbered,
+    );
     Ok(())
 }
 
@@ -186,6 +228,15 @@ pub(super) fn exactly_once(connection: &mut Connection, checks: &mut Checks) -> 
         !sent.iter().any(|message| is(message, CANCEL)),
     );
     finished_complete(&answer, &sent, checks);
+    let (read, numbered) = committed(connection, "exactly-once")?;
+    checks.check(
+        "`run.records` reads each work item's Record once, numbered from 1 in commit order",
+        read == work_items
+            .iter()
+            .map(|work_item| json!({ "work_item": work_item }))
+            .collect::<Vec<_>>()
+            && numbered,
+    );
     Ok(())
 }
 
@@ -205,5 +256,10 @@ pub(super) fn late_commit(connection: &mut Connection, checks: &mut Checks) -> R
         }),
     );
     finished_complete(&answer, &sent, checks);
+    let (read, numbered) = committed(connection, "late-commit")?;
+    checks.check(
+        "`run.records` reads the retry's Record once and never the late answer's",
+        read == [json!({ "late": false })] && numbered,
+    );
     Ok(())
 }

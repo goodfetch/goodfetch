@@ -519,6 +519,24 @@ class RecordIssue(BaseModel):
     """Where in the Record, a JSON Pointer: empty for the Record itself."""
 
 
+class RecordsRead(BaseModel):
+    """
+    What `run.records` answers once it sent the last Record: how many it
+    sent, and the number of the last, which a later call's `after` takes.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    count: Annotated[int, Field(ge=0)]
+    """How many Records it sent."""
+    last: Annotated[int, Field(ge=0)]
+    """
+    The number of the last Record it sent, else the `after` it took, 0
+    without one.
+    """
+
+
 class RejectedRecord(BaseModel):
     """One entry of a Dataset's rejection table."""
 
@@ -673,6 +691,27 @@ class RunOutcomesParams(BaseModel):
     """Only outcomes of these kinds; absent, every kind."""
     labels: list[str] | None = None
     """Only outcomes of requests of these Labels; absent, every Label."""
+    run_id: RunId
+    """The crawl's Run."""
+
+
+class RunRecordsParams(BaseModel):
+    """
+    What `run.records` takes: a crawl's Run, one of its Datasets, and where
+    to start.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    after: Annotated[int | None, Field(ge=0)] = None
+    """
+    The number of the last Record the reader handled: the call starts
+    after it. Absent, it starts at the Dataset's first Record.
+    """
+    dataset: str
+    """The Dataset's name."""
     run_id: RunId
     """The crawl's Run."""
 

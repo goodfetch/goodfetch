@@ -1243,6 +1243,12 @@ number = 6
 kind = "operation"
 prefix = "run.seeds"
 
+# A Dataset's cursor, `run.records` (#961, ADR 0103).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "run.records"
+
 [[area]]
 number = 6
 kind = "operation"

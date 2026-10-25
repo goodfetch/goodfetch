@@ -5747,7 +5747,7 @@
     {
       "id": "setting:crawl.content_types",
       "kind": "setting",
-      "area": null,
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
@@ -18876,6 +18876,26 @@
     },
     {
       "id": "story:6-263",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-264",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-265",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

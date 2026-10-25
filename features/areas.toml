@@ -661,6 +661,12 @@ number = 6
 kind = "setting"
 prefix = "fetch.kept_responses."
 
+# The media types a Label's handler takes (ADR 0119, #950).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.content_types"
+
 # Area 6, Collection, Foxhound: a Label that keeps its URLs' fragments
 # (ADR 0120, #939).
 [[area]]

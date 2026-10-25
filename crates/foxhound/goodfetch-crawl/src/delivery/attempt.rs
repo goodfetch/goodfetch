@@ -54,6 +54,10 @@
 //! 0093). A handler that lets a `site_preferences_refused` its own
 //! navigation raised escape ends its request `skipped` with that
 //! refusal's reason, not `failed` (ADR 0093).
+//!
+//! Size: one attempt's way from its tier plan to its answer, each run on a
+//! tier one method of [`On`], kept whole so every tier's run hands its
+//! handler the same request, response and Provenance.
 
 use std::sync::Arc;
 use std::time::Duration;

@@ -80,7 +80,12 @@ impl NetworkFixtures {
             proxies.push(ForwardProxy::bind(host, Proxy::of_kind(kind, EXITS_PER_KIND)).await?);
         }
         let down = Down::hold(host).await?;
-        let dns = DnsServer::bind(SocketAddr::new(host, 0), Arc::clone(&zone)).await?;
+        let dns = DnsServer::bind(
+            SocketAddr::new(host, 0),
+            Arc::clone(&zone),
+            Arc::clone(&observations),
+        )
+        .await?;
         let target = TcpListener::bind((host, 0))
             .await
             .context("binding the target")?;

@@ -18,6 +18,9 @@
 //! answers that TTL, and its negative answers (RFC 2308) an SOA whose TTL
 //! and minimum are that TTL, so a resolver may keep them as long. Any other
 //! name does not exist.
+//!
+//! Every query is recorded in the connection record with the address it
+//! came from, so a test sees which local address a resolver asked from.
 #![expect(
     clippy::disallowed_types,
     reason = "the DNS fixture opens its own UDP socket, outside the engine's transport (ADR 0060)"
@@ -32,6 +35,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use tokio::net::UdpSocket;
 
+use crate::observation::Observations;
 use crate::sync::Mutex;
 
 use self::message::{AAAA, Rcode, Refusal};
@@ -268,15 +272,25 @@ fn address(label: &str) -> Option<IpAddr> {
 pub(crate) struct DnsServer {
     socket: UdpSocket,
     zone: Arc<Zone>,
+    observations: Arc<Observations>,
 }
 
 impl DnsServer {
-    /// Binds the address; port 0 binds a free port.
-    pub(crate) async fn bind(address: SocketAddr, zone: Arc<Zone>) -> Result<Self> {
+    /// Binds the address, port 0 a free port; every query it receives is
+    /// recorded into `observations` with the address it came from.
+    pub(crate) async fn bind(
+        address: SocketAddr,
+        zone: Arc<Zone>,
+        observations: Arc<Observations>,
+    ) -> Result<Self> {
         let socket = UdpSocket::bind(address)
             .await
             .with_context(|| format!("binding the DNS fixture on {address}"))?;
-        Ok(Self { socket, zone })
+        Ok(Self {
+            socket,
+            zone,
+            observations,
+        })
     }
 
     /// The bound address.
@@ -299,6 +313,19 @@ impl DnsServer {
                 // A failed read concerns only the client that sent it.
                 continue;
             };
+            if let Ok(query) = message::parse(&buffer[..length]) {
+                let record_type = match query.record_type {
+                    message::A => "A".to_owned(),
+                    AAAA => "AAAA".to_owned(),
+                    other => other.to_string(),
+                };
+                self.observations.connection_record().dns_query(
+                    self.observations.stamp(),
+                    client,
+                    &query.name,
+                    &record_type,
+                );
+            }
             if let Some(reply) = self.zone.respond(&buffer[..length]) {
                 let _ = self.socket.send_to(&reply, client).await;
             }

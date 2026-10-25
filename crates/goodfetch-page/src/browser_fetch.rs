@@ -494,6 +494,11 @@ impl<'a> Load<'a> {
             }
             _ => {
                 let url = self.chain.last().map_or(self.request.url, String::as_str);
+                let name = self
+                    .driver
+                    .relay()
+                    .and_then(|relay| relay.net_error(url, error.name(), self.relay_mark))
+                    .unwrap_or(error.name());
                 Err(self
                     .driver
                     .relay()
@@ -503,9 +508,9 @@ impl<'a> Load<'a> {
                     .or_else(|| {
                         self.driver
                             .proxy()
-                            .and_then(|proxy| proxy.failure(url, error.name()))
+                            .and_then(|proxy| proxy.failure(url, name))
                     })
-                    .unwrap_or_else(|| network_error(url, error.name())))
+                    .unwrap_or_else(|| network_error(url, name)))
             }
         }
     }

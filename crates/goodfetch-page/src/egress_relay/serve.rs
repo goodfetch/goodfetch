@@ -72,8 +72,48 @@ pub(crate) enum Met {
     CredentialsRefused,
 }
 
+/// Why the relay could not reach a site itself, as the browser names the
+/// same failure when it connects on its own: it sees only the relay's
+/// answer, so the engine reports the site's failure by this name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Unreached {
+    /// The name has no address.
+    NameNotResolved,
+    /// Every address refused the connection.
+    ConnectionRefused,
+    /// The connection timed out.
+    TimedOut,
+    /// Any other failure to connect.
+    ConnectionFailed,
+}
+
+impl Unreached {
+    /// The browser's own name of the failure.
+    pub(crate) fn net_error(self) -> &'static str {
+        match self {
+            Self::NameNotResolved => "net::ERR_NAME_NOT_RESOLVED",
+            Self::ConnectionRefused => "net::ERR_CONNECTION_REFUSED",
+            Self::TimedOut => "net::ERR_CONNECTION_TIMED_OUT",
+            Self::ConnectionFailed => "net::ERR_CONNECTION_FAILED",
+        }
+    }
+
+    fn of(error: &io::Error) -> Self {
+        match error.kind() {
+            io::ErrorKind::ConnectionRefused => Self::ConnectionRefused,
+            io::ErrorKind::TimedOut => Self::TimedOut,
+            _ => Self::ConnectionFailed,
+        }
+    }
+}
+
 /// What the relay tells the Session of its connections.
 pub(crate) trait Observe: Sync {
+    /// The relay could not reach the site at `authority` itself.
+    fn unreached(&self, authority: &str, unreached: Unreached);
+    /// A connection reached the site at `authority`, or the upstream
+    /// proxy for it.
+    fn reached(&self, authority: &str);
     /// The relay refused a connection `method` asked for, before any byte
     /// left for its target.
     fn refused(&self, refused: &Refused, method: &str);
@@ -179,10 +219,14 @@ where
         .resolve(head.target.host(), head.target.port())
         .await
     else {
-        let _ = browser
-            .write_all(&failed("502 Bad Gateway", "dns_error"))
-            .await;
-        return Served::Failed;
+        return unreached(
+            &mut browser,
+            &head,
+            observe,
+            Unreached::NameNotResolved,
+            "dns_error",
+        )
+        .await;
     };
     if !resolved.mapped
         && let Err(refused) = egress::judge_addresses(&url, &resolved.addresses, &relaying.policy)
@@ -202,7 +246,9 @@ where
         &relaying.upstream
     };
     match upstream {
-        Upstream::Direct => direct(browser, &head, rest, &resolved.addresses, network).await,
+        Upstream::Direct => {
+            direct(browser, &head, rest, &resolved.addresses, network, observe).await
+        }
         Upstream::Http { authorization } => {
             through_http(
                 browser,
@@ -239,31 +285,61 @@ where
     Served::Refused
 }
 
+/// Answers `head`'s connection, which the relay could not take to its
+/// site itself: a tunnel with the relay's `502` naming `error`, a plain
+/// request by closing with no answer, so the browser fails the request as
+/// it fails one the site never answered, and the Session learns why.
+async fn unreached<B, O>(
+    browser: &mut B,
+    head: &Head,
+    observe: &O,
+    unreached: Unreached,
+    error: &str,
+) -> Served
+where
+    B: AsyncWrite + Unpin,
+    O: Observe,
+{
+    observe.unreached(&head.target.authority(), unreached);
+    if matches!(head.target, Target::Tunnel { .. }) {
+        let _ = browser.write_all(&failed("502 Bad Gateway", error)).await;
+    }
+    Served::Failed
+}
+
 /// Connects to the first of `addresses` that answers, and relays.
-async fn direct<B, N>(
+async fn direct<B, N, O>(
     mut browser: B,
     head: &Head,
     rest: Vec<u8>,
     addresses: &[SocketAddr],
     network: &N,
+    observe: &O,
 ) -> Served
 where
     B: AsyncRead + AsyncWrite + Unpin + Send,
     N: Network,
+    O: Observe,
 {
     let mut site = None;
+    let mut last = Unreached::ConnectionFailed;
     for address in addresses {
-        if let Ok(stream) = network.connect(*address).await {
-            site = Some(stream);
-            break;
+        match network.connect(*address).await {
+            Ok(stream) => {
+                site = Some(stream);
+                break;
+            }
+            Err(error) => last = Unreached::of(&error),
         }
     }
     let Some(mut site) = site else {
-        let _ = browser
-            .write_all(&failed("502 Bad Gateway", "connection_refused"))
-            .await;
-        return Served::Failed;
+        let error = match last {
+            Unreached::TimedOut => "connection_timeout",
+            _ => "connection_refused",
+        };
+        return unreached(&mut browser, head, observe, last, error).await;
     };
+    observe.reached(&head.target.authority());
     let opened = match head.target {
         Target::Tunnel { .. } => browser.write_all(ESTABLISHED).await,
         Target::Absolute { .. } => site.write_all(&head.forwarded(false, None)).await,

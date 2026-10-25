@@ -371,6 +371,8 @@ impl serve::Network for InMemory {
 struct Unobserved;
 
 impl serve::Observe for Unobserved {
+    fn unreached(&self, _: &str, _: serve::Unreached) {}
+    fn reached(&self, _: &str) {}
     fn refused(&self, _: &goodfetch_engine::egress::Refused, _: &str) {}
     fn upstream(&self, _: serve::Met) {}
     fn unauthenticated(&self) {}

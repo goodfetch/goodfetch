@@ -28,7 +28,7 @@ use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 use goodfetch_test_support::{CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Value, json};
 
-use crate::page::{opened, started};
+use crate::page::{opened, started, started_with};
 use crate::run::call;
 
 /// The Proving ground's own seed for these tests.
@@ -92,14 +92,22 @@ fn relayed_hosts(observations: &Value) -> BTreeSet<String> {
 /// a program opens two of its pages and the browser idles. The relays name
 /// the pages' hosts and the `.invalid` names the background-traffic table
 /// points the browser's own endpoints at: both the pages' traffic and the
-/// browser's own reach the record.
+/// browser's own reach the record. Its Run has no egress relay, so its
+/// pages too go through the profile's proxy.
 /// Covers: story:4-83
 #[test]
 fn a_launched_browser_calls_no_vendor_host_through_navigation_and_idle_time() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut engine = started(&env, &cache, &proving_ground, "quiet");
+    // Its pages take the profile's proxy, not the Session's egress relay,
+    // which every page's context would otherwise take as its own.
+    let mut settings = serde_json::Map::new();
+    settings.insert(
+        "security".to_owned(),
+        json!({ "raw_cdp_egress_proxy": false }),
+    );
+    let mut engine = started_with(&env, &cache, &proving_ground, "quiet", &settings, |_| {});
     through_proxy(
         &launch_data_folder(&env, "quiet"),
         &proving_ground.description().fixtures.proxies["open"],

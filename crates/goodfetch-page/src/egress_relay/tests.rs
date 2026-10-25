@@ -31,7 +31,7 @@ use goodfetch_protocol::egress::EgressRule;
 use goodfetch_test_support::{Family, ResolverHandle, ScriptedResolver, SsrfTable};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, duplex};
 
-use super::serve::{Met, Network, Observe, Relaying, Resolved, Served, Upstream, serve};
+use super::serve::{Met, Network, Observe, Relaying, Resolved, Served, Unreached, Upstream, serve};
 
 /// The address that stands for a public one.
 const PUBLIC: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 31, 196, 1));
@@ -173,9 +173,19 @@ struct Told {
     refused: Mutex<Vec<(Refused, String)>>,
     met: Mutex<Vec<Met>>,
     unauthenticated: Mutex<usize>,
+    unreached: Mutex<Vec<(String, Unreached)>>,
 }
 
 impl Observe for Told {
+    fn unreached(&self, authority: &str, unreached: Unreached) {
+        self.unreached
+            .lock()
+            .unwrap()
+            .push((authority.to_owned(), unreached));
+    }
+
+    fn reached(&self, _: &str) {}
+
     fn refused(&self, refused: &Refused, method: &str) {
         self.refused
             .lock()
@@ -532,4 +542,41 @@ fn a_plain_request_reaches_the_site_in_origin_form_and_a_private_one_reaches_not
         network.connections(),
         vec![Some(SocketAddr::new(PUBLIC, 80))]
     );
+}
+
+/// A site the relay cannot reach itself is named to the Session by why, as
+/// the browser would name it: a tunnel gets the relay's 502, a plain
+/// request a closed connection, so the browser fails it.
+///
+/// Covers: story:4-10
+#[test]
+fn a_name_with_no_address_is_unreached_by_name_and_the_browser_fails_it() {
+    let network = Scripted::new(None, Far::Site);
+    let told = Told::default();
+    let relaying = relaying(every_host(), Upstream::Direct);
+    let plain = format!(
+        "GET http://nowhere.test/ HTTP/1.1\r\nHost: nowhere.test\r\nProxy-Authorization: {}\r\n\r\n",
+        authorization()
+    );
+    let runtime = goodfetch_test_support::runtime();
+
+    let tunnel = runtime.block_on(through(
+        &connect("nowhere.test:443"),
+        GET,
+        &relaying,
+        &network,
+        &told,
+    ));
+    let request = runtime.block_on(through(&plain, b"", &relaying, &network, &told));
+
+    assert_eq!(tunnel.0.lines().next(), Some("HTTP/1.1 502 Bad Gateway"));
+    assert_eq!(request.0, "");
+    assert_eq!(
+        *told.unreached.lock().unwrap(),
+        vec![
+            ("nowhere.test:443".to_owned(), Unreached::NameNotResolved),
+            ("nowhere.test:80".to_owned(), Unreached::NameNotResolved),
+        ]
+    );
+    assert_eq!(network.connections(), vec![]);
 }

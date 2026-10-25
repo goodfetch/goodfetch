@@ -1450,15 +1450,7 @@ impl PageDriver {
                 })))
             }
             Ok(Ok(arrived)) => Ok(arrived),
-            Ok(Err(Ended::Failed(error))) => Err(self
-                .refused_by_relay(relay_mark, &url)
-                .or_else(|| {
-                    self.egress
-                        .proxy
-                        .as_ref()
-                        .and_then(|proxy| proxy.failure(&url, error.name()))
-                })
-                .unwrap_or_else(|| network_error(&url, error.name()))),
+            Ok(Err(Ended::Failed(error))) => Err(self.failed(&url, error.name(), relay_mark)),
             Ok(Err(Ended::Interrupted)) => Err(interrupted(&url)),
             Ok(Err(Ended::TooManyRedirects(chain))) => Err(too_many_redirects(&url, chain)),
             Ok(Err(Ended::Truncated { received, expected })) => {
@@ -1482,6 +1474,27 @@ impl PageDriver {
             .await?;
         let frame = tree.frame_tree.frame;
         Ok(frame.unreachable_url.unwrap_or(frame.url))
+    }
+
+    /// The error of a navigation to `url` that failed with the browser's
+    /// network error `error`, the Session's egress relay standing at
+    /// `mark` as it began: the relay's refusal, else the proxy's own
+    /// failure, else the site's, named as the browser names it when it
+    /// connects itself, since behind the relay it sees only the relay's
+    /// answer.
+    fn failed(&self, url: &str, error: &str, mark: Option<u64>) -> CallError {
+        let name = self
+            .relay()
+            .and_then(|relay| relay.net_error(url, error, mark))
+            .unwrap_or(error);
+        self.refused_by_relay(mark, url)
+            .or_else(|| {
+                self.egress
+                    .proxy
+                    .as_ref()
+                    .and_then(|proxy| proxy.failure(url, name))
+            })
+            .unwrap_or_else(|| network_error(url, name))
     }
 
     /// `egress_refused` when the Session's egress relay refused a

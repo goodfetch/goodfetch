@@ -640,3 +640,37 @@ fn the_relay_leaves_the_browsers_client_hello_unchanged() {
     assert!(relayed.starts_with("t13d"), "{relayed}");
     assert_eq!(relayed, direct);
 }
+
+/// A site the relay cannot reach itself fails as the browser names that
+/// failure when it connects on its own (Playwright's names), never as the
+/// relay's answer: a name with no address is `net::ERR_NAME_NOT_RESOLVED`,
+/// over a tunnel and over plain HTTP alike.
+///
+/// Covers: story:4-10, error:navigation_failed, operation:page.goto
+#[test]
+fn a_site_the_relay_cannot_reach_fails_as_the_browser_names_it() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut program = started(&env, &proving_ground, "unreached", &json!({}), &[]);
+    let page = program.new_page("unreached");
+
+    let failed: Vec<(Value, Value)> = ["http://nowhere.invalid/", "https://nowhere.invalid/"]
+        .iter()
+        .map(|url| {
+            let (code, details) = error(&program.goto(&page, url));
+            (code, details["error"].clone())
+        })
+        .collect();
+    program.finish("unreached");
+
+    assert_eq!(
+        failed,
+        vec![
+            (
+                json!("navigation_failed"),
+                json!("net::ERR_NAME_NOT_RESOLVED")
+            );
+            2
+        ]
+    );
+}

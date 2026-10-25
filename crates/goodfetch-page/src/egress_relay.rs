@@ -49,7 +49,7 @@ use goodfetch_protocol::settings::NETWORK_RESOLVE;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-use self::serve::{Met, Network, Observe, Relaying, Resolved, Upstream};
+use self::serve::{Met, Network, Observe, Relaying, Resolved, Unreached, Upstream};
 
 /// The user name of every Session's relay credentials; the password is the
 /// Session's own.
@@ -190,6 +190,7 @@ impl EgressRelay {
             )),
             met,
             refusals: Mutex::new(VecDeque::new()),
+            unreached: Mutex::new(BTreeMap::new()),
             sequence: AtomicU64::new(0),
         });
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
@@ -255,6 +256,43 @@ impl EgressRelay {
     }
 }
 
+impl EgressRelay {
+    /// The browser's own name of the failure of a request to `url` that
+    /// failed with `error`, when the relay could not reach its site
+    /// itself: the browser sees only the relay's answer, such as
+    /// `net::ERR_TUNNEL_CONNECTION_FAILED` or `net::ERR_EMPTY_RESPONSE`,
+    /// where it would name the site's failure, such as
+    /// `net::ERR_NAME_NOT_RESOLVED`. With `mark`, where the relay stood as
+    /// a navigation to `url` began, the latest such failure since then
+    /// names a later hop's when `url`'s site was reached.
+    pub(crate) fn net_error(
+        &self,
+        url: &str,
+        error: &str,
+        mark: Option<u64>,
+    ) -> Option<&'static str> {
+        let relayed = matches!(
+            error.strip_prefix("net::").unwrap_or(error),
+            "ERR_TUNNEL_CONNECTION_FAILED" | "ERR_EMPTY_RESPONSE" | "ERR_FAILED"
+        );
+        if !relayed {
+            return None;
+        }
+        let sites = lock(&self.record.unreached);
+        let own = authority_of(url).and_then(|authority| sites.get(&authority).copied());
+        let since = || {
+            let mark = mark?;
+            sites
+                .values()
+                .filter(|(sequence, _)| *sequence > mark)
+                .max_by_key(|(sequence, _)| *sequence)
+                .copied()
+        };
+        own.or_else(since)
+            .map(|(_, unreached)| unreached.net_error())
+    }
+}
+
 /// `url`'s host and port, as the relay keys its refusals.
 fn authority_of(url: &str) -> Option<String> {
     let url = url::Url::parse(url).ok()?;
@@ -279,11 +317,27 @@ struct Record {
     met: Option<Box<dyn Fn(Met) + Send + Sync>>,
     /// Its latest refusals, each with its number and authority.
     refusals: Mutex<VecDeque<(u64, String, Refused)>>,
+    /// The sites it could not reach itself since it last reached them,
+    /// each with the number of the latest refusal then, by authority.
+    unreached: Mutex<BTreeMap<String, (u64, Unreached)>>,
     /// The number of the latest refusal.
     sequence: AtomicU64,
 }
 
 impl Observe for Record {
+    fn unreached(&self, authority: &str, unreached: Unreached) {
+        let mut sites = lock(&self.unreached);
+        if sites.len() >= KEPT_REFUSALS && !sites.contains_key(authority) {
+            sites.pop_first();
+        }
+        let sequence = self.sequence.fetch_add(1, Ordering::AcqRel) + 1;
+        sites.insert(authority.to_owned(), (sequence, unreached));
+    }
+
+    fn reached(&self, authority: &str) {
+        lock(&self.unreached).remove(authority);
+    }
+
     fn refused(&self, refused: &Refused, method: &str) {
         let authority = authority_of(&refused.url).unwrap_or_default();
         {

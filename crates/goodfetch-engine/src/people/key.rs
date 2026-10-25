@@ -9,8 +9,9 @@
     reason = "the Console key's calls run under their caller's blocking policy"
 )]
 
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
+
+use crate::durable;
 
 /// How many bytes of the OS generator the key holds.
 const KEY_BYTES: usize = 32;
@@ -70,7 +71,8 @@ impl ConsoleKey {
     }
 
     /// Replaces the key with a new one from the OS generator, through a
-    /// file renamed over it, so a reader never sees half of one.
+    /// file renamed over it, so a reader never sees half of one, and the
+    /// key it answers is the key after a power cut (ADR 0002).
     pub fn replace(&self) -> Result<Vec<u8>, KeyError> {
         let io = |source| KeyError::Io {
             path: self.path.clone(),
@@ -78,14 +80,12 @@ impl ConsoleKey {
         };
         let mut key = vec![0; KEY_BYTES];
         getrandom::fill(&mut key).map_err(KeyError::Generator)?;
-        let folder = self.path.parent().unwrap_or_else(|| Path::new("."));
-        std::fs::create_dir_all(folder).map_err(io)?;
-        // A temporary file is `0600` from its creation on Unix.
-        let mut file = tempfile::NamedTempFile::new_in(folder).map_err(io)?;
-        file.write_all(data_encoding::HEXLOWER.encode(&key).as_bytes())
+        if let Some(folder) = self.path.parent() {
+            durable::create_folder(folder).map_err(io)?;
+        }
+        // `0600` from its creation on, as `durable::replace` writes it.
+        durable::replace(&self.path, data_encoding::HEXLOWER.encode(&key).as_bytes())
             .map_err(io)?;
-        file.as_file().sync_all().map_err(io)?;
-        file.persist(&self.path).map_err(|error| io(error.error))?;
         Ok(key)
     }
 }

@@ -4,8 +4,30 @@
 //! in it. Each call blocks: run it under its owner's blocking policy.
 
 use std::fs::DirBuilder;
-use std::io;
+use std::io::{self, Write as _};
 use std::path::Path;
+
+/// Replaces the file at `path` with `bytes`, through a synced temporary
+/// file renamed over it, so a reader never sees half of one, then syncs its
+/// folder, so the file survives a power cut once this answers. The file is
+/// its owner's alone (`0600`) on Unix, from its creation on. Its folder
+/// must exist ([`create_folder`] makes one).
+///
+/// # Errors
+///
+/// When the file cannot be written or renamed into place.
+pub(crate) fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let folder = path
+        .parent()
+        .filter(|folder| !folder.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut file = tempfile::NamedTempFile::new_in(folder)?;
+    file.write_all(bytes)?;
+    file.as_file().sync_all()?;
+    file.persist(path).map_err(|error| error.error)?;
+    sync_folder(folder);
+    Ok(())
+}
 
 /// Syncs the folder `folder`, where the OS allows it, so a file created or
 /// renamed into it survives a power cut. A folder that cannot be opened or

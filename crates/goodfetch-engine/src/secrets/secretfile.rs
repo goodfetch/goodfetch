@@ -33,6 +33,7 @@ use secrecy::SecretString;
 use secrecy::zeroize::Zeroizing;
 
 use super::{ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider};
+use crate::durable;
 use crate::tasks::TaskOwner;
 
 /// The identity file's name in the folder.
@@ -117,7 +118,7 @@ pub(super) fn make(folder: &Path, name: &str, value: &SecretString) -> Result<()
     use std::io::Write as _;
 
     let identity_path = folder.join(IDENTITY);
-    std::fs::create_dir_all(folder).map_err(|error| translate_io(&error, folder))?;
+    durable::create_folder(folder).map_err(|error| translate_io(&error, folder))?;
     if !identity_path.exists() {
         let identity = x25519::Identity::generate();
         let text = Zeroizing::new(format!(
@@ -152,7 +153,9 @@ pub(super) fn make(folder: &Path, name: &str, value: &SecretString) -> Result<()
 
 /// Writes `bytes` to `path` in `folder` through a temporary file only its
 /// owner may read, synced, then linked where no file is, so a reader never
-/// sees half of one; a file another maker put there first is kept.
+/// sees half of one; a file another maker put there first is kept. The
+/// folder is synced after the link, so the file survives a power cut once
+/// this answers (ADR 0002), whichever maker linked it.
 fn publish(folder: &Path, path: &Path, bytes: &[u8]) -> Result<(), ProviderFailure> {
     use std::io::Write as _;
 
@@ -162,10 +165,12 @@ fn publish(folder: &Path, path: &Path, bytes: &[u8]) -> Result<(), ProviderFailu
     temporary.write_all(bytes).map_err(failed)?;
     temporary.as_file().sync_all().map_err(failed)?;
     match temporary.persist_noclobber(path) {
-        Ok(_) => Ok(()),
-        Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
-        Err(error) => Err(failed(error.error)),
+        Ok(_) => {}
+        Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(failed(error.error)),
     }
+    durable::sync_folder(folder);
+    Ok(())
 }
 
 /// The X25519 identities of the identity file at `path`, which only its

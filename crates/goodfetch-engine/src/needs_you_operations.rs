@@ -31,6 +31,7 @@ use serde_json::{Value, json};
 
 use crate::audit::{AuditLog, Origin};
 use crate::composition::{CallContext, CallError, Handler};
+use crate::durable;
 use crate::needs_you::NeedsYouError;
 use crate::run::settings_error;
 use crate::runs::CALLER;
@@ -273,18 +274,11 @@ fn write(answer: Answer) -> Result<Written, Refused> {
 }
 
 /// Replaces the file at `path` with `text`, through a file renamed over
-/// it, so no reader sees half of one.
+/// it, so no reader sees half of one, and an answer acknowledged survives a
+/// power cut (ADR 0002). Blocking.
 fn replace(path: &std::path::Path, text: &str) -> io::Result<()> {
-    use std::io::Write as _;
-    let folder = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the answer's file work runs under the engine's blocking policy"
-    )]
-    std::fs::create_dir_all(folder)?;
-    let mut file = tempfile::NamedTempFile::new_in(folder)?;
-    file.write_all(text.as_bytes())?;
-    file.as_file().sync_all()?;
-    file.persist(path).map_err(|error| error.error)?;
-    Ok(())
+    if let Some(folder) = path.parent() {
+        durable::create_folder(folder)?;
+    }
+    durable::replace(path, text.as_bytes())
 }

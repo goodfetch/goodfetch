@@ -13,7 +13,7 @@ export class AttemptEndedError extends ProgramError {
 }
 
 /**
- * A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack.
+ * A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack. A request's own document that declares no encoding and is not UTF-8, which only the browser's guess reads, fails the same way under a forced tier (ADR 0119), its call `fetch.encoding` and its fix naming `fetch.encoding` and `fetch.tier`.
  */
 export class BrowserRequiredError extends ProgramError {
   constructor(message: string, fields: ErrorFields = {}) {
@@ -27,6 +27,33 @@ export class BrowserRequiredError extends ProgramError {
 export class ClientGoneError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "client_gone", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The crawl declares a second Dataset of a name it already declares, so it was not started. The details name the Dataset. Give each Dataset its own name.
+ */
+export class DatasetDuplicateError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "dataset_duplicate", group: "program", retryable: false });
+  }
+}
+
+/**
+ * A Dataset's key names a field that is no top-level field its JSON Schema requires, so a Record could lack it and the crawl was not started. The details name the Dataset and the field. Key a Dataset only by fields its schema requires.
+ */
+export class DatasetKeyInvalidError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "dataset_key_invalid", group: "program", retryable: false });
+  }
+}
+
+/**
+ * A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged. The details name the Dataset and those the crawl declares.
+ */
+export class DatasetUnknownError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "dataset_unknown", group: "program", retryable: false });
   }
 }
 
@@ -85,6 +112,15 @@ export class PayloadSchemaChangedError extends ProgramError {
 }
 
 /**
+ * A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each issue by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.
+ */
+export class RecordInvalidError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "record_invalid", group: "program", retryable: false });
+  }
+}
+
+/**
  * A handler's call that reads, waits on or acts on the document of a page whose accepted response is not an HTML document, such as a PDF its Label's `crawl.content_types` lists: a locator, `content()`, `formats`, `evaluate`, a screenshot or an AI verb. It fails at once on every tier and never escalates. The details name the response's content type and the call; the fix names `ctx.response`, which holds the body.
  */
 export class ResponseNotDocumentError extends ProgramError {
@@ -125,12 +161,16 @@ export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   attempt_ended: AttemptEndedError,
   browser_required: BrowserRequiredError,
   client_gone: ClientGoneError,
+  dataset_duplicate: DatasetDuplicateError,
+  dataset_key_invalid: DatasetKeyInvalidError,
+  dataset_unknown: DatasetUnknownError,
   effect_staging_refused: EffectStagingRefusedError,
   handler_failed: HandlerFailedError,
   handler_lost: HandlerLostError,
   lease_lost: LeaseLostError,
   payload_invalid: PayloadInvalidError,
   payload_schema_changed: PayloadSchemaChangedError,
+  record_invalid: RecordInvalidError,
   response_not_document: ResponseNotDocumentError,
   response_not_ok: ResponseNotOKError,
   response_unavailable: ResponseUnavailableError,

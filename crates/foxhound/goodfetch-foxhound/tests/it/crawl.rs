@@ -19,6 +19,11 @@ use goodfetch_test_support::{Process, StrictStdout, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
+/// The Datasets a crawl these tests start declares when its `crawl.start`
+/// names none (ADR 0103): those their handlers push Records into, with no
+/// schema or key.
+const PUSHED_INTO: [&str; 4] = ["pages", "books", "items", "links"];
+
 /// A running Attached engine of Foxhound's executable.
 pub(crate) struct Attached {
     process: Process,
@@ -63,9 +68,18 @@ impl Attached {
         engine
     }
 
+    /// Sends `message`; a `crawl.start` that declares no Dataset declares
+    /// [`PUSHED_INTO`], those the tests' handlers push their Records into.
     pub(crate) fn send(&mut self, message: &Value) {
+        let mut message = message.clone();
+        if message["method"] == "crawl.start" && message["params"].get("datasets").is_none() {
+            message["params"]["datasets"] = PUSHED_INTO
+                .iter()
+                .map(|name| json!({ "name": name }))
+                .collect();
+        }
         let stdin = self.stdin.as_mut().unwrap();
-        let mut line = serde_json::to_vec(message).unwrap();
+        let mut line = serde_json::to_vec(&message).unwrap();
         line.push(b'\n');
         stdin.write_all(&line).unwrap();
         stdin.flush().unwrap();

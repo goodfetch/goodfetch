@@ -20,9 +20,9 @@ use serde_json::{Value, json};
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
 
-/// The time step at which the `pacing` family holds each answer longest,
-/// about two seconds (`proving-ground/README.md`).
-const SLOWEST_STEP: u64 = 95;
+/// A time step at which the `pacing` family holds each answer about two
+/// seconds (`proving-ground/README.md`).
+const SLOW_STEP: u64 = 95;
 
 /// How long a superseding navigation waits after the one it supersedes, so
 /// the browser has started the first, whose answer the Proving ground holds.
@@ -418,7 +418,7 @@ pub(super) fn superseded(
         }
         return Ok(());
     };
-    let slowed = site.proving_ground.set_time_step(SLOWEST_STEP).is_ok();
+    let slowed = site.proving_ground.set_time_step(SLOW_STEP).is_ok();
     checks.check("the Proving ground holds its pacing pages' answers", slowed);
     let first = connection.request(PAGE_GOTO.name, &json!({ "page_id": page, "url": held }))?;
     pause(SUPERSEDING_DELAY);
@@ -481,7 +481,7 @@ pub(super) fn past_its_deadline(
         "a `timeout` of 0 is refused with `invalid_params`",
         refused["error"]["code"] == json!(-32602),
     );
-    let slowed = site.proving_ground.set_time_step(SLOWEST_STEP).is_ok();
+    let slowed = site.proving_ground.set_time_step(SLOW_STEP).is_ok();
     checks.check("the Proving ground holds its pacing pages' answers", slowed);
     let answer = call(
         connection,

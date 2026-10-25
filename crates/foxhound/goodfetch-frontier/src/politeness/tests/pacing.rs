@@ -181,7 +181,7 @@ fn a_rated_send_waits_for_the_interval_after_the_sends_before_it(
     #[case] waits: &[Option<u64>],
 ) {
     let file = file();
-    let rate = rule(rated(60, burst)).rate;
+    let pace = rule(rated(60, burst)).pace;
 
     let answered: Vec<Option<SystemTime>> = sends
         .iter()
@@ -190,7 +190,7 @@ fn a_rated_send_waits_for_the_interval_after_the_sends_before_it(
                 &file,
                 KEY,
                 at(10) + milliseconds(*after),
-                rate.filter(|_| *rated),
+                rated.then_some(pace),
             )
             .unwrap()
         })
@@ -201,6 +201,71 @@ fn a_rated_send_waits_for_the_interval_after_the_sends_before_it(
         .map(|wait| wait.map(|wait| at(10) + milliseconds(wait)))
         .collect();
     assert_eq!(answered, expected);
+}
+
+/// A crawl request's send waits for its domain's delay after the last
+/// send any sharing run made there, the delay as the key stands when it
+/// sends: one whose send came later than the next request's admission,
+/// which counted from an earlier start, would otherwise reach the site
+/// within the delay of that next request. Its own admission holds nothing,
+/// a hop's or a navigation's send counts as a send without waiting, a send
+/// that waits records nothing, and the adaptive delay's lengthening since
+/// the admission counts. Each send is `(milliseconds after 10 s, its
+/// request's own)`, each answer the wait's end in milliseconds after 10 s,
+/// if any.
+///
+/// Covers: story:6-247, setting:politeness.domain.delay
+#[rstest]
+#[case::a_delay_apart(delayed(100), &[], &[(0, true), (100, true)], &[None, None])]
+#[case::overtaken_within_the_delay(delayed(100), &[], &[(0, true), (28, true)], &[None, Some(100)])]
+#[case::a_wait_records_nothing(
+    delayed(100),
+    &[],
+    &[(0, true), (28, true), (100, true), (150, true)],
+    &[None, Some(100), None, Some(200)]
+)]
+#[case::a_hop_counts_without_waiting(
+    delayed(100),
+    &[],
+    &[(0, true), (40, false), (110, true)],
+    &[None, None, Some(140)]
+)]
+/// Covers: setting:politeness.domain.adaptive_delay
+#[case::the_adaptive_delay_lengthened(adaptive(100, 400), &[400], &[(0, true), (150, true)], &[None, Some(400)])]
+#[case::a_delay_of_zero(delayed(0), &[], &[(0, true), (0, true)], &[None, None])]
+fn a_send_waits_for_the_delay_after_the_sends_before_it(
+    #[case] run: Value,
+    #[case] latencies: &[u64],
+    #[case] sends: &[(u64, bool)],
+    #[case] waits: &[Option<u64>],
+) {
+    let file = file();
+    for latency in latencies {
+        latency_noted(&file, KEY, milliseconds(*latency)).unwrap();
+    }
+    let rule = rule(run);
+    let pace = rule.pace;
+
+    let answered: Vec<Option<SystemTime>> = sends
+        .iter()
+        .map(|(after, own)| {
+            let now = at(10) + milliseconds(*after);
+            if *own {
+                rule.started(&file, KEY, now).unwrap();
+            }
+            send_taken(&file, KEY, now, own.then_some(pace)).unwrap()
+        })
+        .collect();
+
+    let expected: Vec<Option<SystemTime>> = waits
+        .iter()
+        .map(|wait| wait.map(|wait| at(10) + milliseconds(wait)))
+        .collect();
+    assert_eq!(answered, expected);
+}
+
+fn delayed(delay: u64) -> Value {
+    json!({ "politeness": { "domain": { "delay": delay } } })
 }
 
 /// The weighted mean of `latencies`, by floating point: the model the

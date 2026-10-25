@@ -1554,6 +1554,7 @@ dependencies = [
  "goodfetch-page",
  "goodfetch-protocol",
  "h2",
+ "html5ever 0.39.0",
  "http",
  "http-body-util",
  "http2",

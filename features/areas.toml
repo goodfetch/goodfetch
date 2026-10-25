@@ -1252,6 +1252,17 @@ number = 6
 kind = "error"
 prefix = "effect_staging_refused"
 
+# Area 6, Collection, Foxhound: Datasets and their Records (#956).
+[[area]]
+number = 6
+kind = "error"
+prefix = "dataset_"
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "record_invalid"
+
 # Area 6, Collection, Foxhound: the crawl's scope (#840).
 [[area]]
 number = 6

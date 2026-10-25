@@ -5,7 +5,7 @@
 pub const COMMANDS: &[&str] = &[];
 
 /// The error codes only Foxhound carries.
-pub const ERROR_CODES: &[&str] = &["attempt_ended", "browser_required", "client_gone", "effect_staging_refused", "handler_failed", "handler_lost", "lease_lost", "payload_invalid", "payload_schema_changed", "response_not_document", "response_not_ok", "response_unavailable", "sample_crawl_refused"];
+pub const ERROR_CODES: &[&str] = &["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "lease_lost", "payload_invalid", "payload_schema_changed", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "sample_crawl_refused"];
 
 /// The error groups only Foxhound carries.
 pub const ERROR_GROUPS: &[&str] = &[];
@@ -26,7 +26,7 @@ pub const HOOK_STAGES: &[&str] = &["sample_crawled_page"];
 pub const METRICS: &[&str] = &["goodfetch.sample.crawled_pages", "goodfetch.work_item.leased", "goodfetch.work_item.retried"];
 
 /// The operations only Foxhound carries.
-pub const OPERATIONS: &[&str] = &["crawl.serve", "crawl.start", "crawl_request.enqueue", "crawl_request.enqueue_links", "crawl_request.links", "run.add_seed", "run.add_seeds", "run.failed_requests", "run.outcomes", "run.seeds", "sample.crawl"];
+pub const OPERATIONS: &[&str] = &["crawl.serve", "crawl.start", "crawl_request.enqueue", "crawl_request.enqueue_links", "crawl_request.links", "crawl_request.push", "run.add_seed", "run.add_seeds", "run.failed_requests", "run.outcomes", "run.seeds", "sample.crawl"];
 
 /// The plugin kinds only Foxhound carries.
 pub const PLUGIN_KINDS: &[&str] = &["sample_page_filter"];

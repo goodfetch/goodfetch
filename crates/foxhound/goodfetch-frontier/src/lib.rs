@@ -45,7 +45,7 @@ pub use identity::{
 };
 pub use learn::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
 pub use politeness::{
-    Rate, crawl_delay_read, last_start, latency_measured, longest_wait, refuse_second_copies,
+    Pace, crawl_delay_read, last_start, latency_measured, longest_wait, refuse_second_copies,
     start_after, start_after_robots_txt, started_again, started_at_send,
 };
 pub use queues::DomainQueues;

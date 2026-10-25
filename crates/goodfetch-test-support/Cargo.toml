@@ -47,9 +47,13 @@ tungstenite.workspace = true
 # `Canaries` plants and reads Secret canaries through it.
 ureq.workspace = true
 
-# `NoExec`'s seccomp filter and its child's start (ADR 0067).
-[target.'cfg(target_os = "linux")'.dependencies]
+# `NoExec`'s seccomp filter and its child's start (ADR 0067), and the
+# process's peak resident memory (`peak_resident_bytes`).
+[target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_ProcessStatus", "Win32_System_Threading"] }
 
 # Never used here: it turns on bindgen's `runtime` feature for sqlite-plugin's
 # build script, so that script loads libclang where the OS keeps it (Xcode,

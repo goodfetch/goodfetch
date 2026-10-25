@@ -24,6 +24,9 @@
 //! - `/text/shift-jis` and `/json/bom` are the bodies `page.request`'s
 //!   decoding cases read (ADR 0119): text in `Shift_JIS`, labelled so, and
 //!   JSON after a UTF-8 BOM.
+//! - `/sniffed/<case>` serves a body with no `Content-Type`, typed by MIME
+//!   sniffing, and `/redirect/301/untyped` a 301 with neither a type nor a
+//!   body (ADR 0119).
 
 use std::fmt::Write as _;
 
@@ -87,6 +90,14 @@ pub(super) fn answer(host: &str, request: &Request, earlier: u64) -> Answer {
     if let Some(rest) = path.strip_prefix("/cut/") {
         return cut(rest, path);
     }
+    if let Some(case) = path.strip_prefix("/sniffed/") {
+        return SNIFFED
+            .iter()
+            .find(|(name, _)| *name == case)
+            .map_or_else(not_found, |(_, body)| {
+                Answer::Page(Page::untyped(200, *body))
+            });
+    }
     match path {
         "/robots.txt" => Answer::Page(Page::text(200, ROBOTS)),
         // An answer with no document, which a browser's navigation abandons.
@@ -121,6 +132,23 @@ pub(super) fn answer(host: &str, request: &Request, earlier: u64) -> Answer {
 fn not_found() -> Answer {
     Answer::Page(Page::text(404, "not found"))
 }
+
+/// The bodies `/sniffed/<case>` serves with no `Content-Type`, each typed
+/// as Chromium's MIME sniffer types it (ADR 0119): HTML after leading
+/// spaces, XML, plain text, binary bytes and a PDF.
+const SNIFFED: [(&str, &[u8]); 5] = [
+    (
+        "html",
+        b"\n  <!DOCTYPE html><html><head><title>Sniffed</title></head><body><h1>Sniffed as HTML</h1></body></html>\n",
+    ),
+    (
+        "xml",
+        b"<?xml version=\"1.0\"?><note><to>Sniffed as XML</to></note>\n",
+    ),
+    ("text", b"Sniffed as plain text.\n"),
+    ("binary", b"Sniffed\x00as\x01binary\x02bytes"),
+    ("pdf", b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n"),
+];
 
 /// A plain page naming its path, long enough to be cut.
 fn page(path: &str) -> Page {
@@ -158,6 +186,9 @@ fn redirect(rest: &str, request: &Request) -> Answer {
                 .with("location", "/redirect/cookie")
                 .with("set-cookie", "hop=1; Path=/; Secure; SameSite=Lax"),
         ),
+        // A listed redirect with no `Content-Type` and no body: nothing to
+        // type (ADR 0119).
+        "301/untyped" => Answer::Page(Page::untyped(301, "").with("location", "/target")),
         "301" | "302" | "303" | "307" | "308" => to(
             rest.parse().expect("invariant: the status is numeric"),
             "/target",

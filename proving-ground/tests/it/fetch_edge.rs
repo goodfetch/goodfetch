@@ -497,6 +497,42 @@ fn a_shift_jis_text_and_a_json_body_after_a_bom_are_served_as_their_bytes() {
     );
 }
 
+/// The bodies MIME sniffing types (ADR 0119), each served with no
+/// `Content-Type`, and a listed redirect with neither a type nor a body.
+#[test]
+fn sniffed_bodies_and_an_untyped_redirect_carry_no_content_type() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    for (case, starts) in [
+        ("html", &b"\n  <!DOCTYPE html>"[..]),
+        ("xml", b"<?xml"),
+        ("text", b"Sniffed as plain text."),
+        ("binary", b"Sniffed\x00"),
+        ("pdf", b"%PDF-"),
+    ] {
+        let answer = raw_clients::get(&proving_ground, HOST, &format!("/sniffed/{case}"), &[]);
+        assert_eq!(
+            (
+                answer.status(),
+                answer.header("content-type"),
+                answer.body().starts_with(starts)
+            ),
+            (Some(200), None, true),
+            "{case}"
+        );
+    }
+    let redirect = raw_clients::get(&proving_ground, HOST, "/redirect/301/untyped", &[]);
+    assert_eq!(
+        (
+            redirect.status(),
+            redirect.header("content-type"),
+            redirect.header("location").as_deref(),
+            redirect.body().len()
+        ),
+        (Some(301), None, Some("/target"), 0)
+    );
+}
+
 #[test]
 fn redirects_are_served_as_each_case_needs() {
     let proving_ground = ProvingGround::start(SEED);

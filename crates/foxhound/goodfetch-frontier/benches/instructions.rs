@@ -34,4 +34,13 @@ fn admit_seeds(links: Vec<String>) -> usize {
 
 library_benchmark_group!(name = identity, benchmarks = [url_key, admit_seeds]);
 
-main!(library_benchmark_groups = [admission, identity]);
+#[library_benchmark]
+#[bench::no_urls(0)]
+#[bench::hundred_thousand_urls(100_000)]
+fn enqueue(urls: usize) -> usize {
+    black_box(scenarios::enqueue(black_box(urls)))
+}
+
+library_benchmark_group!(name = frontier, benchmarks = enqueue);
+
+main!(library_benchmark_groups = [admission, identity, frontier]);

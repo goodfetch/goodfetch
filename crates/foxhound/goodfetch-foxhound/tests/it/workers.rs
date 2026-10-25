@@ -205,7 +205,10 @@ fn started(
     let reported = engine.reply("hello", kept)["result"]["private_endpoint"].clone();
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": run_id, "seeds": seeds(count), "settings": { "crawl": { "handler": { "concurrency": 1 } } } },
+        "params": {
+            "run_id": run_id, "seeds": seeds(count), "datasets": [{ "name": "pages" }],
+            "settings": { "crawl": { "handler": { "concurrency": 1 } } },
+        },
     }));
     let first = engine.request(kept);
     (reported, first)

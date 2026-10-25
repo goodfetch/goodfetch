@@ -1757,6 +1757,54 @@
       ],
       "type": "object"
     },
+    "CrawlRequestPushParams": {
+      "additionalProperties": false,
+      "description": "What `crawl_request.push` takes: one Record an attempt pushes into one\nof its crawl's Datasets.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt pushes.",
+          "type": "string"
+        },
+        "data": {
+          "arrived_in": "0.1",
+          "description": "The Record."
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "crawl_request_id",
+        "lease_epoch",
+        "dataset",
+        "data"
+      ],
+      "type": "object"
+    },
+    "CrawlRequestPushed": {
+      "description": "What `crawl_request.push` answers once the Record is staged.",
+      "type": "object"
+    },
     "CrawlRunReport": {
       "additionalProperties": true,
       "description": "A crawl's Run report (ADR 0102): what a crawl adds to every Run's\nreport, a part no area supplied being absent. On the wire, a crawl's\nparts sit beside every Run's, which a reader of [`RunReport`] keeps among\nits `kind_parts`.",
@@ -2025,6 +2073,14 @@
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
         },
+        "datasets": {
+          "arrived_in": "0.1",
+          "description": "The crawl's Datasets, each with its JSON Schema and its key (ADR\n0103): a second of one name fails the start with\n`dataset_duplicate`, and a key on a field the schema does not\nrequire with `dataset_key_invalid`. Its handlers push Records only\ninto these.",
+          "items": {
+            "$ref": "#/$defs/DatasetDeclaration"
+          },
+          "type": "array"
+        },
         "labels": {
           "additionalProperties": {
             "$ref": "#/$defs/LabelDeclaration"
@@ -2230,6 +2286,33 @@
       },
       "required": [
         "live_runs"
+      ],
+      "type": "object"
+    },
+    "DatasetDeclaration": {
+      "additionalProperties": false,
+      "description": "One Dataset a crawl declares (ADR 0103): its name, the JSON Schema its\nRecords are checked against, and the top-level fields that identify one\nRecord.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The top-level fields that identify one Record, each one the schema\nrequires; none when no field does.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, unique in the crawl.",
+          "type": "string"
+        },
+        "schema": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema its Records are checked against, the side the\nprogram's schema parses from; none takes any JSON object (ADR 0082)."
+        }
+      },
+      "required": [
+        "name"
       ],
       "type": "object"
     },
@@ -10607,7 +10690,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack.",
+      "description": "A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack. A request's own document that declares no encoding and is not UTF-8, which only the browser's guess reads, fails the same way under a forced tier (ADR 0119), its call `fetch.encoding` and its fix naming `fetch.encoding` and `fetch.tier`.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -10724,6 +10807,36 @@
       "name": "daemon_draining",
       "product": "collie",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawl declares a second Dataset of a name it already declares, so it was not started. The details name the Dataset. Give each Dataset its own name.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "dataset_duplicate",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Dataset's key names a field that is no top-level field its JSON Schema requires, so a Record could lack it and the crawl was not started. The details name the Dataset and the field. Key a Dataset only by fields its schema requires.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "dataset_key_invalid",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged. The details name the Dataset and those the crawl declares.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "dataset_unknown",
+      "product": "foxhound",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -11124,6 +11237,16 @@
       "name": "proxy_unavailable",
       "product": "collie",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each issue by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "record_invalid",
+      "product": "foxhound",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -12549,6 +12672,25 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/CrawlRequestLinks"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Pushes one Record into a Dataset the crawl declares from inside a handler's attempt, a handler context's `push`, and answers once it is staged: it commits once with the attempt's other outputs when the handler returns, and is discarded with them when the attempt ends any other way. The Record is checked first: a Dataset the crawl does not declare fails with `dataset_unknown`; a Record that is no JSON object, fails its Dataset's JSON Schema or lacks one of its key's fields fails with `record_invalid`, naming each issue's path, and is not staged, while the attempt keeps what it staged before. An attempt that already ended fails with `attempt_ended`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "crawl_request.push",
+      "params": {
+        "$ref": "#/$defs/CrawlRequestPushParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/CrawlRequestPushed"
       },
       "stability": "experimental"
     },
@@ -14568,6 +14710,23 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": true,
+      "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
+      "name": "console.offline_cache",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "operator_policy",
       "clearable": false,
       "default": 2592000000,
@@ -15228,7 +15387,7 @@
       "authority": "every",
       "clearable": true,
       "default": null,
-      "description": "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. A value that is no Encoding label is refused with `setting_invalid`; a valid one is refused with `capability_unavailable` at the crawl's start until every tier decodes in ADR 0119's order.",
+      "description": "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. It stands where ADR 0119's order puts it: after the BOM, before the `Content-Type` charset, the `<meta>` prescan and UTF-8. It applies to the request's own document on every attempt, not to a handler's own navigations. A value that is no Encoding label is refused with `setting_invalid` when the crawl starts.",
       "name": "fetch.encoding",
       "product": "foxhound",
       "products": [

@@ -1054,6 +1054,10 @@
                 ],
                 "description": "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only."
               },
+              "offline_cache": {
+                "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
+                "type": "boolean"
+              },
               "sign_in": {
                 "additionalProperties": false,
                 "properties": {
@@ -1389,7 +1393,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. A value that is no Encoding label is refused with `setting_invalid`; a valid one is refused with `capability_unavailable` at the crawl's start until every tier decodes in ADR 0119's order."
+                "description": "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. It stands where ADR 0119's order puts it: after the BOM, before the `Content-Type` charset, the `<meta>` prescan and UTF-8. It applies to the request's own document on every attempt, not to a handler's own navigations. A value that is no Encoding label is refused with `setting_invalid` when the crawl starts."
               },
               "hedge": {
                 "additionalProperties": false,
@@ -3340,6 +3344,10 @@
                 ],
                 "description": "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only."
               },
+              "offline_cache": {
+                "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
+                "type": "boolean"
+              },
               "sign_in": {
                 "additionalProperties": false,
                 "properties": {
@@ -3675,7 +3683,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. A value that is no Encoding label is refused with `setting_invalid`; a valid one is refused with `capability_unavailable` at the crawl's start until every tier decodes in ADR 0119's order."
+                "description": "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. It stands where ADR 0119's order puts it: after the BOM, before the `Content-Type` charset, the `<meta>` prescan and UTF-8. It applies to the request's own document on every attempt, not to a handler's own navigations. A value that is no Encoding label is refused with `setting_invalid` when the crawl starts."
               },
               "hedge": {
                 "additionalProperties": false,

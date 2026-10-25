@@ -227,6 +227,13 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 126
+title = "As a user, I want run summaries cached in my browser per major, and Records only when I keep a view offline, encrypted under a key that expires with my sign-in, secret fields never cached, the cache wiped at sign-out, and a setting that turns caching off, so that I can read offline without leaking data (ADR 0031)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
 id = 127
 title = "As a user, I want scraped HTML, screenshots and DOM snapshots served from a separate origin in sandboxed frames with no cookies, so that a hostile page can never act as the Console (ADR 0031)."
 milestone = "M1 Core"

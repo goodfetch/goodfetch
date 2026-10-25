@@ -29,6 +29,7 @@ fn leased() -> Connection {
         .statements
         .iter()
         .chain(crate::labels::TABLES.statements)
+        .chain(goodfetch_dataset::TABLES.statements)
         .chain(VISITED_TABLES.statements)
         .chain(SCOPE_TABLES.statements)
         .chain(BOUNDS_TABLES.statements)

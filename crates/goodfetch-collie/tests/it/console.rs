@@ -176,6 +176,8 @@ enum Route {
 #[case::a_sign_in_from_no_page("POST", Route::Path("/sign-in"), 403, None, "no-store")]
 #[case::a_read_of_the_sign_in("GET", Route::Path("/sign-in"), 405, None, "no-store")]
 #[case::a_session_signed_out("GET", Route::Path("/session"), 401, None, "no-store")]
+#[case::an_offline_key_from_no_page("POST", Route::Path("/offline-key"), 403, None, "no-store")]
+#[case::a_read_of_the_offline_key("GET", Route::Path("/offline-key"), 405, None, "no-store")]
 #[case::a_websocket_from_no_page("GET", Route::Path("/protocol"), 403, None, "no-store")]
 #[case::an_event_stream_signed_out("GET", Route::Path("/protocol/events"), 401, None, "no-store")]
 #[case::a_write_to_the_event_stream("POST", Route::Path("/protocol/events"), 405, None, "no-store")]

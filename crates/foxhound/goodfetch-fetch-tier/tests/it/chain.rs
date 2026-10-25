@@ -238,7 +238,7 @@ fn a_chain_of_nineteen_redirects_reaches_its_document_each_hop_through_the_gate(
 /// send, never from an admission whatever ran after it held back (ADR
 /// 0086).
 ///
-/// Covers: story:5-124, setting:politeness.domain.delay
+/// Covers: story:5-124
 #[test]
 fn each_hop_is_told_to_the_gate_as_it_is_sent() {
     let env = TestEnv::new();

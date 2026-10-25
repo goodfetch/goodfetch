@@ -69,7 +69,9 @@ use goodfetch_engine::mask::Scope;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
-use goodfetch_fetch_tier::{Choosing, FetchTiers, HttpTier, LabelTiers, RobotsTxtFetch, SetTier};
+use goodfetch_fetch_tier::{
+    Choosing, FetchTiers, HttpTier, LabelSettings, RobotsTxtFetch, SetTier,
+};
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
@@ -155,7 +157,7 @@ pub(crate) async fn drive(
     mut arrivals: Opened,
     crawls: Crawls,
     settings: RunSettings,
-    (tiers, labels, choices): (FetchTiers, LabelTiers, TierChoices),
+    (tiers, labels, choices): (FetchTiers, LabelSettings, TierChoices),
 ) {
     let mut servers = vec![Serving {
         context,
@@ -387,9 +389,9 @@ pub(crate) async fn resume(
         })
         .await;
     let left = left.map(|(left, declared, choices)| {
-        let labels = LabelTiers::of(&declared).unwrap_or_else(|error| {
+        let labels = LabelSettings::of(&declared).unwrap_or_else(|error| {
             tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier");
-            LabelTiers::default()
+            LabelSettings::default()
         });
         (left, (labels, choices))
     });
@@ -427,7 +429,7 @@ struct Fetching<'a> {
     tiers: &'a FetchTiers,
     http: Option<&'a HttpTier>,
     /// The Labels the crawl declares.
-    labels: &'a LabelTiers,
+    labels: &'a LabelSettings,
     /// The tier the Run's own `fetch.tier` forces.
     run_tier: SetTier,
     /// What each Label on each domain learned under `auto`.
@@ -439,12 +441,14 @@ struct Fetching<'a> {
 }
 
 impl Fetching<'_> {
-    /// What one attempt's handler pages are gated with.
-    fn gating(&self, second_copies: &SecondCopies) -> Gating {
+    /// What one attempt's handler pages, of a request of `label`, are
+    /// gated and judged with.
+    fn gating(&self, label: &str, second_copies: &SecondCopies) -> Gating {
         Gating {
             tiers: self.tiers.clone(),
             second_copies: second_copies.clone(),
             robots: self.robots.clone(),
+            page_check: self.labels.page_check(label).cloned(),
         }
     }
 
@@ -462,7 +466,13 @@ impl Fetching<'_> {
                 &request.url,
             ),
         };
-        Tiering::of(self.tiers, self.http, plan, second_copies)
+        Tiering::of(
+            self.tiers,
+            self.http,
+            plan,
+            self.labels.page_check(&request.label).cloned(),
+            second_copies,
+        )
     }
 
     /// Classifies the sample `attempt` was, if it was one, and writes what
@@ -563,6 +573,9 @@ async fn lease_to_servers(
                 .fetching
                 .served(&leased, &admission.second_copies())
                 .await;
+            let gating = pooled
+                .fetching
+                .gating(&leased.crawl_request.label, &admission.second_copies());
             let fetches = tiering.tier();
             pooled.fetching.in_flight.lock().await.began(
                 run,
@@ -590,7 +603,7 @@ async fn lease_to_servers(
                     server.context.clone(),
                     (leased, session, leased_count(run)),
                     lease,
-                    (tiering, pooled.fetching.gating(&admission.second_copies())),
+                    (tiering, gating),
                     std::sync::Arc::clone(&pooled.fetching.in_flight),
                 ),
             ));

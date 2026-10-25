@@ -287,8 +287,9 @@ class LabelDeclaration(BaseModel):
     """
     settings: dict[str, Any] | None = None
     """
-    Its settings, nested by key: today `fetch.tier` alone, any other key
-    refused with `setting_not_applicable`.
+    Its settings, nested by key: today `fetch.tier` and
+    `session.page_check`, which judges its pages in place of the Run's,
+    any other key refused with `setting_not_applicable`.
     """
 
 

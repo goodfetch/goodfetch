@@ -71,6 +71,7 @@ impl RunFile {
                 method: &get,
                 body: None,
                 key: None,
+                keeps_fragment: false,
             },
         };
         assert!(matches!(
@@ -127,6 +128,7 @@ fn admit_link(
         from: base,
         narrowing: Narrowing::none(),
         depth: 1,
+        keeps_fragment: false,
     };
     admit(connection, scope, policy, candidate, |url| {
         Ok(url.as_str().to_owned())

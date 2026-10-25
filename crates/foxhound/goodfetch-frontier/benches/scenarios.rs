@@ -202,6 +202,7 @@ pub(crate) fn enqueue(urls: usize) -> usize {
             method: &get,
             body: None,
             key: None,
+            keeps_fragment: false,
         },
     };
     admit_one(&connection, seed);
@@ -219,6 +220,7 @@ pub(crate) fn enqueue(urls: usize) -> usize {
                 from: &base,
                 narrowing: Narrowing::none(),
                 depth: 1,
+                keeps_fragment: false,
             };
             admit_one(&transaction, href);
         }

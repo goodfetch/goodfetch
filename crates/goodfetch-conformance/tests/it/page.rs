@@ -53,16 +53,16 @@ const FORMATS: Part = ("formats", &["formats"]);
 const LAUNCH: Part = ("launch", &["launch"]);
 const LOCATORS: Part = ("locators", &["locators.guard", "locators.input"]);
 const ROUTES: Part = ("routes", &["routes", "routes.interception_order"]);
-const CLEAN_UP: Part = (
-    "clean-up",
+const CLEAN_UP_BLOCKING: Part = (
+    "clean-up-blocking",
     &[
         "clean_up.filter_lists",
         "clean_up.never_block",
-        "clean_up.blocking_off",
         "clean_up.block_resources",
-        "clean_up.hiding",
     ],
 );
+const CLEAN_UP_BLOCKING_OFF: Part = ("clean-up-blocking-off", &["clean_up.blocking_off"]);
+const CLEAN_UP_HIDING: Part = ("clean-up-hiding", &["clean_up.hiding"]);
 const CONSENT: Part = ("consent", &["clean_up.consent", "clean_up.consent_walls"]);
 const EVENTS: Part = ("events", &["events", "bodies"]);
 const PAGE_STATES: Part = ("page-states", &["page_states.service_workers"]);
@@ -81,7 +81,7 @@ const WAITS: Part = ("waits", &["waits"]);
 const ROBOTS_TXT: Part = ("robots-txt", &["robots_txt"]);
 
 /// Every part.
-const PARTS: [Part; 17] = [
+const PARTS: [Part; 19] = [
     SESSIONS,
     PROXY_LIMITS,
     NAVIGATION,
@@ -89,7 +89,9 @@ const PARTS: [Part; 17] = [
     LAUNCH,
     LOCATORS,
     ROUTES,
-    CLEAN_UP,
+    CLEAN_UP_BLOCKING,
+    CLEAN_UP_BLOCKING_OFF,
+    CLEAN_UP_HIDING,
     CONSENT,
     EVENTS,
     PAGE_STATES,
@@ -222,10 +224,22 @@ fn the_page_suite_proves_routes_against_collies_attached_engine() {
     prove(ROUTES);
 }
 
-/// Covers: operation:locator.click, error:navigation_failed, operation:page.formats, story:5-42, operation:page.route, operation:route.continue, story:5-94, story:5-95, story:5-96, setting:filter_lists.ads, setting:filter_lists.trackers, setting:filter_lists.annoyances, setting:filter_lists.first_party_scripts, setting:browser.block_resources, error:setting_invalid, story:5-98, setting:live_view.hiding, story:5-99, setting:session.page_check, operation:run.new_session, operation:session.new_page, operation:page.goto, error:page_check_failed, operation:page.evaluate
+/// Covers: error:navigation_failed, story:5-42, operation:page.route, operation:route.continue, story:5-94, story:5-95, story:5-96, setting:filter_lists.ads, setting:filter_lists.trackers, setting:filter_lists.annoyances, setting:filter_lists.first_party_scripts, setting:browser.block_resources, error:setting_invalid, operation:page.goto
 #[test]
-fn the_page_suite_proves_clean_up_against_collies_attached_engine() {
-    prove(CLEAN_UP);
+fn the_page_suite_proves_clean_up_blocking_against_collies_attached_engine() {
+    prove(CLEAN_UP_BLOCKING);
+}
+
+/// Covers: error:navigation_failed, operation:page.route, story:5-99, setting:session.page_check, operation:run.new_session, operation:session.new_page, operation:page.goto, error:page_check_failed, operation:page.evaluate
+#[test]
+fn the_page_suite_proves_clean_up_blocking_off_against_collies_attached_engine() {
+    prove(CLEAN_UP_BLOCKING_OFF);
+}
+
+/// Covers: operation:locator.click, operation:page.formats, story:5-98, setting:live_view.hiding, operation:page.goto
+#[test]
+fn the_page_suite_proves_clean_up_hiding_against_collies_attached_engine() {
+    prove(CLEAN_UP_HIDING);
 }
 
 /// Covers: story:5-100, setting:consent.handling, story:5-101, error:blocked, operation:page.evaluate, setting:consent.domains, setting:consent.on_wall, error:setting_locked, error:capability_unavailable, story:12-26, operation:needs_you.list

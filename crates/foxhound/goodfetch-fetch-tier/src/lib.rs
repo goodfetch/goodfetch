@@ -16,6 +16,7 @@
 //! Collie's executable (STYLE.md, reason 2).
 
 mod canonical;
+mod chain;
 mod choice;
 mod decoding;
 mod document;
@@ -23,11 +24,14 @@ mod driver;
 mod gate;
 mod hedging;
 mod http_profile;
+mod redirects;
 mod redundant;
+mod refresh;
 mod tiers;
 mod transports;
 mod use_signals;
 
+pub use chain::{Following, Gating, HopGate, Skip, Stop, follow};
 pub use choice::{Forced, LabelTiers, SetTier, TierChoice};
 pub use document::{Matched, SelectorInvalid};
 pub use driver::{
@@ -37,6 +41,8 @@ pub use gate::{HandOver, RobotsTxtFetch, crawl_delay, disallowing};
 pub use goodfetch_page::page_value::PooledSession;
 pub use http_profile::HttpProfile;
 pub use redundant::Requester;
+#[doc(hidden)]
+pub use refresh::fuzz_refresh;
 pub use tiers::{FetchTiers, HandedOver, HttpTier, ServedLinks, Signed, record_tier};
 pub use transports::{Reqwest, TransportConfig, TransportUnavailable, Wreq};
 pub use use_signals::{Purpose, UseSignals};

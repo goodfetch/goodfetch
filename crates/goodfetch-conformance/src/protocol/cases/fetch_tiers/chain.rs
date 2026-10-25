@@ -1,0 +1,597 @@
+//! The fetch edge cases of the `http` tier's redirect chains (ADR 0118;
+//! spec #579; pitfalls U12 and U13), each a crawl under `fetch.tier: http`
+//! of the Proving ground's `fetch-edge.test` pages over plain HTTP/1.1, the
+//! harness its handler: a loop fails with `too_many_redirects` at a cost of
+//! `fetch.redirect.max` + 1 requests; each redirect status sends its next
+//! hop with Fetch's method and body; a 3xx Fetch does not follow fails with
+//! `response_not_ok` unless `crawl.handle_statuses` lists it; each hop goes
+//! through the navigation gate (robots.txt, the domain's delay) and the
+//! Frontier (a duplicate key, the scope); a redirect's `Retry-After` delays
+//! its next hop, or past the crawl's bound fails the request with
+//! `response_unavailable`; and a refresh stub within
+//! `fetch.refresh.max_delay` hands the handler its target. A cookie jar,
+//! the `browser` tier and `Authorization` on a crawl request join these
+//! cases with their tickets.
+
+use serde_json::{Value, json};
+
+use super::{CRAWL_REQUEST_HANDLE, CRAWL_START, Checks, Connection, Gone, Site};
+use crate::protocol::target::DEADLINE;
+use goodfetch_protocol::page::PAGE_FORMATS;
+use goodfetch_protocol::run::RUN_FINISH;
+
+/// The fetch edge pages' host.
+const HOST: &str = "fetch-edge.test";
+
+/// `run.outcomes`, Foxhound's.
+const RUN_OUTCOMES: &str = "run.outcomes";
+
+/// A domain's delay between request starts, which every hop waits out.
+const DOMAIN_DELAY_MS: u64 = 1_500;
+
+/// What a crawl's seeds ended with: each handler request's crawl request
+/// URL and the URL of the page it was handed, and every outcome.
+struct Crawled {
+    handled: Vec<(String, String)>,
+    outcomes: Vec<Value>,
+}
+
+impl Crawled {
+    /// The outcome of the request for `url`.
+    fn of(&self, url: &str) -> Option<&Value> {
+        self.outcomes
+            .iter()
+            .find(|outcome| outcome["request"]["url"] == json!(url))
+    }
+
+    /// The URL of the page the handler of `url` was handed.
+    fn page_of(&self, url: &str) -> Option<&str> {
+        self.handled
+            .iter()
+            .find(|(seed, _)| seed == url)
+            .map(|(_, page)| page.as_str())
+    }
+}
+
+/// A seed of `path` on `host`: a `GET`, or `method` with `body` (Base64).
+fn seed(site: &Site, host: &str, path: &str, method: Option<(&str, &str)>) -> Option<Value> {
+    let url = site.named_url(host, path)?;
+    let mut seed = json!({ "url": url, "label": "page" });
+    if let Some((method, body)) = method {
+        seed["method"] = json!(method);
+        seed["body"] = json!(body);
+    }
+    Some(seed)
+}
+
+/// Crawls `seeds` under `run_id` with `settings` beside `fetch.tier: http`
+/// and the Proving ground's names, `handlers` of them reaching the handler,
+/// which reads each page's URL and answers no Record; every outcome read,
+/// the Run finished. `None` when the Proving ground serves none of them.
+fn crawl(
+    connection: &mut Connection,
+    site: &Site,
+    run_id: &str,
+    seeds: Option<Vec<Value>>,
+    handlers: usize,
+    mut settings: Value,
+    checks: &mut Checks,
+) -> Result<Option<Crawled>, Gone> {
+    checks.check(
+        "the Proving ground serves the fetch edge pages",
+        seeds.is_some(),
+    );
+    let Some(seeds) = seeds else {
+        return Ok(None);
+    };
+    settings["fetch"]["tier"] = json!("http");
+    settings["network"] = json!({ "resolve": site.resolve });
+    let id = connection.request(
+        CRAWL_START,
+        &json!({ "run_id": run_id, "seeds": seeds, "settings": settings }),
+    )?;
+    let answer = connection.answer(id)?;
+    checks.check(
+        "`crawl.start` starts a new Run",
+        answer.message["result"]["started_as"] == json!("new"),
+    );
+    let mut queued: Vec<Value> = answer.others;
+    let mut handled = Vec::new();
+    while handled.len() < handlers {
+        let message = if queued.is_empty() {
+            connection.next_within(DEADLINE * 4)?
+        } else {
+            queued.remove(0)
+        };
+        if message["method"] != json!(CRAWL_REQUEST_HANDLE) {
+            continue;
+        }
+        let read = connection.request(
+            PAGE_FORMATS.name,
+            &json!({ "page_id": message["params"]["page_id"], "formats": { "markdown": true } }),
+        )?;
+        let formats = connection.answer(read)?;
+        queued.extend(formats.others);
+        handled.push((
+            message["params"]["crawl_request"]["url"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            formats.message["result"]["url"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+        ));
+        connection.reply(&message["id"], &json!({ "records": [] }))?;
+    }
+    let mut outcomes = Vec::new();
+    let mut after: Option<u64> = None;
+    while outcomes.len() < seeds.len() {
+        let mut params = json!({ "run_id": run_id });
+        if let Some(position) = after {
+            params["after"] = json!(position);
+        }
+        let id = connection.request(RUN_OUTCOMES, &params)?;
+        let answer = connection.answer(id)?;
+        queued.extend(answer.others);
+        let page = &answer.message["result"];
+        let read = page["outcomes"].as_array().cloned().unwrap_or_default();
+        if read.is_empty() && page["ended"] == json!(true) {
+            break;
+        }
+        after = page["next"].as_u64();
+        outcomes.extend(read);
+    }
+    checks.check(
+        "no other handler is asked",
+        !queued
+            .iter()
+            .any(|message| message["method"] == json!(CRAWL_REQUEST_HANDLE)),
+    );
+    let finish = connection.request(RUN_FINISH.name, &json!({ "run_id": run_id }))?;
+    let finished = connection.answer(finish)?.message;
+    checks.check(
+        "the Run finishes",
+        finished["result"]["lifecycle"] == json!("finished"),
+    );
+    Ok(Some(Crawled { handled, outcomes }))
+}
+
+/// The requests the Proving ground received on `host` for `path`, in
+/// arrival order, since `serve` started: earlier cases' included.
+fn requests_for(site: &Site, host: &str, path: &str) -> Vec<Value> {
+    site.proving_ground
+        .observations()
+        .ok()
+        .and_then(|observations| observations["requests"].as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|request| {
+            request["host"]
+                .as_str()
+                .is_some_and(|seen| seen.split(':').next() == Some(host))
+                && request["target"] == json!(path)
+        })
+        .collect()
+}
+
+/// Whether `request` carries the header `name`.
+fn has_header(request: &Value, name: &str) -> bool {
+    request["headers"].as_array().is_some_and(|headers| {
+        headers.iter().any(|pair| {
+            pair[0]
+                .as_str()
+                .is_some_and(|header| header.eq_ignore_ascii_case(name))
+        })
+    })
+}
+
+/// Whether `outcome` ended `kind` with the error or skip reason `code`
+/// after one attempt.
+fn ended(outcome: Option<&Value>, kind: &str, code: &str) -> bool {
+    outcome.is_some_and(|outcome| {
+        outcome["kind"] == json!(kind)
+            && (outcome["error"]["code"] == json!(code) || outcome["reason"] == json!(code))
+    })
+}
+
+/// The time from the first request for `path` on the host to the host's
+/// next request, in microseconds.
+fn gap_after(site: &Site, path: &str) -> Option<u64> {
+    requests_for(site, HOST, path)
+        .first()
+        .and_then(|first| first["next_request"]["after_microseconds"].as_u64())
+}
+
+/// Under `fetch.redirect.max: 5`, a redirect loop fails with
+/// `too_many_redirects`, not retried, after 5 hops and at a cost of 6
+/// requests; a chain of 5 redirects reaches its handler.
+pub(super) fn redirect_loop(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let seeds = [
+        seed(site, HOST, "/redirect/loop", None),
+        seed(site, HOST, "/redirect/hops/5", None),
+    ]
+    .into_iter()
+    .collect();
+    let settings = json!({ "fetch": { "redirect": { "max": 5 } } });
+    let Some(crawled) = crawl(
+        connection,
+        site,
+        "conformance-fetch-edge-redirect-loop",
+        seeds,
+        1,
+        settings,
+        checks,
+    )?
+    else {
+        return Ok(());
+    };
+    let loop_url = site.named_url(HOST, "/redirect/loop").unwrap_or_default();
+    let outcome = crawled.of(&loop_url);
+    checks.check(
+        "the loop ends `failed` with `too_many_redirects`, not retried",
+        ended(outcome, "failed", "too_many_redirects")
+            && outcome.is_some_and(|outcome| outcome["attempts"] == json!(1)),
+    );
+    checks.check(
+        "its error names the 5 hops and `fetch.redirect.max`",
+        outcome.is_some_and(|outcome| {
+            let details = &outcome["error"]["details"];
+            details["hops"].as_array().map(Vec::len) == Some(5)
+                && details["limit"]
+                    == json!({ "kind": "setting", "name": "fetch.redirect.max", "count": 5 })
+        }),
+    );
+    checks.check(
+        "the loop cost the site `fetch.redirect.max` + 1 requests",
+        requests_for(site, HOST, "/redirect/loop").len() == 6,
+    );
+    let chain = site.named_url(HOST, "/redirect/hops/5").unwrap_or_default();
+    checks.check(
+        "a chain of 5 redirects hands its handler the page it ends on",
+        crawled
+            .page_of(&chain)
+            .is_some_and(|page| page.ends_with("/redirect/hops/0")),
+    );
+    Ok(())
+}
+
+/// A `POST` answered with 302 reaches its target as a `GET` with no body,
+/// and one answered with 308 as a `POST` with its body.
+pub(super) fn redirect_methods(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    // "q=1", in Base64.
+    let body = Some(("POST", "cT0x"));
+    let earlier = requests_for(site, HOST, "/target").len();
+    let seeds = [
+        seed(site, HOST, "/redirect/302", body),
+        seed(site, HOST, "/redirect/308", body),
+    ]
+    .into_iter()
+    .collect();
+    let Some(crawled) = crawl(
+        connection,
+        site,
+        "conformance-fetch-edge-redirect-methods",
+        seeds,
+        2,
+        json!({}),
+        checks,
+    )?
+    else {
+        return Ok(());
+    };
+    checks.check(
+        "both handlers are handed the target page",
+        crawled.handled.len() == 2
+            && crawled
+                .handled
+                .iter()
+                .all(|(_, page)| page.ends_with("/target")),
+    );
+    let target = requests_for(site, HOST, "/target").split_off(earlier);
+    let as_get = target
+        .iter()
+        .filter(|request| request["method"] == json!("GET"))
+        .collect::<Vec<_>>();
+    let as_post = target
+        .iter()
+        .filter(|request| request["method"] == json!("POST"))
+        .collect::<Vec<_>>();
+    checks.check(
+        "the 302's hop arrives as a `GET` with no body",
+        as_get.len() == 1 && !has_header(as_get[0], "content-length"),
+    );
+    checks.check(
+        "the 308's hop arrives as a `POST` with its body",
+        as_post.len() == 1 && has_header(as_post[0], "content-length"),
+    );
+    Ok(())
+}
+
+/// A 300, a redirect with no `Location` and one to `ftp:` fail at once with
+/// `response_not_ok`, while a 301 `crawl.handle_statuses` lists reaches the
+/// handler unfollowed.
+pub(super) fn not_followed(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let failing = ["/redirect/300", "/redirect/no-location", "/redirect/ftp"];
+    let seeds = failing
+        .iter()
+        .chain(&["/redirect/301"])
+        .map(|path| seed(site, HOST, path, None))
+        .collect();
+    let settings = json!({ "crawl": { "handle_statuses": [301] } });
+    let earlier = requests_for(site, HOST, "/target").len();
+    let Some(crawled) = crawl(
+        connection,
+        site,
+        "conformance-fetch-edge-not-followed",
+        seeds,
+        1,
+        settings,
+        checks,
+    )?
+    else {
+        return Ok(());
+    };
+    for path in failing {
+        let url = site.named_url(HOST, path).unwrap_or_default();
+        let outcome = crawled.of(&url);
+        checks.check(
+            format!("{path} ends `failed` with `response_not_ok` at once"),
+            ended(outcome, "failed", "response_not_ok")
+                && outcome.is_some_and(|outcome| outcome["attempts"] == json!(1)),
+        );
+    }
+    let listed = site.named_url(HOST, "/redirect/301").unwrap_or_default();
+    checks.check(
+        "the listed 301 reaches its handler unfollowed",
+        crawled.page_of(&listed) == Some(listed.as_str()),
+    );
+    checks.check(
+        "no redirect's target is requested",
+        requests_for(site, HOST, "/target").len() == earlier,
+    );
+    Ok(())
+}
+
+/// Each hop goes through the navigation gate: one to a path robots.txt
+/// disallows ends the request `skipped` with `robots_txt`, never sent, and
+/// a hop waits out the domain's delay after the request before it.
+pub(super) fn gated_hops(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let seeds = [
+        seed(site, HOST, "/redirect/robots", None),
+        seed(site, HOST, "/redirect/307", None),
+    ]
+    .into_iter()
+    .collect();
+    let settings = json!({ "politeness": { "domain": { "delay": DOMAIN_DELAY_MS } } });
+    let Some(crawled) = crawl(
+        connection,
+        site,
+        "conformance-fetch-edge-gated-hops",
+        seeds,
+        1,
+        settings,
+        checks,
+    )?
+    else {
+        return Ok(());
+    };
+    let robots = site.named_url(HOST, "/redirect/robots").unwrap_or_default();
+    checks.check(
+        "a hop robots.txt disallows ends its request `skipped` with `robots_txt`",
+        ended(crawled.of(&robots), "skipped", "robots_txt"),
+    );
+    checks.check(
+        "the disallowed hop is never sent",
+        requests_for(site, HOST, "/private/target").is_empty(),
+    );
+    checks.check(
+        "a hop waits out the domain's delay after the request before it",
+        gap_after(site, "/redirect/307").is_some_and(|gap| gap >= DOMAIN_DELAY_MS * 900),
+    );
+    Ok(())
+}
+
+/// A redirect to a page admitted for another request ends `skipped` with
+/// `duplicate`, its handler never asked, and one leaving the crawl's scope
+/// ends `skipped` with `out_of_scope`, its target never requested.
+pub(super) fn frontier_hops(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let seeds = [
+        seed(site, HOST, "/target", None),
+        seed(site, HOST, "/redirect/302", None),
+        seed(site, "scope.test", "/moved", None),
+    ]
+    .into_iter()
+    .collect();
+    let earlier = requests_for(site, HOST, "/target").len();
+    let Some(crawled) = crawl(
+        connection,
+        site,
+        "conformance-fetch-edge-frontier-hops",
+        seeds,
+        1,
+        json!({}),
+        checks,
+    )?
+    else {
+        return Ok(());
+    };
+    let redirect = site.named_url(HOST, "/redirect/302").unwrap_or_default();
+    checks.check(
+        "a redirect to a page admitted for another request ends `skipped` with `duplicate`",
+        ended(crawled.of(&redirect), "skipped", "duplicate"),
+    );
+    checks.check(
+        "the admitted page is requested once",
+        requests_for(site, HOST, "/target").len() == earlier + 1,
+    );
+    let moved = site.named_url("scope.test", "/moved").unwrap_or_default();
+    checks.check(
+        "a redirect leaving the scope ends `skipped` with `out_of_scope`",
+        ended(crawled.of(&moved), "skipped", "out_of_scope"),
+    );
+    checks.check(
+        "the off-site target is never requested",
+        requests_for(site, "elsewhere.test", "/offsite").is_empty(),
+    );
+    Ok(())
+}
+
+/// A 302's `Retry-After` of 2 s delays its next hop by 2 s; one asking for
+/// an hour, past the crawl's bound, ends the request `failed` with
+/// `response_unavailable` carrying the 302, not retried.
+pub(super) fn redirect_retry_after(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let seeds = [
+        seed(site, HOST, "/retry-after/302/seconds", None),
+        seed(site, HOST, "/retry-after/302/imf-fixdate/long", None),
+    ]
+    .into_iter()
+    .collect();
+    let settings = json!({
+        "politeness": { "retry_after": { "max": 3_000 }, "backoff": { "max": 3_000 } },
+    });
+    let Some(crawled) = crawl(
+        connection,
+        site,
+        "conformance-fetch-edge-redirect-retry-after",
+        seeds,
+        1,
+        settings,
+        checks,
+    )?
+    else {
+        return Ok(());
+    };
+    let waited = site
+        .named_url(HOST, "/retry-after/302/seconds")
+        .unwrap_or_default();
+    checks.check(
+        "the 302's handler is handed its target",
+        crawled
+            .page_of(&waited)
+            .is_some_and(|page| page.ends_with("/target")),
+    );
+    checks.check(
+        "its next hop waits the 2 s its `Retry-After` asks",
+        gap_after(site, "/retry-after/302/seconds").is_some_and(|gap| gap >= 1_800_000),
+    );
+    let long = site
+        .named_url(HOST, "/retry-after/302/imf-fixdate/long")
+        .unwrap_or_default();
+    let outcome = crawled.of(&long);
+    checks.check(
+        "one past the bound ends `failed` with `response_unavailable`, not retried",
+        ended(outcome, "failed", "response_unavailable")
+            && outcome.is_some_and(|outcome| outcome["attempts"] == json!(1)),
+    );
+    checks.check(
+        "its error carries the 302 and the time asked",
+        outcome.is_some_and(|outcome| {
+            let details = &outcome["error"]["details"];
+            details["status"] == json!(302) && details["retry_after"].is_string()
+        }),
+    );
+    Ok(())
+}
+
+/// At the default `fetch.refresh.max_delay`, a refresh stub of 5 s hands
+/// the handler its target at once, through the gate, while one of 200 s,
+/// one with no URL, one to itself and one inside `<noscript>` hand it the
+/// stub; at `null` a 200 s refresh is followed, and at `0` a 5 s one is
+/// not while an instant one is.
+pub(super) fn refresh_stubs(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let stays = [
+        "/refresh/meta/200",
+        "/refresh/no-url",
+        "/refresh/self",
+        "/refresh/noscript",
+    ];
+    let runs: [(&str, Value, &[&str], &[&str]); 3] = [
+        (
+            "default",
+            json!({ "politeness": { "domain": { "delay": DOMAIN_DELAY_MS } } }),
+            &["/refresh/meta/5"],
+            &stays,
+        ),
+        (
+            "any-delay",
+            json!({ "fetch": { "refresh": { "max_delay": null } } }),
+            &["/refresh/meta/200"],
+            &[],
+        ),
+        (
+            "instant-only",
+            json!({ "fetch": { "refresh": { "max_delay": 0 } } }),
+            &["/refresh/meta/0"],
+            &["/refresh/meta/5"],
+        ),
+    ];
+    for (name, settings, followed, unfollowed) in runs {
+        let seeds = followed
+            .iter()
+            .chain(unfollowed)
+            .map(|path| seed(site, HOST, path, None))
+            .collect();
+        let Some(crawled) = crawl(
+            connection,
+            site,
+            &format!("conformance-fetch-edge-refresh-{name}"),
+            seeds,
+            followed.len() + unfollowed.len(),
+            settings,
+            checks,
+        )?
+        else {
+            return Ok(());
+        };
+        for path in followed {
+            let url = site.named_url(HOST, path).unwrap_or_default();
+            checks.check(
+                format!("under `{name}`, {path}'s handler is handed its target"),
+                crawled
+                    .page_of(&url)
+                    .is_some_and(|page| page.ends_with("/target")),
+            );
+        }
+        for path in unfollowed {
+            let url = site.named_url(HOST, path).unwrap_or_default();
+            checks.check(
+                format!("under `{name}`, {path}'s handler is handed the stub"),
+                crawled.page_of(&url) == Some(url.as_str()),
+            );
+        }
+    }
+    checks.check(
+        "a refresh hop waits out the domain's delay, through the gate",
+        gap_after(site, "/refresh/meta/5").is_some_and(|gap| gap >= DOMAIN_DELAY_MS * 900),
+    );
+    Ok(())
+}

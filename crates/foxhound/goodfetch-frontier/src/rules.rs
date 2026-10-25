@@ -355,13 +355,15 @@ fn without_parameters(connection: &Connection, key: &Url) -> rusqlite::Result<(U
     }
     let mut statement = connection.prepare_cached(
         "SELECT id, parameter FROM learned_rules
-         WHERE kind = ?1 AND host = ?2 AND contradiction IS NULL ORDER BY id",
+         WHERE kind = ?1 AND host = ?2 AND contradiction IS NULL",
     )?;
-    let learned = statement
-        .query_map((NO_EFFECT_PARAMETER, parts.host), |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let learned = by_id(
+        statement
+            .query_map((NO_EFFECT_PARAMETER, parts.host), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
+    );
     let applied: Vec<(i64, String)> = learned
         .into_iter()
         .filter(|(_, parameter)| parts.has(parameter))
@@ -385,6 +387,15 @@ fn without_parameters(connection: &Connection, key: &Url) -> rusqlite::Result<(U
         stripped,
         applied.into_iter().map(|(rule, _)| rule).collect(),
     ))
+}
+
+/// `rules`, each an ID and its parameter, in the order of their IDs. The
+/// queries that read them on every admission sort here rather than in
+/// SQL: no index of `learned_rules` gives them in that order, so an
+/// `ORDER BY id` started SQLite's sorter, and its 4 KiB buffer, for each.
+fn by_id(mut rules: Vec<(i64, String)>) -> Vec<(i64, String)> {
+    rules.sort_unstable_by_key(|(id, _)| *id);
+    rules
 }
 
 /// The learned rule that refuses `key`, if one does, with its reason: a
@@ -413,13 +424,15 @@ pub(crate) fn refuses(
     }
     let mut statement = connection.prepare_cached(
         "SELECT id, parameter FROM learned_rules
-         WHERE kind = ?1 AND host = ?2 AND path = ?3 ORDER BY id",
+         WHERE kind = ?1 AND host = ?2 AND path = ?3",
     )?;
-    let cursors = statement
-        .query_map((CURSOR_PAGINATION, parts.host, parts.path), |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let cursors = by_id(
+        statement
+            .query_map((CURSOR_PAGINATION, parts.host, parts.path), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
+    );
     Ok(cursors
         .into_iter()
         .find(|(_, offset)| parts.has(offset))

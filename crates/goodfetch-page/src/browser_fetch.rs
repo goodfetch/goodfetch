@@ -306,6 +306,8 @@ impl<'a> Load<'a> {
                     }
                 }
                 self.send(&command).await;
+                // The gate that admitted it hears it leave (ADR 0086).
+                self.driver.sent(&navigation.url).await;
                 None
             }
             Err(stopped) => {
@@ -588,9 +590,11 @@ impl<'a> Load<'a> {
         let proxied = required.auth_challenge.source == Some(fetch::AuthChallengeSource::Proxy)
             && (self.driver.proxy().is_some() || self.driver.relay().is_some());
         let credentials = self.driver.proxy_credentials().filter(|_| proxied);
+        let mut credentials_given = false;
         let response = match credentials {
             Some((username, password)) if !self.authenticated => {
                 self.authenticated = true;
+                credentials_given = true;
                 fetch::AuthChallengeResponse {
                     response: fetch::AuthChallengeResponseResponse::ProvideCredentials,
                     username: Some(username.to_owned()),
@@ -613,6 +617,11 @@ impl<'a> Load<'a> {
             auth_challenge_response: response,
         })
         .await;
+        // The load's hop leaves only now, with the credentials: its gate
+        // hears that send too (ADR 0086).
+        if credentials_given {
+            self.driver.sent(&required.request.url).await;
+        }
     }
 
     /// Sends `command` for a paused request, which may be gone.

@@ -19,7 +19,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_page::page_value::{
     Admission, DocumentResponse, HandlerPages, Kept, Navigation, NavigationGate, ObservedResponse,
-    Observer, PageValue, Permit, Refusal, ResponseObserver,
+    Observer, PageValue, Permit, Refusal, ResponseObserver, Sending,
 };
 use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
 use goodfetch_protocol::page::{PageId, SessionId, SitePreference};
@@ -55,6 +55,7 @@ struct Rules {
 #[derive(Debug, Default)]
 struct Records {
     admitted: Vec<Navigation>,
+    sent: Vec<String>,
     released: Vec<String>,
     judged: Vec<String>,
     lease_checks: u64,
@@ -148,6 +149,12 @@ impl RecordingGate {
         lock(&self.shared.records).admitted.clone()
     }
 
+    /// The URL of each send the page told the gate of, in order: a request
+    /// sent on, and again one sent on with the Session's proxy credentials.
+    pub fn sent(&self) -> Vec<String> {
+        lock(&self.shared.records).sent.clone()
+    }
+
     /// The URL of each permit released, in order.
     pub fn released(&self) -> Vec<String> {
         lock(&self.shared.records).released.clone()
@@ -199,6 +206,11 @@ impl NavigationGate for RecordingGate {
                 lock(&shared.records).released.push(url);
             }))
         })
+    }
+
+    fn sending<'a>(&'a self, url: &'a str) -> Sending<'a> {
+        lock(&self.shared.records).sent.push(url.to_owned());
+        Box::pin(async {})
     }
 
     fn judge_document(&self, response: &DocumentResponse<'_>) -> Result<(), Refusal> {

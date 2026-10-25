@@ -62,7 +62,7 @@ use goodfetch_engine::robots_txt::{self, Fetch, Fetched, Judgment, Rule};
 use goodfetch_engine::runs::Run;
 use goodfetch_frontier::{DomainKeys, Scope};
 use goodfetch_page::page_value::{
-    Admission, DocumentResponse, Navigation, NavigationGate, Permit, Refusal,
+    Admission, DocumentResponse, Navigation, NavigationGate, Permit, Refusal, Sending,
 };
 use goodfetch_page::robots_txt::{Group, ProductToken, applicable_rules};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
@@ -182,6 +182,11 @@ impl NavigationGate for Admitted {
         Box::pin(async { Ok(Permit::unlimited()) })
     }
 
+    /// Hears nothing: [`ChainGate::sending`] recorded the hop's send.
+    fn sending<'a>(&'a self, _url: &'a str) -> Sending<'a> {
+        Box::pin(async {})
+    }
+
     fn judge_document(&self, _response: &DocumentResponse<'_>) -> Result<(), Refusal> {
         Ok(())
     }
@@ -224,6 +229,10 @@ impl NavigationGate for Gate {
                 _ => Ok(Permit::unlimited()),
             }
         })
+    }
+
+    fn sending<'a>(&'a self, _url: &'a str) -> Sending<'a> {
+        Box::pin(async {})
     }
 
     fn judge_document(&self, _response: &DocumentResponse<'_>) -> Result<(), Refusal> {

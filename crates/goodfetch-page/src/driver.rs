@@ -1105,6 +1105,15 @@ impl PageDriver {
         admitted.map(Some)
     }
 
+    /// Tells the page's navigation gate that a request to `url` it
+    /// admitted left the browser ([`page_value::NavigationGate::sending`]);
+    /// nothing on a page with no gate.
+    pub(crate) async fn sent(&self, url: &str) {
+        if let Some(gate) = self.value.gate() {
+            gate.sending(url).await;
+        }
+    }
+
     /// A Permit for one hop of a navigation through its Session's proxy,
     /// once the proxy's limits admit it (ADRs 0053 and 0088); none on a
     /// page without a proxy, and for a hop to `url` that `proxy.bypass`

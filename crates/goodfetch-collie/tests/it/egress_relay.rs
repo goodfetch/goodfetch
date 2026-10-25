@@ -21,6 +21,10 @@
     clippy::disallowed_methods,
     reason = "the tests read the Run trace and run the ClientHello stand-in on their own threads, never an async worker"
 )]
+#![expect(
+    clippy::disallowed_types,
+    reason = "the tests connect to the relay as another local process and listen for the browser's ClientHello on their own threads (ADR 0060)"
+)]
 
 use std::io::{Read as _, Write as _};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -423,7 +427,10 @@ fn with_the_switch_off_the_session_connects_directly_and_provenance_names_the_ga
             .collect::<Vec<_>>(),
         vec![(json!("interception_only"), json!("dns_rebinding"))]
     );
-    assert!(provenance(&env, "direct", "egress_relay").is_empty());
+    assert_eq!(
+        provenance(&env, "direct", "egress_relay"),
+        Vec::<Value>::new()
+    );
     let switched: Vec<Value> = exported
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
@@ -451,10 +458,7 @@ fn client_hello_stand_in() -> (u16, mpsc::Receiver<Vec<u8>>) {
             .unwrap();
         let mut record = Vec::new();
         let mut chunk = [0; 4096];
-        loop {
-            let Ok(read) = stream.read(&mut chunk) else {
-                break;
-            };
+        while let Ok(read) = stream.read(&mut chunk) {
             if read == 0 {
                 break;
             }
@@ -527,12 +531,12 @@ fn ja4(record: &[u8]) -> String {
                     .filter(|offered| !grease(*offered))
                     .max()
                     .unwrap();
-                version = match highest {
+                match highest {
                     0x0304 => "13",
                     0x0303 => "12",
                     _ => "00",
                 }
-                .to_owned();
+                .clone_into(&mut version);
             }
             _ => {}
         }
@@ -545,11 +549,13 @@ fn ja4(record: &[u8]) -> String {
             .join(",")
     };
     let hash = |text: &str| {
-        Sha256::digest(text.as_bytes())
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>()[..12]
-            .to_owned()
+        let digest = Sha256::digest(text.as_bytes());
+        let mut hex = String::new();
+        for byte in digest {
+            std::fmt::Write::write_fmt(&mut hex, format_args!("{byte:02x}"))
+                .expect("invariant: a String takes text");
+        }
+        hex[..12].to_owned()
     };
     let mut sorted_ciphers = ciphers.clone();
     sorted_ciphers.sort_unstable();

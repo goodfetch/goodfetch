@@ -794,6 +794,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 243
+title = "As a site owner, I want my Crawl-delay applied to my whole domain key up to `site_preferences.max_crawl_delay` (30 s), and a crawl asking for more to skip my host with `crawl_delay`, so that I am never waited out for hours nor ignored (ADR 0086; pitfall U18)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 246
 title = "As a user, I want Collie's per-Run robots.txt reading replaced, on a crawl's Run, by the shared copy, so that a crawl fetches robots.txt once per origin for all its pages (ADR 0086; Collie's part)."
 milestone = "M1 Core"

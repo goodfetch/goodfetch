@@ -555,7 +555,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. A value that is no Encoding label is refused with `setting_invalid`; a valid one is refused with `capability_unavailable` at the crawl's start until every tier decodes in ADR 0119's order."
+                "description": "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. It stands where ADR 0119's order puts it: after the BOM, before the `Content-Type` charset, the `<meta>` prescan and UTF-8. It applies to the request's own document on every attempt, not to a handler's own navigations. A value that is no Encoding label is refused with `setting_invalid` when the crawl starts."
               },
               "hedge": {
                 "additionalProperties": false,

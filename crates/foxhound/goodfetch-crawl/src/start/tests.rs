@@ -1094,31 +1094,17 @@ fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable
     );
 }
 
-/// `fetch.tier_race` and `fetch.encoding`, in the schema though the engine
-/// does neither yet: switched on or set, for the Run or, for
-/// `fetch.encoding`, for a Label, the crawl is refused before its Run
-/// begins with `capability_unavailable` naming the key; `fetch.tier_race`
-/// on a Label, which the Run alone sets, with `setting_not_applicable`;
-/// and a `fetch.encoding` that is no WHATWG Encoding label with
-/// `setting_invalid`.
+/// `fetch.tier_race`, in the schema though the engine does not race yet:
+/// switched on for the Run, the crawl is refused before its Run begins with
+/// `capability_unavailable` naming the key; on a Label, which the Run alone
+/// sets, with `setting_not_applicable`; and a `fetch.encoding` that is no
+/// WHATWG Encoding label with `setting_invalid`.
 #[rstest::rstest]
 /// Covers: setting:fetch.tier_race, error:capability_unavailable
 #[case::a_race_for_the_run(
     json!({ "fetch": { "tier_race": true } }),
     json!({}),
     json!(["capability_unavailable", "fetch.tier_race", "tier_race"])
-)]
-/// Covers: setting:fetch.encoding, error:capability_unavailable
-#[case::an_encoding_for_the_run(
-    json!({ "fetch": { "encoding": "shift_jis" } }),
-    json!({}),
-    json!(["capability_unavailable", "fetch.encoding", "encoding"])
-)]
-/// Covers: error:capability_unavailable
-#[case::an_encoding_for_a_label(
-    json!({}),
-    json!({ "list": { "settings": { "fetch": { "encoding": "shift_jis" } } } }),
-    json!(["capability_unavailable", "fetch.encoding", "encoding"])
 )]
 /// Covers: error:setting_not_applicable
 #[case::a_race_for_a_label(

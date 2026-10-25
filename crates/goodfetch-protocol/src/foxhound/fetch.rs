@@ -101,7 +101,7 @@ pub const FETCH_TIER_RACE: Setting = Setting {
 /// `fetch.encoding` (ADR 0119).
 pub const FETCH_ENCODING: Setting = Setting {
     name: "fetch.encoding",
-    description: "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. A value that is no Encoding label is refused with `setting_invalid`; a valid one is refused with `capability_unavailable` at the crawl's start until every tier decodes in ADR 0119's order.",
+    description: "The encoding forced on each crawl request's own document after its BOM, a WHATWG Encoding label such as `shift_jis`, set for the Run or for one of its Labels; none by default. It stands where ADR 0119's order puts it: after the BOM, before the `Content-Type` charset, the `<meta>` prescan and UTF-8. It applies to the request's own document on every attempt, not to a handler's own navigations. A value that is no Encoding label is refused with `setting_invalid` when the crawl starts.",
     kind: ValueKind::Text,
     default: null,
     clearable: true,
@@ -175,7 +175,10 @@ pub struct BrowserRequiredDetails {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub label: Option<String>,
-    /// The call the tier cannot serve exactly, by its operation's name.
+    /// The call the tier cannot serve exactly, by its operation's name, or
+    /// the setting that judges the request's own document in its place:
+    /// `session.page_check` for a page its markup cannot judge, and
+    /// `fetch.encoding` for one only a guess could decode.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub call: String,
     /// What serves it: another tier, and for a wait also content the page
@@ -187,7 +190,7 @@ pub struct BrowserRequiredDetails {
 /// A call a forced tier cannot serve exactly (ADR 0093).
 pub const BROWSER_REQUIRED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "browser_required",
-    description: "A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack.",
+    description: "A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack. A request's own document that declares no encoding and is not UTF-8, which only the browser's guess reads, fails the same way under a forced tier (ADR 0119), its call `fetch.encoding` and its fix naming `fetch.encoding` and `fetch.tier`.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,

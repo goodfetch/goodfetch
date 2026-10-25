@@ -23,6 +23,7 @@ goodfetch-frontier.workspace = true
 goodfetch-page.workspace = true
 goodfetch-protocol.workspace = true
 h2.workspace = true
+html5ever.workspace = true
 http.workspace = true
 http2.workspace = true
 hyper.workspace = true

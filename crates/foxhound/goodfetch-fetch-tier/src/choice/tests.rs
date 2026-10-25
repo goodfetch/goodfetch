@@ -11,7 +11,7 @@ use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use serde_json::{Value, json};
 
-use super::{Choosing, Forced, LabelSettings, SetTier, TierChoice, Unserved, unserved};
+use super::{Choosing, Forced, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved};
 
 /// The Labels named in `labels`, each declared with its nested settings.
 fn declared(labels: &[(&str, Value)]) -> BTreeMap<String, LabelDeclaration> {
@@ -129,19 +129,28 @@ fn a_label_setting_it_cannot_take_is_refused(
     );
 }
 
-/// A Label's `fetch.encoding` is kept by its Label, its label as given.
-#[test]
-fn a_labels_encoding_is_kept_by_its_label() {
+/// The encoding `fetch.encoding` forces on a request's own document: its
+/// Label's, else the Run's, each a WHATWG Encoding label as WHATWG maps
+/// it, else none.
+///
+/// Covers: story:5-129, setting:fetch.encoding
+#[rstest::rstest]
+#[case::the_labels_own("list", Some("utf-8"), Some(encoding_rs::SHIFT_JIS))]
+#[case::the_runs_for_a_label_setting_none("page", Some("latin1"), Some(encoding_rs::WINDOWS_1252))]
+#[case::the_runs_for_an_undeclared_label("other", Some("shift_jis"), Some(encoding_rs::SHIFT_JIS))]
+#[case::none("page", None, None)]
+fn a_requests_forced_encoding_is_its_labels_else_the_runs(
+    #[case] label: &str,
+    #[case] run: Option<&str>,
+    #[case] expected: Option<&'static encoding_rs::Encoding>,
+) {
     let tiers = LabelSettings::of(&declared(&[
         ("list", json!({ "fetch": { "encoding": "Shift_JIS" } })),
         ("page", json!({ "fetch": { "encoding": null } })),
     ]))
     .unwrap();
 
-    assert_eq!(
-        tiers.encodings().collect::<Vec<_>>(),
-        vec![("list", "Shift_JIS")]
-    );
+    assert_eq!(tiers.encoding(label, run), expected);
 }
 
 /// A Label's own `session.page_check` is read whole beside its
@@ -235,6 +244,41 @@ fn an_unserved_call_escalates_under_auto_and_is_refused_under_a_forced_tier() {
                 "call": "locator.wait_for",
                 "fix": "`fetch.tier: auto` or `fetch.tier: browser`, or the page may simply lack what it waits for",
             })),
+        )
+    );
+}
+
+/// A request's own document that only a guess could decode fails under a
+/// forced tier with `browser_required`, its call `fetch.encoding` and its
+/// fix naming `fetch.encoding` and `fetch.tier` (ADR 0119, G6).
+///
+/// Covers: story:5-129, error:browser_required
+#[test]
+fn an_undeclared_document_under_a_forced_tier_names_fetch_encoding_and_fetch_tier() {
+    let error = undeclared(
+        FetchTier::Http,
+        &Forced {
+            label: Some("list".to_owned()),
+        },
+        "https://shop.test/a",
+    );
+
+    assert_eq!(
+        (
+            error.code(),
+            error.details().cloned().map(Value::Object),
+            error.message().contains("https://shop.test/a"),
+        ),
+        (
+            "browser_required",
+            Some(json!({
+                "key": "fetch.tier",
+                "tier": "http",
+                "label": "list",
+                "call": "fetch.encoding",
+                "fix": "`fetch.encoding` set to the document's encoding, or `fetch.tier: auto` or `fetch.tier: browser`",
+            })),
+            true,
         )
     );
 }

@@ -148,11 +148,15 @@ impl LabelSettings {
         })
     }
 
-    /// Each declared Label that sets `fetch.encoding`, with its label.
-    pub fn encodings(&self) -> impl Iterator<Item = (&str, &str)> {
+    /// The encoding `fetch.encoding` forces on the own document of a
+    /// request of `label` (ADR 0119): its Label's, else `run`, the Run's
+    /// label.
+    pub fn encoding(&self, label: &str, run: Option<&str>) -> Option<&'static Encoding> {
         self.encodings
-            .iter()
-            .map(|(name, encoding)| (name.as_str(), encoding.as_str()))
+            .get(label)
+            .map(String::as_str)
+            .or(run)
+            .and_then(|label| Encoding::for_label(label.as_bytes()))
     }
 
     /// The Page check the Label `label` declares of its own, if it does.
@@ -338,6 +342,35 @@ pub(crate) fn unserved(choice: &TierChoice, call: &str, waits: bool) -> Unserved
             ))
         }
     }
+}
+
+/// What Provenance and `browser_required` name, in place of a call, as
+/// the cause of a request's own document that only a guess could decode
+/// (ADR 0119): the setting that reads it on a non-browser tier.
+pub(crate) const ENCODING_CALL: &str = "fetch.encoding";
+
+/// `browser_required` for the crawl request's own document at `url`,
+/// which declares no encoding and is not UTF-8, on `tier`, which `forced`
+/// forced: its fix names `fetch.encoding` and `fetch.tier` (G6).
+pub(crate) fn undeclared(tier: FetchTier, forced: &Forced, url: &str) -> CallError {
+    let name = tier.as_str();
+    let set = forced.label.as_ref().map_or_else(
+        || "the Run".to_owned(),
+        |label| format!("the Label `{label}`"),
+    );
+    CallError::new(
+        &BROWSER_REQUIRED,
+        format!(
+            "The document at {url} declares no encoding and is not UTF-8, so only the browser's guess could read it, and the `{name}` tier, which {set} forces with `fetch.tier`, never guesses: set `fetch.encoding` to the document's encoding, or `fetch.tier` to `auto` or `browser`."
+        ),
+        &BrowserRequiredDetails {
+            key: FETCH_TIER.name.to_owned(),
+            tier,
+            label: forced.label.clone(),
+            call: ENCODING_CALL.to_owned(),
+            fix: "`fetch.encoding` set to the document's encoding, or `fetch.tier: auto` or `fetch.tier: browser`".to_owned(),
+        },
+    )
 }
 
 #[cfg(test)]

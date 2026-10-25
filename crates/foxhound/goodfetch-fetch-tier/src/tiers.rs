@@ -56,12 +56,16 @@ use url::Url;
 
 use crate::canonical::canonical;
 use crate::chain::{Following, Stop, follow};
-use crate::choice::{LabelSettings, SetTier, TierChoice, Unserved, unserved};
-use crate::document::{Matched, SelectorInvalid, decode, matched};
+use crate::charset::{self, Kind, Read, content_type};
+use crate::choice::{
+    ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
+};
+use crate::document::{Matched, SelectorInvalid, matched};
 use crate::driver::{Deadlines, Hop, Transport, fetch};
 use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::redundant::{Redundant, Requester};
+use crate::sniffing::sniff;
 use crate::transports::{AddressCheck, BrowserFetch, Reqwest, TransportConfig};
 use crate::use_signals::UseSignals;
 
@@ -169,20 +173,40 @@ struct ServedPage {
 struct Opened {
     document: ServedDocument,
     encoding: &'static Encoding,
+    /// The encoding ADR 0119's order found, and where; `None` when only a
+    /// guess could read the document, its text then read as UTF-8 and
+    /// never served.
+    read: Option<Read>,
     links: Vec<(String, String)>,
     use_signals: UseSignals,
 }
 
 impl Opened {
-    /// The document `fetched` answered for `run`, decoded.
-    fn of(run: &Run, fetched: crate::driver::Fetched) -> Self {
+    /// The document `fetched` answered for `run`, decoded in the encoding
+    /// ADR 0119's order finds, `forced` being `fetch.encoding`'s: a
+    /// response with no `Content-Type` is typed as Chromium's MIME sniffer
+    /// types it.
+    fn of(run: &Run, fetched: crate::driver::Fetched, forced: Option<&'static Encoding>) -> Self {
         let url = fetched.url.to_string();
-        let content_type = fetched
+        let (essence, charset) = fetched
             .headers
             .iter()
             .find(|(name, _)| name == "content-type")
-            .map(|(_, value)| value.as_str());
-        let (html, encoding) = decode(&fetched.body, content_type);
+            .map_or_else(
+                || (sniff(&fetched.body, fetched.url.path()).to_owned(), None),
+                |(_, value)| content_type(value),
+            );
+        let read = charset::read(&fetched.body, Kind::of(&essence), charset, forced);
+        let (html, encoding) = match read {
+            Some(read) => {
+                tracing::debug!(run_id = %run.id(), url, encoding = read.encoding.name(), source = read.source.as_str(), "a document's encoding was found");
+                (charset::decode(&fetched.body, read), read.encoding)
+            }
+            None => (
+                String::from_utf8_lossy(&fetched.body).into_owned(),
+                encoding_rs::UTF_8,
+            ),
+        };
         let base_url = goodfetch_frontier::document_base(&url, base_href(&html).as_deref())
             .map_or_else(|| url.clone(), |base| base.to_string());
         let use_signals = UseSignals::of(&fetched.headers);
@@ -199,6 +223,7 @@ impl Opened {
                 html,
             },
             encoding,
+            read,
             links,
             use_signals,
         }
@@ -322,29 +347,8 @@ impl FetchTiers {
                 None,
             ));
         }
-        if let Some(effective) = settings
-            .get(FETCH_ENCODING.name)
-            .filter(|effective| !effective.value.is_null())
-        {
+        if let Some(effective) = settings.get(FETCH_ENCODING.name) {
             crate::choice::encoding("the Run", &effective.value)?;
-            return Err(unbuilt(
-                FETCH_ENCODING.name,
-                effective.layer,
-                "encoding",
-                "This engine does not force an encoding on a crawl request's document yet, which `fetch.encoding` asks for in {set}: leave `fetch.encoding` unset.",
-                "`fetch.encoding: null`",
-                None,
-            ));
-        }
-        if let Some((label, _)) = labels.encodings().next() {
-            return Err(unbuilt(
-                FETCH_ENCODING.name,
-                SettingsLayer::Run,
-                "encoding",
-                "This engine does not force an encoding on a crawl request's document yet, which `fetch.encoding` asks for in {set}: leave `fetch.encoding` unset.",
-                "`fetch.encoding: null`",
-                Some(label),
-            ));
         }
         let run = forced(settings).map(|(tier, layer)| (tier, layer, None));
         let by_label = labels
@@ -463,7 +467,10 @@ impl FetchTiers {
     /// [`Stop::Failed`] with the fetch driver's errors (`deadline_exceeded`,
     /// `navigation_failed` with its network error, `response_truncated`)
     /// or the chain's (`too_many_redirects`, `response_not_ok`,
-    /// `response_unavailable`); [`Stop::Skipped`] for a hop the Frontier or
+    /// `response_unavailable`), and `browser_required` under a forced tier
+    /// for a document only a guess could read, which under `auto` opens a
+    /// page already escalated at `fetch.encoding` instead (ADR 0119);
+    /// [`Stop::Skipped`] for a hop the Frontier or
     /// the gate refuses, and with `domain_policy` for one the transport's
     /// egress check refuses.
     ///
@@ -531,7 +538,21 @@ impl FetchTiers {
         })
         .await?;
         let status = fetched.status;
-        let opened = Opened::of(run, fetched);
+        let opened = Opened::of(run, fetched, hand_over.encoding);
+        // A document only a guess could read is never served: under a
+        // forced tier it fails, and under `auto` its page escalates before
+        // its handler runs (ADR 0119).
+        let escalated = match (&opened.read, &choice.forced) {
+            (Some(_), _) => None,
+            (None, Some(forced)) => {
+                return Err(Stop::Failed(undeclared(
+                    choice.tier,
+                    forced,
+                    &opened.document.url,
+                )));
+            }
+            (None, None) => Some(ENCODING_CALL),
+        };
         let mut pages = lock(&self.served.pages);
         pages.next += 1;
         let page_id = PageId(format!("document-{}", pages.next));
@@ -544,7 +565,7 @@ impl FetchTiers {
                 status,
                 http: tier.clone(),
                 choice: choice.clone(),
-                escalated: None,
+                escalated,
                 requests: 0,
                 bodies: BTreeMap::new(),
             },
@@ -1042,6 +1063,11 @@ pub async fn record_tier(
     }
     if let Some(call) = escalated {
         entry["call"] = serde_json::json!(call);
+        // The browser reads a document only a guess decodes with its own
+        // detector (ADR 0119).
+        if call == ENCODING_CALL {
+            entry["encoding_source"] = serde_json::json!("detected");
+        }
     }
     goodfetch_page::provenance(run, &entry).await;
 }

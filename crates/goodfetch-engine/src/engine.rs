@@ -36,6 +36,7 @@ use crate::home::{Home, RunStateLocation, major_name};
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::log::LogEvents;
+use crate::mask::Masks;
 use crate::metrics::Metrics;
 use crate::needs_you::{NeedsYou, NeedsYouSource, SourceContext};
 use crate::people::{AccountsStore, ConsoleKey, SignInDriver, SignIns, SingleUserLink, os_user};
@@ -112,6 +113,7 @@ impl Engine {
                 handlers: composition.handlers()?,
                 drivers: Arc::new(composition.drivers()),
                 log_events: None,
+                masks: Masks::new(),
             }),
             tables: composition.run_state_tables(),
             politeness_tables: composition.politeness_tables(),
@@ -155,6 +157,22 @@ impl Engine {
             handlers: self.dispatch.handlers.clone(),
             drivers: Arc::clone(&self.dispatch.drivers),
             log_events: Some(log_events),
+            masks: self.dispatch.masks.clone(),
+        });
+        self
+    }
+
+    /// The same, masking every live Run's resolved values with `masks`,
+    /// which the process's log writers also pass their lines through
+    /// (spec #564); without it the engine masks with its own.
+    #[must_use]
+    pub fn with_masks(mut self, masks: Masks) -> Self {
+        self.dispatch = Arc::new(Dispatch {
+            identity: Arc::clone(&self.dispatch.identity),
+            handlers: self.dispatch.handlers.clone(),
+            drivers: Arc::clone(&self.dispatch.drivers),
+            log_events: self.dispatch.log_events.clone(),
+            masks,
         });
         self
     }
@@ -420,6 +438,7 @@ impl Engine {
                 environment: dependencies.environment,
                 needs_you,
                 controls: self.controls.clone(),
+                masks: self.dispatch.masks.clone(),
             },
             owner,
         );

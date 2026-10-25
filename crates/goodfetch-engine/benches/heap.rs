@@ -43,9 +43,35 @@ fn egress_judge(input: (goodfetch_engine::egress::Policy, Vec<String>)) -> usize
     black_box(scenarios::judge_all(black_box(&policy), black_box(&urls)))
 }
 
+#[library_benchmark]
+#[bench::fifty_values_one_mib(
+    args = (50, 1 << 20),
+    setup = scenarios::mask_input
+)]
+fn mask_stream(
+    input: (
+        goodfetch_engine::mask::Masks,
+        goodfetch_engine::mask::Mask,
+        Vec<u8>,
+    ),
+) -> (usize, goodfetch_engine::mask::Mask) {
+    let (masks, mask, stream) = input;
+    let written = black_box(scenarios::mask_stream(
+        black_box(&masks),
+        black_box(&stream),
+    ));
+    (written, mask)
+}
+
 library_benchmark_group!(
     name = engine,
-    benchmarks = [framing, dispatch, run_state_writes, egress_judge]
+    benchmarks = [
+        framing,
+        dispatch,
+        run_state_writes,
+        egress_judge,
+        mask_stream
+    ]
 );
 
 main!(

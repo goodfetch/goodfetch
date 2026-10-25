@@ -38,8 +38,8 @@ use serde_json::Value;
 use crate::composition::{CallContext, CallError, Handler};
 use crate::product::{Identity, Requested};
 
+pub use connection::CONSOLE_LISTENER;
 pub(crate) use connection::{Access, ConsoleConnection, Dispatch, serve, serve_console};
-pub use connection::{CONSOLE_LISTENER, REFUSAL_TARGET};
 pub use websocket::Authorities;
 pub(crate) use websocket::{ConsoleSocket, Refusal};
 

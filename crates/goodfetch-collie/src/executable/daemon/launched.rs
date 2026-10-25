@@ -21,10 +21,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_engine::browser_cache::{self, MaxUnusedAge};
-use goodfetch_engine::daemon::files::{DaemonFiles, FileLock, new_token};
+use goodfetch_engine::daemon::files::{DaemonFiles, FileLock};
 use goodfetch_engine::daemon::{
     ContentOrigin, DaemonConsole, DaemonEnd, DaemonOptions, Holds, Succession,
 };
+use goodfetch_engine::endpoint::new_token;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, pick, stores_floor};
 use goodfetch_engine::ops::Ops;

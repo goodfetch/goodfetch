@@ -11,6 +11,9 @@ publish.workspace = true
 autobenches = false
 
 [dependencies]
+# The run's `Mask`: one automaton over every resolved value and its
+# encodings (spec #564, ADR 0071).
+aho-corasick.workspace = true
 chacha20.workspace = true
 # Run state's field encryption and its data key's wrap (ADR 0015).
 chacha20poly1305.workspace = true
@@ -71,6 +74,8 @@ sha2.workspace = true
 # The per-install layout's VFS, which keeps each Run's run file inside the
 # install database (ADR 0002), registered with the SQLite rusqlite bundles.
 sqlite-plugin.workspace = true
+# Endpoint tokens compared in constant time (ADR 0017).
+subtle.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 # The settings files (ADR 0028): read, and rewritten with every other byte kept (ADR 0098).

@@ -60,7 +60,7 @@ const STOP_GRACE: Duration = Duration::from_secs(5);
 /// What a Daemon runs with beside its engine's [`Dependencies`](crate::Dependencies).
 pub struct DaemonOptions {
     /// The per-launch token every `hello` must carry, from the OS
-    /// generator ([`files::new_token`]).
+    /// generator ([`crate::endpoint::new_token`]).
     pub token: String,
     /// Where it listens, as its runtime file names it.
     pub endpoint: DaemonEndpoint,

@@ -6775,6 +6775,48 @@
       ]
     },
     {
+      "id": "setting:site_preferences.max_crawl_delay",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:site_preferences.purpose",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:site_preferences.respect_robots_txt",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:site_preferences.respect_use_signals",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:site_preferences.robots_txt_user_agent",
       "kind": "setting",
       "area": 5,
@@ -18201,6 +18243,16 @@
       ]
     },
     {
+      "id": "story:6-239",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-24",
       "kind": "story",
       "area": 6,
@@ -18223,6 +18275,16 @@
     },
     {
       "id": "story:6-241",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-242",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

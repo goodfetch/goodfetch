@@ -40,8 +40,12 @@ const BACKS_OFF: [u64; 3] = [502, 503, 504];
 /// (ADR 0086). The time a failure's `retry_after` names, read at `wall` when
 /// the monotonic clock read `now`, holds the domain until then (ADR 0118).
 pub(super) fn domain_ending(answer: &Answer, now: Instant, wall: SystemTime) -> Ended {
-    let Answer::Failed { code, details, .. } = answer else {
-        return Ended::Done;
+    let (code, details) = match answer {
+        Answer::Failed { code, details, .. } => (code, details),
+        // robots.txt is the whole origin's file: one that answers 429 or
+        // 5xx, or no answer, backs off the domain as a 503 does (ADR 0086).
+        Answer::RobotsTxtUnreachable(_) => return Ended::BackOff(None),
+        _ => return Ended::Done,
     };
     let asked = details
         .get(RETRY_AFTER)

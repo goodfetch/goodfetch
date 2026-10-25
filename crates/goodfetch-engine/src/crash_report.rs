@@ -3,17 +3,20 @@
 //! thread and a backtrace, and logs where the report is. Nothing reads the
 //! folder but a person: no report is ever sent.
 
+use std::borrow::Cow;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::clock::Clock;
+use crate::mask::{Masks, Scope};
 
 /// Writes a crash report into `folder` for each panic of this process,
 /// headed by `executable`, its name and version, and timed by `clock`, in
-/// place of the panic's line on stderr.
-pub fn record_panics(folder: PathBuf, executable: String, clock: Clock) {
+/// place of the panic's line on stderr; every value a live Run resolved is
+/// masked in it by `masks`, the engine's, as what the engine keeps.
+pub fn record_panics(folder: PathBuf, executable: String, clock: Clock, masks: Masks) {
     std::panic::set_hook(Box::new(move |panic| {
-        let report = report(&executable, clock, panic);
+        let report = report(&executable, clock, panic, &masks);
         match write(&folder, &report) {
             Ok(path) => tracing::error!(
                 report = %path.display(),
@@ -29,7 +32,12 @@ pub fn record_panics(folder: PathBuf, executable: String, clock: Clock) {
 }
 
 /// The report of `panic`.
-fn report(executable: &str, clock: Clock, panic: &std::panic::PanicHookInfo<'_>) -> Report {
+fn report(
+    executable: &str,
+    clock: Clock,
+    panic: &std::panic::PanicHookInfo<'_>,
+    masks: &Masks,
+) -> Report {
     let at = jiff::Timestamp::try_from(clock.wall()).unwrap_or(jiff::Timestamp::UNIX_EPOCH);
     let message = panic
         .payload()
@@ -60,7 +68,12 @@ fn report(executable: &str, clock: Clock, panic: &std::panic::PanicHookInfo<'_>)
             at.strftime("%Y%m%dT%H%M%S%.fZ"),
             std::process::id()
         ),
-        text,
+        // A panic may break off a change of the masks, whose lock it then
+        // holds: the report never waits for it, and withholds its text.
+        text: masks.try_apply(&text, Scope::Kept).map_or_else(
+            || format!("Crash report of {executable}\n(withheld: the panic broke off a change of the engine's masks)\n"),
+            Cow::into_owned,
+        ),
     }
 }
 

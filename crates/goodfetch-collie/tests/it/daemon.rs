@@ -19,15 +19,14 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::collections::BTreeMap;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_test_support::{
-    AuditUnreadable, DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress,
-    ListenerKind, Process, Rule, RuntimeFile, SnapshotValues, TestEnv, cli, engine_script,
+    Canaries, DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress,
+    ListenerKind, Process, RuntimeFile, SnapshotValues, TestEnv, cli, engine_script,
     record_command, reported_address, snapshot_settings, tools,
 };
 use serde_json::{Value, json};
@@ -472,17 +471,10 @@ fn a_killed_daemon_leaves_its_run_resumable_and_a_runtime_file_the_next_start_re
     );
 }
 
-/// The endpoint table's Daemon socket column, each refusal checked in the
-/// Daemon's log until the Audit log records it (area 4).
-///
-/// Covers: story:3-12
-#[test]
-fn the_daemon_socket_passes_its_endpoint_table_rows() {
-    let env = TestEnv::new();
-    short_idle(&env, 60_000);
-    let _stops = StopsTheDaemon::of(&env, COLLIE);
-    json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
-    let found = RuntimeFile::read(&runtime_file(&env)).unwrap();
+/// The Daemon socket of the Daemon the runtime file of `env`'s home names,
+/// as the endpoint table's listener, with its token.
+pub(crate) fn socket_listener(env: &TestEnv) -> Listener {
+    let found = RuntimeFile::read(&runtime_file(env)).unwrap();
     let address = match &found.endpoint {
         #[cfg(unix)]
         DaemonEndpoint::Unix(path) => ListenerAddress::Unix(path.clone()),
@@ -496,62 +488,50 @@ fn the_daemon_socket_passes_its_endpoint_table_rows() {
         "needs": "collie",
         "product_version": VERSION,
     });
-    let listener = Listener::new(
+    Listener::new(
         ListenerKind::DaemonSocket,
         Endpoint::JsonRpc {
             address,
             hello: Hello::new(hello.as_object().unwrap().clone(), "token"),
         },
-        found.token.clone(),
+        found.token,
     )
-    .with_other_listener_token("a-private-endpoints-token");
-    let log = env.home().join("logs").join("daemon-0.0.jsonl");
-    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
-    let verifier = move |_: ListenerKind, rule: Rule| {
-        let reason = match rule {
-            Rule::TokenMissing => "token_missing",
-            Rule::TokenWrong | Rule::TokenFromAnotherListener => "token_wrong",
-            Rule::HelloNotFirst => "hello_not_first",
-            _ => return Ok(false),
-        };
-        let earlier = seen.get(reason).copied().unwrap_or(0);
-        let refusals = audited(&log, "daemon_socket", reason, earlier)?;
-        seen.insert(reason.to_owned(), refusals);
-        Ok(refusals > earlier)
-    };
-
-    let ran = EndpointRunner::new(verifier).run(&listener);
-
-    assert_eq!(ran, Ok(()));
 }
 
-/// How many refusals of `listener` for `reason` the log file `log` holds,
-/// once it holds more than `earlier` or `MESSAGE_DEADLINE` passed: the log
-/// writer writes each line on a thread of its own, a moment after the
-/// refusal (ADR 0122).
-pub(crate) fn audited(
-    log: &Path,
-    listener: &str,
-    reason: &str,
-    earlier: usize,
-) -> Result<usize, AuditUnreadable> {
-    let deadline = std::time::Instant::now() + goodfetch_test_support::MESSAGE_DEADLINE;
-    loop {
-        let text = std::fs::read_to_string(log).map_err(AuditUnreadable::new)?;
-        let refusals = text
-            .lines()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .filter(|record| {
-                record["target"] == json!("goodfetch::rpc::refusal")
-                    && record["fields"]["listener"] == json!(listener)
-                    && record["fields"]["reason"] == json!(reason)
-            })
-            .count();
-        if refusals > earlier || std::time::Instant::now() > deadline {
-            return Ok(refusals);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+/// The token of the Daemon the runtime file of `env`'s home names.
+fn daemon_token(env: &TestEnv) -> String {
+    RuntimeFile::read(&runtime_file(env)).unwrap().token
+}
+
+/// The endpoint table's Daemon socket column, each refusal found in the
+/// Audit log: the token of a launch `daemon stop` ended is expired, that of
+/// the launch `daemon restart` replaced is revoked, and the operator's ops
+/// token, read-only on `/metrics`, is scoped elsewhere.
+///
+/// Covers: story:3-12, story:4-21, story:4-24, story:4-90
+#[test]
+fn the_daemon_socket_passes_its_endpoint_table_rows() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let mut canaries = Canaries::new(env.seed());
+    let ops_token = crate::endpoint::provision_ops_token(&env, &mut canaries);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
+    let expired = daemon_token(&env);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "stop", "--json"]);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
+    let revoked = daemon_token(&env);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "restart", "--json"]);
+    let listener = socket_listener(&env)
+        .with_other_listener_token("a-private-endpoints-token")
+        .with_expired_token(expired)
+        .with_revoked_token(revoked)
+        .with_scoped_elsewhere_token(ops_token);
+
+    let ran =
+        EndpointRunner::new(crate::endpoint::audit_verifier(&env, "daemon_socket")).run(&listener);
+
+    assert_eq!(ran, Ok(()));
 }
 
 /// Starts the Scripted engine as the Daemon of the test's home, on a script

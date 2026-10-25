@@ -47,6 +47,7 @@ use crate::audit::{AuditError, AuditLog, Origin};
 use crate::clock::Clock;
 use crate::home::Home;
 use crate::known_certificates::KeyHash;
+use crate::mask::{Mask, Masks, Reach, Redaction};
 use crate::settings::HostDefaults;
 use crate::tasks::TaskOwner;
 
@@ -251,6 +252,8 @@ struct Shared {
     secret_files: PathBuf,
     /// Held while the engine makes its key-encryption key, so it makes one.
     making: Arc<tokio::sync::Mutex<()>>,
+    /// Every live Run's resolved values, which each Run's own join.
+    masks: Masks,
 }
 
 impl std::fmt::Debug for Secrets {
@@ -301,7 +304,16 @@ impl Secrets {
             keychain,
             secret_files,
             making: Arc::default(),
+            masks: Masks::new(),
         }))
+    }
+
+    /// The same driver, each Run's values joining `masks`, the engine's,
+    /// in place of a set of its own.
+    #[must_use]
+    pub fn masked_by(mut self, masks: Masks) -> Self {
+        Arc::make_mut(&mut self.0).masks = masks;
+        self
     }
 
     /// Makes the item `reference` names hold a new random key-encryption
@@ -386,6 +398,11 @@ impl Secrets {
         self
     }
 
+    /// Every live Run's resolved values.
+    pub(crate) fn masks(&self) -> &Masks {
+        &self.0.masks
+    }
+
     /// The Audit log every resolution is recorded in.
     pub(crate) fn audit(&self) -> &AuditLog {
         &self.0.audit
@@ -393,13 +410,20 @@ impl Secrets {
 
     /// What one Run resolves through, each provider bounded by `timeout`,
     /// its `timeout.secret`, holding every value it resolved until its last
-    /// handle drops.
+    /// handle drops, its values masked in its kept outputs too.
     pub fn for_run(&self, timeout: Duration) -> RunSecrets {
+        self.for_run_with(timeout, Redaction::On)
+    }
+
+    /// The same, its values masked in its kept outputs unless `redaction`,
+    /// its `security.redaction`, is off.
+    pub fn for_run_with(&self, timeout: Duration, redaction: Redaction) -> RunSecrets {
         RunSecrets(Arc::new(ForRun {
             secrets: self.clone(),
             timeout,
             held: tokio::sync::Mutex::new(Vec::new()),
             exception_hosts: ExceptionHosts::default(),
+            mask: self.0.masks.for_run(redaction),
         }))
     }
 }
@@ -459,6 +483,8 @@ struct ForRun {
     /// The hosts the Run reached through an invalid-certificate exception,
     /// which get no value.
     exception_hosts: ExceptionHosts,
+    /// The Run's mask, which every value it resolves joins.
+    mask: Mask,
 }
 
 impl std::fmt::Debug for RunSecrets {
@@ -477,9 +503,16 @@ impl RunSecrets {
         self.0.exception_hosts.clone()
     }
 
+    /// The Run's mask, which every value it resolves joins under its
+    /// placeholder, or the setting's key where none names it.
+    pub fn mask(&self) -> &Mask {
+        &self.0.mask
+    }
+
     /// The value `reference` points to, resolved now for `purpose`: refused
     /// for a domain its binding does not allow, bounded by `timeout.secret`,
-    /// recorded in the Audit log and held for the rest of the Run.
+    /// recorded in the Audit log, held for the rest of the Run and masked
+    /// as `%placeholder%` wherever the engine returns, sends or keeps it.
     ///
     /// # Errors
     ///
@@ -550,6 +583,7 @@ impl RunSecrets {
             unavailable(failure, fix)
         })?;
         self.record(reference, purpose).await?;
+        self.0.mask.join(purpose.placeholder, &value, Reach::Value);
         self.0.held.lock().await.push(Held {
             placeholder: purpose.placeholder.to_owned(),
             value: value.clone(),

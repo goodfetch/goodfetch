@@ -21,15 +21,29 @@
 //!   user's runs share (ADR 0086), fetched under that permit when the copy
 //!   has none to use; the groups for `goodfetch-foxhound` and for
 //!   `site_preferences.robots_txt_user_agent` apply, merged, else `*`'s
-//!   (ADR 0090). A URL they disallow is refused with `robots_txt`.
+//!   (ADR 0090). A URL they disallow is refused with `robots_txt`, and a
+//!   host whose Crawl-delay is above `site_preferences.max_crawl_delay`
+//!   with `crawl_delay`. With `site_preferences.respect_robots_txt` off,
+//!   robots.txt is neither read nor applied.
 //! - **The delay between starts.** The request waits until the domain's
 //!   last start, by any sharing run, is its Crawl-delay ago, and on its
-//!   own domain key also `politeness.domain.delay`; its start is then
-//!   recorded for every run sharing the domain.
+//!   own domain key, or after a robots.txt it fetched, also
+//!   `politeness.domain.delay`. There, its start is taken in the
+//!   Politeness file at once, so two handlers' requests never read the
+//!   same last start and go together; on another key, its Permit's rule
+//!   already spaced it, and its start is recorded for every run sharing the
+//!   domain.
 //!
 //! The page holds the lease through every wait (`LeaseCheck::permit_wait`),
 //! which the crawl renews and names in the Run's live status. A request of
 //! no HTTP(S) URL goes ungated.
+//!
+//! The same gate admits each hop after the first of a crawl request's
+//! redirect chain on a document tier ([`ChainGate`]; ADR 0118), after the
+//! Frontier's checks of the hop: a hop leaving the crawl's scope ends the
+//! request `skipped` with `out_of_scope`, and one to a key the Frontier
+//! admitted for another request with `duplicate` (ADR 0120); a refusal ends
+//! it `skipped` with its reason.
 
 use std::fmt;
 use std::sync::Arc;
@@ -41,14 +55,19 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch, Fetched, Judgment, Rule};
 use goodfetch_engine::runs::Run;
-use goodfetch_frontier::DomainKeys;
+use goodfetch_frontier::{DomainKeys, Scope};
 use goodfetch_page::page_value::{
     Admission, DocumentResponse, Navigation, NavigationGate, Permit, Refusal,
 };
 use goodfetch_page::robots_txt::{Group, ProductToken, applicable_rules};
+use goodfetch_protocol::foxhound::frontier::HttpMethod;
+use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::page::SitePreference;
 use tokio::sync::oneshot;
 use url::Url;
+
+use crate::chain::{Gating, HopGate, Skip, Stop};
+use crate::driver::Hop;
 
 /// Fetches the robots.txt at a location for a Run, as the crawl's HTTP
 /// tier does (`HttpTier::robots_txt_fetch`).
@@ -79,6 +98,12 @@ pub struct HandOver {
     pub operator_token: Option<String>,
     /// `politeness.domain.delay`.
     pub domain_delay: Duration,
+    /// `site_preferences.respect_robots_txt`: off, robots.txt is neither
+    /// read nor applied.
+    pub respect_robots_txt: bool,
+    /// `site_preferences.max_crawl_delay`, the longest Crawl-delay waited
+    /// out; none waits out none.
+    pub max_crawl_delay: Option<Duration>,
     /// The attempt's lease.
     pub lease: Arc<dyn LeaseCheck>,
 }
@@ -154,6 +179,16 @@ struct Applying {
     crawl_delay: Option<Duration>,
 }
 
+impl Applying {
+    /// Nothing: no rule disallows the URL and no Crawl-delay is asked.
+    fn nothing() -> Self {
+        Self {
+            disallowed: None,
+            crawl_delay: None,
+        }
+    }
+}
+
 impl Gate {
     /// Admits a request to `url`, or refuses it.
     pub(crate) async fn admitted(&self, url: &Url) -> Result<Permit, Refusal> {
@@ -167,7 +202,11 @@ impl Gate {
         } else {
             self.beside(&key).await
         };
-        let (applying, fetched_at) = self.robots_txt(url, &key).await;
+        let (applying, fetched_at) = if hand_over.respect_robots_txt {
+            self.robots_txt(url, &key).await
+        } else {
+            (Applying::nothing(), None)
+        };
         if let Some(rule) = applying.disallowed {
             return Err(Refusal {
                 reason: SitePreference::RobotsTxt,
@@ -177,27 +216,80 @@ impl Gate {
             });
         }
         let crawl_delay = applying.crawl_delay.unwrap_or_default();
-        let ready = [
-            before.map(|before| before + crawl_delay),
-            before
-                .filter(|_| own)
-                .map(|before| before + hand_over.domain_delay),
-            fetched_at.map(|fetched| fetched + hand_over.domain_delay.max(crawl_delay)),
-        ]
-        .into_iter()
-        .flatten()
-        .max();
-        let wall = run.clock().wall();
-        if let Some(wait) = ready.and_then(|ready| ready.duration_since(wall).ok()) {
+        if crawl_delay > Duration::ZERO
+            && hand_over
+                .max_crawl_delay
+                .is_none_or(|max| crawl_delay > max)
+        {
+            let most = hand_over.max_crawl_delay.map_or_else(
+                || "none".to_owned(),
+                |max| format!("{} s", max.as_secs_f64()),
+            );
+            return Err(Refusal {
+                reason: SitePreference::CrawlDelay,
+                message: format!(
+                    "The site's robots.txt asks for a Crawl-delay of {} s, more than `site_preferences.max_crawl_delay` waits out ({most}), so the request to `{url}` never left.",
+                    crawl_delay.as_secs_f64()
+                ),
+            });
+        }
+        let start = self.start(&key, own, before, fetched_at, crawl_delay).await;
+        if let Some(wait) = start.and_then(|start| start.duration_since(run.clock().wall()).ok()) {
             run.clock().sleep(wait).await;
         }
-        if let Some(politeness) = &hand_over.politeness
-            && let Err(error) =
-                goodfetch_frontier::started_again(politeness, &key, run.clock().wall()).await
+        Ok(permit)
+    }
+
+    /// When a request of `key` admitted now starts, taken for every run
+    /// sharing the domain at once, so that two handlers' requests never
+    /// read the same last start and go together (ADR 0086): after a
+    /// robots.txt fetched at `fetched_at` for it, or on the attempt's own
+    /// key, the delay between starts and the Crawl-delay after the last
+    /// start; on another key, whose Permit its domain's rule already
+    /// spaced, the Crawl-delay after the start `before` it.
+    async fn start(
+        &self,
+        key: &str,
+        own: bool,
+        before: Option<SystemTime>,
+        fetched_at: Option<SystemTime>,
+        crawl_delay: Duration,
+    ) -> Option<SystemTime> {
+        let hand_over = &self.0;
+        let run = &hand_over.run;
+        let wall = run.clock().wall();
+        let spacing = hand_over.domain_delay.max(crawl_delay);
+        // The start its spacing runs from, when it takes its start at once.
+        let after = fetched_at.or_else(|| own.then(|| wall.checked_sub(spacing).unwrap_or(wall)));
+        let Some(politeness) = &hand_over.politeness else {
+            // No run shares the domain: the request goes once its own
+            // spacing passed.
+            return [
+                before.map(|before| before + crawl_delay),
+                before.filter(|_| own).map(|before| before + spacing),
+                fetched_at.map(|fetched| fetched + spacing),
+            ]
+            .into_iter()
+            .flatten()
+            .max();
+        };
+        if let Some(after) = after {
+            return goodfetch_frontier::start_after(politeness, key, after, spacing)
+                .await
+                .inspect_err(|error| {
+                    tracing::warn!(%error, run_id = %run.id(), "a handler's navigation start was not taken");
+                })
+                .ok();
+        }
+        let start = before
+            .map(|before| before + crawl_delay)
+            .filter(|start| *start > wall);
+        if let Err(error) =
+            goodfetch_frontier::started_again(politeness, key, start.unwrap_or(wall)).await
         {
             tracing::warn!(%error, run_id = %run.id(), "a handler's navigation start was not recorded");
         }
-        Ok(permit)
+        start
     }
 
     /// When the last request of `key` started, by any sharing run.
@@ -235,13 +327,7 @@ impl Gate {
         let hand_over = &self.0;
         let run = &hand_over.run;
         let Some(location) = robots_txt::location(url) else {
-            return (
-                Applying {
-                    disallowed: None,
-                    crawl_delay: None,
-                },
-                None,
-            );
+            return (Applying::nothing(), None);
         };
         let (sending, sent) = oneshot::channel::<SystemTime>();
         let fetch: Fetch<'_> = Box::pin(async {
@@ -320,10 +406,7 @@ fn applying_groups<'a>(
 /// `operator` (ADRs 0086 and 0090).
 fn applying(fetched: &Fetched, operator: Option<&ProductToken>, url: &Url) -> Applying {
     match fetched {
-        Fetched::NotFound(_) => Applying {
-            disallowed: None,
-            crawl_delay: None,
-        },
+        Fetched::NotFound(_) => Applying::nothing(),
         Fetched::Unreachable(reason) => Applying {
             disallowed: Some(format!("robots.txt unreachable: {reason}")),
             crawl_delay: None,
@@ -344,5 +427,125 @@ fn applying(fetched: &Fetched, operator: Option<&ProductToken>, url: &Url) -> Ap
                 crawl_delay,
             }
         }
+    }
+}
+
+/// The gate of a crawl request's redirect chain on a document tier: the
+/// attempt's navigation gate, after the Frontier's checks of each hop.
+pub(crate) struct ChainGate {
+    pub(crate) hand_over: Arc<HandOver>,
+    /// The crawl request's ID.
+    pub(crate) crawl_request: String,
+}
+
+impl ChainGate {
+    /// What the Frontier says of `hop`: whether it leaves the scope or
+    /// reaches a key admitted for another request. A run file that cannot
+    /// answer leaves the hop to the navigation gate.
+    async fn frontier(&self, hop: &Hop) -> goodfetch_frontier::Hop {
+        let run = &self.hand_over.run;
+        let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
+        run.state()
+            .write(move |connection| {
+                let scope = Scope::read(connection)?;
+                goodfetch_frontier::redirect_hop(
+                    connection,
+                    &scope,
+                    &id,
+                    &url,
+                    &method,
+                    body.as_deref(),
+                )
+            })
+            .await
+            .unwrap_or_else(|error| {
+                tracing::warn!(%error, run_id = %run.id(), "a redirect hop was not checked by the Frontier");
+                goodfetch_frontier::Hop::Follow
+            })
+    }
+}
+
+/// What the Frontier takes of `hop` of `crawl_request`.
+fn frontier_hop(crawl_request: &str, hop: &Hop) -> (String, Url, HttpMethod, Option<Vec<u8>>) {
+    (
+        crawl_request.to_owned(),
+        hop.url.clone(),
+        HttpMethod::parse(hop.method.as_str()).unwrap_or_else(|_| HttpMethod::get()),
+        hop.body.as_ref().map(|body| body.to_vec()),
+    )
+}
+
+impl HopGate for ChainGate {
+    fn admit<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<Permit, Stop>> {
+        Box::pin(async move {
+            let skipped = |reason, message: String| Err(Stop::Skipped(Skip { reason, message }));
+            match self.frontier(hop).await {
+                goodfetch_frontier::Hop::OutOfScope => {
+                    return skipped(
+                        SkipReason::OutOfScope,
+                        format!("A redirect to `{}` leaves the crawl's scope.", hop.url),
+                    );
+                }
+                goodfetch_frontier::Hop::Duplicate => {
+                    return skipped(
+                        SkipReason::Duplicate,
+                        format!(
+                            "A redirect to `{}` reaches a page the crawl admitted for another request.",
+                            hop.url
+                        ),
+                    );
+                }
+                goodfetch_frontier::Hop::Follow => {}
+            }
+            let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
+            match Gate::new(Arc::clone(&self.hand_over))
+                .admitted(&hop.url)
+                .await
+            {
+                Ok(permit) => Ok(permit),
+                Err(refusal) => skipped(skip_reason(refusal.reason), refusal.message),
+            }
+        })
+    }
+
+    fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()> {
+        Box::pin(async move {
+            let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
+            let clock = self.hand_over.run.clock();
+            if let Ok(wait) = until.duration_since(clock.wall()) {
+                clock.sleep(wait).await;
+            }
+        })
+    }
+
+    fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
+        Box::pin(async move {
+            let run = &self.hand_over.run;
+            let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
+            let recorded = run
+                .state()
+                .write(move |connection| {
+                    goodfetch_frontier::redirect_reached(
+                        connection,
+                        &id,
+                        &url,
+                        &method,
+                        body.as_deref(),
+                    )
+                })
+                .await;
+            if let Err(error) = recorded {
+                tracing::warn!(%error, run_id = %run.id(), "a redirect's final URL was not recorded");
+            }
+        })
+    }
+}
+
+/// The skip a site preference's refusal of a hop ends its request with.
+fn skip_reason(reason: SitePreference) -> SkipReason {
+    match reason {
+        SitePreference::RobotsTxt => SkipReason::RobotsTxt,
+        SitePreference::CrawlDelay => SkipReason::CrawlDelay,
+        SitePreference::UseSignals => SkipReason::UseSignals,
     }
 }

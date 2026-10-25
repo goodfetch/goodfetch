@@ -2365,6 +2365,13 @@ export interface GotoParams {
    */
   page_id: string;
   /**
+   * How long the navigation may take, in milliseconds, at least 1:
+   * absent for `timeout.navigation`, `null` for none, though an
+   * enclosing timeout still applies (ADR 0080). Its waits for permits
+   * count against it no more than against the setting.
+   */
+  timeout?: number | null;
+  /**
    * The URL.
    */
   url: string;

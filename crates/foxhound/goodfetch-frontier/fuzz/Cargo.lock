@@ -1348,6 +1348,7 @@ dependencies = [
  "goodfetch-engine",
  "goodfetch-extractor",
  "goodfetch-protocol",
+ "httparse",
  "jiff",
  "libc",
  "psl",

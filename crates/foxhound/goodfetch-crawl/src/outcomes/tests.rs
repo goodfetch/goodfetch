@@ -332,3 +332,54 @@ fn reading_the_outcomes_of_no_run_fails_with_run_not_found() {
 
     assert_eq!(failed["error"]["data"]["code"], "run_not_found");
 }
+
+/// A `site_preferences_refused` that escapes the handler, raised by its
+/// own navigation the site's preferences refused, ends the request
+/// `skipped` with that refusal's reason, not `failed`, and is never
+/// retried (ADR 0093).
+///
+/// Covers: story:6-244, operation:run.outcomes
+#[rstest]
+#[case::robots_txt("robots_txt")]
+#[case::crawl_delay("crawl_delay")]
+#[case::use_signals("use_signals")]
+fn a_refusal_escaping_the_handler_ends_its_request_skipped_with_its_reason(
+    #[case] reason: &'static str,
+) {
+    let env = TestEnv::new();
+    let details = json!({ "url": "https://shop.test/private", "reason": reason });
+
+    let page = crawl(
+        || one_at_a_time(&env),
+        async |client| {
+            let seeds = json!([{ "url": "https://shop.test/a", "label": "page" }]);
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "refused", "seeds": seeds }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler =
+                |_: &Value| Reply::FailsWith("site_preferences_refused", false, details.clone());
+            client
+                .call("run.finish", json!({ "run_id": "refused" }), &mut handler)
+                .await;
+            client
+                .call("run.outcomes", json!({ "run_id": "refused" }), &mut |_| {
+                    Reply::Silent
+                })
+                .await
+        },
+    );
+
+    assert_eq!(
+        page["result"]["outcomes"],
+        json!([{
+            "position": 1,
+            "request": { "id": "1", "url": "https://shop.test/a", "label": "page", "depth": 0 },
+            "attempts": 1, "errors": [], "ended_at": ENDED_AT,
+            "kind": "skipped", "reason": reason,
+        }])
+    );
+}

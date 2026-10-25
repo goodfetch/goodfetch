@@ -241,6 +241,17 @@ pub struct GotoParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub wait_until: Option<WaitUntil>,
+    /// How long the navigation may take, in milliseconds, at least 1:
+    /// absent for `timeout.navigation`, `null` for none, though an
+    /// enclosing timeout still applies (ADR 0080). Its waits for permits
+    /// count against it no more than against the setting.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timeout: Option<Option<u64>>,
 }
 
 /// When a navigation answers, by the state its document reached
@@ -874,7 +885,7 @@ pub const RUN_NEW_PAGE: Operation = Operation {
 /// `page.goto`.
 pub const PAGE_GOTO: Operation = Operation {
     name: "page.goto",
-    description: "Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, and a document whose body broke off `response_truncated`, unless the navigation answered at `commit`.",
+    description: "Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, a document whose body broke off `response_truncated`, unless the navigation answered at `commit`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,

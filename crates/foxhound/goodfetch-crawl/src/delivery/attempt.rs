@@ -31,7 +31,9 @@
 //! `crawl_delay` (ADR 0086). While `site_preferences.respect_use_signals` is on, a document whose
 //! response carries an AI-use signal refusing the Run's Purpose is closed
 //! unhandled, its request `skipped` with `use_signals` (ADRs 0086 and
-//! 0093).
+//! 0093). A handler that lets a `site_preferences_refused` its own
+//! navigation raised escape ends its request `skipped` with that
+//! refusal's reason, not `failed` (ADR 0093).
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -49,7 +51,7 @@ use goodfetch_engine::robots_txt::{self, Fetch, Fetched};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    FetchTiers, HandOver, HandedOver, HttpTier, Purpose, Requester, RobotsTxtFetch, TierChoice,
+    FetchTiers, HandOver, HttpTier, Purpose, Requester, RobotsTxtFetch, Stop, TierChoice,
 };
 use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt};
 use goodfetch_protocol::block::BlockCause;
@@ -66,8 +68,9 @@ use goodfetch_protocol::foxhound::settings::{
     POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MAX_CRAWL_DELAY, SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
     SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
 };
-use goodfetch_protocol::page::NAVIGATION_FAILED;
-use goodfetch_protocol::page::PageId;
+use goodfetch_protocol::page::{
+    NAVIGATION_FAILED, PageId, SITE_PREFERENCES_REFUSED, SitePreference,
+};
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_protocol::site_preferences::{
     SITE_PREFERENCES_PURPOSE, SITE_PREFERENCES_RESPECT_USE_SIGNALS,
@@ -100,9 +103,11 @@ pub(super) enum Answer {
         message: String,
         details: Map<String, Value>,
     },
-    /// The site's preferences refused the request before its handler ran:
-    /// its robots.txt, or an AI-use signal its response carries (ADRs 0086
-    /// and 0093).
+    /// The request ended `skipped` before its handler ran: the site's
+    /// preferences refused it (its robots.txt, or an AI-use signal its
+    /// response carries; ADRs 0086 and 0093), or a hop of its document's
+    /// redirect chain left the scope, reached a key admitted for another
+    /// request or was refused by the navigation gate (ADRs 0118 and 0120).
     Refused(SkipReason),
     /// Its origin's robots.txt answered 429 or 5xx, or no answer, with no
     /// earlier copy to apply, for the reason given: the request was not
@@ -157,22 +162,23 @@ pub(super) struct Gating {
 }
 
 impl Gating {
-    /// Hands the Run's pages over to the attempt of `leased` holding
-    /// `lease`, while its handler runs; `in_flight` names its waits.
+    /// What the attempt of `leased` holding `lease` gates its document's
+    /// redirect hops with, then hands its Run's pages over with while its
+    /// handler runs; `in_flight` names its waits.
     async fn hand_over(
         &self,
         run: &Run,
         leased: &Leased,
         lease: &WorkItemLease,
         in_flight: &SharedInFlight,
-    ) -> HandedOver {
+    ) -> Arc<HandOver> {
         let politeness = share_robots_txt(run).await;
         let settings = run.settings().map(|settings| settings.resolved().clone());
         let domain_delay = settings
             .as_ref()
             .and_then(|settings| settings.duration(POLITENESS_DOMAIN_DELAY.name))
             .unwrap_or_default();
-        self.tiers.hand_over(HandOver {
+        Arc::new(HandOver {
             run: run.clone(),
             domain_key: leased.waiting.key.clone(),
             keys: settings.as_ref().map(DomainKeys::of).unwrap_or_default(),
@@ -186,6 +192,12 @@ impl Gating {
                     .map(str::to_owned)
             }),
             domain_delay,
+            respect_robots_txt: settings.as_ref().is_none_or(|settings| {
+                settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
+            }),
+            max_crawl_delay: settings
+                .as_ref()
+                .and_then(|settings| settings.duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)),
             lease: Arc::new(HandlerLease {
                 lease: lease.clone(),
                 run: run.clone(),
@@ -454,7 +466,8 @@ pub(super) async fn attempt(
     let answer = match (&tiering.choice, &tiering.http) {
         (None, _) => {
             let params = on.params(None, None);
-            let handed_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
+            let hand_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
+            let handed_over = gating.tiers.hand_over(hand_over);
             let answer = handled(&run, context.client(), &params, &lease).await;
             drop(handed_over);
             answer
@@ -536,6 +549,10 @@ impl On<'_> {
             paid: false,
         };
         let tiers = &tiering.tiers;
+        let hand_over = self
+            .gating
+            .hand_over(run, leased, lease, self.in_flight)
+            .await;
         let fetched = tokio::select! {
             biased;
             document = async {
@@ -544,9 +561,15 @@ impl On<'_> {
                     return Err(refused);
                 }
                 tiers
-                    .serve(http, run, &leased.crawl_request, &requester, choice)
+                    .serve(http, run, &leased.crawl_request, &requester, choice, &hand_over)
                     .await
-                    .map_err(|error| failed(&error))
+                    .map_err(|stop| match stop {
+                        Stop::Failed(error) => failed(&error),
+                        Stop::Skipped(skip) => {
+                            tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
+                            Answer::Refused(skip.reason)
+                        }
+                    })
             } => document,
             _ = lease.ended() => Err(Answer::LeaseEnded),
         };
@@ -565,10 +588,7 @@ impl On<'_> {
             .await
             .went_on(run, &leased.crawl_request.id, InFlightPhase::Handling);
         let params = self.params(Some(FetchTier::Http), Some(page_id.clone()));
-        let handed_over = self
-            .gating
-            .hand_over(run, leased, lease, self.in_flight)
-            .await;
+        let handed_over = self.gating.tiers.hand_over(hand_over);
         let answer = handled(run, self.context.client(), &params, lease).await;
         drop(handed_over);
         let escalated = tiers.escalated(&page_id);
@@ -597,10 +617,11 @@ impl On<'_> {
         escalated: Option<&'static str>,
     ) -> Answer {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
-        let handed_over = self
+        let hand_over = self
             .gating
             .hand_over(run, leased, lease, self.in_flight)
             .await;
+        let handed_over = self.gating.tiers.hand_over(hand_over);
         let opened = tokio::select! {
             biased;
             opened = tiers.browser(run.id(), &leased.crawl_request.url, self.context) => {
@@ -734,6 +755,22 @@ impl EndMerged for Merged {
     }
 }
 
+/// The skip reason of a handler's failure that is a `site_preferences_refused`
+/// its own navigation raised and it let escape: the request ends `skipped`
+/// with that refusal's reason, not `failed`, since the site asked not to be
+/// crawled there (ADR 0093).
+fn escaped_refusal(code: &str, details: &Map<String, Value>) -> Option<SkipReason> {
+    if code != SITE_PREFERENCES_REFUSED.name {
+        return None;
+    }
+    let reason = details.get("reason").cloned()?;
+    match serde_json::from_value::<SitePreference>(reason).ok()? {
+        SitePreference::RobotsTxt => Some(SkipReason::RobotsTxt),
+        SitePreference::CrawlDelay => Some(SkipReason::CrawlDelay),
+        SitePreference::UseSignals => Some(SkipReason::UseSignals),
+    }
+}
+
 /// The handler request of one attempt, bounded by its lease.
 async fn handled(
     run: &Run,
@@ -751,7 +788,10 @@ async fn handled(
             answer = sent.answer() => match answer {
                 Ok(handled) => Answer::Handled(handled),
                 Err(ClientRequestError::Failed { code, retryable, message, details }) => {
-                    Answer::Failed { code, retryable, message, details }
+                    match escaped_refusal(&code, &details) {
+                        Some(reason) => Answer::Refused(reason),
+                        None => Answer::Failed { code, retryable, message, details },
+                    }
                 }
                 Err(ClientRequestError::Malformed(message)) => Answer::Failed {
                     code: HANDLER_FAILED.name.to_owned(),

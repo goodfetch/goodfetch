@@ -3366,6 +3366,13 @@ class GotoParams(BaseModel):
     )
     page_id: PageId
     """The page."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the navigation may take, in milliseconds, at least 1:
+    absent for `timeout.navigation`, `null` for none, though an
+    enclosing timeout still applies (ADR 0080). Its waits for permits
+    count against it no more than against the setting.
+    """
     url: str
     """The URL."""
     wait_until: WaitUntil | None = None

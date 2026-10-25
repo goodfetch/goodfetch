@@ -32,5 +32,4 @@ mod serving;
 mod start;
 mod work_items;
 
-pub use lease::Lease;
 pub use start::contribution;

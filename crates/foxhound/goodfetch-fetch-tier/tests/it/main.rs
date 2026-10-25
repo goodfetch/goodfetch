@@ -7,6 +7,7 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+mod chain;
 mod conformance_gate;
 mod fetch_edge;
 mod fingerprint;

@@ -51,7 +51,7 @@ pub fn new_token() -> Result<String, getrandom::Error> {
 
 /// Whether `given` is the token `expected`, in time that depends only on
 /// their lengths, so a Client cannot guess one byte at a time.
-pub(crate) fn same_token(given: &str, expected: &str) -> bool {
+pub fn same_token(given: &str, expected: &str) -> bool {
     bool::from(given.as_bytes().ct_eq(expected.as_bytes()))
 }
 

@@ -2,7 +2,8 @@
 //! that family's host names, and the Effect its form carries out, and on any
 //! other host name its own task list (`GET /tasks`), oracle (`POST /oracle`),
 //! time step (`PUT /time-step`), which a task's harness sets and scheduled
-//! content and drifting pages follow, certificate authority
+//! content and drifting pages follow, the `limited` proxy's hold
+//! (`PUT /limited-proxy-hold`), certificate authority
 //! (`GET /certificate-authority`), observations (`GET /observations`), the
 //! replay proxy's refusals (`GET /replay`), the Fake model's calls
 //! (`GET /model-calls`) and the revocation of the portal's sessions
@@ -71,6 +72,13 @@ pub(crate) struct Site {
 #[serde(deny_unknown_fields)]
 struct TimeStep {
     step: u64,
+}
+
+/// Whether the `limited` proxy holds the requests it counts, as
+/// `PUT /limited-proxy-hold` sets it.
+#[derive(Serialize, Deserialize)]
+struct LimitedHold {
+    held: bool,
 }
 
 /// The families' own host names, each family's tasks served on
@@ -361,6 +369,7 @@ impl Site {
             ),
             (&Method::POST, "/oracle") => self.judge(request.body),
             (&Method::PUT, "/time-step") => self.set_time_step(request.body),
+            (&Method::PUT, "/limited-proxy-hold") => self.set_limited_hold(request.body),
             (&Method::POST, "/canaries") => self.plant(request),
             (&Method::GET, "/canaries") => self.canaries.document(),
             (&Method::POST, "/revoke-sessions") => {
@@ -578,6 +587,17 @@ impl Site {
         };
         self.observations.set_time_step(time_step.step);
         Reply::json(StatusCode::OK, &time_step)
+    }
+
+    /// Sets whether the `limited` proxy holds each request it counts until
+    /// released, which a harness turns on to send two at once and off to
+    /// let the held one go on.
+    fn set_limited_hold(&self, body: &Bytes) -> Reply {
+        let Ok(hold) = serde_json::from_slice::<LimitedHold>(body) else {
+            return Reply::error(StatusCode::BAD_REQUEST, "malformed_limited_proxy_hold");
+        };
+        self.observations.set_limited_hold(hold.held);
+        Reply::json(StatusCode::OK, &hold)
     }
 
     /// Judges a submission against its task's expected result.

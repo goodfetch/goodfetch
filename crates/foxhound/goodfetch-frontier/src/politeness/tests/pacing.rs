@@ -151,20 +151,22 @@ fn a_start_counts_its_interval_from_its_send(#[case] sent: SystemTime, #[case] n
 /// sends before it on the key, every sharing rated run's together: one
 /// whose send came later than its admission, past the next request's
 /// admission, would otherwise reach the site within the interval of that
-/// next request, whose token the earlier admission let it take. The send
-/// waits for the moment it answers, which becomes its start; a burst
-/// sends at once, and a run with no rate waits for none and takes none.
-/// Each send is `(milliseconds after 10 s, rated)`, each answer the wait's
-/// end in milliseconds after 10 s, if any.
+/// next request, whose token the earlier admission let it take. A send
+/// the bucket has no token for takes none and waits for the moment it
+/// answers, then asks again, so its token is taken, and its start
+/// recorded, when it goes, not when it began to wait; a burst sends at
+/// once, and a run with no rate waits for none and takes none. Each send
+/// is `(milliseconds after 10 s, rated)`, each answer the wait's end in
+/// milliseconds after 10 s, if any.
 ///
 /// Covers: story:6-248, setting:politeness.domain.rate, setting:politeness.domain.burst
 #[rstest]
 #[case::an_interval_apart(1, &[(0, true), (1_000, true)], &[None, None])]
 #[case::within_the_interval(1, &[(0, true), (400, true)], &[None, Some(1_000)])]
-#[case::each_after_the_wait_before(
+#[case::a_wait_takes_no_token(
     1,
-    &[(0, true), (100, true), (200, true)],
-    &[None, Some(1_000), Some(2_000)]
+    &[(0, true), (100, true), (200, true), (1_000, true), (1_000, true)],
+    &[None, Some(1_000), Some(1_000), None, Some(2_000)]
 )]
 /// Covers: setting:politeness.domain.burst
 #[case::a_burst_at_once(2, &[(0, true), (0, true), (0, true)], &[None, None, Some(1_000)])]

@@ -651,8 +651,9 @@ pub async fn started_again(
 /// 0086: a start is its send, the later of the two instants). A crawl
 /// request's own send by a run of `rate` also takes a token of the key's
 /// sends, every sharing rated run's together: when the sends before it
-/// left none, it answers the moment the next comes back, its start, which
-/// the caller waits for before sending. An admission's token therefore
+/// left none, it records nothing and answers the moment the next comes
+/// back, which the caller waits for before asking again, so the token and
+/// the start are taken when the request goes. An admission's token therefore
 /// never lets a request reach the site within the interval of one whose
 /// send came later than its own admission. Hops and runs with no rate
 /// pass `None`.
@@ -677,7 +678,8 @@ pub async fn started_at_send(
 }
 
 /// Takes in `connection` the start of a request of `key` sent at `now` by
-/// a run of `rate`, and answers when it may go, when later than `now`.
+/// a run of `rate`; when the key's sends left that run no token, it takes
+/// nothing and answers when to ask again.
 pub(crate) fn send_taken(
     connection: &Connection,
     key: &str,
@@ -685,20 +687,16 @@ pub(crate) fn send_taken(
     rate: Option<Rate>,
 ) -> rusqlite::Result<Option<SystemTime>> {
     let now = milliseconds_from(now);
-    let start = match rate {
-        Some(rate) => {
-            let mut pacing = Pacing::read(connection, key)?;
-            let start = rate
-                .waits_until(pacing.theoretical_send, now)
-                .unwrap_or(now);
-            pacing.theoretical_send = Some(rate.taken(pacing.theoretical_send, start));
-            pacing.write(connection, key)?;
-            start
+    if let Some(rate) = rate {
+        let mut pacing = Pacing::read(connection, key)?;
+        if let Some(until) = rate.waits_until(pacing.theoretical_send, now) {
+            return Ok(Some(moment(until)));
         }
-        None => now,
-    };
-    start_noted(connection, key, moment(start))?;
-    Ok((start > now).then(|| moment(start)))
+        pacing.theoretical_send = Some(rate.taken(pacing.theoretical_send, now));
+        pacing.write(connection, key)?;
+    }
+    start_noted(connection, key, moment(now))?;
+    Ok(None)
 }
 
 /// Records in `connection` a second start of `key` at `now`: the later of

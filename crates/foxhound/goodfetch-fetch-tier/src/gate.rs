@@ -146,16 +146,19 @@ impl HandOver {
         let run = &self.run;
         let key = self.keys.key(hop.url.as_str());
         let rate = self.rate.filter(|_| lead);
-        match goodfetch_frontier::started_at_send(politeness, &key, run.clock(), rate).await {
-            Ok(Some(start)) => {
-                let _waiting = self.lease.permit_wait(hop.url.as_str());
-                if let Ok(wait) = start.duration_since(run.clock().wall()) {
-                    run.clock().sleep(wait).await;
+        loop {
+            match goodfetch_frontier::started_at_send(politeness, &key, run.clock(), rate).await {
+                Ok(Some(until)) => {
+                    let _waiting = self.lease.permit_wait(hop.url.as_str());
+                    if let Ok(wait) = until.duration_since(run.clock().wall()) {
+                        run.clock().sleep(wait).await;
+                    }
                 }
-            }
-            Ok(None) => {}
-            Err(error) => {
-                tracing::warn!(%error, run_id = %run.id(), "a request's start at its send was not recorded");
+                Ok(None) => return,
+                Err(error) => {
+                    tracing::warn!(%error, run_id = %run.id(), "a request's start at its send was not recorded");
+                    return;
+                }
             }
         }
     }

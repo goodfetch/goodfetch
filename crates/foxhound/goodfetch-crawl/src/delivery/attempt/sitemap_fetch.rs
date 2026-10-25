@@ -1,8 +1,10 @@
 //! A sitemap's fetch as one attempt (ADR 0093): the attempt of a sitemap
 //! seed's work item, which reads its origin's robots.txt as a page's does,
-//! fetches its sitemap on the Run's HTTP tier and parses it, running no
-//! handler.
+//! fetches its sitemap on the Run's HTTP tier and reads it, plain or gzip,
+//! within sitemaps.org's limits and the Run's response limits (ADR 0067),
+//! running no handler.
 
+use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::robots_txt::Fetched;
 use goodfetch_fetch_tier::HttpTier;
 use goodfetch_frontier::sitemap;
@@ -16,8 +18,9 @@ impl On<'_> {
     /// `Sitemap:` lines it reads (ADR 0093), under the lease, on the Run's
     /// HTTP tier, whatever `fetch.tier` says: its origin's robots.txt read
     /// first, which may refuse it as it refuses a page, and the sitemap
-    /// parsed, no handler run, each hop's send recorded as its domain's
-    /// start and its latency for the adaptive delay, for every run sharing
+    /// read, plain or gzip, within sitemaps.org's limits and the Run's
+    /// response limits, no handler run, each hop's send recorded as its
+    /// domain's start and its latency for the adaptive delay, for every run sharing
     /// it, through the attempt's hand-over as a page's hops are. A
     /// robots.txt seed reads the copy its origin's robots.txt read gave,
     /// with no second fetch.
@@ -47,10 +50,14 @@ impl On<'_> {
                     };
                 }
                 let hand_over = self.gating.hand_over(run, leased, lease, self.in_flight).await;
+                let limits = run
+                    .settings()
+                    .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
                 match http.sitemap(&url, &hand_over).await {
-                    Ok(body) => match sitemap::parse(&body) {
+                    Ok(body) => match sitemap::read_file(url.as_str(), &body, limits) {
                         Ok(document) => Answer::SitemapRead(document),
-                        Err(why) => unreadable(url.as_str(), &why.0),
+                        Err(sitemap::Refusal::Unreadable(why)) => unreadable(url.as_str(), &why.0),
+                        Err(sitemap::Refusal::Limit(exceeded)) => failed(&exceeded.error()),
                     },
                     Err(error) => failed(&error),
                 }
@@ -61,7 +68,7 @@ impl On<'_> {
 }
 
 /// A sitemap's fetch whose file at `url` is no sitemap, for `why`: not
-/// retried, since the site answers the same again (#909 reports it).
+/// retried, since the site answers the same again; its seed reports it.
 fn unreadable(url: &str, why: &str) -> Answer {
     let mut details = Map::new();
     details.insert("url".to_owned(), Value::from(url));

@@ -1105,3 +1105,172 @@ fn requested_in_all(proving_ground: &ProvingGround) -> usize {
         .as_array()
         .map_or(0, Vec::len)
 }
+
+/// The host whose robots.txt asks every crawler for a Crawl-delay of 2 s
+/// and answers 1.5 s after the request arrived.
+const SLOW_ROBOTS_HOST: &str = "slow-robots.access-policy.test";
+
+/// [`SLOW_ROBOTS_HOST`]'s Crawl-delay, in milliseconds.
+const SLOW_ROBOTS_CRAWL_DELAY_MILLISECONDS: u64 = 2_000;
+
+/// The answers to the calls `ids` `engine` sends next, in the order of
+/// `ids`, whatever order they come in; the requests and replies between
+/// them are kept in `others`.
+fn answers_to(engine: &mut Attached, ids: &[String], others: &mut Vec<Value>) -> Vec<Value> {
+    let mut answers = vec![Value::Null; ids.len()];
+    while answers.iter().any(Value::is_null) {
+        let message = engine.next().expect("the engine answers");
+        match ids.iter().position(|id| message["id"] == id.as_str()) {
+            Some(at) => answers[at] = message,
+            None => others.push(message),
+        }
+    }
+    answers
+}
+
+/// Sends a `page.goto` of each of `pages` to its URL of `urls` at once,
+/// answering each call's response status, in order.
+fn goto_at_once(inside: &mut Inside<'_>, pages: &[String], urls: &[String]) -> Vec<Value> {
+    let engine = inside.engine();
+    let ids: Vec<String> = (0..pages.len()).map(|n| format!("at-once-{n}")).collect();
+    for ((id, page_id), url) in ids.iter().zip(pages).zip(urls) {
+        engine.send(&json!({
+            "jsonrpc": "2.0", "id": id, "method": "page.goto",
+            "params": { "page_id": page_id, "url": url },
+        }));
+    }
+    answers_to(engine, &ids, &mut Vec::new())
+        .iter()
+        .map(|answer| answer["result"]["response"]["status"].clone())
+        .collect()
+}
+
+/// Two pages of a handler going at once to a host whose robots.txt answers
+/// slowly, under its Crawl-delay, reach it no sooner than the Crawl-delay
+/// after the robots.txt request, on the Proving ground's arrival times,
+/// and the Crawl-delay apart (ADR 0086): the page whose navigation fetched
+/// robots.txt counts the delay from its response's arrival, never from its
+/// send, and the page that read the copy meanwhile counts it from that
+/// copy's fetch, never going at once because it fetched nothing itself.
+///
+/// Covers: story:5-134, operation:page.goto, operation:run.new_page
+#[test]
+fn a_handlers_navigations_after_a_slow_robots_txt_wait_its_crawl_delay_from_its_arrival() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let urls: Vec<String> = (1..=2)
+        .map(|n| proving_ground.url(SLOW_ROBOTS_HOST, &format!("/catalog/{n}")))
+        .collect();
+
+    let mut statuses = Vec::new();
+    let report = crawl_with(
+        &mut engine,
+        "slow-robots",
+        &[json!({ "url": proving_ground.url(HISTORY, "/"), "label": "page" })],
+        &settings(&proving_ground, &json!({})),
+        &mut |inside, handle| {
+            let pages = [new_page(inside, handle), new_page(inside, handle)];
+            statuses = goto_at_once(inside, &pages, &urls);
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+
+    let arrived = arrivals(
+        &proving_ground,
+        SLOW_ROBOTS_HOST,
+        &["/robots.txt", "/catalog/1", "/catalog/2"],
+    );
+    let delay = SLOW_ROBOTS_CRAWL_DELAY_MILLISECONDS * 1_000;
+    let after_robots_txt = arrived.get(1).map(|first| first.1 >= arrived[0].1 + delay);
+    // Between two navigations, the arrivals may come a little closer than
+    // their sends (`too_soon`).
+    let apart = arrived
+        .get(2)
+        .map(|second| second.1 - arrived[1].1 >= delay * 9 / 10);
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            statuses,
+            arrived.first().map(|(target, _)| target.as_str()),
+            arrived.len(),
+            after_robots_txt,
+            apart,
+        ),
+        (
+            &json!("finished"),
+            vec![json!(200); 2],
+            Some("/robots.txt"),
+            3,
+            Some(true),
+            Some(true),
+        ),
+        "{arrived:?}"
+    );
+}
+
+/// The delay between starts of the case whose first navigation is its
+/// Session's first request through the egress relay, in milliseconds.
+const RELAY_DELAY_MILLISECONDS: u64 = 1_000;
+
+/// A handler's navigations of one domain reach it the delay between starts
+/// apart, on the Proving ground's arrival times, the first included, its
+/// Session's first request through its egress relay: the browser sends it
+/// only once the relay answered `407` and got the Session's credentials,
+/// so its delay counts from that send, never from its admission, nor from
+/// the command that first sent it on (ADR 0086).
+///
+/// Covers: story:5-134, setting:politeness.domain.delay, operation:page.goto, operation:run.new_page
+#[test]
+fn a_handlers_navigations_through_a_fresh_egress_relay_reach_their_domain_the_delay_apart() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let mut settings = settings(
+        &proving_ground,
+        &json!({ "politeness": { "domain": { "delay": RELAY_DELAY_MILLISECONDS } } }),
+    );
+    // The built-in tier: the engine sends nothing for the seed, so the
+    // handler's first navigation is the Session's first request.
+    if let Some(settings) = settings.as_object_mut() {
+        settings.remove("fetch");
+    }
+    let pages = ["/catalog/1", "/catalog/2", "/catalog/3"];
+
+    let mut statuses = Vec::new();
+    let report = crawl_with(
+        &mut engine,
+        "fresh-relay",
+        &[json!({ "url": "https://seed-1.test/", "label": "page" })],
+        &settings,
+        &mut |inside, handle| {
+            let page_id = new_page(inside, handle);
+            for path in pages {
+                let url = proving_ground.url(CATALOG_HOST, path);
+                let went = inside.call("page.goto", &json!({ "page_id": page_id, "url": url }));
+                statuses.push(went["result"]["response"]["status"].clone());
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+
+    let arrived = arrivals(&proving_ground, CATALOG_HOST, &pages);
+    let gaps: Vec<u64> = arrived
+        .windows(2)
+        .map(|pair| pair[1].1 - pair[0].1)
+        .collect();
+    // The arrivals may come a little closer than the sends (`too_soon`).
+    let least = RELAY_DELAY_MILLISECONDS * 1_000 * 9 / 10;
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            statuses,
+            arrived.len(),
+            gaps.iter().filter(|gap| **gap < least).count(),
+        ),
+        (&json!("finished"), vec![json!(200); 3], 3, 0),
+        "{arrived:?} {gaps:?}"
+    );
+}

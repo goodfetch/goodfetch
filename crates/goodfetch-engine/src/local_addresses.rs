@@ -126,6 +126,12 @@ impl From<Unavailable> for CallError {
             LocalAddressFailure::PrefixUnusable => format!(
                 "the prefix {entry} holds none of this host's addresses; on Linux, route it locally and set `net.ipv6.ip_nonlocal_bind` to 1 to send from any of its addresses"
             ),
+            LocalAddressFailure::NotLaunchedHere => format!(
+                "`egress.local_addresses` ({entry}) binds only the browsers this engine launches on this machine, never a Borrowed browser, a third-party CDP browser or a Browser host's: open the Session on a browser the engine launches, or leave `egress.local_addresses` unset for its Run"
+            ),
+            LocalAddressFailure::ProxyNotRelayed => format!(
+                "`egress.local_addresses` ({entry}) cannot hold a Session behind an `https://` proxy, which the egress relay does not chain through, so its browser would reach the proxy from an address the OS chooses: use an `http://` or `socks5://` proxy, or leave `egress.local_addresses` unset"
+            ),
         };
         Self::new(
             &LOCAL_ADDRESS_UNAVAILABLE,
@@ -200,28 +206,50 @@ impl Rotation {
     /// [`Unavailable`] when they give no address now, such as an interface
     /// that lost its addresses since the Run started.
     pub fn next_session(&self, host: &dyn Host) -> Result<SessionAddresses, Unavailable> {
-        let (ipv4, ipv6) = self.pools(host)?;
+        let pools = self.pools(host)?;
         let session = self.sessions.fetch_add(1, Ordering::Relaxed);
+        Ok(Self::pick(&pools, self.blocks, session))
+    }
+
+    /// The addresses the `ordinal`-th Session of the Run holds for its
+    /// life, counted from 0, as [`Self::next_session`] would give it: the
+    /// same Session drawn again, such as one reopened from run state, takes
+    /// the same addresses while the host holds them.
+    ///
+    /// # Errors
+    ///
+    /// [`Unavailable`] when they give no address now.
+    pub fn session(&self, host: &dyn Host, ordinal: u64) -> Result<SessionAddresses, Unavailable> {
+        let pools = self.pools(host)?;
+        Ok(Self::pick(&pools, self.blocks, ordinal))
+    }
+
+    /// The addresses of each family's pool the `session`-th Session takes.
+    fn pick(
+        (ipv4, ipv6): &(Option<Pool>, Option<Pool>),
+        blocks: BlockSizes,
+        session: u64,
+    ) -> SessionAddresses {
         let pick = |pool: &Pool, block: u8| match pool {
             Pool::Listed(addresses) => spread(addresses, block, session),
             Pool::Any(prefix) => Some(IpAddr::V6(in_prefix(*prefix, block, session))),
         };
-        Ok(SessionAddresses {
+        SessionAddresses {
             ipv4: ipv4
                 .as_ref()
-                .and_then(|pool| pick(pool, self.blocks.ipv4))
+                .and_then(|pool| pick(pool, blocks.ipv4))
                 .and_then(|address| match address {
                     IpAddr::V4(address) => Some(address),
                     IpAddr::V6(_) => None,
                 }),
             ipv6: ipv6
                 .as_ref()
-                .and_then(|pool| pick(pool, self.blocks.ipv6))
+                .and_then(|pool| pick(pool, blocks.ipv6))
                 .and_then(|address| match address {
                     IpAddr::V6(address) => Some(address),
                     IpAddr::V4(_) => None,
                 }),
-        })
+        }
     }
 
     /// Each family's pool on `host` now; none for a family without

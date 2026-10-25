@@ -34,8 +34,8 @@ const WRITING: [&str; 9] = [
 const WRITERS: &[(&str, usize, &str)] = &[
     (
         "crates/foxhound/goodfetch-crawl/src/labels.rs",
-        1,
-        "holds no value: the Labels a crawl declares, their Payloads' schemas and their `fetch.tier`",
+        2,
+        "holds no value: the Labels a crawl declares, their Payloads' schemas and their `fetch.tier`, and whether the Run and each Label keep URL fragments",
     ),
     (
         "crates/foxhound/goodfetch-crawl/src/tier_choice.rs",
@@ -94,8 +94,8 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/foxhound/goodfetch-frontier/src/sitemap.rs",
-        2,
-        "holds no value: a sitemap seed's sitemaps (URLs, the seed's rules) and their entries' counts by reason",
+        3,
+        "holds no value: a sitemap seed's sitemaps (URLs, the seed's rules), their entries' counts by reason, and each it could not read with the engine's own error code, status and message, no handler's",
     ),
     (
         "crates/foxhound/goodfetch-session-pool/src/store.rs",

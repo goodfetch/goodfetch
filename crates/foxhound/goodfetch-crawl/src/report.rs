@@ -4,10 +4,10 @@
 //! Block cause, and those left pending; `records`, per Dataset, the Records
 //! its succeeded requests committed, dropped and rejected; `learned_rules`,
 //! the rules its Frontier learned, each with its evidence and every URL it
-//! merged (ADR 0005); `sitemaps`, each sitemap its sitemap seeds read,
-//! with how many of its entries were added and not added, by reason (ADR
-//! 0093); and, for a crawl
-//! that finished with no seed reaching a handler, `nothingDone`'s
+//! merged (ADR 0005); `sitemaps`, per sitemap seed, its sitemaps read,
+//! those it could not read with their URL and why, and how many of their
+//! entries were added and not added, by reason (ADRs 0093 and 0102); and,
+//! for a crawl that finished with no seed reaching a handler, `nothingDone`'s
 //! `no_seed_handled`, counting its seeds by why each never reached one. A
 //! Run of another kind gets none of them.
 

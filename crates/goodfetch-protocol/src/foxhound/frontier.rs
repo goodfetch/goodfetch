@@ -738,6 +738,22 @@ pub const CRAWL_PATH_BUDGETS: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `crawl.keep_url_fragment` (ADR 0120; pitfall U05).
+pub const CRAWL_KEEP_URL_FRAGMENT: Setting = Setting {
+    name: "crawl.keep_url_fragment",
+    description: "Whether a crawl request's identity keeps its URL's fragment, so a hash-routed app's views (`#/a`, `#/b`) are separate requests, set for the Run or for one of its Labels, whose own value wins for its requests (Crawlee's `keepUrlFragment`). Off by default: one URL with two fragments is one request. Only the tiers that run the page's scripts serve such a request: under `fetch.tier: auto` it runs on `browser`, and forcing `http`, `browser_fetch` or `discovered_api` where it is on fails the crawl's start with `setting_not_applicable`. Fixed for a Run's life: a start under the Run's ID that changes it is refused with `setting_not_applicable`.",
+    kind: ValueKind::Boolean,
+    default: no_fragment,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn no_fragment() -> Value {
+    Value::Bool(false)
+}
+
 /// `crawl.payload.max_size` (ADR 0082).
 pub const CRAWL_PAYLOAD_MAX_SIZE: Setting = Setting {
     name: "crawl.payload.max_size",
@@ -881,6 +897,7 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_MAX_SEGMENT_REPEATS,
         CRAWL_PATH_BUDGETS,
         CRAWL_PAYLOAD_MAX_SIZE,
+        CRAWL_KEEP_URL_FRAGMENT,
     ],
     hook_stages: &[],
     shared_type_values: &[],

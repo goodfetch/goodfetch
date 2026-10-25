@@ -397,12 +397,13 @@ pub(crate) async fn resume(
             Ok((
                 work_items::left(connection)?,
                 labels::read(connection)?,
+                labels::Fragments::read(connection)?,
                 tier_choice::read(connection)?,
             ))
         })
         .await;
-    let left = left.map(|(left, declared, choices)| {
-        let labels = labels::Declared::of(&declared).unwrap_or_else(|error| {
+    let left = left.map(|(left, declared, fragments, choices)| {
+        let labels = labels::Declared::of(&declared, fragments).unwrap_or_else(|error| {
             tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier and pool");
             labels::Declared::default()
         });
@@ -494,7 +495,15 @@ impl Fetching<'_> {
         } else {
             self.labels.settings.choose(&request.label, self.run_tier)
         };
+        // A request keeping its URL's fragment is served only by a tier
+        // that runs the page's scripts, which the engine's choice is then
+        // (ADR 0120); the start refused it on any forced tier but those.
+        let keeps_fragment = !leased.sitemap && self.labels.fragments.keeps(&request.label);
         let plan = match choosing {
+            Choosing::Alone | Choosing::Engine if keeps_fragment => AttemptPlan::On(TierChoice {
+                tier: FetchTier::Browser,
+                forced: None,
+            }),
             Choosing::Alone | Choosing::Engine if self.races && !to_browser && !leased.sitemap => {
                 let learned = self.choices.lock().await.serve_attempt(
                     &request.label,

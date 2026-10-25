@@ -124,6 +124,7 @@ pub(crate) fn admit_seeds(links: &[String]) -> usize {
                 method: &get,
                 body: None,
                 key: None,
+                keeps_fragment: false,
             },
         };
         let answer = admit(&connection, &scope, &policy, candidate, |_| {

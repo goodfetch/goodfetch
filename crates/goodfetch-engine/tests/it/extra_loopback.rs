@@ -131,6 +131,74 @@ async fn a_fetch_through_a_session_bound_to_a_loopback_alias_leaves_from_it_and_
     );
 }
 
+/// A Session's binding as the egress relay takes it for a browser Session
+/// (ADR 0044): its lookup's queries leave from the Session's address
+/// through the engine's resolver, and its connection to an answer leaves
+/// from it too; a connection to a family it holds no address of is refused
+/// before any is opened.
+/// Covers: story:4-45
+#[tokio::test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a real name server's socket stays off the paused clock, so the test runs on the real-time runtime `tokio::test` builds (TESTING.md, Time)"
+)]
+async fn a_bindings_lookup_and_connection_leave_from_the_sessions_address() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let target: SocketAddr = proving_ground
+        .description()
+        .fixtures
+        .target
+        .parse()
+        .unwrap();
+    let binding = LocalBinding::new(
+        SessionAddresses {
+            ipv4: Some(BOUND),
+            ipv6: None,
+        },
+        &dns(&proving_ground),
+    );
+
+    let found = binding
+        .lookup("3.catalog.test", target.port(), &Resolve::new())
+        .await
+        .unwrap();
+    let connected = binding.connect(found[0]).await.map(|_| ());
+    let other_family = binding
+        .connect(SocketAddr::new(
+            IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
+            target.port(),
+        ))
+        .await
+        .map(|_| ())
+        .map_err(|error| error.kind());
+    let observations = proving_ground.observations().unwrap();
+
+    assert_eq!(
+        (
+            found,
+            connected.is_ok(),
+            target_sources(&observations),
+            query_sources(&observations, "3.catalog.test")
+                .into_iter()
+                .all(|source| source == IpAddr::V4(BOUND)),
+            query_sources(&observations, "3.catalog.test").is_empty(),
+            other_family,
+        ),
+        (
+            vec![SocketAddr::new(
+                proving_ground.address().ip(),
+                target.port()
+            )],
+            true,
+            vec![IpAddr::V4(BOUND)],
+            true,
+            false,
+            Err(std::io::ErrorKind::AddrNotAvailable),
+        )
+    );
+}
+
 /// The resolver alone: with no local address its queries leave from the
 /// address the OS chooses, bound to one they leave from it.
 /// Covers: story:4-44

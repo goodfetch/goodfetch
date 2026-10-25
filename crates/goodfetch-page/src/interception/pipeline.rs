@@ -434,19 +434,23 @@ impl PageContext {
     async fn authenticate(&self, required: fetch::AuthRequiredEvent) {
         let proxied = required.auth_challenge.source == Some(fetch::AuthChallengeSource::Proxy)
             && (self.driver.proxy().is_some() || self.driver.relay().is_some());
+        let navigation = required.resource_type == network::ResourceType::Document
+            && &required.frame_id == self.driver.main_frame();
+        let mut credentials_given = false;
         let response = if proxied {
             let seen = lock(&self.authenticated).seen(&required.request_id);
             match self.driver.proxy_credentials() {
-                Some(credentials) if !seen => answer_auth(
-                    fetch::AuthChallengeResponseResponse::ProvideCredentials,
-                    Some(credentials),
-                ),
+                Some(credentials) if !seen => {
+                    credentials_given = true;
+                    answer_auth(
+                        fetch::AuthChallengeResponseResponse::ProvideCredentials,
+                        Some(credentials),
+                    )
+                }
                 // Behind the relay, a second 407 is the upstream proxy's
                 // refusal of the Session's credentials, which the relay
                 // passed on.
                 _ => {
-                    let navigation = required.resource_type == network::ResourceType::Document
-                        && &required.frame_id == self.driver.main_frame();
                     if navigation && let Some(proxy) = self.driver.proxy() {
                         self.state.leave(proxy.auth_failed(&required.request.url));
                     }
@@ -463,8 +467,16 @@ impl PageContext {
                 auth_challenge_response: response,
             })
             .await;
-        if let Err(failure) = answered {
-            tracing::debug!(%failure, "the request that asked for credentials was gone");
+        match answered {
+            Err(failure) => {
+                tracing::debug!(%failure, "the request that asked for credentials was gone");
+            }
+            // The navigation leaves only now, with the credentials: its
+            // gate hears that send too (ADR 0086).
+            Ok(_) if credentials_given && navigation => {
+                self.driver.sent(&required.request.url).await;
+            }
+            Ok(_) => {}
         }
     }
 
@@ -759,6 +771,8 @@ impl PageContext {
         {
             return Err(withheld);
         }
+        // The page whose navigation a service worker's request carries.
+        let mut gated: Option<Arc<PageState>> = None;
         let command = match stepped {
             Ok(steps::Sent::Continue(command)) => {
                 // Step 6: the page's navigation gate; its lease check is
@@ -780,6 +794,7 @@ impl PageContext {
                     Ok(Some(carried)) => {
                         lock(&self.carried).insert(id.clone(), Arc::downgrade(&carried));
                         command.intercept_response = Some(true);
+                        gated = Some(carried);
                     }
                     Ok(None) => {}
                 }
@@ -818,12 +833,42 @@ impl PageContext {
         if held.navigation {
             *lock(&self.document) = Arc::from(held.url());
         }
-        if let Err(failure) = self.driver.command(&command).await {
+        self.sent_on(held, &command, fetch, gated.as_deref()).await
+    }
+
+    /// Sends `held` on with `command`, then tells the gate that admitted it
+    /// that the browser took the command, so a delay counts from its send
+    /// (ADR 0086): the page's own for a hop of its main frame's
+    /// navigation, the page's whose navigation it carries, `carried`, for a
+    /// service worker's.
+    ///
+    /// # Errors
+    ///
+    /// For a `fetch`, `closed` when the request went before it was sent on.
+    async fn sent_on(
+        &self,
+        held: &Held,
+        command: &fetch::ContinueRequestParams,
+        fetch: bool,
+        carried: Option<&PageState>,
+    ) -> Result<(), CallError> {
+        if let Err(failure) = self.driver.command(command).await {
             tracing::debug!(?failure, "a paused request went before it was sent on");
             // A `fetch` whose request was never sent on gets no response.
             if fetch {
                 return Err(gone(held.url()));
             }
+            return Ok(());
+        }
+        if held.navigation {
+            self.driver.sent(held.url()).await;
+        } else if let Some(carried) = carried {
+            carried
+                .navigating
+                .as_ref()
+                .map_or(&self.driver, |navigating| &navigating.driver)
+                .sent(held.url())
+                .await;
         }
         Ok(())
     }

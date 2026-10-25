@@ -29,6 +29,7 @@ fn serve_on_port_zero_first_prints_its_address_version_and_seed() {
             "proxy_credentials",
             "seed",
             "target",
+            "udp",
             "version"
         ]
     );
@@ -82,7 +83,7 @@ fn serve_first_prints_the_address_of_each_network_fixture() {
     assert!(
         proxies
             .values()
-            .chain([&line["dns"], &line["target"]])
+            .chain([&line["dns"], &line["target"], &line["udp"]])
             .all(|fixture| fixture.as_str().is_some_and(|text| address.is_match(text))),
         "{line}"
     );

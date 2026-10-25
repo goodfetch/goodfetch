@@ -77,7 +77,7 @@ fn stage(inside: &mut Inside<'_>, handle: &Value) -> Vec<Value> {
 }
 
 /// The URL of each work item the run file holds, in order.
-fn work_items(env: &TestEnv, run_id: &str) -> Vec<String> {
+pub(crate) fn work_items(env: &TestEnv, run_id: &str) -> Vec<String> {
     run_file(env, run_id)
         .prepare("SELECT url FROM work_items ORDER BY position")
         .unwrap()
@@ -88,7 +88,7 @@ fn work_items(env: &TestEnv, run_id: &str) -> Vec<String> {
 }
 
 /// Each key the run file's Key-value store holds, with its value.
-fn keys(env: &TestEnv, run_id: &str) -> Vec<(String, String)> {
+pub(crate) fn keys(env: &TestEnv, run_id: &str) -> Vec<(String, String)> {
     run_file(env, run_id)
         .prepare("SELECT key, value FROM key_values ORDER BY key")
         .unwrap()
@@ -98,7 +98,7 @@ fn keys(env: &TestEnv, run_id: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-fn run_file(env: &TestEnv, run_id: &str) -> Connection {
+pub(crate) fn run_file(env: &TestEnv, run_id: &str) -> Connection {
     Connection::open(
         env.home()
             .join("0.0")

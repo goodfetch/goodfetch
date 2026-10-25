@@ -273,6 +273,9 @@ pub struct DocumentResponse<'a> {
 /// A boxed future the interfaces answer, so they stay object-safe.
 pub type Admission<'a> = Pin<Box<dyn Future<Output = Result<Permit, Refusal>> + Send + 'a>>;
 
+/// The boxed future [`NavigationGate::sending`] answers.
+pub type Sending<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+
 /// The navigation gate (ADRs 0087 and 0093): consulted at step 6 of the
 /// interception, after the domain policy and the Filter lists, for each
 /// request [`NavigationKind`] names. Time spent in [`NavigationGate::admit`]
@@ -282,6 +285,14 @@ pub trait NavigationGate: Debug + Send + Sync {
     /// Admits `navigation` with a permit, or refuses it: a refused request
     /// never leaves the browser.
     fn admit<'a>(&'a self, navigation: &'a Navigation) -> Admission<'a>;
+
+    /// Hears that a request to `url` it admitted left the browser: once the
+    /// browser took the command that sends it on, and again once it took
+    /// the Session's proxy credentials after a `407`, since the request
+    /// goes only then (ADR 0086: a delay counts from a request's real
+    /// send, never from its admission). The page waits for it before it
+    /// acts on the request's next event.
+    fn sending<'a>(&'a self, url: &'a str) -> Sending<'a>;
 
     /// Judges the document a main-frame navigation's response carries, for
     /// a signal the response itself sends (aipref's `Content-Usage` header,

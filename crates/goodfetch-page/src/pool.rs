@@ -39,8 +39,10 @@ use std::time::Duration;
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::Pins;
+use goodfetch_engine::dns::{Dns, HostMapping, ResolverConfiguration};
 use goodfetch_engine::governor::{BrowserUse, GovernedBrowser, PageHold, footprint_of};
 use goodfetch_engine::home::Home;
+use goodfetch_engine::local_addresses::{self, Rotation, Unavailable};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::tls::{CertificateExceptions, PinBook, Trust, trusted_cas};
@@ -52,11 +54,20 @@ use crate::driver::{
     Behind, BorrowedBrowser, Carried, LocalBrowser, Origins, PageDriver, SessionDriver,
     SessionEgress, Visibility,
 };
-use crate::egress_relay::RelayTls;
 use crate::egress_relay::authority::Authority;
+use crate::egress_relay::{Local, RelayTls};
 use crate::trace::CommandLog;
 pub(crate) use rules::Placement;
 use rules::{Limits, Seats, Use};
+
+/// Why a Session's local addresses cannot be held.
+#[derive(Debug)]
+pub(crate) enum LocalFailure {
+    /// `egress.local_addresses` gives no address now.
+    Unavailable(Unavailable),
+    /// The system's resolver configuration cannot be read.
+    Unreadable(String),
+}
 
 /// A Run's browser pool. Clones share it.
 #[derive(Clone)]
@@ -78,6 +89,12 @@ struct Shared {
     exceptions: CertificateExceptions,
     /// The authorities the Run's `tls.trusted_cas` trusts, read once.
     trust: OnceCell<Trust>,
+    /// The Run's `egress.local_addresses`, which each Session draws its
+    /// addresses from (ADR 0044).
+    rotation: Option<Arc<Rotation>>,
+    /// The engine's resolution its Sessions with local addresses resolve
+    /// through, read from the system's configuration once.
+    dns: OnceCell<Result<Dns, String>>,
     /// The Run trace's CDP log, which its browsers share.
     log: Arc<OnceCell<CommandLog>>,
     browsers: SyncMutex<Browsers>,
@@ -172,6 +189,10 @@ impl Pool {
         let limits = Limits::of(run.settings().map(RunSettings::resolved));
         let exceptions = exceptions_of(&run);
         let authority = authority_of(&run, &exceptions);
+        let rotation = run
+            .settings()
+            .and_then(|settings| Rotation::of(settings.resolved()))
+            .map(Arc::new);
         Self {
             shared: Arc::new(Shared {
                 run,
@@ -181,6 +202,8 @@ impl Pool {
                 authority,
                 exceptions,
                 trust: OnceCell::new(),
+                rotation,
+                dns: OnceCell::new(),
                 log: Arc::default(),
                 browsers: SyncMutex::default(),
             }),
@@ -213,6 +236,52 @@ impl Pool {
             exceptions: shared.exceptions.clone(),
             trust,
         }
+    }
+
+    /// The local addresses the Session at `position` of the Run holds for
+    /// its life, and the engine's resolution its relay resolves through
+    /// from them; none when the Run sets no `egress.local_addresses`. The
+    /// same position draws the same addresses again, as a Session reopened
+    /// from run state does.
+    ///
+    /// # Errors
+    ///
+    /// [`LocalFailure`]: the addresses give none now, such as an interface
+    /// that lost its addresses, or the system's resolver configuration
+    /// cannot be read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves a started read of the host to finish.
+    pub(crate) async fn local(&self, position: u32) -> Result<Option<Local>, LocalFailure> {
+        let shared = &self.shared;
+        let Some(rotation) = &shared.rotation else {
+            return Ok(None);
+        };
+        let rotation = Arc::clone(rotation);
+        let ordinal = u64::from(position.saturating_sub(1));
+        let addresses = shared
+            .run
+            .owner()
+            .blocking(move || rotation.session(&local_addresses::System, ordinal))
+            .await
+            .map_err(LocalFailure::Unavailable)?;
+        let clock = shared.run.clock();
+        let dns = shared
+            .dns
+            .get_or_init(|| async {
+                shared
+                    .run
+                    .owner()
+                    .blocking(ResolverConfiguration::system)
+                    .await
+                    .map(|configuration| Dns::new(HostMapping::default(), configuration, clock))
+                    .map_err(|unreadable| unreadable.to_string())
+            })
+            .await
+            .clone()
+            .map_err(LocalFailure::Unreadable)?;
+        Ok(Some(Local { addresses, dns }))
     }
 
     /// A seat for a Session whose requests leave through `egress`, its

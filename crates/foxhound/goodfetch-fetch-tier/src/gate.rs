@@ -62,7 +62,7 @@ use goodfetch_engine::robots_txt::{self, Fetch, Fetched, Judgment, Rule};
 use goodfetch_engine::runs::Run;
 use goodfetch_frontier::{DomainKeys, Scope};
 use goodfetch_page::page_value::{
-    Admission, DocumentResponse, Navigation, NavigationGate, Permit, Refusal,
+    Admission, DocumentResponse, Navigation, NavigationGate, Permit, Refusal, Sending,
 };
 use goodfetch_page::robots_txt::{Group, ProductToken, applicable_rules};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
@@ -135,22 +135,31 @@ pub struct HandOver {
 
 impl HandOver {
     /// Records `hop`'s send as the last start of its domain key for every
-    /// run sharing it (ADR 0086), at the moment the Politeness file records
-    /// it, when the Run's Politeness opened. The `lead` send, its crawl
-    /// request's own, first waits for its delay after the key's last send
-    /// and, in a rated run, for a token of the key's sends, renewing the
-    /// lease meanwhile.
+    /// run sharing it (ADR 0086), when the Run's Politeness opened. The
+    /// `lead` send, its crawl request's own, first waits for its delay
+    /// after the key's last send and, in a rated run, for a token of the
+    /// key's sends, renewing the lease meanwhile.
     pub(crate) async fn sending(&self, hop: &Hop, lead: bool) {
+        self.sent(hop.url.as_str(), lead).await;
+    }
+
+    /// Records the send of a request to `url` as the last start of its
+    /// domain key for every run sharing it (ADR 0086), at the moment the
+    /// Politeness file records it, when the Run's Politeness opened: the
+    /// later of it and the start already recorded is kept. A `lead` send
+    /// first waits for its delay after the key's last send and, in a rated
+    /// run, for a token of the key's sends, renewing the lease meanwhile.
+    async fn sent(&self, url: &str, lead: bool) {
         let Some(politeness) = &self.politeness else {
             return;
         };
         let run = &self.run;
-        let key = self.keys.key(hop.url.as_str());
+        let key = self.keys.key(url);
         let pace = lead.then_some(self.pace);
         loop {
             match goodfetch_frontier::started_at_send(politeness, &key, run.clock(), pace).await {
                 Ok(Some(until)) => {
-                    let _waiting = self.lease.permit_wait(hop.url.as_str());
+                    let _waiting = self.lease.permit_wait(url);
                     if let Ok(wait) = until.duration_since(run.clock().wall()) {
                         run.clock().sleep(wait).await;
                     }
@@ -207,6 +216,11 @@ impl NavigationGate for Admitted {
         Box::pin(async { Ok(Permit::unlimited()) })
     }
 
+    /// Hears nothing: [`ChainGate::sending`] recorded the hop's send.
+    fn sending<'a>(&'a self, _url: &'a str) -> Sending<'a> {
+        Box::pin(async {})
+    }
+
     fn judge_document(&self, _response: &DocumentResponse<'_>) -> Result<(), Refusal> {
         Ok(())
     }
@@ -251,9 +265,30 @@ impl NavigationGate for Gate {
         })
     }
 
+    /// Records the request's send as the last start of its domain key for
+    /// every run sharing it, when later than the start its admission took:
+    /// the browser sends it once the page sent it on, and a Session's first
+    /// request through its egress relay only after the relay's `407`, so
+    /// the next request would otherwise reach the site that much closer
+    /// than the delay (ADR 0086).
+    fn sending<'a>(&'a self, url: &'a str) -> Sending<'a> {
+        Box::pin(async move {
+            if Url::parse(url).is_ok_and(|url| matches!(url.scheme(), "http" | "https")) {
+                self.0.sent(url, false).await;
+            }
+        })
+    }
+
     fn judge_document(&self, _response: &DocumentResponse<'_>) -> Result<(), Refusal> {
         Ok(())
     }
+}
+
+/// The robots.txt a request read: where it is, and when the response of
+/// the fetch made for it arrived, if one was.
+struct Read {
+    location: Url,
+    fetched: Option<SystemTime>,
 }
 
 /// What applies of a host's robots.txt.
@@ -287,7 +322,7 @@ impl Gate {
         } else {
             self.beside(&key).await
         };
-        let (applying, fetched_at) = if hand_over.respect_robots_txt {
+        let (applying, read) = if hand_over.respect_robots_txt {
             self.robots_txt(url, &key).await
         } else {
             (Applying::nothing(), None)
@@ -318,7 +353,9 @@ impl Gate {
                 ),
             });
         }
-        let start = self.start(&key, own, before, fetched_at, crawl_delay).await;
+        let start = self
+            .start(&key, own, before, read.as_ref(), crawl_delay)
+            .await;
         if let Some(wait) = start.and_then(|start| start.duration_since(run.clock().wall()).ok()) {
             run.clock().sleep(wait).await;
         }
@@ -327,37 +364,62 @@ impl Gate {
 
     /// When a request of `key` admitted now starts, taken for every run
     /// sharing the domain at once, so that two handlers' requests never
-    /// read the same last start and go together (ADR 0086): after a
-    /// robots.txt fetched at `fetched_at` for it, or on the attempt's own
-    /// key, the delay between starts and the Crawl-delay after the last
-    /// start; on another key, whose Permit its domain's rule already
-    /// spaced, the Crawl-delay after the start `before` it.
+    /// read the same last start and go together (ADR 0086): after the
+    /// robots.txt it `read`, while the fetch of it, its own or the one
+    /// whose copy it read, is less than the delay before, the delay
+    /// between starts and the Crawl-delay after that fetch's response
+    /// arrived and after the last start
+    /// ([`goodfetch_frontier::start_after_robots_txt`]), so the site never
+    /// receives it sooner than that after the robots.txt request; else, on
+    /// the attempt's own key, the same after the last start; on another
+    /// key, whose Permit its domain's rule already spaced, the Crawl-delay
+    /// after the start `before` it.
     async fn start(
         &self,
         key: &str,
         own: bool,
         before: Option<SystemTime>,
-        fetched_at: Option<SystemTime>,
+        read: Option<&Read>,
         crawl_delay: Duration,
     ) -> Option<SystemTime> {
         let hand_over = &self.0;
         let run = &hand_over.run;
         let wall = run.clock().wall();
         let spacing = hand_over.domain_delay.max(crawl_delay);
-        // The start its spacing runs from, when it takes its start at once.
-        let after = fetched_at.or_else(|| own.then(|| wall.checked_sub(spacing).unwrap_or(wall)));
+        let fetched = read.and_then(|read| read.fetched);
         let Some(politeness) = &hand_over.politeness else {
             // No run shares the domain: the request goes once its own
             // spacing passed.
             return [
                 before.map(|before| before + crawl_delay),
                 before.filter(|_| own).map(|before| before + spacing),
-                fetched_at.map(|fetched| fetched + spacing),
+                fetched.map(|fetched| fetched + spacing),
             ]
             .into_iter()
             .flatten()
             .max();
         };
+        if let Some(read) = read {
+            match goodfetch_frontier::start_after_robots_txt(
+                politeness,
+                key,
+                read.location.as_str(),
+                read.fetched,
+                spacing,
+                wall,
+            )
+            .await
+            {
+                Ok(Some(start)) => return Some(start),
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(%error, run_id = %run.id(), "a handler's navigation start after its robots.txt was not taken");
+                    return fetched.map(|fetched| fetched + spacing);
+                }
+            }
+        }
+        // The start its spacing runs from, when it takes its start at once.
+        let after = own.then(|| wall.checked_sub(spacing).unwrap_or(wall));
         if let Some(after) = after {
             return goodfetch_frontier::start_after(politeness, key, after, spacing)
                 .await
@@ -407,26 +469,30 @@ impl Gate {
     }
 
     /// What applies of `url`'s robots.txt, read from the copy the Run
-    /// shares, and when it was fetched for this request, if it was.
-    async fn robots_txt(&self, url: &Url, key: &str) -> (Applying, Option<SystemTime>) {
+    /// shares, and where it is and when the response of the fetch made for
+    /// this request arrived, if one was: a delay counts from that arrival,
+    /// the earliest moment the request is known to have reached the site,
+    /// never from the fetch's send (ADR 0086).
+    async fn robots_txt(&self, url: &Url, key: &str) -> (Applying, Option<Read>) {
         let hand_over = &self.0;
         let run = &hand_over.run;
         let Some(location) = robots_txt::location(url) else {
             return (Applying::nothing(), None);
         };
-        let (sending, sent) = oneshot::channel::<SystemTime>();
+        let (arriving, arrived) = oneshot::channel::<SystemTime>();
         let fetch: Fetch<'_> = Box::pin(async {
-            let _ = sending.send(run.clock().wall());
-            match &hand_over.robots {
+            let answer = match &hand_over.robots {
                 Some(fetch) => fetch(run.clone(), location.clone()).await,
                 None => robots_txt::Answer::Unreachable(
                     "the crawl has no transport to fetch robots.txt with".to_owned(),
                 ),
-            }
+            };
+            let _ = arriving.send(run.clock().wall());
+            answer
         });
-        let fetched = run.robots_txt().copy(&location, fetch).await;
-        let fetched_at = sent.await.ok();
-        if let (Some(at), Some(politeness)) = (fetched_at, &hand_over.politeness)
+        let copy = run.robots_txt().copy(&location, fetch).await;
+        let fetched = arrived.await.ok();
+        if let (Some(at), Some(politeness)) = (fetched, &hand_over.politeness)
             && let Err(error) = goodfetch_frontier::started_again(politeness, key, at).await
         {
             tracing::warn!(%error, run_id = %run.id(), "a robots.txt fetch's start was not recorded");
@@ -435,7 +501,10 @@ impl Gate {
             .operator_token
             .as_deref()
             .and_then(|token| ProductToken::new(token).ok());
-        (applying(&fetched, operator.as_ref(), url), fetched_at)
+        (
+            applying(&copy, operator.as_ref(), url),
+            Some(Read { location, fetched }),
+        )
     }
 }
 

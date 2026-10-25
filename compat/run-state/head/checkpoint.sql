@@ -236,6 +236,13 @@ CREATE TABLE sitemap_entries (
             count INTEGER NOT NULL,
             PRIMARY KEY (work_item, reason)
         ) STRICT, WITHOUT ROWID;
+CREATE TABLE sitemap_failures (
+            url TEXT NOT NULL PRIMARY KEY,
+            seed TEXT NOT NULL,
+            code TEXT NOT NULL,
+            status INTEGER,
+            message TEXT NOT NULL
+        ) STRICT;
 CREATE TABLE sitemaps (
             work_item TEXT NOT NULL PRIMARY KEY,
             url TEXT NOT NULL UNIQUE,
@@ -251,6 +258,10 @@ CREATE TABLE tier_choices (
             PRIMARY KEY (label, domain_key)
         ) STRICT;
 INSERT INTO "tier_choices" VALUES('home','shop.test','{"kind":"split","segments":[{"name":"products","matched":3,"tier":"http"},{"name":"blog","matched":0,"tier":"browser"},{"name":"mixed","matched":1,"tier":null}]}');
+CREATE TABLE url_fragments (
+            scope TEXT NOT NULL PRIMARY KEY,
+            keeps INTEGER NOT NULL
+        ) STRICT;
 CREATE TABLE usage (
         slice_id INTEGER NOT NULL,
         epoch INTEGER NOT NULL,

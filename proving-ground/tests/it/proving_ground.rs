@@ -164,6 +164,14 @@ impl ProvingGround {
             .to_owned()
     }
 
+    /// The address of the UDP fixture `serve` reported.
+    pub(crate) fn udp(&self) -> String {
+        self.line_json()["udp"]
+            .as_str()
+            .expect("the line names the UDP fixture")
+            .to_owned()
+    }
+
     /// The address of the watched target `serve` reported.
     pub(crate) fn target(&self) -> String {
         self.line_json()["target"]

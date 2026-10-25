@@ -97,6 +97,10 @@
         "target": {
           "description": "The watched target's address, which answers `200 reached`.",
           "type": "string"
+        },
+        "udp": {
+          "description": "The UDP fixture's address, whose every datagram the connection\nrecord lists.",
+          "type": "string"
         }
       },
       "required": [
@@ -104,6 +108,7 @@
         "proxy_credentials",
         "dns",
         "target",
+        "udp",
         "connections"
       ],
       "type": "object"

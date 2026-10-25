@@ -182,6 +182,50 @@ fn the_gate_admits_each_main_frame_navigation_and_each_hop_once() {
     });
 }
 
+/// The path of each send the gate heard from the `from`th on.
+fn sent_since(gate: &RecordingGate, from: usize) -> Vec<String> {
+    gate.sent()
+        .iter()
+        .skip(from)
+        .filter_map(|url| path_of(Some(url)))
+        .collect()
+}
+
+/// The gate hears each request it admitted as it leaves the browser, so
+/// a delay counts from the send rather than the admission (ADR 0086): a
+/// navigation and a `page.request` once the browser took the command that
+/// sends them on, and the Session's first request, which its egress relay
+/// answers `407`, again once the browser took the relay's credentials,
+/// since it leaves only then.
+/// Covers: operation:page.goto, operation:page.request
+#[test]
+fn the_gate_hears_each_request_it_admitted_as_it_leaves_the_browser() {
+    let gate = RecordingGate::new();
+    with_handler_page(&gate, Map::new(), async |program| {
+        program.goto(HISTORY, "/").await;
+        let first = sent_since(&gate, 0);
+        let from = gate.sent().len();
+        program.goto(HISTORY, "/b").await;
+        let second = sent_since(&gate, from);
+        let from = gate.sent().len();
+        let url = program.proving_ground.url(HISTORY, "/c");
+        let sent = program.on_page("page.request", json!({ "url": url })).await;
+        assert!(sent.get("result").is_some(), "{sent}");
+        let request = sent_since(&gate, from);
+
+        assert_eq!(
+            (first, second, request),
+            (
+                vec!["/".to_owned(), "/".to_owned()],
+                vec!["/b".to_owned()],
+                vec!["/c".to_owned()],
+            ),
+            "{:?}",
+            gate.sent()
+        );
+    });
+}
+
 /// The path of `url`, when it is a URL.
 fn path_of(url: Option<&str>) -> Option<String> {
     url.and_then(|url| url::Url::parse(url).ok())

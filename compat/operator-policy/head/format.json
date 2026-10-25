@@ -1106,6 +1106,10 @@
                 "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
                 "type": "boolean"
               },
+              "keep_url_fragment": {
+                "description": "Whether a crawl request's identity keeps its URL's fragment, so a hash-routed app's views (`#/a`, `#/b`) are separate requests, set for the Run or for one of its Labels, whose own value wins for its requests (Crawlee's `keepUrlFragment`). Off by default: one URL with two fragments is one request. Only the tiers that run the page's scripts serve such a request: under `fetch.tier: auto` it runs on `browser`, and forcing `http`, `browser_fetch` or `discovered_api` where it is on fails the crawl's start with `setting_not_applicable`. Fixed for a Run's life: a start under the Run's ID that changes it is refused with `setting_not_applicable`.",
+                "type": "boolean"
+              },
               "max_depth": {
                 "anyOf": [
                   {
@@ -1398,6 +1402,19 @@
                     "description": "The most hedges a run sends, as a whole percentage of the crawl requests its HTTP tier sent: 5 by default.",
                     "minimum": 0,
                     "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "kept_responses": {
+                "additionalProperties": false,
+                "properties": {
+                  "urls": {
+                    "description": "URL patterns, each a glob or a regular expression matched in the engine, naming the responses of a crawl request's own navigation kept for its handler's `keptResponse` and `keptResponses`, set for the Run or for one of its Labels, whose own list wins for its requests. None by default: nothing is kept. Only a tier that runs the page's scripts, or `discovered_api`, can keep them: forcing `http` or `browser_fetch` where a list is set fails the crawl's start with `setting_not_applicable`; any other list set is refused at the start with `capability_unavailable` until the engine keeps responses.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"
@@ -3375,6 +3392,10 @@
                 "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
                 "type": "boolean"
               },
+              "keep_url_fragment": {
+                "description": "Whether a crawl request's identity keeps its URL's fragment, so a hash-routed app's views (`#/a`, `#/b`) are separate requests, set for the Run or for one of its Labels, whose own value wins for its requests (Crawlee's `keepUrlFragment`). Off by default: one URL with two fragments is one request. Only the tiers that run the page's scripts serve such a request: under `fetch.tier: auto` it runs on `browser`, and forcing `http`, `browser_fetch` or `discovered_api` where it is on fails the crawl's start with `setting_not_applicable`. Fixed for a Run's life: a start under the Run's ID that changes it is refused with `setting_not_applicable`.",
+                "type": "boolean"
+              },
               "max_depth": {
                 "anyOf": [
                   {
@@ -3667,6 +3688,19 @@
                     "description": "The most hedges a run sends, as a whole percentage of the crawl requests its HTTP tier sent: 5 by default.",
                     "minimum": 0,
                     "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "kept_responses": {
+                "additionalProperties": false,
+                "properties": {
+                  "urls": {
+                    "description": "URL patterns, each a glob or a regular expression matched in the engine, naming the responses of a crawl request's own navigation kept for its handler's `keptResponse` and `keptResponses`, set for the Run or for one of its Labels, whose own list wins for its requests. None by default: nothing is kept. Only a tier that runs the page's scripts, or `discovered_api`, can keep them: forcing `http` or `browser_fetch` where a list is set fails the crawl's start with `setting_not_applicable`; any other list set is refused at the start with `capability_unavailable` until the engine keeps responses.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"

@@ -8,7 +8,8 @@
 // `dedicated_worker` and `shared_worker` (a worker that makes it),
 // `websocket` (a WebSocket opened there) and `webrtc` (a peer connection
 // whose TURN server, over TCP, is that host on the port the query's `turn`
-// names).
+// names; with the query's `stun`, a `host:port` such as the UDP fixture's,
+// also a STUN server and a TURN server over UDP there).
 // Titles the page `done`.
 const finish = () => {
   document.title = "done";
@@ -58,15 +59,25 @@ const finish = () => {
       socket.addEventListener("close", finish, { once: true });
     },
     webrtc: () => {
-      const connection = new RTCPeerConnection({
-        iceServers: [
+      const iceServers = [
+        {
+          urls: `turn:${to}:${query.get("turn")}?transport=tcp`,
+          username: "request-kinds",
+          credential: "request-kinds",
+        },
+      ];
+      const stun = query.get("stun");
+      if (stun) {
+        iceServers.push(
+          { urls: `stun:${stun}` },
           {
-            urls: `turn:${to}:${query.get("turn")}?transport=tcp`,
+            urls: `turn:${stun}?transport=udp`,
             username: "request-kinds",
             credential: "request-kinds",
           },
-        ],
-      });
+        );
+      }
+      const connection = new RTCPeerConnection({ iceServers });
       connection.addEventListener("icegatheringstatechange", () => {
         if (connection.iceGatheringState === "complete") {
           finish();

@@ -28,6 +28,7 @@ fn leased() -> Connection {
     for statement in work_items::TABLES
         .statements
         .iter()
+        .chain(crate::labels::TABLES.statements)
         .chain(VISITED_TABLES.statements)
         .chain(SCOPE_TABLES.statements)
         .chain(BOUNDS_TABLES.statements)
@@ -77,6 +78,7 @@ fn enqueue(
                 method: &method,
                 body: None,
                 key: None,
+                keeps_fragment: false,
             },
             narrowing: Narrowing::none(),
             depth: 1,

@@ -11715,6 +11715,23 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": true,
+      "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
+      "name": "console.offline_cache",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "operator_policy",
       "clearable": false,
       "default": 2592000000,

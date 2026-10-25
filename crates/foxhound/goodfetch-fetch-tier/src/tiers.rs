@@ -29,6 +29,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use bytes::Bytes;
 use encoding_rs::Encoding;
+use goodfetch_engine::dns::ResolverConfiguration;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
@@ -329,6 +330,7 @@ impl FetchTiers {
             resolve: settings.hosts(NETWORK_RESOLVE.name),
             egress: egress.clone(),
             clock: run.clock(),
+            resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,
         })
         .map_err(|error| error.to_string())?;
         Ok(HttpTier {

@@ -7,6 +7,7 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+mod addresses;
 mod chain;
 mod conformance_gate;
 mod fetch_edge;
@@ -14,6 +15,7 @@ mod fingerprint;
 mod transport_failures;
 
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::dns::ResolverConfiguration;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::tls::{Trust, read_certificates};
 use goodfetch_fetch_tier::{HttpProfile, Reqwest, Transport, TransportConfig, Wreq};
@@ -74,6 +76,7 @@ fn config(proving_ground: &ProvingGround, proxy: Option<Url>, trusted: &[&str]) 
         resolve,
         egress: Policy::new(&["*"], &[] as &[&str]).unwrap(),
         clock: Clock::system(),
+        resolver: ResolverConfiguration::system().unwrap(),
     }
 }
 

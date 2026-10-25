@@ -542,7 +542,7 @@ impl HopGate for ChainGate {
             }
             // The crawl's HTTP tier connects directly: no proxy resolves
             // its hops.
-            if let Err(refused) = judged(&hop.url, &self.hand_over.egress, true) {
+            if let Err(refused) = judged(&hop.url, &self.hand_over.egress) {
                 return skipped(
                     SkipReason::DomainPolicy,
                     format!(

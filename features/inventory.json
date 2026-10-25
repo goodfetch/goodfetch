@@ -18560,6 +18560,16 @@
       ]
     },
     {
+      "id": "story:6-259",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-26",
       "kind": "story",
       "area": 6,
@@ -18567,6 +18577,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-260",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

@@ -35,6 +35,30 @@ class ClientGoneError(UnavailableError):
         super().__init__(message, code="client_gone", group="unavailable", retryable=True)
 
 
+class DatasetDuplicateError(ProgramError):
+    """The crawl declares a second Dataset of a name it already declares, so it was not started. The details name the Dataset. Give each Dataset its own name."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="dataset_duplicate", group="program", retryable=False)
+
+
+class DatasetKeyInvalidError(ProgramError):
+    """A Dataset's key names a field that is no top-level field its JSON Schema requires, so a Record could lack it and the crawl was not started. The details name the Dataset and the field. Key a Dataset only by fields its schema requires."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="dataset_key_invalid", group="program", retryable=False)
+
+
+class DatasetUnknownError(ProgramError):
+    """A Record was pushed into a Dataset the crawl does not declare, such as another crawl's, so it was not staged. The details name the Dataset and those the crawl declares."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="dataset_unknown", group="program", retryable=False)
+
+
 class EffectStagingRefusedError(ProgramError):
     """The call would stage an output with its attempt (an enqueue, a seed added through `ctx.run`, a Record or a Key-value store write through `ctx.run`) while a declared Effect's body runs in that attempt. A re-run that finds the Effect in the Effect journal does not run the body again, so the output would be lost for good; nothing was staged. The details' `fix` says to stage it after the declaration, from the output the body returned."""
 
@@ -83,6 +107,14 @@ class PayloadSchemaChangedError(ProgramError):
         super().__init__(message, code="payload_schema_changed", group="program", retryable=False)
 
 
+class RecordInvalidError(ProgramError):
+    """A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each issue by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="record_invalid", group="program", retryable=False)
+
+
 class ResponseNotDocumentError(ProgramError):
     """A handler's call that reads, waits on or acts on the document of a page whose accepted response is not an HTML document, such as a PDF its Label's `crawl.content_types` lists: a locator, `content()`, `formats`, `evaluate`, a screenshot or an AI verb. It fails at once on every tier and never escalates. The details name the response's content type and the call; the fix names `ctx.response`, which holds the body."""
 
@@ -119,12 +151,16 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "attempt_ended": AttemptEndedError,
     "browser_required": BrowserRequiredError,
     "client_gone": ClientGoneError,
+    "dataset_duplicate": DatasetDuplicateError,
+    "dataset_key_invalid": DatasetKeyInvalidError,
+    "dataset_unknown": DatasetUnknownError,
     "effect_staging_refused": EffectStagingRefusedError,
     "handler_failed": HandlerFailedError,
     "handler_lost": HandlerLostError,
     "lease_lost": LeaseLostError,
     "payload_invalid": PayloadInvalidError,
     "payload_schema_changed": PayloadSchemaChangedError,
+    "record_invalid": RecordInvalidError,
     "response_not_document": ResponseNotDocumentError,
     "response_not_ok": ResponseNotOKError,
     "response_unavailable": ResponseUnavailableError,

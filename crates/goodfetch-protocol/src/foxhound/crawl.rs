@@ -18,6 +18,7 @@ use crate::catalog::{
     Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability,
     ValueKind, schema_of,
 };
+use crate::foxhound::dataset::DatasetDeclaration;
 use crate::foxhound::fetch::FetchTier;
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
 use crate::foxhound::report::CrawlRunReport;
@@ -218,6 +219,14 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub labels: BTreeMap<String, LabelDeclaration>,
+    /// The crawl's Datasets, each with its JSON Schema and its key (ADR
+    /// 0103): a second of one name fails the start with
+    /// `dataset_duplicate`, and a key on a field the schema does not
+    /// require with `dataset_key_invalid`. Its handlers push Records only
+    /// into these.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub datasets: Vec<DatasetDeclaration>,
     /// The Run's settings, nested by key: the run layer (ADR 0083).
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]

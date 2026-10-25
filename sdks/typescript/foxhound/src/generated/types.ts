@@ -655,6 +655,44 @@ export interface CrawlRequestOutcomes {
   outcomes: CrawlRequestOutcome[];
 }
 /**
+ * What `crawl_request.push` takes: one Record an attempt pushes into one
+ * of its crawl's Datasets.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "CrawlRequestPushParams".
+ */
+export interface CrawlRequestPushParams {
+  /**
+   * The ID of the crawl request whose attempt pushes.
+   */
+  crawl_request_id: string;
+  /**
+   * The Record.
+   */
+  data: {
+    [k: string]: unknown;
+  };
+  /**
+   * The Dataset's name.
+   */
+  dataset: string;
+  /**
+   * The attempt's lease epoch, as `crawl_request.handle` gave it.
+   */
+  lease_epoch: number;
+  /**
+   * The crawl's Run.
+   */
+  run_id: RunId;
+}
+/**
+ * What `crawl_request.push` answers once the Record is staged.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "CrawlRequestPushed".
+ */
+export interface CrawlRequestPushed {}
+/**
  * A crawl's Run report (ADR 0102): what a crawl adds to every Run's
  * report, a part no area supplied being absent. On the wire, a crawl's
  * parts sit beside every Run's, which a reader of [`RunReport`] keeps among
@@ -938,6 +976,14 @@ export interface SitemapReport {
  */
 export interface CrawlStartParams {
   /**
+   * The crawl's Datasets, each with its JSON Schema and its key (ADR
+   * 0103): a second of one name fails the start with
+   * `dataset_duplicate`, and a key on a field the schema does not
+   * require with `dataset_key_invalid`. Its handlers push Records only
+   * into these.
+   */
+  datasets?: DatasetDeclaration[];
+  /**
    * The crawl's Labels, by name, each with its Payload's JSON Schema or
    * none, and its own settings (ADRs 0082 and 0093): a scope between the
    * Run and its requests. A Payload of a declared schema is checked
@@ -966,6 +1012,32 @@ export interface CrawlStartParams {
    * The Run's opaque tags.
    */
   tags?: Tags;
+}
+/**
+ * One Dataset a crawl declares (ADR 0103): its name, the JSON Schema its
+ * Records are checked against, and the top-level fields that identify one
+ * Record.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetDeclaration".
+ */
+export interface DatasetDeclaration {
+  /**
+   * The top-level fields that identify one Record, each one the schema
+   * requires; none when no field does.
+   */
+  key?: string[];
+  /**
+   * Its name, unique in the crawl.
+   */
+  name: string;
+  /**
+   * The JSON Schema its Records are checked against, the side the
+   * program's schema parses from; none takes any JSON object (ADR 0082).
+   */
+  schema?: {
+    [k: string]: unknown;
+  };
 }
 /**
  * One Label a crawl declares (ADRs 0082 and 0093): its Payload's schema

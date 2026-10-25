@@ -161,6 +161,60 @@ class CrawlRequestLinksParams(BaseModel):
     """The crawl's Run."""
 
 
+class CrawlRequestPushParams(BaseModel):
+    """
+    What `crawl_request.push` takes: one Record an attempt pushes into one
+    of its crawl's Datasets.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt pushes."""
+    data: Any
+    """The Record."""
+    dataset: str
+    """The Dataset's name."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+    run_id: RunId
+    """The crawl's Run."""
+
+
+class CrawlRequestPushed(BaseModel):
+    """What `crawl_request.push` answers once the Record is staged."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class DatasetDeclaration(BaseModel):
+    """
+    One Dataset a crawl declares (ADR 0103): its name, the JSON Schema its
+    Records are checked against, and the top-level fields that identify one
+    Record.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: list[str] | None = None
+    """
+    The top-level fields that identify one Record, each one the schema
+    requires; none when no field does.
+    """
+    name: str
+    """Its name, unique in the crawl."""
+    schema_: Annotated[Any | None, Field(alias="schema")] = None
+    """
+    The JSON Schema its Records are checked against, the side the
+    program's schema parses from; none takes any JSON object (ADR 0082).
+    """
+
+
 class DatasetRecords(BaseModel):
     """
     What a succeeded request's commit did with its Records in one Dataset
@@ -1231,6 +1285,14 @@ class CrawlStartParams(BaseModel):
         extra="forbid",
         arbitrary_types_allowed=True,
     )
+    datasets: list[DatasetDeclaration] | None = None
+    """
+    The crawl's Datasets, each with its JSON Schema and its key (ADR
+    0103): a second of one name fails the start with
+    `dataset_duplicate`, and a key on a field the schema does not
+    require with `dataset_key_invalid`. Its handlers push Records only
+    into these.
+    """
     labels: dict[str, LabelDeclaration] | None = None
     """
     The crawl's Labels, by name, each with its Payload's JSON Schema or

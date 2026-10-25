@@ -16,7 +16,14 @@
 //! one for a bare `Foxhound` `/bare/` and the `*` group `/star/`; on
 //! `star.access-policy.test` only the bare `Foxhound` and `*` groups
 //! remain. A third, `crawl-delay.access-policy.test`, asks every crawler
-//! for a Crawl-delay of 5 s, which a crawl's pacing is judged on.
+//! for a Crawl-delay of 5 s, which a crawl's pacing is judged on. A fourth,
+//! `slow-robots.access-policy.test`, answers its robots.txt, a Crawl-delay
+//! of 2 s for every crawler, 1.5 s after the request arrived, so a delay
+//! counted from the robots.txt request's send rather than its response's
+//! arrival, or a read of a copy another reader is still fetching, shows on
+//! the requests' arrivals.
+
+use std::time::Duration;
 
 use super::shelf::{self, Shelf};
 use crate::raw::{Answer, Page, Request};
@@ -57,12 +64,25 @@ pub(super) const STAR_HOST: &str = "star.access-policy.test";
 /// 5 s.
 pub(super) const CRAWL_DELAY_HOST: &str = "crawl-delay.access-policy.test";
 
+/// The named host whose robots.txt asks every crawler for a Crawl-delay of
+/// 2 s, answered [`SLOW_ROBOTS_WAIT`] after the request arrived.
+pub(super) const SLOW_ROBOTS_HOST: &str = "slow-robots.access-policy.test";
+
+/// How long [`SLOW_ROBOTS_HOST`] waits before it answers its robots.txt.
+const SLOW_ROBOTS_WAIT: Duration = Duration::from_millis(1_500);
+
 /// The family's named hosts, which belong to no task.
-pub(super) const NAMED_HOSTS: [&str; 3] = [TOKENS_HOST, STAR_HOST, CRAWL_DELAY_HOST];
+pub(super) const NAMED_HOSTS: [&str; 4] =
+    [TOKENS_HOST, STAR_HOST, CRAWL_DELAY_HOST, SLOW_ROBOTS_HOST];
 
 /// The robots.txt of [`CRAWL_DELAY_HOST`].
 const CRAWL_DELAY: &str = "User-agent: *
 Crawl-delay: 5
+";
+
+/// The robots.txt of [`SLOW_ROBOTS_HOST`].
+const SLOW_ROBOTS: &str = "User-agent: *
+Crawl-delay: 2
 ";
 
 /// The robots.txt of [`TOKENS_HOST`].
@@ -219,15 +239,20 @@ pub(super) fn answer(seed: u64, host: &str, request: &Request) -> Answer {
         TOKENS_HOST => Some(TOKENS),
         STAR_HOST => Some(STAR),
         CRAWL_DELAY_HOST => Some(CRAWL_DELAY),
+        SLOW_ROBOTS_HOST => Some(SLOW_ROBOTS),
         _ => None,
     } {
-        return Answer::Page(match request.path() {
-            "/robots.txt" => Page::text(200, robots),
-            path => Page::html(
+        return match request.path() {
+            "/robots.txt" if host == SLOW_ROBOTS_HOST => Answer::Later(
+                SLOW_ROBOTS_WAIT,
+                Box::new(Answer::Page(Page::text(200, robots))),
+            ),
+            "/robots.txt" => Answer::Page(Page::text(200, robots)),
+            path => Answer::Page(Page::html(
                 200,
                 format!("<!doctype html><title>{path}</title><p>A page at {path}.</p>"),
-            ),
-        });
+            )),
+        };
     }
     let Some((ordinal, policy)) = super::ordinal(host).and_then(|ordinal| {
         let at = usize::try_from(ordinal.checked_sub(1)?).ok()?;

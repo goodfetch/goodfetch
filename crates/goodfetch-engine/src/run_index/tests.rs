@@ -191,3 +191,44 @@ fn each_generated_refusal_of_the_run_index_gets_its_verdict(
         (_, read) => panic!("{case:#?} was not refused: {read:?}"),
     }
 }
+
+/// Engines that open a new Run index at once, one starting a Run while
+/// another reads "Needs you", each open it and read or write it, however
+/// their first statements interleave: none is refused `database is locked`
+/// while the busy timeout lets them take turns.
+///
+/// Covers: format:run-index
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test opens the index from threads of its own, as engines in their processes do"
+)]
+fn engines_that_open_a_new_index_at_once_each_open_it() {
+    const ENGINES: usize = 8;
+    let mut refused = Vec::new();
+    for _ in 0..40 {
+        let (_folder, path) = index();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(ENGINES));
+        let engines: Vec<_> = (0..ENGINES)
+            .map(|engine| {
+                let path = path.clone();
+                let barrier = std::sync::Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    if engine % 2 == 0 {
+                        write_as(&path, &older(), &row(&format!("run-{engine}")))
+                    } else {
+                        rows_as(&path, &older()).map(|_| ())
+                    }
+                })
+            })
+            .collect();
+        refused.extend(
+            engines
+                .into_iter()
+                .filter_map(|engine| engine.join().unwrap().err())
+                .map(|error| error.to_string()),
+        );
+    }
+    assert_eq!(refused, Vec::<String>::new());
+}

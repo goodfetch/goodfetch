@@ -29,6 +29,26 @@ const POPUP_HOST: &str = "1.access.test";
 /// The fetch edge pages: redirects and refresh stubs.
 const FETCH_EDGE: &str = "fetch-edge.test";
 
+/// The `timeout.navigation` of the cases whose permit wait outlasts it, in
+/// milliseconds. The setting also bounds what it rightly bounds there: the
+/// browser's launch, each page's opening and the navigation's own work,
+/// which take more than a second on a loaded machine; 3 s holds them.
+const SHORT_NAVIGATION_MS: u64 = 3_000;
+
+/// How long those cases' gate holds a permit: past `SHORT_NAVIGATION_MS`,
+/// so a wait that counted against the timeout would fail its call.
+const PAST_THE_TIMEOUT: Duration = Duration::from_millis(SHORT_NAVIGATION_MS + 1_000);
+
+/// A Run's settings with `timeout.navigation` at `SHORT_NAVIGATION_MS`.
+fn short_navigation() -> Map<String, Value> {
+    let mut settings = Map::new();
+    settings.insert(
+        "timeout".to_owned(),
+        json!({ "navigation": SHORT_NAVIGATION_MS }),
+    );
+    settings
+}
+
 /// Each request the gate admitted from the `from`th on, as its path and
 /// kind.
 fn admitted_since(gate: &RecordingGate, from: usize) -> Vec<(String, NavigationKind)> {
@@ -434,10 +454,8 @@ fn a_page_whose_lease_ended_sends_nothing_more(#[case] method: &str, #[case] pat
 #[test]
 fn a_permit_wait_counts_against_no_timeout_and_holds_the_lease() {
     let gate = RecordingGate::new();
-    gate.hold("/held", Duration::from_millis(1500));
-    let mut settings = Map::new();
-    settings.insert("timeout".to_owned(), json!({ "navigation": 1000 }));
-    with_handler_page(&gate, settings, async |program| {
+    gate.hold("/held", PAST_THE_TIMEOUT);
+    with_handler_page(&gate, short_navigation(), async |program| {
         let goto = program
             .on_page(
                 "page.goto",
@@ -606,9 +624,7 @@ fn a_service_workers_request_carrying_a_navigation_is_admitted_once(#[case] navi
 #[test]
 fn a_service_workers_navigation_waits_and_is_refused_as_its_pages() {
     let gate = RecordingGate::new();
-    let mut settings = Map::new();
-    settings.insert("timeout".to_owned(), json!({ "navigation": 1000 }));
-    with_handler_page(&gate, settings, async |program| {
+    with_handler_page(&gate, short_navigation(), async |program| {
         let page = "/service-worker/?navigations=pass";
         program.goto("access.localhost", page).await;
         settled_or(
@@ -616,7 +632,7 @@ fn a_service_workers_navigation_waits_and_is_refused_as_its_pages() {
             || format!("{:?}", program.reported(page, "register")),
         )
         .await;
-        gate.hold("navigations=pass", Duration::from_millis(1500));
+        gate.hold("navigations=pass", PAST_THE_TIMEOUT);
         let held = program.on_page("page.reload", json!({})).await;
         gate.refuse("navigations=pass", SitePreference::RobotsTxt);
         let refused = program.on_page("page.reload", json!({})).await;

@@ -65,6 +65,7 @@ use crate::transports::{BrowserFetch, Reqwest, TransportConfig};
 use crate::use_signals::UseSignals;
 
 mod calls;
+mod sitemap;
 
 /// Foxhound's fetch tiers: the pages they serve, which Collie's page
 /// crate reads through it as its [`HandlerPages`] seam, and

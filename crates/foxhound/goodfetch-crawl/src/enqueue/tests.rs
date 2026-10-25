@@ -31,6 +31,7 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
         .chain(BOUNDS_TABLES.statements)
         .chain(goodfetch_frontier::RULES_TABLES.statements)
         .chain(goodfetch_frontier::payload::TABLES.statements)
+        .chain(goodfetch_frontier::sitemap::TABLES.statements)
     {
         connection.execute(statement, []).unwrap();
     }

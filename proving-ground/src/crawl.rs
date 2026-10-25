@@ -24,6 +24,9 @@
 //!   one short of it;
 //! - `scope`: a site with a `www` host and a subdomain beside a sister
 //!   domain and an off-site host (pitfall U15), on host names of its own;
+//! - `sitemap-seed`: a site whose sitemaps a sitemap seed reads, its
+//!   robots.txt cross-submitting one on a partner host (pitfall U20), on
+//!   host names of its own;
 //! - `tiers`: static and script-rendered listings on one host, apart by
 //!   their paths' first segment, from which a crawl learns its tiers.
 //!
@@ -41,6 +44,7 @@ mod pacing;
 mod parameters;
 mod scale;
 mod scope;
+mod sitemap_seed;
 mod sitemaps;
 mod statuses;
 mod tiers;
@@ -257,6 +261,7 @@ impl Families {
             fields::FAMILY => fields::respond(&visit),
             sitemaps::FAMILY => sitemaps::respond(&visit),
             scope::FAMILY => scope::respond(&visit),
+            sitemap_seed::FAMILY => sitemap_seed::respond(&visit),
             learning::FAMILY => learning::respond(&visit),
             tiers::FAMILY => tiers::respond(&visit),
             _ => scale::respond(&visit),
@@ -268,6 +273,9 @@ impl Families {
 fn family_of(host: &str) -> Option<&'static str> {
     if scope::serves(host) {
         return Some(scope::FAMILY);
+    }
+    if sitemap_seed::serves(host) {
+        return Some(sitemap_seed::FAMILY);
     }
     FAMILIES.iter().find_map(|(name, family)| {
         let task_host = host
@@ -287,6 +295,11 @@ pub(crate) fn hosts(seed: u64) -> Vec<(String, Option<String>)> {
         .iter()
         .map(|(host, _)| ((*host).to_owned(), None))
         .chain(scope::HOSTS.iter().map(|host| ((*host).to_owned(), None)))
+        .chain(
+            sitemap_seed::HOSTS
+                .iter()
+                .map(|host| ((*host).to_owned(), None)),
+        )
         .chain(
             tasks(seed, None)
                 .into_iter()

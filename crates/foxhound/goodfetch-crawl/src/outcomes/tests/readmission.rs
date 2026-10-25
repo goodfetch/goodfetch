@@ -48,19 +48,24 @@ fn crawl_of(count: usize) -> Connection {
         .chain(goodfetch_frontier::BOUNDS_TABLES.statements)
         .chain(goodfetch_frontier::RULES_TABLES.statements)
         .chain(goodfetch_frontier::payload::TABLES.statements)
+        .chain(goodfetch_frontier::sitemap::TABLES.statements)
     {
         connection.execute_batch(statement).unwrap();
     }
     let seeds: Vec<_> = (0..count)
-        .map(|index| goodfetch_protocol::foxhound::crawl::Seed {
-            url: format!("https://shop.test/{index}"),
-            label: "page".to_owned(),
-            payload: None,
-            priority: 0,
-            forefront: false,
-            method: goodfetch_protocol::foxhound::frontier::HttpMethod::get(),
-            body: None,
-            key: None,
+        .map(|index| {
+            goodfetch_protocol::foxhound::crawl::Seed::Request(
+                goodfetch_protocol::foxhound::crawl::RequestSeed {
+                    url: format!("https://shop.test/{index}"),
+                    label: "page".to_owned(),
+                    payload: None,
+                    priority: 0,
+                    forefront: false,
+                    method: goodfetch_protocol::foxhound::frontier::HttpMethod::get(),
+                    body: None,
+                    key: None,
+                },
+            )
         })
         .collect();
     let every_host = goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap();

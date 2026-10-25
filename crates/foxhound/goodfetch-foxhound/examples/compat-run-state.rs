@@ -14,7 +14,8 @@
 //! contribution hands the Frontier, which learns that `ref` has no effect
 //! and merges a seed it admits then, counts item 1's `rel=canonical`, and
 //! learns the guide's trailing slash from its redirect until its two pages
-//! differ and stop the rule,
+//! differ and stop the rule, and a sitemap seed whose sitemap it reads as
+//! listing an entry no rule matches and one the scope refuses,
 //! whose handler enqueues a `forefront` request on another domain from the
 //! first, pushes Records for the first, the `POST` and that request and
 //! fails on the second, whose first byte never came, so its
@@ -319,11 +320,53 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                 matches!(merged, goodfetch_protocol::foxhound::frontier::Enqueued::NotAdded { .. }),
                 "the learned rule merges the seed"
             );
-            Ok(())
+            read_sitemap(connection)
         })
         .await
         .expect("the pages are learned from");
     Ok(json!({ "learned": true }))
+}
+
+/// Admits a sitemap seed on `maps.test` whose fetch already ended, since
+/// no fetch tier runs over the in-memory network, and reads its sitemap as
+/// listing `/about`, which its rule does not match (`no_rule`), and
+/// `/books/1`, which the scope's `include` refuses (`out_of_scope`).
+fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
+    use goodfetch_frontier::sitemap;
+    use goodfetch_protocol::foxhound::crawl::{SitemapRule, SitemapSeed};
+    use goodfetch_protocol::foxhound::frontier::Enqueued;
+
+    let policy = goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str])
+        .expect("every host is a policy");
+    let seed = SitemapSeed {
+        sitemap: "https://maps.test/sitemap.xml".to_owned(),
+        rules: vec![SitemapRule {
+            pattern: "**/books/*".to_owned(),
+            label: "home".to_owned(),
+        }],
+    };
+    let answer = sitemap::admit_seed(connection, &policy, &seed, |url| {
+        connection.query_row(
+            "INSERT INTO work_items
+                 (id, position, url, method, label, depth, status, attempts, lease_epoch, domain_key, priority)
+             SELECT CAST(next AS TEXT), next, ?1, 'GET', '', 0, 'succeeded', 1, 1, 'maps.test', 0
+             FROM (SELECT coalesce(max(position), 0) + 1 AS next FROM work_items)
+             RETURNING id",
+            [url.as_str()],
+            |row| row.get(0),
+        )
+    })?;
+    let Enqueued::Added { id, .. } = answer else {
+        panic!("the sitemap seed is admitted: {answer:?}");
+    };
+    sitemap::read(
+        connection,
+        &goodfetch_frontier::Scope::read(connection)?,
+        &policy,
+        &id,
+        &sitemap::Document::Entries(vec!["/about".to_owned(), "/books/1".to_owned()]),
+        |_, _| Err(rusqlite::Error::InvalidQuery),
+    )
 }
 
 /// The writer's crawl ends no request a rule it hands the Frontier

@@ -2070,6 +2070,7 @@ dependencies = [
  "proptest",
  "proptest-state-machine",
  "psl",
+ "quick-xml 0.41.0",
  "rstest",
  "rusqlite",
  "serde_json",

@@ -48,6 +48,7 @@ fn a_redirect_to_a_name_that_resolves_to_a_private_address_ends_skipped_with_dom
         "fetch": { "tier": "http" },
         "crawl": { "scope": { "strategy": "all" } },
         "network": { "resolve": { "fetch-edge.test": [proving_ground.address().ip().to_string()] } },
+        "egress": { "private_ranges": ["fetch-edge.test"] },
     });
     let mut engine = Attached::start(&env);
 
@@ -112,6 +113,7 @@ fn a_seed_whose_name_resolves_to_a_private_address_ends_skipped_with_domain_poli
     let settings = json!({
         "fetch": { "tier": "http" },
         "network": { "resolve": { "scope.test": [proving_ground.address().ip().to_string()] } },
+        "egress": { "private_ranges": ["scope.test"] },
     });
     let mut engine = Attached::start(&env);
 

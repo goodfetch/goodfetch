@@ -144,12 +144,16 @@ fn http_tier(connection: &mut Connection, site: &Site, checks: &mut Checks) -> R
     let Some(url) = url else {
         return Ok(());
     };
+    let settings = site.mapped(
+        &json!({ "fetch": { "tier": "http" } }),
+        connection.acts_for_model(),
+    );
     let id = connection.request(
         CRAWL_START,
         &json!({
             "run_id": run_id,
             "seeds": [{ "url": url, "label": "page" }],
-            "settings": { "fetch": { "tier": "http" }, "network": { "resolve": site.resolve } },
+            "settings": settings,
         }),
     )?;
     let answer = connection.answer(id)?;

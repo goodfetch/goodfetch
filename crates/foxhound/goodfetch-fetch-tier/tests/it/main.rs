@@ -48,14 +48,16 @@ enum Stack {
 /// What a transport reaching every host the Proving ground serves at its
 /// address takes, through `proxy` when one is given, trusting its
 /// certificate authority for the fetch edge hosts and `trusted`, so they
-/// are reached over TLS and HTTP/2 too.
+/// are reached over TLS and HTTP/2 too. Its egress policy lists those
+/// hosts in its private ranges, the Proving ground serving on loopback.
 fn config(proving_ground: &ProvingGround, proxy: Option<Url>, trusted: &[&str]) -> TransportConfig {
-    let resolve = proving_ground
+    let resolve: Vec<(String, Vec<std::net::IpAddr>)> = proving_ground
         .description()
         .resolve
         .iter()
         .map(|(host, address)| (host.clone(), vec![address.parse().unwrap()]))
         .collect();
+    let hosts: Vec<&str> = resolve.iter().map(|(host, _)| host.as_str()).collect();
     #[expect(
         clippy::disallowed_methods,
         reason = "a test helper reads the authority's file before any runtime starts"
@@ -73,8 +75,11 @@ fn config(proving_ground: &ProvingGround, proxy: Option<Url>, trusted: &[&str]) 
     TransportConfig {
         trust,
         proxy,
+        egress: Policy::new(&["*"], &[] as &[&str])
+            .unwrap()
+            .with_private_ranges(&hosts)
+            .unwrap(),
         resolve,
-        egress: Policy::new(&["*"], &[] as &[&str]).unwrap(),
         clock: Clock::system(),
         resolver: ResolverConfiguration::system().unwrap(),
     }

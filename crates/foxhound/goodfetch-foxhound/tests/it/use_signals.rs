@@ -33,6 +33,7 @@ fn crawl(site_preferences: &Value) -> (Vec<String>, Vec<(String, Value, Value)>)
     let settings = json!({
         "fetch": { "tier": "http" },
         "network": { "resolve": { TDMREP_HOST: [ip] } },
+        "egress": { "private_ranges": [TDMREP_HOST] },
         "site_preferences": site_preferences,
     });
     let seeds: Vec<Value> = ["/catalog/1", "/catalog/2"]

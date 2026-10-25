@@ -40,6 +40,7 @@ fn fetched_over_http(proving_ground: &ProvingGround, more: &Value) -> Value {
     let mut settings = json!({
         "fetch": { "tier": "http" },
         "network": { "resolve": { "pacing.test": [proving_ground.address().ip().to_string()] } },
+        "egress": { "private_ranges": ["pacing.test"] },
         "politeness": { "domain": { "concurrency": 2, "delay": 0 } },
     });
     merge(&mut settings, more);

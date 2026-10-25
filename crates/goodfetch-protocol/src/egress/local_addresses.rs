@@ -233,7 +233,7 @@ pub const EGRESS_ROTATION_BLOCK_IPV6: Setting = Setting {
 /// use (ADR 0044).
 pub const LOCAL_ADDRESS_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "local_address_unavailable",
-    description: "`egress.local_addresses` yields no address this host can send from: a listed address the host does not hold, an interface it does not have or that holds no address, or an IPv6 prefix with none of the host's addresses in it and, on Linux, not routed locally with `net.ipv6.ip_nonlocal_bind` on. The binding is never ignored: assign the address, correct the value, or route the prefix to the host.",
+    description: "`egress.local_addresses` yields no address this host can send from: a listed address the host does not hold, an interface it does not have or that holds no address, or an IPv6 prefix with none of the host's addresses in it and, on Linux, not routed locally with `net.ipv6.ip_nonlocal_bind` on; or a Session whose browser this engine does not launch on this machine (a Borrowed browser, a third-party CDP browser, a Browser host's) or whose `https://` proxy the egress relay does not chain through. The binding is never ignored: assign the address, correct the value, route the prefix to the host, or open the Session on a browser the engine launches here.",
     group: ErrorGroup::Unavailable,
     retryable: false,
     exit_code: None,
@@ -253,6 +253,15 @@ pub enum LocalAddressFailure {
     /// The prefix holds none of the host's addresses, and the host does not
     /// let a socket bind any address of it.
     PrefixUnusable,
+    /// The Session's browser is not one this engine launches on this
+    /// machine: a Borrowed browser, a third-party CDP browser, or a Browser
+    /// host's, whose connections no address of this machine can be claimed
+    /// for (ADRs 0044 and 0056).
+    NotLaunchedHere,
+    /// The Session's proxy is one the egress relay does not chain through
+    /// (an `https://` proxy), so its browser would connect to it from an
+    /// address the OS chooses.
+    ProxyNotRelayed,
 }
 
 /// What `local_address_unavailable` details.

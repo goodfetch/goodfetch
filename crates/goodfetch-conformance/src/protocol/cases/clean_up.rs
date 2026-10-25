@@ -580,8 +580,8 @@ const FRAME_HIDDEN_UNSEEN: &str = "/hiding/frame-seen?sheets=0&ad=none";
 const SHOWN: &str = "/hiding/seen?sheets=1&ad=block";
 
 /// Text of the `/hiding` article's own, and of its ad.
-const ARTICLE_TEXT: &str = "The article's text begins here";
-const AD_TEXT: &str = "An ad's text";
+pub(super) const ARTICLE_TEXT: &str = "The article's text begins here";
+pub(super) const AD_TEXT: &str = "An ad's text";
 
 /// The targets of the requests the Proving ground received on the pages'
 /// host that start with `prefix`, in the order received.
@@ -640,6 +640,19 @@ fn provenance_of<'a>(lines: &'a [Value], action: &str, path: &str) -> Vec<&'a Va
         .collect()
 }
 
+/// The `formats` Provenance lines of the page whose URL ends with `path`
+/// whose call's rules removed something.
+fn removals_of<'a>(lines: &'a [Value], path: &str) -> Vec<&'a Value> {
+    provenance_of(lines, "formats", path)
+        .into_iter()
+        .filter(|line| {
+            line["removed"]
+                .as_array()
+                .is_some_and(|removed| !removed.is_empty())
+        })
+        .collect()
+}
+
 /// The Markdown of `/hiding` keeps the article and leaves its ad's text
 /// out; extraction-side removal takes the ads of `/shadow`'s light DOM and
 /// of its open and closed shadow roots, and Provenance records each; the
@@ -671,14 +684,14 @@ fn hidden_text_removed(
     );
     finish(connection, run_id)?;
     let lines = provenance(target, run_id);
-    let hiding = provenance_of(&lines, "content_removed", "/hiding");
+    let hiding = removals_of(&lines, "/hiding");
     checks.check(
         "Provenance records `/hiding`'s ad removed by `.ad-slot`, unflagged",
         hiding.first().is_some_and(|line| {
             line["removed"][0]["rule"] == json!(".ad-slot") && line["flagged"] == json!(false)
         }),
     );
-    let shadow = provenance_of(&lines, "content_removed", "/shadow");
+    let shadow = removals_of(&lines, "/shadow");
     let in_shadow_roots: Vec<Value> = shadow
         .first()
         .and_then(|line| line["removed"].as_array())
@@ -690,7 +703,7 @@ fn hidden_text_removed(
         "Provenance records `/shadow`'s three ads removed: its light DOM's, its open root's and its closed root's",
         in_shadow_roots == [json!(false), json!(true), json!(true)],
     );
-    let flagged = provenance_of(&lines, "content_removed", "/removal");
+    let flagged = removals_of(&lines, "/removal");
     checks.check(
         "Provenance flags `/removal`'s removal, over a fifth of its main content",
         flagged.first().is_some_and(|line| {

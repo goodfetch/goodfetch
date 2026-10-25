@@ -88,6 +88,10 @@ pub(crate) enum Case {
     MarkdownMatchesTheOracle,
     FormatNotNamedIsLeftOut,
     NoMainContentIsNone,
+    TextRenderedAfterLoadIsRead,
+    ClosedShadowRootTextIsRead,
+    RulesTouchOnlyTheMainContent,
+    EachFormatsCallIsInTheRunTrace,
     HeadlessIdentity,
     BackgroundTimer,
     ClickWaitsOutACover,
@@ -369,6 +373,18 @@ impl Case {
             "a-page-with-no-main-content-answers-empty-markdown-and-none" => {
                 Self::NoMainContentIsNone
             }
+            "text-a-script-renders-after-load-and-an-open-shadow-roots-text-are-in-the-markdown" => {
+                Self::TextRenderedAfterLoadIsRead
+            }
+            "a-closed-shadow-roots-text-is-in-the-markdown-on-chromium" => {
+                Self::ClosedShadowRootTextIsRead
+            }
+            "an-ad-a-cosmetic-rule-hides-stays-in-the-document-and-a-locator-finds-it-but-not-in-the-markdown" => {
+                Self::RulesTouchOnlyTheMainContent
+            }
+            "the-run-trace-holds-each-formats-call-with-the-rules-version-and-what-they-removed" => {
+                Self::EachFormatsCallIsInTheRunTrace
+            }
             "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
             "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
             "a-click-on-a-covered-target-lands-once-the-cover-leaves" => Self::ClickWaitsOutACover,
@@ -471,6 +487,18 @@ impl Case {
                 formats::a_format_not_named_is_left_out(connection, site, checks)
             }
             Self::NoMainContentIsNone => formats::no_main_content_is_none(connection, site, checks),
+            Self::TextRenderedAfterLoadIsRead => {
+                formats::text_rendered_after_load_is_read(connection, site, checks)
+            }
+            Self::ClosedShadowRootTextIsRead => {
+                formats::closed_shadow_root_text_is_read(connection, site, checks)
+            }
+            Self::RulesTouchOnlyTheMainContent => {
+                formats::the_rules_touch_only_the_main_content(connection, site, checks)
+            }
+            Self::EachFormatsCallIsInTheRunTrace => {
+                formats::each_call_is_in_the_run_trace(connection, target, site, checks)
+            }
             Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
             Self::BackgroundTimer => launch::background_timer(connection, site, checks),
             Self::ClickWaitsOutACover => guard::lands(

@@ -33,7 +33,10 @@
 //! starts a request only while the key's token bucket, which every sharing
 //! run's rated starts draw on, holds a token ([`Rate`], a GCRA of
 //! `politeness.domain.burst` tokens); a start counts from its request's
-//! send when that is later than its admission.
+//! send when that is later than its admission, and a request's own send
+//! also waits for a token of the key's sends, so a send that came later
+//! than the next request's admission is never overtaken within the
+//! interval.
 //!
 //! The per-domain state lives in the `domain_limits`, `crawl_delays` and
 //! `domain_pacing` tables Foxhound adds to the file; a Collie engine adds
@@ -48,6 +51,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::CallError;
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::{
     Ending, Hold, PermitRule, Politeness, PolitenessError, PolitenessTables, Verdict, milliseconds,
@@ -92,7 +96,8 @@ pub(crate) const TABLES: PolitenessTables = PolitenessTables {
             key TEXT NOT NULL PRIMARY KEY,
             latency INTEGER,
             theoretical_start INTEGER,
-            interval INTEGER
+            interval INTEGER,
+            theoretical_send INTEGER
         ) STRICT",
     ],
 };
@@ -300,19 +305,24 @@ struct Pacing {
     theoretical_start: Option<i64>,
     /// The interval the last rated start took, in milliseconds.
     interval: Option<i64>,
+    /// Its sends' token bucket's theoretical start: the moment the rated
+    /// runs' sends may again go a burst at once, in milliseconds.
+    theoretical_send: Option<i64>,
 }
 
 impl Pacing {
     fn read(connection: &Connection, key: &str) -> rusqlite::Result<Self> {
         Ok(connection
             .query_row(
-                "SELECT latency, theoretical_start, interval FROM domain_pacing WHERE key = ?1",
+                "SELECT latency, theoretical_start, interval, theoretical_send
+                 FROM domain_pacing WHERE key = ?1",
                 [key],
                 |row| {
                     Ok(Self {
                         latency: row.get(0)?,
                         theoretical_start: row.get(1)?,
                         interval: row.get(2)?,
+                        theoretical_send: row.get(3)?,
                     })
                 },
             )
@@ -322,10 +332,17 @@ impl Pacing {
 
     fn write(&self, connection: &Connection, key: &str) -> rusqlite::Result<()> {
         connection.execute(
-            "INSERT INTO domain_pacing (key, latency, theoretical_start, interval)
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT (key) DO UPDATE SET latency = ?2, theoretical_start = ?3, interval = ?4",
-            (key, self.latency, self.theoretical_start, self.interval),
+            "INSERT INTO domain_pacing (key, latency, theoretical_start, interval, theoretical_send)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT (key) DO UPDATE SET latency = ?2, theoretical_start = ?3, interval = ?4,
+                 theoretical_send = ?5",
+            (
+                key,
+                self.latency,
+                self.theoretical_start,
+                self.interval,
+                self.theoretical_send,
+            ),
         )?;
         Ok(())
     }
@@ -342,9 +359,10 @@ fn averaged(previous: Option<i64>, measured: i64) -> i64 {
 }
 
 /// A run's per-domain rate: a token bucket of `burst` tokens, one coming
-/// back every `interval`, as GCRA keeps it, one theoretical start per key.
+/// back every `interval`, as GCRA keeps it, one theoretical start per key
+/// for the admissions and one for the sends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Rate {
+pub struct Rate {
     /// A minute divided by `politeness.domain.rate`, rounded up to the
     /// millisecond so the rate is never exceeded.
     interval: i64,
@@ -355,16 +373,19 @@ pub(crate) struct Rate {
 impl Rate {
     /// The rate `settings` give a crawl; `None` without
     /// `politeness.domain.rate`, or with one of 0.
-    fn of(settings: &Resolved) -> Option<Self> {
-        let rate = settings
-            .count(POLITENESS_DOMAIN_RATE.name)
-            .filter(|rate| *rate > 0)?;
-        Some(Self {
+    pub fn of(settings: &Resolved) -> Option<Self> {
+        Self::per_minute(
+            settings.count(POLITENESS_DOMAIN_RATE.name)?,
+            settings.count(POLITENESS_DOMAIN_BURST.name).unwrap_or(1),
+        )
+    }
+
+    /// `rate` requests a minute in bursts of `burst`, a burst of 0 read as
+    /// 1; `None` for a rate of 0.
+    pub fn per_minute(rate: u64, burst: u64) -> Option<Self> {
+        (rate > 0).then(|| Self {
             interval: i64::try_from(60_000_u64.div_ceil(rate)).unwrap_or(i64::MAX),
-            burst: settings
-                .count(POLITENESS_DOMAIN_BURST.name)
-                .unwrap_or(1)
-                .max(1),
+            burst: burst.max(1),
         })
     }
 
@@ -619,14 +640,74 @@ pub async fn started_again(
 ) -> Result<(), PolitenessError> {
     let key = key.to_owned();
     politeness
-        .transact(move |connection| {
-            let mut limits = Limits::read(connection, &key)?;
-            let at = milliseconds(now);
-            limits.last_start = Some(limits.last_start.map_or(at, |last| last.max(at)));
-            limits.write(connection, &key)?;
-            start_moved(connection, &key, now)
-        })
+        .transact(move |connection| start_noted(connection, &key, now))
         .await
+}
+
+/// A request of `key` sent now: every run sharing `politeness` counts its
+/// delay and its rate's interval from the moment `clock` reads once the
+/// file records the send, so a send that waited for the file, which
+/// another engine or run held, never counts from before that wait (ADR
+/// 0086: a start is its send, the later of the two instants). A crawl
+/// request's own send by a run of `rate` also takes a token of the key's
+/// sends, every sharing rated run's together: when the sends before it
+/// left none, it records nothing and answers the moment the next comes
+/// back, which the caller waits for before asking again, so the token and
+/// the start are taken when the request goes. An admission's token therefore
+/// never lets a request reach the site within the interval of one whose
+/// send came later than its own admission. Hops and runs with no rate
+/// pass `None`.
+///
+/// # Errors
+///
+/// When the Politeness file's transaction failed.
+///
+/// # Cancel safety
+///
+/// Dropping the future does not withdraw a transaction already queued.
+pub async fn started_at_send(
+    politeness: &Politeness,
+    key: &str,
+    clock: Clock,
+    rate: Option<Rate>,
+) -> Result<Option<SystemTime>, PolitenessError> {
+    let key = key.to_owned();
+    politeness
+        .transact(move |connection| send_taken(connection, &key, clock.wall(), rate))
+        .await
+}
+
+/// Takes in `connection` the start of a request of `key` sent at `now` by
+/// a run of `rate`; when the key's sends left that run no token, it takes
+/// nothing and answers when to ask again.
+pub(crate) fn send_taken(
+    connection: &Connection,
+    key: &str,
+    now: SystemTime,
+    rate: Option<Rate>,
+) -> rusqlite::Result<Option<SystemTime>> {
+    let now = milliseconds_from(now);
+    if let Some(rate) = rate {
+        let mut pacing = Pacing::read(connection, key)?;
+        if let Some(until) = rate.waits_until(pacing.theoretical_send, now) {
+            return Ok(Some(moment(until)));
+        }
+        pacing.theoretical_send = Some(rate.taken(pacing.theoretical_send, now));
+        pacing.write(connection, key)?;
+    }
+    start_noted(connection, key, moment(now))?;
+    Ok(None)
+}
+
+/// Records in `connection` a second start of `key` at `now`: the later of
+/// it and the last start becomes the last, and the rate's token moves to
+/// it ([`start_moved`]).
+fn start_noted(connection: &Connection, key: &str, now: SystemTime) -> rusqlite::Result<()> {
+    let mut limits = Limits::read(connection, key)?;
+    let at = milliseconds(now);
+    limits.last_start = Some(limits.last_start.map_or(at, |last| last.max(at)));
+    limits.write(connection, key)?;
+    start_moved(connection, key, now)
 }
 
 /// Takes in `connection` the next start of `key` for a request that may go

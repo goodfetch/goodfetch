@@ -57,6 +57,7 @@ mod locator;
 mod log;
 mod navigation_egress;
 mod needs_you;
+mod offline_key;
 mod ops;
 mod page;
 #[cfg(unix)]

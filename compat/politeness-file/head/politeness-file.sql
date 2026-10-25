@@ -15,15 +15,16 @@ CREATE TABLE domain_limits (
             ceiling_changed_at INTEGER,
             last_start INTEGER
         ) STRICT;
-INSERT INTO "domain_limits" VALUES('shop.test',1767603614773,9474,1,1767603600000,1767603605299);
+INSERT INTO "domain_limits" VALUES('shop.test',1767603614773,9474,1,1767603600000,1767603620000);
 INSERT INTO "domain_limits" VALUES('hold.test',NULL,NULL,NULL,NULL,1767603605299);
 CREATE TABLE domain_pacing (
             key TEXT NOT NULL PRIMARY KEY,
             latency INTEGER,
             theoretical_start INTEGER,
-            interval INTEGER
+            interval INTEGER,
+            theoretical_send INTEGER
         ) STRICT;
-INSERT INTO "domain_pacing" VALUES('shop.test',120,1767603607299,2000);
+INSERT INTO "domain_pacing" VALUES('shop.test',120,1767603607299,2000,1767603622000);
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('politeness-file','0.1');
 CREATE TABLE permits (

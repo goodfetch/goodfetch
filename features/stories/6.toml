@@ -579,6 +579,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 206
+title = "As a crawl developer, I want sitemaps read in gzip and plain form, up to sitemaps.org's 50,000 URLs and 50 MB uncompressed each, a larger or broken one reported with its URL and why, so that one bad sitemap never stops the rest (pitfall U19)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 207
+title = "As a crawl developer, I want the progress and the report to count, per sitemap seed, the sitemaps read, those that failed with their status, the entries added and those not added by reason, so that a sitemap's effect is visible without listing 50,000 entries (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 208
 title = "As a crawl developer, I want `run.addSeed(url, label, payload?, options)` and `run.addSeed(sitemap(...))` to add a seed to a running crawl, committed at once, or staged with the attempt through `ctx.run`, so that new work reaches a running crawl (CO-03)."
 milestone = "M1 Core"
@@ -688,6 +706,15 @@ product = "foxhound"
 [[story]]
 id = 220
 title = "As a crawl developer, I want a redirect reaching a key admitted for another request to end `skipped` with `duplicate` and run no handler, so that one page is never handled twice (ADR 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 221
+title = "As a crawl developer, I want `crawl.keep_url_fragment` on a Label whose requests are hash routes, served only by `light_browser` or `browser`, so that a hash-routed app's views are separate requests (ADR 0120; pitfall U05)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -977,6 +1004,15 @@ id = 260
 title = "As a crawl developer, I want a wait for content a static document lacks, and a page failing its expected page, to escalate rather than pass empty, so that a script-rendered page never counts as an empty success (ADR 0093; P04; pitfall H22)."
 milestone = "M1 Core"
 journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 262
+title = "As a crawl developer, I want a Label that keeps responses while forcing `http` or `browser_fetch`, or that keeps fragments while forcing a document tier, to fail the Run's start with `setting_not_applicable`, so that a setting that can never serve is refused (ADRs 0110, 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
 status = "active"
 product = "foxhound"
 

@@ -19,6 +19,7 @@ metrics_endpoint = "example"
 address = "example"
 content_address = "example"
 content_public_url = "example"
+offline_cache = true
 
 [settings.console.sign_in]
 idle_expiry = 30000
@@ -235,6 +236,7 @@ max_url_length = 4
 max_path_segments = 4
 max_segment_repeats = 4
 path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
+keep_url_fragment = true
 
 [settings.crawl.retry]
 max = 4
@@ -267,6 +269,9 @@ max = 4
 [settings.fetch.refresh]
 max_delay = 30000
 
+[settings.fetch.kept_responses]
+urls = ["example"]
+
 [settings.paid_fetch]
 domains = ["example"]
 max_price_per_page = "0.05 USD"
@@ -295,6 +300,7 @@ metrics_endpoint = "example"
 address = "example"
 content_address = "example"
 content_public_url = "example"
+offline_cache = true
 
 [lock.console.sign_in]
 idle_expiry = 30000
@@ -511,6 +517,7 @@ max_url_length = 4
 max_path_segments = 4
 max_segment_repeats = 4
 path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
+keep_url_fragment = true
 
 [lock.crawl.retry]
 max = 4
@@ -542,6 +549,9 @@ max = 4
 
 [lock.fetch.refresh]
 max_delay = 30000
+
+[lock.fetch.kept_responses]
+urls = ["example"]
 
 [lock.paid_fetch]
 domains = ["example"]

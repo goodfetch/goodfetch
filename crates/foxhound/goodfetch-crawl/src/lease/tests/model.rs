@@ -320,6 +320,7 @@ impl StateMachineTest for Subject {
                 },
                 vec![
                     work_items::TABLES,
+                    crate::labels::TABLES,
                     goodfetch_frontier::VISITED_TABLES,
                     goodfetch_frontier::SCOPE_TABLES,
                     goodfetch_frontier::BOUNDS_TABLES,

@@ -32,7 +32,12 @@ import type { OracleAnswer } from "./generated/result-document.ts";
 import { journeyDocument } from "./journey-document.ts";
 import { JOURNEY_CATALOG, readJourneyFile, type JourneyFile } from "./journey-file.ts";
 import { JourneyRun, type JourneyBody, type TaskSubmission } from "./journey-run.ts";
-import { test as served, type ServedDaemon, type SignIn } from "./playwright.ts";
+import {
+  test as served,
+  type PageErrorWatch,
+  type ServedDaemon,
+  type SignIn,
+} from "./playwright.ts";
 import { ProcessRecord } from "./process-record.ts";
 import type { ProvingGroundDescription } from "./proving-ground.ts";
 import { JOURNEY_FACTS } from "./result-document-reporter.ts";
@@ -59,6 +64,8 @@ export interface JourneyContext {
   readonly page: Page;
   readonly context: BrowserContext;
   readonly signIn: SignIn;
+  /** What the variant's pages did wrong, for a step that expects a refusal, such as a page reconnecting to a stopped Daemon. */
+  readonly failOnErrors: PageErrorWatch;
 }
 
 /** How a variant runs, beyond its Journey and surface. */
@@ -149,7 +156,7 @@ export function journey(
     variantTest(
       read.title,
       { tag: [`@${id}`, `@${surface}`], annotation: { type: "journey", description: variant } },
-      async ({ variantRun, daemon, page, context, signIn }) => {
+      async ({ variantRun, daemon, page, context, signIn, failOnErrors }) => {
         const { run, cli } = variantRun;
         await body({
           step: (wording, stepBody) => run.step(wording, () => served.step(wording, stepBody)),
@@ -161,6 +168,7 @@ export function journey(
           page,
           context,
           signIn,
+          failOnErrors,
         });
         const facts = run.facts();
         const outcome = journeyDocument(facts).outcome;

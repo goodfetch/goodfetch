@@ -4,10 +4,13 @@
 //! family. A sitemap index's two sitemaps seed their entries, each with the
 //! Label of the first rule matching it, one matching none counted
 //! `no_rule` and one outside the scope `out_of_scope` in its sitemap's
-//! counts in the Run's report; a robots.txt seed admits its own host's
-//! entries from the sitemap it cross-submits on another host, and no other
-//! host's (pitfall U20); and a sitemap's own fetches go through the domain
-//! policy, Politeness and robots.txt and run no handler.
+//! seed's counts in the Run's report; a robots.txt seed admits its own
+//! host's entries from the sitemap it cross-submits on another host, and
+//! no other host's (pitfall U20); a sitemap's own fetches go through the
+//! domain policy, Politeness and robots.txt and run no handler; and gzip
+//! and plain sitemaps seed alike, while one past sitemaps.org's limits, a
+//! decompression bomb, broken XML, a 500 and a 404 are each reported with
+//! its URL and why and never stop the rest (pitfall U19).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -31,6 +34,9 @@ const PARTNER: &str = "sitemap-partner.test";
 /// The host the Politeness case's domain policy refuses.
 const BLOCKED: &str = "sitemap-blocked.test";
 
+/// The `sitemaps` family's host, whose index lists 50,048 sitemaps.
+const OVER_LIMIT: &str = "sitemaps.test";
+
 /// The delay between starts of the Politeness case: long enough that two
 /// requests of one domain sent without it would arrive closer.
 const DELAY_MILLISECONDS: u64 = 1_000;
@@ -40,7 +46,9 @@ const DELAY_MILLISECONDS: u64 = 1_000;
 fn settings(proving_ground: &ProvingGround, more: &Value) -> Value {
     let ip = proving_ground.address().ip().to_string();
     let mut settings = json!({
-        "network": { "resolve": { SITE: [&ip], PARTNER: [&ip], BLOCKED: [&ip] } },
+        "network": {
+            "resolve": { SITE: [&ip], PARTNER: [&ip], BLOCKED: [&ip], OVER_LIMIT: [&ip] },
+        },
     });
     if let (Some(settings), Some(more)) = (settings.as_object_mut(), more.as_object()) {
         settings.extend(more.clone());
@@ -49,11 +57,12 @@ fn settings(proving_ground: &ProvingGround, more: &Value) -> Value {
 }
 
 /// What a crawl of the sitemap seed `seed` under `more` settings gave: the
-/// Run's report, each seed's answer, each crawl request its handler was
-/// given (its Label and URL, sorted) and the Proving ground's
-/// observations.
+/// Run's report and its last progress, each seed's answer, each crawl
+/// request its handler was given (its Label and URL, sorted) and the
+/// Proving ground's observations.
 struct Crawled {
     report: Value,
+    progress: Value,
     seeds: Value,
     handled: Vec<(String, String)>,
     observations: Value,
@@ -83,12 +92,19 @@ fn crawl_sitemap(proving_ground: &ProvingGround, seed: &Value, more: &Value) -> 
         &json!({ "run_id": "sitemap" }),
         &mut |_| None,
     );
+    let progress = engine.call(
+        "progress",
+        "run.progress",
+        &json!({ "run_id": "sitemap" }),
+        &mut |_| None,
+    );
     let observations = proving_ground.observations().unwrap();
     assert!(engine.finish());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     handled.sort();
     Crawled {
         report: report["result"].clone(),
+        progress: progress["result"].clone(),
         seeds: seeds["result"]["seeds"].clone(),
         handled,
         observations,
@@ -123,10 +139,21 @@ fn targets(observations: &Value, host: &str) -> Vec<String> {
     targets
 }
 
-/// A sitemap's counts as the Run's report gives them.
-fn counts(url: &str, added: u64, not_added: &[(&str, u64)]) -> Value {
+/// A sitemap seed's counts as the Run's report and progress give them:
+/// the sitemaps it read, each it could not with its URL and why, and its
+/// entries added and not added, by reason.
+fn counts(
+    seed: &str,
+    read: u64,
+    failures: &[Value],
+    added: u64,
+    not_added: &[(&str, u64)],
+) -> Value {
     json!({
-        "url": url,
+        "seed": seed,
+        "read": read,
+        "failed": failures.len(),
+        "failures": failures,
         "added": added,
         "not_added": not_added.iter().map(|(_, count)| count).sum::<u64>(),
         "not_added_by_reason": not_added
@@ -134,6 +161,16 @@ fn counts(url: &str, added: u64, not_added: &[(&str, u64)]) -> Value {
             .map(|(name, count)| json!({ "name": name, "count": count }))
             .collect::<Vec<_>>(),
     })
+}
+
+/// A sitemap a seed could not read, with the Error code, skip reason or
+/// refusal, the status when one answered, and why.
+fn failure(url: &str, code: &str, status: Option<u16>, message: &str) -> Value {
+    let mut failure = json!({ "url": url, "code": code, "message": message });
+    if let Some(status) = status {
+        failure["status"] = json!(status);
+    }
+    failure
 }
 
 fn handled(requests: &[(&str, &str)]) -> Vec<(String, String)> {
@@ -184,15 +221,13 @@ fn a_sitemap_index_seeds_its_entries_with_the_first_matching_rules_label() {
                 ("book", &url(SITE, "/books/2")),
                 ("book", &url(SITE, "/books/3")),
             ]),
-            json!([
-                counts(&index, 2, &[]),
-                counts(
-                    &url(SITE, "/sitemaps/books.xml"),
-                    3,
-                    &[("no_rule", 1), ("out_of_scope", 1)]
-                ),
-                counts(&url(SITE, "/sitemaps/more.xml"), 2, &[("duplicate", 1)]),
-            ]),
+            json!([counts(
+                &index,
+                3,
+                &[],
+                5,
+                &[("duplicate", 1), ("no_rule", 1), ("out_of_scope", 1)]
+            )]),
             Vec::<String>::new(),
         )
     );
@@ -227,10 +262,7 @@ fn a_robots_txt_seed_admits_its_own_hosts_entries_from_the_sitemap_it_cross_subm
         ),
         (
             handled(&[("book", &url(SITE, "/books/4"))]),
-            json!([
-                counts(&robots, 1, &[]),
-                counts(&url(PARTNER, "/cross.xml"), 1, &[("out_of_scope", 1)]),
-            ]),
+            json!([counts(&robots, 1, &[], 1, &[("out_of_scope", 1)])]),
             vec!["/robots.txt".to_owned()],
             vec!["/cross.xml".to_owned(), "/robots.txt".to_owned()],
         )
@@ -284,10 +316,32 @@ fn a_sitemaps_own_fetches_obey_the_domain_policy_politeness_and_robots_txt() {
                 ("book", &url(SITE, "/books/1")),
                 ("book", &url(SITE, "/books/3")),
             ]),
-            json!([
-                counts(&index, 2, &[("domain_policy", 1)]),
-                counts(&url(SITE, "/sitemaps/more.xml"), 2, &[("no_rule", 1)]),
-            ]),
+            json!([counts(
+                &index,
+                2,
+                &[
+                    failure(
+                        &url(BLOCKED, "/sitemap.xml"),
+                        "domain_policy",
+                        None,
+                        &format!(
+                            "The Run's domain policy refuses the host of the sitemap {}, so it was not fetched.",
+                            url(BLOCKED, "/sitemap.xml")
+                        ),
+                    ),
+                    failure(
+                        &url(SITE, "/private/hidden.xml"),
+                        "robots_txt",
+                        None,
+                        &format!(
+                            "The site's robots.txt disallows the sitemap {}, so it was not fetched.",
+                            url(SITE, "/private/hidden.xml")
+                        ),
+                    ),
+                ],
+                2,
+                &[("no_rule", 1)]
+            )]),
             [
                 "/books/1",
                 "/books/3",
@@ -299,6 +353,96 @@ fn a_sitemaps_own_fetches_obey_the_domain_policy_politeness_and_robots_txt() {
             .to_vec(),
             Vec::<String>::new(),
             Vec::<&String>::new(),
+        )
+    );
+}
+
+/// Sitemaps are read plain and gzip-compressed alike, and one past
+/// sitemaps.org's 50,000 URLs or 50 MB uncompressed, a decompression bomb,
+/// broken XML, a 500 and a 404 are each reported with its URL and why, in
+/// the report and the progress alike, while the other sitemaps still seed
+/// (pitfall U19): the seed's counts give the sitemaps read, those that
+/// failed, with their status, and the entries added, never listing one.
+///
+/// Covers: story:6-206, story:6-207, setting:network.max_decompression_ratio, operation:run.progress
+#[test]
+fn a_gzip_and_a_plain_sitemap_seed_and_a_bad_one_never_stops_the_rest() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let url = |host: &str, path: &str| proving_ground.url(host, path);
+    let index = url(SITE, "/limits-index.xml");
+    let seed = json!({
+        "sitemap": index,
+        "rules": [{ "pattern": "**/books/*", "label": "book" }],
+    });
+    let more = json!({ "crawl": { "retry": { "max": 0 } } });
+    let unreadable = |at: &str, why: &str| {
+        failure(
+            at,
+            "response_not_ok",
+            None,
+            &format!("The sitemap {at} could not be read: {why}."),
+        )
+    };
+    let over_limit = url(OVER_LIMIT, "/sitemap-index.xml");
+    let bomb = url(SITE, "/sitemaps/bomb.xml.gz");
+    let error = url(SITE, "/sitemaps/error.xml");
+    let missing = url(SITE, "/sitemaps/missing.xml");
+
+    let crawled = crawl_sitemap(&proving_ground, &seed, &more);
+
+    let expected = json!([counts(
+        &index,
+        3,
+        &[
+            failure(
+                &bomb,
+                "response_limit_exceeded",
+                None,
+                &format!(
+                    "the body of {bomb} decodes to more bytes per received byte than `network.max_decompression_ratio` allows (100)"
+                ),
+            ),
+            unreadable(
+                &url(SITE, "/sitemaps/broken.xml"),
+                "its XML ends inside an element"
+            ),
+            failure(
+                &error,
+                "response_unavailable",
+                Some(500),
+                &format!("The sitemap {error} answered 500."),
+            ),
+            failure(
+                &missing,
+                "response_not_ok",
+                Some(404),
+                &format!("The sitemap {missing} answered 404, not a sitemap."),
+            ),
+            unreadable(
+                &url(SITE, "/sitemaps/oversized.xml"),
+                "it is larger than sitemaps.org's 50 MB (52,428,800 bytes) uncompressed",
+            ),
+            unreadable(&over_limit, "it lists more than sitemaps.org's 50,000 URLs"),
+        ],
+        4,
+        &[],
+    )]);
+    assert_eq!(
+        (
+            crawled.handled,
+            crawled.report["sitemaps"].clone(),
+            crawled.progress["sitemaps"].clone(),
+        ),
+        (
+            handled(&[
+                ("book", &url(SITE, "/books/11")),
+                ("book", &url(SITE, "/books/12")),
+                ("book", &url(SITE, "/books/13")),
+                ("book", &url(SITE, "/books/14")),
+            ]),
+            expected.clone(),
+            expected,
         )
     );
 }

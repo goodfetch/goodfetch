@@ -2648,7 +2648,7 @@
         },
         "sitemaps": {
           "arrived_in": "0.1",
-          "description": "Its sitemaps, as its progress gives them.",
+          "description": "Each sitemap seed's sitemaps, as its progress gives them.",
           "items": {
             "$ref": "#/$defs/SitemapReport"
           },
@@ -11790,30 +11790,29 @@
         }
       ]
     },
-    "SitemapReport": {
-      "description": "A sitemap a crawl read (ADR 0102).",
+    "SitemapFailure": {
+      "description": "A sitemap a sitemap seed could not read (ADR 0102; pitfall U19).",
       "properties": {
-        "added": {
+        "code": {
           "arrived_in": "0.1",
-          "description": "How many of its entries were added.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
+          "description": "Why, as a name: its fetch's Error code (`response_unavailable`,\n`response_not_ok` for a status or a file that is no sitemap the\ncrawl reads, `response_limit_exceeded`), its skip reason\n(`robots_txt`), its Block cause, or the reason the Frontier did not\nadd a nested sitemap (`domain_policy`).",
+          "type": "string"
         },
-        "not_added": {
+        "message": {
           "arrived_in": "0.1",
-          "description": "How many of its entries were not.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
+          "description": "Why, in words.",
+          "type": "string"
         },
-        "not_added_by_reason": {
+        "status": {
           "arrived_in": "0.1",
-          "description": "Those not added, by the reason the Frontier gave, `no_rule` for an\nentry no rule of its sitemap seed matched, sorted by name.",
-          "items": {
-            "$ref": "#/$defs/CountOf"
-          },
-          "type": "array"
+          "description": "The status its site answered, when one answered.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "url": {
           "arrived_in": "0.1",
@@ -11823,6 +11822,69 @@
       },
       "required": [
         "url",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "SitemapReport": {
+      "description": "A sitemap seed's sitemaps (ADR 0102): those it read, those it could\nnot, and its entries added and not added, counted, never listed, since\na sitemap holds up to 50,000.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "How many of its sitemaps' entries were added.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failed": {
+          "arrived_in": "0.1",
+          "description": "How many of its sitemaps could not be read.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failures": {
+          "arrived_in": "0.1",
+          "description": "The first 20 of those, by URL, each with why.",
+          "items": {
+            "$ref": "#/$defs/SitemapFailure"
+          },
+          "type": "array"
+        },
+        "not_added": {
+          "arrived_in": "0.1",
+          "description": "How many of its sitemaps' entries were not.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_added_by_reason": {
+          "arrived_in": "0.1",
+          "description": "Those not added, by the reason the Frontier gave, `no_rule` for an\nentry no rule of the seed matched, sorted by name.",
+          "items": {
+            "$ref": "#/$defs/CountOf"
+          },
+          "type": "array"
+        },
+        "read": {
+          "arrived_in": "0.1",
+          "description": "How many of its sitemaps were read, nested ones included; a\nrobots.txt is none.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seed": {
+          "arrived_in": "0.1",
+          "description": "The sitemap or robots.txt the seed named.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "seed",
+        "read",
+        "failed",
+        "failures",
         "added",
         "not_added",
         "not_added_by_reason"
@@ -14558,6 +14620,10 @@
                     ],
                     "description": "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only."
                   },
+                  "offline_cache": {
+                    "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
                   "sign_in": {
                     "additionalProperties": false,
                     "properties": {
@@ -14608,6 +14674,10 @@
                   },
                   "keep_alive": {
                     "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
+                    "type": "boolean"
+                  },
+                  "keep_url_fragment": {
+                    "description": "Whether a crawl request's identity keeps its URL's fragment, so a hash-routed app's views (`#/a`, `#/b`) are separate requests, set for the Run or for one of its Labels, whose own value wins for its requests (Crawlee's `keepUrlFragment`). Off by default: one URL with two fragments is one request. Only the tiers that run the page's scripts serve such a request: under `fetch.tier: auto` it runs on `browser`, and forcing `http`, `browser_fetch` or `discovered_api` where it is on fails the crawl's start with `setting_not_applicable`. Fixed for a Run's life: a start under the Run's ID that changes it is refused with `setting_not_applicable`.",
                     "type": "boolean"
                   },
                   "max_depth": {
@@ -14902,6 +14972,19 @@
                         "description": "The most hedges a run sends, as a whole percentage of the crawl requests its HTTP tier sent: 5 by default.",
                         "minimum": 0,
                         "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "kept_responses": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "urls": {
+                        "description": "URL patterns, each a glob or a regular expression matched in the engine, naming the responses of a crawl request's own navigation kept for its handler's `keptResponse` and `keptResponses`, set for the Run or for one of its Labels, whose own list wins for its requests. None by default: nothing is kept. Only a tier that runs the page's scripts, or `discovered_api`, can keep them: forcing `http` or `browser_fetch` where a list is set fails the crawl's start with `setting_not_applicable`; any other list set is refused at the start with `capability_unavailable` until the engine keeps responses.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
                       }
                     },
                     "type": "object"
@@ -16827,6 +16910,10 @@
                     ],
                     "description": "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only."
                   },
+                  "offline_cache": {
+                    "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
                   "sign_in": {
                     "additionalProperties": false,
                     "properties": {
@@ -16877,6 +16964,10 @@
                   },
                   "keep_alive": {
                     "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
+                    "type": "boolean"
+                  },
+                  "keep_url_fragment": {
+                    "description": "Whether a crawl request's identity keeps its URL's fragment, so a hash-routed app's views (`#/a`, `#/b`) are separate requests, set for the Run or for one of its Labels, whose own value wins for its requests (Crawlee's `keepUrlFragment`). Off by default: one URL with two fragments is one request. Only the tiers that run the page's scripts serve such a request: under `fetch.tier: auto` it runs on `browser`, and forcing `http`, `browser_fetch` or `discovered_api` where it is on fails the crawl's start with `setting_not_applicable`. Fixed for a Run's life: a start under the Run's ID that changes it is refused with `setting_not_applicable`.",
                     "type": "boolean"
                   },
                   "max_depth": {
@@ -17171,6 +17262,19 @@
                         "description": "The most hedges a run sends, as a whole percentage of the crawl requests its HTTP tier sent: 5 by default.",
                         "minimum": 0,
                         "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "kept_responses": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "urls": {
+                        "description": "URL patterns, each a glob or a regular expression matched in the engine, naming the responses of a crawl request's own navigation kept for its handler's `keptResponse` and `keptResponses`, set for the Run or for one of its Labels, whose own list wins for its requests. None by default: nothing is kept. Only a tier that runs the page's scripts, or `discovered_api`, can keep them: forcing `http` or `browser_fetch` where a list is set fails the crawl's start with `setting_not_applicable`; any other list set is refused at the start with `capability_unavailable` until the engine keeps responses.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
                       }
                     },
                     "type": "object"
@@ -19112,6 +19216,10 @@
                     ],
                     "description": "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only."
                   },
+                  "offline_cache": {
+                    "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
                   "sign_in": {
                     "additionalProperties": false,
                     "properties": {
@@ -19162,6 +19270,10 @@
                   },
                   "keep_alive": {
                     "description": "Whether a crawl's Run stays `running` with an empty Frontier and nothing in flight, waiting for new work, until `run.finish` lets it end once its work items are done: `false`, so a crawl finishes once its work items are done. Its idle time counts toward `timeout.run`, and an abort stops it as any Run.",
+                    "type": "boolean"
+                  },
+                  "keep_url_fragment": {
+                    "description": "Whether a crawl request's identity keeps its URL's fragment, so a hash-routed app's views (`#/a`, `#/b`) are separate requests, set for the Run or for one of its Labels, whose own value wins for its requests (Crawlee's `keepUrlFragment`). Off by default: one URL with two fragments is one request. Only the tiers that run the page's scripts serve such a request: under `fetch.tier: auto` it runs on `browser`, and forcing `http`, `browser_fetch` or `discovered_api` where it is on fails the crawl's start with `setting_not_applicable`. Fixed for a Run's life: a start under the Run's ID that changes it is refused with `setting_not_applicable`.",
                     "type": "boolean"
                   },
                   "max_depth": {
@@ -19456,6 +19568,19 @@
                         "description": "The most hedges a run sends, as a whole percentage of the crawl requests its HTTP tier sent: 5 by default.",
                         "minimum": 0,
                         "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "kept_responses": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "urls": {
+                        "description": "URL patterns, each a glob or a regular expression matched in the engine, naming the responses of a crawl request's own navigation kept for its handler's `keptResponse` and `keptResponses`, set for the Run or for one of its Labels, whose own list wins for its requests. None by default: nothing is kept. Only a tier that runs the page's scripts, or `discovered_api`, can keep them: forcing `http` or `browser_fetch` where a list is set fails the crawl's start with `setting_not_applicable`; any other list set is refused at the start with `capability_unavailable` until the engine keeps responses.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
                       }
                     },
                     "type": "object"

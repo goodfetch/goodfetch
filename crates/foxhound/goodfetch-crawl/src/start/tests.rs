@@ -1143,6 +1143,173 @@ fn a_crawl_setting_a_fetch_key_not_built_is_refused_before_it_begins(
         settings, labels, expected,
     );
 }
+
+/// A setting that can never serve is refused, not ignored (ADRs 0110 and
+/// 0120): a Label keeping responses (`fetch.kept_responses.urls`) on a
+/// forced `http` or `browser_fetch` tier, its own or the Run's, and one
+/// keeping its URLs' fragments (`crawl.keep_url_fragment`, its own or the
+/// Run's) on a forced document tier, fail the start with
+/// `setting_not_applicable` naming the key before the Run begins, ahead of
+/// the tier's own `capability_unavailable`; responses kept on a tier that
+/// could serve them are refused with `capability_unavailable` until the
+/// engine keeps them.
+///
+/// Covers: story:6-262
+#[rstest::rstest]
+/// Covers: setting:fetch.kept_responses.urls, error:setting_not_applicable
+#[case::responses_kept_on_a_labels_forced_http(
+    json!({}),
+    json!({ "api": { "settings": { "fetch": { "tier": "http", "kept_responses": { "urls": ["**/api/*"] } } } } }),
+    json!(["setting_not_applicable", "fetch.kept_responses.urls", null])
+)]
+/// Covers: setting:fetch.kept_responses.urls, error:setting_not_applicable
+#[case::responses_kept_on_a_labels_forced_browser_fetch(
+    json!({}),
+    json!({ "api": { "settings": { "fetch": { "tier": "browser_fetch", "kept_responses": { "urls": ["**/api/*"] } } } } }),
+    json!(["setting_not_applicable", "fetch.kept_responses.urls", null])
+)]
+/// Covers: setting:fetch.kept_responses.urls, error:setting_not_applicable
+#[case::responses_kept_by_a_label_on_the_runs_forced_http(
+    json!({ "fetch": { "tier": "http" } }),
+    json!({ "api": { "settings": { "fetch": { "kept_responses": { "urls": ["**/api/*"] } } } } }),
+    json!(["setting_not_applicable", "fetch.kept_responses.urls", null])
+)]
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
+#[case::fragments_kept_on_a_labels_forced_http(
+    json!({}),
+    json!({ "app": { "settings": { "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "http" } } } }),
+    json!(["setting_not_applicable", "crawl.keep_url_fragment", null])
+)]
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
+#[case::fragments_kept_on_a_labels_forced_discovered_api(
+    json!({}),
+    json!({ "app": { "settings": { "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "discovered_api" } } } }),
+    json!(["setting_not_applicable", "crawl.keep_url_fragment", null])
+)]
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
+#[case::fragments_kept_by_the_run_on_a_labels_forced_browser_fetch(
+    json!({ "crawl": { "keep_url_fragment": true } }),
+    json!({ "app": { "settings": { "fetch": { "tier": "browser_fetch" } } } }),
+    json!(["setting_not_applicable", "crawl.keep_url_fragment", null])
+)]
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
+#[case::fragments_kept_by_the_run_on_its_forced_http(
+    json!({ "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "http" } }),
+    json!({}),
+    json!(["setting_not_applicable", "crawl.keep_url_fragment", null])
+)]
+/// Covers: setting:fetch.kept_responses.urls, error:capability_unavailable
+#[case::responses_kept_on_the_browser(
+    json!({}),
+    json!({ "api": { "settings": { "fetch": { "tier": "browser", "kept_responses": { "urls": ["**/api/*"] } } } } }),
+    json!(["capability_unavailable", "fetch.kept_responses.urls", "kept_responses"])
+)]
+fn a_label_whose_settings_can_never_be_served_is_refused_at_the_runs_start(
+    #[case] settings: Value,
+    #[case] labels: Value,
+    #[case] expected: Value,
+) {
+    a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable(
+        settings, labels, expected,
+    );
+}
+
+/// A Label keeping its URLs' fragments on a tier that runs the page's
+/// scripts, forced or chosen by the engine, starts, as does a Label
+/// dropping them on a forced `http` tier (ADR 0120).
+///
+/// Covers: story:6-221, setting:crawl.keep_url_fragment
+#[rstest::rstest]
+#[case::on_a_forced_browser(json!({ "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "browser" } }))]
+#[case::under_auto(json!({ "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "auto" } }))]
+#[case::dropped_on_a_forced_http(json!({ "crawl": { "keep_url_fragment": false }, "fetch": { "tier": "http" } }))]
+fn a_label_keeping_fragments_on_a_tier_that_serves_them_starts(#[case] label: Value) {
+    let env = TestEnv::new();
+
+    let started = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "fragments",
+                        "seeds": seeds(1),
+                        "labels": { "app": { "settings": label } },
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await
+        },
+    );
+
+    assert_eq!(started["result"]["run_id"], "fragments", "{started}");
+}
+
+/// A crawl request's identity follows `crawl.keep_url_fragment`, which is
+/// fixed for a Run's life (ADRs 0102 and 0120): a start under the Run's ID
+/// that changes it, for the Run or for a Label, is refused with
+/// `setting_not_applicable` naming the key, while one that keeps it goes
+/// on with the Run.
+///
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
+#[test]
+fn a_start_under_a_runs_id_that_changes_keep_url_fragment_is_refused() {
+    let env = TestEnv::new();
+    let start = |settings: Value, labels: Value| {
+        json!({
+            "run_id": "fixed",
+            "seeds": seeds(1),
+            "labels": labels,
+            "settings": settings,
+        })
+    };
+    let keeping = json!({ "app": { "settings": { "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "browser" } } } });
+    let dropping = json!({ "app": { "settings": { "fetch": { "tier": "browser" } } } });
+
+    let answers = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let mut answers = Vec::new();
+            for params in [
+                start(json!({}), keeping.clone()),
+                start(json!({}), dropping.clone()),
+                start(
+                    json!({ "crawl": { "keep_url_fragment": true } }),
+                    keeping.clone(),
+                ),
+                start(json!({}), keeping.clone()),
+            ] {
+                answers.push(
+                    client
+                        .call("crawl.start", params, &mut |_| Reply::Silent)
+                        .await,
+                );
+            }
+            answers
+        },
+    );
+
+    let read: Vec<Value> = answers
+        .iter()
+        .map(|answer| {
+            answer.get("error").map_or_else(
+                || answer["result"]["run_id"].clone(),
+                |error| json!([error["data"]["code"], error["data"]["key"]]),
+            )
+        })
+        .collect();
+    assert_eq!(
+        read,
+        vec![
+            json!("fixed"),
+            json!(["setting_not_applicable", "crawl.keep_url_fragment"]),
+            json!(["setting_not_applicable", "crawl.keep_url_fragment"]),
+            json!("fixed"),
+        ]
+    );
+}
+
 /// A crawl whose `fetch.redirect.max` is outside 1 to 19, as many
 /// redirects as the browser follows, is refused before its Run begins
 /// (ADR 0118): following none is `crawl.handle_statuses`'s to say.

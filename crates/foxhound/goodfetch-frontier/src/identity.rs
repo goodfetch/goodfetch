@@ -81,9 +81,10 @@ pub(crate) struct Key {
 }
 
 impl Key {
-    /// The key of `url`, as parsed.
-    pub(crate) fn of(url: &Url) -> Self {
-        let text = url_key(url);
+    /// The key of `url`, as parsed, its fragment kept when
+    /// `keeps_fragment` is on.
+    pub(crate) fn of(url: &Url, keeps_fragment: bool) -> Self {
+        let text = key_text(url, keeps_fragment);
         let url = Url::parse(&text).expect("invariant: a URL's key is a URL");
         Self { text, url }
     }
@@ -293,9 +294,21 @@ fn visited_on(
     Ok(found)
 }
 
-/// `url`'s key, as a URL.
+/// `url`'s key, as a URL, without its fragment.
 pub(crate) fn keyed(url: &Url) -> Url {
-    Key::of(url).url
+    Key::of(url, false).url
+}
+
+/// `url`'s key as [`url_key`] makes it, followed by its fragment when
+/// `keeps_fragment` is on and it has one (ADR 0120): a Label keeping
+/// fragments makes one request per fragment.
+fn key_text(url: &Url, keeps_fragment: bool) -> String {
+    let mut key = url_key(url);
+    if keeps_fragment && let Some(fragment) = url.fragment() {
+        key.push('#');
+        key.push_str(fragment);
+    }
+    key
 }
 
 /// How a crawl request is sent beside its URL, and the key a program may
@@ -309,6 +322,9 @@ pub struct Declared<'a> {
     /// The identity the program declared, if any, which replaces its
     /// method, its URL's key and its body's hash.
     pub key: Option<&'a str>,
+    /// Whether its URL's key keeps the fragment, as its Label's
+    /// `crawl.keep_url_fragment` says (ADR 0120).
+    pub keeps_fragment: bool,
 }
 
 /// Where a redirect hop leads a crawl request.
@@ -333,7 +349,7 @@ pub enum Hop {
 /// SHA-256 in hexadecimal, separated by spaces, which neither a method nor
 /// a serialized URL holds.
 pub(crate) fn identity(url: &Url, declared: Declared<'_>) -> String {
-    identity_of_key(&url_key(url), declared)
+    identity_of_key(&key_text(url, declared.keeps_fragment), declared)
 }
 
 /// The identity of a request whose URL's key is `key`, declared so, as
@@ -402,11 +418,12 @@ pub fn redirect_hop(
     }
     let hop = identities(
         connection,
-        &Key::of(url),
+        &Key::of(url, false),
         Declared {
             method,
             body,
             key: None,
+            keeps_fragment: false,
         },
     )?;
     Ok(match seen(connection, &hop)? {
@@ -460,11 +477,12 @@ pub fn redirect_reached(
 ) -> rusqlite::Result<()> {
     let reached = identities(
         connection,
-        &Key::of(url),
+        &Key::of(url, false),
         Declared {
             method,
             body,
             key: None,
+            keeps_fragment: false,
         },
     )?;
     visit_all(connection, &reached, crawl_request)

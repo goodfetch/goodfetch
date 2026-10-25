@@ -12,7 +12,7 @@ view."""
 area = 12
 product = "collie"
 status = "active"
-covers = ["story:12-123", "story:12-125"]
+covers = ["story:12-123", "story:12-125", "story:12-126"]
 
 [proving_ground]
 seed = 25

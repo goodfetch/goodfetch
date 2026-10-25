@@ -60,6 +60,7 @@ use crate::transport::{ConsoleListener, ConsoleStream};
 
 mod content;
 mod event_stream;
+mod offline_key;
 
 use content::{Asked, CONTENT_LISTENER, Content};
 use event_stream::{EVENTS, MESSAGES, Streams};
@@ -100,6 +101,8 @@ const SIGN_IN: &str = "/sign-in";
 const SESSION: &str = "/session";
 /// Where the page ends its own sign-in.
 const SIGN_OUT: &str = "/sign-out";
+/// Where the page gets its offline cache key, new or unwrapped (ADR 0031).
+const OFFLINE_KEY: &str = "/offline-key";
 /// Where the Console's WebSocket opens.
 const PROTOCOL: &str = "/protocol";
 /// Where the page turns a file's handle into its signed content address:
@@ -138,6 +141,8 @@ pub(crate) struct Served {
     pub(crate) clock: Clock,
     /// The content origin, if it started.
     pub(crate) content: Option<ContentOrigin>,
+    /// `console.offline_cache`: whether the page may cache run summaries.
+    pub(crate) offline_cache: bool,
 }
 
 /// Which of its origins a connection of the Console reached.
@@ -167,6 +172,8 @@ struct Site {
     content: Option<Content>,
     /// The Console's policy, which names the content origin.
     policy: HeaderValue,
+    /// `console.offline_cache`.
+    offline_cache: bool,
 }
 
 /// Serves the Console `served` describes until `owner` stops, each
@@ -186,6 +193,7 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
         runs,
         clock,
         content,
+        offline_cache,
     } = served;
     let address = match listener.local_address() {
         Ok(address) => address,
@@ -212,6 +220,7 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
         content,
         policy: HeaderValue::from_str(&policy)
             .expect("invariant: the Console's policy is header text"),
+        offline_cache,
     });
     if let Some(listener) = content_listener {
         owner.spawn(accept(
@@ -388,6 +397,7 @@ impl Site {
             SIGN_IN => self.sign_in(request, from).await,
             SESSION => self.session(request.method(), request.headers()).await,
             SIGN_OUT => self.sign_out(request.method(), request.headers()).await,
+            OFFLINE_KEY => self.offline_key(request).await,
             PROTOCOL => {
                 let answered = self.handshake(request.method(), request.headers()).await;
                 if answered.status() == StatusCode::SWITCHING_PROTOCOLS {
@@ -630,8 +640,10 @@ impl Site {
     }
 
     /// `GET /session`: for a signed-in request, `200` with the sign-in's
-    /// CSRF token, `{"csrf_token": "…"}`, which only the Console's own
-    /// origin can read, and its cookie's expiry set again; `401` otherwise.
+    /// CSRF token and whether `console.offline_cache` is on,
+    /// `{"csrf_token": "…", "offline_cache": true}`, which only the
+    /// Console's own origin can read, and its cookie's expiry set again;
+    /// `401` otherwise.
     async fn session(&self, method: &Method, headers: &HeaderMap) -> Response<Full<Bytes>> {
         if method != Method::GET && method != Method::HEAD {
             return self.refused_method(&["GET", "HEAD"]);
@@ -644,7 +656,11 @@ impl Site {
         };
         let mut response = self.plain(StatusCode::OK);
         if method == Method::GET {
-            let body = serde_json::json!({ "csrf_token": csrf_token }).to_string();
+            let body = serde_json::json!({
+                "csrf_token": csrf_token,
+                "offline_cache": self.offline_cache,
+            })
+            .to_string();
             *response.body_mut() = Full::new(Bytes::from(body));
         }
         response.headers_mut().insert(
@@ -817,10 +833,11 @@ fn sign_in_token(body: &[u8]) -> &str {
 
 /// The fuzz target `console_sign_in`'s body (ADR 0067): the inputs of the
 /// Console's sign-in endpoints, which any page or program may send, split
-/// at NUL bytes into a `Cookie` header, a `POST /sign-in` body and an
-/// `X-CSRF-Token` header. Each is read as the endpoints read it: a cookie's
-/// value is one of the header's pairs and its sign-in's identifier its
-/// first part, a body's token is trimmed text, and a CSRF token is header
+/// at NUL bytes into a `Cookie` header, a `POST /sign-in` or
+/// `POST /offline-key` body and an `X-CSRF-Token` header. Each is read as
+/// the endpoints read it: a cookie's value is one of the header's pairs and
+/// its sign-in's identifier its first part, a body's token is trimmed text,
+/// a body's wrapped key reads back as itself, and a CSRF token is header
 /// text. It panics only on a bug.
 pub fn fuzz_sign_in_endpoints(data: &[u8]) {
     const NAME: &str = "goodfetch_console_0.0";
@@ -856,6 +873,7 @@ pub fn fuzz_sign_in_endpoints(data: &[u8]) {
     }
     let token = sign_in_token(body);
     assert_eq!(token, token.trim(), "a sign-in token keeps its blanks");
+    offline_key::fuzz_body(body);
     let _ = headers.get(CSRF_HEADER).map(HeaderValue::to_str);
 }
 

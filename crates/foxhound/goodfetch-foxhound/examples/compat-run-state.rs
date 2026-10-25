@@ -15,8 +15,8 @@
 //! and merges a seed it admits then, counts item 1's `rel=canonical`, and
 //! learns the guide's trailing slash from its redirect until its two pages
 //! differ and stop the rule, and a sitemap seed whose sitemap it reads as
-//! listing an entry no rule matches and one the scope refuses,
-//! whose handler enqueues a `forefront` request on another domain from the
+//! listing an entry no rule matches and one the scope refuses, beside one
+//! whose sitemap answered 404, whose handler enqueues a `forefront` request on another domain from the
 //! first, pushes Records for the first, the `POST` and that request and
 //! fails on the second, whose first byte never came, so its
 //! domain still backs off when `run.finish` ends it, and whose last site
@@ -312,6 +312,7 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                         method: &get,
                         body: None,
                         key: None,
+                        keeps_fragment: false,
                     },
                 },
                 |_| Err(rusqlite::Error::InvalidQuery),
@@ -330,11 +331,13 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
 /// Admits a sitemap seed on `maps.test` whose fetch already ended, since
 /// no fetch tier runs over the in-memory network, and reads its sitemap as
 /// listing `/about`, which its rule does not match (`no_rule`), and
-/// `/books/1`, which the scope's `include` refuses (`out_of_scope`).
+/// `/books/1`, which the scope's `include` refuses (`out_of_scope`); and a
+/// second seed whose sitemap answered 404, its fetch failed.
 fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
     use goodfetch_frontier::sitemap;
     use goodfetch_protocol::foxhound::crawl::{SitemapRule, SitemapSeed};
     use goodfetch_protocol::foxhound::frontier::Enqueued;
+    use goodfetch_protocol::foxhound::outcomes::{AttemptError, Ending};
 
     let policy = goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str])
         .expect("every host is a policy");
@@ -345,20 +348,24 @@ fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
             label: "home".to_owned(),
         }],
     };
-    let answer = sitemap::admit_seed(connection, &policy, &seed, |url| {
-        connection.query_row(
-            "INSERT INTO work_items
-                 (id, position, url, method, label, depth, status, attempts, lease_epoch, domain_key, priority)
-             SELECT CAST(next AS TEXT), next, ?1, 'GET', '', 0, 'succeeded', 1, 1, 'maps.test', 0
-             FROM (SELECT coalesce(max(position), 0) + 1 AS next FROM work_items)
-             RETURNING id",
-            [url.as_str()],
-            |row| row.get(0),
-        )
-    })?;
-    let Enqueued::Added { id, .. } = answer else {
-        panic!("the sitemap seed is admitted: {answer:?}");
+    let admit = |seed: &SitemapSeed, status: &str| {
+        let answer = sitemap::admit_seed(connection, &policy, seed, |url| {
+            connection.query_row(
+                "INSERT INTO work_items
+                     (id, position, url, method, label, depth, status, attempts, lease_epoch, domain_key, priority)
+                 SELECT CAST(next AS TEXT), next, ?1, 'GET', '', 0, ?2, 1, 1, 'maps.test', 0
+                 FROM (SELECT coalesce(max(position), 0) + 1 AS next FROM work_items)
+                 RETURNING id",
+                [url.as_str(), status],
+                |row| row.get(0),
+            )
+        })?;
+        let Enqueued::Added { id, .. } = answer else {
+            panic!("the sitemap seed is admitted: {answer:?}");
+        };
+        Ok::<String, rusqlite::Error>(id)
     };
+    let id = admit(&seed, "succeeded")?;
     sitemap::read(
         connection,
         &goodfetch_frontier::Scope::read(connection)?,
@@ -366,6 +373,29 @@ fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
         &id,
         &sitemap::Document::Entries(vec!["/about".to_owned(), "/books/1".to_owned()]),
         |_, _| Err(rusqlite::Error::InvalidQuery),
+    )?;
+    let missing = SitemapSeed {
+        sitemap: "https://maps.test/missing.xml".to_owned(),
+        rules: seed.rules.clone(),
+    };
+    let id = admit(&missing, "failed")?;
+    let mut details = serde_json::Map::new();
+    details.insert("url".to_owned(), json!(missing.sitemap));
+    details.insert("status".to_owned(), json!(404));
+    sitemap::ended(
+        connection,
+        &id,
+        &Ending::Failed {
+            error: AttemptError {
+                attempt: 1,
+                code: "response_not_ok".to_owned(),
+                message: format!(
+                    "The sitemap {} answered 404, not a sitemap.",
+                    missing.sitemap
+                ),
+                details,
+            },
+        },
     )
 }
 

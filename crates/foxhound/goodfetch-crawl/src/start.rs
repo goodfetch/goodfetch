@@ -15,7 +15,12 @@
 //! `payload_invalid` before the Run begins; under a Run ID that names a
 //! Run, whose seeds are not checked again, a Label whose Payload schema
 //! changed under a pending Payload that fails it refuses the start with
-//! `payload_schema_changed` before any work (ADR 0082).
+//! `payload_schema_changed` before any work (ADR 0082). A Label whose
+//! settings can never be served is refused with `setting_not_applicable`
+//! before the Run begins (ADRs 0110 and 0120), and which requests keep
+//! their URLs' fragments is recorded with the Run, so a start under its ID
+//! that changes `crawl.keep_url_fragment` is refused with
+//! `setting_not_applicable`.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -42,6 +47,7 @@ use crate::labels;
 use crate::outcomes;
 use crate::policy::domain_policy;
 use crate::seeding;
+use crate::servable;
 use crate::serving::Crawls;
 use crate::tier_choice::{self, TierChoices};
 use crate::work_items;
@@ -142,7 +148,10 @@ async fn start(
         })
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;
-    let labels = labels::Declared::of(&params.labels)?;
+    let label_settings = goodfetch_fetch_tier::LabelSettings::of(&params.labels)?;
+    servable::check(settings.resolved(), &label_settings)?;
+    let fragments = labels::Fragments::of(settings.resolved(), &label_settings);
+    let labels = labels::Declared::of(&params.labels, fragments.clone())?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
     let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
     let bounds = Bounds::of_settings(settings.resolved());
@@ -150,7 +159,9 @@ async fn start(
     let egress = domain_policy(settings.resolved())?;
     let payloads = PayloadRules::of(settings.resolved(), &params.labels)?;
     let found = match &run_id {
-        Some(run_id) => schema_unchanged(&context, run_id, payloads.clone()).await?,
+        Some(run_id) => {
+            schema_unchanged(&context, run_id, payloads.clone(), fragments.clone()).await?
+        }
         None => false,
     };
     if !found {
@@ -179,6 +190,7 @@ async fn start(
                 bounds.record(connection)?;
                 payloads.record(connection)?;
                 labels::record(connection, &declared)?;
+                fragments.record(connection)?;
                 let answers = work_items::admit_seeds(
                     connection,
                     &mut work_items::Positions::of(connection)?,
@@ -225,11 +237,14 @@ async fn start(
 /// (ADR 0102), its seeds not admitted again, once it may go on under the
 /// crawl's `declared` Labels: refused with `payload_schema_changed`
 /// before any work when a Label's Payload schema changed and a pending
-/// Payload of it fails the new one (ADR 0082).
+/// Payload of it fails the new one (ADR 0082), and with
+/// `setting_not_applicable` when `fragments` differ from those the Run
+/// began with (ADR 0120).
 async fn schema_unchanged(
     context: &CallContext,
     run_id: &RunId,
     declared: PayloadRules,
+    fragments: labels::Fragments,
 ) -> Result<bool, CallError> {
     let failed = |error: RunError| run_error(error, context.identity());
     let mut reader = match context.runs().reader(run_id.clone()).await {
@@ -239,13 +254,18 @@ async fn schema_unchanged(
     };
     let changed = match reader
         .read(move |connection| {
-            declared.schema_changed(connection, |label| {
+            let began = labels::Fragments::read(connection)?;
+            let changed = declared.schema_changed(connection, |label| {
                 work_items::pending_of(connection, label)
-            })
+            })?;
+            Ok((began, changed))
         })
         .await
     {
-        Ok(changed) => changed,
+        Ok((began, changed)) => {
+            fragments.unchanged(&began, run_id.as_str())?;
+            changed
+        }
         Err(RunError::NotFound(_)) => return Ok(false),
         Err(error) => return Err(failed(error)),
     };

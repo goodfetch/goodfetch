@@ -653,6 +653,21 @@ number = 6
 kind = "setting"
 prefix = "fetch.encoding"
 
+# The responses a Label keeps for its handler (ADR 0110): area 5 keeps them
+# at interception, area 11 reads them; #939 declares the key and area 6's
+# refusal at the Run's start.
+[[area]]
+number = 6
+kind = "setting"
+prefix = "fetch.kept_responses."
+
+# Area 6, Collection, Foxhound: a Label that keeps its URLs' fragments
+# (ADR 0120, #939).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "crawl.keep_url_fragment"
+
 # The redirects and refresh stubs a crawl request's fetch follows (spec
 # #579, #762, ADR 0118).
 [[area]]

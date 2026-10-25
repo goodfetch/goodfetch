@@ -479,8 +479,15 @@ impl Fetching<'_> {
         second_copies: &SecondCopies,
     ) -> Tiering {
         let request = &leased.crawl_request;
-        let plan = match self.labels.settings.choose(&request.label, self.run_tier) {
-            Choosing::Alone | Choosing::Engine if self.races && !to_browser => {
+        // A sitemap's fetch runs no handler and takes no tier choice: its
+        // attempt fetches it on the Run's HTTP tier.
+        let choosing = if leased.sitemap {
+            Choosing::Alone
+        } else {
+            self.labels.settings.choose(&request.label, self.run_tier)
+        };
+        let plan = match choosing {
+            Choosing::Alone | Choosing::Engine if self.races && !to_browser && !leased.sitemap => {
                 let learned = self.choices.lock().await.serve_attempt(
                     &request.label,
                     &leased.waiting.key,
@@ -660,7 +667,7 @@ async fn lease_to_servers(
             let gating = pooled
                 .fetching
                 .gating(&leased.crawl_request.label, &admission.second_copies());
-            let fetches = tiering.tier();
+            let fetches = tiering.tier().or(leased.sitemap.then_some(FetchTier::Http));
             pooled.fetching.in_flight.lock().await.began(
                 run,
                 InFlightRequest {
@@ -846,13 +853,21 @@ async fn settled(
     fetching
         .retire(run, pool, &servers[attempt.server].context)
         .await;
-    let retried = settle(
-        run,
-        CrawlPolicy::of(&resolved),
-        goodfetch_frontier::longest_wait(&resolved),
-        attempt,
-    )
-    .await;
+    let retried = match attempt.answer {
+        Answer::SitemapRead(_) => {
+            read_sitemap(run, &resolved, attempt).await;
+            false
+        }
+        _ => {
+            settle(
+                run,
+                CrawlPolicy::of(&resolved),
+                goodfetch_frontier::longest_wait(&resolved),
+                attempt,
+            )
+            .await
+        }
+    };
     admission
         .ended(&waiting.id, &waiting.key, run.clock().now(), domain)
         .await;
@@ -1106,6 +1121,11 @@ async fn settle(
             Unsuccessful::Retried(Failure::new(SITE_PREFERENCES_REFUSED.name, &message))
         }
         Answer::RobotsTxtUnreachable(_) => refused(SkipReason::RobotsTxt),
+        // Read by `read_sitemap`, never settled here.
+        Answer::SitemapRead(_) => {
+            lease.release();
+            return false;
+        }
         Answer::Handled(handled) => {
             match lease
                 .commit(run.state(), handled.records, run.point_in_time())
@@ -1149,6 +1169,41 @@ async fn settle(
         }
     };
     end_unsuccessful(run, &lease, &leased, unsuccessful).await
+}
+
+/// Reads what the sitemap fetch `attempt` gave while its lease holds, in
+/// one write: its entries and nested sitemaps admitted under the Run's
+/// domain policy as `resolved` holds it, within the scope the run file
+/// holds, and the fetch ended with no outcome (ADR 0093); the delivery
+/// then keys the work items it added. Releases its lease.
+async fn read_sitemap(run: &Run, resolved: &Resolved, attempt: Attempt) {
+    let Attempt {
+        leased,
+        lease,
+        answer: Answer::SitemapRead(document),
+        ..
+    } = attempt
+    else {
+        return;
+    };
+    let egress = resumed_domain_policy(resolved, run.id());
+    let (id, epoch) = (leased.crawl_request.id.clone(), leased.lease_epoch);
+    let written = run
+        .state()
+        .write(move |connection| {
+            work_items::read_sitemap(connection, &egress, (&id, epoch), &document)
+        })
+        .await;
+    lease.release();
+    match written {
+        Ok(true) => {}
+        Ok(false) => {
+            tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a sitemap's fetch past its lease reads nothing");
+        }
+        Err(error) => {
+            tracing::warn!(%error, run_id = %run.id(), "a sitemap's entries were not admitted");
+        }
+    }
 }
 
 /// A handler's failure as the Run's state keeps it: no value the Run

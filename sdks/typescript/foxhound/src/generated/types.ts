@@ -114,6 +114,14 @@ export type EquivalentForm = "www" | "scheme" | "trailing_slash" | "index_html" 
  */
 export type Seeds = [Seed, ...Seed[]];
 /**
+ * What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
+ * seeds the entries of a site's sitemaps.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "Seed".
+ */
+export type Seed = RequestSeed | SitemapSeed;
+/**
  * The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
  * value, never an error, since a request is one among many.
  *
@@ -150,7 +158,8 @@ export type Enqueued =
         | "max_path_segments"
         | "max_segment_repeats"
         | "path_budget"
-        | "trap_path";
+        | "trap_path"
+        | "no_rule";
       /**
        * Its URL as it was given.
        */
@@ -191,7 +200,8 @@ export type EnqueuedLink =
         | "max_path_segments"
         | "max_segment_repeats"
         | "path_budget"
-        | "trap_path";
+        | "trap_path"
+        | "no_rule";
       /**
        * Its `href`, as written.
        */
@@ -239,7 +249,8 @@ export type NotAddedReason =
   | "max_path_segments"
   | "max_segment_repeats"
   | "path_budget"
-  | "trap_path";
+  | "trap_path"
+  | "no_rule";
 /**
  * The word `now`: from the next commit on.
  *
@@ -910,6 +921,11 @@ export interface SitemapReport {
    */
   not_added: number;
   /**
+   * Those not added, by the reason the Frontier gave, `no_rule` for an
+   * entry no rule of its sitemap seed matched, sorted by name.
+   */
+  not_added_by_reason: CountOf[];
+  /**
    * Its URL.
    */
   url: string;
@@ -977,13 +993,9 @@ export interface LabelDeclaration {
   };
 }
 /**
- * One request a crawl starts from (ADR 0093): a URL, the Label that picks
- * its handler and its Payload, and how it is sent and identified.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "Seed".
+ * One request.
  */
-export interface Seed {
+export interface RequestSeed {
   /**
    * The body it is sent with, if any.
    */
@@ -1024,6 +1036,39 @@ export interface Seed {
    * Its URL.
    */
   url: string;
+}
+/**
+ * The entries of a sitemap, or of the sitemaps a site's robots.txt
+ * names.
+ */
+export interface SitemapSeed {
+  /**
+   * The rules that give each entry its Label, in order: the first whose
+   * pattern matches the entry's URL wins.
+   */
+  rules: SitemapRule[];
+  /**
+   * The URL of the sitemap, or of the site's robots.txt.
+   */
+  sitemap: string;
+}
+/**
+ * One rule of a sitemap seed: a URL pattern, a glob as
+ * `crawl.scope.include` takes them, matched in the engine, and the Label
+ * it gives the entries it matches, which take no Payload.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SitemapRule".
+ */
+export interface SitemapRule {
+  /**
+   * The Label of the entries it matches.
+   */
+  label: string;
+  /**
+   * The URL pattern.
+   */
+  pattern: string;
 }
 /**
  * What `crawl_request.enqueue_links` answers: what became of each element
@@ -1075,46 +1120,13 @@ export interface OutcomeRequest1 {
   url: string;
 }
 /**
- * What `run.add_seed` takes: one seed for a running crawl.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "RunAddSeedParams".
- */
-export interface RunAddSeedParams {
-  /**
-   * The attempt that adds it, when a handler adds it through its
-   * context's `run`; absent, the program adds it from outside any
-   * attempt.
-   */
-  attempt?: SeedAttempt | null;
-  /**
-   * The crawl's Run.
-   */
-  run_id: RunId;
-  seed: Seed1;
-}
-/**
- * The attempt a seed is added from: a handler's `ctx.run`, which is bound
- * to its attempt (ADR 0093).
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "SeedAttempt".
- */
-export interface SeedAttempt {
-  /**
-   * The ID of the crawl request whose attempt adds the seed.
-   */
-  crawl_request_id: string;
-  /**
-   * The attempt's lease epoch, as `crawl_request.handle` gave it.
-   */
-  lease_epoch: number;
-}
-/**
  * One request a crawl starts from (ADR 0093): a URL, the Label that picks
  * its handler and its Payload, and how it is sent and identified.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RequestSeed".
  */
-export interface Seed1 {
+export interface RequestSeed1 {
   /**
    * The body it is sent with, if any.
    */
@@ -1155,6 +1167,46 @@ export interface Seed1 {
    * Its URL.
    */
   url: string;
+}
+/**
+ * What `run.add_seed` takes: one seed for a running crawl.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RunAddSeedParams".
+ */
+export interface RunAddSeedParams {
+  /**
+   * The attempt that adds it, when a handler adds it through its
+   * context's `run`; absent, the program adds it from outside any
+   * attempt.
+   */
+  attempt?: SeedAttempt | null;
+  /**
+   * The crawl's Run.
+   */
+  run_id: RunId;
+  /**
+   * What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
+   * seeds the entries of a site's sitemaps.
+   */
+  seed: RequestSeed | SitemapSeed;
+}
+/**
+ * The attempt a seed is added from: a handler's `ctx.run`, which is bound
+ * to its attempt (ADR 0093).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SeedAttempt".
+ */
+export interface SeedAttempt {
+  /**
+   * The ID of the crawl request whose attempt adds the seed.
+   */
+  crawl_request_id: string;
+  /**
+   * The attempt's lease epoch, as `crawl_request.handle` gave it.
+   */
+  lease_epoch: number;
 }
 /**
  * What `run.add_seeds` takes: the running crawl its Client streams seeds
@@ -1317,4 +1369,31 @@ export interface SamplePageFilterAdmitResult {
    * Whether the sample crawl visits the page.
    */
   admitted: boolean;
+}
+/**
+ * A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
+ * or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
+ * are read. The engine reads it, and every sitemap index it nests, once
+ * the Run is running, through the domain policy, Politeness and robots.txt,
+ * running no handler; each entry is checked as an enqueue is, at depth 0,
+ * with the Label of the first rule whose pattern matches its URL and no
+ * Payload, and one no rule matches is not added, with `no_rule`. The seed
+ * widens the crawl's scope by the host of the URL it names, and an entry
+ * outside the scope is not added, with `out_of_scope`, so a robots.txt
+ * seed admits its own host's entries from a sitemap on another host it
+ * names, and no other host's.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SitemapSeed".
+ */
+export interface SitemapSeed1 {
+  /**
+   * The rules that give each entry its Label, in order: the first whose
+   * pattern matches the entry's URL wins.
+   */
+  rules: SitemapRule[];
+  /**
+   * The URL of the sitemap, or of the site's robots.txt.
+   */
+  sitemap: string;
 }

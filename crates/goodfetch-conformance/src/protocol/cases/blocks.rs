@@ -3,12 +3,14 @@
 //! raises `blocked` with the cause, the URL, the status and `retry_after`,
 //! from the call that waited for the navigation that met it, or else from
 //! the page's next call; the Session stays open with its cookies, never
-//! replaced (one browser context in the Run's CDP trace), and nothing is
-//! written to Politeness's domain limits. Every page of the Proving
-//! ground's block-detection corpus is met by a Session in the engine, as the
+//! replaced (one Session in the Run's Provenance, and no browser of its CDP
+//! trace given a second browser context), and nothing is written to
+//! Politeness's domain limits. Every page of the Proving ground's
+//! block-detection corpus is met by a Session in the engine, as the
 //! in-process corpus cases classify it, and the access-policy pages open no
 //! second Session. `page.request` judges no Block cause.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
@@ -21,7 +23,7 @@ use goodfetch_protocol::page::waits::{PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_URL}
 use goodfetch_protocol::page::{BLOCKED, BlockedDetails, LOCATOR_CLICK, PAGE_GOTO, PageOpened};
 use serde_json::{Value, json};
 
-use super::clean_up::trace_lines;
+use super::clean_up::{provenance, trace_lines};
 use super::navigation::url_on;
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
@@ -38,6 +40,10 @@ const RETRY_AFTER_LONG: Duration = Duration::from_hours(1);
 
 /// The CDP command that opens a Session's browser context.
 const NEW_CONTEXT: &str = "Target.createBrowserContext";
+
+/// The CDP command the engine sends a browser first, once it connected to
+/// it: one for each browser of the Run.
+const CONNECTED: &str = "Browser.getVersion";
 
 /// One Block cause case of the page suite.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,13 +150,29 @@ fn now() -> SystemTime {
     SystemTime::now()
 }
 
-/// How many browser contexts the Run `run_id` opened, by its CDP trace: one
-/// for each Session.
-fn contexts(target: &EngineTarget, run_id: &str) -> usize {
-    trace_lines(target, run_id, "trace/cdp-commands.jsonl")
+/// Whether the Run `run_id` kept one Session throughout: its Provenance
+/// names one Session, and its CDP trace shows no browser given a second
+/// browser context. A Session moves to another browser when the browser
+/// pool recycles its own, or the Resource governor sheds it while memory is
+/// critical, and opens its context there with its cookies (ADR 0040), so
+/// each browser holds the same Session; a browser launched for a move that
+/// the Run's end cut short holds none. A Session opened in place of a
+/// blocked one names another Session ID and makes a second context in a
+/// browser already holding one.
+fn kept_one_session(target: &EngineTarget, run_id: &str) -> bool {
+    let commands = trace_lines(target, run_id, "trace/cdp-commands.jsonl");
+    let sent = |method: &str| {
+        commands
+            .iter()
+            .filter(|line| line["method"] == json!(method))
+            .count()
+    };
+    let contexts = sent(NEW_CONTEXT);
+    let sessions: BTreeSet<String> = provenance(target, run_id)
         .iter()
-        .filter(|line| line["method"] == json!(NEW_CONTEXT))
-        .count()
+        .filter_map(|entry| entry["session_id"].as_str().map(str::to_owned))
+        .collect();
+    contexts > 0 && contexts <= sent(CONNECTED) && sessions.len() == 1
 }
 
 /// Whether the Politeness file of `target`'s Goodfetch home holds anything
@@ -227,8 +249,8 @@ fn storage_cookies(site: &Site, mark: &str) -> Vec<Value> {
 /// an HTTP-date measured against the response's own `Date`, raises
 /// `blocked` from its `goto` with `rate_limit`, the URL, the status and the
 /// time the site asked for; nothing waits on it, so the same URL loads again
-/// before that time, and the Session keeps its cookie for the next navigation, with one
-/// browser context and nothing written to Politeness (Fetch edge cases,
+/// before that time, and the Session keeps its cookie for the next navigation, the Run
+/// keeping that one Session and writing nothing to Politeness (Fetch edge cases,
 /// Collie's lines).
 fn rate_limit(
     connection: &mut Connection,
@@ -285,8 +307,8 @@ fn rate_limit(
     );
     finish_run(connection, run_id)?;
     checks.check(
-        "the Run opened one browser context: the Session was never replaced",
-        contexts(target, run_id) == 1,
+        "the Run kept one Session: it was never replaced",
+        kept_one_session(target, run_id),
     );
     checks.check(
         "nothing in the Politeness file names the site's domain",
@@ -392,10 +414,7 @@ fn next_call(
         pages["result"]["pages"] == json!([page.page_id]),
     );
     finish_run(connection, run_id)?;
-    checks.check(
-        "the Run opened one browser context",
-        contexts(target, run_id) == 1,
-    );
+    checks.check("the Run kept one Session", kept_one_session(target, run_id));
     Ok(())
 }
 
@@ -468,8 +487,8 @@ fn corpus(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
 /// On the program's Session and on the Session an Agent opens through the
 /// MCP server alike: a challenge, a 403 and a 429 each raise `blocked` on
 /// the `goto` that met them, `page.request` answers the 429's response, and
-/// the same page then loads an article, in the one browser context its Run
-/// opened: no block retires or replaces the Session.
+/// the same page then loads an article, its Run keeping that one Session:
+/// no block retires or replaces it.
 fn owners(
     connection: &mut Connection,
     target: &EngineTarget,
@@ -550,8 +569,8 @@ fn meets_blocks(
     );
     finish_run(connection, &run_id)?;
     checks.check(
-        format!("the {owner}'s Run opened one browser context: no block replaced its Session"),
-        contexts(target, &run_id) == 1,
+        format!("the {owner}'s Run kept one Session: no block replaced it"),
+        kept_one_session(target, &run_id),
     );
     Ok(())
 }
@@ -560,7 +579,7 @@ fn meets_blocks(
 /// challenge served with `200`, walked over plain HTTP by a program's
 /// Session from the first page to the third: whatever the second page
 /// raises or answers (its Block cause is the other cases'), the third loads
-/// on the same Session at once, which the Run's one browser context shows,
+/// on the same Session at once, the Run keeping that one Session,
 /// with nothing written to Politeness's domain limits (#711's third
 /// criterion).
 fn access_policy(
@@ -598,8 +617,8 @@ fn access_policy(
     }
     finish_run(connection, run_id)?;
     checks.check(
-        "the Run opened one browser context: no second Session was opened",
-        contexts(target, run_id) == 1,
+        "the Run kept one Session: no second one was opened",
+        kept_one_session(target, run_id),
     );
     checks.check(
         "nothing in the Politeness file names the access-policy domain",

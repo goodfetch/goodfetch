@@ -23,6 +23,7 @@ fn proxy(server: &str, bypass: Option<&str>) -> SessionProxy {
         relay: None,
         provided: None,
         limits: None,
+        through_relay: crate::egress_relay::Latest::default(),
     }
 }
 

@@ -434,7 +434,9 @@ pub fn record_command_in(
         .create(true)
         .append(true)
         .open(&path)
-        .and_then(|mut file| writeln!(file, "{line}"))
+        // One write, its newline included: commands run at once append
+        // whole lines.
+        .and_then(|mut file| file.write_all(format!("{line}\n").as_bytes()))
         .map_err(|error| CliError::Record { path, error })
 }
 

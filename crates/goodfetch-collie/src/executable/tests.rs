@@ -7,12 +7,14 @@ use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use goodfetch_cli::output::ColourChoice;
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::mask::{Masks, Reach, Redaction};
 use goodfetch_protocol::catalog::Product;
 use rstest::rstest;
 use secrecy::SecretString;
 use tracing_subscriber::layer::SubscriberExt as _;
 
+use super::log_file::{LogFile, Rotation};
 use super::logs::Masked;
 use super::{COLOR, command, command_line};
 
@@ -237,5 +239,138 @@ fn a_log_line_holds_a_resolved_value_only_when_its_runs_redaction_is_off(
     assert_eq!(
         String::from_utf8(written.0.lock().unwrap().clone()).unwrap(),
         format!("{logged}\n")
+    );
+}
+
+/// Each write a log writer was given, apart, shared with the test.
+#[derive(Clone, Default)]
+struct Writes(Arc<Mutex<Vec<Vec<u8>>>>);
+
+impl std::io::Write for Writes {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().push(bytes.to_vec());
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// A log line the Mask rewrites reaches the writer below as one write, the
+/// whole masked line: the log file takes each write as a line of its own,
+/// so a line split into several writes would tear.
+///
+/// Covers: story:4-56, row:RT-17
+#[test]
+fn a_log_line_the_mask_rewrites_reaches_its_writer_in_one_write() {
+    let masks = Masks::new();
+    let mask = masks.for_run(Redaction::On);
+    mask.join(
+        "proxy.password",
+        &SecretString::from("pa ss\"w/rd>?9~"),
+        Reach::Value,
+    );
+    let given = Writes::default();
+    let writer = given.clone();
+    let subscriber = tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .json()
+            .without_time()
+            .with_target(false)
+            .with_level(false)
+            .with_writer(Masked::new(masks, move || writer.clone())),
+    );
+
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info!(proxy = "pa ss\"w/rd>?9~", "the proxy answered");
+    });
+
+    let handed: Vec<String> = given
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|write| String::from_utf8(write.clone()).unwrap())
+        .collect();
+    assert_eq!(
+        handed,
+        vec![
+            "{\"fields\":{\"message\":\"the proxy answered\",\"proxy\":\"%proxy.password%\"}}\n"
+                .to_owned()
+        ]
+    );
+}
+
+/// Lines that threads log at once into the log file, each holding a value
+/// the Mask rewrites, are each one whole JSON line there, masked: none is
+/// cut or interleaved with another.
+///
+/// Covers: story:4-56, row:RT-17
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test logs from OS threads of its own and reads the file the writer wrote, outside any async worker"
+)]
+fn masked_lines_logged_at_once_from_many_threads_are_each_one_json_line_in_the_log_file() {
+    const THREADS: usize = 8;
+    const LINES: usize = 200;
+    let env = goodfetch_test_support::TestEnv::new();
+    let folder = env.folder().join("logs");
+    let file = LogFile::open(
+        &folder,
+        "collie-1",
+        Rotation {
+            max_size: 1 << 30,
+            max_files: 1,
+        },
+        Clock::system(),
+    )
+    .unwrap();
+    let masks = Masks::new();
+    let mask = masks.for_run(Redaction::On);
+    mask.join(
+        "proxy.password",
+        &SecretString::from("pa ss\"w/rd>?9~"),
+        Reach::Value,
+    );
+    let dispatch = tracing::Dispatch::new(
+        tracing_subscriber::registry().with(
+            tracing_subscriber::fmt::layer()
+                .json()
+                .with_writer(Masked::new(masks, file.clone())),
+        ),
+    );
+
+    std::thread::scope(|scope| {
+        for thread in 0..THREADS {
+            let dispatch = dispatch.clone();
+            scope.spawn(move || {
+                tracing::dispatcher::with_default(&dispatch, || {
+                    for line in 0..LINES {
+                        tracing::info!(
+                            thread,
+                            line,
+                            proxy = "pa ss\"w/rd>?9~",
+                            "the proxy answered"
+                        );
+                    }
+                });
+            });
+        }
+    });
+    file.flush();
+
+    let text = std::fs::read_to_string(folder.join("collie-1.jsonl")).unwrap();
+    let unreadable: Vec<&str> = text
+        .lines()
+        .filter(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .map_or(true, |value| value["fields"]["proxy"] != "%proxy.password%")
+        })
+        .collect();
+    assert_eq!(
+        (text.lines().count(), unreadable),
+        (THREADS * LINES, Vec::<&str>::new())
     );
 }

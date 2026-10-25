@@ -28,6 +28,7 @@ mod content_origin;
 mod daemon;
 mod daemon_log;
 mod daemon_run;
+mod egress_relay;
 mod endpoint;
 mod engine_choice;
 mod event_stream;

@@ -213,6 +213,24 @@ impl ProvingGround {
         .map(drop)
     }
 
+    /// Turns the `limited` proxy's hold on or off: while it is on, the
+    /// proxy holds the first request it counts until it is turned off, so
+    /// two requests sent at once meet there however late the second comes.
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot be reached or refuses the hold.
+    pub fn set_limited_proxy_hold(&self, held: bool) -> Result<(), ProvingGroundError> {
+        let url = format!("http://{}/limited-proxy-hold", self.address);
+        Self::answer(
+            &url,
+            self.agent
+                .put(&url)
+                .send_json(serde_json::json!({ "held": held })),
+        )
+        .map(drop)
+    }
+
     /// Plants a Secret canary of `kind`, such as `session_cookie`, through
     /// its login flow (`POST /canaries`, ADR 0067): the Proving ground draws
     /// the value and records every request that carries it.

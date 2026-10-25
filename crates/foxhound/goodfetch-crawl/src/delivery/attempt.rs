@@ -60,7 +60,7 @@ use goodfetch_fetch_tier::{
     Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, PooledSession, Purpose,
     Requester, RobotsTxtFetch, Stop, TierChoice,
 };
-use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt};
+use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt, sitemap};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
@@ -93,6 +93,8 @@ use crate::progress::SharedInFlight;
 use crate::tier_choice::{self, AttemptPlan, Sampled};
 use crate::work_items::{self, Leased};
 
+mod sitemap_fetch;
+
 /// The Error code of a page the site refused, which Collie's page raises
 /// with the Block cause in its details (ADRs 0035 and 0079); declared with
 /// the page's errors (#711).
@@ -123,6 +125,9 @@ pub(super) enum Answer {
     /// earlier copy to apply, for the reason given: the request was not
     /// sent, and the failed fetch counts as one of its attempts (ADR 0086).
     RobotsTxtUnreachable(String),
+    /// A sitemap's fetch read what its sitemap lists (ADR 0093): no
+    /// handler ran.
+    SitemapRead(sitemap::Document),
     /// The lease ended with no answer.
     LeaseEnded,
     /// The program's Connection ended.
@@ -496,6 +501,14 @@ pub(super) async fn attempt(
     let mut merged = Vec::new();
     let mut sampled = None;
     let answer = match (&tiering.plan, &tiering.http) {
+        (_, Some(http)) if leased.sitemap => on.sitemap(http).await,
+        (_, None) if leased.sitemap => Answer::Failed {
+            code: NAVIGATION_FAILED.name.to_owned(),
+            retryable: true,
+            message: "The crawl's HTTP tier could not be built, so the sitemap was not fetched."
+                .to_owned(),
+            details: Map::new(),
+        },
         (AttemptPlan::Alone, _) => {
             let params = on.params(None, None);
             let hand_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
@@ -1014,6 +1027,7 @@ pub(super) fn effect(answer: &Answer) -> Effect {
         })
         | Answer::Refused(_)
         | Answer::RobotsTxtUnreachable(_)
+        | Answer::SitemapRead(_)
         | Answer::LeaseEnded
         | Answer::ClientGone => Effect::Neutral,
     }

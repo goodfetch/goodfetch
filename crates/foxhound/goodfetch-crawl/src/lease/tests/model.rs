@@ -19,7 +19,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::LeaseCheck as _;
 use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
-use goodfetch_protocol::foxhound::crawl::{PushedRecord, Seed};
+use goodfetch_protocol::foxhound::crawl::{PushedRecord, RequestSeed, Seed};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
@@ -298,15 +298,17 @@ impl StateMachineTest for Subject {
         let owner = TaskOwner::root(BlockingPolicy::Inline);
         let path = env.folder().join("run.sqlite");
         let seeds: Vec<Seed> = (1..=model.items.len())
-            .map(|page| Seed {
-                url: format!("https://shop.test/{page}"),
-                label: "page".to_owned(),
-                payload: None,
-                priority: 0,
-                forefront: false,
-                method: HttpMethod::get(),
-                body: None,
-                key: None,
+            .map(|page| {
+                Seed::Request(RequestSeed {
+                    url: format!("https://shop.test/{page}"),
+                    label: "page".to_owned(),
+                    payload: None,
+                    priority: 0,
+                    forefront: false,
+                    method: HttpMethod::get(),
+                    body: None,
+                    key: None,
+                })
             })
             .collect();
         let (state, leases) = runtime.block_on(async {
@@ -323,6 +325,7 @@ impl StateMachineTest for Subject {
                     goodfetch_frontier::BOUNDS_TABLES,
                     goodfetch_frontier::RULES_TABLES,
                     goodfetch_frontier::payload::TABLES,
+                    goodfetch_frontier::sitemap::TABLES,
                 ],
                 1,
                 &owner,

@@ -21,6 +21,7 @@ mod choice;
 mod decoding;
 mod document;
 mod driver;
+mod expected_page;
 mod gate;
 mod hedging;
 mod http_profile;
@@ -32,16 +33,20 @@ mod transports;
 mod use_signals;
 
 pub use chain::{Following, Gating, HopGate, Skip, Stop, follow};
-pub use choice::{Choosing, Forced, LabelTiers, SetTier, TierChoice};
+pub use choice::{Choosing, Forced, LabelSettings, SetTier, TierChoice};
 pub use document::{Matched, SelectorInvalid};
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
 };
 pub use gate::{HandOver, RobotsTxtFetch, crawl_delay, disallowing};
+pub use goodfetch_page::page_value::PooledSession;
 pub use http_profile::HttpProfile;
 pub use redundant::Requester;
 #[doc(hidden)]
 pub use refresh::fuzz_refresh;
-pub use tiers::{Chosen, FetchTiers, HandedOver, HttpTier, ServedLinks, Signed, record_tier};
+pub use tiers::{
+    Chosen, FetchTiers, HandedOver, HttpTier, Judged, PAGE_CHECK_CALL, ServedLinks, Signed,
+    record_tier,
+};
 pub use transports::{Reqwest, TransportConfig, TransportUnavailable, Wreq};
 pub use use_signals::{Purpose, UseSignals};

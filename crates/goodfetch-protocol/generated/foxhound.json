@@ -3665,7 +3665,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Its settings, nested by key: today `fetch.tier` alone, any other key\nrefused with `setting_not_applicable`.",
+          "description": "Its settings, nested by key: today `fetch.tier`, `session.page_check`,\nwhich judges its pages in place of the Run's, and `session.source`,\nwhich gives the Label a Session pool of its own (ADR 0093), any other\nkey refused with `setting_not_applicable`.",
           "type": "object"
         }
       },

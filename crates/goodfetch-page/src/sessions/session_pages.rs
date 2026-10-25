@@ -29,6 +29,7 @@ use goodfetch_protocol::page::session_pages::{
     PAGE_CLOSE, PAGE_POPUP, PagePopup, SESSION_PAGE, SessionOnEnded, SessionPages,
 };
 use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
+use goodfetch_protocol::settings::page_check::PageCheck;
 
 use super::life::{Ending, PageLife, session_closed};
 use super::lifecycle::PageEffect;
@@ -216,6 +217,7 @@ impl Sessions {
         let browser = in_browser.browser();
         self.follow_popups(session, &open, &driver).await;
         let life = PageLife::new(page.clone(), driver.value().lease().cloned());
+        let page_check = open.checking(driver.value().page_check());
         let opened = OpenPage {
             clock: run.clock(),
             run,
@@ -225,7 +227,7 @@ impl Sessions {
             action_timeout,
             hiding,
             sheets,
-            page_check: open.checking(),
+            page_check,
             frame_scripts,
             injections: open.injections.clone(),
             _admission: Arc::new(admission),
@@ -465,14 +467,19 @@ fn opening_number(page: &PageId) -> Option<u64> {
 }
 
 impl Session {
-    /// How its pages are judged: its Page check, when it declares one, and
-    /// whether it may hold a login, having opened from a Session source.
-    /// Only a Borrowed browser's Session does today, at a `cdp_url`; a fresh
-    /// one holds none of its own until a `login` or a Saved identity can
-    /// give it one (ADR 0006).
-    fn checking(&self) -> Arc<Checking> {
+    /// How its pages are judged: by `page_check`, the one a page's value
+    /// carries from its crawl request's Label, when given (ADR 0093), else
+    /// by its Page check, when it declares one; and whether it may hold a
+    /// login, having opened from a Session source. Only a Borrowed
+    /// browser's Session does today, at a `cdp_url`; a fresh one holds none
+    /// of its own until a `login` or a Saved identity can give it one (ADR
+    /// 0006).
+    fn checking(&self, page_check: Option<&PageCheck>) -> Arc<Checking> {
         Arc::new(Checking {
-            declared: Declared::of(&self.run, &self.settings),
+            declared: page_check.map_or_else(
+                || Declared::of(&self.run, &self.settings),
+                |check| Some(Declared::label(check)),
+            ),
             holds_login: self.held_frames.is_some(),
         })
     }

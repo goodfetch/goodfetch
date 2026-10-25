@@ -75,6 +75,11 @@ allowed_domains = ["example"]
 blocked_domains = ["example"]
 offline = true
 no_private_endpoints = true
+local_addresses = ["192.0.2.10", "2001:db8::10"]
+
+[settings.egress.rotation_block]
+ipv4 = 24
+ipv6 = 64
 
 [settings.network]
 max_body_size = 4
@@ -341,6 +346,11 @@ allowed_domains = ["example"]
 blocked_domains = ["example"]
 offline = true
 no_private_endpoints = true
+local_addresses = ["192.0.2.10", "2001:db8::10"]
+
+[lock.egress.rotation_block]
+ipv4 = 24
+ipv6 = 64
 
 [lock.network]
 max_body_size = 4

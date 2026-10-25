@@ -32,7 +32,7 @@ use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::Trust;
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_page::page_value::{
-    BrowserPages, HandlerPages, Observer, PageValue, ProgramPages, ServedDocument,
+    BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, ServedDocument,
 };
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
 use goodfetch_protocol::foxhound::fetch::{
@@ -42,6 +42,7 @@ use goodfetch_protocol::foxhound::fetch::{
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{BodyHandle, Navigated, PageId, SessionId};
 use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, NETWORK_RESOLVE, SETTING_INVALID,
     SettingInvalidDetails, SettingsLayer,
@@ -50,9 +51,10 @@ use url::Url;
 
 use crate::canonical::canonical;
 use crate::chain::{Following, Stop, follow};
-use crate::choice::{LabelTiers, SetTier, TierChoice, Unserved, unserved};
+use crate::choice::{LabelSettings, SetTier, TierChoice, Unserved, unserved};
 use crate::document::{Matched, SelectorInvalid, decode, matched};
 use crate::driver::{Deadlines, Hop, fetch};
+use crate::expected_page::{self, Verdict};
 use crate::gate::{ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::redundant::{Redundant, Requester};
 use crate::transports::{Reqwest, TransportConfig};
@@ -141,6 +143,8 @@ pub struct ServedLinks {
 #[derive(Clone)]
 struct ServedPage {
     document: ServedDocument,
+    /// The status its document was answered with.
+    status: u16,
     http: HttpTier,
     choice: TierChoice,
     /// The first call its tier could not serve, under `auto`.
@@ -149,6 +153,22 @@ struct ServedPage {
     requests: u64,
     bodies: BTreeMap<String, BodyHandle>,
 }
+
+/// How a served page fared against its Label's Page check.
+#[derive(Debug)]
+pub enum Judged {
+    /// It is the expected page: its handler is given it.
+    Passed,
+    /// Under `auto`, it failed its expected page, or its markup cannot
+    /// judge it: its request runs in the browser instead.
+    Escalated,
+    /// It fails with this error, its handler never given it.
+    Failed(CallError),
+}
+
+/// What Provenance names as the cause of an escalation by the Page check,
+/// in place of a call: the setting.
+pub const PAGE_CHECK_CALL: &str = "session.page_check";
 
 /// What the Frontier learns from a served page (ADRs 0005 and 0120).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -208,7 +228,7 @@ impl FetchTiers {
     /// that is no WHATWG Encoding label and for a `fetch.redirect.max`
     /// outside 1 to 19 (ADR 0118); `setting_not_applicable` for hedges
     /// switched on while a domain admits one request at a time (ADR 0086).
-    pub fn check(settings: &Resolved, labels: &LabelTiers) -> Result<(), CallError> {
+    pub fn check(settings: &Resolved, labels: &LabelSettings) -> Result<(), CallError> {
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_HEDGE_ENABLED)?;
         refuse_redirect_max(settings)?;
         if let Some(effective) = settings
@@ -397,6 +417,7 @@ impl FetchTiers {
         })
         .await?;
         let url = fetched.url.to_string();
+        let status = fetched.status;
         let content_type = fetched
             .headers
             .iter()
@@ -424,6 +445,7 @@ impl FetchTiers {
             page_id.clone(),
             ServedPage {
                 document,
+                status,
                 http: tier.clone(),
                 choice: choice.clone(),
                 escalated: None,
@@ -532,6 +554,46 @@ impl FetchTiers {
         Some(read)
     }
 
+    /// Judges the served page `page_id`'s document against `check`, its
+    /// Label's Page check, before its handler is given it (ADRs 0006 and
+    /// 0093), read on its Run's blocking owner: a page failing its expected
+    /// page, or one its markup cannot judge, escalates under `auto` and
+    /// fails under a forced tier, with `page_check_failed` or, unjudged,
+    /// `browser_required`; a login page fails with `logged_out` on every
+    /// tier. `None` once the page closed.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the verdict; the page stays open.
+    pub async fn judge(&self, page_id: &PageId, check: &PageCheck) -> Option<Judged> {
+        let page = self.served_page(page_id)?;
+        let ServedPage {
+            document,
+            status,
+            choice,
+            ..
+        } = page;
+        let run = document.run.clone();
+        let check = check.clone();
+        let url = document.url.clone();
+        let verdict = run
+            .owner()
+            .blocking(move || expected_page::judge(&check, &document.url, &document.html))
+            .await;
+        Some(match verdict {
+            Verdict::Expected => Judged::Passed,
+            Verdict::LoginPage => Judged::Failed(expected_page::logged_out(&url, status)),
+            Verdict::NotExpected | Verdict::Unjudged if choice.forced.is_none() => {
+                Judged::Escalated
+            }
+            Verdict::NotExpected => Judged::Failed(expected_page::failed(&url, status)),
+            Verdict::Unjudged => match unserved(&choice, PAGE_CHECK_CALL, false) {
+                Unserved::Escalated(_) => Judged::Escalated,
+                Unserved::Refused(error) => Judged::Failed(error),
+            },
+        })
+    }
+
     /// Closes the served page `page_id`: later calls on it answer
     /// `closed`.
     pub fn close(&self, page_id: &PageId) {
@@ -553,7 +615,9 @@ impl FetchTiers {
     }
 
     /// Opens Collie's page on the browser tier for a handler of the live
-    /// Run `run_id`, in its default Session, for the call `context`, whose
+    /// Run `run_id`, in the Session of the crawl's Session pool that
+    /// serves the handler, `pooled`, its own browser context, for the call
+    /// `context`, whose
     /// Connection's Client then reaches it, and navigates it to `url`
     /// through its navigation gate: the attempt hands its Run's pages over
     /// first, so the page takes its value. Answers its ID and the
@@ -570,6 +634,7 @@ impl FetchTiers {
     pub async fn browser(
         &self,
         run_id: &RunId,
+        pooled: &PooledSession,
         url: &str,
         context: &CallContext,
     ) -> Result<(PageId, Navigated), CallError> {
@@ -579,7 +644,32 @@ impl FetchTiers {
                 "the engine's composition handed the fetch tiers no browser pages",
             ));
         };
-        pages.open(run_id, url, context).await
+        pages.open(run_id, pooled, url, context).await
+    }
+
+    /// Retires the browser context of the Session `pooled` of the Run
+    /// `run_id`'s Session pool, once the pool retired that Session and no
+    /// attempt holds it: its pages close, and the pool's replacement opens
+    /// a new one. One that never opened a browser page changes nothing.
+    ///
+    /// # Errors
+    ///
+    /// `internal`, for a Session its table does not let the pool retire.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the browser context open, until its
+    /// Run ends.
+    pub async fn retire_browser(
+        &self,
+        run_id: &RunId,
+        pooled: &SessionId,
+        context: &CallContext,
+    ) -> Result<(), CallError> {
+        match self.served.browser.get() {
+            Some(pages) => pages.retire(run_id, pooled, context).await,
+            None => Ok(()),
+        }
     }
 
     /// Closes the browser page `page_id` [`FetchTiers::browser`] opened.
@@ -660,7 +750,9 @@ impl HandlerPages for FetchTiers {
             .map(|(_, hand_over)| Arc::clone(hand_over));
         match handed {
             Some(hand_over) => {
+                let page_check = hand_over.page_check.clone();
                 PageValue::new(Gate::new(Arc::clone(&hand_over)), Lease::new(hand_over))
+                    .with_page_check(page_check)
             }
             None => ProgramPages.value(run, session),
         }

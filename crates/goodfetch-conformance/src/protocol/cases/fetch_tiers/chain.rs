@@ -162,9 +162,9 @@ fn crawl(
     Ok(Some(Crawled { handled, outcomes }))
 }
 
-/// The requests the Proving ground received on `host` for `path`, in
-/// arrival order, since `serve` started: earlier cases' included.
-fn requests_for(site: &Site, host: &str, path: &str) -> Vec<Value> {
+/// The requests the Proving ground received on `host`, in arrival order,
+/// since `serve` started: earlier cases' included.
+fn host_requests(site: &Site, host: &str) -> Vec<Value> {
     site.proving_ground
         .observations()
         .ok()
@@ -175,8 +175,16 @@ fn requests_for(site: &Site, host: &str, path: &str) -> Vec<Value> {
             request["host"]
                 .as_str()
                 .is_some_and(|seen| seen.split(':').next() == Some(host))
-                && request["target"] == json!(path)
         })
+        .collect()
+}
+
+/// The requests the Proving ground received on `host` for `path`, in
+/// arrival order, since `serve` started: earlier cases' included.
+fn requests_for(site: &Site, host: &str, path: &str) -> Vec<Value> {
+    host_requests(site, host)
+        .into_iter()
+        .filter(|request| request["target"] == json!(path))
         .collect()
 }
 
@@ -200,12 +208,53 @@ fn ended(outcome: Option<&Value>, kind: &str, code: &str) -> bool {
     })
 }
 
-/// The time from the first request for `path` on the host to the host's
-/// next request, in microseconds.
-fn gap_after(site: &Site, path: &str) -> Option<u64> {
-    requests_for(site, HOST, path)
-        .first()
-        .and_then(|first| first["next_request"]["after_microseconds"].as_u64())
+/// A hop as the host received it: the request whose answer sent it, the
+/// hop's own request, and the host's request just before that one.
+#[derive(Debug, PartialEq)]
+struct Hop<'a> {
+    from: &'a Value,
+    next: &'a Value,
+    before: &'a Value,
+}
+
+impl Hop<'_> {
+    /// The time from the arrival of the host's request before the hop to
+    /// the hop's, in microseconds: what the domain's delay spaces, since it
+    /// counts between request starts (ADR 0086).
+    fn after_the_request_before(&self) -> Option<u64> {
+        arrived(self.next)?.checked_sub(arrived(self.before)?)
+    }
+
+    /// The time from the answer that sent the hop to the hop's arrival, in
+    /// microseconds: what a `Retry-After` delays, since it counts from the
+    /// answer.
+    fn after_the_answer(&self) -> Option<u64> {
+        arrived(self.next)?.checked_sub(self.from["timing"]["answered_microseconds"].as_u64()?)
+    }
+}
+
+/// When `request` arrived, in microseconds since `serve` started.
+fn arrived(request: &Value) -> Option<u64> {
+    request["timing"]["arrived_microseconds"].as_u64()
+}
+
+/// The hop the first request for `from` among `requests`, a host's in
+/// arrival order, led to: the first request for `to` after it. The host's
+/// next request is not always the hop: another seed of the crawl may come
+/// between them.
+fn hop<'a>(requests: &'a [Value], from: &str, to: &str) -> Option<Hop<'a>> {
+    let start = requests
+        .iter()
+        .position(|request| request["target"] == json!(from))?;
+    let at = start
+        + requests[start..]
+            .iter()
+            .position(|request| request["target"] == json!(to))?;
+    Some(Hop {
+        from: &requests[start],
+        next: &requests[at],
+        before: &requests[at.checked_sub(1)?],
+    })
 }
 
 /// Under `fetch.redirect.max: 5`, a redirect loop fails with
@@ -414,9 +463,15 @@ pub(super) fn gated_hops(
         "the disallowed hop is never sent",
         requests_for(site, HOST, "/private/target").is_empty(),
     );
+    // The delay counts between starts, and a start reaches the site a
+    // little later each time: arrivals may come up to a tenth of the delay
+    // closer than their starts (fix-queue 62).
     checks.check(
         "a hop waits out the domain's delay after the request before it",
-        gap_after(site, "/redirect/307").is_some_and(|gap| gap >= DOMAIN_DELAY_MS * 900),
+        hop(&host_requests(site, HOST), "/redirect/307", "/target")
+            .as_ref()
+            .and_then(Hop::after_the_request_before)
+            .is_some_and(|gap| gap >= DOMAIN_DELAY_MS * 900),
     );
     Ok(())
 }
@@ -705,7 +760,14 @@ pub(super) fn redirect_retry_after(
     );
     checks.check(
         "its next hop waits the 2 s its `Retry-After` asks",
-        gap_after(site, "/retry-after/302/seconds").is_some_and(|gap| gap >= 1_800_000),
+        hop(
+            &host_requests(site, HOST),
+            "/retry-after/302/seconds",
+            "/target",
+        )
+        .as_ref()
+        .and_then(Hop::after_the_answer)
+        .is_some_and(|gap| gap >= 1_800_000),
     );
     let long = site
         .named_url(HOST, "/retry-after/302/imf-fixdate/long")
@@ -799,7 +861,13 @@ pub(super) fn refresh_stubs(
     }
     checks.check(
         "a refresh hop waits out the domain's delay, through the gate",
-        gap_after(site, "/refresh/meta/5").is_some_and(|gap| gap >= DOMAIN_DELAY_MS * 900),
+        hop(&host_requests(site, HOST), "/refresh/meta/5", "/target")
+            .as_ref()
+            .and_then(Hop::after_the_request_before)
+            .is_some_and(|gap| gap >= DOMAIN_DELAY_MS * 900),
     );
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

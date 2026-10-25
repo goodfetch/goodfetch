@@ -19,6 +19,7 @@
 //! - **Each hop after the first goes through a [`HopGate`]**, which takes
 //!   its permit, held until its answer's head arrived, or ends the request
 //!   [skipped](Stop::Skipped). The first hop's permit is its admission's.
+//!   The gate is told as each hop, the first included, is sent.
 //! - **A hop after the first that the transport's egress check refuses**,
 //!   its URL or the address it would connect to (ADRs 0017 and 0118), ends
 //!   the request `skipped` with `domain_policy`: a redirect is no way
@@ -114,6 +115,11 @@ pub trait HopGate: Send + Sync {
     /// Waits until `until` before `hop` is sent.
     fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()>;
 
+    /// Records that `hop`, the first included, is sent now: its request's
+    /// start, from which its domain's delay counts (ADR 0086), later than
+    /// its admission by whatever ran between them.
+    fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()>;
+
     /// Records that the chain ended on `hop`, one after its first, whose
     /// answer is its document.
     fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()>;
@@ -149,6 +155,7 @@ where
     let mut hop = first;
     let mut permit: Option<Permit> = None;
     loop {
+        gate.sending(&hop).await;
         let fetched = fetch(hop.clone()).await.map_err(|error| {
             if hops.is_empty() || error.code() != EGRESS_REFUSED.name {
                 return Stop::Failed(error);

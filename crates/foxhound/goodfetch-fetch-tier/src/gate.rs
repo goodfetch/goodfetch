@@ -68,6 +68,7 @@ use goodfetch_page::robots_txt::{Group, ProductToken, applicable_rules};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::page::SitePreference;
+use goodfetch_protocol::settings::page_check::PageCheck;
 use tokio::sync::oneshot;
 use url::Url;
 
@@ -113,6 +114,10 @@ pub struct HandOver {
     pub lease: Arc<dyn LeaseCheck>,
     /// The Run's domain policy, which judges each redirect hop.
     pub egress: Arc<Policy>,
+    /// The Page check its crawl request's Label declares of its own, which
+    /// judges the browser pages the attempt opens in place of their
+    /// Session's (ADR 0093).
+    pub page_check: Option<PageCheck>,
 }
 
 /// The navigation gate of the pages one attempt handed over.
@@ -544,6 +549,27 @@ impl HopGate for ChainGate {
             let clock = self.hand_over.run.clock();
             if let Ok(wait) = until.duration_since(clock.wall()) {
                 clock.sleep(wait).await;
+            }
+        })
+    }
+
+    /// Records the hop's send as the last start of its domain key for
+    /// every run sharing it, when later than the start its admission took:
+    /// what ran between them (robots.txt, the Frontier's checks, the
+    /// hand-over) would otherwise bring the next request that much closer
+    /// at the site than the delay (ADR 0086).
+    fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
+        Box::pin(async move {
+            let hand_over = &self.hand_over;
+            let Some(politeness) = &hand_over.politeness else {
+                return;
+            };
+            let run = &hand_over.run;
+            let key = hand_over.keys.key(hop.url.as_str());
+            if let Err(error) =
+                goodfetch_frontier::started_again(politeness, &key, run.clock().wall()).await
+            {
+                tracing::warn!(%error, run_id = %run.id(), "a request's start at its send was not recorded");
             }
         })
     }

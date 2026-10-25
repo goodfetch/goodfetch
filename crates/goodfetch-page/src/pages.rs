@@ -84,7 +84,7 @@ use goodfetch_protocol::page::{
     Acted, ClickParams, FillParams, FormatsParams, GotoParams, LOCATOR_CLICK, LOCATOR_FILL,
     LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_FORMATS, PAGE_GO_BACK, PAGE_GO_FORWARD,
     PAGE_GOTO, PAGE_RELOAD, PageFormats, PageId, PageParams, PageResponse, PressParams,
-    RUN_NEW_PAGE, WaitUntil,
+    RUN_NEW_PAGE, SessionId, WaitUntil,
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
@@ -98,7 +98,7 @@ use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Pending, Registered};
-use crate::page_value::{BrowserPages, HandlerPages, Opening, ProgramPages};
+use crate::page_value::{BrowserPages, HandlerPages, Opening, PooledSession, ProgramPages};
 use crate::proxy;
 use crate::recovery;
 use crate::sessions::{self, OpenPage, PageEvent, Sessions};
@@ -714,8 +714,9 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
         ))
 }
 
-/// The browser pages the Product opens for its handlers itself: each in its
-/// Run's default Session, navigated as `page.goto` navigates.
+/// The browser pages the Product opens for its handlers itself: each in the
+/// Session of its Session pool that serves the handler, navigated as
+/// `page.goto` navigates.
 struct Opener {
     pages: Pages,
 }
@@ -724,6 +725,7 @@ impl BrowserPages for Opener {
     fn open<'a>(
         &'a self,
         run_id: &'a RunId,
+        pooled: &'a PooledSession,
         url: &'a str,
         context: &'a CallContext,
     ) -> Opening<'a, Result<(PageId, Navigated), CallError>> {
@@ -731,7 +733,7 @@ impl BrowserPages for Opener {
             let opened = self
                 .pages
                 .sessions
-                .new_default_page(run_id, context)
+                .new_pool_page(run_id, &pooled.id, pooled.source.clone(), context)
                 .await?;
             let page_id = opened.page_id;
             match self
@@ -760,6 +762,15 @@ impl BrowserPages for Opener {
                 tracing::debug!(%error, page_id = %page_id.0, "a handler's browser page was closed already");
             }
         })
+    }
+
+    fn retire<'a>(
+        &'a self,
+        run_id: &'a RunId,
+        pooled: &'a SessionId,
+        context: &'a CallContext,
+    ) -> Opening<'a, Result<(), CallError>> {
+        Box::pin(async move { self.pages.sessions.retire(run_id, pooled, context).await })
     }
 }
 

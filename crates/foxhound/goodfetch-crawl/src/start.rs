@@ -24,7 +24,7 @@ use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_err
 use goodfetch_engine::runs::{EndedBy, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
-use goodfetch_fetch_tier::{FetchTiers, LabelTiers};
+use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_frontier::{Bounds, Scope};
 use goodfetch_protocol::catalog::Product;
@@ -142,8 +142,8 @@ async fn start(
         })
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;
-    let labels = LabelTiers::of(&params.labels)?;
-    FetchTiers::check(settings.resolved(), &labels)?;
+    let labels = labels::Declared::of(&params.labels)?;
+    FetchTiers::check(settings.resolved(), &labels.settings)?;
     let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
     let bounds = Bounds::of_settings(settings.resolved());
     bounds.check().map_err(CallError::from)?;

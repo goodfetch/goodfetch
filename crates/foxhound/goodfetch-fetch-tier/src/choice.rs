@@ -6,10 +6,10 @@
 //! Run the engine chooses: the crawl learns the tier per Label on a domain
 //! (`goodfetch-crawl`'s `tier_choice`), while a request left at the
 //! built-in default is handed to its handler alone, as before any tier was
-//! built, until #1602. A Label also takes `fetch.encoding`. A call the
-//! request's tier cannot serve exactly escalates the request to the browser
-//! under `auto`, and fails with `browser_required` under a forced tier,
-//! which nothing escalates.
+//! built, until #1602. A Label also takes `fetch.encoding` and
+//! `session.page_check`. A call the request's tier cannot serve exactly
+//! escalates the request to the browser under `auto`, and fails with
+//! `browser_required` under a forced tier, which nothing escalates.
 
 use std::collections::BTreeMap;
 
@@ -20,18 +20,25 @@ use goodfetch_protocol::foxhound::fetch::{
     BROWSER_REQUIRED, BrowserRequiredDetails, FETCH_ENCODING, FETCH_TIER, FETCH_TIER_RACE,
     FETCH_TIERS, FetchTier,
 };
+use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
-    SETTING_INVALID, SETTING_NOT_APPLICABLE, SettingInvalidDetails, SettingNotApplicableDetails,
-    SettingsLayer,
+    SESSION_PAGE_CHECK, SESSION_SOURCE, SETTING_INVALID, SETTING_NOT_APPLICABLE,
+    SettingInvalidDetails, SettingNotApplicableDetails, SettingsLayer,
 };
 use serde_json::{Map, Value, json};
 
-/// The Labels a crawl declares, each with its own `fetch.tier` and the
-/// `fetch.encoding` it sets, if any.
+/// What the keys inside a Label's `session.source` start with, once its
+/// shape is spelled out key by key.
+const SESSION_SOURCE_KEYS: &str = "session.source.";
+
+/// The Labels a crawl declares, each with what it sets of its own: its
+/// `fetch.tier`, the `fetch.encoding` and the `session.page_check` it sets,
+/// if any (ADR 0093). Its `session.source` is the Session pool's to read.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct LabelTiers {
+pub struct LabelSettings {
     tiers: BTreeMap<String, SetTier>,
     encodings: BTreeMap<String, String>,
+    page_checks: BTreeMap<String, PageCheck>,
 }
 
 /// How a request's tier is chosen.
@@ -58,18 +65,21 @@ pub enum SetTier {
     Forced(FetchTier),
 }
 
-impl LabelTiers {
+impl LabelSettings {
     /// The Labels `labels` declares, read from their settings.
     ///
     /// # Errors
     ///
     /// `setting_not_applicable` for a key a Label does not take here (every
-    /// key but `fetch.tier` and `fetch.encoding`; `fetch.tier_race` is the
-    /// Run's only), and `setting_invalid` for a `fetch.tier` that names no
-    /// tier or a `fetch.encoding` that is no WHATWG Encoding label.
+    /// key but `fetch.tier`, `fetch.encoding`, `session.page_check` and
+    /// `session.source`, which the Session pool reads; `fetch.tier_race` is
+    /// the Run's only), and `setting_invalid` for a `fetch.tier` that names no
+    /// tier, a `fetch.encoding` that is no WHATWG Encoding label or a
+    /// `session.page_check` that is no Page check.
     pub fn of(labels: &BTreeMap<String, LabelDeclaration>) -> Result<Self, CallError> {
         let mut tiers = BTreeMap::new();
         let mut encodings = BTreeMap::new();
+        let mut page_checks = BTreeMap::new();
         for (name, declaration) in labels {
             let mut keys = Vec::new();
             flatten("", &declaration.settings, &mut keys);
@@ -81,6 +91,16 @@ impl LabelTiers {
                     }
                     continue;
                 }
+                if key == SESSION_PAGE_CHECK.name {
+                    if let Some(check) = page_check_of(name, &value)? {
+                        page_checks.insert(name.clone(), check);
+                    }
+                    continue;
+                }
+                // The Session pool reads a Label's own Session source.
+                if key == SESSION_SOURCE.name || key.starts_with(SESSION_SOURCE_KEYS) {
+                    continue;
+                }
                 if key != FETCH_TIER.name {
                     let only = if key == FETCH_TIER_RACE.name {
                         " is set for the Run only"
@@ -90,7 +110,7 @@ impl LabelTiers {
                     return Err(CallError::new(
                         &SETTING_NOT_APPLICABLE,
                         format!(
-                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine{only}: only `fetch.tier` and `fetch.encoding` are set per Label; set `{key}` for the Run instead."
+                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.encoding`, `session.page_check` and `session.source` are set per Label; set `{key}` for the Run instead."
                         ),
                         &SettingNotApplicableDetails {
                             key,
@@ -121,7 +141,11 @@ impl LabelTiers {
             }
             tiers.insert(name.clone(), tier);
         }
-        Ok(Self { tiers, encodings })
+        Ok(Self {
+            tiers,
+            encodings,
+            page_checks,
+        })
     }
 
     /// Each declared Label that sets `fetch.encoding`, with its label.
@@ -129,6 +153,11 @@ impl LabelTiers {
         self.encodings
             .iter()
             .map(|(name, encoding)| (name.as_str(), encoding.as_str()))
+    }
+
+    /// The Page check the Label `label` declares of its own, if it does.
+    pub fn page_check(&self, label: &str) -> Option<&PageCheck> {
+        self.page_checks.get(label)
     }
 
     /// Each declared Label that forces a tier, with it.
@@ -203,10 +232,33 @@ fn flatten(prefix: &str, settings: &Map<String, Value>, keys: &mut Vec<(String, 
             format!("{prefix}.{name}")
         };
         match value {
-            Value::Object(nested) => flatten(&key, nested, keys),
+            // A Page check is one setting's value, read whole.
+            Value::Object(nested) if key != SESSION_PAGE_CHECK.name => {
+                flatten(&key, nested, keys);
+            }
             leaf => keys.push((key, leaf.clone())),
         }
     }
+}
+
+/// The Page check `value` the Label `name` sets, `None` for `null`.
+fn page_check_of(name: &str, value: &Value) -> Result<Option<PageCheck>, CallError> {
+    serde_json::from_value::<Option<PageCheck>>(value.clone()).map_err(|error| {
+        CallError::new(
+            &SETTING_INVALID,
+            format!(
+                "The Label `{name}` sets `{}` to {value}, which is no Page check: {error}.",
+                SESSION_PAGE_CHECK.name
+            ),
+            &SettingInvalidDetails {
+                key: SESSION_PAGE_CHECK.name.to_owned(),
+                layer: Some(SettingsLayer::Run),
+                reason: format!(
+                    "expected a Page check, `login_page` and `expected_page` each a page match of one `kind`: {error}"
+                ),
+            },
+        )
+    })
 }
 
 /// The tier a crawl request takes, and who forced it, if anyone did.

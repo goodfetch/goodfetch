@@ -32,6 +32,8 @@ tracing.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+# The tests write `.gz` sitemaps.
+flate2.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 proptest.workspace = true

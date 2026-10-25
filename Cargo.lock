@@ -2061,6 +2061,7 @@ version = "0.0.0"
 dependencies = [
  "data-encoding",
  "encoding_rs",
+ "flate2",
  "goodfetch-engine",
  "goodfetch-page",
  "goodfetch-protocol",

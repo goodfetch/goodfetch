@@ -26,11 +26,13 @@
 use std::collections::BTreeMap;
 
 use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
+use goodfetch_engine::response_limits::{BodyFailure, Decoding, LimitExceeded, Limits};
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_page::url_pattern::{UnsupportedPattern, UrlPattern};
 use goodfetch_protocol::foxhound::crawl::{SitemapRule, SitemapSeed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, NotAddedReason};
 use goodfetch_protocol::foxhound::report::{CountOf, SitemapReport};
+use goodfetch_protocol::response_limits::LimitSetting;
 use quick_xml::Reader;
 use quick_xml::escape::resolve_predefined_entity;
 use quick_xml::events::{BytesStart, Event};
@@ -117,12 +119,80 @@ impl std::fmt::Display for Unreadable {
     }
 }
 
+/// sitemaps.org's most URLs in one sitemap or sitemap index.
+pub const MAX_ENTRIES: usize = 50_000;
+
+/// sitemaps.org's most bytes of one sitemap, uncompressed: 50 MB.
+pub const MAX_BYTES: usize = 52_428_800;
+
+/// Why a sitemap's file was not read.
+#[derive(Debug)]
+pub enum Refusal {
+    /// It is no sitemap the crawl can read.
+    Unreadable(Unreadable),
+    /// Decoding it passed one of the Run's response limits (ADR 0067).
+    Limit(LimitExceeded),
+}
+
+/// Reads the sitemap file `body` fetched at `url`, under `limits`. A file
+/// that opens with gzip's two bytes (RFC 1952) is decoded first, whatever
+/// its URL or type says, under the Run's `limits`, so a decompression bomb
+/// is refused as a response's body is (ADR 0067), and never past one byte
+/// more than sitemaps.org's 50 MB. Then a file larger than those 50 MB, or
+/// listing more than its 50,000 URLs, is unreadable, with the limit named.
+///
+/// # Errors
+///
+/// Why it was not read: the limit its decoding passed, or why it is
+/// unreadable.
+pub fn read_file(url: &str, body: &[u8], limits: Limits) -> Result<Document, Refusal> {
+    let decoded;
+    let plain = if body.starts_with(&GZIP_MAGIC) {
+        let past = u64::try_from(MAX_BYTES + 1).expect("invariant: 50 MB fits in u64");
+        let capped = Limits {
+            max_body_size: limits.max_body_size.min(past),
+            ..limits
+        };
+        let mut decoding = Decoding::new(url, std::iter::once("gzip"), capped);
+        decoded = decoding
+            .push(body)
+            .and_then(|()| decoding.finish())
+            .map_err(|failure| match failure {
+                BodyFailure::Limit(exceeded)
+                    if exceeded.setting == LimitSetting::MaxBodySize && exceeded.limit == past =>
+                {
+                    Refusal::Unreadable(too_large())
+                }
+                BodyFailure::Limit(exceeded) => Refusal::Limit(exceeded),
+                BodyFailure::Decoding => {
+                    Refusal::Unreadable(Unreadable("its gzip stream does not decode".to_owned()))
+                }
+            })?;
+        decoded.as_slice()
+    } else {
+        body
+    };
+    if plain.len() > MAX_BYTES {
+        return Err(Refusal::Unreadable(too_large()));
+    }
+    parse(plain).map_err(Refusal::Unreadable)
+}
+
+/// The two bytes a gzip file opens with (RFC 1952).
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+
+/// A file past sitemaps.org's 50 MB uncompressed.
+fn too_large() -> Unreadable {
+    Unreadable("it is larger than sitemaps.org's 50 MB (52,428,800 bytes) uncompressed".to_owned())
+}
+
 /// Reads the sitemap `body`: a `urlset`'s entries or a `sitemapindex`'s
 /// sitemaps.
 ///
 /// # Errors
 ///
-/// Why it is no sitemap: no XML, XML that breaks off, or another root.
+/// Why it is no sitemap: no XML, XML that breaks off, another root, or
+/// more than sitemaps.org's 50,000 URLs.
 pub fn parse(body: &[u8]) -> Result<Document, Unreadable> {
     let unreadable = |error: &dyn std::fmt::Display| Unreadable(format!("its XML breaks: {error}"));
     let mut reader = Reader::from_reader(body);
@@ -168,6 +238,11 @@ pub fn parse(body: &[u8]) -> Result<Document, Unreadable> {
                 if depth == 3
                     && let Some(text) = loc.take()
                 {
+                    if locs.len() == MAX_ENTRIES {
+                        return Err(Unreadable(
+                            "it lists more than sitemaps.org's 50,000 URLs".to_owned(),
+                        ));
+                    }
                     locs.push(text.trim().to_owned());
                 }
                 depth = depth.saturating_sub(1);

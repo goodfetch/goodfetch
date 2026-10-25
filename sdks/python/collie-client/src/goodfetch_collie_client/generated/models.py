@@ -1058,6 +1058,8 @@ class NotAddedReason(StrEnum):
     (ADR 0005): a path pattern whose pages brought no new page and no
     URL outside it, which leaves a finished Run `unverified`.
     """
+    no_rule = "no_rule"
+    """A sitemap entry no rule of its sitemap seed matches (ADR 0093)."""
 
 
 class NothingDone3(BaseModel):
@@ -1506,6 +1508,45 @@ class RequestId(RootModel[int | str]):
     """A request's id, which its reply carries back."""
 
 
+class RequestSeed(BaseModel):
+    """
+    One request a crawl starts from (ADR 0093): a URL, the Label that picks
+    its handler and its Payload, and how it is sent and identified.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body: HttpBody | None = None
+    """The body it is sent with, if any."""
+    forefront: bool | None = None
+    """
+    Whether it goes ahead of every request its domain holds pending,
+    whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+    such requests, the later goes first; `false` by default.
+    """
+    key: str | None = None
+    """
+    Its identity in the Frontier, declared by the program in place of
+    its method, its URL's key and its body's hash: a canonicalization
+    of the program's own, which always wins (ADR 0005).
+    """
+    label: str
+    """Its Label."""
+    method: HttpMethod | None = None
+    """The method it is sent with: `GET` by default."""
+    payload: Any | None = None
+    """The data the program attaches for its handler."""
+    priority: int | None = None
+    """
+    Its priority among the requests of its domain: higher goes first,
+    and a priority never orders requests of different domains (ADR
+    0004); 0 by default.
+    """
+    url: str
+    """Its URL."""
+
+
 class Resource(StrEnum):
     """A resource the governor can run out of (ADR 0122)."""
 
@@ -1913,65 +1954,6 @@ class SampleStorePutResult(BaseModel):
     """Whether a value was already kept under the key."""
 
 
-class Seed(BaseModel):
-    """
-    One request a crawl starts from (ADR 0093): a URL, the Label that picks
-    its handler and its Payload, and how it is sent and identified.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    body: HttpBody | None = None
-    """The body it is sent with, if any."""
-    forefront: bool | None = None
-    """
-    Whether it goes ahead of every request its domain holds pending,
-    whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
-    such requests, the later goes first; `false` by default.
-    """
-    key: str | None = None
-    """
-    Its identity in the Frontier, declared by the program in place of
-    its method, its URL's key and its body's hash: a canonicalization
-    of the program's own, which always wins (ADR 0005).
-    """
-    label: str
-    """Its Label."""
-    method: HttpMethod | None = None
-    """The method it is sent with: `GET` by default."""
-    payload: Any | None = None
-    """The data the program attaches for its handler."""
-    priority: int | None = None
-    """
-    Its priority among the requests of its domain: higher goes first,
-    and a priority never orders requests of different domains (ADR
-    0004); 0 by default.
-    """
-    url: str
-    """Its URL."""
-
-
-class SeedBatch(BaseModel):
-    """
-    What `$/seeds` carries: the next seeds a Client streams to a
-    `run.add_seeds` call, never more than the credits the call granted.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    end: bool | None = None
-    """
-    Whether they are the stream's last: the call answers once it
-    answered them.
-    """
-    id: RequestId
-    """The id of the `run.add_seeds` call."""
-    seeds: Annotated[list[Seed] | None, Field(validate_default=True)] = []
-    """The seeds, in order."""
-
-
 class SeedsKept(BaseModel):
     """How many seeds one reason kept from a handler."""
 
@@ -2227,6 +2209,49 @@ class SignInSummary(BaseModel):
     The person it signs in, by the name their account or OS user goes
     by.
     """
+
+
+class SitemapRule(BaseModel):
+    """
+    One rule of a sitemap seed: a URL pattern, a glob as
+    `crawl.scope.include` takes them, matched in the engine, and the Label
+    it gives the entries it matches, which take no Payload.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    """The Label of the entries it matches."""
+    pattern: str
+    """The URL pattern."""
+
+
+class SitemapSeed(BaseModel):
+    """
+    A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
+    or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
+    are read. The engine reads it, and every sitemap index it nests, once
+    the Run is running, through the domain policy, Politeness and robots.txt,
+    running no handler; each entry is checked as an enqueue is, at depth 0,
+    with the Label of the first rule whose pattern matches its URL and no
+    Payload, and one no rule matches is not added, with `no_rule`. The seed
+    widens the crawl's scope by the host of the URL it names, and an entry
+    outside the scope is not added, with `out_of_scope`, so a robots.txt
+    seed admits its own host's entries from a sitemap on another host it
+    names, and no other host's.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    rules: list[SitemapRule]
+    """
+    The rules that give each entry its Label, in order: the first whose
+    pattern matches the entry's URL wins.
+    """
+    sitemap: str
+    """The URL of the sitemap, or of the site's robots.txt."""
 
 
 class SortOrder(StrEnum):
@@ -4270,6 +4295,34 @@ class RunStorage(BaseModel):
     """The space left on it to the engine's user, in bytes."""
     level: StorageLevel
     """The level."""
+
+
+class Seed(RootModel[RequestSeed | SitemapSeed]):
+    root: RequestSeed | SitemapSeed
+    """
+    What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
+    seeds the entries of a site's sitemaps.
+    """
+
+
+class SeedBatch(BaseModel):
+    """
+    What `$/seeds` carries: the next seeds a Client streams to a
+    `run.add_seeds` call, never more than the credits the call granted.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end: bool | None = None
+    """
+    Whether they are the stream's last: the call answers once it
+    answered them.
+    """
+    id: RequestId
+    """The id of the `run.add_seeds` call."""
+    seeds: Annotated[list[Seed] | None, Field(validate_default=True)] = []
+    """The seeds, in order."""
 
 
 class SessionRouteParams(BaseModel):

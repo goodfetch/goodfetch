@@ -230,6 +230,19 @@ CREATE TABLE seeds (
             position INTEGER NOT NULL PRIMARY KEY,
             answer TEXT NOT NULL
         ) STRICT;
+CREATE TABLE sitemap_entries (
+            work_item TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            count INTEGER NOT NULL,
+            PRIMARY KEY (work_item, reason)
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE sitemaps (
+            work_item TEXT NOT NULL PRIMARY KEY,
+            url TEXT NOT NULL UNIQUE,
+            seed TEXT NOT NULL,
+            rules TEXT NOT NULL,
+            read INTEGER NOT NULL
+        ) STRICT;
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 CREATE TABLE tier_choices (
             label TEXT NOT NULL,

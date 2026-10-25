@@ -257,6 +257,8 @@ pub enum NotAddedReason {
     /// (ADR 0005): a path pattern whose pages brought no new page and no
     /// URL outside it, which leaves a finished Run `unverified`.
     TrapPath,
+    /// A sitemap entry no rule of its sitemap seed matches (ADR 0093).
+    NoRule,
 }
 
 /// The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a

@@ -31,7 +31,7 @@ pub use document::{Matched, SelectorInvalid};
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
 };
-pub use gate::{HandOver, RobotsTxtFetch, disallowing};
+pub use gate::{HandOver, RobotsTxtFetch, crawl_delay, disallowing};
 pub use http_profile::HttpProfile;
 pub use redundant::Requester;
 pub use tiers::{FetchTiers, HandedOver, HttpTier, ServedLinks, Signed};

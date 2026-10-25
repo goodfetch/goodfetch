@@ -6,7 +6,9 @@
 //! one run holding every other, and the ceiling growing back; a
 //! `Retry-After` past a run's `politeness.retry_after.max` refusing its
 //! requests unsent; and the backoff's waits, drawn with decorrelated jitter
-//! from a seeded `Entropy` (ADR 0118).
+//! from a seeded `Entropy` (ADR 0118); and a host's Crawl-delay folded
+//! into its domain key's delay up to `site_preferences.max_crawl_delay`,
+//! for every run sharing the key (ADR 0086).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -25,7 +27,7 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use super::{Backoff, DomainRule, TABLES};
+use super::{Backoff, DomainRule, TABLES, crawl_delay_asked, start_taken};
 
 const KEY: &str = "shop.test";
 
@@ -332,6 +334,142 @@ fn entropy(seed: u64) -> Entropy {
 
 fn milliseconds(milliseconds: u64) -> Duration {
     Duration::from_millis(milliseconds)
+}
+
+/// The robots.txt locations of two hosts of [`KEY`].
+const SHOP: &str = "https://shop.test/robots.txt";
+const WWW: &str = "https://www.shop.test/robots.txt";
+
+/// A Crawl-delay one run read raises the delay between starts of every run
+/// sharing the key, the largest of its hosts' applying; one at most the
+/// run's `politeness.domain.delay` does not shorten it; one above its
+/// `site_preferences.max_crawl_delay` does not raise it; with
+/// `site_preferences.respect_robots_txt` off none applies; and a host that
+/// stops asking no longer raises it.
+///
+/// Covers: story:6-243, setting:site_preferences.max_crawl_delay, setting:politeness.domain.delay
+#[rstest]
+#[case::raises_the_delay(json!({}), &[(SHOP, Some(5))], at(15))]
+#[case::the_largest_host_applies(json!({}), &[(SHOP, Some(2)), (WWW, Some(4))], at(14))]
+#[case::below_the_delay_never_shortens_it(
+    json!({ "politeness": { "domain": { "delay": 3_000 } } }),
+    &[(SHOP, Some(2))],
+    at(13)
+)]
+#[case::above_the_bound_is_not_waited(
+    json!({ "site_preferences": { "max_crawl_delay": 3_000 } }),
+    &[(SHOP, Some(5)), (WWW, Some(2))],
+    at(12)
+)]
+/// Covers: setting:site_preferences.respect_robots_txt
+#[case::not_with_robots_txt_off(
+    json!({ "site_preferences": { "respect_robots_txt": false } }),
+    &[(SHOP, Some(5))],
+    at(11)
+)]
+#[case::a_host_that_stops_asking(json!({}), &[(SHOP, Some(5)), (SHOP, None)], at(11))]
+#[case::with_no_delay_of_its_own(
+    json!({ "politeness": { "domain": { "delay": 0 } } }),
+    &[(SHOP, Some(5))],
+    at(15)
+)]
+fn a_hosts_crawl_delay_is_folded_into_its_keys_delay_for_every_sharing_run(
+    #[case] run: Value,
+    #[case] asked: &[(&str, Option<u64>)],
+    #[case] next: SystemTime,
+) {
+    let file = file();
+    for (location, seconds) in asked {
+        crawl_delay_asked(&file, KEY, location, seconds.map(Duration::from_secs)).unwrap();
+    }
+    unlimited().started(&file, KEY, at(10)).unwrap();
+
+    let verdicts = (
+        rule(run.clone()).admit(&file, KEY, 0, at(11)).unwrap(),
+        rule(run).admit(&file, KEY, 0, next).unwrap(),
+    );
+
+    let first = if next == at(11) {
+        Verdict::Go
+    } else {
+        Verdict::Until(next, Hold::Delay)
+    };
+    assert_eq!(verdicts, (first, Verdict::Go));
+}
+
+/// Two runs that each fetched the key's robots.txt at once, before either
+/// knew its Crawl-delay, take their documents' starts one Crawl-delay
+/// apart, the second after the first's, and a third run's admission waits
+/// a Crawl-delay after the later.
+///
+/// Covers: story:6-243
+#[test]
+fn documents_after_robots_txt_fetched_at_once_start_a_delay_apart() {
+    let file = file();
+    let crawl_delay = Duration::from_secs(5);
+    crawl_delay_asked(&file, KEY, SHOP, Some(crawl_delay)).unwrap();
+    unlimited().started(&file, KEY, at(10)).unwrap();
+
+    let starts = (
+        start_taken(&file, KEY, at(10), crawl_delay).unwrap(),
+        start_taken(&file, KEY, at(10) + milliseconds(5), crawl_delay).unwrap(),
+    );
+    let third = unlimited().admit(&file, KEY, 0, at(16)).unwrap();
+
+    assert_eq!(
+        (starts, third),
+        ((at(15), at(20)), Verdict::Until(at(25), Hold::Delay))
+    );
+}
+
+proptest! {
+    /// Whatever the run's delay, its bound and the Crawl-delays its key's
+    /// hosts ask for, the key admits a request at a wall reading exactly
+    /// when its last start is the run's delay ago and each Crawl-delay
+    /// within the bound ago, and until then holds it to that moment: one
+    /// above the bound never holds it.
+    ///
+    /// Covers: story:6-243, setting:site_preferences.max_crawl_delay
+    #[test]
+    fn the_key_is_held_until_its_delay_and_every_crawl_delay_within_the_bound_passed(
+        delay in 0_u64..10_000,
+        bound in 0_u64..60_000,
+        crawl_delays in proptest::collection::vec(0_u64..90_000, 0..4),
+        after in 0_u64..100_000,
+    ) {
+        let file = file();
+        for (host, asked) in crawl_delays.iter().enumerate() {
+            crawl_delay_asked(
+                &file,
+                KEY,
+                &format!("https://{host}.shop.test/robots.txt"),
+                Some(milliseconds(*asked)),
+            )
+            .unwrap();
+        }
+        let run = rule(json!({
+            "politeness": { "domain": { "delay": delay } },
+            "site_preferences": { "max_crawl_delay": bound },
+        }));
+        run.started(&file, KEY, at(10)).unwrap();
+        let ready = at(10)
+            + milliseconds(
+                crawl_delays
+                    .iter()
+                    .copied()
+                    .filter(|asked| *asked <= bound)
+                    .fold(delay, u64::max),
+            );
+        let now = at(10) + milliseconds(after);
+
+        let verdict = run.admit(&file, KEY, 0, now).unwrap();
+
+        if now >= ready {
+            prop_assert_eq!(verdict, Verdict::Go);
+        } else {
+            prop_assert_eq!(verdict, Verdict::Until(ready, Hold::Delay));
+        }
+    }
 }
 
 proptest! {

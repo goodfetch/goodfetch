@@ -7,7 +7,9 @@
 //! user's runs share in the Politeness file, never from a copy of its own;
 //! a run within the day sends no robots.txt request, and one after it
 //! does; and the fetch is a request of its domain, the delay between starts
-//! counted from it.
+//! counted from it. A host's Crawl-delay spaces every sharing run's
+//! requests to its domain key, and one above
+//! `site_preferences.max_crawl_delay` skips the host's requests.
 #![expect(
     clippy::disallowed_methods,
     reason = "the test measures, from outside the engine's process, how long its first page waited, and writes the Operator policy itself"
@@ -488,5 +490,172 @@ fn the_robots_txt_fetch_counts_in_its_domains_politeness() {
         ),
         (&json!("finished"), (1, 1), true),
         "the first page came {first_page:?} after the start"
+    );
+}
+
+/// The named host whose robots.txt asks every crawler for a Crawl-delay of
+/// 5 s.
+const CRAWL_DELAY_HOST: &str = "crawl-delay.access-policy.test";
+
+/// The Crawl-delay [`CRAWL_DELAY_HOST`] asks for, in microseconds.
+const CRAWL_DELAY: u64 = 5_000_000;
+
+/// Each request `host` received so far, robots.txt included: its target
+/// and when it arrived, in microseconds, in arrival order.
+fn arrivals(proving_ground: &ProvingGround, host: &str) -> Vec<(String, u64)> {
+    let observations = proving_ground.observations().unwrap();
+    let mut arrivals: Vec<(String, u64)> = observations["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|request| request["host"] == host)
+        .map(|request| {
+            (
+                request["target"].as_str().unwrap().to_owned(),
+                request["timing"]["arrived_microseconds"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    arrivals.sort_by_key(|(_, at)| *at);
+    arrivals
+}
+
+/// Crawls two pages of `host`, `/<run>/1` and `/<run>/2`, as each of
+/// `runs` at once, each in an engine of its own under `env`'s home, their
+/// handlers committing nothing, until every Run finished.
+fn crawl_at_once(env: &TestEnv, proving_ground: &ProvingGround, host: &str, runs: &[&str]) {
+    let mut engines: Vec<(Attached, &str, bool)> = runs
+        .iter()
+        .map(|run| {
+            let mut engine = Attached::start(env);
+            let mut settings = settings(proving_ground, host, &json!({}));
+            settings["crawl"]["handler"] = json!({ "concurrency": 1 });
+            let seeds: Vec<Value> = [1, 2]
+                .iter()
+                .map(|page| {
+                    json!({ "url": proving_ground.url(host, &format!("/{run}/{page}")), "label": "page" })
+                })
+                .collect();
+            engine.send(&json!({
+                "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
+                "params": { "run_id": run, "seeds": seeds, "settings": settings },
+            }));
+            (engine, *run, false)
+        })
+        .collect();
+    while engines.iter().any(|(_, _, finished)| !finished) {
+        for (engine, run, finished) in &mut engines {
+            if *finished || engine.is_quiet_for(Duration::from_millis(50)) {
+                continue;
+            }
+            let message = engine
+                .next()
+                .expect("the engine closed before its Run ended");
+            if message["method"] == "crawl_request.handle" {
+                engine.send(&json!({
+                    "jsonrpc": "2.0", "id": message["id"], "result": { "records": [] },
+                }));
+            } else if message["id"] == "start" {
+                assert_eq!(message["result"]["run_id"], *run, "{message}");
+                engine.send(&json!({
+                    "jsonrpc": "2.0", "id": "finish", "method": "run.finish",
+                    "params": { "run_id": run },
+                }));
+            } else if message["id"] == "finish" {
+                assert_eq!(message["result"]["lifecycle"], "finished", "{message}");
+                *finished = true;
+            }
+        }
+    }
+    for (engine, _, _) in engines {
+        assert!(engine.finish());
+    }
+}
+
+/// Two runs crawling one domain key at once, each in an engine of its own
+/// under one Goodfetch home and with no `politeness.domain.delay` of their
+/// own, keep to its host's Crawl-delay of 5 s: the site receives no page,
+/// by either run, sooner than 5 s after the page before it, and the first
+/// no sooner than 5 s after the first robots.txt request. (Each run's
+/// robots.txt fetch, sent before the Crawl-delay is known, may go beside
+/// the other's.)
+///
+/// Covers: story:6-243, setting:site_preferences.max_crawl_delay, format:politeness-file
+#[test]
+fn a_crawl_delay_spaces_two_concurrent_runs_on_one_domain_key() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+
+    crawl_at_once(
+        &env,
+        &proving_ground,
+        CRAWL_DELAY_HOST,
+        &["first", "second"],
+    );
+    let arrivals = arrivals(&proving_ground, CRAWL_DELAY_HOST);
+    let first_robots_txt = arrivals
+        .iter()
+        .find(|(target, _)| target == "/robots.txt")
+        .map(|(_, at)| *at);
+    let pages: Vec<u64> = arrivals
+        .iter()
+        .filter(|(target, _)| target != "/robots.txt")
+        .map(|(_, at)| *at)
+        .collect();
+    let spaced = pages
+        .windows(2)
+        .all(|pair| pair[1].saturating_sub(pair[0]) >= CRAWL_DELAY);
+    let after_robots_txt = matches!(
+        (first_robots_txt, pages.first()),
+        (Some(robots), Some(page)) if page.saturating_sub(robots) >= CRAWL_DELAY
+    );
+
+    assert!(
+        pages.len() == 4 && spaced && after_robots_txt,
+        "{arrivals:?}"
+    );
+}
+
+/// A host asking for a Crawl-delay above `site_preferences.max_crawl_delay`,
+/// here 3 s, has its crawl requests skipped with `crawl_delay`: none is
+/// sent and no handler runs, so the crawl neither waits the host out nor
+/// ignores it.
+///
+/// Covers: story:6-243, setting:site_preferences.max_crawl_delay
+#[test]
+fn a_host_asking_for_more_than_the_max_crawl_delay_is_skipped_with_crawl_delay() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+
+    let crawled = crawl_seeds(
+        &env,
+        &proving_ground,
+        "too-slow",
+        &[
+            (CRAWL_DELAY_HOST, "/catalog/1"),
+            (CRAWL_DELAY_HOST, "/catalog/2"),
+        ],
+        &json!({ "site_preferences": { "max_crawl_delay": 3_000 } }),
+        &|_| Vec::new(),
+    );
+    let mut outcomes = crawled.outcomes;
+    outcomes.sort_by(|a, b| a.0.cmp(&b.0));
+
+    assert_eq!(
+        (
+            &crawled.report["result"]["lifecycle"],
+            crawled.handled,
+            outcomes,
+            pages_received(&proving_ground, CRAWL_DELAY_HOST),
+        ),
+        (
+            &json!("finished"),
+            Vec::<String>::new(),
+            vec![
+                ended("/catalog/1", "skipped", Some("crawl_delay")),
+                ended("/catalog/2", "skipped", Some("crawl_delay")),
+            ],
+            Vec::<String>::new(),
+        )
     );
 }

@@ -48,7 +48,7 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
     let path = visit.request.path;
     match path {
         "/sitemap-index.xml" => return xml(index(&origin)),
-        "/sitemap-index.xml.gz" => return gzip(&index(&origin)),
+        "/sitemap-index.xml.gz" => return gzip(index(&origin).as_bytes()),
         _ => {}
     }
     let numbered = |prefix: &str, suffix: &str| {
@@ -71,10 +71,10 @@ fn xml(text: String) -> Page {
 
 /// `text` gzip-compressed, as a `.gz` sitemap is served: the file itself,
 /// not a content coding.
-fn gzip(text: &str) -> Page {
+pub(super) fn gzip(text: &[u8]) -> Page {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
     encoder
-        .write_all(text.as_bytes())
+        .write_all(text)
         .expect("invariant: writing to a Vec succeeds");
     let body = encoder
         .finish()

@@ -54,6 +54,7 @@ mod perf;
 mod pinned;
 mod quarantine;
 mod rate;
+mod received_requests;
 mod release_suite;
 mod repeat;
 mod results;
@@ -246,6 +247,10 @@ enum Command {
         #[command(subcommand)]
         command: quarantine::Command,
     },
+    /// Fails on a test that reads the Proving ground's requests other than
+    /// through `ReceivedRequests`, which says whether a count keeps the
+    /// engine's robots.txt reads and the browser's icons (ADRs 0064 and 0086).
+    ReceivedRequests,
     /// The Release suite's manual-dispatch runs while the repository is
     /// private (ADR 0108).
     ReleaseSuite {
@@ -474,6 +479,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Perf { command } => perf::run(command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),
+        Command::ReceivedRequests => Ok(check::report(&received_requests::check(root)?)),
         Command::ReleaseSuite { command } => release_suite::run(command, environment),
         Command::Repeat(arguments) => repeat::run(arguments, environment),
         Command::OrderSeed(arguments) => order_seed::run(&arguments, environment),

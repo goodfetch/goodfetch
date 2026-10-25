@@ -70,6 +70,7 @@ mod process;
 mod protocol_fuzz;
 mod proving_ground;
 mod pty;
+mod received_requests;
 mod resident;
 mod resolver;
 mod runtime;
@@ -162,6 +163,7 @@ pub use proving_ground::{
     ProvingGroundError, ProvingGroundFixtures, ProxyCredentials,
 };
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
+pub use received_requests::{OWN_TARGETS, ReceivedRequests, robots_txt_read, robots_txt_readings};
 pub use resident::peak_resident_bytes;
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
@@ -179,8 +181,9 @@ pub use special_purpose::{
 };
 pub use sql_dump::sql_dump;
 pub use ssrf::{
-    Answer, CaseDomains, CaseLookup, CoverageGap, CoverageGaps, EgressRule, Family, LetThrough,
-    Miss, Outcome, Redirect, Refusal, Route, SsrfCase, SsrfTable, SsrfTableError, run_cases,
+    Answer, CaseDomains, CaseLookup, CoverageGap, CoverageGaps, EgressRule, Family, Layer,
+    LayerGap, LayerGaps, LayerRunner, LetThrough, Miss, Outcome, Pending, Redirect, Refusal, Route,
+    RunFailed, Runner, SsrfCase, SsrfLayers, SsrfTable, SsrfTableError, UnknownRunner, run_cases,
 };
 pub use strict_stdout::{
     Line, MESSAGE_DEADLINE, STDERR_GRACE, STDERR_LIMIT, StrictStdout, StrictStdoutError,

@@ -13,6 +13,20 @@ use crate::crawl::Attached;
 /// How long the engine must send nothing more for a turn to be whole.
 const QUIET: Duration = Duration::from_millis(500);
 
+/// The user configuration of a home whose engines keep `in_flight` HTTP
+/// admissions at once whatever the machine: each engine is held at
+/// pressure (`governor.pressure` at 1 %), where its governor admits only
+/// its floor, and the floor and ceiling are fixed at `in_flight`. A test
+/// that kills an engine at one of its first `in_flight` handler requests,
+/// none answered, needs them all in flight: a governor sized by a loaded
+/// machine's memory once admitted one, and the kill waited for a second
+/// request that never came.
+pub(crate) fn in_flight_whatever_the_machine(in_flight: u32) -> String {
+    format!(
+        "governor.pressure = 1\ngovernor.http.floor = {in_flight}\ngovernor.http.ceiling = {in_flight}\n"
+    )
+}
+
 fn start(engine: &mut Attached, run_id: &str, hosts: &[&str]) {
     let seeds: Vec<Value> = hosts
         .iter()

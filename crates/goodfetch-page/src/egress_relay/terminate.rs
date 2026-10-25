@@ -80,8 +80,8 @@ pub(crate) enum Terminated {
     /// It passed, and its bytes went both ways: these many from the
     /// browser and to it.
     Relayed { up: u64, down: u64 },
-    /// The relay stopped it.
-    Stopped(Stop),
+    /// The relay stopped it, and told why first.
+    Stopped,
     /// It ended otherwise: the browser sent no ClientHello, or a side
     /// closed.
     Failed,
@@ -109,7 +109,9 @@ pub(crate) fn failure_of(
 /// connection already open to it, `rest` the browser's bytes read past its
 /// head, as [`Terminating`] says; `passed` learns, before any byte of the
 /// browser's goes up, that the site's certificate passed, and through which
-/// exception.
+/// exception, and `stopped` why the relay stopped the connection, before the
+/// browser's end of it closes: the browser fails its load only once the
+/// Session keeps the refusal, so the call waiting on that load finds it.
 ///
 /// # Cancel safety
 ///
@@ -121,6 +123,7 @@ pub(crate) async fn terminate<B, S>(
     (rest, host): (Vec<u8>, &str),
     terminating: &Terminating,
     passed: impl FnOnce(Option<&ExceptionUsed>),
+    stopped: impl FnOnce(&Stop),
 ) -> Terminated
 where
     B: AsyncRead + AsyncWrite + Unpin + Send,
@@ -140,15 +143,20 @@ where
                 .as_deref()
                 .and_then(|chain| examiner.examine(host, chain).ok())
                 .and_then(|presented| presented.failure);
-            return Terminated::Stopped(Stop::Invalid(CertificateInvalid {
+            let stop = Stop::Invalid(CertificateInvalid {
                 host: host.to_owned(),
                 failure: failure_of(failure, error.as_ref()),
-            }));
+            });
+            stopped(&stop);
+            return Terminated::Stopped;
         }
     };
     let used = match decide(host, &up.chain, terminating, examiner).await {
         Ok(used) => used,
-        Err(stop) => return Terminated::Stopped(stop),
+        Err(stop) => {
+            stopped(&stop);
+            return Terminated::Stopped;
+        }
     };
     passed(used.as_ref());
     let chosen = up.stream.ssl().selected_alpn_protocol().map(<[u8]>::to_vec);

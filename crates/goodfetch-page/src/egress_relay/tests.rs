@@ -27,14 +27,18 @@ use std::sync::Mutex;
 
 use data_encoding::BASE64;
 use goodfetch_engine::egress::{Policy, Refused};
-use goodfetch_engine::tls::ExceptionUsed;
+use goodfetch_engine::secrets::ExceptionHosts;
+use goodfetch_engine::tls::{CertificateExceptions, ExceptionUsed, Trust};
 use goodfetch_protocol::egress::EgressRule;
-use goodfetch_test_support::{Family, ResolverHandle, ScriptedResolver, SsrfTable};
+use goodfetch_test_support::{
+    Outcome, Refusal, ResolverHandle, Route, Runner, ScriptedResolver, SsrfCase, SsrfTable,
+};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, duplex};
 
+use super::authority::Authority;
 use super::client_hello::{self, ClientHello};
 use super::serve::{Met, Network, Observe, Relaying, Resolved, Served, Unreached, Upstream, serve};
-use super::terminate::Stop;
+use super::terminate::{Stop, Terminating};
 
 /// The address that stands for a public one.
 const PUBLIC: IpAddr = IpAddr::V4(Ipv4Addr::new(192, 31, 196, 1));
@@ -323,21 +327,36 @@ fn a_client_without_the_sessions_credentials_gets_a_407_and_no_relayed_byte(
 
 /// The Scripted resolver's rebinding cases (ADR 0067): a name that answers
 /// a public address and then a private one reaches its public answer on
-/// the first connection, and its second is refused naming the private
-/// address, before any connection to it.
+/// the first connection, the paired positive control, and its second is
+/// refused naming the private address, before any connection to it; so in
+/// terminating mode, the name listed for a certificate exception.
 ///
-/// Covers: story:4-10, story:4-8, error:egress_refused
-#[test]
-fn a_name_that_rebinds_to_a_private_address_is_refused_on_its_next_connection_and_never_reached() {
-    let table = SsrfTable::committed().unwrap();
-    let cases: Vec<_> = table.cases_of(Family::Rebinding).collect();
-    let relaying = relaying(every_host(), Upstream::Direct);
+/// Covers: story:4-10, story:4-8, story:4-89, error:egress_refused
+#[rstest::rstest]
+#[case::tunnelled(Sent::AsATunnel)]
+#[case::terminated(Sent::Terminated)]
+fn a_name_that_rebinds_to_a_private_address_is_refused_on_its_next_connection_and_never_reached(
+    #[case] sent: Sent,
+) {
+    let runner = Runner::committed(
+        sent.layer(),
+        file!(),
+        "a_name_that_rebinds_to_a_private_address_is_refused_on_its_next_connection_and_never_reached",
+    )
+    .unwrap();
+    let cases = runner.cases();
+    let stores = super::terminate_tests::stores();
 
     let outcomes: Vec<_> = cases
         .iter()
         .map(|case| {
             let url = url::Url::parse(&case.url).unwrap();
-            let authority = format!("{}:443", url.host_str().unwrap());
+            let host = url.host_str().unwrap();
+            let authority = format!("{host}:443");
+            let mut relaying = relaying(every_host(), Upstream::Direct);
+            if let Sent::Terminated = sent {
+                relaying.terminating = Some(std::sync::Arc::new(terminating_of(host, &stores)));
+            }
             let resolver = ScriptedResolver::new(case.script(PUBLIC));
             let network = Scripted::new(Some(&resolver), Far::Site);
             let told = Told::default();
@@ -364,7 +383,7 @@ fn a_name_that_rebinds_to_a_private_address_is_refused_on_its_next_connection_an
                 .map(|(refused, method)| (refused.rule, refused.address, method.clone()))
                 .collect();
             (
-                first.0.ends_with("ok"),
+                first.0.starts_with("HTTP/1.1 200 Connection Established"),
                 second.0.lines().next().map(str::to_owned),
                 refusals,
                 network.connections(),
@@ -760,5 +779,378 @@ fn a_tunnel_it_passes_tells_the_session_the_browsers_client_hello_and_changes_no
             "192.31.196.1:443".to_owned(),
             client_hello::parse(&records).unwrap()
         )]
+    );
+}
+
+/// How a relay runner sends a case's URL to the relay.
+#[derive(Clone, Copy, Debug)]
+enum Sent {
+    /// As the browser sends it: a plain `http:` request in absolute form,
+    /// a tunnel for any other scheme.
+    AsTheBrowserSendsIt,
+    /// As a tunnel to its host and port, as a WebSocket or WebRTC's TURN
+    /// over TCP goes.
+    AsATunnel,
+    /// As a tunnel to a host the Run lists for a certificate exception,
+    /// which the relay terminates (ADR 0042).
+    Terminated,
+}
+
+impl Sent {
+    /// The table's layer the runner applies the table to sent this way.
+    fn layer(self) -> &'static str {
+        match self {
+            Self::AsTheBrowserSendsIt | Self::AsATunnel => "egress_relay",
+            Self::Terminated => "tls_relay",
+        }
+    }
+}
+
+/// The table's form of the rule a refusal names.
+fn table_rule(rule: EgressRule) -> goodfetch_test_support::EgressRule {
+    match rule {
+        EgressRule::DomainPolicy => goodfetch_test_support::EgressRule::DomainPolicy,
+        EgressRule::PrivateAddress => goodfetch_test_support::EgressRule::PrivateAddress,
+        EgressRule::Scheme => goodfetch_test_support::EgressRule::Scheme,
+    }
+}
+
+/// The case's domain policy, every host allowed when it sets none.
+fn case_policy(case: &SsrfCase) -> Policy {
+    match &case.domains {
+        Some(domains) => Policy::new(&domains.allowed, &domains.blocked).unwrap(),
+        None => every_host(),
+    }
+}
+
+/// The relay terminating `host`, under a trust-on-first-use exception
+/// pinning in `stores`.
+fn terminating_of(host: &str, stores: &super::terminate_tests::Stores) -> Terminating {
+    Terminating {
+        authority: std::sync::Arc::new(Authority::new(vec![host.to_owned()]).unwrap()),
+        exceptions: CertificateExceptions::listed(
+            &serde_json::json!({ host: null }),
+            stores.book.clone(),
+            ExceptionHosts::default(),
+        )
+        .unwrap(),
+        examiner: Trust::default_roots().examiner(),
+        trust: Trust::default_roots(),
+    }
+}
+
+/// The head that sends `url` to the relay `sent`'s way.
+fn head_of(url: &url::Url, sent: Sent) -> String {
+    let host = match url.host() {
+        Some(url::Host::Ipv6(address)) => format!("[{address}]"),
+        host => host.map(|host| host.to_string()).unwrap_or_default(),
+    };
+    let port = url.port_or_known_default().unwrap_or(80);
+    match sent {
+        Sent::AsTheBrowserSendsIt if url.scheme() == "http" => format!(
+            "GET {url} HTTP/1.1\r\nHost: {host}\r\nProxy-Authorization: {}\r\n\r\n",
+            authorization()
+        ),
+        _ => connect(&format!("{host}:{port}")),
+    }
+}
+
+/// What the relay did with one case sent `sent`'s way: the refusal it told
+/// the Session, the addresses its connections reached, a connection to the
+/// upstream proxy standing for one to the case's target, and whether the
+/// relay was set to terminate the case's host.
+fn relay_case(case: &SsrfCase, url: &url::Url, sent: Sent) -> (Outcome, bool) {
+    let resolver = ScriptedResolver::new(case.script(PUBLIC));
+    let proxied = case.route == Route::UpstreamProxy;
+    let network = Scripted::new(
+        Some(&resolver),
+        if proxied {
+            Far::Proxy {
+                answer: "HTTP/1.1 200 Connection established\r\n\r\n",
+            }
+        } else {
+            Far::Site
+        },
+    );
+    let told = Told::default();
+    let stores = super::terminate_tests::stores();
+    let mut relaying = relaying(
+        case_policy(case),
+        if proxied {
+            Upstream::Http {
+                authorization: None,
+            }
+        } else {
+            Upstream::Direct
+        },
+    );
+    let host = url
+        .host_str()
+        .unwrap_or_default()
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    if let Sent::Terminated = sent {
+        relaying.terminating = Some(std::sync::Arc::new(terminating_of(host, &stores)));
+    }
+    let terminates = relaying
+        .terminating
+        .as_ref()
+        .is_some_and(|terminating| terminating.terminates(host));
+
+    let _ = goodfetch_test_support::runtime().block_on(through(
+        &head_of(url, sent),
+        GET,
+        &relaying,
+        &network,
+        &told,
+    ));
+
+    let refusal = told
+        .refused
+        .lock()
+        .unwrap()
+        .last()
+        .map(|(refused, _)| Refusal::EgressRefused {
+            rule: table_rule(refused.rule),
+        });
+    let connections = network
+        .connections()
+        .into_iter()
+        .filter_map(|connection| match connection {
+            Some(address) => Some(address.ip()),
+            None => case.target_address(PUBLIC),
+        })
+        .collect();
+    (
+        Outcome {
+            refusal,
+            connections,
+        },
+        terminates,
+    )
+}
+
+/// The relay runners' positive controls: a public name, directly and
+/// through the upstream proxy, each reaching the public stand-in.
+const RELAY_CONTROLS: &str = r#"
+[[cases]]
+name = "public_only"
+family = "mixed_answers"
+url = "https://public.ssrf.test/"
+lookups = [{ name = "public.ssrf.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "private_address" }
+
+[[cases]]
+name = "public_name_through_the_proxy"
+family = "upstream_proxy"
+url = "https://public.ssrf.test/"
+route = { via = "upstream_proxy" }
+lookups = [{ name = "public.ssrf.test", answers = ["public"] }]
+target = "public"
+refusal = { code = "egress_refused", rule = "private_address" }
+"#;
+
+/// The SSRF table's thin runner on the egress relay (ADR 0067): every case
+/// a browser's connection meets, sent as the browser sends it, as a tunnel,
+/// and as a tunnel the relay terminates, is refused before any connection
+/// reaches its target, its upstream proxy's cases before the proxy sees
+/// them. The positive controls reach the public stand-in each way, and the
+/// terminating runner's relay is set to terminate every case's host, which
+/// it judges before it would. Only a URL the WHATWG parser
+/// refuses never reaches the relay, as no browser sends it.
+///
+/// Covers: story:4-10, story:4-89, error:egress_refused
+#[rstest::rstest]
+#[case::as_the_browser_sends_it(Sent::AsTheBrowserSendsIt)]
+#[case::as_a_tunnel(Sent::AsATunnel)]
+#[case::terminated(Sent::Terminated)]
+fn every_case_of_the_ssrf_table_a_browser_connection_meets_is_refused_at_the_relay(
+    #[case] sent: Sent,
+) {
+    let runner = Runner::committed(
+        sent.layer(),
+        file!(),
+        "every_case_of_the_ssrf_table_a_browser_connection_meets_is_refused_at_the_relay",
+    )
+    .unwrap();
+    let controls = SsrfTable::parse(RELAY_CONTROLS).unwrap();
+    let mut sent_cases = 0;
+    let mut terminating = 0;
+
+    let result = runner.run(&controls.cases, PUBLIC, |case| {
+        let Ok(url) = url::Url::parse(&case.url) else {
+            return Outcome::default();
+        };
+        let (outcome, terminates) = relay_case(case, &url, sent);
+        sent_cases += 1;
+        terminating += usize::from(terminates);
+        outcome
+    });
+
+    assert!(
+        runner.cases().len() > 90,
+        "only {} cases",
+        runner.cases().len()
+    );
+    let expected_terminating = match sent {
+        Sent::Terminated => sent_cases,
+        _ => 0,
+    };
+    assert_eq!(terminating, expected_terminating);
+    // Only the URLs the WHATWG parser refuses, which no browser sends,
+    // never reach the relay, and reach nothing.
+    let unsent = |case: &str| (case.to_owned(), None, false);
+    assert_eq!(
+        result.map_err(|failed| {
+            let let_through: Vec<_> = failed
+                .let_through
+                .iter()
+                .map(|miss| (miss.case.clone(), miss.refusal.clone(), miss.reached_target))
+                .collect();
+            (failed.no_control, failed.held, let_through)
+        }),
+        Err((
+            false,
+            Vec::new(),
+            vec![unsent("zone_id"), unsent("url_that_does_not_parse")]
+        ))
+    );
+}
+
+/// The relay's own TCP network for a Session whose local address is
+/// `127.0.0.1`, `dns` its resolver, `case`'s lookups its mapping.
+fn bound_network(case: &SsrfCase, dns: &goodfetch_engine::dns::Dns) -> super::Tcp {
+    super::Tcp {
+        mapping: case
+            .lookups
+            .iter()
+            .map(|lookup| {
+                let addresses = lookup
+                    .answers
+                    .iter()
+                    .map(|answer| match answer {
+                        goodfetch_test_support::Answer::Public => PUBLIC,
+                        goodfetch_test_support::Answer::Address(address) => *address,
+                    })
+                    .collect();
+                (lookup.name.clone(), addresses)
+            })
+            .collect(),
+        upstream: None,
+        local: Some(goodfetch_engine::http_client::LocalBinding::new(
+            goodfetch_engine::local_addresses::SessionAddresses {
+                ipv4: Some(Ipv4Addr::LOCALHOST),
+                ipv6: None,
+            },
+            dns,
+        )),
+    }
+}
+
+/// The SSRF table's thin runner on the relay of a Session with local
+/// addresses (ADR 0044): on the relay's own TCP network, bound to
+/// `127.0.0.1`, every address case and domain policy case, at a loopback
+/// listener's port, is refused before any connection, the listener's
+/// accepted connections the oracle; a case's lookups are the Run's
+/// `network.resolve` mapping. The positive control, the listener's own
+/// address once the Session lists it, reaches it.
+///
+/// Covers: story:4-48, story:4-89, error:egress_refused
+#[test]
+fn with_local_addresses_every_address_case_of_the_ssrf_table_is_refused_at_the_relay() {
+    let runner = Runner::committed(
+        "local_address_relay",
+        file!(),
+        "with_local_addresses_every_address_case_of_the_ssrf_table_is_refused_at_the_relay",
+    )
+    .unwrap();
+    let loopback = IpAddr::V4(Ipv4Addr::LOCALHOST);
+    let listener = std::net::TcpListener::bind(SocketAddr::new(loopback, 0)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let controls = SsrfTable::parse(
+        r#"
+        [[cases]]
+        name = "listed_loopback"
+        family = "encoding"
+        url = "http://127.0.0.1/"
+        target = "127.0.0.1"
+        refusal = { code = "egress_refused", rule = "private_address" }
+        "#,
+    )
+    .unwrap();
+    let dns = goodfetch_engine::dns::Dns::new(
+        goodfetch_engine::dns::HostMapping::new([]),
+        goodfetch_engine::dns::ResolverConfiguration::name_servers([]),
+        goodfetch_engine::clock::Clock::system(),
+    );
+
+    let result = runner.run(&controls.cases, loopback, |case| {
+        let Ok(mut url) = url::Url::parse(&case.url) else {
+            return Outcome::default();
+        };
+        if url.set_port(Some(port)).is_err() {
+            return Outcome::default();
+        }
+        let listed = case.name == "listed_loopback";
+        let mut policy = case_policy(case);
+        if listed {
+            policy = policy.with_private_ranges(&["127.0.0.1"]).unwrap();
+        }
+        let network = bound_network(case, &dns);
+        let told = Told::default();
+        let relaying = relaying(policy, Upstream::Direct);
+        // A connection the relay let through waits for an answer the
+        // listener never gives: the wait ends it, the connection counted.
+        let _ = goodfetch_test_support::runtime().block_on(async {
+            let local = tokio::task::LocalSet::new();
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                local.run_until(async {
+                    let (mut browser, relayed) = duplex(1 << 16);
+                    browser
+                        .write_all(head_of(&url, Sent::AsTheBrowserSendsIt).as_bytes())
+                        .await
+                        .unwrap();
+                    serve(relayed, &relaying, &network, &told).await
+                }),
+            )
+            .await
+        });
+        let mut connections = Vec::new();
+        while listener.accept().is_ok() {
+            connections.push(loopback);
+        }
+        Outcome {
+            refusal: told.refused.lock().unwrap().last().map(|(refused, _)| {
+                Refusal::EgressRefused {
+                    rule: table_rule(refused.rule),
+                }
+            }),
+            connections,
+        }
+    });
+
+    assert!(
+        runner.cases().len() > 80,
+        "only {} cases",
+        runner.cases().len()
+    );
+    let unsent = |case: &str| (case.to_owned(), None, false);
+    assert_eq!(
+        result.map_err(|failed| {
+            let let_through: Vec<_> = failed
+                .let_through
+                .iter()
+                .map(|miss| (miss.case.clone(), miss.refusal.clone(), miss.reached_target))
+                .collect();
+            (failed.no_control, failed.held, let_through)
+        }),
+        Err((
+            false,
+            Vec::new(),
+            vec![unsent("zone_id"), unsent("url_that_does_not_parse")]
+        ))
     );
 }

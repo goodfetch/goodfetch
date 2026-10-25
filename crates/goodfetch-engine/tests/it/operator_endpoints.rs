@@ -19,7 +19,8 @@ use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
 use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
 use goodfetch_test_support::{
-    Answer, Family, Outcome, ProvingGround, Refusal, Route, SsrfCase, SsrfTable, TestEnv, run_cases,
+    Answer, Family, Outcome, ProvingGround, ReceivedRequests, Refusal, Route, Runner, SsrfCase,
+    SsrfTable, TestEnv,
 };
 use hyper::Request;
 use hyper::body::Bytes;
@@ -145,8 +146,9 @@ fn a_collector_on_loopback_is_reached_unless_the_operator_policy_refuses_private
 /// Operator-configured endpoints: each case's collector under the Operator
 /// policy of `egress.no_private_endpoints`, its lookups as the
 /// `network.resolve` mapping, at the watched target's port; a case's
-/// connections are those the target accepted.
-fn run_case(proving_ground: &ProvingGround, case: &SsrfCase) -> Outcome {
+/// connections are those the target accepted. With `refusing` false, the
+/// Operator policy leaves the switch off: the positive control.
+fn run_case(proving_ground: &ProvingGround, case: &SsrfCase, refusing: bool) -> Outcome {
     let target = target(proving_ground);
     let resolve: Map<String, Value> = case
         .lookups
@@ -165,13 +167,19 @@ fn run_case(proving_ground: &ProvingGround, case: &SsrfCase) -> Outcome {
         .collect();
     let collector = Collector::of(
         &machine_settings(
-            no_private_endpoints(true),
+            no_private_endpoints(refusing),
             json!({ "network": { "resolve": resolve } }),
         ),
         Clock::system(),
     );
+    let url = at_port(&case.url, target.port());
+    // A URL no URI holds is no endpoint a collector can be given: nothing
+    // is sent.
+    if url.parse::<hyper::Uri>().is_err() {
+        return Outcome::default();
+    }
     let before = target_connections(&proving_ground.observations().unwrap());
-    let exported = export(&collector, &at_port(&case.url, target.port()));
+    let exported = export(&collector, &url);
     let after = target_connections(&proving_ground.observations().unwrap());
     Outcome {
         refusal: match exported {
@@ -184,22 +192,52 @@ fn run_case(proving_ground: &ProvingGround, case: &SsrfCase) -> Outcome {
     }
 }
 
-/// Covers: story:4-16, error:egress_refused, setting:egress.no_private_endpoints
+/// The table's Operator endpoint cases and its address cases, each URL
+/// the collector's: refused under `egress.no_private_endpoints` before any
+/// connection, while the positive control, the loopback collector with the
+/// switch off, reaches the target.
+///
+/// Covers: story:4-16, story:4-89, error:egress_refused, setting:egress.no_private_endpoints
 #[test]
 fn every_operator_endpoint_case_of_the_ssrf_table_is_refused_before_it_connects() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let table = SsrfTable::committed().unwrap();
-    let cases: Vec<&SsrfCase> = table.cases_of(Family::OperatorEndpoint).collect();
-    let kinds: Vec<&Route> = cases.iter().map(|case| &case.route).collect();
+    let runner = Runner::committed(
+        "operator_endpoints",
+        file!(),
+        "every_operator_endpoint_case_of_the_ssrf_table_is_refused_before_it_connects",
+    )
+    .unwrap();
+    let kinds: Vec<&Route> = runner
+        .cases()
+        .iter()
+        .filter(|case| case.family == Family::OperatorEndpoint)
+        .map(|case| &case.route)
+        .collect();
+    let controls = SsrfTable::parse(
+        r#"
+        [[cases]]
+        name = "loopback_collector_with_the_switch_off"
+        family = "operator_endpoint"
+        url = "http://127.0.0.1/v1/traces"
+        route = { via = "operator_endpoint", kind = "otlp" }
+        target = "127.0.0.1"
+        refusal = { code = "egress_refused", rule = "private_address" }
+        "#,
+    )
+    .unwrap();
 
-    let result = run_cases(
-        cases.iter().copied(),
-        target(&proving_ground).ip(),
-        |case| run_case(&proving_ground, case),
+    let result = runner.run(&controls.cases, target(&proving_ground).ip(), |case| {
+        let control = case.name == "loopback_collector_with_the_switch_off";
+        run_case(&proving_ground, case, !control)
+    });
+
+    assert!(kinds.len() >= 7, "only {} cases", kinds.len());
+    assert!(
+        runner.cases().len() >= 70,
+        "only {} cases",
+        runner.cases().len()
     );
-
-    assert!(cases.len() >= 7, "only {} cases", cases.len());
     assert!(
         kinds.iter().all(|route| matches!(
             route,
@@ -207,19 +245,45 @@ fn every_operator_endpoint_case_of_the_ssrf_table_is_refused_before_it_connects(
         )),
         "{kinds:?}"
     );
-    assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
+    // An endpoint is the Operator's text, sent as an HTTP URI: the
+    // spellings only the WHATWG parser reads are no URI, so nothing is
+    // sent, and a zone ID's is a URL the policy cannot judge, refused as
+    // such. Neither reaches anything.
+    let unsent = |case: &str| (case.to_owned(), None, false);
     assert_eq!(
-        target_connections(&proving_ground.observations().unwrap()),
-        0
+        result.map_err(|failed| {
+            let let_through: Vec<_> = failed
+                .let_through
+                .iter()
+                .map(|miss| (miss.case.clone(), miss.refusal.clone(), miss.reached_target))
+                .collect();
+            (failed.no_control, failed.held, let_through)
+        }),
+        Err((
+            false,
+            Vec::new(),
+            vec![
+                unsent("percent_encoded_host"),
+                unsent("full_width_digits"),
+                unsent("ideographic_full_stops"),
+                unsent("tab_inside_the_host"),
+                unsent("backslashes"),
+                (
+                    "zone_id".to_owned(),
+                    Some(Refusal::EgressRefused {
+                        rule: goodfetch_test_support::EgressRule::DomainPolicy
+                    }),
+                    false
+                ),
+            ]
+        ))
     );
 }
 
 /// The hosts of the page requests the Proving ground received.
 fn requested_hosts(observations: &Value) -> Vec<String> {
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(observations)
+        .every()
         .map(|request| request["host"].as_str().unwrap().to_owned())
         .collect()
 }

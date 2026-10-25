@@ -23,7 +23,7 @@ use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, InstallOutcome
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::settings::SettingsLayer;
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject as _;
 use serde_json::{Value, json};
@@ -109,10 +109,8 @@ fn now(env: &TestEnv) -> jiff::Timestamp {
 
 /// What a test reads of each request the Proving ground recorded.
 fn requests(observations: &Value) -> Vec<Value> {
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(observations)
+        .every()
         .map(|request| {
             json!({
                 "host": request["host"],

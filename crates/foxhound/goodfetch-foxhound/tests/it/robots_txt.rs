@@ -21,7 +21,7 @@
 
 use std::time::{Duration, Instant};
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -81,10 +81,9 @@ fn crawl(
 /// its other pages.
 fn received(proving_ground: &ProvingGround, host: &str) -> (usize, usize) {
     let observations = proving_ground.observations().unwrap();
-    let requests: Vec<&Value> = observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    let received = ReceivedRequests::of(&observations);
+    let requests: Vec<&Value> = received
+        .every()
         .filter(|request| request["host"] == host)
         .collect();
     let robots = requests
@@ -235,11 +234,9 @@ fn crawl_seeds(
 /// The paths `host` received, robots.txt left out.
 fn pages_received(proving_ground: &ProvingGround, host: &str) -> Vec<String> {
     let observations = proving_ground.observations().unwrap();
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|request| request["host"] == host && request["target"] != "/robots.txt")
+    ReceivedRequests::of(&observations)
+        .of_the_case()
+        .filter(|request| request["host"] == host)
         .map(|request| request["target"].as_str().unwrap().to_owned())
         .collect()
 }
@@ -493,6 +490,63 @@ fn the_robots_txt_fetch_counts_in_its_domains_politeness() {
     );
 }
 
+/// A document waiting for its domain's delay after the robots.txt its
+/// attempt fetched is not timed out meanwhile (ADR 0093): under a delay
+/// longer than the attempt's lease was granted for, the lease is renewed
+/// through the wait, and the request is fetched and handled in its first
+/// attempt, which a crawl allowed no retry needs.
+///
+/// Covers: story:6-241, setting:politeness.domain.delay, setting:timeout.handler, setting:crawl.retry.max
+#[test]
+fn a_document_waiting_for_its_delay_after_robots_txt_keeps_its_lease() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    // The document waits out the delay with nothing to say.
+    let mut engine = Attached::start_with(&env, Some(Duration::from_secs(60)), |_| {});
+    // A lease of 1 s plus the 10 s margin, shorter than the delay.
+    let more = json!({
+        "timeout": { "handler": 1_000 },
+        "politeness": { "domain": { "delay": 12_000 } },
+        "crawl": { "retry": { "max": 0 } },
+    });
+
+    let mut handled = 0;
+    let report = crawl_with(
+        &mut engine,
+        "waits",
+        &[json!({ "url": proving_ground.url(FILE_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, FILE_HOST, &more),
+        &mut |_, _| {
+            handled += 1;
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let outcomes = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "waits" }),
+        &mut |_| None,
+    );
+    assert!(engine.finish());
+
+    let outcome = &outcomes["result"]["outcomes"][0];
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            handled,
+            (&outcome["kind"], &outcome["attempts"]),
+            received(&proving_ground, FILE_HOST),
+        ),
+        (
+            &json!("finished"),
+            1,
+            (&json!("succeeded"), &json!(1)),
+            (1, 1)
+        ),
+        "{outcomes}"
+    );
+}
+
 /// The named host whose robots.txt asks every crawler for a Crawl-delay of
 /// 5 s.
 const CRAWL_DELAY_HOST: &str = "crawl-delay.access-policy.test";
@@ -504,10 +558,8 @@ const CRAWL_DELAY: u64 = 5_000_000;
 /// and when it arrived, in microseconds, in arrival order.
 pub(crate) fn arrivals(proving_ground: &ProvingGround, host: &str) -> Vec<(String, u64)> {
     let observations = proving_ground.observations().unwrap();
-    let mut arrivals: Vec<(String, u64)> = observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    let mut arrivals: Vec<(String, u64)> = ReceivedRequests::of(&observations)
+        .every()
         .filter(|request| request["host"] == host)
         .map(|request| {
             (

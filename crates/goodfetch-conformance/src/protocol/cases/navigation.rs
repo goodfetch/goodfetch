@@ -20,9 +20,9 @@ use serde_json::{Value, json};
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
 
-/// The time step at which the `pacing` family holds each answer longest,
-/// about two seconds (`proving-ground/README.md`).
-const SLOWEST_STEP: u64 = 95;
+/// A time step at which the `pacing` family holds each answer about two
+/// seconds (`proving-ground/README.md`).
+const SLOW_STEP: u64 = 95;
 
 /// How long a superseding navigation waits after the one it supersedes, so
 /// the browser has started the first, whose answer the Proving ground holds.
@@ -329,18 +329,28 @@ pub(super) fn failed_with(answer: &Value, what: &str, error: &str, checks: &mut 
 
 /// A name that does not resolve fails the navigation with the browser's
 /// `net::ERR_NAME_NOT_RESOLVED`, told apart from a refused connection
-/// (pitfall H01).
+/// (pitfall H01): one to the port of the Proving ground's `down` fixture,
+/// which it holds with nothing listening while it runs, so no other
+/// program can take it, as one could a port bound and released
+/// (fix-queue 31 and 88).
 pub(super) fn unresolved_name(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-unresolved-name";
-    let refused = closed_port().ok().and_then(|port| {
-        site.page_url
-            .as_deref()
-            .and_then(|url| url_on_port(url, port))
-    });
+    let refused = site
+        .proxy("down")
+        .and_then(|down| down.parse::<std::net::SocketAddr>().ok())
+        .and_then(|down| {
+            site.page_url
+                .as_deref()
+                .and_then(|url| url_on_port(url, down.port()))
+        });
+    checks.check(
+        "the Proving ground holds a port that refuses connections",
+        refused.is_some(),
+    );
     if let (Some(page), Some(refused)) = (
         open(connection, site, run_id, &[&refused], checks)?,
         &refused,
@@ -386,17 +396,6 @@ fn url_on_port(url: &str, port: u16) -> Option<String> {
     Some(format!("{scheme}://{host}:{port}{path}"))
 }
 
-/// A loopback port where nothing listens: one the OS just gave out and the
-/// harness closed again.
-#[expect(
-    clippy::disallowed_types,
-    reason = "the harness takes a free port outside the engine, never inside the Simulation (ADR 0060's note for the harness)"
-)]
-fn closed_port() -> std::io::Result<u16> {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-    Ok(listener.local_addr()?.port())
-}
-
 /// A navigation that another supersedes before its document committed
 /// raises `navigation_interrupted`, and the other answers its response
 /// (ADR 0085). The Proving ground holds the first one's answer.
@@ -418,7 +417,7 @@ pub(super) fn superseded(
         }
         return Ok(());
     };
-    let slowed = site.proving_ground.set_time_step(SLOWEST_STEP).is_ok();
+    let slowed = site.proving_ground.set_time_step(SLOW_STEP).is_ok();
     checks.check("the Proving ground holds its pacing pages' answers", slowed);
     let first = connection.request(PAGE_GOTO.name, &json!({ "page_id": page, "url": held }))?;
     pause(SUPERSEDING_DELAY);
@@ -481,7 +480,7 @@ pub(super) fn past_its_deadline(
         "a `timeout` of 0 is refused with `invalid_params`",
         refused["error"]["code"] == json!(-32602),
     );
-    let slowed = site.proving_ground.set_time_step(SLOWEST_STEP).is_ok();
+    let slowed = site.proving_ground.set_time_step(SLOW_STEP).is_ok();
     checks.check("the Proving ground holds its pacing pages' answers", slowed);
     let answer = call(
         connection,

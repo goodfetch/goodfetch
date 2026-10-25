@@ -291,7 +291,9 @@ pub enum Destination {
 ///
 /// # Errors
 ///
-/// [`Refused`] with [`EgressRule::Scheme`].
+/// [`Refused`] with [`EgressRule::Scheme`]; with
+/// [`EgressRule::PrivateAddress`] for an IPv6 address with a zone ID, and
+/// [`EgressRule::DomainPolicy`] for any other URL that does not parse.
 pub fn navigation(url: &str, navigator: Navigator) -> Result<Destination, Refused> {
     let refused = |rule| Refused {
         url: url.to_owned(),
@@ -300,6 +302,13 @@ pub fn navigation(url: &str, navigator: Navigator) -> Result<Destination, Refuse
         setting: None,
     };
     let Ok(parsed) = Url::parse(url) else {
+        // A zone names a link, as `judge` has it (ADR 0067).
+        if let Some(address) = zone_id_address(url) {
+            return Err(Refused {
+                address: Some(IpAddr::V6(address)),
+                ..refused(EgressRule::PrivateAddress)
+            });
+        }
         return Err(refused(EgressRule::DomainPolicy));
     };
     match parsed.scheme() {

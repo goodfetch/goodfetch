@@ -34,8 +34,18 @@ const SEED: u64 = 760;
 /// `/private/` and asks for a Crawl-delay of 2 s.
 const ROBOTS_HOST: &str = "1.access-policy.test";
 
-/// An engine whose pages launch Chrome for Testing from the test's cache.
+/// The governor's floors in each case's home, above what a case holds at
+/// once: its attempts and its pages are admitted whatever the host's load.
+/// A governor above normal admits none past a kind's floor (ADR 0040), so
+/// on a loaded host a handler's `run.new_page` would wait for its admission
+/// while its lease, which nothing renews then, runs out.
+const ADMITTED_WHATEVER_THE_LOAD: &str =
+    "governor.http.floor = 16\ngovernor.browser_page.floor = 16\n";
+
+/// An engine whose pages launch Chrome for Testing from the test's cache,
+/// its governor admitting each case's attempts and pages at once.
 fn engine(env: &TestEnv) -> Attached {
+    env.user_configuration(ADMITTED_WHATEVER_THE_LOAD);
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
     // A navigation may wait out its domain's delay with nothing to say.
     Attached::start_with(env, Some(Duration::from_secs(60)), |command| {
@@ -86,10 +96,10 @@ fn refusal(answer: &Value) -> (Value, Value, Value) {
 
 /// How many requests for `path` the Proving ground received on `host`.
 fn requested(proving_ground: &ProvingGround, host: &str, path: &str) -> usize {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .of_the_case()
         .filter(|request| request["host"] == host && request["target"] == path)
         .count()
 }
@@ -228,10 +238,10 @@ const DELAY_MILLISECONDS: u64 = 1_000;
 /// Each request `host` received for one of `targets`, its target and
 /// arrival time in microseconds, in arrival order.
 fn arrivals(proving_ground: &ProvingGround, host: &str, targets: &[&str]) -> Vec<(String, u64)> {
-    let mut arrivals: Vec<(String, u64)> = proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    let mut arrivals: Vec<(String, u64)> = proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .every()
         .filter(|request| request["host"] == host)
         .filter_map(|request| {
             let target = request["target"].as_str()?;
@@ -372,7 +382,10 @@ fn answer_to(engine: &mut Attached, id: &str, others: &mut Vec<Value>) -> Value 
 /// A handler whose `goto` waits for its domain's delay between starts is
 /// not timed out meanwhile: the wait lasts longer than the attempt's lease
 /// was granted for, the lease is renewed through it, the Run's live status
-/// names it, and the attempt then commits, never sent again.
+/// names it, and the attempt then commits, never sent again. The handler
+/// opens its page within the lease, which nothing renews before its `goto`
+/// waits, so a first seed's handler starts the Run's browser before it
+/// ([`warm_up_the_browser`]).
 ///
 /// Covers: story:5-134, setting:timeout.handler, setting:politeness.domain.delay, operation:run.progress
 #[test]
@@ -385,15 +398,26 @@ fn a_handler_waiting_for_a_permit_is_not_timed_out_and_its_wait_is_named() {
         "timeout": { "handler": 1_000 },
         "politeness": { "domain": { "delay": 12_000 } },
     });
+    let warm_up_seed = proving_ground.url(HISTORY, "/");
 
     let (mut phases, mut went, mut others) = (Vec::new(), None, Vec::new());
-    let mut handled = 0;
+    let (mut handled, mut warmed) = (0, false);
     let report = crawl_with(
         &mut engine,
         "waits",
-        &[json!({ "url": proving_ground.url(ROBOTS_HOST, "/catalog/1"), "label": "page" })],
+        &[
+            json!({ "url": warm_up_seed, "label": "page" }),
+            json!({ "url": proving_ground.url(ROBOTS_HOST, "/catalog/1"), "label": "page" }),
+        ],
         &settings(&proving_ground, &more),
         &mut |inside, handle| {
+            if handle["crawl_request"]["url"] == warm_up_seed.as_str() {
+                if !warmed {
+                    warmed = true;
+                    warm_up_the_browser(inside, handle);
+                }
+                return json!({ "result": { "records": [] } });
+            }
             handled += 1;
             if handled > 1 {
                 return json!({ "result": { "records": [] } });
@@ -755,7 +779,10 @@ const EIGHT_DELAY_MILLISECONDS: u64 = 3_500;
 /// so the eight openings must fit in the first one's lease: a first seed's
 /// handler starts the Run's browser before them, and its page's navigation
 /// passes the Session's egress relay once, so that no `goto` of the eight
-/// waits for the browser's start or the relay's credentials.
+/// waits for the browser's start or the relay's credentials, and the
+/// governor admits the eight attempts and their pages at once whatever the
+/// host's load ([`ADMITTED_WHATEVER_THE_LOAD`]). A request delivered again
+/// once its lease ended, before or after the eighth, opens no page.
 ///
 /// Covers: story:6-245, story:5-134, setting:politeness.domain.delay, setting:crawl.handler.concurrency, setting:timeout.handler, setting:crawl.keep_alive, operation:page.goto, operation:run.new_page, operation:run.add_seed
 #[test]
@@ -767,19 +794,24 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
     start_eight(&mut engine, &proving_ground);
 
     let (mut handles, mut opened, mut answers) = (Vec::new(), Vec::new(), Vec::new());
+    // The requests delivered so far, the warm-up's first, and those
+    // delivered again.
+    let (mut requests, mut again) = (vec![eight_seed(0)["url"].clone()], Vec::new());
     let report = loop {
         let message = engine.next().expect("the engine answers");
         let id = message["id"].as_str().unwrap_or_default().to_owned();
         if message["method"] == "crawl_request.handle" {
-            if handles.len() == HANDLERS {
-                // A request delivered again, its lease lost: the
-                // assertion counts it.
-                handles.push(message["id"].clone());
+            let request = message["params"]["crawl_request"]["url"].clone();
+            if requests.contains(&request) {
+                // Delivered again, its lease lost, whenever it comes: it
+                // opens no page, and the assertion names it.
+                again.push(request);
                 engine.send(&json!({
                     "jsonrpc": "2.0", "id": message["id"], "result": { "records": [] },
                 }));
                 continue;
             }
+            requests.push(request);
             handles.push(message["id"].clone());
             engine.send(&json!({
                 "jsonrpc": "2.0", "id": format!("new-{}", handles.len() - 1),
@@ -834,6 +866,7 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
         (
             &report["result"]["lifecycle"],
             handles.len(),
+            again,
             answers,
             arrived.len(),
             close,
@@ -842,6 +875,7 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
         (
             &json!("finished"),
             HANDLERS,
+            Vec::<Value>::new(),
             vec![json!(200); HANDLERS],
             HANDLERS + 1,
             Vec::<String>::new(),
@@ -945,7 +979,9 @@ fn code(answer: &Value) -> Value {
 ///
 /// The lease is the 1 s handler timeout plus its 10 s margin, in real time:
 /// a test of the binary sets short durations through settings (TESTING.md,
-/// "Time").
+/// "Time"). Nothing renews it while the handler opens its pages, so a
+/// first seed's handler starts the Run's browser before the handler under
+/// test is leased ([`warm_up_the_browser`]).
 ///
 /// Covers: story:5-135, error:attempt_ended, setting:timeout.handler, setting:crawl.retry.max, operation:page.goto, operation:page.request, operation:locator.click, operation:run.new_page
 #[test]
@@ -975,16 +1011,23 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
     let url = |path: &str| proving_ground.url(CATALOG_HOST, path);
 
     let (mut before, mut refused, mut later, mut requests) = (None, Vec::new(), Vec::new(), None);
+    let mut warmed = false;
     let report = crawl_with(
         &mut engine,
         "zombie",
-        // The second seed keeps the Run going past the first's lease.
+        // The first seed starts the Run's browser; the third keeps the Run
+        // going past the second's lease.
         &[
+            json!({ "url": WARM_UP_SEED, "label": "page" }),
             json!({ "url": "https://seed-1.test/", "label": "page" }),
             json!({ "url": "https://seed-2.test/", "label": "page" }),
         ],
         &settings,
         &mut |inside, handle| {
+            if handle["crawl_request"]["url"] == WARM_UP_SEED && !warmed {
+                warmed = true;
+                warm_up_the_browser(inside, handle);
+            }
             if handle["crawl_request"]["url"] != "https://seed-1.test/" {
                 return json!({ "result": { "records": [] } });
             }
@@ -1039,6 +1082,28 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
         ),
         "{others:?}"
     );
+}
+
+/// The seed whose handler starts a lease case's Run's browser: a crawl
+/// leases its seeds in order, one at a time (`crawl_with`'s handler
+/// concurrency of 1), so this first one's handler opens the Run's first
+/// page before the request under test is leased.
+const WARM_UP_SEED: &str = "https://seed-0.test/";
+
+/// Opens a page in the Run of `handle`'s request and leaves it open, which
+/// launches the Run's browser: under load a launch takes seconds of a lease
+/// nothing renews (ADR 0093 renews it only through a permit's wait), so a
+/// case whose handler must open its pages, then navigate, within a short
+/// lease runs once the browser is up. Its own lease may end meanwhile:
+/// what the engine sends until the page opened is left aside.
+fn warm_up_the_browser(inside: &mut Inside<'_>, handle: &Value) {
+    let engine = inside.engine();
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "warm-up-page", "method": "run.new_page",
+        "params": { "run_id": handle["run_id"] },
+    }));
+    let opened = answer_to(engine, "warm-up-page", &mut Vec::new());
+    assert!(opened.get("result").is_some(), "{opened}");
 }
 
 /// Opens a page in a Run of the program's own, `program`, whose settings
@@ -1101,9 +1166,7 @@ fn past_the_lease(
 
 /// How many requests the Proving ground received, on every host.
 fn requested_in_all(proving_ground: &ProvingGround) -> usize {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
-        .map_or(0, Vec::len)
+    proving_ground.received_requests().unwrap().every().count()
 }
 
 /// The host whose robots.txt asks every crawler for a Crawl-delay of 2 s

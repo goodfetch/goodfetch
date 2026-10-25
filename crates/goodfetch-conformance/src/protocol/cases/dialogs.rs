@@ -94,6 +94,40 @@ fn reports_after(site: &Site, before: usize, count: usize) -> Option<Vec<(String
     )
 }
 
+/// The dialogs page's reports in the order of the clicks that made them.
+/// Each report is a fetch of its own, which the browser may start only once
+/// the page runs again, after the next click's dialog closed, so two
+/// reports in flight at once reach the Proving ground in either order
+/// (fix-queue 89): each click waits for its report before the next action.
+struct Reported<'site> {
+    site: &'site Site,
+    /// The reports of the dialogs page's buttons already seen, every
+    /// page's together.
+    seen: usize,
+    reports: Vec<(String, String)>,
+}
+
+impl<'site> Reported<'site> {
+    /// Reports from now on.
+    fn from_now(site: &'site Site) -> Self {
+        Self {
+            site,
+            seen: button_reports(site).map_or(0, |seen| seen.len()),
+            reports: Vec::new(),
+        }
+    }
+
+    /// Waits for the report of the click just made, and keeps it.
+    fn wait(&mut self) {
+        if let Some(report) =
+            reports_after(self.site, self.seen, 1).and_then(|after| after.into_iter().next())
+        {
+            self.seen += 1;
+            self.reports.push(report);
+        }
+    }
+}
+
 /// `(check, observed)` pairs, owned.
 fn pairs(expected: &[(&str, &str)]) -> Vec<(String, String)> {
     expected
@@ -138,11 +172,11 @@ fn on_the_dialogs_page(
 /// and a `beforeunload` dialog is accepted: the navigation completes.
 fn defaults(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-dialog-defaults";
-    let before = button_reports(site).map_or(0, |seen| seen.len());
+    let reported = Reported::from_now(site);
     let Some(page) = on_the_dialogs_page(connection, site, run_id, checks)? else {
         return Ok(());
     };
-    let mut handlers = Handlers::new(connection);
+    let mut handlers = Handlers::new(connection, reported);
     let mut clicked = Vec::new();
     for selector in ["#alert", "#confirm", "#prompt", "#guard-leaving"] {
         clicked.push(handlers.click(&page, selector, &[])?);
@@ -153,13 +187,13 @@ fn defaults(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Re
     );
     checks.check(
         "the page reports an alert closed, a confirm and a prompt dismissed, and its guard armed",
-        reports_after(site, before, 4)
-            == Some(pairs(&[
+        handlers.reported.reports
+            == pairs(&[
                 ("alert", "closed"),
                 ("confirm", "false"),
                 ("prompt", "null"),
                 ("guard-leaving", "guarded"),
-            ])),
+            ]),
     );
     let url = site.page_url.clone().unwrap_or_default();
     let left = handlers.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": url }))?;
@@ -182,9 +216,10 @@ enum Does {
 }
 
 /// The Connection as the dialog cases drive it, through the shared reader,
-/// and what the handlers were asked.
-struct Handlers<'connection> {
+/// what the handlers were asked and what the page reported.
+struct Handlers<'connection, 'site> {
     exchange: Exchange<'connection>,
+    reported: Reported<'site>,
     /// The call of each handler asked so far, in order, with the dialog it
     /// was asked about.
     asked: Vec<(Value, Value)>,
@@ -193,10 +228,11 @@ struct Handlers<'connection> {
     answers: Vec<(Value, Value)>,
 }
 
-impl<'connection> Handlers<'connection> {
-    fn new(connection: &'connection mut Connection) -> Self {
+impl<'connection, 'site> Handlers<'connection, 'site> {
+    fn new(connection: &'connection mut Connection, reported: Reported<'site>) -> Self {
         Self {
             exchange: Exchange::new(connection),
+            reported,
             asked: Vec::new(),
             answers: Vec::new(),
         }
@@ -257,18 +293,22 @@ impl<'connection> Handlers<'connection> {
         self.call_answering(method, params, &[])
     }
 
-    /// Clicks `selector` on `page` as [`Self::call_answering`] calls.
+    /// Clicks `selector` on `page`, one of the dialogs page's buttons, as
+    /// [`Self::call_answering`] calls, then waits for the page's report of
+    /// it.
     fn click(
         &mut self,
         page: &Value,
         selector: &str,
         script: &[(i64, Does)],
     ) -> Result<Value, Gone> {
-        self.call_answering(
+        let answer = self.call_answering(
             LOCATOR_CLICK.name,
             &json!({ "locator": { "page_id": page, "selector": selector } }),
             script,
-        )
+        )?;
+        self.reported.wait();
+        Ok(answer)
     }
 
     /// Does what `script` says with the dialog `asked` names.
@@ -324,11 +364,11 @@ fn calls(asked: &[(Value, Value)]) -> Vec<Value> {
 /// and fails the click the dialog blocked with `page_handler_failed`.
 fn handlers(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-dialog-handlers";
-    let before = button_reports(site).map_or(0, |seen| seen.len());
+    let reported = Reported::from_now(site);
     let Some(page) = on_the_dialogs_page(connection, site, run_id, checks)? else {
         return Ok(());
     };
-    let mut handlers = Handlers::new(connection);
+    let mut handlers = Handlers::new(connection, reported);
     let earlier = handlers.arm(&page)?;
     let later = handlers.arm(&page)?;
 
@@ -418,14 +458,14 @@ fn handlers(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Re
     );
     checks.check(
         "the page saw the earlier handler's accept, the later one's prompt text and each default",
-        reports_after(site, before, 5)
-            == Some(pairs(&[
+        handlers.reported.reports
+            == pairs(&[
                 ("confirm", "true"),
                 ("prompt", "\"Ada\""),
                 ("guard-leaving", "guarded"),
                 ("alert", "closed"),
                 ("confirm", "false"),
-            ])),
+            ]),
     );
     finish_run(handlers.exchange.connection, run_id)
 }

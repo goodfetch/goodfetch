@@ -137,10 +137,10 @@ pub(crate) fn identity_seen(
     let _ = engine.finish();
 
     let mut headers: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for request in proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    for request in proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .every()
         .filter(|request| {
             request["host"]
                 .as_str()

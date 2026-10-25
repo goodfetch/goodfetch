@@ -18,7 +18,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -26,7 +26,7 @@ use crate::crawl::Attached;
 /// The Proving ground's seed.
 const SEED: u64 = 238;
 
-/// The `pacing` family's slowest time step.
+/// A time step whose answers the `pacing` family holds about two seconds.
 const SLOW: u64 = 95;
 
 /// The governor admits two HTTP fetches at once whatever the host's load,
@@ -110,10 +110,8 @@ fn crawl_together(
 /// each by its connection's number.
 fn connections_for(proving_ground: &ProvingGround, target: &str) -> Vec<u64> {
     let observations = proving_ground.observations().unwrap();
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(&observations)
+        .of_the_case()
         .filter(|request| request["host"] == "pacing.test" && request["target"] == target)
         .map(|request| request["connection"].as_u64().unwrap())
         .collect()

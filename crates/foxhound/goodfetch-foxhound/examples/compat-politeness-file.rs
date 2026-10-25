@@ -11,8 +11,8 @@
 //! wake. A Collie Run's navigation through a proxy then has met the proxy's
 //! own 429, which halved that proxy's learned ceiling under its key. The
 //! crawls' shared robots.txt copy then keeps `shop.test`'s file, whose
-//! Crawl-delay is kept for its domain key, beside a response's latency and
-//! a rated send's token of the key's sends, and
+//! Crawl-delay is kept for its domain key, beside a response's latency, a
+//! rated send's token of the key's sends and its last send, and
 //! `hold.test`'s 404 read as no rules, and a later 500 for `shop.test`
 //! leaves its file in place. A copy of the file taken then, its Run folder and wake endpoint
 //! written relative to the home, goes as SQL text into the folder given as
@@ -31,12 +31,14 @@ use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::politeness::{Politeness, PolitenessOptions};
 use goodfetch_engine::robots_txt::{Answer, Copies as _, Fetch};
 use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::settings::SettingsLayer;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWrite, AsyncWriteExt as _, BufReader, Lines};
 
@@ -188,18 +190,31 @@ async fn robots_txt_copies(home: &Path) -> Result<(), Box<dyn std::error::Error>
     )
     .await?;
     goodfetch_frontier::latency_measured(&file, "shop.test", Duration::from_millis(120)).await?;
-    goodfetch_frontier::started_at_send(
-        &file,
-        "shop.test",
-        Clock::paused(at),
-        goodfetch_frontier::Rate::per_minute(30, 1),
-    )
-    .await?;
+    goodfetch_frontier::started_at_send(&file, "shop.test", Clock::paused(at), Some(rated()?))
+        .await?;
     copies.copy(&hold, answered(404, b"not found")).await;
     a_day_later.copy(&shop, answered(500, b"")).await;
     drop((copies, a_day_later, file));
     owner.cancel();
     Ok(())
+}
+
+/// The pace of a crawl asking for 30 requests a minute and a one-second
+/// delay, the first crawl's.
+fn rated() -> Result<goodfetch_frontier::Pace, Box<dyn std::error::Error>> {
+    let Value::Object(run) = json!({ "politeness": { "domain": { "delay": 1_000, "rate": 30 } } })
+    else {
+        return Err("settings are a table".into());
+    };
+    let layers = Layers {
+        run: Values::read(SettingsLayer::Run, &run, Product::Foxhound)?,
+        ..Layers::default()
+    };
+    Ok(goodfetch_frontier::Pace::of(&resolve(
+        &layers,
+        Product::Foxhound,
+        Product::Foxhound,
+    )?))
 }
 
 /// Copies the Politeness file of `home` into `copy`, its Run folders and

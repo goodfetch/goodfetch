@@ -28,8 +28,8 @@ const SEED: u64 = 897;
 /// The `pacing` family's host.
 const HOST: &str = "pacing.test";
 
-/// The time step whose answers the host holds about 1.2 s.
-const SLOW: u64 = 60;
+/// The time step whose answers the host holds about 4.9 s.
+const SLOW: u64 = 245;
 
 /// A home whose governor admits eight HTTP fetches at once.
 fn home() -> TestEnv {
@@ -126,16 +126,19 @@ fn gaps(proving_ground: &ProvingGround) -> Vec<u64> {
         .collect()
 }
 
-/// A crawl of the host's 20 articles, with the adaptive delay on, a
-/// `politeness.domain.delay` of 100 ms and a `politeness.backoff.max` of
-/// 400 ms, while the host slows from about 15 ms an answer to about 1.2 s
-/// once three pages were handled: its pages arrive at least the delay
-/// apart throughout (within the tenth the robots.txt cases allow, since a
-/// delay counts between starts), their gaps lengthen toward the cap as the
-/// slow answers come in, and none reaches twice the cap, where the
-/// latency alone would space them 1.2 s. (Admission and the hand-over add
-/// up to about 150 ms to a gap: with the adaptive delay off the pages
-/// arrive 100 ms to 220 ms apart.)
+/// A crawl of 12 of the host's articles, with the adaptive delay on, a
+/// `politeness.domain.delay` of 2 s and a `politeness.backoff.max` of 3 s,
+/// while the host slows from about 15 ms an answer to about 4.9 s once
+/// three pages were handled: its pages arrive at least the delay apart
+/// throughout (within the tenth the robots.txt cases allow, since a delay
+/// counts between sends), their gaps lengthen to the cap as the slow
+/// answers come in, and none reaches 4 s, short of the 4.9 s the latency
+/// alone would space them. (The delay is long enough for that tenth to
+/// cover a loaded host: as the host slows, each page goes on a new
+/// connection while the earlier ones are held, and there a page reached
+/// the Proving ground up to about 180 ms after its engine recorded the
+/// send, fix-queue item 79. Under that load a gap also came up to 850 ms
+/// past the delay in force, from a send that left late.)
 ///
 /// Covers: story:6-247, setting:politeness.domain.adaptive_delay, setting:politeness.backoff.max, format:politeness-file
 #[test]
@@ -148,11 +151,11 @@ fn the_adaptive_delay_lengthens_as_the_host_slows_within_the_delay_and_the_backo
         &env,
         &[(
             "adaptive",
-            articles(&proving_ground, 1..=20),
+            articles(&proving_ground, 1..=12),
             settings(
                 &proving_ground,
-                &json!({ "delay": 100, "adaptive_delay": true }),
-                &json!({ "max": 400 }),
+                &json!({ "delay": 2_000, "adaptive_delay": true }),
+                &json!({ "max": 3_000 }),
             ),
         )],
         &mut || {
@@ -164,11 +167,11 @@ fn the_adaptive_delay_lengthens_as_the_host_slows_within_the_delay_and_the_backo
     );
     let gaps = gaps(&proving_ground);
 
-    let never_below = gaps.iter().all(|gap| *gap >= 90_000);
-    let lengthened = gaps.iter().rev().take(4).all(|gap| *gap >= 300_000);
-    let never_past = gaps.iter().all(|gap| *gap < 800_000);
+    let never_below = gaps.iter().all(|gap| *gap >= 1_800_000);
+    let lengthened = gaps.iter().rev().take(4).all(|gap| *gap >= 2_250_000);
+    let never_past = gaps.iter().all(|gap| *gap < 4_000_000);
     assert!(
-        gaps.len() == 19 && never_below && lengthened && never_past,
+        gaps.len() == 11 && never_below && lengthened && never_past,
         "{gaps:?}"
     );
 }

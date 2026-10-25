@@ -22,8 +22,8 @@ use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::tls::{CertificateExceptions, ClientCertificates, Trust};
 use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
 use goodfetch_test_support::{
-    Answer, CaseDomains, Family, Outcome, ProvingGround, Refusal, SsrfCase, SsrfTable, TestEnv,
-    run_cases,
+    Answer, CaseDomains, Outcome, ProvingGround, ReceivedRequests, Refusal, Runner, SsrfCase,
+    SsrfTable, TestEnv,
 };
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject as _;
@@ -84,10 +84,8 @@ fn target_url(proving_ground: &ProvingGround) -> String {
 
 /// The hosts and paths of the page requests the Proving ground received.
 fn requests(observations: &Value) -> Vec<Value> {
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(observations)
+        .every()
         .map(|request| json!([request["host"], request["target"]]))
         .collect()
 }
@@ -313,12 +311,17 @@ fn run_case(proving_ground: &ProvingGround, case: &SsrfCase) -> Outcome {
     }
 }
 
-/// Covers: story:4-2
+/// Covers: story:4-2, story:4-89
 #[test]
 fn every_domain_policy_case_of_the_ssrf_table_is_refused_before_any_connection() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let table = SsrfTable::committed().unwrap();
+    let runner = Runner::committed(
+        "http_client",
+        file!(),
+        "every_domain_policy_case_of_the_ssrf_table_is_refused_before_any_connection",
+    )
+    .unwrap();
     let target: SocketAddr = proving_ground
         .description()
         .fixtures
@@ -341,16 +344,14 @@ fn every_domain_policy_case_of_the_ssrf_table_is_refused_before_any_connection()
     )
     .unwrap();
 
-    let controlled = run_cases(&control.cases, target.ip(), |case| {
-        run_case(&proving_ground, case)
-    });
-    let result = run_cases(table.cases_of(Family::DomainPolicy), target.ip(), |case| {
+    let result = runner.run(&control.cases, target.ip(), |case| {
         run_case(&proving_ground, case)
     });
 
-    assert_eq!(
-        controlled.map_err(|let_through| let_through.misses[0].reached_target),
-        Err(true)
+    assert!(
+        runner.cases().len() >= 15,
+        "only {} cases",
+        runner.cases().len()
     );
     assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
 }

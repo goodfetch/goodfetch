@@ -6,7 +6,10 @@
 //! says so, the site seeing one identity either way (the driver's user agent, ADR
 //! 0092); every page keeps its timers behind another tab or window (ADR
 //! 0085's question); the back/forward cache is off, so going back or
-//! forward always loads its document again (ADR 0121, with no setting);
+//! forward always loads its document again (ADR 0121, with no setting); a
+//! page whose load failed stays on its error page, never loaded again by
+//! the browser on its own, so no request the program did not make leaves
+//! and its failure is not raised again by the page's next call;
 //! `network.resolve` reaches Chromium as host resolver rules (ADR 0059),
 //! and every `.invalid` name fails without a DNS query; Chromium's sandbox
 //! stays on, `--no-sandbox` passed only where `security.browser_sandbox` is
@@ -48,6 +51,14 @@ const INVALID_NAMES: &str = "MAP *.invalid ~NOTFOUND";
 /// connections goes over TCP, where the browser's proxy resolution holds it
 /// (ADR 0044).
 const WEBRTC_POLICY: &str = "--webrtc-ip-handling-policy=disable_non_proxied_udp";
+
+/// No reload of a page left on a network error page: Chromium loads one
+/// again on its own, a second after its error page and with backoff after
+/// that, unless it runs with `--enable-automation`, which the engine never
+/// passes. Such a reload is a request no call made, and its failure, which
+/// the egress relay refuses again, would be raised by the page's next call
+/// as that call's own (fix-queue 83).
+const NO_AUTO_RELOAD: &str = "--disable-auto-reload";
 
 /// Chromium's sandbox switched off, which only a launch whose
 /// `security.browser_sandbox` is off passes (ADRs 0017 and 0049): it also
@@ -119,6 +130,7 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
             "--password-store=basic",
             "--use-mock-keychain",
             "--disable-back-forward-cache",
+            NO_AUTO_RELOAD,
         ]
         .into_iter()
         .chain(BACKGROUND_PAGES)

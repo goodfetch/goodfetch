@@ -8,13 +8,19 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::io;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 
 use btls::pkey::PKey;
 use btls::ssl::{SslAcceptor, SslConnector, SslMethod, SslVerifyMode};
 use btls::x509::X509;
 use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::egress::{Policy, Refused};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::known_certificates::{KeyHash, KnownCertificates};
 use goodfetch_engine::secrets::ExceptionHosts;
@@ -30,10 +36,13 @@ use rcgen::{
 };
 use rstest::rstest;
 use serde_json::json;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, duplex};
+use tokio::io::{
+    AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, DuplexStream, ReadBuf, duplex,
+};
 
 use super::authority::Authority;
 use super::client_hello::{self, ClientHello};
+use super::serve::{Met, Network, Observe, Relaying, Resolved, Served, Unreached, Upstream, serve};
 use super::terminate::{
     Stop, Terminated, Terminating, failure_of, mirrors, request_trust_anchors, terminate, upstream,
 };
@@ -195,13 +204,13 @@ async fn browser(stream: DuplexStream, host: &str) -> Shown {
 }
 
 /// A Run's stores: its pins and its Audit log.
-struct Stores {
+pub(super) struct Stores {
     store: KnownCertificates,
-    book: PinBook,
+    pub(super) book: PinBook,
     _env: TestEnv,
 }
 
-fn stores() -> Stores {
+pub(super) fn stores() -> Stores {
     let env = TestEnv::new();
     let home = Home::new(env.home().to_path_buf());
     let store = KnownCertificates::of(&home, None);
@@ -256,6 +265,7 @@ fn through(
     let certificate = site_certificate(host, made, trusted);
     let received = Received::default();
     let used = Mutex::new(Passed::Not);
+    let told = Mutex::new(None);
     let (terminated, shown) = runtime().block_on(async {
         let (browser_end, relay_browser) = duplex(1 << 16);
         let (relay_site, site_end) = duplex(1 << 16);
@@ -268,7 +278,8 @@ fn through(
                 relay_site,
                 (Vec::new(), host),
                 &terminating,
-                passed
+                passed,
+                |stop: &Stop| *told.lock().unwrap() = Some(stop.clone())
             ),
             browser(browser_end, host),
             site(site_end, certificate, &received),
@@ -277,8 +288,13 @@ fn through(
     });
     let received = received.0.lock().unwrap().clone();
     let passed = used.into_inner().unwrap();
+    let stopped = told.into_inner().unwrap();
     (
-        Through { terminated, passed },
+        Through {
+            terminated,
+            passed,
+            stopped,
+        },
         shown,
         received,
         Arc::clone(&terminating.authority),
@@ -291,6 +307,8 @@ fn through(
 struct Through {
     terminated: Terminated,
     passed: Passed,
+    /// Why the relay said it stopped it, if it did.
+    stopped: Option<Stop>,
 }
 
 /// What the relay said of a connection's certificate.
@@ -316,6 +334,7 @@ fn a_listed_hosts_invalid_certificate_passes_under_its_exception_and_the_bytes_g
     let Through {
         terminated: Terminated::Relayed { .. },
         passed: Passed::Through(used),
+        stopped: None,
     } = through
     else {
         panic!("the connection was not relayed through the exception: {through:?}");
@@ -354,7 +373,8 @@ fn a_listed_host_whose_certificate_verifies_passes_with_no_exception() {
             through,
             Through {
                 terminated: Terminated::Relayed { .. },
-                passed: Passed::Verified
+                passed: Passed::Verified,
+                stopped: None,
             }
         ),
         "{through:?}"
@@ -387,7 +407,9 @@ fn a_pinned_host_that_presents_another_key_is_stopped_and_receives_nothing() {
     let (through, shown, received, _) =
         through("expired.listed.test", Made::Expired, &stores, &trusted);
 
-    let Terminated::Stopped(Stop::Changed(changed)) = through.terminated else {
+    let (Terminated::Stopped, Some(Stop::Changed(changed))) =
+        (&through.terminated, through.stopped)
+    else {
         panic!("the connection was not stopped as a changed key");
     };
     assert_eq!(
@@ -628,5 +650,181 @@ fn the_authoritys_leaf_for_a_host_outside_its_domains_is_rejected_by_a_verifier(
             accepted("192.0.2.8"),
         ],
         [true, true, true, false, false, false]
+    );
+}
+
+/// The relay's end of a browser connection, which says when the browser
+/// can see it end: once it is shut down or dropped.
+struct BrowserEnd {
+    stream: DuplexStream,
+    ended: Arc<AtomicBool>,
+}
+
+impl Drop for BrowserEnd {
+    fn drop(&mut self) {
+        self.ended.store(true, Ordering::SeqCst);
+    }
+}
+
+impl AsyncRead for BrowserEnd {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.stream).poll_read(context, buffer)
+    }
+}
+
+impl AsyncWrite for BrowserEnd {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.stream).poll_write(context, bytes)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.stream).poll_flush(context)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.ended.store(true, Ordering::SeqCst);
+        Pin::new(&mut self.stream).poll_shutdown(context)
+    }
+}
+
+/// The network beyond the relay: every name at a public address, and its
+/// one connection the site's end.
+struct OneSite(Mutex<Option<DuplexStream>>);
+
+#[expect(
+    clippy::unused_async_trait_impl,
+    reason = "the test network answers at once, through the async interface the relay calls"
+)]
+impl Network for OneSite {
+    type Stream = DuplexStream;
+
+    async fn resolve(&self, _: &str, port: u16) -> Option<Resolved> {
+        Some(Resolved {
+            addresses: vec![SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(192, 31, 196, 1)),
+                port,
+            )],
+        })
+    }
+
+    async fn connect(&self, _: SocketAddr) -> io::Result<DuplexStream> {
+        self.0
+            .lock()
+            .unwrap()
+            .take()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::ConnectionRefused))
+    }
+
+    async fn connect_upstream(&self) -> io::Result<DuplexStream> {
+        Err(io::Error::from(io::ErrorKind::ConnectionRefused))
+    }
+}
+
+/// What the relay told of its stopped connections: each one's URL, and
+/// whether the browser could see that connection end by then.
+struct Stopping {
+    ended: Arc<AtomicBool>,
+    stopped: Mutex<Vec<(String, bool)>>,
+}
+
+impl Observe for Stopping {
+    fn unreached(&self, _: &str, _: Unreached) {}
+    fn reached(&self, _: &str) {}
+    fn refused(&self, _: &Refused, _: &str) {}
+    fn upstream(&self, _: Met) {}
+    fn unauthenticated(&self) {}
+    fn terminated(&self, _: &str, _: Option<&ExceptionUsed>) {}
+    fn client_hello(&self, _: &str, _: ClientHello) {}
+
+    fn stopped(&self, url: &str, _: &str, _: &Stop) {
+        self.stopped
+            .lock()
+            .unwrap()
+            .push((url.to_owned(), self.ended.load(Ordering::SeqCst)));
+    }
+}
+
+/// A stopped connection is told to the Session before the browser can see
+/// it end: the browser fails its load only then, and the navigation that
+/// waits on it finds its own refusal kept, never an earlier one of another
+/// host's (fix-queue 83).
+/// Covers: error:certificate_invalid
+#[test]
+fn a_stopped_connection_is_told_before_the_browser_sees_it_end() {
+    let stores = stores();
+    let trusted = authority("Site authority");
+    let host = "expired.listed.test";
+    let terminating = Terminating {
+        authority: Arc::new(Authority::new(vec!["listed.test".to_owned()]).unwrap()),
+        exceptions: CertificateExceptions::listed(
+            &json!({ "elsewhere.test": null }),
+            stores.book.clone(),
+            ExceptionHosts::default(),
+        )
+        .unwrap(),
+        examiner: trust(&trusted).examiner(),
+        trust: trust(&trusted),
+    };
+    let relaying = Relaying {
+        policy: Policy::new(&["*"], &[] as &[&str]).unwrap(),
+        authorization: "Basic c2Vzc2lvbg==".to_owned(),
+        upstream: Upstream::Direct,
+        bypasses: Box::new(|_| false),
+        terminating: Some(Arc::new(terminating)),
+    };
+    let ended = Arc::new(AtomicBool::new(false));
+    let told = Stopping {
+        ended: Arc::clone(&ended),
+        stopped: Mutex::default(),
+    };
+    let (relay_site, site_end) = duplex(1 << 16);
+    let network = OneSite(Mutex::new(Some(relay_site)));
+    let received = Received::default();
+
+    let served = runtime().block_on(async {
+        let (mut browser_end, relay_browser) = duplex(1 << 16);
+        let relay_browser = BrowserEnd {
+            stream: relay_browser,
+            ended: Arc::clone(&ended),
+        };
+        let browsing = async {
+            let authority = format!("{host}:443");
+            browser_end
+                .write_all(
+                    format!(
+                        "CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\nProxy-Authorization: Basic c2Vzc2lvbg==\r\n\r\n"
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                head.push(browser_end.read_u8().await.unwrap());
+            }
+            browser(browser_end, host).await
+        };
+        let (served, shown, ()) = tokio::join!(
+            serve(relay_browser, &relaying, &network, &told),
+            browsing,
+            site(site_end, site_certificate(host, Made::Expired, &trusted), &received),
+        );
+        (served, shown.answer)
+    });
+
+    assert_eq!(
+        (served, told.stopped.into_inner().unwrap()),
+        (
+            (Served::Refused, Vec::new()),
+            vec![(format!("https://{host}:443/"), false)]
+        )
     );
 }

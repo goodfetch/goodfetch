@@ -38,6 +38,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::attached::Attached;
 use crate::page::{opened, started_with};
+use crate::proxy::robots_txt_read;
 use crate::run::call;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -279,6 +280,10 @@ fn another_local_process_without_the_sessions_credentials_is_refused_and_the_ses
         .and_then(|rest| rest.split('/').next())
         .unwrap()
         .to_owned();
+    // The document's robots.txt read, which its navigation never waits
+    // for (ADR 0086), has reached the site: what the site sees from here
+    // on came through the relay from the other process.
+    robots_txt_read(&env, "relayed");
     let before = requests(&proving_ground).len();
 
     let answers: Vec<String> = [
@@ -291,7 +296,7 @@ fn another_local_process_without_the_sessions_credentials_is_refused_and_the_ses
     .iter()
     .map(|request| answered_status(&relay, request))
     .collect();
-    let after = requests(&proving_ground).len();
+    let after = requests(&proving_ground);
     program.finish("relayed");
 
     assert_eq!(
@@ -303,7 +308,7 @@ fn another_local_process_without_the_sessions_credentials_is_refused_and_the_ses
         answers,
         vec!["HTTP/1.1 407 Proxy Authentication Required"; 3]
     );
-    assert_eq!(after, before);
+    assert_eq!(after.get(before..), Some(&[][..]), "{after:?}");
 }
 
 /// The variable the engine's environment holds a proxy password in.

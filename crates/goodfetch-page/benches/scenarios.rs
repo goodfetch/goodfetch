@@ -561,6 +561,7 @@ pub(crate) fn terminated() -> Terminated {
             .with_trusted_cas("example.test", vec![authority_der.into()])
             .expect("invariant: the domain is a domain")
             .examiner(),
+        trust: goodfetch_engine::tls::Trust::default_roots(),
     };
     Terminated {
         relaying: serve::Relaying {

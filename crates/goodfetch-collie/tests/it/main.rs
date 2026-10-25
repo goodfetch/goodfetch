@@ -16,6 +16,7 @@ mod borrowed_browser;
 #[cfg(unix)]
 mod browser_pool;
 mod browsers;
+mod certificate_exceptions;
 mod certs;
 #[cfg(target_os = "macos")]
 mod checkpoint;

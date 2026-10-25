@@ -31,7 +31,7 @@ use btls::ssl::{
 };
 use btls::x509::X509;
 use goodfetch_engine::tls::{
-    CertificateChanged, CertificateExceptions, CertificateInvalid, Examiner, ExceptionUsed,
+    CertificateChanged, CertificateExceptions, CertificateInvalid, Examiner, ExceptionUsed, Trust,
 };
 use goodfetch_protocol::tls::CertificateFailure;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, ReadBuf};
@@ -47,14 +47,19 @@ pub(crate) struct Terminating {
     /// The Run's exceptions: the hosts it lists are terminated, and its
     /// pins decide.
     pub(crate) exceptions: CertificateExceptions,
-    /// The per-host decision on each chain a site presents.
+    /// The authorities the Run trusts by domain: the hosts it lists are
+    /// terminated too, since a browser cannot trust an authority for some
+    /// hosts alone.
+    pub(crate) trust: Trust,
+    /// The per-host decision on each chain a site presents, under `trust`.
     pub(crate) examiner: Examiner,
 }
 
 impl Terminating {
-    /// Whether the relay terminates `host`.
+    /// Whether the relay terminates `host`: an exception or a trusted
+    /// authority lists its domain.
     pub(crate) fn terminates(&self, host: &str) -> bool {
-        self.exceptions.covers(host)
+        self.exceptions.covers(host) || self.trust.scope_of(host).is_some()
     }
 }
 
@@ -71,13 +76,9 @@ pub(crate) enum Stop {
 /// How a terminated connection went.
 #[derive(Debug)]
 pub(crate) enum Terminated {
-    /// It passed, through the exception if one was used, and its bytes went
-    /// both ways: these many from the browser and to it.
-    Relayed {
-        used: Option<ExceptionUsed>,
-        up: u64,
-        down: u64,
-    },
+    /// It passed, and its bytes went both ways: these many from the
+    /// browser and to it.
+    Relayed { up: u64, down: u64 },
     /// The relay stopped it.
     Stopped(Stop),
     /// It ended otherwise: the browser sent no ClientHello, or a side
@@ -104,7 +105,10 @@ pub(crate) fn failure_of(
 }
 
 /// Terminates the browser's TLS connection to `host` over `site`, a
-/// connection already open to it, as [`Terminating`] says.
+/// connection already open to it, `rest` the browser's bytes read past its
+/// head, as [`Terminating`] says; `passed` learns, before any byte of the
+/// browser's goes up, that the site's certificate passed, and through which
+/// exception.
 ///
 /// # Cancel safety
 ///
@@ -113,9 +117,9 @@ pub(crate) fn failure_of(
 pub(crate) async fn terminate<B, S>(
     browser: B,
     site: S,
-    rest: Vec<u8>,
-    host: &str,
+    (rest, host): (Vec<u8>, &str),
     terminating: &Terminating,
+    passed: impl FnOnce(Option<&ExceptionUsed>),
 ) -> Terminated
 where
     B: AsyncRead + AsyncWrite + Unpin + Send,
@@ -145,12 +149,13 @@ where
         Ok(used) => used,
         Err(stop) => return Terminated::Stopped(stop),
     };
+    passed(used.as_ref());
     let chosen = up.stream.ssl().selected_alpn_protocol().map(<[u8]>::to_vec);
     let Ok(mut browser) = accept(browser, host, &terminating.authority, chosen).await else {
         return Terminated::Failed;
     };
     let (up, down) = both_ways(&mut browser, &mut up.stream).await;
-    Terminated::Relayed { used, up, down }
+    Terminated::Relayed { up, down }
 }
 
 /// Copies the decrypted bytes both ways until each side ends, by a close

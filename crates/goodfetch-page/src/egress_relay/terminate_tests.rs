@@ -19,7 +19,9 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::known_certificates::{KeyHash, KnownCertificates};
 use goodfetch_engine::secrets::ExceptionHosts;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
-use goodfetch_engine::tls::{CertificateExceptions, ExceptionKind, PinBook, Presented, Trust};
+use goodfetch_engine::tls::{
+    CertificateExceptions, ExceptionKind, ExceptionUsed, PinBook, Presented, Trust,
+};
 use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
 use goodfetch_test_support::{TestEnv, runtime};
 use rcgen::{
@@ -227,11 +229,16 @@ fn terminating(stores: &Stores, trusted: &SiteAuthority) -> Terminating {
             ExceptionHosts::default(),
         )
         .unwrap(),
-        examiner: Trust::default_roots()
-            .with_trusted_cas("listed.test", vec![trusted.der.clone().into()])
-            .unwrap()
-            .examiner(),
+        examiner: trust(trusted).examiner(),
+        trust: Trust::default_roots(),
     }
+}
+
+/// Mozilla's roots and `trusted`, for `listed.test`.
+fn trust(trusted: &SiteAuthority) -> Trust {
+    Trust::default_roots()
+        .with_trusted_cas("listed.test", vec![trusted.der.clone().into()])
+        .unwrap()
 }
 
 /// One browser connection to `host` through the terminating mode, its
@@ -242,27 +249,57 @@ fn through(
     made: Made,
     stores: &Stores,
     trusted: &SiteAuthority,
-) -> (Terminated, Shown, Vec<u8>, Arc<Authority>) {
+) -> (Through, Shown, Vec<u8>, Arc<Authority>) {
     let terminating = terminating(stores, trusted);
     let certificate = site_certificate(host, made, trusted);
     let received = Received::default();
+    let used = Mutex::new(Passed::Not);
     let (terminated, shown) = runtime().block_on(async {
         let (browser_end, relay_browser) = duplex(1 << 16);
         let (relay_site, site_end) = duplex(1 << 16);
+        let passed = |exception: Option<&ExceptionUsed>| {
+            *used.lock().unwrap() = exception.cloned().map_or(Passed::Verified, Passed::Through);
+        };
         let (terminated, shown, ()) = tokio::join!(
-            terminate(relay_browser, relay_site, Vec::new(), host, &terminating),
+            terminate(
+                relay_browser,
+                relay_site,
+                (Vec::new(), host),
+                &terminating,
+                passed
+            ),
             browser(browser_end, host),
             site(site_end, certificate, &received),
         );
         (terminated, shown)
     });
     let received = received.0.lock().unwrap().clone();
+    let passed = used.into_inner().unwrap();
     (
-        terminated,
+        Through { terminated, passed },
         shown,
         received,
         Arc::clone(&terminating.authority),
     )
+}
+
+/// How the relay ended a connection, and the exception it said the
+/// connection passed through, once it said it passed.
+#[derive(Debug)]
+struct Through {
+    terminated: Terminated,
+    passed: Passed,
+}
+
+/// What the relay said of a connection's certificate.
+#[derive(Debug)]
+enum Passed {
+    /// Nothing: it did not pass.
+    Not,
+    /// It passed with no exception.
+    Verified,
+    /// It passed through this exception.
+    Through(ExceptionUsed),
 }
 
 /// Covers: story:4-40, setting:tls.accept_invalid_certs
@@ -271,14 +308,15 @@ fn a_listed_hosts_invalid_certificate_passes_under_its_exception_and_the_bytes_g
     let stores = stores();
     let trusted = authority("Site authority");
 
-    let (terminated, shown, received, authority) =
+    let (through, shown, received, authority) =
         through("expired.listed.test", Made::Expired, &stores, &trusted);
 
-    let Terminated::Relayed {
-        used: Some(used), ..
-    } = terminated
+    let Through {
+        terminated: Terminated::Relayed { .. },
+        passed: Passed::Through(used),
+    } = through
     else {
-        panic!("the connection was not relayed through the exception: {terminated:?}");
+        panic!("the connection was not relayed through the exception: {through:?}");
     };
     assert_eq!(
         (
@@ -306,12 +344,18 @@ fn a_listed_host_whose_certificate_verifies_passes_with_no_exception() {
     let stores = stores();
     let trusted = authority("Site authority");
 
-    let (terminated, shown, received, _) =
+    let (through, shown, received, _) =
         through("valid.listed.test", Made::Valid, &stores, &trusted);
 
     assert!(
-        matches!(terminated, Terminated::Relayed { used: None, .. }),
-        "{terminated:?}"
+        matches!(
+            through,
+            Through {
+                terminated: Terminated::Relayed { .. },
+                passed: Passed::Verified
+            }
+        ),
+        "{through:?}"
     );
     assert_eq!(
         (shown.answer, received),
@@ -338,15 +382,20 @@ fn a_pinned_host_that_presents_another_key_is_stopped_and_receives_nothing() {
         )
         .unwrap();
 
-    let (terminated, shown, received, _) =
+    let (through, shown, received, _) =
         through("expired.listed.test", Made::Expired, &stores, &trusted);
 
-    let Terminated::Stopped(Stop::Changed(changed)) = terminated else {
-        panic!("the connection was not stopped as a changed key: {terminated:?}");
+    let Terminated::Stopped(Stop::Changed(changed)) = through.terminated else {
+        panic!("the connection was not stopped as a changed key");
     };
     assert_eq!(
-        (changed.pinned, shown.answer.len(), received.len()),
-        (Some(other), 0, 0)
+        (
+            changed.pinned,
+            matches!(through.passed, Passed::Not),
+            shown.answer.len(),
+            received.len()
+        ),
+        (Some(other), true, 0, 0)
     );
 }
 

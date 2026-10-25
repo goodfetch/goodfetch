@@ -87,6 +87,8 @@ pub(crate) struct EgressRelay {
     record: Arc<Record>,
     /// What it terminates, when the Run lists a certificate exception.
     terminating: Option<Arc<Terminating>>,
+    /// The authorities the Run trusts by domain.
+    trust: Trust,
     /// The per-host decision on a certificate the browser refused, made
     /// on its first use.
     examiner: OnceLock<Examiner>,
@@ -237,11 +239,13 @@ impl EgressRelay {
             .into_iter()
             .map(|(host, addresses)| (host.to_ascii_lowercase(), addresses))
             .collect();
+        let trust = run.trust().await;
         let terminating = match authority {
             Some(authority) => Some(Arc::new(Terminating {
                 authority,
                 exceptions: run.certificate_exceptions().map_err(io::Error::other)?,
-                examiner: Trust::default_roots().examiner(),
+                examiner: trust.examiner(),
+                trust: trust.clone(),
             })),
             None => None,
         };
@@ -286,6 +290,7 @@ impl EgressRelay {
             authorization,
             record,
             terminating,
+            trust,
             examiner: OnceLock::new(),
             _closed_when_dropped: stop.drop_guard(),
         })
@@ -372,9 +377,7 @@ impl EgressRelay {
         if !(200..300).contains(&answer.status) {
             return None;
         }
-        let examiner = self
-            .examiner
-            .get_or_init(|| Trust::default_roots().examiner());
+        let examiner = self.examiner.get_or_init(|| self.trust.examiner());
         let chain = match terminate::upstream(stream, &host, None).await {
             Ok(upstream) => Some(upstream.chain),
             Err((chain, _)) => chain,

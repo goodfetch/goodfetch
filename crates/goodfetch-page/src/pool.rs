@@ -43,6 +43,7 @@ use goodfetch_engine::governor::{BrowserUse, GovernedBrowser, PageHold, footprin
 use goodfetch_engine::home::Home;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
+use goodfetch_protocol::tls::TLS_TRUSTED_CAS;
 use tokio::sync::{Mutex, OnceCell};
 
 use crate::borrowed::CdpUrl;
@@ -792,16 +793,39 @@ impl SeatShared {
 }
 
 /// The egress relay's certificate authority of `run`, made in memory now,
-/// constrained to the domains its `tls.accept_invalid_certs` lists: none
-/// when it lists none. A Run whose authority cannot be made has none: its
+/// constrained to the domains its `tls.accept_invalid_certs` and
+/// `tls.trusted_cas` list, its key's
+/// hash and its domains recorded in the Run's Provenance: none when it
+/// lists none. A Run whose authority cannot be made has none: its
 /// listed hosts are tunnelled, and the browser refuses their certificates.
 fn authority_of(run: &Run) -> Option<Arc<Authority>> {
-    let domains = run.certificate_exceptions().ok()?.domains();
+    let mut domains = run.certificate_exceptions().ok()?.domains();
+    let trusted = run
+        .settings()
+        .map(|settings| settings.resolved().value(TLS_TRUSTED_CAS.name))
+        .and_then(serde_json::Value::as_object);
+    for domain in trusted.into_iter().flat_map(serde_json::Map::keys) {
+        let domain = domain.trim_end_matches('.').to_ascii_lowercase();
+        if !domains.contains(&domain) {
+            domains.push(domain);
+        }
+    }
     if domains.is_empty() {
         return None;
     }
-    match Authority::new(domains) {
-        Ok(authority) => Some(Arc::new(authority)),
+    match Authority::new(domains.clone()) {
+        Ok(authority) => {
+            // Its key's hash alone is recorded: neither its key nor its
+            // certificate is written anywhere.
+            let entry = serde_json::json!({
+                "action": "relay_authority",
+                "spki_sha256": authority.spki_sha256(),
+                "domains": domains,
+            });
+            let recorded = run.clone();
+            run.spawn(async move { crate::trace::provenance(&recorded, &entry).await });
+            Some(Arc::new(authority))
+        }
         Err(error) => {
             tracing::warn!(%error, "the egress relay has no certificate authority, so no host is terminated");
             None

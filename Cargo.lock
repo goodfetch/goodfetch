@@ -1784,6 +1784,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "clap",
+ "data-encoding",
  "dirs",
  "goodfetch-clean-up-rules",
  "goodfetch-cli",

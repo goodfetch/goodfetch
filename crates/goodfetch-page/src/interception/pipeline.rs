@@ -844,14 +844,15 @@ impl PageContext {
         Some(withheld)
     }
 
-    /// `secret_input_refused` when the browser would send `url`'s request
-    /// a cookie of the Session's to a host its egress relay terminates for
-    /// an invalid-certificate exception: a cookie its own host set alone
-    /// goes back to it, as the site's own state.
+    /// `secret_input_refused` when the browser would send `url`'s request,
+    /// over TLS, a cookie of the Session's to a host its egress relay
+    /// terminates for an invalid-certificate exception: a cookie its own
+    /// host set alone goes back to it, as the site's own state.
     async fn cookies_withheld(&self, url: &str) -> Option<CallError> {
         let relay = self.driver.relay()?;
-        let host = url::Url::parse(url).ok()?.host_str()?.to_ascii_lowercase();
-        if !relay.terminates(&host) {
+        let parsed = url::Url::parse(url).ok()?;
+        let host = parsed.host_str()?.to_ascii_lowercase();
+        if !matches!(parsed.scheme(), "https" | "wss") || !relay.terminates(&host) {
             return None;
         }
         let cookies = match self

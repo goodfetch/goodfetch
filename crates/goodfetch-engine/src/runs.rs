@@ -137,10 +137,10 @@ use crate::run_state::{
 use crate::secrets::{Carried, Keychain, Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
 use crate::settings::{Resolved, RunSettings, Settings};
 use crate::tasks::TaskOwner;
-use crate::tls::{CertificateExceptions, InvalidDomain, PinBook};
+use crate::tls::{CertificateExceptions, InvalidDomain, PinBook, Trust, read_certificates};
 use crate::trace::Link;
 use crate::transition;
-use goodfetch_protocol::tls::TLS_ACCEPT_INVALID_CERTS;
+use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_TRUSTED_CAS};
 
 /// A Run's state, in its folder.
 const RUN_FILE: &str = "run.sqlite";
@@ -1089,6 +1089,8 @@ struct Shared {
     crawls_robots_txt: std::sync::OnceLock<Arc<dyn Copies>>,
     /// The invalid-certificate exceptions its Sessions take, once read.
     certificate_exceptions: std::sync::OnceLock<Result<CertificateExceptions, InvalidDomain>>,
+    /// The authorities its `tls.trusted_cas` trusts, once read.
+    trust: tokio::sync::OnceCell<Trust>,
 }
 
 impl std::fmt::Debug for Run {
@@ -1609,6 +1611,82 @@ impl Run {
                 };
                 CertificateExceptions::listed(&setting, book, self.secrets().exception_hosts())
             })
+            .clone()
+    }
+
+    /// What its `tls.trusted_cas` trusts beside Mozilla's roots (ADR 0042),
+    /// each listed file read once, on the Run's first ask; a file that
+    /// cannot be read is logged and trusts nothing.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves the files to the next ask.
+    pub async fn trust(&self) -> Trust {
+        self.shared
+            .trust
+            .get_or_init(|| async {
+                let listed: Vec<(String, Vec<std::path::PathBuf>)> = self
+                    .settings()
+                    .map(|settings| settings.resolved().value(TLS_TRUSTED_CAS.name))
+                    .and_then(serde_json::Value::as_object)
+                    .into_iter()
+                    .flatten()
+                    .map(|(domain, files)| {
+                        let files = files
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|file| file.as_str().map(std::path::PathBuf::from))
+                            .collect();
+                        (domain.clone(), files)
+                    })
+                    .collect();
+                let read = self
+                    .owner
+                    .blocking(move || {
+                        listed
+                            .into_iter()
+                            .map(|(domain, files)| {
+                                let authorities: Vec<_> = files
+                                    .iter()
+                                    .filter_map(|file| {
+                                        #[expect(
+                                            clippy::disallowed_methods,
+                                            reason = "it runs on the tasks module's blocking policy"
+                                        )]
+                                        let bytes = std::fs::read(file);
+                                        match bytes.map_err(|error| error.to_string()).and_then(
+                                            |bytes| {
+                                                read_certificates(&bytes)
+                                                    .map_err(|error| error.to_string())
+                                            },
+                                        ) {
+                                            Ok(read) => Some(read),
+                                            Err(error) => {
+                                                tracing::warn!(%error, file = %file.display(), "a certificate authority of `tls.trusted_cas` cannot be read");
+                                                None
+                                            }
+                                        }
+                                    })
+                                    .flatten()
+                                    .collect();
+                                (domain, authorities)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .await;
+                read.into_iter()
+                    .fold(Trust::default_roots(), |trust, (domain, authorities)| {
+                        match trust.clone().with_trusted_cas(&domain, authorities) {
+                            Ok(with) => with,
+                            Err(error) => {
+                                tracing::warn!(%error, "an entry of `tls.trusted_cas` names no host");
+                                trust
+                            }
+                        }
+                    })
+            })
+            .await
             .clone()
     }
 
@@ -4314,6 +4392,7 @@ impl Registry {
                 robots_txt: RunCopies::default(),
                 crawls_robots_txt: std::sync::OnceLock::new(),
                 certificate_exceptions: std::sync::OnceLock::new(),
+                trust: tokio::sync::OnceCell::new(),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),

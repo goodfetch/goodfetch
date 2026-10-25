@@ -555,11 +555,9 @@ where
     let (Target::Tunnel { .. }, Some(terminating)) = (&head.target, terminating) else {
         return pass(browser, site, &rest).await;
     };
-    match terminate::terminate(browser, site, rest, host, terminating).await {
-        Terminated::Relayed { used, up, down } => {
-            observe.terminated(host, used.as_ref());
-            Served::Relayed { up, down }
-        }
+    let passed = |used: Option<&ExceptionUsed>| observe.terminated(host, used);
+    match terminate::terminate(browser, site, (rest, host), terminating, passed).await {
+        Terminated::Relayed { up, down } => Served::Relayed { up, down },
         Terminated::Stopped(stop) => {
             observe.stopped(&head.target.url(), &head.method, &stop);
             Served::Refused

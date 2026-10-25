@@ -742,7 +742,7 @@ export interface CrawlRunReport {
    */
   sinks?: SinkReport[] | null;
   /**
-   * Its sitemaps, as its progress gives them.
+   * Each sitemap seed's sitemaps, as its progress gives them.
    */
   sitemaps?: SitemapReport[] | null;
   /**
@@ -906,25 +906,68 @@ export interface SinkReport {
   undeclared_datasets?: string[];
 }
 /**
- * A sitemap a crawl read (ADR 0102).
+ * A sitemap seed's sitemaps (ADR 0102): those it read, those it could
+ * not, and its entries added and not added, counted, never listed, since
+ * a sitemap holds up to 50,000.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "SitemapReport".
  */
 export interface SitemapReport {
   /**
-   * How many of its entries were added.
+   * How many of its sitemaps' entries were added.
    */
   added: number;
   /**
-   * How many of its entries were not.
+   * How many of its sitemaps could not be read.
+   */
+  failed: number;
+  /**
+   * The first 20 of those, by URL, each with why.
+   */
+  failures: SitemapFailure[];
+  /**
+   * How many of its sitemaps' entries were not.
    */
   not_added: number;
   /**
    * Those not added, by the reason the Frontier gave, `no_rule` for an
-   * entry no rule of its sitemap seed matched, sorted by name.
+   * entry no rule of the seed matched, sorted by name.
    */
   not_added_by_reason: CountOf[];
+  /**
+   * How many of its sitemaps were read, nested ones included; a
+   * robots.txt is none.
+   */
+  read: number;
+  /**
+   * The sitemap or robots.txt the seed named.
+   */
+  seed: string;
+}
+/**
+ * A sitemap a sitemap seed could not read (ADR 0102; pitfall U19).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SitemapFailure".
+ */
+export interface SitemapFailure {
+  /**
+   * Why, as a name: its fetch's Error code (`response_unavailable`,
+   * `response_not_ok` for a status or a file that is no sitemap the
+   * crawl reads, `response_limit_exceeded`), its skip reason
+   * (`robots_txt`), its Block cause, or the reason the Frontier did not
+   * add a nested sitemap (`domain_policy`).
+   */
+  code: string;
+  /**
+   * Why, in words.
+   */
+  message: string;
+  /**
+   * The status its site answered, when one answered.
+   */
+  status?: number | null;
   /**
    * Its URL.
    */

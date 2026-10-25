@@ -14,14 +14,18 @@
 //! is, at depth 0, with no Payload: one no rule matches is not added, with
 //! `no_rule`, and one outside the scope with `out_of_scope`, so a
 //! third-party sitemap never widens the crawl. Each sitemap read keeps how
-//! many of its entries were added and why the others were not, which the
-//! Run's report gives.
+//! many of its entries were added and why the others were not; each one
+//! the seed could not read, its fetch ended ([`ended`]) or its nesting
+//! refused, keeps its URL and why (pitfall U19), so one bad sitemap never
+//! stops the rest. [`reports`] gives them per seed, for the Run's progress
+//! and report (ADR 0102).
 //!
-//! The parser reads a `urlset`'s or a `sitemapindex`'s `<loc>`s, by their
-//! local names, so a namespace prefix changes nothing; their text is
-//! trimmed, its entities and character references read, a CDATA section
-//! kept as written. gzip, and sitemaps.org's 50,000 entries and 50 MB, are
-//! #909's.
+//! A file is read plain or gzip-compressed ([`read_file`]), a gzip one
+//! decoded under the Run's response limits (ADR 0067), each within
+//! sitemaps.org's 50,000 URLs and 50 MB uncompressed. The parser reads a
+//! `urlset`'s or a `sitemapindex`'s `<loc>`s, by their local names, so a
+//! namespace prefix changes nothing; their text is trimmed, its entities
+//! and character references read, a CDATA section kept as written.
 
 use std::collections::BTreeMap;
 
@@ -31,7 +35,10 @@ use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_page::url_pattern::{UnsupportedPattern, UrlPattern};
 use goodfetch_protocol::foxhound::crawl::{SitemapRule, SitemapSeed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, NotAddedReason};
-use goodfetch_protocol::foxhound::report::{CountOf, SitemapReport};
+use goodfetch_protocol::foxhound::outcomes::{Ending, SkipReason};
+use goodfetch_protocol::foxhound::report::{
+    CountOf, SITEMAP_FAILURES_LISTED, SitemapFailure, SitemapReport,
+};
 use goodfetch_protocol::response_limits::LimitSetting;
 use quick_xml::Reader;
 use quick_xml::escape::resolve_predefined_entity;
@@ -45,7 +52,8 @@ use crate::url::parse as parse_url;
 
 /// The crawl's sitemaps, each the fetch of one work item, with the rules
 /// of the seed it came from, and how many of each one's entries were added
-/// and not added, by reason.
+/// and not added, by reason; and each sitemap a seed could not read, by
+/// URL, with why.
 pub const TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-frontier-sitemaps",
     statements: &[
@@ -62,6 +70,13 @@ pub const TABLES: RunStateTables = RunStateTables {
             count INTEGER NOT NULL,
             PRIMARY KEY (work_item, reason)
         ) STRICT, WITHOUT ROWID",
+        "CREATE TABLE IF NOT EXISTS sitemap_failures (
+            url TEXT NOT NULL PRIMARY KEY,
+            seed TEXT NOT NULL,
+            code TEXT NOT NULL,
+            status INTEGER,
+            message TEXT NOT NULL
+        ) STRICT",
     ],
 };
 
@@ -176,6 +191,21 @@ pub fn read_file(url: &str, body: &[u8], limits: Limits) -> Result<Document, Ref
         return Err(Refusal::Unreadable(too_large()));
     }
     parse(plain).map_err(Refusal::Unreadable)
+}
+
+/// The fuzz target's body for sitemaps (ADR 0067): reads `data` as a
+/// sitemap file, plain XML or gzip, under the catalog's response limits; a
+/// file that is read lists at most sitemaps.org's 50,000 URLs. It panics
+/// only on a bug.
+pub fn fuzz_sitemap(data: &[u8]) {
+    if let Ok(Document::Entries(locs) | Document::Sitemaps(locs)) =
+        read_file("http://shop.test/sitemap.xml", data, Limits::default())
+    {
+        assert!(
+            locs.len() <= MAX_ENTRIES,
+            "a sitemap read lists at most 50,000 URLs"
+        );
+    }
 }
 
 /// The two bytes a gzip file opens with (RFC 1952).
@@ -461,7 +491,7 @@ pub fn read(
                     &given_rules,
                     |url| add(url, Adding::Sitemap),
                 )?;
-                count(&answer);
+                keep_refused_nesting(connection, &seed, &base, answer)?;
             }
         }
         Document::Entries(entries) => {
@@ -484,6 +514,8 @@ pub fn read(
         }
     }
     connection.execute("UPDATE sitemaps SET read = 1 WHERE work_item = ?1", [id])?;
+    // Read at last, after `run.retry_failed` re-admitted it.
+    connection.execute("DELETE FROM sitemap_failures WHERE url = ?1", [&url])?;
     let mut insert = connection.prepare(
         "INSERT INTO sitemap_entries (work_item, reason, count) VALUES (?1, ?2, ?3)
          ON CONFLICT DO UPDATE SET count = count + excluded.count",
@@ -492,6 +524,134 @@ pub fn read(
         insert.execute((id, reason, i64::try_from(count).unwrap_or(i64::MAX)))?;
     }
     Ok(())
+}
+
+/// Keeps, as a sitemap the seed `seed` could not read, the sitemap the
+/// index at `base` nests when `answer` refused it: a nested sitemap is no
+/// entry, and one the crawl already reads is read once, no failure.
+fn keep_refused_nesting(
+    connection: &Connection,
+    seed: &str,
+    base: &Url,
+    answer: Enqueued,
+) -> rusqlite::Result<()> {
+    let Enqueued::NotAdded { reason, url } = answer else {
+        return Ok(());
+    };
+    if reason == NotAddedReason::Duplicate {
+        return Ok(());
+    }
+    let url = parse_url(&url, Some(base)).map_or(url, String::from);
+    let message = if reason == NotAddedReason::DomainPolicy {
+        format!(
+            "The Run's domain policy refuses the host of the sitemap {url}, so it was not fetched."
+        )
+    } else {
+        format!("The sitemap {url} names no URL the crawl fetches.")
+    };
+    keep_failure(
+        connection,
+        seed,
+        &SitemapFailure {
+            url,
+            code: reason_name(reason),
+            status: None,
+            message,
+        },
+    )
+}
+
+/// The wire name of `$value`, a unit variant of the protocol.
+macro_rules! name_of {
+    ($value:expr) => {
+        match serde_json::to_value($value) {
+            Ok(serde_json::Value::String(name)) => name,
+            _ => String::new(),
+        }
+    };
+}
+
+/// Keeps `failure`, a sitemap the seed `seed` could not read, in place of
+/// what an earlier attempt kept of it.
+fn keep_failure(
+    connection: &Connection,
+    seed: &str,
+    failure: &SitemapFailure,
+) -> rusqlite::Result<()> {
+    connection.execute(
+        "INSERT OR REPLACE INTO sitemap_failures (url, seed, code, status, message)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        (
+            &failure.url,
+            seed,
+            &failure.code,
+            failure.status,
+            &failure.message,
+        ),
+    )?;
+    Ok(())
+}
+
+/// Keeps how the fetch of the work item `id` ended, when it is a
+/// sitemap's fetch that read nothing: its sitemap is one its seed could
+/// not read, with its fetch's Error code and the status its site answered,
+/// its skip reason or its Block cause (pitfall U19). Its read, which ends
+/// it `succeeded`, kept the rest.
+///
+/// # Errors
+///
+/// When the run file cannot be read or written.
+pub fn ended(connection: &Connection, id: &str, ending: &Ending) -> rusqlite::Result<()> {
+    let Some((url, seed)) = connection
+        .query_row(
+            "SELECT url, seed FROM sitemaps WHERE work_item = ?1",
+            [id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?
+    else {
+        return Ok(());
+    };
+    let (code, status, message) = match ending {
+        Ending::Succeeded { .. } => return Ok(()),
+        Ending::Failed { error } => (
+            error.code.clone(),
+            error
+                .details
+                .get("status")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|status| u16::try_from(status).ok()),
+            error.message.clone(),
+        ),
+        Ending::Skipped { reason, message } => {
+            let name = name_of!(reason);
+            let message = message.clone().unwrap_or_else(|| {
+                if *reason == SkipReason::RobotsTxt {
+                    format!(
+                        "The site's robots.txt disallows the sitemap {url}, so it was not fetched."
+                    )
+                } else {
+                    format!("The sitemap {url} was skipped, with `{name}`.")
+                }
+            });
+            (name, None, message)
+        }
+        Ending::Blocked { cause } => {
+            let name = name_of!(cause);
+            let message = format!("The site blocked the sitemap {url}, with `{name}`.");
+            (name, None, message)
+        }
+    };
+    keep_failure(
+        connection,
+        &seed,
+        &SitemapFailure {
+            url,
+            code,
+            status,
+            message,
+        },
+    )
 }
 
 /// Admits the entry `given` of the sitemap at `base` as a crawl request
@@ -536,8 +696,10 @@ fn reason_name(reason: NotAddedReason) -> String {
     }
 }
 
-/// Each sitemap the crawl read, in the order their fetches were added,
-/// with how many of its entries were added and not added, by reason.
+/// Each sitemap seed the crawl admitted, in the order it was given, with
+/// how many of its sitemaps were read and could not be, the first
+/// [`SITEMAP_FAILURES_LISTED`] of those by URL with why, and how many of
+/// their entries were added and not added, by reason (ADR 0102).
 ///
 /// # Errors
 ///
@@ -554,31 +716,62 @@ pub fn reports(connection: &Connection) -> rusqlite::Result<Vec<SitemapReport>> 
     if !has_sitemaps {
         return Ok(Vec::new());
     }
-    let mut counts = connection.prepare(
-        "SELECT reason, count FROM sitemap_entries WHERE work_item = ?1 ORDER BY reason",
+    let count = |count: i64| u64::try_from(count).unwrap_or_default();
+    let mut read = connection.prepare("SELECT url FROM sitemaps WHERE seed = ?1 AND read = 1")?;
+    let mut entries = connection.prepare(
+        "SELECT entries.reason, sum(entries.count) FROM sitemap_entries AS entries
+         JOIN sitemaps ON sitemaps.work_item = entries.work_item
+         WHERE sitemaps.seed = ?1 GROUP BY entries.reason ORDER BY entries.reason",
     )?;
-    let read: Vec<(String, String)> = connection
-        .prepare("SELECT work_item, url FROM sitemaps WHERE read = 1 ORDER BY rowid")?
+    let mut failed = connection.prepare("SELECT count(*) FROM sitemap_failures WHERE seed = ?1")?;
+    let mut failures = connection.prepare(
+        "SELECT url, code, status, message FROM sitemap_failures WHERE seed = ?1
+         ORDER BY url LIMIT ?2",
+    )?;
+    let listed = i64::try_from(SITEMAP_FAILURES_LISTED).expect("invariant: 20 fits in i64");
+    let seeds: Vec<(String, String)> = connection
+        .prepare("SELECT work_item, url FROM sitemaps WHERE seed = work_item ORDER BY rowid")?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
-    read.into_iter()
-        .map(|(id, url)| {
+    seeds
+        .into_iter()
+        .map(|(id, seed)| {
             let mut report = SitemapReport {
-                url,
+                seed,
+                read: 0,
+                failed: count(failed.query_row([&id], |row| row.get(0))?),
+                failures: failures
+                    .query_map((&id, listed), |row| {
+                        Ok(SitemapFailure {
+                            url: row.get(0)?,
+                            code: row.get(1)?,
+                            status: row.get(2)?,
+                            message: row.get(3)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<_>>()?,
                 added: 0,
                 not_added: 0,
                 not_added_by_reason: Vec::new(),
             };
-            for row in counts.query_map([id], |row| {
+            for url in read.query_map([&id], |row| row.get::<_, String>(0))? {
+                // A robots.txt names sitemaps; it is none itself.
+                if !Url::parse(&url?).is_ok_and(|url| is_robots_txt(&url)) {
+                    report.read += 1;
+                }
+            }
+            for row in entries.query_map([&id], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
             })? {
-                let (name, count) = row?;
-                let count = u64::try_from(count).unwrap_or_default();
+                let (name, entries) = row?;
                 if name == ADDED {
-                    report.added = count;
+                    report.added = count(entries);
                 } else {
-                    report.not_added += count;
-                    report.not_added_by_reason.push(CountOf { name, count });
+                    report.not_added += count(entries);
+                    report.not_added_by_reason.push(CountOf {
+                        name,
+                        count: count(entries),
+                    });
                 }
             }
             Ok(report)

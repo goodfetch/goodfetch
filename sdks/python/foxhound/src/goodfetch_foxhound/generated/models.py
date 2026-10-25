@@ -676,23 +676,58 @@ class SinkStatus(StrEnum):
     """It names none of the crawl's Datasets and delivers nothing."""
 
 
+class SitemapFailure(BaseModel):
+    """A sitemap a sitemap seed could not read (ADR 0102; pitfall U19)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """
+    Why, as a name: its fetch's Error code (`response_unavailable`,
+    `response_not_ok` for a status or a file that is no sitemap the
+    crawl reads, `response_limit_exceeded`), its skip reason
+    (`robots_txt`), its Block cause, or the reason the Frontier did not
+    add a nested sitemap (`domain_policy`).
+    """
+    message: str
+    """Why, in words."""
+    status: Annotated[int | None, Field(ge=0, le=65535)] = None
+    """The status its site answered, when one answered."""
+    url: str
+    """Its URL."""
+
+
 class SitemapReport(BaseModel):
-    """A sitemap a crawl read (ADR 0102)."""
+    """
+    A sitemap seed's sitemaps (ADR 0102): those it read, those it could
+    not, and its entries added and not added, counted, never listed, since
+    a sitemap holds up to 50,000.
+    """
 
     model_config = ConfigDict(
         extra="allow",
     )
     added: Annotated[int, Field(ge=0)]
-    """How many of its entries were added."""
+    """How many of its sitemaps' entries were added."""
+    failed: Annotated[int, Field(ge=0)]
+    """How many of its sitemaps could not be read."""
+    failures: list[SitemapFailure]
+    """The first 20 of those, by URL, each with why."""
     not_added: Annotated[int, Field(ge=0)]
-    """How many of its entries were not."""
+    """How many of its sitemaps' entries were not."""
     not_added_by_reason: list[CountOf]
     """
     Those not added, by the reason the Frontier gave, `no_rule` for an
-    entry no rule of its sitemap seed matched, sorted by name.
+    entry no rule of the seed matched, sorted by name.
     """
-    url: str
-    """Its URL."""
+    read: Annotated[int, Field(ge=0)]
+    """
+    How many of its sitemaps were read, nested ones included; a
+    robots.txt is none.
+    """
+    seed: str
+    """The sitemap or robots.txt the seed named."""
 
 
 class SitemapRule(BaseModel):
@@ -1199,7 +1234,7 @@ class CrawlRunReport(BaseModel):
     sinks: list[SinkReport] | None = None
     """Each Sink that applies to it (ADRs 0026 and 0103)."""
     sitemaps: list[SitemapReport] | None = None
-    """Its sitemaps, as its progress gives them."""
+    """Each sitemap seed's sitemaps, as its progress gives them."""
     started_at: PointInTime
     """When it started."""
     stop_reason: StopReason | None = None

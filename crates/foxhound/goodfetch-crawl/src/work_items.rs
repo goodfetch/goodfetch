@@ -686,10 +686,10 @@ fn write_outcome(
     ended_at: &PointInTime,
     ending: Ending,
 ) -> rusqlite::Result<()> {
-    // A sitemap's fetch is no crawl request: its sitemap's counts are its
-    // ending (ADR 0102).
+    // A sitemap's fetch is no crawl request: its sitemap's counts, or why
+    // it could not be read, are its ending (ADR 0102).
     if sitemap::is_fetch(connection, id)? {
-        return Ok(());
+        return sitemap::ended(connection, id, &ending);
     }
     let (url, label, depth, attempts): (String, String, u32, u32) = connection.query_row(
         "SELECT url, label, depth, attempts FROM work_items WHERE id = ?1",

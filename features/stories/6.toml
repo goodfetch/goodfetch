@@ -579,6 +579,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 206
+title = "As a crawl developer, I want sitemaps read in gzip and plain form, up to sitemaps.org's 50,000 URLs and 50 MB uncompressed each, a larger or broken one reported with its URL and why, so that one bad sitemap never stops the rest (pitfall U19)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 207
+title = "As a crawl developer, I want the progress and the report to count, per sitemap seed, the sitemaps read, those that failed with their status, the entries added and those not added by reason, so that a sitemap's effect is visible without listing 50,000 entries (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 208
 title = "As a crawl developer, I want `run.addSeed(url, label, payload?, options)` and `run.addSeed(sitemap(...))` to add a seed to a running crawl, committed at once, or staged with the attempt through `ctx.run`, so that new work reaches a running crawl (CO-03)."
 milestone = "M1 Core"

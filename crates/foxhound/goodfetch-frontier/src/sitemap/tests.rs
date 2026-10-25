@@ -2,6 +2,7 @@ use goodfetch_protocol::foxhound::crawl::SitemapRule;
 use rstest::rstest;
 use url::Url;
 
+use std::fmt::Write as _;
 use std::io::Write as _;
 
 use flate2::Compression;
@@ -121,11 +122,13 @@ fn listing(count: usize, index: bool) -> String {
     };
     let mut text = format!("<{root}>");
     for number in 0..count {
-        text.push_str(&format!(
+        write!(
+            text,
             "<{child}><loc>http://shop.test/{number}</loc></{child}>"
-        ));
+        )
+        .unwrap();
     }
-    text.push_str(&format!("</{root}>"));
+    write!(text, "</{root}>").unwrap();
     text
 }
 
@@ -224,6 +227,10 @@ fn a_sitemap_past_fifty_megabytes_uncompressed_is_unreadable(#[case] compressed:
 /// within ADR 0067's limits, naming the setting.
 ///
 /// Covers: story:6-206, setting:network.max_decompression_ratio
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 #[test]
 fn a_gzip_bomb_is_refused_by_the_decompression_ratio() {
     let bomb = gzip(&vec![b' '; 10 * 1024 * 1024]);
@@ -251,4 +258,10 @@ fn a_gzip_file_that_does_not_decode_is_unreadable(#[case] body: Vec<u8>) {
         why(read_file(AT, &body, Limits::default())),
         "its gzip stream does not decode"
     );
+}
+
+/// The sitemap fuzz target's committed seeds and past crashers replay on
+/// every OS (ADR 0067).
+mod sitemap_target {
+    goodfetch_test_support::fuzz_replay!(crate::sitemap::fuzz_sitemap, "fuzz/sitemap");
 }

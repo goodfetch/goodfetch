@@ -3,7 +3,9 @@
 //! group per reason with the domains it holds and the setting behind it;
 //! `inFlight`, each attempt with its phase; `idle`, while a keep-alive crawl
 //! waits for work; and `concurrency`. Its composition's progress part reads
-//! `requests` from committed state each time a value is read, and keeps in
+//! `requests`, and `sitemaps`, each sitemap seed's sitemaps read and failed
+//! and its entries' counts, from committed state each time a value is
+//! read, and keeps in
 //! `inFlight` and `concurrency` only the attempts that state leases, so a
 //! value is one moment of the crawl. A Run of another kind gets none of
 //! them.
@@ -37,6 +39,7 @@ const IN_FLIGHT: &str = "in_flight";
 const IDLE: &str = "idle";
 const CONCURRENCY: &str = "concurrency";
 const REQUESTS: &str = "requests";
+const SITEMAPS: &str = "sitemaps";
 
 /// The part `$part` encoded as its JSON value.
 macro_rules! encoded {
@@ -321,6 +324,12 @@ impl ProgressPart for CrawlProgress {
         progress
             .kind_parts
             .insert(REQUESTS.to_owned(), encoded!(&requests));
+        let sitemaps = goodfetch_frontier::sitemap::reports(connection)?;
+        if !sitemaps.is_empty() {
+            progress
+                .kind_parts
+                .insert(SITEMAPS.to_owned(), encoded!(&sitemaps));
+        }
         Ok(())
     }
 }

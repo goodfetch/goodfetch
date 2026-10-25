@@ -27,7 +27,7 @@
 //! **The resolved-address check (ADR 0017):** a URL the egress policy
 //! refuses opens no connection, and the resolver's answers are judged
 //! before any connection, as is the address a URL names in place of a
-//! host, in any spelling, which no resolver answers ([`judged`]). The `network.resolve` mapping's addresses are
+//! host, in any spelling, which no resolver answers (the driver's `judged`). The `network.resolve` mapping's addresses are
 //! not judged, as on the browser path, until `egress.private_ranges` is a
 //! setting a Run can declare (#622, #623). Through a proxy, which resolves
 //! the site's name itself, only the URL is judged.
@@ -44,11 +44,11 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::{
     AnsweredBy, ConfigurationUnreadable, Dns, HostMapping, Resolution, ResolverConfiguration, Route,
 };
-use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
+use goodfetch_engine::egress::{self, Policy, Refused};
 use goodfetch_engine::tls::Trust;
 use url::Url;
 
-use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
+use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure, judged};
 
 mod impersonated;
 
@@ -320,32 +320,6 @@ impl Body for ReqwestBody {
                 .map_err(|error| failure_of(&error, &self.url))
         })
     }
-}
-
-/// Judges a hop to `url` under the Session's egress policy `egress` before
-/// anything is sent (ADR 0017): its URL, and, when the connection goes
-/// `direct`, the address the URL names in place of a host, which the
-/// transport connects to without asking its resolver.
-///
-/// # Errors
-///
-/// [`Refused`] by the domain policy, or by the address check for an address
-/// a page may not reach.
-fn judged(url: &Url, egress: &Policy, direct: bool) -> Result<(), Refused> {
-    let request = egress::Request {
-        url: url.as_str(),
-        kind: RequestKind::Fetch,
-    };
-    if let Judgment::Refused(refused) = egress::judge(&request, egress) {
-        return Err(refused);
-    }
-    let address = match url.host() {
-        Some(url::Host::Ipv4(address)) if direct => IpAddr::V4(address),
-        Some(url::Host::Ipv6(address)) if direct => IpAddr::V6(address),
-        _ => return Ok(()),
-    };
-    let port = url.port_or_known_default().unwrap_or_default();
-    egress::judge_addresses(url.as_str(), &[SocketAddr::new(address, port)], egress)
 }
 
 /// `error`'s failure, an egress refusal naming the hop's URL.

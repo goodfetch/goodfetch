@@ -33,9 +33,9 @@ use http_body_util::BodyExt as _;
 use url::Url;
 
 use super::{
-    CONNECTED, Http1Origins, MarkConnects, Resolver, TransportConfig, TransportUnavailable, judged,
+    CONNECTED, Http1Origins, MarkConnects, Resolver, TransportConfig, TransportUnavailable,
 };
-use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
+use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure, judged};
 use crate::http_profile::HttpProfile;
 
 /// `wreq`, the transport of HTTP-only `stealth` Sessions.

@@ -137,6 +137,7 @@ use crate::run_state::{
 };
 use crate::secrets::{Carried, Keychain, Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
 use crate::settings::{Resolved, RunSettings, Settings};
+use crate::staging::AttemptWrites;
 use crate::tasks::TaskOwner;
 use crate::trace::Link;
 use crate::transition;
@@ -1086,6 +1087,9 @@ struct Shared {
     robots_txt: RunCopies,
     /// The copy a crawl's Run reads instead, once its crawl shared one.
     crawls_robots_txt: std::sync::OnceLock<Arc<dyn Copies>>,
+    /// Where its crawl's attempts stage the writes made through a
+    /// handler's `ctx.run`, once its crawl registered it.
+    attempt_writes: std::sync::OnceLock<Arc<dyn AttemptWrites>>,
 }
 
 impl std::fmt::Debug for Run {
@@ -1577,6 +1581,20 @@ impl Run {
     /// changes nothing and makes none.
     pub fn share_robots_txt(&self, copies: impl FnOnce() -> Arc<dyn Copies>) {
         self.shared.crawls_robots_txt.get_or_init(copies);
+    }
+
+    /// Stages the writes a crawl attempt's handler makes through its
+    /// `ctx.run` in `writes` from now on (ADR 0093): a crawl's Run
+    /// registers its staging once, as its delivery opens. A later call
+    /// changes nothing.
+    pub fn stage_attempt_writes_through(&self, writes: Arc<dyn AttemptWrites>) {
+        self.shared.attempt_writes.get_or_init(|| writes);
+    }
+
+    /// Where its attempts stage their writes, once its crawl registered
+    /// it; none on a Run with no crawl.
+    pub fn attempt_writes(&self) -> Option<Arc<dyn AttemptWrites>> {
+        self.shared.attempt_writes.get().map(Arc::clone)
     }
 
     /// Its owner, whose tasks and blocking work stop with the Run.
@@ -4293,6 +4311,7 @@ impl Registry {
                 politeness: tokio::sync::OnceCell::new(),
                 robots_txt: RunCopies::default(),
                 crawls_robots_txt: std::sync::OnceLock::new(),
+                attempt_writes: std::sync::OnceLock::new(),
             }),
             owner: Arc::new(self.owner.child()),
             runs: self.handle(connection),

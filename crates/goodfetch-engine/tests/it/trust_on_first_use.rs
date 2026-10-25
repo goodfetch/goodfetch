@@ -194,10 +194,10 @@ impl Fixture {
 
 /// The requests `proving_ground` received: host and cookies.
 fn requests_of(proving_ground: &ProvingGround) -> Vec<Value> {
-    proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .every()
         .map(|request| json!([request["host"], request["cookies"]]))
         .collect()
 }

@@ -79,6 +79,22 @@ where
                 let _ = stream.shutdown().await;
                 return;
             }
+            Answer::Stalled { page, sent } => {
+                let declared = (page.framing == Framing::Length).then_some(page.body.len());
+                let sent = sent.min(page.body.len());
+                let mut message = head_bytes(&page).into_bytes();
+                message.extend_from_slice(&page.body[..sent]);
+                if send(&mut stream, &message).await.is_ok() {
+                    // What the client sends meanwhile is read and dropped,
+                    // until it goes.
+                    let mut ignored = Vec::new();
+                    while fill(&mut stream, &mut ignored).await {
+                        ignored.clear();
+                    }
+                }
+                context.delivered(request.recorded, declared, sent, End::ConnectionClosed);
+                return;
+            }
             Answer::Refuse(_) => {
                 context.delivered(request.recorded, None, 0, End::ConnectionClosed);
                 return;

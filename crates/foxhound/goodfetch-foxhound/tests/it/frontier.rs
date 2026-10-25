@@ -353,10 +353,7 @@ fn a_crawl_whose_every_seed_is_refused_finishes_at_once_and_says_why() {
         &json!({ "run_id": "nothing" }),
         &mut |_| None,
     );
-    let requested = proving_ground.observations().unwrap()["requests"]
-        .as_array()
-        .unwrap()
-        .len();
+    let requested = proving_ground.received_requests().unwrap().every().count();
     assert!(engine.finish());
 
     assert_eq!(
@@ -520,10 +517,10 @@ fn tracking_parameters_order_sessions_and_fragments_never_split_a_page_fetched_a
         &json!({ "run_id": "keys" }),
         &mut |_| None,
     );
-    let received: Vec<Value> = proving_ground.observations().unwrap()["requests"]
-        .as_array()
+    let received: Vec<Value> = proving_ground
+        .received_requests()
         .unwrap()
-        .iter()
+        .every()
         .map(|request| json!([request["host"], request["target"]]))
         .collect();
     assert!(engine.finish());

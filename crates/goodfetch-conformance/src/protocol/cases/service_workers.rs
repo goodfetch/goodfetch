@@ -32,6 +32,7 @@ use super::routes::{glob, received};
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::{BROWSER_DEADLINE, EngineTarget};
+use crate::proving_ground::ReceivedRequests;
 
 /// A case of these lines, by its ID in the page suite's case list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -535,10 +536,8 @@ fn blocked(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
 
 /// The `User-Agent` of each request to `target` the Proving ground saw.
 fn user_agents_of(observations: &Value, target: &str) -> Vec<String> {
-    observations["requests"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    ReceivedRequests::of(observations)
+        .of_the_case()
         .filter(|request| request["target"] == json!(target))
         .flat_map(|request| request["headers"].as_array().cloned().unwrap_or_default())
         .filter(|header| {

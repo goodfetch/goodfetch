@@ -275,11 +275,9 @@ fn readings(target: &EngineTarget, run_id: &str, count: usize) -> Vec<Value> {
 /// target and arrival time in microseconds, in arrival order.
 fn arrivals(site: &Site) -> Vec<(String, u64)> {
     site.proving_ground
-        .observations()
-        .ok()
-        .and_then(|observations| observations["requests"].as_array().cloned())
+        .received_requests()
         .unwrap_or_default()
-        .iter()
+        .every()
         .filter(|request| request["host"] == json!(HOST))
         .filter_map(|request| {
             Some((

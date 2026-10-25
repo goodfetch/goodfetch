@@ -82,10 +82,7 @@ fn visit(
 /// How many times the Proving ground served each product page.
 fn served(proving_ground: &ProvingGround) -> BTreeMap<String, usize> {
     let mut served = BTreeMap::new();
-    for request in proving_ground.observations().unwrap()["requests"]
-        .as_array()
-        .unwrap()
-    {
+    for request in proving_ground.received_requests().unwrap().of_the_case() {
         if let Some(path) = request["target"]
             .as_str()
             .filter(|path| request["host"] == "catalog.test" && path.starts_with("/products/"))

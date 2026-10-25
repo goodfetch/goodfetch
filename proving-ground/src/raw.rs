@@ -151,6 +151,11 @@ pub(crate) enum Answer {
     /// Only HTTP/1.1 sends it; over HTTP/2, whose window the raw server
     /// never waits past, the stream is reset.
     Filler { page: Page, length: Option<u64> },
+    /// Sends the page's head, its body's length declared, and the first
+    /// `sent` bytes of its body, then nothing until the client goes, so a
+    /// client reading the whole body waits on it for good. Only HTTP/1.1
+    /// sends it; over HTTP/2 the stream is reset.
+    Stalled { page: Page, sent: usize },
     /// Waits, then answers.
     Later(Duration, Box<Self>),
 }

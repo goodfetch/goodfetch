@@ -17,7 +17,8 @@
 //! differ and stop the rule, and a sitemap seed whose sitemap it reads as
 //! listing an entry no rule matches and one the scope refuses, beside one
 //! whose sitemap answered 404, whose handler enqueues a `forefront` request on another domain from the
-//! first, pushes Records for the first, the `POST` and that request and
+//! first, pushes Records into its two Datasets, `pages` with a schema and
+//! a key and `links` with neither, for the first, the `POST` and that request and
 //! fails on the second, whose first byte never came, so its
 //! domain still backs off when `run.finish` ends it, and whose last site
 //! blocks its address, so its Session pool holds a Session retired by the
@@ -98,6 +99,18 @@ fn scenario() -> Vec<Value> {
                     "home": { "payload": { "type": ["object", "null"] } },
                     "product": {},
                 },
+                "datasets": [
+                    {
+                        "name": "pages",
+                        "schema": {
+                            "type": "object",
+                            "required": ["url"],
+                            "properties": { "url": { "type": "string" }, "title": { "type": "string" } },
+                        },
+                        "key": ["url"],
+                    },
+                    { "name": "links" },
+                ],
                 "seeds": [
                     { "url": "https://shop.test/", "label": "home", "payload": { "depth": 0 } },
                     { "url": "https://shop.test/broken", "label": "product" },

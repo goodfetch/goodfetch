@@ -17,6 +17,7 @@
 //! 0059).
 
 mod key;
+mod offline;
 mod store;
 
 use std::collections::{BTreeMap, VecDeque};
@@ -34,6 +35,7 @@ use goodfetch_protocol::people::{
 use goodfetch_protocol::run::PointInTime;
 use hmac::{Hmac, Mac as _};
 use jiff::Timestamp;
+use secrecy::zeroize::Zeroizing;
 use serde_json::{Value, json};
 use sha2::Sha256;
 use tokio::sync::Mutex;
@@ -51,7 +53,7 @@ const ID_BYTES: usize = 16;
 /// How many bytes of the OS generator a cookie's secret part holds.
 const SECRET_BYTES: usize = 32;
 /// How many bytes of the OS generator a wrapping key holds.
-const WRAPPING_KEY_BYTES: usize = 32;
+const WRAPPING_KEY_BYTES: usize = offline::KEY_LENGTH;
 /// The window the rate limit counts attempts in.
 const RATE_WINDOW: Duration = Duration::from_secs(60);
 
@@ -153,6 +155,44 @@ pub enum SignInFailure {
     Generator(getrandom::Error),
     /// The accounts store or the Console key failed.
     People(PeopleError),
+}
+
+/// A sign-in's offline cache key (ADR 0031): in the clear, for its own
+/// page alone, and wrapped under the sign-in's wrapping key, as the page
+/// keeps it. Its key is zeroized when it drops and never formatted.
+pub struct OfflineKey {
+    key: Zeroizing<Vec<u8>>,
+    wrapped: Vec<u8>,
+}
+
+impl OfflineKey {
+    /// The cache key, 32 bytes.
+    pub fn key(&self) -> &[u8] {
+        &self.key
+    }
+
+    /// Its wrapped form, which only its sign-in's cookie unwraps.
+    pub fn wrapped(&self) -> &[u8] {
+        &self.wrapped
+    }
+}
+
+impl std::fmt::Debug for OfflineKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("OfflineKey").finish_non_exhaustive()
+    }
+}
+
+/// Why a sign-in got no offline cache key.
+#[derive(Debug)]
+pub enum OfflineKeyRefused {
+    /// The cookie carries no sign-in that has not ended.
+    NotSignedIn,
+    /// The wrapped key does not open under the sign-in's wrapping key: it
+    /// is another sign-in's, or was changed.
+    DoesNotOpen,
+    /// The OS generator gave no key.
+    Generator(getrandom::Error),
 }
 
 /// Why the accounts store or the Console key could not serve a call.
@@ -337,6 +377,49 @@ impl SignInDriver {
         self.csrf_token(cookie)
             .await
             .is_some_and(|expected| !token.is_empty() && same_secret(token, &expected))
+    }
+
+    /// The offline cache key of the sign-in `cookie` carries (ADR 0031): with
+    /// no `wrapped` key, a new one from the OS generator; else the one
+    /// `wrapped` holds, which opens only under this sign-in's wrapping key.
+    /// The wrapping key never leaves the Daemon, so once the sign-in ends no
+    /// cache it encrypts can be read.
+    ///
+    /// # Errors
+    ///
+    /// `NotSignedIn` when `cookie` carries no sign-in that has not ended,
+    /// `DoesNotOpen` when `wrapped` is another sign-in's or was changed, and
+    /// `Generator` when the OS generator gives no key.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the sign-in's last use recorded.
+    pub async fn offline_key(
+        &self,
+        cookie: &str,
+        wrapped: Option<&[u8]>,
+    ) -> Result<OfflineKey, OfflineKeyRefused> {
+        let cookie = cookie.to_owned();
+        let wrapped = wrapped.map(<[u8]>::to_vec);
+        let inner = Arc::clone(&self.inner);
+        self.blocking(move || {
+            let row = inner
+                .live(&cookie, true)
+                .ok_or(OfflineKeyRefused::NotSignedIn)?;
+            let refused = |unwrapped| match unwrapped {
+                offline::Unwrapped::Generator(error) => OfflineKeyRefused::Generator(error),
+                offline::Unwrapped::DoesNotOpen => OfflineKeyRefused::DoesNotOpen,
+            };
+            match wrapped {
+                None => offline::created(&row.wrapping_key, &row.id)
+                    .map(|(key, wrapped)| OfflineKey { key, wrapped })
+                    .map_err(refused),
+                Some(wrapped) => offline::opened(&row.wrapping_key, &row.id, &wrapped)
+                    .map(|key| OfflineKey { key, wrapped })
+                    .map_err(refused),
+            }
+        })
+        .await
     }
 
     /// Ends the sign-in `cookie` carries, as its person signing out: whether

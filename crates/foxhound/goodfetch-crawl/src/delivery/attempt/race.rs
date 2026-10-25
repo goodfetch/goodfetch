@@ -70,10 +70,13 @@ impl On<'_> {
                 .document(tiering, &fetching, &RACED, &hand_over)
                 .await?;
             let latency = run.clock().now().duration_since(started);
-            let passed = matches!(
-                judged(run, tiering, &page_id).await,
-                Some(Judged::Passed) | None
-            );
+            // A document only a guess could read never wins: the
+            // browser reads it (ADR 0119).
+            let passed = tiers.escalated(&page_id).is_none()
+                && matches!(
+                    judged(run, tiering, &page_id).await,
+                    Some(Judged::Passed) | None
+                );
             Ok::<_, Answer>((page_id, latency, passed && raced.agrees))
         });
         let ended = first_to_win(document, &mut navigation, lease, tiers).await;

@@ -301,3 +301,30 @@ fn another_seed_writes_other_text() {
 
     assert_ne!(pages.0, pages.1);
 }
+
+/// The XHTML page no index links: `application/xhtml+xml` in windows-1251,
+/// declared only in its XML declaration (ADR 0119).
+#[test]
+fn the_xhtml_page_declares_its_encoding_only_in_its_xml_declaration() {
+    let proving_ground = ProvingGround::start(SEED);
+    let answer = proving_ground.get_raw(&format!(
+        "http://encodings.test:{}/xhtml/declared",
+        proving_ground.port()
+    ));
+    let (text, _, malformed) = encoding_rs::WINDOWS_1251.decode(&answer.body);
+
+    assert_eq!(
+        (answer.status, answer.content_type.as_deref(), malformed),
+        (200, Some("application/xhtml+xml"), false)
+    );
+    assert!(
+        text.starts_with("<?xml version=\"1.0\" encoding=\"windows-1251\"?>"),
+        "{text}"
+    );
+    assert!(!text.contains("<meta"), "{text}");
+    assert_eq!(
+        first(r#"(?s)<p class="text">(.*?)</p>"#, &text),
+        "Москва — столица России."
+    );
+    assert!(std::str::from_utf8(&answer.body).is_err());
+}

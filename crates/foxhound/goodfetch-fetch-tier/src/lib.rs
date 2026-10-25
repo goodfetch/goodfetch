@@ -18,6 +18,12 @@
 
 mod canonical;
 mod chain;
+mod charset;
+// The tests of the pure modules a benchmark compiles in through `#[path]`
+// sit beside them, declared here, so the benchmark builds without them.
+#[cfg(test)]
+#[path = "charset/tests.rs"]
+mod charset_tests;
 mod choice;
 mod decoding;
 mod document;
@@ -30,11 +36,17 @@ mod redirects;
 mod redundant;
 mod refresh;
 mod served_calls;
+mod sniffing;
+#[cfg(test)]
+#[path = "sniffing/tests.rs"]
+mod sniffing_tests;
 mod tiers;
 mod transports;
 mod use_signals;
 
 pub use chain::{Following, Gating, HopGate, Skip, Stop, follow};
+#[doc(hidden)]
+pub use charset::fuzz_prescan;
 pub use choice::{Choosing, Forced, LabelSettings, SetTier, TierChoice};
 pub use document::{Matched, SelectorInvalid};
 pub use driver::{
@@ -44,8 +56,8 @@ pub use gate::{HandOver, RobotsTxtFetch, crawl_delay, disallowing};
 pub use goodfetch_page::page_value::PooledSession;
 pub use http_profile::HttpProfile;
 pub use redundant::Requester;
-#[doc(hidden)]
 pub use refresh::fuzz_refresh;
+pub use sniffing::sniff;
 pub use tiers::{
     Chosen, FetchTiers, HandedOver, HttpTier, Judged, PAGE_CHECK_CALL, Race, RaceEnd, ServedLinks,
     Signed, record_race, record_tier,

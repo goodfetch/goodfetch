@@ -37,7 +37,8 @@ pub(super) enum Step {
 }
 
 /// The navigation `step` of the served page `page_id`, `page`, answered as
-/// the call answers it.
+/// the call `operation` answers it: a document only a guess could read is
+/// a call its tier cannot serve exactly (ADR 0119).
 ///
 /// # Errors
 ///
@@ -50,6 +51,7 @@ pub(super) async fn navigate(
     page_id: &PageId,
     page: ServedPage,
     step: Step,
+    operation: &'static str,
 ) -> Result<Navigated, CallError> {
     let entry = |entry: usize| {
         page.history
@@ -87,7 +89,12 @@ pub(super) async fn navigate(
     })
     .await
     .map_err(stopped)?;
-    let opened = Opened::of(&run, fetched.clone());
+    // A handler's own navigation takes no `fetch.encoding` (ADR 0119); a
+    // document only a guess could read is never served.
+    let opened = Opened::of(&run, fetched.clone(), None);
+    if opened.read.is_none() {
+        return Err(tiers.unserved(page_id, operation, false));
+    }
     let mut response = answered(tiers, page_id, &run, fetched).await?;
     response.encoding = Some(opened.encoding.name().to_owned());
     tiers.navigated(page_id, opened, at);

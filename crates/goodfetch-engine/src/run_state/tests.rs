@@ -12,7 +12,7 @@ mod model;
 use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 
-use super::{Durability, RunState, RunStateError, RunStateOptions, RunStateTables};
+use super::{Durability, PAGE_CACHE_KIB, RunState, RunStateError, RunStateOptions, RunStateTables};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// A contributed table the tests write through the writer.
@@ -120,6 +120,20 @@ fn a_run_file_in_fast_durability_commits_with_normal_synchronous() {
     });
 
     assert_eq!(pragmas, ("wal".to_owned(), "1".to_owned()));
+}
+
+/// The writer's page cache is bounded at `PAGE_CACHE_KIB`, so a Frontier
+/// of any size keeps its memory under ADR 0134's 8 bytes per URL at
+/// 100,000 URLs, its visited set staying on disk.
+#[test]
+fn a_run_file_bounds_its_page_cache() {
+    let env = TestEnv::new();
+
+    let cache_size = with_writer(&env, 1, async |state| {
+        state.read(pragma("cache_size")).await.unwrap()
+    });
+
+    assert_eq!(cache_size, format!("-{PAGE_CACHE_KIB}"));
 }
 
 /// Covers: story:3-26

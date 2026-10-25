@@ -6,8 +6,8 @@ mod scenarios;
 use std::hint::black_box;
 
 use goodfetch_frontier::Url;
-use gungraun::Tool;
 use gungraun::prelude::*;
+use gungraun::{Dhat, EntryPoint, Tool};
 
 #[library_benchmark]
 #[bench::one_heavy_domain_and_a_thousand_small(scenarios::requests(64, 1_000))]
@@ -31,6 +31,24 @@ fn admit_seeds(links: Vec<String>) -> usize {
 
 library_benchmark_group!(name = identity, benchmarks = [url_key, admit_seeds]);
 
+// ADR 0134's heap bytes per URL: `xtask perf` takes the bytes at the global
+// maximum of the 100,000 URLs, less the same scenario with none, over
+// 100,000, and holds it to its 8-byte ceiling. The whole process counts: an
+// allocation of SQLite's page cache sits deeper than DHAT's 25 callers
+// below the benchmark function, so the default entry point would leave the
+// cache out.
+#[library_benchmark(
+    config = LibraryBenchmarkConfig::default()
+        .tool(Dhat::default().entry_point(EntryPoint::None))
+)]
+#[bench::no_urls(0)]
+#[bench::hundred_thousand_urls(100_000)]
+fn enqueue(urls: usize) -> usize {
+    black_box(scenarios::enqueue(black_box(urls)))
+}
+
+library_benchmark_group!(name = frontier, benchmarks = enqueue);
+
 // BoringSSL, which goodfetch-page's egress relay links, brings libstdc++,
 // whose emergency exception pool is allocated while the loader starts the
 // process, on a stack DHAT unwinds into frames with no location, which
@@ -40,5 +58,5 @@ main!(
     config = LibraryBenchmarkConfig::default()
         .default_tool(Tool::DHAT)
         .env("GLIBCXX_TUNABLES", "glibcxx.eh_pool.obj_count=0"),
-    library_benchmark_groups = [admission, identity]
+    library_benchmark_groups = [admission, identity, frontier]
 );

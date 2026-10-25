@@ -131,6 +131,10 @@ pub struct HandOver {
     /// judges the browser pages the attempt opens in place of their
     /// Session's (ADR 0093).
     pub page_check: Option<PageCheck>,
+    /// The encoding `fetch.encoding` forces on the crawl request's own
+    /// document, its Label's else the Run's (ADR 0119); none of the
+    /// handler's own navigations takes it.
+    pub encoding: Option<&'static encoding_rs::Encoding>,
 }
 
 impl HandOver {

@@ -979,3 +979,12 @@ journey = false
 not_journey = "part"
 status = "active"
 product = "foxhound"
+
+[[story]]
+id = 314
+title = "As an operator, I want an Operator policy able to cap or lock `crawl.*`, `fetch.*`, `sinks.*`, `politeness.*` and `site_preferences.*`, so that a shared Daemon can forbid turning robots.txt off (ADRs 0028, 0086)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"

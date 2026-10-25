@@ -18767,6 +18767,16 @@
       ]
     },
     {
+      "id": "story:6-314",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-32",
       "kind": "story",
       "area": 6,

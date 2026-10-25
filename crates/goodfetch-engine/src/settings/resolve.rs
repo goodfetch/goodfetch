@@ -603,7 +603,9 @@ fn above(value: &Value, bound: u64) -> bool {
 
 /// Takes `value` from `layer` for `key`, as `given` for the run layer and
 /// the project configuration a Client sent,
-/// unless something holds the key.
+/// unless something holds the key: a lock, an Operator policy's cap the
+/// value is past (a clear to no bound is past every cap), a Recipe's
+/// bounds or the key's authority.
 fn take(
     state: &mut State,
     key: Key,
@@ -629,8 +631,8 @@ fn take(
         };
         return Err(refused(locked.clone(), fix));
     }
-    if let (Some(cap), Some(given)) = (&state.cap, value.as_u64())
-        && cap.value.as_u64().is_some_and(|bound| given > bound)
+    if let Some(cap) = &state.cap
+        && cap.value.as_u64().is_some_and(|bound| above(value, bound))
     {
         return Err(refused(
             cap.clone(),

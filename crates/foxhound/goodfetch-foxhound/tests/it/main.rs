@@ -24,6 +24,7 @@ mod label_pools;
 mod learned_rules;
 mod limits;
 mod navigation_gate;
+mod operator_policy;
 mod outcomes;
 mod pacing;
 mod path_budgets;

@@ -2030,7 +2030,7 @@
             "$ref": "#/$defs/LabelDeclaration"
           },
           "arrived_in": "0.1",
-          "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone (ADRs 0082 and 0093). A Payload of a declared schema is checked\nagainst it at every enqueue; a Label the crawl does not declare\ntakes any Payload.",
+          "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone, and its own settings (ADRs 0082 and 0093): a scope between the\nRun and its requests. A Payload of a declared schema is checked\nagainst it at every enqueue; a Label the crawl does not declare\ntakes any Payload.",
           "type": "object"
         },
         "project": {
@@ -3646,11 +3646,17 @@
     },
     "LabelDeclaration": {
       "additionalProperties": false,
-      "description": "One Label a crawl declares (ADRs 0082 and 0093).",
+      "description": "One Label a crawl declares (ADRs 0082 and 0093): its Payload's schema\nand the settings its requests take over the Run's.",
       "properties": {
         "payload": {
           "arrived_in": "0.1",
           "description": "The JSON Schema its requests' Payloads are checked against, the\nside the program's schema parses from; none takes any Payload."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its settings, nested by key: today `fetch.tier` alone, any other key\nrefused with `setting_not_applicable`.",
+          "type": "object"
         }
       },
       "type": "object"
@@ -10410,6 +10416,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A handler's call on a page its forced fetch tier serves from a document, which that tier cannot serve exactly, such as a click, `evaluate` or a wait for content the document lacks: under a forced tier nothing escalates to the browser. The details name `fetch.tier`, the tier, the Label that forced it when one did, and the call; the fix names `fetch.tier: auto` or `browser`, and for a wait also content the page may simply lack.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "browser_required",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.",
       "exit_code": null,
       "group": "unavailable",
@@ -14861,7 +14877,7 @@
       "authority": "every",
       "clearable": false,
       "default": "auto",
-      "description": "The tier that fetches each crawl request's document: `auto` (the default) lets the engine choose, and today hands the handler its request alone; `http` fetches it over HTTP and hands the handler a page served from the document; `discovered_api`, `browser_fetch`, `light_browser` and `browser` force those tiers, each refused with `capability_unavailable` at the crawl's start until it is built.",
+      "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it today fetches the request over HTTP, hands the handler a page served from the document and escalates the request to the browser at the first call that tier cannot serve exactly, while left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
       "name": "fetch.tier",
       "product": "foxhound",
       "products": [

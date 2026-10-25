@@ -111,7 +111,6 @@ use crate::admission::{Admission, Gates};
 use crate::audit::{AuditEvents, AuditLog};
 use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
-use crate::client::Client;
 use crate::clock::Clock;
 use crate::controls::Controls;
 use crate::endpoint::Refusals;
@@ -210,9 +209,6 @@ pub(crate) struct RunsSetup {
     pub(crate) reached_at: Option<RunOwner>,
     /// How a live action reaches the owner the Run index names.
     pub(crate) forwarder: Arc<dyn Forwarder>,
-    /// The driver of each kind of Run that has one, which a resume starts
-    /// again.
-    pub(crate) drivers: BTreeMap<RunKind, Driver>,
     /// The runtime's metrics, which count the live Runs and their ends.
     pub(crate) metrics: Metrics,
     /// The engine's Resource governor, which each live Run joins.
@@ -234,12 +230,6 @@ pub(crate) struct RunsSetup {
     /// Run reports when its settings switch one off.
     pub(crate) controls: Controls,
 }
-
-/// What drives a kind of Run, such as Foxhound's crawl's delivery, given
-/// the Run, the Client of the Connection that resumed it and its settings:
-/// a resume starts it again on the Run's committed state.
-pub type Driver =
-    Arc<dyn Fn(Run, Client, RunSettings) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// How a live action reaches the engine that owns a Run (ADR 0031).
 pub(crate) trait Forwarder: Send + Sync {
@@ -1005,7 +995,6 @@ pub struct Runs {
     limits: Arc<Limits>,
     /// The Secret-provider driver, which holds the user's Audit log.
     secrets: Secrets,
-    drivers: Arc<BTreeMap<RunKind, Driver>>,
     /// The composition's Clean-up rules, which choose the version each new
     /// Run holds to (ADR 0047), if it has any.
     clean_up: Option<Arc<CleanUpRules>>,
@@ -2041,7 +2030,6 @@ impl Runs {
             connection: None,
             limits: Arc::new(limits),
             secrets,
-            drivers: Arc::new(setup.drivers.clone()),
             clean_up: CleanUpRules::of(&setup),
             needs_you: setup.needs_you.clone(),
             controls: Arc::new(setup.controls.clone()),
@@ -2070,7 +2058,6 @@ impl Runs {
             runs: runs.downgrade(),
             limits: Arc::clone(&runs.limits),
             secrets: runs.secrets.clone(),
-            drivers: Arc::clone(&runs.drivers),
             machine: None,
             draining: false,
             outliving: std::collections::BTreeSet::new(),
@@ -2675,11 +2662,6 @@ impl Runs {
         }
     }
 
-    /// The driver of Runs of `kind`, when the composition has one.
-    pub fn driver(&self, kind: RunKind) -> Option<Driver> {
-        self.drivers.get(&kind).cloned()
-    }
-
     /// The identity of the machine this engine's Goodfetch home is on,
     /// which a Run bound to its machine records (ADR 0056): drawn once and
     /// kept in the home.
@@ -3181,7 +3163,6 @@ struct Registry {
     /// What its Runs charge against.
     limits: Arc<Limits>,
     secrets: Secrets,
-    drivers: Arc<BTreeMap<RunKind, Driver>>,
     /// The machine's identity, once read.
     machine: Option<String>,
     /// Whether the engine drains, taking no Run (ADR 0049).
@@ -4329,7 +4310,6 @@ impl Registry {
             connection,
             limits: Arc::clone(&self.limits),
             secrets: self.secrets.clone(),
-            drivers: Arc::clone(&self.drivers),
             clean_up: CleanUpRules::of(&self.setup),
             needs_you: self.setup.needs_you.clone(),
             controls: Arc::new(self.setup.controls.clone()),

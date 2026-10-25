@@ -127,6 +127,23 @@ pub(crate) fn crawl_with(
     )
 }
 
+/// [`crawl_with`] for a crawl that declares the Labels `labels`, each with
+/// its settings, as `crawl.start` takes them.
+pub(crate) fn crawl_declaring(
+    engine: &mut Attached,
+    run_id: &str,
+    seeds: &[Value],
+    labels: &Value,
+    settings: &Value,
+    handler: &mut impl FnMut(&mut Inside<'_>, &Value) -> Value,
+) -> Value {
+    crawl_from(
+        engine,
+        &json!({ "run_id": run_id, "seeds": seeds, "labels": labels, "settings": settings }),
+        handler,
+    )
+}
+
 /// [`crawl`] from the `crawl.start` params `params`, its settings beside
 /// the handler's concurrency of 1.
 pub(crate) fn crawl_from(

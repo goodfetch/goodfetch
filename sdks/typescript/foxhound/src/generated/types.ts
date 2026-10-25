@@ -923,7 +923,8 @@ export interface SitemapReport {
 export interface CrawlStartParams {
   /**
    * The crawl's Labels, by name, each with its Payload's JSON Schema or
-   * none (ADRs 0082 and 0093). A Payload of a declared schema is checked
+   * none, and its own settings (ADRs 0082 and 0093): a scope between the
+   * Run and its requests. A Payload of a declared schema is checked
    * against it at every enqueue; a Label the crawl does not declare
    * takes any Payload.
    */
@@ -951,7 +952,8 @@ export interface CrawlStartParams {
   tags?: Tags;
 }
 /**
- * One Label a crawl declares (ADRs 0082 and 0093).
+ * One Label a crawl declares (ADRs 0082 and 0093): its Payload's schema
+ * and the settings its requests take over the Run's.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "LabelDeclaration".
@@ -962,6 +964,13 @@ export interface LabelDeclaration {
    * side the program's schema parses from; none takes any Payload.
    */
   payload?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Its settings, nested by key: today `fetch.tier` alone, any other key
+   * refused with `setting_not_applicable`.
+   */
+  settings?: {
     [k: string]: unknown;
   };
 }

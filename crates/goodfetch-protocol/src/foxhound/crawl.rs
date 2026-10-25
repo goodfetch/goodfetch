@@ -127,7 +127,8 @@ impl JsonSchema for Seeds {
     }
 }
 
-/// One Label a crawl declares (ADRs 0082 and 0093).
+/// One Label a crawl declares (ADRs 0082 and 0093): its Payload's schema
+/// and the settings its requests take over the Run's.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LabelDeclaration {
@@ -136,6 +137,11 @@ pub struct LabelDeclaration {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub payload: Option<Value>,
+    /// Its settings, nested by key: today `fetch.tier` alone, any other key
+    /// refused with `setting_not_applicable`.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: serde_json::Map<String, Value>,
 }
 
 /// What `crawl.start` takes.
@@ -154,7 +160,8 @@ pub struct CrawlStartParams {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub seeds: Seeds,
     /// The crawl's Labels, by name, each with its Payload's JSON Schema or
-    /// none (ADRs 0082 and 0093). A Payload of a declared schema is checked
+    /// none, and its own settings (ADRs 0082 and 0093): a scope between the
+    /// Run and its requests. A Payload of a declared schema is checked
     /// against it at every enqueue; a Label the crawl does not declare
     /// takes any Payload.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

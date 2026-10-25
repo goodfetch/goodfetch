@@ -1042,6 +1042,16 @@
       ]
     },
     {
+      "id": "error:effect_staging_refused",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:egress_refused",
       "kind": "error",
       "area": 4,
@@ -18481,6 +18491,26 @@
     },
     {
       "id": "story:6-233",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-236",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-237",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

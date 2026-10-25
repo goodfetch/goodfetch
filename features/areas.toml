@@ -1232,6 +1232,11 @@ number = 6
 kind = "error"
 prefix = "attempt_ended"
 
+[[area]]
+number = 6
+kind = "error"
+prefix = "effect_staging_refused"
+
 # Area 6, Collection, Foxhound: the crawl's scope (#840).
 [[area]]
 number = 6

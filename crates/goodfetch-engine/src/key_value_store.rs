@@ -20,13 +20,14 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::key_value_store::{
     KEY, KEY_MAX_SCALARS, KEY_VALUE_STORE_DELETE, KEY_VALUE_STORE_GET, KEY_VALUE_STORE_GET_BYTES,
-    KEY_VALUE_STORE_KEYS, KEY_VALUE_STORE_SET, KEY_VALUE_STORE_SET_BYTES, KeyValueStoreBytes,
-    KeyValueStoreBytesValue, KeyValueStoreContent, KeyValueStoreDeleted, KeyValueStoreKey,
-    KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet,
-    KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, Refused,
-    VALUE_INVALID, ValueInvalidDetails, ValueInvalidReason,
+    KEY_VALUE_STORE_KEYS, KEY_VALUE_STORE_SET, KEY_VALUE_STORE_SET_BYTES, KeyValueStoreAttempt,
+    KeyValueStoreBytes, KeyValueStoreBytesValue, KeyValueStoreContent, KeyValueStoreDeleted,
+    KeyValueStoreKey, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams,
+    KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue,
+    Refused, VALUE_INVALID, ValueInvalidDetails, ValueInvalidReason,
 };
 use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId};
 use rusqlite::{Connection, OptionalExtension as _};
@@ -38,6 +39,7 @@ use crate::run::{run_error, through_owner};
 use crate::run_files::{self, FileKind};
 use crate::run_state::{RunStateError, RunStateTables};
 use crate::runs::{Run, RunError, RunReader};
+use crate::staging::{AttemptWrites, StagedKey, StagedWrite, Unstaged};
 
 /// The store's table, which every run file holds. A row holds JSON in
 /// `value`, or bytes with their `content_type`, either in `content` or in
@@ -369,6 +371,70 @@ async fn live(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
         })
 }
 
+/// Where `run`'s crawl attempts stage their writes; `invalid_params` on a
+/// Run with no crawl, which has no attempt.
+fn attempt_writes_of(run: &Run) -> Result<Arc<dyn AttemptWrites>, CallError> {
+    run.attempt_writes().ok_or_else(|| {
+        CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!(
+                "The Run `{}` is no crawl, so its Key-value store takes no `attempt`: call it without one.",
+                run.id()
+            ),
+        )
+    })
+}
+
+/// The call's failure for a write its attempt did not stage.
+fn unstaged(unstaged: Unstaged) -> CallError {
+    CallError::new(unstaged.code, unstaged.message, &unstaged.details)
+}
+
+/// What `attempt`, when a read names one, staged for `key` in the live Run
+/// `run_id`; untouched for a read through no attempt.
+async fn staged_for(
+    run_id: &RunId,
+    attempt: Option<&KeyValueStoreAttempt>,
+    key: &str,
+    context: &CallContext,
+) -> Result<StagedKey, CallError> {
+    let Some(attempt) = attempt else {
+        return Ok(StagedKey::Untouched);
+    };
+    let run = live(run_id, context).await?;
+    attempt_writes_of(&run)?
+        .staged(&attempt.crawl_request_id, attempt.lease_epoch, key)
+        .map_err(unstaged)
+}
+
+/// Applies an attempt's staged `writes`, in order, inside the transaction
+/// of `connection` that commits the attempt (ADR 0093), and answers the
+/// kept files they took out, which [`forget_files`] forgets once that
+/// transaction committed.
+///
+/// # Errors
+///
+/// SQLite's.
+pub fn apply(connection: &Connection, writes: &[StagedWrite]) -> rusqlite::Result<Vec<String>> {
+    let mut files = Vec::new();
+    for write in writes {
+        let removed = match write {
+            StagedWrite::Set { key, value } => set(connection, key, value)?,
+            StagedWrite::Delete { key } => delete(connection, key)?,
+        };
+        files.extend(removed.file);
+    }
+    Ok(files)
+}
+
+/// Forgets each of `files`, kept files of `run`'s folder that committed
+/// writes took out, once no record names it.
+pub async fn forget_files(run: &Run, files: Vec<String>) {
+    for file in files {
+        forget(run, Some(file)).await;
+    }
+}
+
 /// The failure of a write to `run`'s state.
 fn unwritten(run: &Run, error: &RunStateError, context: &CallContext) -> CallError {
     run_error(
@@ -438,6 +504,11 @@ async fn handle_get(
         return Ok(answer);
     }
     let key = checked(params.key)?;
+    match staged_for(&params.run_id, params.attempt.as_ref(), &key, &context).await? {
+        StagedKey::Set(value) => return Ok(KeyValueStoreValue { value }),
+        StagedKey::Deleted => return Ok(KeyValueStoreValue { value: Value::Null }),
+        StagedKey::Untouched => {}
+    }
     let failed = |error: RunError| run_error(error, context.identity());
     let mut reader = context.runs().reader(params.run_id).await.map_err(failed)?;
     let read = key.clone();
@@ -462,6 +533,16 @@ async fn handle_set(
     }
     let run = live(&params.run_id, &context).await?;
     let value = params.value;
+    if let Some(attempt) = &params.attempt {
+        attempt_writes_of(&run)?
+            .stage(
+                &attempt.crawl_request_id,
+                attempt.lease_epoch,
+                StagedWrite::Set { key, value },
+            )
+            .map_err(unstaged)?;
+        return Ok(KeyValueStoreSet {});
+    }
     let removed = run
         .state()
         .write(move |connection| set(connection, &key, &value))
@@ -544,6 +625,11 @@ async fn handle_get_bytes(
         return Ok(answer);
     }
     let key = checked(params.key)?;
+    match staged_for(&params.run_id, params.attempt.as_ref(), &key, &context).await? {
+        StagedKey::Set(_) => return Err(value_invalid(key, ValueInvalidReason::ValueJson)),
+        StagedKey::Deleted => return Ok(KeyValueStoreBytesValue { bytes: None }),
+        StagedKey::Untouched => {}
+    }
     match read_bytes(params.run_id, &key, &context).await? {
         Read::Absent => Ok(KeyValueStoreBytesValue { bytes: None }),
         Read::Json => Err(value_invalid(key, ValueInvalidReason::ValueJson)),
@@ -626,6 +712,29 @@ async fn handle_delete(
 ) -> Result<KeyValueStoreDeleted, CallError> {
     let key = checked(params.key)?;
     let run = live(&params.run_id, &context).await?;
+    if let Some(attempt) = &params.attempt {
+        let before = attempt_writes_of(&run)?
+            .stage(
+                &attempt.crawl_request_id,
+                attempt.lease_epoch,
+                StagedWrite::Delete { key: key.clone() },
+            )
+            .map_err(unstaged)?;
+        let existed = match before {
+            StagedKey::Set(_) => true,
+            StagedKey::Deleted => false,
+            StagedKey::Untouched => {
+                let failed = |error: RunError| run_error(error, context.identity());
+                let mut reader = context.runs().reader(params.run_id).await.map_err(failed)?;
+                reader
+                    .read(move |connection| get(connection, &key))
+                    .await
+                    .map_err(failed)?
+                    .is_some()
+            }
+        };
+        return Ok(KeyValueStoreDeleted { existed });
+    }
     let removed = run
         .state()
         .write(move |connection| delete(connection, &key))

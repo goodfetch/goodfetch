@@ -447,8 +447,10 @@ impl On<'_> {
         let answer = match run.escalated {
             // The first answer, whatever it says, is discarded.
             Some(call) if !matches!(run.answer, Answer::LeaseEnded | Answer::ClientGone) => {
-                // The browser's run takes a whole lease of its own.
+                // The browser's run takes a whole lease of its own, and
+                // stages anew: what the first run staged goes with it.
                 self.lease.renew(self.lease.length());
+                self.lease.restage();
                 self.browser(&tiering.tiers, choice, Chosen::Escalated(call))
                     .await
             }
@@ -478,6 +480,7 @@ impl On<'_> {
             return (run.answer, merged, None);
         }
         self.lease.renew(self.lease.length());
+        self.lease.restage();
         let browser = TierChoice {
             tier: FetchTier::Browser,
             forced: None,

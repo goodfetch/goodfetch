@@ -38,6 +38,7 @@ mod served_calls;
 mod service_manager;
 mod session_pool;
 mod sitemap;
+mod staging;
 mod use_signals;
 mod workers;
 mod writer_lock;

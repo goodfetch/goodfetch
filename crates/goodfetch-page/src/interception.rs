@@ -117,7 +117,6 @@ use self::routes::{Route, RouteTable};
 use crate::clean_up_versions::Versions;
 use crate::driver::{Child, ChildKind, OnChild, OnWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
-use crate::proxy::SessionProxy;
 use crate::url_pattern::UrlPattern;
 
 /// `browser.service_workers`'s value that keeps every service worker from
@@ -592,10 +591,7 @@ impl Interception {
                 let enabled = frame
                     .command(&fetch::EnableParams {
                         patterns: Some(patterns()),
-                        handle_auth_requests: frame
-                            .proxy()
-                            .is_some_and(SessionProxy::answers_authentication)
-                            .then_some(true),
+                        handle_auth_requests: frame.answers_authentication().then_some(true),
                     })
                     .await;
                 if let Err(failure) = enabled {
@@ -646,15 +642,15 @@ impl Interception {
         // browser and nothing that must end with the Run before the
         // browser does.
         let shared = Arc::clone(&self.shared);
-        let (session, proxy, run) = (session.clone(), page.proxy_handle(), run.clone());
+        let (session, egress, run) = (session.clone(), page.egress_handle(), run.clone());
         // A worker's requests take its Session's pages' value: their gate
         // admits the navigations the worker carries.
         let value = page.value().clone();
         Arc::new(move |driver: PageDriver, gone: CancellationToken| {
-            let (shared, session, proxy, run, value) = (
+            let (shared, session, egress, run, value) = (
                 Arc::clone(&shared),
                 session.clone(),
-                proxy.clone(),
+                egress.clone(),
                 run.clone(),
                 value.clone(),
             );
@@ -676,7 +672,7 @@ impl Interception {
                     run.folder(),
                     run.secrets().mask().clone(),
                 ));
-                let driver = driver.with_proxy(proxy).with_value(value, run.clock());
+                let driver = driver.with_egress(egress).with_value(value, run.clock());
                 let events = driver.events();
                 if let Err(error) = pause_requests(&driver).await {
                     tracing::warn!(%error, ?worker, "a worker's requests could not be paused, so it does not run");
@@ -959,10 +955,7 @@ async fn pause_requests(driver: &PageDriver) -> Result<(), CallError> {
     driver
         .opening_command(&fetch::EnableParams {
             patterns: Some(patterns()),
-            handle_auth_requests: driver
-                .proxy()
-                .is_some_and(SessionProxy::answers_authentication)
-                .then_some(true),
+            handle_auth_requests: driver.answers_authentication().then_some(true),
         })
         .await
         .map(drop)

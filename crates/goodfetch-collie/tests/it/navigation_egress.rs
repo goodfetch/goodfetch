@@ -6,10 +6,9 @@
 //! URL is loaded only for the program's own code, and a `javascript:` URL
 //! runs only in a frame whose origin the domain policy allows.
 //!
-//! The browser layer's resolved-address check is the egress relay's
-//! (#634), so the SSRF table's redirects to a private address run here
-//! under a domain policy that refuses their target instead: each status
-//! and kind is still re-checked at its hop.
+//! The browser layer's resolved-address check is the egress relay's: the
+//! SSRF table's redirects to a private address are refused at the relay,
+//! where their hop connects, and raise `egress_refused` naming the address.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -286,13 +285,12 @@ fn run_case(
 
 /// The SSRF table's thin runner on Chromium (ADR 0067), for the redirect
 /// family: each case's page as the Proving ground serves it, every status
-/// and kind of redirect and every scheme other than HTTP's. A case aiming
-/// at a private address runs under a domain policy of the stand-ins' host,
-/// so its hop is refused by the policy, until the relay (#634) judges the
-/// address itself. Positive controls: the same kinds to an allowed page go
+/// and kind of redirect and every scheme other than HTTP's, a hop to a
+/// private address refused by the egress relay, one to a private name by
+/// the domain policy until #622. Positive controls: the same kinds to an allowed page go
 /// through.
 ///
-/// Covers: story:4-5, error:egress_refused
+/// Covers: story:4-5, story:4-10, error:egress_refused
 #[test]
 fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium() {
     let env = TestEnv::new();
@@ -300,12 +298,16 @@ fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium() {
     let cache = browser_cache(&env).unwrap();
     let public = proving_ground.address().ip();
     let table = SsrfTable::committed().unwrap();
+    // A hop to a name the table resolves privately would need the name in
+    // the Run's `network.resolve` mapping, whose answers the relay judges
+    // only once tests list their ranges (#622): it runs under a domain
+    // policy that refuses the name until then.
     let cases: Vec<SsrfCase> = table
         .cases_of(Family::Redirect)
         .map(|case| match &case.refusal {
             Refusal::EgressRefused {
                 rule: EgressRule::PrivateAddress,
-            } => SsrfCase {
+            } if case.lookups.len() > 1 => SsrfCase {
                 domains: Some(CaseDomains {
                     allowed: vec!["redirects.test".to_owned()],
                     blocked: Vec::new(),

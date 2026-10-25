@@ -1190,6 +1190,8 @@ Every boundary has its tests. A decision that adds a boundary adds its row in th
 | Endpoints and the peer link | endpoint table; protocol fuzzing; MCP conformance over HTTP (placed by ADR 0070) | Pre-merge; Release | Linux; every OS (MCP conformance: as ADR 0070) |
 | | ZAP baseline of the Console | Release | Linux |
 | A Session's proxy relay | relay unit tests against a fake SOCKS5 proxy: credentials refused per connection, the accept loop's backoff | Quick | every OS |
+| The egress relay (`goodfetch-page`'s `egress_relay`) | relay unit tests in process: a client without the Session's credentials refused, the Scripted resolver's rebinding cases, the upstream proxy path, the domain policy | Quick | every OS |
+| | the relay on Chromium (Collie's `egress_relay` tests): no private address reached, another local process refused, an upstream proxy chained, the switch off, the ClientHello's JA4 unchanged | Pre-merge; Release | Linux; every OS but Windows |
 | | the relay path end to end through the Proving ground's SOCKS5 proxy, its password searched as a Secret canary | Pre-merge; Release | Linux; every OS but Windows |
 | Secrets | redaction property tests | Quick | every OS |
 | | Secret canary searches | the suite of the test that produces the output | its OSes |

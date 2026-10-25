@@ -224,9 +224,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
         };
         let request = arrived.request(stream, self.requests, context);
         self.requests += 1;
-        // A filler body is past the window the server never waits beyond.
+        // A filler body is past the window the server never waits beyond,
+        // and a stalled one is HTTP/1.1's alone.
         let answer = match settle(pages.answer(&request).await).await {
-            Answer::Filler { .. } => Answer::Refuse(Refusal::Reset(ErrorCode::InternalError)),
+            Answer::Filler { .. } | Answer::Stalled { .. } => {
+                Answer::Refuse(Refusal::Reset(ErrorCode::InternalError))
+            }
             answer => answer,
         };
         match answer {
@@ -306,8 +309,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
                 context.delivered(request.recorded, None, 0, End::ConnectionClosed);
                 Ok(true)
             }
-            Answer::Filler { .. } | Answer::Later(..) => {
-                unreachable!("invariant: a filler is reset above, and `settle` resolves every wait")
+            Answer::Filler { .. } | Answer::Stalled { .. } | Answer::Later(..) => {
+                unreachable!(
+                    "invariant: a filler or stalled body is reset above, and `settle` resolves every wait"
+                )
             }
         }
     }

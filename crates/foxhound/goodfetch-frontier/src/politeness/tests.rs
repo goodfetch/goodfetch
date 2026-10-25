@@ -30,6 +30,8 @@ use serde_json::{Value, json};
 use super::{Backoff, DomainRule, TABLES, crawl_delay_asked, document_start_taken};
 use crate::robots_txt;
 
+mod pacing;
+
 const KEY: &str = "shop.test";
 
 fn file() -> Connection {

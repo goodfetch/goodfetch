@@ -10436,6 +10436,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Chromium's sandbox cannot start on this host, where a fix exists, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_sandbox_unavailable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.",
       "exit_code": null,
       "group": "unavailable",
@@ -10691,6 +10701,16 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "limit_reached",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`egress.local_addresses` yields no address this host can send from: a listed address the host does not hold, an interface it does not have or that holds no address, or an IPv6 prefix with none of the host's addresses in it and, on Linux, not routed locally with `net.ipv6.ip_nonlocal_bind` on. The binding is never ignored: assign the address, correct the value, or route the prefix to the host.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "local_address_unavailable",
       "product": "collie",
       "retryable": false
     },
@@ -14831,6 +14851,37 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "not_by_recipe",
+      "clearable": true,
+      "default": null,
+      "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.",
+      "name": "egress.local_addresses",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "oneOf": [
+          {
+            "description": "IP addresses of the host.",
+            "items": {
+              "format": "ip",
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          {
+            "description": "An interface's name, such as `eth0`, or an IPv6 prefix, such as `2001:db8:1::/48`.",
+            "type": "string"
+          }
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "operator_policy",
       "clearable": false,
       "default": false,
@@ -14860,6 +14911,44 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 24,
+      "description": "The prefix length of the IPv4 blocks new Sessions are spread across, round-robin, when `egress.local_addresses` gives several: 24 by default, so consecutive Sessions leave from different /24 networks while the addresses allow it. Set for a connection or a Run.",
+      "name": "egress.rotation_block.ipv4",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "maximum": 32,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 64,
+      "description": "The prefix length of the IPv6 blocks new Sessions are spread across, round-robin, when `egress.local_addresses` gives several: 64 by default, the block a rate limiter such as Cloudflare's counts as one client. Set for a connection or a Run.",
+      "name": "egress.rotation_block.ipv6",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "maximum": 128,
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },
@@ -16301,10 +16390,10 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "configuration",
       "clearable": false,
       "default": true,
-      "description": "Whether Chromium's renderers run in their namespace sandbox (ADR 0017). On by default; off, they run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "description": "Whether Chromium's renderers run in their sandbox (ADRs 0017 and 0049): the engine never passes `--no-sandbox` while it is on. On by default, except on a host whose platform allows no sandbox (AWS Lambda, Fargate, Azure Container Apps), where the engine switches it off. Only an Operator policy or configuration switches it off; a Recipe's or a run's value is `setting_locked`. Off, the renderers run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
       "name": "security.browser_sandbox",
       "product": "collie",
       "products": [

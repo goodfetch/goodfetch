@@ -232,7 +232,8 @@ The `protection/1` answer adds `pages`, each page of the tier-move site with the
 - `client_certificates`, the host name of each handshake that presented a client certificate a host requiring mutual TLS accepted, in order, at most 10,000;
 - `connections`, the connection record: every connection a listener of the Proving ground accepted, the site's own address included, each with its `id` (a request's `connection`), `time_step`, `at_microseconds`, `listener` (`site`, `target` or a proxy's name), `source`, `destination`, and `relay`, the relay that opened it when a forward proxy did. A test asserts that no connection reached a target from it (ADR 0067);
 - `relays`, every request a forward proxy received, each with its `id`, `time_step`, `at_microseconds`, `proxy`, `kind`, `connection` (the client's connection to the proxy), `method`, `target` as sent, `task` (of the target's host), `username` (never the password), `sticky` (`provider`, `session`, `country` and `lifetime_minutes` its username asked for), `exit`, `destination` (the address it resolved to), `source` (the proxy's side of the connection it opened), `outcome` (`relayed`, `proxy_authentication_required`, `tunnel_refused`, `malformed`, `unresolved`, `destination_prohibited`, `connection_refused` or `too_many_requests`) and `bytes` (`received` from the client and `sent` to it, the proxy's own answer included);
-- `unrecorded_connections` and `unrecorded_relays`, those past the first 100,000 of each.
+- `dns_queries`, every query the DNS fixture received, each with its `time_step`, `at_microseconds`, `source` (the address and port it came from, so a test sees which local address a resolver asked from), `name` and `record_type` (`A`, `AAAA`, or the type's number);
+- `unrecorded_connections`, `unrecorded_relays` and `unrecorded_dns_queries`, those past the first 100,000 of each.
 
 ## Network fixtures
 

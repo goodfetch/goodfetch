@@ -27,6 +27,12 @@
 //! name again itself. [`tunnel`] is the translation point of the proxy's
 //! answer to a tunnel request (ADR 0127).
 //!
+//! A Session with local addresses (ADR 0044) sends each connection from its
+//! address of the family it connects over, to the site or its proxy, and
+//! resolves every name through the engine's own resolver, its queries sent
+//! from that address too ([`LocalBinding`]); a host with addresses only in
+//! a family it holds none of fails with `address_family_unavailable`.
+//!
 //! ADR 0043 allows only two kinds of caller beside a run's own requests:
 //! `pinned_download`, the one path for every connection nobody configured,
 //! and the module of each kind of Operator-configured endpoint. Which
@@ -59,9 +65,10 @@ use rustls::pki_types::ServerName;
 use url::Host;
 
 use crate::clock::Clock;
-use crate::dns::{Dns, IpFamily, LookupError, Route, family_of};
+use crate::dns::{Dns, IpFamily, LookupError, Resolution, Route, family_of};
 use crate::egress::{self, EndpointPolicy, Judgment, Refused};
-use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
+use crate::happy_eyeballs::{Delays, Families, FamilyUnavailable, Race, RaceError};
+use crate::local_addresses::SessionAddresses;
 use crate::response_limits::{
     BodyFailure, Decoding, JsonFailure, LimitExceeded, Limits, parse_json,
 };
@@ -117,6 +124,76 @@ pub(crate) struct Network<'a> {
     pub(crate) clock: Clock,
     /// The race's delays.
     pub(crate) delays: Delays,
+    /// The Session's local addresses, which its connections leave from;
+    /// none for an Operator-configured endpoint.
+    pub(crate) local: Option<&'a LocalBinding>,
+}
+
+/// A Session's local addresses on the engine's own HTTP client (ADR
+/// 0044): what its connections bind, and the engine's resolution whose
+/// queries leave from them.
+#[derive(Clone)]
+pub struct LocalBinding {
+    addresses: SessionAddresses,
+    dns: Dns,
+}
+
+impl LocalBinding {
+    /// The Session holding `addresses`, resolving through `dns` with its
+    /// queries sent from them.
+    pub fn new(addresses: SessionAddresses, dns: &Dns) -> Self {
+        Self {
+            addresses,
+            dns: dns.from_local_addresses(addresses.ipv4, addresses.ipv6),
+        }
+    }
+
+    fn families(&self) -> Families {
+        match (self.addresses.ipv4, self.addresses.ipv6) {
+            (Some(_), None) => Families::Only(IpFamily::Ipv4),
+            (None, Some(_)) => Families::Only(IpFamily::Ipv6),
+            _ => Families::Both,
+        }
+    }
+
+    fn of(&self, family: IpFamily) -> Option<IpAddr> {
+        match family {
+            IpFamily::Ipv4 => self.addresses.ipv4.map(IpAddr::V4),
+            IpFamily::Ipv6 => self.addresses.ipv6.map(IpAddr::V6),
+        }
+    }
+
+    /// `server`'s addresses on its port: the `resolve` mapping's, its
+    /// literal address, or the engine's own resolver's, asked from the
+    /// Session's addresses.
+    async fn addresses(
+        &self,
+        server: &Server<'_>,
+        resolve: &Resolve,
+    ) -> Result<Vec<SocketAddr>, Failure> {
+        let on_port = |address: &IpAddr| SocketAddr::new(*address, server.port);
+        if let Some(mapped) = resolve.addresses(server.host) {
+            return Ok(mapped.iter().map(on_port).collect());
+        }
+        if let Ok(address) = server.host.parse::<IpAddr>() {
+            return Ok(vec![on_port(&address)]);
+        }
+        match self.dns.lookup(server.host, Route::LocalAddress).await {
+            Ok(Resolution::Addresses { addresses, .. }) => {
+                Ok(addresses.iter().map(on_port).collect())
+            }
+            Ok(Resolution::ByProxy) | Err(_) => Err(Failure::Network),
+        }
+    }
+}
+
+impl std::fmt::Debug for LocalBinding {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LocalBinding")
+            .field("addresses", &self.addresses)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Where a Session's connections leave from (ADR 0044): the local address
@@ -251,6 +328,9 @@ pub struct PageTraffic {
     pub egress: egress::Policy,
     /// The `resolve` setting (ADR 0059).
     pub resolve: Resolve,
+    /// The Session's local addresses (ADR 0044), which its connections and
+    /// DNS queries leave from when it holds some.
+    pub local: Option<LocalBinding>,
     /// The Session's upstream proxy, which its requests go through when it
     /// has one.
     pub proxy: Option<UpstreamProxy>,
@@ -401,15 +481,14 @@ impl PageTraffic {
             client_certificates: Some(&self.client_certificates),
             clock: self.clock,
             delays: self.delays,
+            local: self.local.as_ref(),
         };
         let server = Server {
             host: &host,
             port,
             plain,
         };
-        let found = addresses(&server, &self.resolve)
-            .await
-            .map_err(FetchError::Failed)?;
+        let found = self.addresses(&server).await.map_err(FetchError::Failed)?;
         if let Err(refused) = egress::judge_addresses(requested, &found, &self.egress) {
             if let Waiter::Nobody(log) = waiter {
                 record_unwaited(log, &refused).await;
@@ -424,7 +503,8 @@ impl PageTraffic {
                     port: proxy.port,
                     plain: true,
                 };
-                let at = addresses(&proxy_server, &self.resolve)
+                let at = self
+                    .addresses(&proxy_server)
                     .await
                     .map_err(|_| FetchError::Failed(Failure::Proxy(ProxyFailure::Unreachable)))?;
                 Via::Proxy {
@@ -437,6 +517,15 @@ impl PageTraffic {
         send_to(&server, &via, request, &self.cookies, &network)
             .await
             .map_err(FetchError::Failed)
+    }
+
+    /// `server`'s addresses as this Session resolves them: from its local
+    /// addresses when it holds some.
+    async fn addresses(&self, server: &Server<'_>) -> Result<Vec<SocketAddr>, Failure> {
+        match &self.local {
+            Some(local) => local.addresses(server, &self.resolve).await,
+            None => addresses(server, &self.resolve).await,
+        }
     }
 }
 
@@ -531,6 +620,7 @@ impl ConfiguredEndpoint<'_> {
             client_certificates: None,
             clock: self.clock,
             delays: self.delays,
+            local: None,
         };
         send_to(&server, &Via::Direct(&found), request, &[], &network)
             .await
@@ -586,6 +676,9 @@ pub enum Failure {
     /// The Session's upstream proxy carried nothing to the site: its own
     /// failure, never the site's.
     Proxy(ProxyFailure),
+    /// The host has addresses only in a family the Session holds no local
+    /// address of, so nothing was sent: `address_family_unavailable`.
+    AddressFamily(FamilyUnavailable),
 }
 
 /// Why a body was not read whole.
@@ -987,11 +1080,19 @@ async fn open(
     match via {
         Via::Direct(found) => race_to(server.host, server.port, found, network)
             .await
-            .map_err(|_| Failure::Network),
+            .map_err(|error| match error {
+                RaceError::FamilyUnavailable(unavailable) => Failure::AddressFamily(unavailable),
+                _ => Failure::Network,
+            }),
         Via::Proxy { host, port, at } => {
             let mut tcp = race_to(host, *port, at, network)
                 .await
-                .map_err(|_| Failure::Proxy(ProxyFailure::Unreachable))?;
+                .map_err(|error| match error {
+                    RaceError::FamilyUnavailable(unavailable) => {
+                        Failure::AddressFamily(unavailable)
+                    }
+                    _ => Failure::Proxy(ProxyFailure::Unreachable),
+                })?;
             if !server.plain {
                 let authority = match server.host.parse::<IpAddr>() {
                     Ok(IpAddr::V6(address)) => format!("[{address}]:{}", server.port),
@@ -1008,7 +1109,8 @@ async fn open(
 
 /// Connects to one of `found`, the addresses of `name` on `port`, both
 /// families answered at once, raced under RFC 8305: it tries no other
-/// address.
+/// address, and only those of a family the Session's local addresses hold,
+/// each connection bound to its address of that family.
 async fn race_to(
     name: &str,
     port: u16,
@@ -1025,14 +1127,20 @@ async fn race_to(
     let race = Race {
         clock: network.clock,
         delays: network.delays,
-        families: Families::Both,
+        families: network.local.map_or(Families::Both, LocalBinding::families),
     };
+    let local = network.local;
     race.connect(
         name,
         port,
         ready(of(IpFamily::Ipv6)),
         ready(of(IpFamily::Ipv4)),
-        |address| attempt(address, None),
+        |address| {
+            attempt(
+                address,
+                local.and_then(|local| local.of(family_of(address.ip()))),
+            )
+        },
     )
     .await
     .map(|won| won.connection)

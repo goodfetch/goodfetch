@@ -61,6 +61,7 @@ fn traffic(
             .with_private_ranges(ranges)
             .unwrap(),
         resolve,
+        local: None,
         proxy: None,
         trust: Trust::default_roots(),
         exceptions: CertificateExceptions::default(),

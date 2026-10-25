@@ -530,6 +530,12 @@ number = 4
 kind = "error"
 prefix = "cdp_url_not_allowed"
 
+# Area 4's local addresses (#637, ADR 0044): a value that yields no address.
+[[area]]
+number = 4
+kind = "error"
+prefix = "local_address_unavailable"
+
 # Area 4's certificate verification (#625): the Error codes a certificate
 # fails with.
 [[area]]
@@ -572,6 +578,11 @@ prefix = "audit."
 number = 4
 kind = "setting"
 prefix = "security."
+
+[[area]]
+number = 4
+kind = "error"
+prefix = "browser_sandbox_unavailable"
 
 # Area 4's known-certificates store (#628): `certs.list`, Collie's `certs
 # list` and the store's format.

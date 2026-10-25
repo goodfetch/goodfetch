@@ -130,6 +130,14 @@ class BrowserNotInstalledError(UnavailableError):
         super().__init__(message, code="browser_not_installed", group="unavailable", retryable=False)
 
 
+class BrowserSandboxUnavailableError(UnavailableError):
+    """Chromium's sandbox cannot start on this host, where a fix exists, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="browser_sandbox_unavailable", group="unavailable", retryable=False)
+
+
 class CallCancelledError(UnavailableError):
     """The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it."""
 
@@ -288,6 +296,14 @@ class LimitReachedError(RefusedError):
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="limit_reached", group="refused", retryable=False)
+
+
+class LocalAddressUnavailableError(UnavailableError):
+    """`egress.local_addresses` yields no address this host can send from: a listed address the host does not hold, an interface it does not have or that holds no address, or an IPv6 prefix with none of the host's addresses in it and, on Linux, not routed locally with `net.ipv6.ip_nonlocal_bind` on. The binding is never ignored: assign the address, correct the value, or route the prefix to the host."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="local_address_unavailable", group="unavailable", retryable=False)
 
 
 class LoggedOutError(PageError):
@@ -700,6 +716,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "browser_host_outdated": BrowserHostOutdatedError,
     "browser_launch_failed": BrowserLaunchFailedError,
     "browser_not_installed": BrowserNotInstalledError,
+    "browser_sandbox_unavailable": BrowserSandboxUnavailableError,
     "call_cancelled": CallCancelledError,
     "capability_unavailable": CapabilityUnavailableError,
     "cdp_url_not_allowed": CDPURLNotAllowedError,
@@ -720,6 +737,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "header_value_invalid": HeaderValueInvalidError,
     "limit_not_understood": LimitNotUnderstoodError,
     "limit_reached": LimitReachedError,
+    "local_address_unavailable": LocalAddressUnavailableError,
     "logged_out": LoggedOutError,
     "name_lookup_failed": NameLookupFailedError,
     "name_not_resolved": NameNotResolvedError,

@@ -29,6 +29,7 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::sandbox_probe::{self, Probed};
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_protocol::browser_cache::{
     BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser,
@@ -36,7 +37,7 @@ use goodfetch_protocol::browser_cache::{
 use goodfetch_protocol::page::{
     BROWSER_HEADLESS, BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails,
 };
-use goodfetch_protocol::security::SECURITY_RAW_CDP_EGRESS_PROXY;
+use goodfetch_protocol::security::{SECURITY_BROWSER_SANDBOX, SECURITY_RAW_CDP_EGRESS_PROXY};
 use goodfetch_protocol::settings::{NETWORK_RESOLVE, TIMEOUT_CLOSE};
 use tokio::process::{Child, Command};
 use tokio::sync::watch;
@@ -182,9 +183,11 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 ///
 /// # Errors
 ///
-/// The Browser cache's codes for a missing build (`browser_not_installed`,
-/// `artifact_unavailable_offline`, `artifact_download_failed`), and
-/// `browser_launch_failed` for a process that does not start.
+/// `browser_sandbox_unavailable` where Chromium's sandbox, on, cannot start
+/// (ADR 0049); the Browser cache's codes for a missing build
+/// (`browser_not_installed`, `artifact_unavailable_offline`,
+/// `artifact_download_failed`), and `browser_launch_failed` for a process
+/// that does not start.
 ///
 /// # Cancel safety
 ///
@@ -197,6 +200,20 @@ pub(crate) async fn launch(
     number: u64,
     stopping: CancellationToken,
 ) -> Result<Launched, CallError> {
+    let settings = run.settings().map(RunSettings::resolved);
+    // Chromium's sandbox stays on unless switched off; where the startup
+    // probe refused it, no browser starts (ADR 0049).
+    let sandbox = settings
+        .and_then(|settings| settings.boolean(SECURITY_BROWSER_SANDBOX.name))
+        .unwrap_or(true);
+    let probed = if sandbox {
+        Some(run.owner().blocking(sandbox_probe::probed).await)
+    } else {
+        None
+    };
+    if let Some(refusal) = probed.and_then(Probed::refusal) {
+        return Err(refusal);
+    }
     let (executable, held, kind) = executable(run, home, pins).await?;
     let data_folder = run.folder().join(DATA_FOLDERS).join(number.to_string());
     let created = data_folder.join(DEFAULT_PROFILE);
@@ -219,7 +236,6 @@ pub(crate) async fn launch(
         )
         .await
         .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
-    let settings = run.settings().map(RunSettings::resolved);
     let headless = settings
         .and_then(|settings| settings.boolean(BROWSER_HEADLESS.name))
         .unwrap_or(true);
@@ -242,6 +258,7 @@ pub(crate) async fn launch(
         resolve: &resolve,
         shared_memory: shared_memory(run).await,
         proxy_script: proxy_script.as_deref(),
+        sandbox,
     });
     for warning in &built.warnings {
         tracing::warn!(%warning, "the Run's browser launches degraded");
@@ -252,9 +269,21 @@ pub(crate) async fn launch(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let (connection, driver, child) =
+    let (connection, driver, mut child) =
         start(command).map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
     let process = child.child.id();
+    // Under AppArmor's restriction, the label the browser started under
+    // says whether its sandbox can start: one the restriction holds is
+    // closed before it fails on its own.
+    if matches!(probed, Some(Probed::Restricted))
+        && let Some(label) = process.and_then(sandbox_probe::label_of)
+        && sandbox_probe::label_holds_user_namespaces(&label)
+    {
+        let _ = child.child.start_kill();
+        let _ = child.child.wait().await;
+        drop((connection, driver, child, held));
+        return Err(sandbox_probe::apparmor_refusal(&executable, &label));
+    }
     let (exits, exit) = watch::channel(None);
     let released = CancellationToken::new();
     run.spawn(supervise(Supervised {

@@ -89,8 +89,8 @@ fn a_labels_tier_forces_its_own_requests_over_the_runs(
     assert_eq!(tiers.choose(label, run), expected);
 }
 
-/// A Label key other than `fetch.tier`, `fetch.encoding` and
-/// `session.page_check` is refused with `setting_not_applicable`,
+/// A Label key other than `fetch.tier`, `fetch.encoding`,
+/// `session.page_check` and `session.source` is refused with `setting_not_applicable`,
 /// `fetch.tier_race` among them since it is set for the Run only; a
 /// `fetch.tier` naming no tier, a `fetch.encoding` that is no WHATWG
 /// Encoding label, and a `session.page_check` that is no Page check, with
@@ -108,7 +108,11 @@ fn a_labels_tier_forces_its_own_requests_over_the_runs(
     "setting_invalid",
     "session.page_check"
 )]
-#[case::another_session_key(json!({ "session": { "source": "x" } }), "setting_not_applicable", "session.source")]
+#[case::another_session_key(
+    json!({ "session": { "pool": { "max_size": 2 } } }),
+    "setting_not_applicable",
+    "session.pool.max_size"
+)]
 fn a_label_setting_it_cannot_take_is_refused(
     #[case] settings: Value,
     #[case] code: &str,

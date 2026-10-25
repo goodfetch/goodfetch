@@ -15,6 +15,7 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_state::{RunState, RunStateOptions, RunStateTables};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
@@ -430,6 +431,8 @@ impl StateMachineTest for Subject {
                         let hop = identity::redirect_hop(
                             connection,
                             &Scope::read(connection)?,
+                            &Policy::new(&["*"], &[] as &[&str])
+                                .expect("invariant: every host is an entry"),
                             &crawl_request,
                             &url,
                             &method,

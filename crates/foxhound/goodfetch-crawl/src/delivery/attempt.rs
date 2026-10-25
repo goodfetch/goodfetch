@@ -47,6 +47,7 @@ use goodfetch_engine::CallContext;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::client::{Client, ClientRequestError, Sent};
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
@@ -179,6 +180,8 @@ pub(super) struct Gating {
     pub(super) tiers: FetchTiers,
     pub(super) second_copies: SecondCopies,
     pub(super) robots: Option<RobotsTxtFetch>,
+    /// The Run's domain policy.
+    pub(super) egress: Arc<Policy>,
     pub(super) page_check: Option<PageCheck>,
 }
 
@@ -225,6 +228,7 @@ impl Gating {
                 request_id: leased.crawl_request.id.clone(),
                 in_flight: Arc::clone(in_flight),
             }),
+            egress: Arc::clone(&self.egress),
             page_check: self.page_check.clone(),
         })
     }

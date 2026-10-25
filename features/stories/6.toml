@@ -776,6 +776,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 238
+title = "As a crawl developer, I want `run.outcomes({ kinds: [\"skipped\", \"blocked\"], after: \"now\" })` to follow skipped and blocked links as they happen, each with its reason, in place of a callback, so that I can watch the crawl's refusals live (CO-11, ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 239
 title = "As a site owner, I want every crawl request, start URLs and sitemap entries included, and every navigation and fetch a handler makes from its page, to obey my robots.txt's group for `goodfetch-foxhound` and the operator's token merged before `*`, so that a crawl does what my file says (ADR 0086; SC-01; pitfall U17)."
 milestone = "M1 Core"

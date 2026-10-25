@@ -139,6 +139,11 @@ fn redirect(rest: &str, request: &Request) -> Answer {
     let to = |status: u16, location: &str| {
         Answer::Page(Page::text(status, "").with("location", location.to_owned()))
     };
+    // The request's own port, for a redirect to another host on it.
+    let port = request
+        .authority
+        .rsplit_once(':')
+        .map_or(String::new(), |(_, port)| format!(":{port}"));
     match rest {
         "loop" => to(302, "/redirect/loop"),
         "cookie"
@@ -160,13 +165,15 @@ fn redirect(rest: &str, request: &Request) -> Answer {
         "300" => to(300, "/target"),
         "no-location" => Answer::Page(Page::text(302, "")),
         "ftp" => to(302, "ftp://fetch-edge.test/target"),
-        "cross-origin" => {
-            let port = request
-                .authority
-                .rsplit_once(':')
-                .map_or(String::new(), |(_, port)| format!(":{port}"));
-            to(302, &format!("https://{HTTP1_HOST}{port}/target"))
-        }
+        "file" => to(302, "file:///etc/passwd"),
+        "gopher" => to(302, "gopher://fetch-edge.test/1"),
+        "data" => to(302, "data:text/html,hi"),
+        "cross-origin" => to(302, &format!("https://{HTTP1_HOST}{port}/target")),
+        // The Proving ground's own loopback address, dotted and in hex.
+        "address" => to(302, &format!("http://127.0.0.1{port}/address/target")),
+        "address/hex" => to(302, &format!("http://0x7f.0.0.1{port}/address/target")),
+        // `bücher.test` in punycode.
+        "punycode" => to(302, &format!("http://xn--bcher-kva.test{port}/target")),
         "robots" => to(302, "/private/target"),
         hops => match hops
             .strip_prefix("hops/")

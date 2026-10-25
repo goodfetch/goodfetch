@@ -95,7 +95,7 @@ pub(crate) fn applies(copy: Option<&Copy>, answer: &Answer) -> Fetched {
     }
 }
 
-fn stored(connection: &Connection, location: &str) -> rusqlite::Result<Option<Copy>> {
+pub(crate) fn stored(connection: &Connection, location: &str) -> rusqlite::Result<Option<Copy>> {
     connection
         .query_row(
             "SELECT fetched_at, status, body FROM robots_txt WHERE location = ?1",
@@ -111,7 +111,7 @@ fn stored(connection: &Connection, location: &str) -> rusqlite::Result<Option<Co
         .optional()
 }
 
-fn store(connection: &Connection, location: &str, copy: &Copy) -> rusqlite::Result<()> {
+pub(crate) fn store(connection: &Connection, location: &str, copy: &Copy) -> rusqlite::Result<()> {
     connection.execute(
         "INSERT INTO robots_txt (location, fetched_at, status, body) VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT (location) DO UPDATE SET fetched_at = ?2, status = ?3, body = ?4",

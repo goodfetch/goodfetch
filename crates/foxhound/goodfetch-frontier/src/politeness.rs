@@ -50,6 +50,8 @@ use goodfetch_protocol::foxhound::settings::{
 };
 use goodfetch_protocol::settings::{SETTING_NOT_APPLICABLE, SettingNotApplicableDetails};
 use rusqlite::{Connection, OptionalExtension as _};
+
+use crate::robots_txt;
 use serde_json::Value;
 
 /// How long a lowered ceiling stays quiet before it grows back by one.
@@ -470,35 +472,55 @@ pub async fn started_again(
         .await
 }
 
-/// Takes in `connection` the next start of `key` for a request that may go
-/// `spacing` after the request of its own that started at `after`: no
-/// sooner than `spacing` after the last start any sharing run took either,
-/// which it then becomes. Answers when it is.
+/// Takes in `connection` the next start of `key` for a document after the
+/// robots.txt at `location` its attempt read at `now`: `fetched`, when its
+/// attempt fetched it, that fetch's response arrival, else the fetch of the
+/// copy it read. While that fetch is less than `spacing` before `now`, the
+/// document may have been admitted before its Crawl-delay was known, so it
+/// starts no sooner than `spacing` after that fetch and after the last
+/// start any sharing run took, which it then becomes; answers when it is.
+/// Otherwise its admission kept the delay: `None`.
 pub(crate) fn start_taken(
     connection: &Connection,
     key: &str,
-    after: SystemTime,
+    location: &str,
+    fetched: Option<SystemTime>,
     spacing: Duration,
-) -> rusqlite::Result<SystemTime> {
-    let mut limits = Limits::read(connection, key)?;
+    now: SystemTime,
+) -> rusqlite::Result<Option<SystemTime>> {
+    let after = match fetched {
+        Some(fetched) => milliseconds_from(fetched),
+        // The copy keeps the millisecond its fetch ended in: it ended
+        // before the next.
+        None => match robots_txt::stored(connection, location)? {
+            Some(copy) => copy.fetched_at.saturating_add(1),
+            None => return Ok(None),
+        },
+    };
     let spacing = duration_milliseconds(spacing);
-    let after = milliseconds_from(after);
+    if after.saturating_add(spacing) <= milliseconds(now) {
+        return Ok(None);
+    }
+    let mut limits = Limits::read(connection, key)?;
     let start = limits
         .last_start
         .map_or(after, |last| last.max(after))
         .saturating_add(spacing);
     limits.last_start = Some(start);
     limits.write(connection, key)?;
-    Ok(moment(start))
+    Ok(Some(moment(start)))
 }
 
 /// Takes the next start of `key`, for every run sharing `politeness`, for
-/// a request that may go `spacing` after the request of its own that
-/// started at `after`, such as a document after the robots.txt it fetched
-/// under its Permit: no sooner than `spacing` after the last start any
-/// sharing run took either, so two runs that fetched robots.txt at once,
-/// before either knew its Crawl-delay, start their documents `spacing`
-/// apart (ADR 0086). Answers when it is; the caller waits until then.
+/// a document whose attempt read the robots.txt at `location` at `now`
+/// ([`start_taken`]): `spacing` after that robots.txt's fetch, `fetched`
+/// when the attempt fetched it, while that fetch is less than `spacing`
+/// before, and after the last start any sharing run took. So two runs that
+/// read robots.txt at once, before either knew its Crawl-delay, start
+/// their documents `spacing` apart, and the site receives neither sooner
+/// than `spacing` after the robots.txt request (ADR 0086). Answers when it
+/// is, for the caller to wait until then; `None` when the document's
+/// admission kept the delay.
 ///
 /// # Errors
 ///
@@ -510,12 +532,14 @@ pub(crate) fn start_taken(
 pub async fn start_after(
     politeness: &Politeness,
     key: &str,
-    after: SystemTime,
+    location: &str,
+    fetched: Option<SystemTime>,
     spacing: Duration,
-) -> Result<SystemTime, PolitenessError> {
-    let key = key.to_owned();
+    now: SystemTime,
+) -> Result<Option<SystemTime>, PolitenessError> {
+    let (key, location) = (key.to_owned(), location.to_owned());
     politeness
-        .transact(move |connection| start_taken(connection, &key, after, spacing))
+        .transact(move |connection| start_taken(connection, &key, &location, fetched, spacing, now))
         .await
 }
 

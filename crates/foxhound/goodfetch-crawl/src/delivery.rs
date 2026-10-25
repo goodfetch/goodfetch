@@ -62,6 +62,7 @@ use goodfetch_engine::client::Client;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::Refusal;
+use goodfetch_engine::mask::Scope;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
@@ -71,8 +72,10 @@ use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
     WORK_ITEM_RETRIED,
 };
+use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::governor::WorkKind;
+use goodfetch_protocol::page::SITE_PREFERENCES_REFUSED;
 use goodfetch_protocol::run::{
     EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, StopReason,
 };
@@ -922,7 +925,15 @@ async fn settle(
         Answer::Handled(CrawlRequestHandled {
             skipped: Some(skip),
             ..
-        }) => Unsuccessful::Skipped(skip.message),
+        }) => Unsuccessful::Skipped {
+            reason: SkipReason::Handler,
+            message: Some(skip.message),
+        },
+        Answer::Refused(reason) => refused(reason),
+        Answer::RobotsTxtUnreachable(message) if policy.may_retry(leased.attempt) => {
+            Unsuccessful::Retried(Failure::new(SITE_PREFERENCES_REFUSED.name, &message))
+        }
+        Answer::RobotsTxtUnreachable(_) => refused(SkipReason::RobotsTxt),
         Answer::Handled(handled) => {
             match lease
                 .commit(run.state(), handled.records, run.point_in_time())
@@ -957,9 +968,17 @@ async fn settle(
             details,
         } => {
             let held = held_past_bound(&details, run.clock().wall(), longest_wait).is_some();
+            // The handler's error is kept in run state: no value the Run
+            // resolved stays in it (spec #564).
+            let masks = run.secrets().mask().masks();
+            let mut kept = Value::Object(details);
+            masks.apply_value(&mut kept, Scope::Kept);
+            let Value::Object(details) = kept else {
+                unreachable!("invariant: masking an object leaves an object")
+            };
             let failed = Failure {
                 code,
-                message,
+                message: masks.apply(&message, Scope::Kept).into_owned(),
                 details,
             };
             match block_cause(&failed.code, &failed.details) {
@@ -974,7 +993,7 @@ async fn settle(
         Unsuccessful::Retried(failure) | Unsuccessful::Failed(failure) => {
             Some(failure.code.clone())
         }
-        Unsuccessful::Skipped(_) | Unsuccessful::Blocked(_) => None,
+        Unsuccessful::Skipped { .. } | Unsuccessful::Blocked(_) => None,
     };
     let ended_at = run.point_in_time();
     let written = run
@@ -997,6 +1016,15 @@ async fn settle(
             tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
             false
         }
+    }
+}
+
+/// A request the site's preferences refused before its handler ran,
+/// skipped with `reason` (ADR 0086).
+fn refused(reason: SkipReason) -> Unsuccessful {
+    Unsuccessful::Skipped {
+        reason,
+        message: None,
     }
 }
 

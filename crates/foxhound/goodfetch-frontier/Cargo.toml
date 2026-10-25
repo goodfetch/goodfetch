@@ -12,6 +12,8 @@ autobenches = false
 
 [dependencies]
 data-encoding.workspace = true
+# A link's query is encoded in its document's encoding (ADR 0120).
+encoding_rs.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-page.workspace = true
 goodfetch-protocol.workspace = true

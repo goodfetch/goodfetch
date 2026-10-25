@@ -6,7 +6,7 @@
 //! the Runs' engine, is area 6's (#1005), so no engine-level case can
 //! re-admit yet.
 
-use goodfetch_protocol::foxhound::outcomes::OutcomeKind;
+use goodfetch_protocol::foxhound::outcomes::{OutcomeKind, SkipReason};
 use goodfetch_protocol::run::PointInTime;
 use proptest::prelude::*;
 use rusqlite::Connection;
@@ -108,7 +108,10 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                 connection,
                 id,
                 epoch,
-                Unsuccessful::Skipped("no".to_owned()),
+                Unsuccessful::Skipped {
+                    reason: SkipReason::Handler,
+                    message: Some("no".to_owned()),
+                },
                 &ended_at(),
             ),
             First::Blocked => work_items::end(

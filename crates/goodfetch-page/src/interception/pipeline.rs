@@ -195,7 +195,11 @@ impl PageContext {
             permit: Mutex::new(None),
             proxy_permit: Mutex::new(None),
             lookups: None,
-            log: Arc::new(RequestLog::new(run.owner().child(), run.folder())),
+            log: Arc::new(RequestLog::new(
+                run.owner().child(),
+                run.folder(),
+                run.secrets().mask().clone(),
+            )),
             run,
         }
     }

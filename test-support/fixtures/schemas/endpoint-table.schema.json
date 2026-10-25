@@ -52,6 +52,20 @@
             "expect"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An HTTP listener accepts the request, as it does the valid one, with\na 2xx. No refusal, so no Audit log entry.",
+          "properties": {
+            "expect": {
+              "const": "accepted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "expect"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -109,6 +123,13 @@
           },
           "type": "array"
         },
+        "advisories": {
+          "description": "The advisories whose bypass the row's attempt repeats, such as\n`CVE-2025-49596`, whose regression tests run the rows citing them.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "listeners": {
           "additionalProperties": {
             "$ref": "#/$defs/Expected"
@@ -150,6 +171,21 @@
           "type": "string"
         },
         {
+          "const": "token_expired",
+          "description": "The token's life ended with the launch that issued it: the token of\nthe listener's earlier launch.",
+          "type": "string"
+        },
+        {
+          "const": "token_revoked",
+          "description": "The token was replaced while it was in force, as `daemon restart`\nor an operator's new ops token replaces it.",
+          "type": "string"
+        },
+        {
+          "const": "token_scoped_elsewhere",
+          "description": "The token is one of the same Daemon whose scope is another, such as\nthe ops token, read-only on `/metrics`, on a protocol listener.",
+          "type": "string"
+        },
+        {
           "const": "token_in_query_string",
           "description": "The valid token is sent in the query string.",
           "type": "string"
@@ -166,7 +202,12 @@
         },
         {
           "const": "origin_missing",
-          "description": "The WebSocket handshake carries no `Origin`.",
+          "description": "The request or the WebSocket handshake carries no `Origin`: an HTTP\nlistener accepts it with a header token, which a browser page cannot\nsend cross-site.",
+          "type": "string"
+        },
+        {
+          "const": "origin_missing_without_header_token",
+          "description": "The request carries no `Origin` and no header token, the valid token\nonly in a cookie, as a browser page's cross-site request could send\nit.",
           "type": "string"
         },
         {

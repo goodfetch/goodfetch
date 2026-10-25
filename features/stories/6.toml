@@ -758,6 +758,33 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 232
+title = "As a crawl developer, I want `ctx.enqueueLinks(locator, label, payload?, options)` to report each matched element: added, `no_link`, `skipped_by_payload`, or not added with its reason, and to give each link its own Payload through a function, so that per-link data needs no loop (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 233
+title = "As a crawl developer, I want a link's query percent-encoded in its document's encoding, as a browser encodes it, so that a Shift_JIS page's links fetch what a browser fetches (ADR 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 239
+title = "As a site owner, I want every crawl request, start URLs and sitemap entries included, and every navigation and fetch a handler makes from its page, to obey my robots.txt's group for `goodfetch-foxhound` and the operator's token merged before `*`, so that a crawl does what my file says (ADR 0086; SC-01; pitfall U17)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 240
 title = "As a site owner, I want a robots.txt answered with a 4xx other than 429 read as no rules, a 429, 5xx or unreachable one never cached as no rules, the last good copy applying meanwhile and everything disallowed with none, so that an outage never lifts my rules (ADR 0086; pitfall U16)."
 milestone = "M1 Core"
@@ -769,6 +796,15 @@ product = "foxhound"
 [[story]]
 id = 241
 title = "As a user, I want each origin's robots.txt kept at most 24 hours per user, shared by my runs, its fetch counted in the domain's Politeness, so that robots.txt is fetched once a day, not once a run (ADR 0086)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 242
+title = "As a user, I want a waiting request whose robots.txt keeps failing to end `skipped` with `robots_txt` after its retries, so that no request waits forever on robots.txt (ADR 0086)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

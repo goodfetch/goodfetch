@@ -39,6 +39,10 @@ fn fifteen_minutes() -> Value {
     json!(900_000)
 }
 
+fn thirty_seconds() -> Value {
+    json!(30_000)
+}
+
 /// A value below `default` milliseconds, which waits less than the built-in
 /// default and so presses a site harder (ADR 0086).
 fn shorter_than(value: &Value, default: u64) -> bool {
@@ -221,6 +225,30 @@ pub const SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `site_preferences.respect_robots_txt` (ADRs 0016 and 0086).
+pub const SITE_PREFERENCES_RESPECT_ROBOTS_TXT: Setting = Setting {
+    name: "site_preferences.respect_robots_txt",
+    description: "Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is read but not obeyed, and it is listed in the run's result as a value that presses a site harder.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: Some(switched_off),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `site_preferences.max_crawl_delay` (ADRs 0016 and 0086).
+pub const SITE_PREFERENCES_MAX_CRAWL_DELAY: Setting = Setting {
+    name: "site_preferences.max_crawl_delay",
+    description: "The longest robots.txt Crawl-delay a crawl waits out between request starts on a domain key while `site_preferences.respect_robots_txt` is on: 30 s. A host asking for more has its crawl requests skipped with `crawl_delay`, and its delay is not raised.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -244,6 +272,8 @@ pub const ENTRIES: Entries = Entries {
         POLITENESS_BACKOFF_MAX,
         POLITENESS_RETRY_AFTER_MAX,
         SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
+        SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
+        SITE_PREFERENCES_MAX_CRAWL_DELAY,
     ],
     hook_stages: &[],
     shared_type_values: &[],

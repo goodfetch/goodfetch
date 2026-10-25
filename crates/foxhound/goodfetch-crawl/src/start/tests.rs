@@ -18,6 +18,7 @@
 mod admission;
 mod keep_alive;
 mod limits;
+mod masking;
 mod metrics;
 mod model;
 mod needs_you;

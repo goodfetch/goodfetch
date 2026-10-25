@@ -34,6 +34,7 @@ publish = false
 # lists' network and cosmetic rules. Without its `single-thread` feature, so
 # one `Engine` is `Send + Sync` and every Session shares it (ADR 0047).
 adblock = { version = "0.13.3", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
+aho-corasick = { version = "1.1.5", default-features = false, features = ["std", "perf-literal"] }
 # The encrypted local file, `secretfile:` (spec #564): an age file encrypted
 # to an X25519 identity, read binary or armored.
 age = { version = "0.12.1", default-features = false, features = ["armor"] }
@@ -84,6 +85,8 @@ pulldown-cmark = { version = "0.13.4", default-features = false }
 zstd = { version = "0.14.0", default-features = false }
 # The OS generator that seeds `Entropy` in production (ADR 0059).
 getrandom = { version = "0.3.4", default-features = false }
+# Endpoint tokens compared in constant time (ADR 0017).
+subtle = { version = "2.6.1", default-features = false }
 # The Feature scanner expands an rstest `#[files]` glob as rstest does
 # (xtask).
 glob = { version = "0.3.4", default-features = false }

@@ -7,15 +7,18 @@
 //! together so they commit in one group, with SQLite's full sync, in a
 //! temporary folder (ADR 0071's run-state writes), and judging a fixed batch
 //! of URLs under a domain policy of a thousand entries (spec #564's egress
-//! decision). Inputs are literals; no network, no sleep, no work whose
+//! decision), and masking a 1 MiB stream of event and log lines against
+//! fifty resolved values (spec #564's `Mask`). Inputs are literals; no network, no sleep, no work whose
 //! amount depends on timing.
 
+use std::io::Write as _;
 use std::path::Path;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::mask::{Mask, Masks, Reach, Redaction, Scope};
 use goodfetch_engine::rpc::framing::{Frame, Framer, MAX_MESSAGE_BYTES, decode};
 use goodfetch_engine::run_state::{RunState, RunStateOptions, RunStateTables};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
@@ -23,6 +26,7 @@ use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use secrecy::SecretString;
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
@@ -245,4 +249,57 @@ pub(crate) fn judge_all(policy: &Policy, urls: &[String]) -> usize {
             matches!(judge(&request, policy), Judgment::Allowed(_))
         })
         .count()
+}
+
+/// What masking a stream measures: the engine's masks holding `values`
+/// resolved values of one Run, each of 10 to 25 characters, the Run's
+/// mask that keeps them, and a stream of `bytes` bytes of alternating
+/// event and log lines, one line in four holding a value raw, in base64 or
+/// in hex (spec #564's `Mask` budget).
+pub(crate) fn mask_input(values: usize, bytes: usize) -> (Masks, Mask, Vec<u8>) {
+    let masks = Masks::new();
+    let mask = masks.for_run(Redaction::On);
+    let value = |number: usize| format!("value-{number:03}-{}", "x".repeat(number % 16));
+    for number in 0..values {
+        mask.join(
+            &format!("secret_{number}"),
+            &SecretString::from(value(number)),
+            Reach::Value,
+        );
+    }
+    let mut stream = Vec::with_capacity(bytes + 256);
+    let mut line = 0_usize;
+    while stream.len() < bytes {
+        let text = match line % 8 {
+            0 => value(line % values),
+            4 => data_encoding::BASE64.encode(format!("user:{}", value(line % values)).as_bytes()),
+            6 => data_encoding::HEXLOWER.encode(value(line % values).as_bytes()),
+            _ => format!("page {line} of the catalog, 24 items in stock"),
+        };
+        let written = if line.is_multiple_of(2) {
+            format!(r#"{{"event":"page.console","data":{{"text":"{text}","line":{line}}}}}"#)
+        } else {
+            format!("2026-10-24T12:00:00Z INFO goodfetch::page: read {text}")
+        };
+        stream.extend_from_slice(written.as_bytes());
+        stream.push(b'\n');
+        line += 1;
+    }
+    stream.truncate(bytes);
+    (masks, mask, stream)
+}
+
+/// Writes `stream` through a writer of `masks`, as the log writers do, in
+/// chunks of 4 KiB, and returns how many bytes it wrote.
+pub(crate) fn mask_stream(masks: &Masks, stream: &[u8]) -> usize {
+    let mut writer = masks.writer(Vec::with_capacity(stream.len()), Scope::KeptOutput);
+    for chunk in stream.chunks(4096) {
+        writer
+            .write_all(chunk)
+            .expect("invariant: a Vec takes every write");
+    }
+    writer
+        .finish()
+        .expect("invariant: a Vec takes every write")
+        .len()
 }

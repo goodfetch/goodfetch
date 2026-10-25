@@ -671,7 +671,11 @@ impl Interception {
                         Arc::clone(tables.failures.entry(session.clone()).or_default()),
                     )
                 };
-                let log = Arc::new(RequestLog::new(run.owner().child(), run.folder()));
+                let log = Arc::new(RequestLog::new(
+                    run.owner().child(),
+                    run.folder(),
+                    run.secrets().mask().clone(),
+                ));
                 let driver = driver.with_proxy(proxy).with_value(value, run.clock());
                 let events = driver.events();
                 if let Err(error) = pause_requests(&driver).await {

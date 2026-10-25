@@ -636,6 +636,7 @@ export function RunPage({
     }
     const abort = new AbortController();
     const { signal } = abort;
+    let showing = false;
     const follow = async (): Promise<void> => {
       const [progress, row, uncapped] = await Promise.all([
         client.call("run.progress", { run_id: runId }, { signal }),
@@ -644,6 +645,7 @@ export function RunPage({
       ]);
       let shown = shownOf(progress, row, uncapped, undefined);
       dispatch({ kind: "read", read: { kind: "shown", run: shown } });
+      showing = true;
       void offline?.put("run_page", runId, cachedRun(shown));
       while (!shown.progress.last) {
         const next = await client.call(
@@ -661,7 +663,9 @@ export function RunPage({
       }
     };
     follow().catch((error: unknown) => {
-      if (!signal.aborted) {
+      // A later read that fails, as one a stopping Daemon cancels, leaves
+      // the run shown: the next Connection, or a wake, reads it again.
+      if (!signal.aborted && !showing) {
         dispatch({ kind: "read", read: refusedRead(error) });
       }
     });

@@ -5,8 +5,8 @@
 // between screens while the Daemon is stopped, shows what the cache keeps:
 // the Runs screen its runs, newest first, saying the list is this browser's
 // copy, and a run's page its run.
-import type { RunIndexRow } from "@goodfetch/collie-client/generated";
-import { createProtocolAdapter } from "@goodfetch/test-support/protocol-adapter";
+import type { RunIndexRow, RunProgressParams } from "@goodfetch/collie-client/generated";
+import { createProtocolAdapter, failure } from "@goodfetch/test-support/protocol-adapter";
 import { expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
@@ -192,6 +192,53 @@ test(
 
     await expect.element(page.getByText("verified", { exact: true })).toBeVisible();
     await expect.element(page.getByText("complete", { exact: true })).toBeVisible();
+    client.close();
+  },
+);
+
+test(
+  "a run's page keeps showing its run when a later read is cancelled, as when the Daemon stops",
+  { tags: ["story:12-125", "screen:/runs/$run"] },
+  async () => {
+    const adapter = createProtocolAdapter();
+    adapter.answer("needs_you.list", { items: [] });
+    adapter.answer("run.list", { runs: [row("live-run")] });
+    adapter.answer("run.usage", failure("call_cancelled"));
+    adapter.answer("run.progress", (params: RunProgressParams) =>
+      params.after === undefined || params.after === null
+        ? {
+            run_id: "live-run",
+            position: 1,
+            at: "2026-10-01T08:05:00Z",
+            lifecycle: "running",
+            writer: "live",
+            epoch: 1,
+            pauses: [],
+            last: false,
+          }
+        : failure("call_cancelled"),
+    );
+    const client = clientOver(adapter.transport);
+
+    await render(
+      <ConsoleI18n>
+        <Shell client={client} route="/runs/live-run" />
+      </ConsoleI18n>,
+    );
+
+    await expect
+      .poll(() =>
+        adapter.requests.some(
+          ({ method, params }) =>
+            method === "run.progress" &&
+            typeof params === "object" &&
+            params !== null &&
+            "after" in params,
+        ),
+      )
+      .toBe(true);
+    await expect.element(page.getByText("running", { exact: true })).toBeVisible();
+    expect(page.getByRole("alert").elements()).toHaveLength(0);
     client.close();
   },
 );

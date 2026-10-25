@@ -29,6 +29,7 @@ use super::proxies::server;
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::EngineTarget;
+use crate::proving_ground::ProvingGround;
 
 /// How long concurrent navigations may take to answer together, a wait
 /// for a Permit included.
@@ -179,6 +180,18 @@ fn relays(site: &Site, prefix: &str) -> Vec<(String, u64)> {
         .collect()
 }
 
+/// The Proving ground's microsecond now or a little before: the stamp of
+/// the latest connection it accepted, after a fresh client opened one.
+fn now(site: &Site) -> Option<u64> {
+    let fresh = ProvingGround::local(site.proving_ground.address());
+    let observations = fresh.observations().ok()?;
+    observations["connections"]
+        .as_array()?
+        .iter()
+        .filter_map(|connection| connection["at_microseconds"].as_u64())
+        .max()
+}
+
 /// How many of the relays to marks starting `prefix` the proxy refused
 /// with its own `429`.
 fn refused(site: &Site, prefix: &str) -> usize {
@@ -304,6 +317,7 @@ fn own_limits(
     );
     let pages = run_with_pages(connection, site, "conformance-proxy-rate", &rate, 3, checks)?;
     if let [one, two, three] = pages.as_slice() {
+        let sent = now(site);
         let answers = together(
             connection,
             &[
@@ -312,19 +326,27 @@ fn own_limits(
                 (three, quiet(site, "rate-3", None)),
             ],
         )?;
-        let starts: Vec<u64> = relays(site, "rate-")
+        let mut starts: Vec<u64> = relays(site, "rate-")
             .into_iter()
             .map(|(_, at)| at)
             .collect();
+        starts.sort_unstable();
         checks.check(
             "with `politeness.proxy.rate` 2, three navigations at once through the open proxy all load",
             tally(&answers, PROXY_UNAVAILABLE.name) == (3, 0) && starts.len() == 3,
         );
+        // The k-th to arrive started no sooner than k - 1 intervals after
+        // the first start, itself no sooner than they were sent; however
+        // late the browser or the proxy is, a request reaches the proxy
+        // only after its start, so the bound holds under any load.
         checks.check(
-            "with `politeness.proxy.rate` 2, the proxy receives them about half a second apart",
-            starts
-                .windows(2)
-                .all(|pair| pair[1].saturating_sub(pair[0]) >= 450_000),
+            "with `politeness.proxy.rate` 2, the proxy receives the second no sooner than half a second, and the third a second, after they were sent",
+            sent.is_some_and(|sent| {
+                starts
+                    .iter()
+                    .zip(0_u64..)
+                    .all(|(at, earlier)| at.saturating_sub(sent) >= earlier * 500_000)
+            }),
         );
     }
     finish_run(connection, "conformance-proxy-rate")

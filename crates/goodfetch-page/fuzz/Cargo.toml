@@ -1,0 +1,35 @@
+# goodfetch-page's cargo-fuzz targets (ADR 0067; TESTING.md, Fuzzing),
+# outside the workspace: each target's body is a plain function of the
+# crate, whose seeds and past crashers `fuzz_replay!` replays from
+# `fuzz/<target>/` on every OS. The egress relay reads both from the
+# browser: its request heads and the ClientHello it mirrors. Build and run
+# with the pinned nightly: `cargo fuzz run relay_request_head
+# fuzz/relay_request_head/seeds`, and likewise `relay_client_hello`.
+[package]
+name = "goodfetch-page-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+goodfetch-page = { path = ".." }
+libfuzzer-sys = "0.4.10"
+
+[[bin]]
+name = "relay_request_head"
+path = "fuzz_targets/relay_request_head.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "relay_client_hello"
+path = "fuzz_targets/relay_client_hello.rs"
+test = false
+doc = false
+bench = false

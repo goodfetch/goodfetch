@@ -83,8 +83,8 @@ const USERNAME: &str = "goodfetch";
 /// The most refusals a relay keeps for the calls that wait on them.
 const KEPT_REFUSALS: usize = 64;
 
-/// The most ClientHellos a relay keeps, the latest of each authority, for
-/// its own look at a certificate the browser refused.
+/// The most ClientHello messages a relay keeps, the latest of each
+/// authority, for its own look at a certificate the browser refused.
 const KEPT_CLIENT_HELLOS: usize = 64;
 
 /// The relay of one Session: its loopback address and credentials, closed

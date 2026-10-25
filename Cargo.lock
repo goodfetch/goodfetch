@@ -1882,6 +1882,7 @@ dependencies = [
 name = "goodfetch-crawl"
 version = "0.0.0"
 dependencies = [
+ "encoding_rs",
  "goodfetch-engine",
  "goodfetch-fetch-tier",
  "goodfetch-frontier",
@@ -2007,7 +2008,9 @@ dependencies = [
  "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-test-support",
+ "gungraun",
  "h2",
+ "html5ever 0.39.0",
  "http",
  "http-body-util",
  "http2",

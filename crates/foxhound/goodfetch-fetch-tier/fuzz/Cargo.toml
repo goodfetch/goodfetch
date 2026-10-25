@@ -2,7 +2,7 @@
 # outside the workspace: each target's body is a plain function of the
 # fetch-tier crate, whose seeds and past crashers `fuzz_replay!` replays
 # from `fuzz/<target>/` on every OS. Build and run with the pinned nightly:
-# `cargo fuzz run refresh fuzz/refresh/seeds`.
+# `cargo fuzz run refresh fuzz/refresh/seeds` (or `prescan`).
 [package]
 name = "goodfetch-fetch-tier-fuzz"
 version = "0.0.0"
@@ -17,6 +17,13 @@ cargo-fuzz = true
 [dependencies]
 goodfetch-fetch-tier = { path = ".." }
 libfuzzer-sys = "0.4.10"
+
+[[bin]]
+name = "prescan"
+path = "fuzz_targets/prescan.rs"
+test = false
+doc = false
+bench = false
 
 [[bin]]
 name = "refresh"

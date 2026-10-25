@@ -72,8 +72,8 @@ use goodfetch_fetch_tier::{
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{
-    CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled, HANDLER_FAILED,
-    LEASE_LOST, WORK_ITEM_LEASED,
+    ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
+    HANDLER_FAILED, LEASE_LOST, WORK_ITEM_LEASED,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
@@ -215,6 +215,9 @@ pub(super) struct Gating {
     /// The address check of the Run's HTTP tier, if it has one.
     pub(super) addresses: Option<AddressCheck>,
     pub(super) page_check: Option<PageCheck>,
+    /// The encoding `fetch.encoding` forces on the request's own
+    /// document: its Label's, else the Run's (ADR 0119).
+    pub(super) encoding: Option<&'static encoding_rs::Encoding>,
 }
 
 impl Gating {
@@ -267,6 +270,7 @@ impl Gating {
             egress: Arc::clone(&self.egress),
             addresses: self.addresses.clone(),
             page_check: self.page_check.clone(),
+            encoding: self.encoding,
         })
     }
 }
@@ -591,6 +595,19 @@ impl On<'_> {
             .document(tiering, http, choice, &hand_over)
             .await
             .map_err(|answer| (answer, Vec::new()))?;
+        // A document only a guess could read escalates at once under
+        // `auto`, before the Frontier learns from it or its handler runs
+        // (ADR 0119).
+        if let Some(call) = tiers.escalated(&page_id) {
+            tiers.close(&page_id);
+            record_tier(run, leased, choice, how).await;
+            let message =
+                "The document declares no encoding and is not UTF-8: only the browser reads it.";
+            return Ok((
+                escalated_unhandled(ATTEMPT_ENDED.name, message, call),
+                Vec::new(),
+            ));
+        }
         let merged = learn(run, tiers, &page_id, leased).await;
         record_tier(run, leased, choice, how).await;
         match judged(run, tiering, &page_id).await {
@@ -603,17 +620,9 @@ impl On<'_> {
                 tiers.close(&page_id);
                 // Its handler never ran: the run escalates at the Page
                 // check, and the caller runs the request in the browser.
-                let answer = Answer::Failed {
-                    code: PAGE_CHECK_FAILED.to_owned(),
-                    retryable: false,
-                    message: "The page failed its expected page on the `http` tier.".to_owned(),
-                    details: Map::new(),
-                };
+                let message = "The page failed its expected page on the `http` tier.";
                 return Ok((
-                    HttpRun {
-                        answer,
-                        escalated: Some(PAGE_CHECK_CALL),
-                    },
+                    escalated_unhandled(PAGE_CHECK_FAILED, message, PAGE_CHECK_CALL),
                     merged,
                 ));
             }
@@ -735,6 +744,21 @@ impl On<'_> {
         drop(handed_over);
         tiers.close_browser(&page_id).await;
         answer
+    }
+}
+
+/// A run on the `http` tier that escalated at `call` before its handler
+/// ran, its answer failing with `code` and `message`, which the browser's
+/// run replaces.
+fn escalated_unhandled(code: &str, message: &str, call: &'static str) -> HttpRun {
+    HttpRun {
+        answer: Answer::Failed {
+            code: code.to_owned(),
+            retryable: false,
+            message: message.to_owned(),
+            details: Map::new(),
+        },
+        escalated: Some(call),
     }
 }
 

@@ -75,6 +75,10 @@ dom_smoothie = { version = "0.18.2", default-features = false }
 # dom-smoothie's own tree, on which the main-content step reads what it found.
 dom_query = { version = "0.28.0", default-features = false }
 htmd = { version = "0.5.6", default-features = false }
+# Chrome's `<meta>` prescan of a crawl page's document tokenizes it as
+# Blink's HTMLMetaCharsetParser does, with the HTML standard's tokenizer
+# (ADR 0119); the version dom_query already links.
+html5ever = { version = "0.39.0", default-features = false }
 markup5ever_rcdom = { version = "0.38.0", default-features = false }
 # The Proving ground's oracle reads a submitted Markdown value as its
 # structure with pulldown-cmark, resolving its links with the url crate

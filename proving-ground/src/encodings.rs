@@ -396,12 +396,37 @@ pub(crate) fn page(seed: u64, path: &str) -> Option<(&'static str, Vec<u8>)> {
     if path == "/pages" {
         return Some(("text/html; charset=utf-8", index().into_bytes()));
     }
+    if path == XHTML_PATH {
+        return Some(("application/xhtml+xml", xhtml()));
+    }
     let id = path.strip_prefix("/pages/")?;
     let (number, case) = CASES
         .iter()
         .zip(1..)
         .find_map(|(case, number)| (case.id == id).then_some((number, case)))?;
     Some((case.content_type, encoded_page(seed, number, case)))
+}
+
+/// The XHTML page no index links and no task reads (ADR 0119; deferred nit
+/// of #550): `application/xhtml+xml` in windows-1251, declared only in its
+/// XML declaration, so every tier reads it without escalating.
+const XHTML_PATH: &str = "/xhtml/declared";
+
+/// The XHTML page's title and text, as a browser shows them.
+const XHTML_TITLE: &str = "Русский язык";
+const XHTML_TEXT: &str = "Москва — столица России.";
+
+/// The XHTML page's bytes.
+fn xhtml() -> Vec<u8> {
+    let page = format!(
+        "<?xml version=\"1.0\" encoding=\"windows-1251\"?>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"ru\">\n<head><title>{XHTML_TITLE}</title></head>\n<body>\n<main>\n<h1 class=\"title\">{XHTML_TITLE}</h1>\n<p class=\"text\">{XHTML_TEXT}</p>\n</main>\n</body>\n</html>\n"
+    );
+    let (bytes, _, unmappable) = WINDOWS_1251.encode(&page);
+    assert!(
+        !unmappable,
+        "invariant: the XHTML page is written in windows-1251"
+    );
+    bytes.into_owned()
 }
 
 fn index() -> String {

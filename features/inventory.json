@@ -5941,7 +5941,7 @@
     {
       "id": "setting:fetch.tier_race",
       "kind": "setting",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [

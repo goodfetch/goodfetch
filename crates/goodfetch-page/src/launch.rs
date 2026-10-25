@@ -30,7 +30,7 @@ use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::sandbox_probe::{self, Probed};
-use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_protocol::browser_cache::{
     BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser,
 };
@@ -217,57 +217,24 @@ pub(crate) async fn launch(
     }
     let (executable, held, kind) = executable(run, home, pins).await?;
     let data_folder = run.folder().join(DATA_FOLDERS).join(number.to_string());
-    let created = data_folder.join(DEFAULT_PROFILE);
-    run.owner()
-        .blocking(
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "it runs on the tasks module's blocking policy"
-            )]
-            move || {
-                let file = created.join("Preferences");
-                std::fs::create_dir_all(&created)?;
-                let existing = match std::fs::read_to_string(&file) {
-                    Ok(text) => Some(text),
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                    Err(error) => return Err(error),
-                };
-                std::fs::write(file, preferences::starting_preferences(existing.as_deref()))
-            },
-        )
+    write_preferences(run, &data_folder)
         .await
         .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
     let headless = settings
         .and_then(|settings| settings.boolean(BROWSER_HEADLESS.name))
         .unwrap_or(true);
-    let resolve = settings
-        .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
-        .unwrap_or_default();
-    // A policy that is no policy opens no page anyway (`setting_invalid`).
-    // Behind the egress relay, which every Session's context takes as its
-    // proxy, the relay holds what the script would.
-    let relayed = settings
-        .and_then(|settings| settings.boolean(SECURITY_RAW_CDP_EGRESS_PROXY.name))
-        .unwrap_or(true);
-    let proxy_script = settings
-        .filter(|_| !relayed)
-        .and_then(|settings| Policy::of(settings).ok())
-        .and_then(|policy| policy.proxy_script());
-    let built = arguments::arguments(&arguments::Launch {
-        data_folder: &data_folder,
+    let arguments = command_line(
+        run,
+        settings,
+        &data_folder,
         headless,
-        resolve: &resolve,
-        shared_memory: shared_memory(run).await,
-        proxy_script: proxy_script.as_deref(),
         sandbox,
         relay_authority,
-    });
-    for warning in &built.warnings {
-        tracing::warn!(%warning, "the Run's browser launches degraded");
-    }
+    )
+    .await;
     let mut command = Command::new(&executable);
     command
-        .args(&built.arguments)
+        .args(&arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -308,6 +275,68 @@ pub(crate) async fn launch(
         process,
         released,
     })
+}
+
+/// Writes the starting preferences of the default profile in
+/// `data_folder`, keeping every other preference the profile already holds.
+async fn write_preferences(run: &Run, data_folder: &Path) -> std::io::Result<()> {
+    let created = data_folder.join(DEFAULT_PROFILE);
+    run.owner()
+        .blocking(
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "it runs on the tasks module's blocking policy"
+            )]
+            move || {
+                let file = created.join("Preferences");
+                std::fs::create_dir_all(&created)?;
+                let existing = match std::fs::read_to_string(&file) {
+                    Ok(text) => Some(text),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error),
+                };
+                std::fs::write(file, preferences::starting_preferences(existing.as_deref()))
+            },
+        )
+        .await
+}
+
+/// The browser's command line under the Run's `settings`, on `data_folder`;
+/// the warnings of a degraded launch are logged.
+async fn command_line(
+    run: &Run,
+    settings: Option<&Resolved>,
+    data_folder: &Path,
+    headless: bool,
+    sandbox: bool,
+    relay_authority: Option<&str>,
+) -> Vec<String> {
+    let resolve = settings
+        .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
+        .unwrap_or_default();
+    // A policy that is no policy opens no page anyway (`setting_invalid`).
+    // Behind the egress relay, which every Session's context takes as its
+    // proxy, the relay holds what the script would.
+    let relayed = settings
+        .and_then(|settings| settings.boolean(SECURITY_RAW_CDP_EGRESS_PROXY.name))
+        .unwrap_or(true);
+    let proxy_script = settings
+        .filter(|_| !relayed)
+        .and_then(|settings| Policy::of(settings).ok())
+        .and_then(|policy| policy.proxy_script());
+    let built = arguments::arguments(&arguments::Launch {
+        data_folder,
+        headless,
+        resolve: &resolve,
+        shared_memory: shared_memory(run).await,
+        proxy_script: proxy_script.as_deref(),
+        sandbox,
+        relay_authority,
+    });
+    for warning in &built.warnings {
+        tracing::warn!(%warning, "the Run's browser launches degraded");
+    }
+    built.arguments
 }
 
 /// The size of `/dev/shm`, where Linux mounts one of its own.

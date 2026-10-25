@@ -372,7 +372,7 @@ fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
                     CaseOutcome::Passed
                 ),
                 (
-                    "each-redirect-status-sends-its-next-hop-with-fetchs-method-and-body",
+                    "each-redirect-status-sends-its-next-hop-with-the-method-and-body-fetch-specifies",
                     CaseOutcome::Passed
                 ),
                 (

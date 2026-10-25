@@ -31,7 +31,9 @@
 //! `crawl_delay` (ADR 0086). While `site_preferences.respect_use_signals` is on, a document whose
 //! response carries an AI-use signal refusing the Run's Purpose is closed
 //! unhandled, its request `skipped` with `use_signals` (ADRs 0086 and
-//! 0093).
+//! 0093). A handler that lets a `site_preferences_refused` its own
+//! navigation raised escape ends its request `skipped` with that
+//! refusal's reason, not `failed` (ADR 0093).
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -171,6 +173,12 @@ impl Gating {
                     .map(str::to_owned)
             }),
             domain_delay,
+            respect_robots_txt: settings.as_ref().is_none_or(|settings| {
+                settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
+            }),
+            max_crawl_delay: settings
+                .as_ref()
+                .and_then(|settings| settings.duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)),
             lease: Arc::new(HandlerLease {
                 lease: lease.clone(),
                 run: run.clone(),

@@ -21,11 +21,18 @@
 //!   user's runs share (ADR 0086), fetched under that permit when the copy
 //!   has none to use; the groups for `goodfetch-foxhound` and for
 //!   `site_preferences.robots_txt_user_agent` apply, merged, else `*`'s
-//!   (ADR 0090). A URL they disallow is refused with `robots_txt`.
+//!   (ADR 0090). A URL they disallow is refused with `robots_txt`, and a
+//!   host whose Crawl-delay is above `site_preferences.max_crawl_delay`
+//!   with `crawl_delay`. With `site_preferences.respect_robots_txt` off,
+//!   robots.txt is neither read nor applied.
 //! - **The delay between starts.** The request waits until the domain's
 //!   last start, by any sharing run, is its Crawl-delay ago, and on its
-//!   own domain key also `politeness.domain.delay`; its start is then
-//!   recorded for every run sharing the domain.
+//!   own domain key, or after a robots.txt it fetched, also
+//!   `politeness.domain.delay`. There, its start is taken in the
+//!   Politeness file at once, so two handlers' requests never read the
+//!   same last start and go together; on another key, its Permit's rule
+//!   already spaced it, and its start is recorded for every run sharing the
+//!   domain.
 //!
 //! The page holds the lease through every wait (`LeaseCheck::permit_wait`),
 //! which the crawl renews and names in the Run's live status. A request of
@@ -79,6 +86,12 @@ pub struct HandOver {
     pub operator_token: Option<String>,
     /// `politeness.domain.delay`.
     pub domain_delay: Duration,
+    /// `site_preferences.respect_robots_txt`: off, robots.txt is neither
+    /// read nor applied.
+    pub respect_robots_txt: bool,
+    /// `site_preferences.max_crawl_delay`, the longest Crawl-delay waited
+    /// out; none waits out none.
+    pub max_crawl_delay: Option<Duration>,
     /// The attempt's lease.
     pub lease: Arc<dyn LeaseCheck>,
 }
@@ -154,6 +167,16 @@ struct Applying {
     crawl_delay: Option<Duration>,
 }
 
+impl Applying {
+    /// Nothing: no rule disallows the URL and no Crawl-delay is asked.
+    fn nothing() -> Self {
+        Self {
+            disallowed: None,
+            crawl_delay: None,
+        }
+    }
+}
+
 impl Gate {
     /// Admits a request to `url`, or refuses it.
     async fn admitted(&self, url: &Url) -> Result<Permit, Refusal> {
@@ -167,7 +190,11 @@ impl Gate {
         } else {
             self.beside(&key).await
         };
-        let (applying, fetched_at) = self.robots_txt(url, &key).await;
+        let (applying, fetched_at) = if hand_over.respect_robots_txt {
+            self.robots_txt(url, &key).await
+        } else {
+            (Applying::nothing(), None)
+        };
         if let Some(rule) = applying.disallowed {
             return Err(Refusal {
                 reason: SitePreference::RobotsTxt,
@@ -177,27 +204,80 @@ impl Gate {
             });
         }
         let crawl_delay = applying.crawl_delay.unwrap_or_default();
-        let ready = [
-            before.map(|before| before + crawl_delay),
-            before
-                .filter(|_| own)
-                .map(|before| before + hand_over.domain_delay),
-            fetched_at.map(|fetched| fetched + hand_over.domain_delay.max(crawl_delay)),
-        ]
-        .into_iter()
-        .flatten()
-        .max();
-        let wall = run.clock().wall();
-        if let Some(wait) = ready.and_then(|ready| ready.duration_since(wall).ok()) {
+        if crawl_delay > Duration::ZERO
+            && hand_over
+                .max_crawl_delay
+                .is_none_or(|max| crawl_delay > max)
+        {
+            let most = hand_over.max_crawl_delay.map_or_else(
+                || "none".to_owned(),
+                |max| format!("{} s", max.as_secs_f64()),
+            );
+            return Err(Refusal {
+                reason: SitePreference::CrawlDelay,
+                message: format!(
+                    "The site's robots.txt asks for a Crawl-delay of {} s, more than `site_preferences.max_crawl_delay` waits out ({most}), so the request to `{url}` never left.",
+                    crawl_delay.as_secs_f64()
+                ),
+            });
+        }
+        let start = self.start(&key, own, before, fetched_at, crawl_delay).await;
+        if let Some(wait) = start.and_then(|start| start.duration_since(run.clock().wall()).ok()) {
             run.clock().sleep(wait).await;
         }
-        if let Some(politeness) = &hand_over.politeness
-            && let Err(error) =
-                goodfetch_frontier::started_again(politeness, &key, run.clock().wall()).await
+        Ok(permit)
+    }
+
+    /// When a request of `key` admitted now starts, taken for every run
+    /// sharing the domain at once, so that two handlers' requests never
+    /// read the same last start and go together (ADR 0086): after a
+    /// robots.txt fetched at `fetched_at` for it, or on the attempt's own
+    /// key, the delay between starts and the Crawl-delay after the last
+    /// start; on another key, whose Permit its domain's rule already
+    /// spaced, the Crawl-delay after the start `before` it.
+    async fn start(
+        &self,
+        key: &str,
+        own: bool,
+        before: Option<SystemTime>,
+        fetched_at: Option<SystemTime>,
+        crawl_delay: Duration,
+    ) -> Option<SystemTime> {
+        let hand_over = &self.0;
+        let run = &hand_over.run;
+        let wall = run.clock().wall();
+        let spacing = hand_over.domain_delay.max(crawl_delay);
+        // The start its spacing runs from, when it takes its start at once.
+        let after = fetched_at.or_else(|| own.then(|| wall.checked_sub(spacing).unwrap_or(wall)));
+        let Some(politeness) = &hand_over.politeness else {
+            // No run shares the domain: the request goes once its own
+            // spacing passed.
+            return [
+                before.map(|before| before + crawl_delay),
+                before.filter(|_| own).map(|before| before + spacing),
+                fetched_at.map(|fetched| fetched + spacing),
+            ]
+            .into_iter()
+            .flatten()
+            .max();
+        };
+        if let Some(after) = after {
+            return goodfetch_frontier::start_after(politeness, key, after, spacing)
+                .await
+                .inspect_err(|error| {
+                    tracing::warn!(%error, run_id = %run.id(), "a handler's navigation start was not taken");
+                })
+                .ok();
+        }
+        let start = before
+            .map(|before| before + crawl_delay)
+            .filter(|start| *start > wall);
+        if let Err(error) =
+            goodfetch_frontier::started_again(politeness, key, start.unwrap_or(wall)).await
         {
             tracing::warn!(%error, run_id = %run.id(), "a handler's navigation start was not recorded");
         }
-        Ok(permit)
+        start
     }
 
     /// When the last request of `key` started, by any sharing run.
@@ -235,13 +315,7 @@ impl Gate {
         let hand_over = &self.0;
         let run = &hand_over.run;
         let Some(location) = robots_txt::location(url) else {
-            return (
-                Applying {
-                    disallowed: None,
-                    crawl_delay: None,
-                },
-                None,
-            );
+            return (Applying::nothing(), None);
         };
         let (sending, sent) = oneshot::channel::<SystemTime>();
         let fetch: Fetch<'_> = Box::pin(async {
@@ -320,10 +394,7 @@ fn applying_groups<'a>(
 /// `operator` (ADRs 0086 and 0090).
 fn applying(fetched: &Fetched, operator: Option<&ProductToken>, url: &Url) -> Applying {
     match fetched {
-        Fetched::NotFound(_) => Applying {
-            disallowed: None,
-            crawl_delay: None,
-        },
+        Fetched::NotFound(_) => Applying::nothing(),
         Fetched::Unreachable(reason) => Applying {
             disallowed: Some(format!("robots.txt unreachable: {reason}")),
             crawl_delay: None,

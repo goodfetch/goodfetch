@@ -61,6 +61,7 @@ mod scale;
 mod schedule;
 mod scope;
 mod serve;
+mod sitemap_seed;
 mod sitemaps;
 mod statuses;
 #[cfg(unix)]

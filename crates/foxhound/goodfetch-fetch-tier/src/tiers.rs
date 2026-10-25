@@ -26,9 +26,11 @@
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::time::Duration;
 
 use bytes::Bytes;
 use encoding_rs::Encoding;
+use goodfetch_engine::dns::ResolverConfiguration;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
@@ -61,7 +63,7 @@ use crate::driver::{Deadlines, Hop, Transport, fetch};
 use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::redundant::{Redundant, Requester};
-use crate::transports::{BrowserFetch, Reqwest, TransportConfig};
+use crate::transports::{AddressCheck, BrowserFetch, Reqwest, TransportConfig};
 use crate::use_signals::UseSignals;
 
 mod calls;
@@ -293,34 +295,22 @@ impl FetchTiers {
 
     /// Refuses a Run whose `fetch.tier`, its own or one of its Labels' in
     /// `labels`, forces a tier this engine does not build yet, with
-    /// `capability_unavailable` naming the setting, one that hedges
-    /// where a hedge could never start, and one that sets `fetch.tier_race`
-    /// or `fetch.encoding`, neither built yet.
+    /// `capability_unavailable` naming the setting, one that hedges or
+    /// races its tiers where the second copy could never start, and one
+    /// that sets `fetch.encoding`, not built yet.
     ///
     /// # Errors
     ///
     /// `capability_unavailable` for `discovered_api`, `browser_fetch` and
-    /// `light_browser`, for `fetch.tier_race` switched on and for a
-    /// `fetch.encoding` set; `setting_invalid` for a Run's `fetch.encoding`
-    /// that is no WHATWG Encoding label and for a `fetch.redirect.max`
-    /// outside 1 to 19 (ADR 0118); `setting_not_applicable` for hedges
-    /// switched on while a domain admits one request at a time (ADR 0086).
+    /// `light_browser`, and for a `fetch.encoding` set; `setting_invalid`
+    /// for a Run's `fetch.encoding` that is no WHATWG Encoding label and
+    /// for a `fetch.redirect.max` outside 1 to 19 (ADR 0118);
+    /// `setting_not_applicable` for hedges or `fetch.tier_race` switched on
+    /// while a domain admits one request at a time (ADR 0086).
     pub fn check(settings: &Resolved, labels: &LabelSettings) -> Result<(), CallError> {
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_HEDGE_ENABLED)?;
+        goodfetch_frontier::refuse_second_copies(settings, &FETCH_TIER_RACE)?;
         refuse_redirect_max(settings)?;
-        if let Some(effective) = settings
-            .get(FETCH_TIER_RACE.name)
-            .filter(|effective| effective.value == serde_json::Value::Bool(true))
-        {
-            return Err(unbuilt(
-                FETCH_TIER_RACE.name,
-                effective.layer,
-                "tier_race",
-                "This engine does not race a crawl request's tiers yet, which `fetch.tier_race` asks for in {set}: switch `fetch.tier_race` off.",
-                "`fetch.tier_race: false`",
-                None,
-            ));
-        }
         if let Some(effective) = settings
             .get(FETCH_ENCODING.name)
             .filter(|effective| !effective.value.is_null())
@@ -402,9 +392,11 @@ impl FetchTiers {
             resolve: settings.hosts(NETWORK_RESOLVE.name),
             egress: egress.clone(),
             clock: run.clock(),
+            resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,
         })
         .map_err(|error| error.to_string())?;
         Ok(HttpTier {
+            addresses: transport.address_check(),
             transport: Arc::new(transport),
             egress,
             deadlines: Deadlines::of(settings),
@@ -458,10 +450,11 @@ impl FetchTiers {
     /// # Errors
     ///
     /// [`Stop::Failed`] with the fetch driver's errors (`deadline_exceeded`,
-    /// `egress_refused`, `navigation_failed` with its network error,
-    /// `response_truncated`) or the chain's (`too_many_redirects`,
-    /// `response_not_ok`, `response_unavailable`); [`Stop::Skipped`] for a
-    /// hop the Frontier or the gate refuses.
+    /// `navigation_failed` with its network error, `response_truncated`)
+    /// or the chain's (`too_many_redirects`, `response_not_ok`,
+    /// `response_unavailable`); [`Stop::Skipped`] for a hop the Frontier or
+    /// the gate refuses, and with `domain_policy` for one the transport's
+    /// egress check refuses.
     ///
     /// # Cancel safety
     ///
@@ -715,8 +708,8 @@ impl FetchTiers {
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future may leave the page open; [`FetchTiers::close_browser`]
-    /// closes it.
+    /// Dropping the future once the page opened closes it, its navigation
+    /// with it.
     pub async fn browser(
         &self,
         run_id: &RunId,
@@ -904,6 +897,9 @@ pub struct HttpTier {
     transport: Arc<dyn Transport>,
     /// The Run's egress policy, which every transport judges each URL by.
     egress: Policy,
+    /// The address check of the tier's reqwest connections, run ahead of a
+    /// request whatever transport then sends it.
+    addresses: AddressCheck,
     deadlines: Deadlines,
     /// Its Run's hedges and requests in flight, which no other Run shares.
     redundant: Arc<Redundant>,
@@ -916,6 +912,13 @@ pub struct HttpTier {
 const ROBOTS_TXT_REDIRECTS: usize = 5;
 
 impl HttpTier {
+    /// The address check of the tier's connections, which judges a crawl
+    /// request's URL, and the addresses its name resolves to, before
+    /// anything is sent for it (ADR 0017).
+    pub fn address_check(&self) -> AddressCheck {
+        self.addresses.clone()
+    }
+
     /// [`HttpTier::robots_txt`] as the navigation gate fetches robots.txt.
     pub fn robots_txt_fetch(&self) -> RobotsTxtFetch {
         let tier = self.clone();
@@ -988,14 +991,17 @@ pub enum Chosen {
     /// An escalation to the browser at this call, which the cheaper tier
     /// could not serve.
     Escalated(&'static str),
+    /// The winning run of a race of browser-fetch against a navigation
+    /// (`fetch.tier_race`, ADR 0040).
+    Raced,
 }
 
 /// Records in `run`'s Provenance the tier `choice` names for an attempt of
 /// the crawl request `request_id` of `label`, and how it was chosen (ADR
 /// 0023): `forced`, with who forced it, the Run or the Label; `compared`
 /// under `auto`, the sample comparison's choice; `sample`, one run of a
-/// sample; or `escalation` to the browser, naming the call the cheaper
-/// tier could not serve.
+/// sample; `escalation` to the browser, naming the call the cheaper
+/// tier could not serve; or `race`, the winner of a tier race.
 ///
 /// # Cancel safety
 ///
@@ -1011,6 +1017,7 @@ pub async fn record_tier(
         Chosen::AsChosen => (choice.chosen(), None),
         Chosen::Sample(call) => ("sample", call),
         Chosen::Escalated(call) => ("escalation", Some(call)),
+        Chosen::Raced => ("race", None),
     };
     let mut entry = serde_json::json!({
         "action": FETCH_TIER_ACTION,
@@ -1030,6 +1037,79 @@ pub async fn record_tier(
         entry["call"] = serde_json::json!(call);
     }
     goodfetch_page::provenance(run, &entry).await;
+}
+
+/// Provenance's action for a race of a crawl request's tiers.
+const TIER_RACE_ACTION: &str = "tier_race";
+
+/// How one run of a tier race ended (ADR 0040).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RaceEnd {
+    /// Its result passed the Page check and its Label's comparison first.
+    Won,
+    /// It answered no result that could win.
+    Failed,
+    /// It was sent, then cancelled once the other won.
+    Cancelled,
+    /// It was never sent: the other won first, or Usage had none left.
+    NotSent,
+}
+
+impl RaceEnd {
+    /// Its name in Provenance.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Won => "won",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+            Self::NotSent => "not_sent",
+        }
+    }
+}
+
+/// How a tier race of one crawl request ran, for its Provenance.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Race<'a> {
+    /// The crawl request's ID.
+    pub request_id: &'a str,
+    /// Its Label.
+    pub label: &'a str,
+    /// How long after browser-fetch started the navigation was to start.
+    pub after: Duration,
+    /// How browser-fetch ended.
+    pub browser_fetch: RaceEnd,
+    /// How the navigation ended.
+    pub navigation: RaceEnd,
+}
+
+/// Records in `run`'s Provenance how a tier race ran (ADR 0040): its
+/// delay, how each run ended, and which won, `browser_fetch`, `browser`
+/// or none.
+///
+/// # Cancel safety
+///
+/// Dropping the future never stops the line being written once it began.
+pub async fn record_race(run: &Run, race: &Race<'_>) {
+    let winner = if race.browser_fetch == RaceEnd::Won {
+        Some(FetchTier::BrowserFetch.as_str())
+    } else if race.navigation == RaceEnd::Won {
+        Some(FetchTier::Browser.as_str())
+    } else {
+        None
+    };
+    goodfetch_page::provenance(
+        run,
+        &serde_json::json!({
+            "action": TIER_RACE_ACTION,
+            "crawl_request_id": race.request_id,
+            "label": race.label,
+            "after_ms": u64::try_from(race.after.as_millis()).unwrap_or(u64::MAX),
+            "browser_fetch": race.browser_fetch.as_str(),
+            "navigation": race.navigation.as_str(),
+            "winner": winner,
+        }),
+    )
+    .await;
 }
 
 /// `capability_unavailable` for `key`, set in `layer` or by the Label

@@ -2079,6 +2079,29 @@
       "description": "What an init script's subscription answers when its page closes.",
       "type": "object"
     },
+    "KeyValueStoreAttempt": {
+      "additionalProperties": false,
+      "description": "The crawl attempt a Key-value store call is made through: a handler's\n`ctx.run`, which is bound to its attempt (ADR 0093). Only a crawl's Run\nhas attempts.",
+      "properties": {
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt makes the call.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "crawl_request_id",
+        "lease_epoch"
+      ],
+      "type": "object"
+    },
     "KeyValueStoreBytes": {
       "description": "Bytes the store holds for a key, with their content type.",
       "properties": {
@@ -2143,6 +2166,18 @@
         "_meta": {
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
+        },
+        "attempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyValueStoreAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The crawl attempt whose handler's `ctx.run` reads or deletes the\nkey: a read sees what the attempt staged, and a delete is staged\nwith the attempt (ADR 0093). Absent, the call reads or commits at\nonce."
         },
         "key": {
           "arrived_in": "0.1",
@@ -2252,6 +2287,18 @@
         "_meta": {
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
+        },
+        "attempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyValueStoreAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The crawl attempt whose handler's `ctx.run` sets the key: the write\nis staged with the attempt and commits with it, or is discarded\nwith it (ADR 0093). Absent, the value is committed at once."
         },
         "key": {
           "arrived_in": "0.1",
@@ -9949,7 +9996,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Removes a key from a live Run's Key-value store and answers whether it existed.",
+      "description": "Removes a key from a live Run's Key-value store and answers whether it existed. Through a crawl attempt (`attempt`), the removal is staged with the attempt, and whether the key existed counts what the attempt staged.",
       "events": [],
       "kind": "round_trip",
       "name": "key_value_store.delete",
@@ -9968,7 +10015,7 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
-      "description": "Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it.",
+      "description": "Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it. Through a crawl attempt (`attempt`), it reads what the attempt staged first.",
       "events": [],
       "kind": "round_trip",
       "name": "key_value_store.get",
@@ -9987,7 +10034,7 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
-      "description": "Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock.",
+      "description": "Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock. Through a crawl attempt (`attempt`), it reads what the attempt staged first.",
       "events": [],
       "kind": "round_trip",
       "name": "key_value_store.get_bytes",
@@ -10025,7 +10072,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`.",
+      "description": "Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`. Through a crawl attempt (`attempt`), the write is staged with the attempt and commits or is discarded with it; once the attempt ended, it fails with `attempt_ended`.",
       "events": [],
       "kind": "round_trip",
       "name": "key_value_store.set",
@@ -11872,6 +11919,44 @@
       "default": false,
       "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
       "name": "egress.offline",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "not_by_model_recipe_allowed_by_operator_policy",
+      "clearable": false,
+      "default": [],
+      "description": "The ranges and hosts that addresses a page can reach may use although they are not globally reachable, for tests against a local site or an intranet: CIDR ranges such as `127.0.0.0/8`, IP addresses, and host names, each name's connections allowed any address that is not globally reachable. A cloud-metadata address (`169.254.169.254`, `fd00:ec2::254`, `100.100.100.200`) is reached only when listed by its exact address, never through a range or a host name that covers it. Empty by default; set by the program's own code, configuration or an Operator policy, by a Recipe only where the Operator policy's `egress.recipe_private_ranges` allows it, and never by a Client acting for a model, whose value is `setting_locked`. A run that lists any records it once in the Audit log as `private_addresses_allowed` and in its Run report's `weakened`.",
+      "name": "egress.private_ranges",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "description": "A CIDR range such as `127.0.0.0/8`, an IP address such as `169.254.169.254`, or a host name such as `intranet.example`.",
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "operator_policy",
+      "clearable": false,
+      "default": false,
+      "description": "Whether a Recipe may set `egress.private_ranges`. `false` by default, so a Recipe's value is `setting_locked`; set only in an Operator policy.",
+      "name": "egress.recipe_private_ranges",
       "product": "collie",
       "products": [
         "collie",

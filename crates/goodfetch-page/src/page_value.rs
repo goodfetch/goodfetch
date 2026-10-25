@@ -63,8 +63,9 @@ pub trait BrowserPages: Send + Sync {
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future may leave the page open, until its Session or
-    /// Run closes.
+    /// Dropping the future once the page opened closes it, its navigation
+    /// with it; dropped before, the Session may stay open until its Run
+    /// closes.
     fn open<'a>(
         &'a self,
         run_id: &'a RunId,

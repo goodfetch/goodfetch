@@ -95,6 +95,7 @@ pub(crate) fn started_after<'env>(
         .map(|(host, address)| (host.clone(), json!([address])))
         .collect();
     let mut settings = settings.clone();
+    allow_private(&mut settings, resolve.keys());
     settings.insert("network".to_owned(), json!({ "resolve": resolve }));
     let started = call(
         &mut engine,
@@ -104,6 +105,27 @@ pub(crate) fn started_after<'env>(
     );
     assert!(started.get("result").is_some(), "{started}");
     engine
+}
+
+/// Lists `hosts`, names a Run's `network.resolve` maps to the Proving
+/// ground's loopback address, in its `egress.private_ranges`, unless the
+/// test's own `settings` list ranges: the relay judges a mapping's answers
+/// as any other (spec #563's reading of #325), so a test reaches loopback
+/// by listing it and keeps the resolved-address check on. Listing the
+/// names rather than `127.0.0.0/8` keeps `localhost` and literal loopback
+/// addresses refused.
+pub(crate) fn allow_private<'host>(
+    settings: &mut Map<String, Value>,
+    hosts: impl IntoIterator<Item = &'host String>,
+) {
+    let egress = settings
+        .entry("egress")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .expect("a test's `egress` settings are a table");
+    egress
+        .entry("private_ranges")
+        .or_insert_with(|| json!(hosts.into_iter().collect::<Vec<_>>()));
 }
 
 pub(crate) fn opened(answer: &Value) -> PageOpened {

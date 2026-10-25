@@ -76,6 +76,8 @@ allowed_domains = ["example"]
 blocked_domains = ["example"]
 offline = true
 no_private_endpoints = true
+private_ranges = ["127.0.0.0/8", "intranet.example"]
+recipe_private_ranges = true
 local_addresses = ["192.0.2.10", "2001:db8::10"]
 
 [settings.egress.rotation_block]
@@ -351,6 +353,8 @@ allowed_domains = ["example"]
 blocked_domains = ["example"]
 offline = true
 no_private_endpoints = true
+private_ranges = ["127.0.0.0/8", "intranet.example"]
+recipe_private_ranges = true
 local_addresses = ["192.0.2.10", "2001:db8::10"]
 
 [lock.egress.rotation_block]

@@ -118,21 +118,21 @@ class AsyncCollieOperations:
         return SubscriptionEnded.model_construct(**_fields(await self._caller.call("events.subscribe", params)))
 
     async def key_value_store_delete(self, params: KeyValueStoreKeyParams) -> KeyValueStoreDeleted:
-        """Removes a key from a live Run's Key-value store and answers whether it existed.
+        """Removes a key from a live Run's Key-value store and answers whether it existed. Through a crawl attempt (`attempt`), the removal is staged with the attempt, and whether the key existed counts what the attempt staged.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return KeyValueStoreDeleted.model_construct(**_fields(await self._caller.call("key_value_store.delete", params)))
 
     async def key_value_store_get(self, params: KeyValueStoreKeyParams) -> KeyValueStoreValue:
-        """Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it.
+        """Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it. Through a crawl attempt (`attempt`), it reads what the attempt staged first.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return KeyValueStoreValue.model_construct(**_fields(await self._caller.call("key_value_store.get", params)))
 
     async def key_value_store_get_bytes(self, params: KeyValueStoreKeyParams) -> KeyValueStoreBytesValue:
-        """Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock.
+        """Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock. Through a crawl attempt (`attempt`), it reads what the attempt staged first.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -146,7 +146,7 @@ class AsyncCollieOperations:
         return KeyValueStoreKeysEnded.model_construct(**_fields(await self._caller.call("key_value_store.keys", params)))
 
     async def key_value_store_set(self, params: KeyValueStoreSetParams) -> KeyValueStoreSet:
-        """Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`.
+        """Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`. Through a crawl attempt (`attempt`), the write is staged with the attempt and commits or is discarded with it; once the attempt ended, it fails with `attempt_ended`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -639,21 +639,21 @@ class CollieOperations:
         return SubscriptionEnded.model_construct(**_fields(self._caller.call("events.subscribe", params)))
 
     def key_value_store_delete(self, params: KeyValueStoreKeyParams) -> KeyValueStoreDeleted:
-        """Removes a key from a live Run's Key-value store and answers whether it existed.
+        """Removes a key from a live Run's Key-value store and answers whether it existed. Through a crawl attempt (`attempt`), the removal is staged with the attempt, and whether the key existed counts what the attempt staged.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return KeyValueStoreDeleted.model_construct(**_fields(self._caller.call("key_value_store.delete", params)))
 
     def key_value_store_get(self, params: KeyValueStoreKeyParams) -> KeyValueStoreValue:
-        """Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it.
+        """Answers the JSON value a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding bytes fails with `value_invalid`, naming `getBytes`. Takes no writer lock, so it reads a Run no program holds without resuming it. Through a crawl attempt (`attempt`), it reads what the attempt staged first.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return KeyValueStoreValue.model_construct(**_fields(self._caller.call("key_value_store.get", params)))
 
     def key_value_store_get_bytes(self, params: KeyValueStoreKeyParams) -> KeyValueStoreBytesValue:
-        """Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock.
+        """Answers the bytes and content type a Run's Key-value store holds for a key, as committed, or null when the key is absent. A key holding JSON fails with `value_invalid`, naming `get`. Takes no writer lock. Through a crawl attempt (`attempt`), it reads what the attempt staged first.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -667,7 +667,7 @@ class CollieOperations:
         return KeyValueStoreKeysEnded.model_construct(**_fields(self._caller.call("key_value_store.keys", params)))
 
     def key_value_store_set(self, params: KeyValueStoreSetParams) -> KeyValueStoreSet:
-        """Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`.
+        """Commits a JSON value for a key in a live Run's Key-value store, replacing the one it held: the last commit wins. A null value fails with `value_invalid`; remove a key with `delete`. Through a crawl attempt (`attempt`), the write is staged with the attempt and commits or is discarded with it; once the attempt ended, it fails with `attempt_ended`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

@@ -48,7 +48,10 @@ fn resolving(proving_ground: &ProvingGround) -> Value {
         .iter()
         .map(|(host, address)| (host.clone(), json!([address])))
         .collect();
-    json!({ "network": { "resolve": resolve } })
+    json!({
+        "network": { "resolve": resolve },
+        "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
+    })
 }
 
 /// Opens a page in `run_id`'s default Session and visits `numbers`'

@@ -32,6 +32,7 @@ use goodfetch_protocol::egress::EgressRule;
 use goodfetch_test_support::{Family, ResolverHandle, ScriptedResolver, SsrfTable};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, duplex};
 
+use super::client_hello::{self, ClientHello};
 use super::serve::{Met, Network, Observe, Relaying, Resolved, Served, Unreached, Upstream, serve};
 use super::terminate::Stop;
 
@@ -148,7 +149,6 @@ impl Network for Scripted {
         if let Some(mapped) = self.mapping.get(host) {
             return Some(Resolved {
                 addresses: on_port(mapped),
-                mapped: true,
             });
         }
         let addresses = match host.parse::<IpAddr>() {
@@ -157,7 +157,6 @@ impl Network for Scripted {
         };
         Some(Resolved {
             addresses: on_port(&addresses),
-            mapped: false,
         })
     }
 
@@ -179,6 +178,7 @@ struct Told {
     met: Mutex<Vec<Met>>,
     unauthenticated: Mutex<usize>,
     unreached: Mutex<Vec<(String, Unreached)>>,
+    client_hellos: Mutex<Vec<(String, ClientHello)>>,
 }
 
 impl Observe for Told {
@@ -218,6 +218,13 @@ impl Observe for Told {
             .lock()
             .unwrap()
             .push((url.to_owned(), stop.clone()));
+    }
+
+    fn client_hello(&self, authority: &str, hello: ClientHello) {
+        self.client_hellos
+            .lock()
+            .unwrap()
+            .push((authority.to_owned(), hello));
     }
 }
 
@@ -605,16 +612,8 @@ fn a_name_with_no_address_is_unreached_by_name_and_the_browser_fails_it() {
 /// Covers: story:4-40
 #[test]
 fn a_client_hello_is_read_from_its_records_whole_or_split() {
-    let seed = |name: &str| {
-        std::fs::read(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("fuzz/relay_client_hello/seeds")
-                .join(name),
-        )
-        .unwrap()
-    };
     let read = |name: &str| {
-        super::client_hello::parse(&seed(name)).map(|hello| {
+        client_hello::parse(&seed(name)).map(|hello| {
             (
                 hello.alpn,
                 hello.server_name,
@@ -636,7 +635,130 @@ fn a_client_hello_is_read_from_its_records_whole_or_split() {
                 true
             )),
             Ok((vec![b"h2".to_vec()], Some("split.test".to_owned()), true)),
-            Err(super::client_hello::Unread::Malformed),
+            Err(client_hello::Unread::Malformed),
         ]
+    );
+}
+
+/// The Run's `network.resolve` mapping applies before every lookup and its
+/// answer is still judged (ADR 0059; spec #563's reading of #325): a name
+/// mapped to loopback or to the metadata stand-in reaches it only where
+/// `egress.private_ranges` lists it, the metadata address only by its
+/// exact address, never through a range that covers it. The far end of
+/// the Scripted network at 169.254.169.254 stands in for the metadata
+/// service; the oracle is the connections the relay opened.
+///
+/// Covers: story:4-11, story:4-13, error:egress_refused, setting:egress.private_ranges, setting:network.resolve
+#[rstest::rstest]
+#[case::loopback_unlisted("127.0.0.1", &[], false)]
+#[case::loopback_under_its_range("127.0.0.1", &["127.0.0.0/8"], true)]
+#[case::loopback_by_the_hosts_name("127.0.0.1", &["mapped.test"], true)]
+#[case::metadata_under_a_range_that_covers_it("169.254.169.254", &["169.254.0.0/16"], false)]
+#[case::metadata_through_the_hosts_name("169.254.169.254", &["mapped.test"], false)]
+#[case::metadata_by_its_exact_address("169.254.169.254", &["169.254.169.254"], true)]
+fn a_mapped_answer_is_judged_and_reaches_only_what_the_private_ranges_list(
+    #[case] mapped: &str,
+    #[case] ranges: &[&str],
+    #[case] reached: bool,
+) {
+    let mut network = Scripted::new(None, Far::Site);
+    network
+        .mapping
+        .insert("mapped.test".to_owned(), vec![mapped.parse().unwrap()]);
+    let told = Told::default();
+    let relaying = relaying(
+        every_host().with_private_ranges(ranges).unwrap(),
+        Upstream::Direct,
+    );
+
+    let (answer, _) = goodfetch_test_support::runtime().block_on(through(
+        &connect("mapped.test:443"),
+        GET,
+        &relaying,
+        &network,
+        &told,
+    ));
+
+    let address: IpAddr = mapped.parse().unwrap();
+    let refusals: Vec<_> = told
+        .refused
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(refused, _)| (refused.rule, refused.address))
+        .collect();
+    if reached {
+        assert_eq!(
+            (network.connections(), refusals, answer.ends_with("ok")),
+            (vec![Some(SocketAddr::new(address, 443))], vec![], true),
+            "{answer}"
+        );
+    } else {
+        assert_eq!(
+            (network.connections(), refusals),
+            (vec![], vec![(EgressRule::PrivateAddress, Some(address))]),
+            "{answer}"
+        );
+    }
+}
+
+/// The seed ClientHello records named `name`, of the relay's fuzz target.
+fn seed(name: &str) -> Vec<u8> {
+    std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fuzz/relay_client_hello/seeds")
+            .join(name),
+    )
+    .unwrap()
+}
+
+/// A tunnel the relay passes as it is tells the Session the ClientHello
+/// the browser opened it with, which the relay's own look at a
+/// certificate the browser refused sends again, so the site sees the
+/// browser's fingerprint alone (ADR 0042); its bytes reach the site
+/// unchanged, and a tunnel that carries no TLS tells nothing.
+///
+/// Covers: story:4-40
+#[test]
+fn a_tunnel_it_passes_tells_the_session_the_browsers_client_hello_and_changes_no_byte() {
+    let network = Scripted::new(None, Far::Site);
+    let told = Told::default();
+    let relaying = relaying(every_host(), Upstream::Direct);
+    let records = seed("split over two records");
+    let sent = [records.as_slice(), GET].concat();
+    let runtime = goodfetch_test_support::runtime();
+
+    let (tls, _) = runtime.block_on(through(
+        &connect("192.31.196.1:443"),
+        &sent,
+        &relaying,
+        &network,
+        &told,
+    ));
+    let (plain, _) = runtime.block_on(through(
+        &connect("192.31.196.1:80"),
+        GET,
+        &relaying,
+        &network,
+        &told,
+    ));
+
+    assert!(
+        tls.ends_with("ok") && plain.ends_with("ok"),
+        "{tls} {plain}"
+    );
+    assert_eq!(
+        network.heads(),
+        vec![
+            String::from_utf8_lossy(&sent).into_owned(),
+            String::from_utf8_lossy(GET).into_owned()
+        ]
+    );
+    assert_eq!(
+        *told.client_hellos.lock().unwrap(),
+        vec![(
+            "192.31.196.1:443".to_owned(),
+            client_hello::parse(&records).unwrap()
+        )]
     );
 }

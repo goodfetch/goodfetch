@@ -292,6 +292,11 @@ pub enum Authority {
     /// credentials, which send a Secret reference's value to a destination
     /// they also name (ADR 0092).
     NotByRecipeOrModel,
+    /// Every layer but a Client acting for a model, whose value is
+    /// `setting_locked`, and a Recipe, unless the Operator policy sets the
+    /// boolean setting this names to `true`, as `egress.private_ranges`
+    /// (spec #563).
+    NotByModelRecipeAllowedBy(&'static str),
     /// No layer: an honesty guarantee that stays at its built-in value
     /// whatever the layer (ADR 0028).
     Fixed,
@@ -309,6 +314,7 @@ impl Authority {
             Self::Machine => "machine",
             Self::NotByRecipe => "not_by_recipe",
             Self::NotByRecipeOrModel => "not_by_recipe_or_model",
+            Self::NotByModelRecipeAllowedBy(_) => "not_by_model_recipe_allowed_by_operator_policy",
             Self::Fixed => "fixed",
         }
     }

@@ -26,6 +26,7 @@ mod progress;
 mod report;
 mod resume;
 mod safe_point;
+mod staging;
 
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -74,6 +75,10 @@ pub(crate) enum Reply {
     Blocked(&'static str),
     /// Never answers.
     Silent,
+    /// Sends these calls to the engine from inside the attempt, each
+    /// method with its params, waiting for each reply, which
+    /// [`Client::replies`] keeps, then answers as the inner reply says.
+    Calls(Vec<(&'static str, Value)>, Box<Reply>),
 }
 
 /// The Client's end of the engine's Connection.
@@ -91,6 +96,12 @@ pub(crate) struct Client {
     /// The Records a request left unanswered is answered with once the
     /// engine cancels it: a late commit.
     pub(crate) late: Option<Vec<Value>>,
+    /// The replies to the calls a handler sent from inside its attempts,
+    /// in order.
+    pub(crate) replies: Vec<Value>,
+    /// What came while a handler's call from inside its attempt waited for
+    /// its reply, read next.
+    early: std::collections::VecDeque<Value>,
 }
 
 impl Client {
@@ -101,6 +112,14 @@ impl Client {
     }
 
     async fn next(&mut self) -> Option<Value> {
+        if let Some(early) = self.early.pop_front() {
+            return Some(early);
+        }
+        self.read().await
+    }
+
+    /// The next message off the Connection, past what came early.
+    async fn read(&mut self) -> Option<Value> {
         let line = self.lines.next_line().await.unwrap()?;
         Some(serde_json::from_str(&line).unwrap())
     }
@@ -140,7 +159,27 @@ impl Client {
             } else if message.get("method").and_then(Value::as_str) == Some("crawl_request.handle")
             {
                 self.handled.push(message["params"].clone());
-                match handler(&message["params"]) {
+                let mut reply = handler(&message["params"]);
+                while let Reply::Calls(calls, then) = reply {
+                    for (method, params) in calls {
+                        let inside = format!("inside-{}", self.replies.len());
+                        self.send(&json!({ "jsonrpc": "2.0", "id": inside, "method": method, "params": params }))
+                            .await;
+                        loop {
+                            let message = self
+                                .read()
+                                .await
+                                .expect("the engine closed before replying");
+                            if message["id"] == json!(inside) {
+                                self.replies.push(message);
+                                break;
+                            }
+                            self.early.push_back(message);
+                        }
+                    }
+                    reply = *then;
+                }
+                match reply {
                     Reply::Records(records) => {
                         let records: Vec<Value> = records
                             .into_iter()
@@ -184,6 +223,7 @@ impl Client {
                         .await;
                     }
                     Reply::Silent => self.silent.push(message["id"].clone()),
+                    Reply::Calls(..) => unreachable!("invariant: the calls were sent above"),
                 }
             } else if message["id"] == json!(id) {
                 return message;
@@ -298,6 +338,8 @@ pub(crate) fn crawl_on<T>(
                 silent: Vec::new(),
                 arrivals: Vec::new(),
                 late: None,
+                replies: Vec::new(),
+                early: std::collections::VecDeque::new(),
             };
             let hello = client
                 .call(
@@ -1052,19 +1094,21 @@ fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable
     );
 }
 
-/// `fetch.tier_race` and `fetch.encoding`, in the schema though the engine
-/// does neither yet: switched on or set, for the Run or, for
-/// `fetch.encoding`, for a Label, the crawl is refused before its Run
-/// begins with `capability_unavailable` naming the key; `fetch.tier_race`
-/// on a Label, which the Run alone sets, with `setting_not_applicable`;
-/// and a `fetch.encoding` that is no WHATWG Encoding label with
-/// `setting_invalid`.
+/// `fetch.encoding`, in the schema though the engine does not force an
+/// encoding yet: set for the Run or for a Label, the crawl is refused
+/// before its Run begins with `capability_unavailable` naming the key.
+/// `fetch.tier_race` switched on while a domain admits one request at a
+/// time, where its navigation could never start beside its browser-fetch,
+/// is refused with `setting_not_applicable` naming the key and the Run's
+/// layer (ADR 0086), as is `fetch.tier_race` on a Label, which the Run
+/// alone sets; a `fetch.encoding` that is no WHATWG Encoding label is
+/// refused with `setting_invalid`.
 #[rstest::rstest]
-/// Covers: setting:fetch.tier_race, error:capability_unavailable
-#[case::a_race_for_the_run(
-    json!({ "fetch": { "tier_race": true } }),
+/// Covers: story:6-263, setting:fetch.tier_race, error:setting_not_applicable
+#[case::a_race_one_request_at_a_time(
+    json!({ "fetch": { "tier_race": true }, "politeness": { "domain": { "concurrency": 1 } } }),
     json!({}),
-    json!(["capability_unavailable", "fetch.tier_race", "tier_race"])
+    json!(["setting_not_applicable", "fetch.tier_race", null])
 )]
 /// Covers: setting:fetch.encoding, error:capability_unavailable
 #[case::an_encoding_for_the_run(

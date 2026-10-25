@@ -77,7 +77,7 @@ use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
     WORK_ITEM_RETRIED,
 };
-use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_protocol::foxhound::fetch::{FETCH_TIER_RACE, FetchTier};
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::governor::WorkKind;
@@ -99,6 +99,7 @@ use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::serving::{Crawls, Opened, Server};
 use crate::tier_choice::{self, AttemptPlan, TierChoices};
+use crate::tier_race::{Latencies, Raced};
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
 use goodfetch_protocol::foxhound::progress::{InFlightPhase, InFlightRequest};
 
@@ -167,12 +168,13 @@ pub(crate) async fn drive(
         gone: false,
     }];
     let run_tier = FetchTiers::run_tier(settings.resolved());
+    let races = settings.resolved().boolean(FETCH_TIER_RACE.name) == Some(true);
     // One HTTP tier for the Run, so its hops share connections (#763); the
     // navigation gate fetches robots.txt on it too.
     let http = match FetchTiers::built(&run, settings.resolved()) {
         Ok(http) => Some(http),
         // A request may take the `http` tier: the Run cannot go on.
-        Err(error) if labels.settings.any() || run_tier != SetTier::Unset => {
+        Err(error) if labels.settings.any() || run_tier != SetTier::Unset || races => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's HTTP tier could not be built");
             run.end(failed(&run, &error)).await;
             crawls.close(run.id()).await;
@@ -191,10 +193,19 @@ pub(crate) async fn drive(
         labels: &labels,
         run_tier,
         choices: tokio::sync::Mutex::new(choices),
+        races,
+        latencies: tokio::sync::Mutex::new(Latencies::default()),
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
     };
     deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
     crawls.close(run.id()).await;
+}
+
+/// Where `run`'s leases are granted, each attempt staging in the crawl's
+/// staging.
+fn leases_of(run: &Run, arrivals: &Opened) -> Leases {
+    Leases::new(run.clock(), run.id().as_str(), run.state().epoch())
+        .staging_in(arrivals.staging.clone())
 }
 
 /// The delivery's loop, which returns once the Run ended or stopped.
@@ -205,7 +216,7 @@ async fn deliver(
     settings: &RunSettings,
     fetching: &Fetching<'_>,
 ) {
-    let run_leases = Leases::new(run.clock(), run.id().as_str(), run.state().epoch());
+    let run_leases = leases_of(run, arrivals);
     let Some((mut admission, mut pool)) = opened(run, settings).await else {
         return;
     };
@@ -436,6 +447,11 @@ struct Fetching<'a> {
     run_tier: SetTier,
     /// What each Label on each domain learned under `auto`.
     choices: tokio::sync::Mutex<TierChoices>,
+    /// Whether the Run races its requests' tiers (`fetch.tier_race`).
+    races: bool,
+    /// The browser-fetch latencies of each Label on each domain, which
+    /// time a race's navigation.
+    latencies: tokio::sync::Mutex<Latencies>,
     /// How the navigation gate fetches robots.txt.
     robots: Option<RobotsTxtFetch>,
     /// The Run's domain policy, which judges each redirect hop.
@@ -453,14 +469,17 @@ impl Fetching<'_> {
             second_copies: second_copies.clone(),
             robots: self.robots.clone(),
             egress: std::sync::Arc::clone(&self.egress),
+            addresses: self.http.map(HttpTier::address_check),
             page_check: self.labels.settings.page_check(label).cloned(),
         }
     }
 
     /// How `leased`'s attempt runs, as its Label and the Run's
     /// `fetch.tier` choose and, under `auto`, on the browser for a domain a
-    /// Challenge moved there, `to_browser` (ADR 0021), else as its Label on
-    /// its domain learned, and what it fetches its document with.
+    /// Challenge moved there, `to_browser` (ADR 0021), else, when the Run
+    /// races its tiers, as a race timed by its Label on its domain's
+    /// browser-fetch latencies, else as its Label on its domain learned,
+    /// and what it fetches its document with.
     async fn served(
         &self,
         leased: &Leased,
@@ -476,6 +495,29 @@ impl Fetching<'_> {
             self.labels.settings.choose(&request.label, self.run_tier)
         };
         let plan = match choosing {
+            Choosing::Alone | Choosing::Engine if self.races && !to_browser && !leased.sitemap => {
+                let learned = self.choices.lock().await.serve_attempt(
+                    &request.label,
+                    &leased.waiting.key,
+                    &request.url,
+                );
+                AttemptPlan::Race(Raced {
+                    label: request.label.clone(),
+                    domain_key: leased.waiting.key.clone(),
+                    delay: self
+                        .latencies
+                        .lock()
+                        .await
+                        .delay(&request.label, &leased.waiting.key),
+                    agrees: !matches!(
+                        learned,
+                        AttemptPlan::On(TierChoice {
+                            tier: FetchTier::Browser,
+                            ..
+                        })
+                    ),
+                })
+            }
             Choosing::Alone => AttemptPlan::Alone,
             Choosing::Forced(choice) => AttemptPlan::On(choice),
             Choosing::Engine if to_browser => AttemptPlan::On(TierChoice {
@@ -504,6 +546,17 @@ impl Fetching<'_> {
             if let Err(error) = self.tiers.retire_browser(run.id(), &session, context).await {
                 tracing::error!(%error, run_id = %run.id(), session_id = %session.0, "a retired Session's browser context did not close");
             }
+        }
+    }
+
+    /// Takes the browser-fetch latency of the race `attempt` was, if it
+    /// was one and its browser-fetch answered.
+    async fn time(&self, attempt: &mut Attempt) {
+        if let Some((raced, latency)) = attempt.raced.take() {
+            self.latencies
+                .lock()
+                .await
+                .record(&raced.label, &raced.domain_key, latency);
         }
     }
 
@@ -775,6 +828,7 @@ async fn settled(
     mut attempt: Attempt,
 ) {
     fetching.classify(run, &mut attempt).await;
+    fetching.time(&mut attempt).await;
     fetching
         .in_flight
         .lock()
@@ -1085,8 +1139,9 @@ async fn settle(
                 .commit(run.state(), handled.records, run.point_in_time())
                 .await
             {
-                Ok(()) => {
+                Ok(files) => {
                     lease.release();
+                    goodfetch_engine::key_value_store::forget_files(run, files).await;
                     return false;
                 }
                 Err(CommitError::LeaseLost) => failure(

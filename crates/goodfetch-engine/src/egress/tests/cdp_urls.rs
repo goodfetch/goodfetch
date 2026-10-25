@@ -206,3 +206,28 @@ fn a_refusal_names_the_rule_the_layer_and_the_fix_on_the_wire() {
 fn a_cdp_url_is_named_without_its_query_or_credentials(#[case] url: &str, #[case] named: &str) {
     assert_eq!(cdp_url_address(url), named);
 }
+
+/// `security.resolved_ip_check` switches off the Run's check of the
+/// addresses its pages reach, never ADR 0056's rules for a `cdp_url`: a
+/// model's still reaches no private address with the switch off.
+/// Covers: story:4-15, story:4-17, setting:security.resolved_ip_check
+#[test]
+fn the_resolved_address_check_switched_off_leaves_a_cdp_urls_rules_on() {
+    let off = super::of_the_run(serde_json::json!({ "security": { "resolved_ip_check": false } }));
+
+    assert_eq!(
+        judge_cdp_url(
+            URL,
+            &sockets(&["10.0.0.1"]),
+            FROM_A_MODEL,
+            &off,
+            EndpointPolicy::default(),
+        ),
+        Err(refused(
+            FROM_A_MODEL,
+            CdpUrlRule::PrivateAddress,
+            "10.0.0.1",
+            Some("egress.private_ranges")
+        ))
+    );
+}

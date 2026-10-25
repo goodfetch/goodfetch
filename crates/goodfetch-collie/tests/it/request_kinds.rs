@@ -93,7 +93,10 @@ impl<'env> Program<'env> {
         }
         let settings = json!({
             "network": { "resolve": self.resolve },
-            "egress": { "allowed_domains": allowed },
+            "egress": {
+                "allowed_domains": allowed,
+                "private_ranges": self.resolve.keys().collect::<Vec<_>>(),
+            },
             // Each page settles within seconds; a navigation's error page
             // never does.
             "timeout": { "wait": 10_000 },

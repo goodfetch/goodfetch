@@ -415,7 +415,7 @@ fn with_robots_txt_not_respected_a_disallowed_request_is_fetched() {
 /// is honoured (ADR 0028): a crawl that turns it off is refused at its
 /// start with `setting_locked`, and the site gets nothing.
 ///
-/// Covers: story:6-239, setting:site_preferences.respect_robots_txt, error:setting_locked
+/// Covers: story:6-239, story:6-314, setting:site_preferences.respect_robots_txt, error:setting_locked
 #[test]
 fn an_operator_policy_lock_keeps_robots_txt_respected() {
     let env = TestEnv::new();

@@ -29,8 +29,10 @@ mod progress;
 mod report;
 mod seeding;
 mod serving;
+mod staging;
 mod start;
 mod tier_choice;
+mod tier_race;
 mod work_items;
 
 pub use start::contribution;

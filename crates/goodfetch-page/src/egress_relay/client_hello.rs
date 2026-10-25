@@ -4,9 +4,15 @@
 //! values the relay sets on its upstream connection so the site sees the
 //! browser's own fingerprint. GREASE values (RFC 8701) are left out of
 //! every list; that the browser sent any is kept apart, since BoringSSL
-//! draws its own.
+//! draws its own. A tunnel the relay passes as it is notes its ClientHello
+//! as the bytes go by ([`Noting`]), for the relay's own look at a
+//! certificate the browser refused.
 
-use tokio::io::{AsyncRead, AsyncReadExt as _};
+use std::io;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, ReadBuf};
 
 /// The most bytes of records the relay reads for one ClientHello: a
 /// browser's, with its post-quantum key share, fits in a few KiB.
@@ -36,6 +42,7 @@ mod extension {
     pub(super) const APPLICATION_SETTINGS_OLD: u16 = 17_513;
     pub(super) const APPLICATION_SETTINGS: u16 = 17_613;
     pub(super) const ENCRYPTED_CLIENT_HELLO: u16 = 0xfe0d;
+    pub(super) const TRUST_ANCHORS: u16 = 0xca34;
 }
 
 /// What the relay mirrors of a browser's ClientHello.
@@ -69,6 +76,10 @@ pub(crate) struct ClientHello {
     pub(crate) record_size_limit: Option<u16>,
     /// The signature algorithms of its `delegated_credential` extension.
     pub(crate) delegated_credentials: Vec<u16>,
+    /// The trust anchor IDs of its `trust_anchors` extension (Chromium's
+    /// codepoint of draft-ietf-tls-trust-anchor-ids), each behind its
+    /// one-byte length as the extension lists them.
+    pub(crate) trust_anchors: Option<Vec<u8>>,
 }
 
 impl ClientHello {
@@ -188,6 +199,85 @@ pub(crate) fn parse(records: &[u8]) -> Result<ClientHello, Unread> {
     }
 }
 
+/// A browser's stream whose first bytes, read as they pass unchanged, give
+/// the ClientHello they carry to its `noted`, once, so a tunnel the relay
+/// passes as it is still tells how the browser opens TLS. Bytes of another
+/// protocol, or more than a ClientHello's records hold, end the noting;
+/// nothing ever waits on it.
+pub(crate) struct Noting<B, F> {
+    inner: B,
+    /// The bytes read so far, while no ClientHello is whole.
+    seen: Vec<u8>,
+    /// Takes the ClientHello once it is whole; none once noting ended.
+    noted: Option<F>,
+}
+
+impl<B, F: FnOnce(ClientHello)> Noting<B, F> {
+    /// Notes the ClientHello of `inner`'s bytes, `first`, the bytes the
+    /// relay already read past the browser's head, before them.
+    pub(crate) fn new(inner: B, first: &[u8], noted: F) -> Self {
+        let mut noting = Self {
+            inner,
+            seen: Vec::new(),
+            noted: Some(noted),
+        };
+        noting.note(first);
+        noting
+    }
+
+    fn note(&mut self, bytes: &[u8]) {
+        if self.noted.is_none() || bytes.is_empty() {
+            return;
+        }
+        self.seen.extend_from_slice(bytes);
+        match parse(&self.seen) {
+            Err(Unread::Closed) if self.seen.len() <= MOST => return,
+            Ok(hello) => {
+                if let Some(noted) = self.noted.take() {
+                    noted(hello);
+                }
+            }
+            Err(_) => {}
+        }
+        self.noted = None;
+        self.seen = Vec::new();
+    }
+}
+
+impl<B: AsyncRead + Unpin, F: FnOnce(ClientHello) + Unpin> AsyncRead for Noting<B, F> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = &mut *self;
+        let before = buffer.filled().len();
+        let polled = Pin::new(&mut this.inner).poll_read(context, buffer);
+        if let Poll::Ready(Ok(())) = polled {
+            this.note(&buffer.filled()[before..]);
+        }
+        polled
+    }
+}
+
+impl<B: AsyncWrite + Unpin, F: Unpin> AsyncWrite for Noting<B, F> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(context, buffer)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(context)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(context)
+    }
+}
+
 /// Parses a ClientHello's body.
 fn parse_message(body: &[u8]) -> Result<ClientHello, Unread> {
     message(body).ok_or(Unread::Malformed)
@@ -284,6 +374,9 @@ impl ClientHello {
                 self.alps_new_codepoint = kind == extension::APPLICATION_SETTINGS;
             }
             extension::RECORD_SIZE_LIMIT => self.record_size_limit = Some(Reader(data).u16()?),
+            extension::TRUST_ANCHORS => {
+                self.trust_anchors = Some(Reader(data).vector16()?.to_vec());
+            }
             extension::KEY_SHARE => {
                 let mut shares = Reader(Reader(data).vector16()?);
                 while !shares.0.is_empty() {

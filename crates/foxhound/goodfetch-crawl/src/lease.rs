@@ -29,6 +29,7 @@ use goodfetch_protocol::run::PointInTime;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
+use crate::staging::Staging;
 use crate::work_items;
 
 /// The `tracing` target of the run fencing model's transitions.
@@ -87,6 +88,7 @@ pub(crate) struct Leases {
     origin: Instant,
     run_id: Arc<str>,
     run_epoch: u64,
+    staging: Staging,
 }
 
 impl Leases {
@@ -98,7 +100,16 @@ impl Leases {
             clock,
             run_id: Arc::from(run_id),
             run_epoch,
+            staging: Staging::default(),
         }
+    }
+
+    /// The same, each attempt staging its outputs in `staging` while its
+    /// lease holds (ADR 0093).
+    #[must_use]
+    pub(crate) fn staging_in(mut self, staging: Staging) -> Self {
+        self.staging = staging;
+        self
     }
 
     /// Grants the lease of epoch `lease_epoch` on `work_item`, which the
@@ -110,6 +121,7 @@ impl Leases {
         length: Duration,
     ) -> WorkItemLease {
         let lease = Lease::granted(lease_epoch, self.clock.now(), length);
+        self.staging.open(work_item, lease_epoch);
         let (state, _) = watch::channel(Held {
             lease,
             released: false,
@@ -138,6 +150,14 @@ struct Shared {
     /// How long it was granted for, which each renewal grants again.
     length: Duration,
     state: watch::Sender<Held>,
+}
+
+impl Drop for Shared {
+    /// What its attempt staged and never committed goes with it.
+    fn drop(&mut self) {
+        let epoch = self.state.borrow().lease.epoch();
+        self.leases.staging.discard(&self.work_item, epoch);
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -195,9 +215,27 @@ impl WorkItemLease {
             released = Some(held.lease);
             true
         });
+        self.discard();
         if let Some(lease) = released {
             self.trace("release", &lease, None);
         }
+    }
+
+    /// Discards what its attempt staged so far and stages anew, as its
+    /// handler runs again on another tier with its first answer discarded:
+    /// an escalation or a sample's browser run (ADR 0093).
+    pub(crate) fn restage(&self) {
+        let epoch = self.0.state.borrow().lease.epoch();
+        self.0.leases.staging.discard(&self.0.work_item, epoch);
+        if self.check().is_ok() {
+            self.0.leases.staging.open(&self.0.work_item, epoch);
+        }
+    }
+
+    /// Discards what its attempt staged and did not commit.
+    fn discard(&self) {
+        let epoch = self.0.state.borrow().lease.epoch();
+        self.0.leases.staging.discard(&self.0.work_item, epoch);
     }
 
     /// Waits until it ends: until its attempt releases it, or until the
@@ -220,9 +258,11 @@ impl WorkItemLease {
         }
     }
 
-    /// Commits `records` as its attempt's outputs, once, with its work
-    /// item's outcome ended at `ended_at`, when it still holds and the run
-    /// file holds it too.
+    /// Commits `records` as its attempt's outputs, once, with what the
+    /// attempt staged and its work item's outcome ended at `ended_at`, when
+    /// it still holds and the run file holds it too; answers the kept files
+    /// of the Run's folder the staged Key-value store writes took out,
+    /// which the caller forgets.
     ///
     /// # Errors
     ///
@@ -238,7 +278,7 @@ impl WorkItemLease {
         state: &RunState,
         records: Vec<PushedRecord>,
         ended_at: PointInTime,
-    ) -> Result<(), CommitError> {
+    ) -> Result<Vec<String>, CommitError> {
         let lease = self.0.state.borrow().lease;
         if self.check().is_err() {
             self.trace("refuse_commit", &lease, Some("lease_lost"));
@@ -246,17 +286,27 @@ impl WorkItemLease {
         }
         let work_item = self.0.work_item.to_string();
         let epoch = lease.epoch();
+        let staging = self.0.leases.staging.clone();
         match state
             .write(move |connection| {
-                work_items::commit(connection, &work_item, epoch, &records, &ended_at)
+                let staged = staging.take(&work_item, epoch);
+                if work_items::attempt(connection, &work_item, epoch)?.is_none() {
+                    return Ok(None);
+                }
+                let writes = staged.admit(connection)?;
+                let files = goodfetch_engine::key_value_store::apply(connection, writes)?;
+                Ok(
+                    work_items::commit(connection, &work_item, epoch, &records, &ended_at)?
+                        .then_some(files),
+                )
             })
             .await
         {
-            Ok(true) => {
+            Ok(Some(files)) => {
                 self.trace("commit", &lease, None);
-                Ok(())
+                Ok(files)
             }
-            Ok(false) => {
+            Ok(None) => {
                 self.trace("refuse_commit", &lease, Some("lease_lost"));
                 Err(CommitError::LeaseLost)
             }
@@ -305,6 +355,7 @@ impl LeaseCheck for WorkItemLease {
             .state
             .send_if_modified(|held| !std::mem::replace(&mut held.expired, true));
         if first {
+            self.discard();
             self.trace("expire", &held.lease, None);
         }
         Err(LeaseEnded::Lost)

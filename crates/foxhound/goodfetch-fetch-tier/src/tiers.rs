@@ -15,6 +15,10 @@
 //! #764 builds the rest of ADR 0119's charset order; the links a locator
 //! matches in it are read for `enqueueLinks` with that encoding, in which
 //! their queries are percent-encoded (ADR 0120).
+//!
+//! Size: the crate's one composition value and the pages it serves, each
+//! method a step of one served page's life, from its fetch on the tier
+//! its Session takes to its close.
 #![expect(
     clippy::disallowed_types,
     reason = "the served pages' table is read and written in one step, before any `.await` and never under another lock, so there is no lock order to test under loom (ADR 0060)"

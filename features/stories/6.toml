@@ -552,6 +552,33 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 203
+title = "As a crawl developer, I want `sitemap(url, rules)` to seed from a sitemap or a site's robots.txt, follow nested indexes, give each entry the first matching rule's Label, and count entries matching none as `no_rule`, so that a sitemap crawl needs no parser (CO-10, ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 204
+title = "As a site owner, I want a sitemap's own fetches, nested ones included, to go through the domain policy, Politeness and robots.txt and run no handler, so that a sitemap is fetched as politely as a page (ADR 0093)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 205
+title = "As a crawl developer, I want a sitemap entry outside the crawl's scope not added with `out_of_scope`, and a robots.txt seed to admit its own host's entries from a sitemap on another host it cross-submits, so that a third-party sitemap never widens my crawl (ADR 0120; pitfall U20)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 208
 title = "As a crawl developer, I want `run.addSeed(url, label, payload?, options)` and `run.addSeed(sitemap(...))` to add a seed to a running crawl, committed at once, or staged with the attempt through `ctx.run`, so that new work reaches a running crawl (CO-03)."
 milestone = "M1 Core"

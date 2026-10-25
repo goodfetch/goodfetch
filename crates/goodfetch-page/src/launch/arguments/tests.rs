@@ -1,3 +1,8 @@
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
 use std::net::IpAddr;
 use std::path::Path;
 
@@ -24,6 +29,7 @@ fn launch(headless: bool, shared_memory: Option<u64>) -> Launch<'static> {
         resolve: &[],
         shared_memory,
         proxy_script: None,
+        sandbox: true,
     }
 }
 
@@ -39,6 +45,26 @@ fn every_launch_keeps_background_pages_unthrottled_headless_or_not() {
     assert_eq!(
         BACKGROUND_FLAGS.map(|flag| (has(&headless, flag), has(&headful, flag))),
         [(true, true); 3]
+    );
+}
+
+/// Chromium's sandbox stays on unless the launch switched it off: only
+/// then is `--no-sandbox` on the command line (ADR 0017, SC-07).
+/// Covers: story:4-85, setting:security.browser_sandbox
+#[test]
+fn only_a_launch_with_the_sandbox_off_passes_no_sandbox() {
+    let sandboxed = arguments(&launch(true, None));
+    let unsandboxed = arguments(&Launch {
+        sandbox: false,
+        ..launch(true, None)
+    });
+
+    assert_eq!(
+        (
+            has(&sandboxed, "--no-sandbox"),
+            has(&unsandboxed, "--no-sandbox")
+        ),
+        (false, true)
     );
 }
 

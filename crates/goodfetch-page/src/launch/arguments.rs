@@ -8,7 +8,9 @@
 //! 0085's question); the back/forward cache is off, so going back or
 //! forward always loads its document again (ADR 0121, with no setting);
 //! `network.resolve` reaches Chromium as host resolver rules (ADR 0059),
-//! and every `.invalid` name fails without a DNS query; the Run's domain
+//! and every `.invalid` name fails without a DNS query; Chromium's sandbox
+//! stays on, `--no-sandbox` passed only where `security.browser_sandbox` is
+//! off (ADRs 0017 and 0049); the Run's domain
 //! policy, when it refuses any host, reaches it as a proxy auto-config
 //! script, so a connection no interception sees, a WebSocket's or WebRTC's
 //! over TCP, is held to it too, and WebRTC sends no UDP, which no proxy
@@ -47,6 +49,11 @@ const INVALID_NAMES: &str = "MAP *.invalid ~NOTFOUND";
 /// (ADR 0044).
 const WEBRTC_POLICY: &str = "--webrtc-ip-handling-policy=disable_non_proxied_udp";
 
+/// Chromium's sandbox switched off, which only a launch whose
+/// `security.browser_sandbox` is off passes (ADRs 0017 and 0049): it also
+/// removes the renderers' seccomp-bpf layer.
+const NO_SANDBOX: &str = "--no-sandbox";
+
 /// What a launch decided.
 pub(crate) struct Launch<'a> {
     /// The Browser data folder, the Run's own.
@@ -60,6 +67,8 @@ pub(crate) struct Launch<'a> {
     /// The Run's domain policy as a proxy auto-config script, when it
     /// refuses any host.
     pub(crate) proxy_script: Option<&'a str>,
+    /// `security.browser_sandbox`: whether Chromium's sandbox stays on.
+    pub(crate) sandbox: bool,
 }
 
 /// The command line, and the warnings it comes with.
@@ -112,6 +121,9 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
     );
     arguments.extend(chromium_background_traffic_off());
     arguments.push(WEBRTC_POLICY.to_owned());
+    if !launch.sandbox {
+        arguments.push(NO_SANDBOX.to_owned());
+    }
     if let Some(script) = launch.proxy_script {
         arguments.push(format!(
             "--proxy-pac-url=data:application/x-ns-proxy-autoconfig;base64,{}",

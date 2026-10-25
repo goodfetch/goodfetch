@@ -9,7 +9,8 @@
 //!   multicast DNS resolves fails with `name_not_resolved`.
 //! - **macOS and Windows** ask the system resolver, except for a Session with
 //!   a local address, whose lookups go through the engine's own resolver on
-//!   every OS (ADR 0044; binding its queries to that address is area 5's).
+//!   every OS (ADR 0044), its queries sent from that address
+//!   ([`Dns::from_local_addresses`]).
 //! - **A Session behind a proxy** hands the name to the proxy, which
 //!   resolves it, so neither the mapping nor a resolver sees it (ADR 0059).
 //!
@@ -28,7 +29,7 @@
 mod cache;
 
 use std::collections::BTreeMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -237,6 +238,7 @@ impl From<LookupError> for CallError {
 #[derive(Clone)]
 pub struct Dns {
     mapping: Arc<HostMapping>,
+    configuration: Arc<ResolverConfiguration>,
     engine: TokioResolver,
     clock: Clock,
     cache: Arc<Mutex<AnswerCache>>,
@@ -247,22 +249,44 @@ impl Dns {
     /// `configuration`, whose answers are kept as their records say on
     /// `clock`. It opens no socket until a lookup needs one.
     pub fn new(mapping: HostMapping, configuration: ResolverConfiguration, clock: Clock) -> Self {
-        let mut options = configuration.options;
-        // The cache below keeps answers as ADR 0118 says; hickory's would
-        // also keep server failures.
-        options.cache_size = 0;
-        let engine = TokioResolver::builder_with_config(
-            configuration.config,
-            TokioRuntimeProvider::default(),
-        )
-        .with_options(options)
-        .build()
-        .expect("invariant: a resolver built from a parsed configuration and no TLS builds");
         Self {
             mapping: Arc::new(mapping),
-            engine,
+            engine: engine_resolver(configuration.clone()),
+            configuration: Arc::new(configuration),
             clock,
             cache: Arc::new(Mutex::new(AnswerCache::default())),
+        }
+    }
+
+    /// The same resolution for a Session that holds these local addresses
+    /// (ADR 0044): its engine resolver sends each query from the Session's
+    /// address of the name server's family, and asks no name server of a
+    /// family it holds no address of, so no query leaves from another
+    /// address. It shares the mapping and the cache.
+    #[must_use]
+    pub fn from_local_addresses(&self, ipv4: Option<Ipv4Addr>, ipv6: Option<Ipv6Addr>) -> Self {
+        let mut configuration = (*self.configuration).clone();
+        let (domain, search, name_servers) = configuration.config.clone().into_parts();
+        let name_servers = name_servers
+            .into_iter()
+            .filter_map(|mut name_server| {
+                let local = match name_server.ip {
+                    IpAddr::V4(_) => ipv4.map(IpAddr::V4),
+                    IpAddr::V6(_) => ipv6.map(IpAddr::V6),
+                }?;
+                for connection in &mut name_server.connections {
+                    connection.bind_addr = Some(SocketAddr::new(local, 0));
+                }
+                Some(name_server)
+            })
+            .collect();
+        configuration.config = ResolverConfig::from_parts(domain, search, name_servers);
+        Self {
+            mapping: Arc::clone(&self.mapping),
+            engine: engine_resolver(configuration.clone()),
+            configuration: Arc::new(configuration),
+            clock: self.clock,
+            cache: Arc::clone(&self.cache),
         }
     }
 
@@ -428,6 +452,18 @@ impl LookupError {
             _ => self,
         }
     }
+}
+
+/// The engine's own resolver reading `configuration`, its own cache off.
+fn engine_resolver(configuration: ResolverConfiguration) -> TokioResolver {
+    let mut options = configuration.options;
+    // The cache `Dns` holds keeps answers as ADR 0118 says; hickory's would
+    // also keep server failures.
+    options.cache_size = 0;
+    TokioResolver::builder_with_config(configuration.config, TokioRuntimeProvider::default())
+        .with_options(options)
+        .build()
+        .expect("invariant: a resolver built from a parsed configuration and no TLS builds")
 }
 
 /// Whether a connection that takes `route` resolves through the engine's own

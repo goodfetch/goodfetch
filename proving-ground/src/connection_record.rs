@@ -7,8 +7,12 @@
 //! binds its side before connecting, so the relay is recorded before the
 //! connection it opens is accepted.
 //!
-//! At most [`ENTRY_LIMIT`] connections and as many relays are kept; later
-//! ones are counted in `unrecorded_connections` and `unrecorded_relays`.
+//! It also holds every query the DNS fixture received, with the address it
+//! came from, so a test sees which local address a resolver asked from.
+//!
+//! At most [`ENTRY_LIMIT`] connections, as many relays and as many queries
+//! are kept; later ones are counted in `unrecorded_connections`,
+//! `unrecorded_relays` and `unrecorded_dns_queries`.
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -44,6 +48,8 @@ struct State {
     unrecorded_connections: u64,
     relays: Vec<Relay>,
     unrecorded_relays: u64,
+    dns_queries: Vec<DnsQuery>,
+    unrecorded_dns_queries: u64,
     /// The latest relay whose connection left from each proxy-side address.
     relay_sources: BTreeMap<SocketAddr, usize>,
 }
@@ -59,6 +65,19 @@ struct Accepted {
     destination: SocketAddr,
     /// The relay that opened it, when a forward proxy did.
     relay: Option<usize>,
+}
+
+/// A query the DNS fixture received.
+#[derive(Serialize)]
+struct DnsQuery {
+    #[serde(flatten)]
+    stamp: Stamp,
+    /// The address and port it came from.
+    source: SocketAddr,
+    /// The name asked for, in lowercase, without its trailing dot.
+    name: String,
+    /// Its record type: `A`, `AAAA`, or the type's number.
+    record_type: String,
 }
 
 /// What a forward proxy did with one request.
@@ -151,6 +170,8 @@ pub(crate) struct Document<'a> {
     unrecorded_connections: u64,
     relays: &'a [Relay],
     unrecorded_relays: u64,
+    dns_queries: &'a [DnsQuery],
+    unrecorded_dns_queries: u64,
 }
 
 impl ConnectionRecord {
@@ -223,6 +244,27 @@ impl ConnectionRecord {
         }
     }
 
+    /// Records a query the DNS fixture received from `source`.
+    pub(crate) fn dns_query(
+        &self,
+        stamp: Stamp,
+        source: SocketAddr,
+        name: &str,
+        record_type: &str,
+    ) {
+        let mut state = self.state.lock();
+        if state.dns_queries.len() >= ENTRY_LIMIT {
+            state.unrecorded_dns_queries += 1;
+            return;
+        }
+        state.dns_queries.push(DnsQuery {
+            stamp,
+            source,
+            name: name.to_owned(),
+            record_type: record_type.to_owned(),
+        });
+    }
+
     /// Serializes the record into `GET /observations`'s document.
     pub(crate) fn with_document<T>(&self, write: impl FnOnce(&Document<'_>) -> T) -> T {
         let state = self.state.lock();
@@ -231,6 +273,8 @@ impl ConnectionRecord {
             unrecorded_connections: state.unrecorded_connections,
             relays: &state.relays,
             unrecorded_relays: state.unrecorded_relays,
+            dns_queries: &state.dns_queries,
+            unrecorded_dns_queries: state.unrecorded_dns_queries,
         })
     }
 }

@@ -900,6 +900,17 @@
       ]
     },
     {
+      "id": "error:browser_sandbox_unavailable",
+      "kind": "error",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:call_cancelled",
       "kind": "error",
       "area": 3,
@@ -1174,6 +1185,17 @@
       "id": "error:limit_reached",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:local_address_unavailable",
+      "kind": "error",
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [
@@ -5887,6 +5909,17 @@
       ]
     },
     {
+      "id": "setting:egress.local_addresses",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:egress.no_private_endpoints",
       "kind": "setting",
       "area": 4,
@@ -5899,6 +5932,28 @@
     },
     {
       "id": "setting:egress.offline",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:egress.rotation_block.ipv4",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:egress.rotation_block.ipv6",
       "kind": "setting",
       "area": 4,
       "milestone": null,

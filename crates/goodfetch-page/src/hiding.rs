@@ -211,7 +211,12 @@ async fn follow(mut events: Subscription, page: Arc<PageHiding>) {
                 navigated.frame.loader_id.clone(),
             );
             page.run.spawn(async move {
-                waited.run.clock().sleep(RUNNER_WAIT).await;
+                // The Run's end does not wait out the runner's pass.
+                let clock = waited.run.clock();
+                tokio::select! {
+                    () = waited.run.cancellation().cancelled() => return,
+                    () = clock.sleep(RUNNER_WAIT) => {}
+                }
                 let released = waited
                     .sheets
                     .release(waited.driver.session(), &frame, Some(&loader))

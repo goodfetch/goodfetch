@@ -548,6 +548,65 @@ fn a_cdp_url_in_operator_policy_is_refused_a_private_address_under_no_private_en
     );
 }
 
+/// A local address belongs to this machine (ADR 0044): a Run that sets
+/// `egress.local_addresses` refuses a Session on a Borrowed browser it lent
+/// and one on a third-party CDP browser at a public address with
+/// `local_address_unavailable` before connecting to either, while a Session on a browser the
+/// engine launches takes the address and reaches its site (positive
+/// control).
+///
+/// Covers: story:4-48, error:local_address_unavailable, setting:egress.local_addresses, operation:run.new_session
+#[test]
+fn a_local_address_is_refused_on_a_borrowed_and_a_third_party_cdp_browser() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let site = Site::start();
+    let third_party = "ws://cloud-browser.test:9222/devtools/browser/third-party";
+    let mut program = Program::start(&env, &cache, "sdk_python");
+    let started = program.call(
+        "run.start",
+        &json!({
+            "run_id": "local",
+            "settings": {
+                "network": { "resolve": {
+                    SITE: ["127.0.0.1"],
+                    "cloud-browser.test": [PUBLIC],
+                } },
+                "egress": { "local_addresses": ["127.0.0.1"] },
+            },
+        }),
+    );
+
+    let borrowed = program.borrow("local", &lent.cdp_url);
+    let cloud = program.borrow("local", third_party);
+    let launched = opened(&program.call("run.new_page", &json!({ "run_id": "local" })))
+        .page_id
+        .0;
+    let reached = program.goto(&launched, &site.url(SITE, "/"));
+    program.finish("local");
+    lent.stop();
+
+    let refused = (
+        json!("local_address_unavailable"),
+        json!({
+            "entry": "[\"127.0.0.1\"]",
+            "failure": "not_launched_here",
+            "setting": "egress.local_addresses",
+        }),
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    assert_eq!(
+        (
+            error(&borrowed),
+            error(&cloud),
+            &reached["result"]["response"]["status"],
+        ),
+        (refused.clone(), refused, &json!(200)),
+        "{reached}"
+    );
+}
+
 /// The host and the path of a case's `http:` URL, which names no port.
 fn host_and_path(url: &str) -> (&str, &str) {
     let rest = url.strip_prefix("http://").unwrap();

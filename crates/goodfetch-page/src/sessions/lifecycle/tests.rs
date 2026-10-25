@@ -446,3 +446,21 @@ mod page {
         assert_eq!(outcome(PageState::Closed, event), expected);
     }
 }
+
+/// A local address is held only by a browser the engine launches on this
+/// machine (ADR 0044): a Borrowed browser, a third-party CDP browser among
+/// them, and either kind of Browser host refuse it.
+///
+/// Covers: story:4-48
+#[rstest::rstest]
+#[case::launched(Kind::Launched, true)]
+#[case::profile_directory(Kind::ProfileDirectory, true)]
+#[case::in_place_profile_directory(Kind::InPlaceProfileDirectory, true)]
+#[case::borrowed(Kind::Borrowed, false)]
+#[case::persons_browser_host(Kind::PersonsBrowserHost, false)]
+#[case::hosted_browser_host(Kind::HostedBrowserHost, false)]
+fn only_a_browser_launched_here_holds_a_local_address(#[case] kind: Kind, #[case] holds: bool) {
+    assert_eq!(kind.launched_here(), holds);
+}
+
+use super::Source as Kind;

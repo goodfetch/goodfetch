@@ -55,6 +55,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::CdpUrlOrigin;
 use goodfetch_engine::governor::Permit;
+use goodfetch_engine::local_addresses::Unavailable;
 use goodfetch_engine::run::settings_error;
 use goodfetch_engine::run_state::{RunStateError, RunStateTables};
 use goodfetch_engine::runs::{Run, RunError};
@@ -62,6 +63,7 @@ use goodfetch_engine::settings::{RunSettings, SettingsError, Values};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
+use goodfetch_protocol::egress::{EGRESS_LOCAL_ADDRESSES, LocalAddressFailure};
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
@@ -92,7 +94,7 @@ use crate::interception::{Interception, SESSION_KEYS};
 use crate::page_events;
 use crate::page_functions::{FrameScripts, Injections};
 use crate::page_value::{HandlerPages, PageValue};
-use crate::pool::{InBrowser, Placement, Pool, Seat};
+use crate::pool::{InBrowser, LocalFailure, Placement, Pool, Seat};
 use crate::proxy::{Opening, SessionProxy};
 use crate::recovery::Checking;
 use crate::trace;
@@ -390,6 +392,7 @@ impl Sessions {
         let run = live(&params.run_id, context).await?;
         let settings = own_settings(&params.settings, &run, context)?;
         let borrowed = opening_source(&run, params.source, context)?;
+        no_local_address_on(&run, source_of(borrowed.as_ref()))?;
         // Its proxy is drawn for the position it is about to take, which a
         // Session opening at the same moment may take first.
         self.reach(&run, context).await?;
@@ -400,9 +403,15 @@ impl Sessions {
         };
         let proxy = open_proxy(&run, &settings, context, next).await?;
         no_proxy_under(borrowed.as_ref(), proxy.as_deref())?;
-        let relay = open_relay(&run, proxy.as_ref(), borrowed.is_some(), &pool)
-            .await
-            .map_err(|error| unavailable(&run, &error, context))?;
+        let relay = open_relay(
+            &run,
+            proxy.as_ref(),
+            borrowed.is_some(),
+            &pool,
+            next,
+            context,
+        )
+        .await?;
         let (position, seat) = {
             let mut state = self.state.lock().await;
             let runs = reached(&mut state, &run)?;
@@ -501,6 +510,7 @@ impl Sessions {
         opener: Opener,
         context: &CallContext,
     ) -> Result<u32, CallError> {
+        no_local_address_on(run, source_of(borrowed))?;
         let (next, pool) = {
             let mut state = self.state.lock().await;
             let runs = reached(&mut state, run)?;
@@ -508,9 +518,15 @@ impl Sessions {
         };
         let proxy = open_proxy(run, &Values::default(), context, next).await?;
         no_proxy_under(borrowed, proxy.as_deref())?;
-        let relay = open_relay(run, proxy.as_ref(), borrowed.is_some(), &pool)
-            .await
-            .map_err(|error| unavailable(run, &error, context))?;
+        let relay = open_relay(
+            run,
+            proxy.as_ref(),
+            borrowed.is_some(),
+            &pool,
+            next,
+            context,
+        )
+        .await?;
         let (position, seat) = {
             let mut state = self.state.lock().await;
             let runs = reached(&mut state, run)?;
@@ -1400,12 +1416,21 @@ async fn mark_egress(open: &Session, session: &SessionId) {
     open.egress_marked
         .get_or_init(|| async {
             let entry = match &open.relay {
-                Some(relay) => json!({
-                    "action": EGRESS_RELAY,
-                    "session_id": session,
-                    "egress": EGRESS_RELAY,
-                    "address": relay.endpoint().address.to_string(),
-                }),
+                Some(relay) => {
+                    let mut entry = json!({
+                        "action": EGRESS_RELAY,
+                        "session_id": session,
+                        "egress": EGRESS_RELAY,
+                        "address": relay.endpoint().address.to_string(),
+                    });
+                    if let Some(local) = relay.local_addresses() {
+                        entry["local_addresses"] = json!({
+                            "ipv4": local.ipv4.map(|address| address.to_string()),
+                            "ipv6": local.ipv6.map(|address| address.to_string()),
+                        });
+                    }
+                    entry
+                }
                 None => json!({
                     "action": INTERCEPTION_ONLY,
                     "session_id": session,
@@ -1444,9 +1469,9 @@ async fn reopened_egress(
         Ok(proxy) => proxy,
         Err(error) => return (None, None, Some(error)),
     };
-    match open_relay(run, proxy.as_ref(), false, pool).await {
+    match open_relay(run, proxy.as_ref(), false, pool, position, context).await {
         Ok(relay) => (proxy, relay, None),
-        Err(error) => (proxy, None, Some(unavailable(run, &error, context))),
+        Err(error) => (proxy, None, Some(error)),
     }
 }
 
@@ -1458,41 +1483,110 @@ fn egress(proxy: Option<&Arc<SessionProxy>>, relay: Option<&Arc<EgressRelay>>) -
     }
 }
 
-/// The egress relay of a Session of `run` whose upstream proxy is `proxy`,
-/// while `security.raw_cdp_egress_proxy` is on or the Run's `pool` has the
-/// relay's certificate authority, for its certificate exceptions,
-/// which the switch never removes (ADR 0042): none on a Borrowed browser,
-/// whose network the engine does not hold (ADR 0056), with the switch off
-/// and no exception, or behind an `https://` proxy, which the relay does
-/// not chain through; such a Session is held by interception alone.
+/// The egress relay of the Session at `position` of `run` whose upstream
+/// proxy is `proxy`, while `security.raw_cdp_egress_proxy` is on, the
+/// Run's `pool` has the relay's certificate authority, for its certificate
+/// exceptions, or the Run sets `egress.local_addresses`, its connections
+/// then bound to the Session's addresses, none of which the switch ever
+/// removes (ADRs 0042 and 0044): none on a Borrowed browser, whose network
+/// the engine does not hold (ADR 0056), with the switch off and neither,
+/// or behind an `https://` proxy, which the relay does not chain through;
+/// such a Session is held by interception alone.
 ///
 /// # Errors
 ///
-/// The relay's bind failing.
+/// `local_address_unavailable` when the Session's local addresses give
+/// none now, or it has them behind an `https://` proxy; the relay's bind
+/// failing.
 async fn open_relay(
     run: &Run,
     proxy: Option<&Arc<SessionProxy>>,
     borrowed: bool,
     pool: &Pool,
-) -> std::io::Result<Option<Arc<EgressRelay>>> {
+    position: u32,
+    context: &CallContext,
+) -> Result<Option<Arc<EgressRelay>>, CallError> {
+    if borrowed {
+        return Ok(None);
+    }
+    let local = match pool.local(position).await {
+        Ok(local) => local,
+        Err(LocalFailure::Unavailable(unavailable)) => return Err(unavailable.into()),
+        Err(LocalFailure::Unreadable(error)) => return Err(unavailable(run, &error, context)),
+    };
     let on = run
         .settings()
         .map(RunSettings::resolved)
         .is_none_or(egress_relay::relayed);
     let tls = pool.relay_tls().await;
-    if borrowed || (!on && tls.authority.is_none()) {
+    if local.is_none() && !on && tls.authority.is_none() {
         return Ok(None);
     }
     let chain = match proxy {
         None => None,
         Some(proxy) => match proxy.chain() {
             Some(chain) => Some(chain),
+            None if local.is_some() => {
+                return Err(local_address_refused(
+                    run,
+                    LocalAddressFailure::ProxyNotRelayed,
+                ));
+            }
             None => return Ok(None),
         },
     };
-    EgressRelay::open(run, chain, tls)
+    EgressRelay::open(run, chain, tls, local)
         .await
         .map(|relay| Some(Arc::new(relay)))
+        .map_err(|error| unavailable(run, &error, context))
+}
+
+/// The Session source kind of a Session on the Borrowed browser at
+/// `borrowed`, else on a browser the engine launches.
+fn source_of(borrowed: Option<&CdpUrl>) -> Source {
+    match borrowed {
+        Some(_) => Source::Borrowed,
+        None => Source::Launched,
+    }
+}
+
+/// Refuses `egress.local_addresses` for a Session of `run` from `source`
+/// whose browser the engine does not launch on this machine, a Borrowed
+/// browser, a third-party CDP browser or a Browser host's, with
+/// `local_address_unavailable`: an address of this machine is never claimed
+/// for another (ADRs 0044 and 0056).
+fn no_local_address_on(run: &Run, source: Source) -> Result<(), CallError> {
+    if source.launched_here() || local_addresses_of(run).is_none() {
+        return Ok(());
+    }
+    Err(local_address_refused(
+        run,
+        LocalAddressFailure::NotLaunchedHere,
+    ))
+}
+
+/// `local_address_unavailable` for `run`'s `egress.local_addresses`, for
+/// `failure`.
+fn local_address_refused(run: &Run, failure: LocalAddressFailure) -> CallError {
+    Unavailable {
+        entry: local_addresses_of(run).unwrap_or_default(),
+        failure,
+    }
+    .into()
+}
+
+/// `run`'s `egress.local_addresses` as its value writes it, when it sets
+/// one: an interface or a prefix as it is, a list as JSON.
+fn local_addresses_of(run: &Run) -> Option<String> {
+    let value = run
+        .settings()?
+        .resolved()
+        .value(EGRESS_LOCAL_ADDRESSES.name);
+    match value {
+        Value::Null => None,
+        Value::String(text) => Some(text.clone()),
+        value => Some(value.to_string()),
+    }
 }
 
 /// The live Run `run_id`; `run_ended` for one that ended `finished`, which

@@ -21,6 +21,8 @@ goodfetch-protocol.workspace = true
 # 0082); no remote or file reference is resolved.
 jsonschema.workspace = true
 psl.workspace = true
+# A sitemap seed's sitemaps are XML (ADR 0093).
+quick-xml.workspace = true
 # Its statement cache keeps the per-seed scope insert prepared (prepare_cached).
 rusqlite = { workspace = true, features = ["cache"] }
 serde_json.workspace = true

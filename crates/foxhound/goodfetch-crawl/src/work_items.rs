@@ -17,11 +17,13 @@
 //! it is sent with.
 
 use std::collections::BTreeSet;
+use std::sync::LazyLock;
 
+use goodfetch_engine::CallError;
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_state::RunStateTables;
-use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit, payload};
+use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit, payload, sitemap};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, PushedRecord, Seed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
@@ -103,6 +105,8 @@ pub(crate) struct Leased {
     pub(crate) lease_epoch: u64,
     /// Its domain key and priority, under which it waits again on a retry.
     pub(crate) waiting: Waiting,
+    /// Whether it is a sitemap's fetch, which runs no handler (ADR 0093).
+    pub(crate) sitemap: bool,
 }
 
 /// What an attempt that committed no Record failed with.
@@ -178,6 +182,71 @@ pub(crate) struct Adding<'a> {
     pub(crate) depth: u32,
 }
 
+/// A `GET`, the method of a sitemap's fetch and of its entries.
+static GET: LazyLock<HttpMethod> = LazyLock::new(HttpMethod::get);
+
+/// What a sitemap's read adds: its fetch, a `GET` at depth 0 of no Label,
+/// which runs no handler and writes no outcome, or one of its entries, a
+/// `GET` at depth 0 of its rule's Label, with no Payload (ADR 0093).
+fn from_sitemap(adding: sitemap::Adding<'_>) -> Adding<'_> {
+    Adding {
+        method: &GET,
+        body: None,
+        label: match adding {
+            sitemap::Adding::Entry(label) => label,
+            sitemap::Adding::Sitemap => "",
+        },
+        payload: None,
+        priority: 0,
+        forefront: false,
+        depth: 0,
+    }
+}
+
+/// Checks `seed` before it is admitted: a request's Payload against its
+/// Label's schema and the cap `payloads` hold, and a sitemap seed's rules,
+/// each pattern one the engine matches (`pattern_unsupported`) and each
+/// Label one that takes no Payload, since an entry carries none.
+///
+/// # Errors
+///
+/// `payload_invalid` or `pattern_unsupported`.
+pub(crate) fn check_seed(payloads: &payload::PayloadRules, seed: &Seed) -> Result<(), CallError> {
+    match seed {
+        Seed::Request(seed) => payloads.check(&seed.label, seed.payload.as_ref()),
+        Seed::Sitemap(seed) => {
+            sitemap::Rules::of(&seed.rules).map_err(CallError::from)?;
+            seed.rules
+                .iter()
+                .try_for_each(|rule| payloads.check(&rule.label, None))
+        }
+    }
+}
+
+/// Reads `document`, what the sitemap fetch `id` holding its lease under
+/// `lease_epoch` gave, admitting its entries and nested sitemaps within the
+/// scope the run file holds and under the Run's domain policy `policy`,
+/// and ends the fetch, with no outcome; answers whether its lease held.
+pub(crate) fn read_sitemap(
+    connection: &Connection,
+    policy: &Policy,
+    (id, lease_epoch): (&str, u64),
+    document: &sitemap::Document,
+) -> rusqlite::Result<bool> {
+    if !still_leased(connection, id, lease_epoch)? {
+        return Ok(false);
+    }
+    let scope = Scope::read(connection)?;
+    sitemap::read(connection, &scope, policy, id, document, |url, adding| {
+        add(connection, url, from_sitemap(adding))
+    })?;
+    connection.execute(
+        "UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2",
+        (SUCCEEDED, id),
+    )?;
+    Ok(true)
+}
+
 /// Admits each seed through the Frontier under the Run's domain policy
 /// `policy`, as a pending work item at depth 0 when added, and answers each
 /// seed's answer, in order.
@@ -190,6 +259,14 @@ pub(crate) fn admit_seeds(
     seeds
         .iter()
         .map(|seed| {
+            let seed = match seed {
+                Seed::Request(seed) => seed,
+                Seed::Sitemap(seed) => {
+                    return sitemap::admit_seed(connection, policy, seed, |url| {
+                        add(connection, url, from_sitemap(sitemap::Adding::Sitemap))
+                    });
+                }
+            };
             let declared = Declared {
                 method: &seed.method,
                 body: seed.body.as_ref().map(HttpBody::bytes),
@@ -391,11 +468,13 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
                         order: row.get(7)?,
                         forefront: row.get(8)?,
                     },
+                    sitemap: false,
                 })
             })
             .optional()?;
         if let Some(mut row) = row {
             row.crawl_request.payload = payload::of_request(connection, &row.crawl_request.id)?;
+            row.sitemap = sitemap::is_fetch(connection, &row.crawl_request.id)?;
             leased.push(row);
         }
     }
@@ -607,6 +686,11 @@ fn write_outcome(
     ended_at: &PointInTime,
     ending: Ending,
 ) -> rusqlite::Result<()> {
+    // A sitemap's fetch is no crawl request: its sitemap's counts are its
+    // ending (ADR 0102).
+    if sitemap::is_fetch(connection, id)? {
+        return Ok(());
+    }
     let (url, label, depth, attempts): (String, String, u32, u32) = connection.query_row(
         "SELECT url, label, depth, attempts FROM work_items WHERE id = ?1",
         [id],

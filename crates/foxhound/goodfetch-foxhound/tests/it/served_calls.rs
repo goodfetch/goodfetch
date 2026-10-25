@@ -63,109 +63,118 @@ fn response(result: &Value) -> Value {
     ])
 }
 
-/// The handler of the states page: it waits for its visible heading, for
-/// each element its markup hides to be hidden, for its link and for its
-/// URL and load state, reads its Markdown, goes to a static listing and
-/// waits for its products, reloads it, goes back and forward, and last
-/// runs a script; the first call that fails ends the attempt with its
-/// error, as an SDK's handler raising it would.
+/// One call of the handler: its name in a case, its method, its params,
+/// and what a case reads of its result.
+type Call = (&'static str, &'static str, Value, fn(&Value) -> Value);
+
+/// The handler's calls on the states page `page_id`, whose static
+/// listing is at `products`: it waits for its visible heading, for each
+/// element its markup hides to be hidden, for its link and for its URL
+/// and load state, reads its Markdown, goes to the listing and waits for
+/// its products, reloads it, goes back and forward, and last runs a
+/// script.
+fn calls(page_id: &Value, products: &str) -> Vec<Call> {
+    let locator = |selector: &str| json!({ "page_id": page_id, "selector": selector });
+    vec![
+        (
+            "visible",
+            "locator.wait_for",
+            json!({ "locator": locator("h1") }),
+            reached,
+        ),
+        (
+            "hidden attribute",
+            "locator.wait_for",
+            json!({ "locator": locator("#hidden-attribute"), "state": "hidden" }),
+            reached,
+        ),
+        (
+            "display none",
+            "locator.wait_for",
+            json!({ "locator": locator("#in-display-none"), "state": "hidden" }),
+            reached,
+        ),
+        (
+            "visibility hidden",
+            "locator.wait_for",
+            json!({ "locator": locator("#visibility-hidden"), "state": "hidden" }),
+            reached,
+        ),
+        (
+            "attached",
+            "locator.wait_for",
+            json!({ "locator": locator("a#next"), "state": "attached" }),
+            reached,
+        ),
+        (
+            "url",
+            "page.wait_for_url",
+            json!({ "page_id": page_id, "url": { "kind": "glob", "pattern": "**/states" } }),
+            reached,
+        ),
+        (
+            "load state",
+            "page.wait_for_load_state",
+            json!({ "page_id": page_id, "state": "domcontentloaded" }),
+            reached,
+        ),
+        (
+            "formats",
+            "page.formats",
+            json!({ "page_id": page_id, "formats": { "markdown": true } }),
+            |r| r["main_content"].clone(),
+        ),
+        (
+            "goto",
+            "page.goto",
+            json!({ "page_id": page_id, "url": products }),
+            response,
+        ),
+        (
+            "products",
+            "locator.wait_for_count",
+            json!({ "locator": locator("li.product"), "count": { "min": 3 } }),
+            |r| r["count"].clone(),
+        ),
+        (
+            "reload",
+            "page.reload",
+            json!({ "page_id": page_id }),
+            response,
+        ),
+        (
+            "back",
+            "page.go_back",
+            json!({ "page_id": page_id }),
+            response,
+        ),
+        (
+            "forward",
+            "page.go_forward",
+            json!({ "page_id": page_id }),
+            response,
+        ),
+        (
+            "script",
+            "page.evaluate",
+            json!({ "page_id": page_id, "function": "() => document.title" }),
+            |r| r["value"].clone(),
+        ),
+    ]
+}
+
+/// The handler of the states page, which makes [`calls`] in turn; the
+/// first call that fails ends the attempt with its error, as an SDK's
+/// handler raising it would.
 fn the_tables_calls(runs: &mut Vec<Run>) -> impl FnMut(&mut Inside<'_>, &Value) -> Value + '_ {
     move |inside, handle| {
-        let page_id = handle["page_id"].clone();
         let products = handle["crawl_request"]["url"]
             .as_str()
             .unwrap()
             .replace("/states", "/products/2");
-        let locator = |selector: &str| json!({ "page_id": page_id, "selector": selector });
-        let calls: Vec<(&'static str, &'static str, Value, fn(&Value) -> Value)> = vec![
-            (
-                "visible",
-                "locator.wait_for",
-                json!({ "locator": locator("h1") }),
-                reached,
-            ),
-            (
-                "hidden attribute",
-                "locator.wait_for",
-                json!({ "locator": locator("#hidden-attribute"), "state": "hidden" }),
-                reached,
-            ),
-            (
-                "display none",
-                "locator.wait_for",
-                json!({ "locator": locator("#in-display-none"), "state": "hidden" }),
-                reached,
-            ),
-            (
-                "visibility hidden",
-                "locator.wait_for",
-                json!({ "locator": locator("#visibility-hidden"), "state": "hidden" }),
-                reached,
-            ),
-            (
-                "attached",
-                "locator.wait_for",
-                json!({ "locator": locator("a#next"), "state": "attached" }),
-                reached,
-            ),
-            (
-                "url",
-                "page.wait_for_url",
-                json!({ "page_id": page_id, "url": { "kind": "glob", "pattern": "**/states" } }),
-                reached,
-            ),
-            (
-                "load state",
-                "page.wait_for_load_state",
-                json!({ "page_id": page_id, "state": "domcontentloaded" }),
-                reached,
-            ),
-            (
-                "formats",
-                "page.formats",
-                json!({ "page_id": page_id, "formats": { "markdown": true } }),
-                |r| r["main_content"].clone(),
-            ),
-            (
-                "goto",
-                "page.goto",
-                json!({ "page_id": page_id, "url": products }),
-                response,
-            ),
-            (
-                "products",
-                "locator.wait_for_count",
-                json!({ "locator": locator("li.product"), "count": { "min": 3 } }),
-                |r| r["count"].clone(),
-            ),
-            (
-                "reload",
-                "page.reload",
-                json!({ "page_id": page_id }),
-                response,
-            ),
-            (
-                "back",
-                "page.go_back",
-                json!({ "page_id": page_id }),
-                response,
-            ),
-            (
-                "forward",
-                "page.go_forward",
-                json!({ "page_id": page_id }),
-                response,
-            ),
-            (
-                "script",
-                "page.evaluate",
-                json!({ "page_id": page_id, "function": "() => document.title" }),
-                |r| r["value"].clone(),
-            ),
-        ];
         let mut answered = Vec::new();
         let mut failed = None;
-        for (name, method, params, part) in calls {
+        for (name, method, params, part) in calls(&handle["page_id"], &products) {
             let reply = inside.call(method, &params);
             answered.push((name, read(&reply, part)));
             if let Some(error) = reply.get("error") {

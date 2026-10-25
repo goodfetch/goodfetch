@@ -2056,6 +2056,7 @@ dependencies = [
  "goodfetch-recording-gate",
  "goodfetch-test-support",
  "gungraun",
+ "httparse",
  "jiff",
  "libc",
  "mimalloc",

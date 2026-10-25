@@ -1,0 +1,455 @@
+//! One browser connection through the egress relay, over any streams and
+//! any [`Network`], so it is tested and measured in process: the browser's
+//! credentials checked first, then the egress policy on the host and on
+//! every address the connection may use, which the relay resolves itself,
+//! then the connection opened to those addresses alone, or through the
+//! Session's upstream proxy, and the bytes passed both ways unchanged.
+
+use std::future::Future;
+use std::io;
+use std::net::SocketAddr;
+
+use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
+use goodfetch_engine::endpoint::same_token;
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
+
+use super::head::{self, Head, Target, Unread};
+
+/// The name the relay gives its own member of a `Proxy-Status` field (RFC
+/// 9209).
+pub(crate) const RELAY: &str = "goodfetch-relay";
+
+/// What a name resolved to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Resolved {
+    /// The addresses a connection may try, in order.
+    pub(crate) addresses: Vec<SocketAddr>,
+    /// Whether the Run's `network.resolve` mapping gave them, which the
+    /// relay does not judge until tests list their ranges in
+    /// `egress.private_ranges` (#622).
+    pub(crate) mapped: bool,
+}
+
+/// Where the relay's connections go out, and how names resolve.
+pub(crate) trait Network: Sync {
+    /// A connection it opens.
+    type Stream: AsyncRead + AsyncWrite + Unpin + Send;
+
+    /// The addresses of `host` on `port`: an address as it is, a mapped
+    /// name's, else the resolver's; none when it has none.
+    fn resolve(&self, host: &str, port: u16) -> impl Future<Output = Option<Resolved>> + Send;
+
+    /// A connection to `address`.
+    fn connect(&self, address: SocketAddr)
+    -> impl Future<Output = io::Result<Self::Stream>> + Send;
+
+    /// A connection to the Session's upstream proxy.
+    fn connect_upstream(&self) -> impl Future<Output = io::Result<Self::Stream>> + Send;
+}
+
+/// Where the Session's connections go after the relay.
+#[derive(Clone, Debug)]
+pub(crate) enum Upstream {
+    /// To the site.
+    Direct,
+    /// Through an HTTP proxy, with the `Proxy-Authorization` value of its
+    /// credentials if it has any.
+    Http { authorization: Option<String> },
+    /// Through a SOCKS5 proxy that asks for no credentials: the proxy
+    /// itself, or the Session's loopback relay that authenticates to it.
+    Socks5,
+}
+
+/// What a connection met beyond the relay, which the Session's proxy's
+/// failures are read from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Met {
+    /// The upstream proxy answered.
+    Reached,
+    /// No connection to the upstream proxy opened.
+    Unreachable,
+    /// The upstream proxy refused the Session's credentials.
+    CredentialsRefused,
+}
+
+/// What the relay tells the Session of its connections.
+pub(crate) trait Observe: Sync {
+    /// The relay refused a connection `method` asked for, before any byte
+    /// left for its target.
+    fn refused(&self, refused: &Refused, method: &str);
+    /// A connection met the upstream proxy as `met`.
+    fn upstream(&self, met: Met);
+    /// A client gave no credentials, or wrong ones.
+    fn unauthenticated(&self);
+}
+
+/// How the relay judges and routes a Session's connections.
+pub(crate) struct Relaying {
+    /// The Run's egress policy.
+    pub(crate) policy: Policy,
+    /// The `Proxy-Authorization` value the browser must give.
+    pub(crate) authorization: String,
+    /// Where connections go after the relay.
+    pub(crate) upstream: Upstream,
+    /// Whether a URL goes around the upstream proxy, as `proxy.bypass`
+    /// says.
+    pub(crate) bypasses: Box<dyn Fn(&str) -> bool + Send + Sync>,
+}
+
+/// How one connection ended.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Served {
+    /// Its bytes went both ways: these many from the browser and to it.
+    Relayed { up: u64, down: u64 },
+    /// The relay refused it: no credentials, or wrong ones.
+    Unauthenticated,
+    /// The egress policy refused it.
+    Refused,
+    /// It ended before anything was relayed.
+    Failed,
+}
+
+/// The answer to a client without the Session's credentials.
+const AUTHENTICATE: &[u8] = b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"goodfetch\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+/// The answer to a tunnel that opened.
+const ESTABLISHED: &[u8] = b"HTTP/1.1 200 Connection Established\r\n\r\n";
+
+/// The relay's own answer to a tunnel that failed with `error` (RFC 9209),
+/// and `status`.
+fn failed(status: &str, error: &str) -> Vec<u8> {
+    format!(
+        "HTTP/1.1 {status}\r\nProxy-Status: {RELAY}; error={error}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    )
+    .into_bytes()
+}
+
+/// Serves one connection of the browser's.
+///
+/// # Cancel safety
+///
+/// Dropping the future closes both connections.
+pub(crate) async fn serve<B, N, O>(
+    mut browser: B,
+    relaying: &Relaying,
+    network: &N,
+    observe: &O,
+) -> Served
+where
+    B: AsyncRead + AsyncWrite + Unpin + Send,
+    N: Network,
+    O: Observe,
+{
+    let (head, rest) = match head::read(&mut browser).await {
+        Ok(read) => read,
+        Err(Unread::Closed) => return Served::Failed,
+        Err(Unread::Malformed) => {
+            let _ = browser
+                .write_all(&failed("400 Bad Request", "http_request_error"))
+                .await;
+            return Served::Failed;
+        }
+    };
+    let given = head.authorization.as_deref().unwrap_or_default();
+    if !same_token(given, &relaying.authorization) {
+        observe.unauthenticated();
+        let _ = browser.write_all(AUTHENTICATE).await;
+        return Served::Unauthenticated;
+    }
+    let url = head.target.url();
+    let request = egress::Request {
+        url: &url,
+        kind: RequestKind::Page,
+    };
+    if let Judgment::Refused(refused) = egress::judge(&request, &relaying.policy) {
+        return refuse(
+            &mut browser,
+            &head,
+            &refused,
+            observe,
+            "http_request_denied",
+        )
+        .await;
+    }
+    // The relay resolves the name itself and judges each answer before
+    // any connection, so an answer that changes after the browser's own
+    // check reaches nothing (ADR 0017); behind a proxy, which resolves the
+    // name again, as the engine's own client does before sending to one.
+    let Some(resolved) = network
+        .resolve(head.target.host(), head.target.port())
+        .await
+    else {
+        let _ = browser
+            .write_all(&failed("502 Bad Gateway", "dns_error"))
+            .await;
+        return Served::Failed;
+    };
+    if !resolved.mapped
+        && let Err(refused) = egress::judge_addresses(&url, &resolved.addresses, &relaying.policy)
+    {
+        return refuse(
+            &mut browser,
+            &head,
+            &refused,
+            observe,
+            "destination_ip_prohibited",
+        )
+        .await;
+    }
+    let upstream = if (relaying.bypasses)(&url) {
+        &Upstream::Direct
+    } else {
+        &relaying.upstream
+    };
+    match upstream {
+        Upstream::Direct => direct(browser, &head, rest, &resolved.addresses, network).await,
+        Upstream::Http { authorization } => {
+            through_http(
+                browser,
+                &head,
+                rest,
+                authorization.as_deref(),
+                network,
+                observe,
+            )
+            .await
+        }
+        Upstream::Socks5 => through_socks5(browser, &head, rest, network, observe).await,
+    }
+}
+
+/// Refuses `head`'s connection as `refused` says: a tunnel is answered
+/// with the relay's `403` naming `error`, and a plain request's connection
+/// closes with no answer, so no answer of the site's is made up.
+async fn refuse<B, O>(
+    browser: &mut B,
+    head: &Head,
+    refused: &Refused,
+    observe: &O,
+    error: &str,
+) -> Served
+where
+    B: AsyncWrite + Unpin,
+    O: Observe,
+{
+    observe.refused(refused, &head.method);
+    if matches!(head.target, Target::Tunnel { .. }) {
+        let _ = browser.write_all(&failed("403 Forbidden", error)).await;
+    }
+    Served::Refused
+}
+
+/// Connects to the first of `addresses` that answers, and relays.
+async fn direct<B, N>(
+    mut browser: B,
+    head: &Head,
+    rest: Vec<u8>,
+    addresses: &[SocketAddr],
+    network: &N,
+) -> Served
+where
+    B: AsyncRead + AsyncWrite + Unpin + Send,
+    N: Network,
+{
+    let mut site = None;
+    for address in addresses {
+        if let Ok(stream) = network.connect(*address).await {
+            site = Some(stream);
+            break;
+        }
+    }
+    let Some(mut site) = site else {
+        let _ = browser
+            .write_all(&failed("502 Bad Gateway", "connection_refused"))
+            .await;
+        return Served::Failed;
+    };
+    let opened = match head.target {
+        Target::Tunnel { .. } => browser.write_all(ESTABLISHED).await,
+        Target::Absolute { .. } => site.write_all(&head.forwarded(false, None)).await,
+    };
+    if opened.is_err() {
+        return Served::Failed;
+    }
+    pass(browser, site, &rest).await
+}
+
+/// Relays through an HTTP proxy: a tunnel through its own tunnel to the
+/// host's name, a plain request in absolute form; its answers reach the
+/// browser as it gave them, its body left out.
+async fn through_http<B, N, O>(
+    mut browser: B,
+    head: &Head,
+    rest: Vec<u8>,
+    authorization: Option<&str>,
+    network: &N,
+    observe: &O,
+) -> Served
+where
+    B: AsyncRead + AsyncWrite + Unpin + Send,
+    N: Network,
+    O: Observe,
+{
+    let Ok(mut proxy) = network.connect_upstream().await else {
+        observe.upstream(Met::Unreachable);
+        let _ = browser
+            .write_all(&failed("502 Bad Gateway", "connection_refused"))
+            .await;
+        return Served::Failed;
+    };
+    if let Target::Absolute { .. } = head.target {
+        observe.upstream(Met::Reached);
+        if proxy
+            .write_all(&head.forwarded(true, authorization))
+            .await
+            .is_err()
+        {
+            return Served::Failed;
+        }
+        return pass(browser, proxy, &rest).await;
+    }
+    let authority = head.target.authority();
+    let mut request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n");
+    if let Some(authorization) = authorization {
+        request.push_str("Proxy-Authorization: ");
+        request.push_str(authorization);
+        request.push_str("\r\n");
+    }
+    request.push_str("\r\n");
+    if proxy.write_all(request.as_bytes()).await.is_err() {
+        observe.upstream(Met::Unreachable);
+        let _ = browser
+            .write_all(&failed("502 Bad Gateway", "connection_refused"))
+            .await;
+        return Served::Failed;
+    }
+    let Ok(answer) = head::answer(&mut proxy).await else {
+        observe.upstream(Met::Reached);
+        let _ = browser
+            .write_all(&failed("502 Bad Gateway", "http_response_incomplete"))
+            .await;
+        return Served::Failed;
+    };
+    observe.upstream(if answer.status == 407 {
+        Met::CredentialsRefused
+    } else {
+        Met::Reached
+    });
+    if !(200..300).contains(&answer.status) {
+        let _ = browser.write_all(&answer.to_browser).await;
+        return Served::Failed;
+    }
+    if browser.write_all(ESTABLISHED).await.is_err() {
+        return Served::Failed;
+    }
+    pass(browser, proxy, &rest).await
+}
+
+/// Relays through a SOCKS5 proxy that asks for no credentials, giving it
+/// the host's name (RFC 1928).
+async fn through_socks5<B, N, O>(
+    mut browser: B,
+    head: &Head,
+    rest: Vec<u8>,
+    network: &N,
+    observe: &O,
+) -> Served
+where
+    B: AsyncRead + AsyncWrite + Unpin + Send,
+    N: Network,
+    O: Observe,
+{
+    let Ok(mut proxy) = network.connect_upstream().await else {
+        observe.upstream(Met::Unreachable);
+        let _ = browser
+            .write_all(&failed("502 Bad Gateway", "connection_refused"))
+            .await;
+        return Served::Failed;
+    };
+    observe.upstream(Met::Reached);
+    if socks5_connect(&mut proxy, head.target.host(), head.target.port())
+        .await
+        .is_err()
+    {
+        let _ = browser
+            .write_all(&failed("502 Bad Gateway", "proxy_internal_error"))
+            .await;
+        return Served::Failed;
+    }
+    let opened = match head.target {
+        Target::Tunnel { .. } => browser.write_all(ESTABLISHED).await,
+        Target::Absolute { .. } => proxy.write_all(&head.forwarded(false, None)).await,
+    };
+    if opened.is_err() {
+        return Served::Failed;
+    }
+    pass(browser, proxy, &rest).await
+}
+
+/// Opens a SOCKS5 tunnel to `host` on `port` over `proxy`, asking for no
+/// credentials.
+async fn socks5_connect(
+    proxy: &mut (impl AsyncRead + AsyncWrite + Unpin),
+    host: &str,
+    port: u16,
+) -> io::Result<()> {
+    const VERSION: u8 = 5;
+    proxy.write_all(&[VERSION, 1, 0]).await?;
+    let mut chosen = [0; 2];
+    proxy.read_exact(&mut chosen).await?;
+    if chosen != [VERSION, 0] {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    let mut request = vec![VERSION, 1, 0];
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(address)) => {
+            request.push(1);
+            request.extend_from_slice(&address.octets());
+        }
+        Ok(std::net::IpAddr::V6(address)) => {
+            request.push(4);
+            request.extend_from_slice(&address.octets());
+        }
+        Err(_) => {
+            let name = u8::try_from(host.len()).map_err(|_| io::ErrorKind::InvalidInput)?;
+            request.extend_from_slice(&[3, name]);
+            request.extend_from_slice(host.as_bytes());
+        }
+    }
+    request.extend_from_slice(&port.to_be_bytes());
+    proxy.write_all(&request).await?;
+    let mut reply = [0; 4];
+    proxy.read_exact(&mut reply).await?;
+    if reply[0] != VERSION || reply[1] != 0 {
+        return Err(io::ErrorKind::ConnectionRefused.into());
+    }
+    let address = match reply[3] {
+        1 => 4,
+        4 => 16,
+        3 => usize::from(proxy.read_u8().await?),
+        _ => return Err(io::ErrorKind::InvalidData.into()),
+    };
+    let mut bound = vec![0; address + 2];
+    proxy.read_exact(&mut bound).await?;
+    Ok(())
+}
+
+/// Passes bytes both ways until both ends close, `rest`, the browser's
+/// bytes read past its head, first.
+async fn pass<B, S>(mut browser: B, mut site: S, rest: &[u8]) -> Served
+where
+    B: AsyncRead + AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    if !rest.is_empty() && site.write_all(rest).await.is_err() {
+        return Served::Failed;
+    }
+    let early = u64::try_from(rest.len()).unwrap_or(u64::MAX);
+    match tokio::io::copy_bidirectional(&mut browser, &mut site).await {
+        Ok((up, down)) => Served::Relayed {
+            up: up.saturating_add(early),
+            down,
+        },
+        Err(_) => Served::Failed,
+    }
+}

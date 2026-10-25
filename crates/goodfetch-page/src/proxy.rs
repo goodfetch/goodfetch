@@ -24,6 +24,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use data_encoding::BASE64;
+
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 
@@ -48,6 +50,8 @@ use self::limits::ProxyLimits;
 pub(crate) use self::limits::{ProxyPermit, TABLES};
 pub(crate) use self::party::{Answer, PROXY_STATUS, Party, party, proxy_error, refusal};
 use self::relay::{Mode, Relay};
+use crate::egress_relay::serve::{Met, Upstream};
+use crate::egress_relay::{Chain, Latest};
 use crate::proxy_provider::{Chosen, ProxyDriver, ProxyUsage, Refusal, Wanted, list, priced};
 
 /// The rule that sends loopback through the proxy too, as Playwright does,
@@ -68,6 +72,10 @@ pub(crate) struct SessionProxy {
     /// Its limits, shared by every run of the user, unless the Politeness
     /// file failed to open.
     limits: Option<Arc<ProxyLimits>>,
+    /// What the Session's egress relay met on its latest connection to
+    /// the proxy: whether it failed to open, and whether the proxy refused
+    /// the credentials.
+    through_relay: Latest,
 }
 
 /// The proxy a Proxy provider gave a Session, for its life.
@@ -336,6 +344,7 @@ impl SessionProxy {
             relay,
             provided: None,
             limits,
+            through_relay: Latest::default(),
         }))
     }
 
@@ -432,6 +441,7 @@ impl SessionProxy {
                 opened: run.clock().now(),
                 warned: Mutex::new(false),
             }),
+            through_relay: Latest::default(),
         })
     }
 
@@ -595,14 +605,67 @@ impl SessionProxy {
     /// which is a proxy that is down.
     pub(crate) fn refusal(&self, answer: Answer<'_>, status: Option<u16>) -> bool {
         let down = matches!(answer, Answer::Failure { .. })
-            && self.relay.as_ref().is_some_and(Relay::unreachable);
+            && (self.relay.as_ref().is_some_and(Relay::unreachable)
+                || self.through_relay.unreachable());
         !down && refusal(answer, status)
     }
 
     /// Whether the proxy refused the Session's credentials on a connection
     /// the relay opened.
     pub(crate) fn refused_credentials(&self) -> bool {
-        self.relay.as_ref().is_some_and(Relay::refused_credentials)
+        self.relay.as_ref().is_some_and(Relay::refused_credentials) || self.through_relay.refused()
+    }
+
+    /// How the Session's egress relay chains through the proxy, telling it
+    /// what each connection met: none for an `https://` proxy, which the
+    /// relay does not speak TLS to, so the browser reaches it itself.
+    pub(crate) fn chain(self: &Arc<Self>) -> Option<Chain> {
+        let authorization = || {
+            self.credentials().map(|(username, password)| {
+                let password = password.map_or("", |password| password.expose_secret());
+                format!(
+                    "Basic {}",
+                    BASE64.encode(format!("{username}:{password}").as_bytes())
+                )
+            })
+        };
+        if let Some(relay) = &self.relay {
+            let address = relay.address();
+            let upstream = if self.server.scheme.is_socks() {
+                Upstream::Socks5
+            } else {
+                Upstream::Http {
+                    authorization: authorization(),
+                }
+            };
+            return Some(self.chained(upstream, (address.ip().to_string(), address.port())));
+        }
+        let upstream = match self.server.scheme {
+            ProxyScheme::Https => return None,
+            ProxyScheme::Http => Upstream::Http {
+                authorization: authorization(),
+            },
+            ProxyScheme::Socks5 | ProxyScheme::Socks5h => Upstream::Socks5,
+        };
+        Some(self.chained(upstream, (self.server.host.clone(), self.server.port)))
+    }
+
+    /// The chain through `address` speaking `upstream`, its bypass and what
+    /// its connections met this proxy's.
+    fn chained(self: &Arc<Self>, upstream: Upstream, address: (String, u16)) -> Chain {
+        let (bypassing, meeting) = (Arc::clone(self), Arc::clone(self));
+        Chain {
+            upstream,
+            address,
+            bypasses: Box::new(move |url| bypassing.bypasses(url)),
+            met: Box::new(move |met| meeting.met_through_relay(met)),
+        }
+    }
+
+    /// Learns what the Session's egress relay met on a connection to the
+    /// proxy.
+    pub(crate) fn met_through_relay(&self, met: Met) {
+        self.through_relay.record(met);
     }
 }
 

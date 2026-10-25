@@ -47,6 +47,10 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 634;
 
+/// Longer than Chromium's first reload of a page left on a network error
+/// page, one second after the error page commits.
+pub(crate) const PAST_AUTO_RELOAD: Duration = Duration::from_secs(2);
+
 /// A Connection's calls, each with the next ID.
 pub(crate) struct Program<'env> {
     engine: Attached<'env>,
@@ -240,6 +244,48 @@ fn on_chromium_a_page_reaches_no_private_address_through_the_relay() {
         "{failed:?}"
     );
     assert_eq!(provenance(&env, "relayed", "egress_relay").len(), 1);
+}
+
+/// A page whose navigation the relay refused stays on its error page, so
+/// the page's next call raises its own refusal, never that earlier one
+/// (fix-queue 92, where Chromium's reload of the error page, a second
+/// after it, left the link-local refusal for the next call): a navigation
+/// to an IPv6 link-local address is refused at the relay, and the page's
+/// next navigation, to a URL that does not parse, is refused by the domain
+/// policy naming that URL.
+///
+/// Covers: error:egress_refused, operation:page.goto
+#[test]
+fn after_a_refused_link_local_navigation_the_pages_next_navigation_raises_its_own_refusal() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let port = target(&proving_ground).port();
+    let mut program = started(&env, &proving_ground, "link-local", &json!({}), &[]);
+    let page = program.new_page("link-local");
+    let link_local = format!("http://[fe80::1]:{port}/");
+
+    let (first, first_details) = error(&program.goto(&page, &link_local));
+    // Nothing to wait on: the page stays as it is, which only time shows.
+    std::thread::sleep(PAST_AUTO_RELOAD);
+    let (next, next_details) = error(&program.goto(&page, "http://[::1/"));
+    program.finish("link-local");
+
+    assert_eq!(
+        [
+            (first, first_details["url"].clone()),
+            (next, next_details["url"].clone())
+        ],
+        [
+            (json!("egress_refused"), json!(link_local)),
+            (json!("egress_refused"), json!("http://[::1/")),
+        ],
+        "{first_details} {next_details}"
+    );
+    assert_eq!(
+        &next_details["rule"],
+        &json!("domain_policy"),
+        "{next_details}"
+    );
 }
 
 /// What a client that is not the Session's browser meets at the relay's

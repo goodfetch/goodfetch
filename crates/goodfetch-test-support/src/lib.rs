@@ -179,8 +179,9 @@ pub use special_purpose::{
 };
 pub use sql_dump::sql_dump;
 pub use ssrf::{
-    Answer, CaseDomains, CaseLookup, CoverageGap, CoverageGaps, EgressRule, Family, LetThrough,
-    Miss, Outcome, Redirect, Refusal, Route, SsrfCase, SsrfTable, SsrfTableError, run_cases,
+    Answer, CaseDomains, CaseLookup, CoverageGap, CoverageGaps, EgressRule, Family, Layer,
+    LayerGap, LayerGaps, LayerRunner, LetThrough, Miss, Outcome, Pending, Redirect, Refusal, Route,
+    RunFailed, Runner, SsrfCase, SsrfLayers, SsrfTable, SsrfTableError, UnknownRunner, run_cases,
 };
 pub use strict_stdout::{
     Line, MESSAGE_DEADLINE, STDERR_GRACE, STDERR_LIMIT, StrictStdout, StrictStdoutError,

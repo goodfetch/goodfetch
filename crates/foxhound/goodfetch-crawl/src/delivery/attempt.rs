@@ -36,7 +36,8 @@
 //! place of its own; when that copy has none to use, the robots.txt is
 //! fetched under the attempt's own Permit of its domain key, and the
 //! document then waits the domain's delay between starts, its start
-//! recorded for every run sharing the domain. While
+//! recorded for every run sharing the domain, the lease renewed through
+//! the wait as through a handler page's wait for a permit (ADR 0093). While
 //! `site_preferences.respect_robots_txt` is on, a request robots.txt
 //! disallows is never sent and ends `skipped` with `robots_txt`; one whose
 //! robots.txt cannot be read, with no earlier copy, is not sent either, the
@@ -254,7 +255,10 @@ impl Gating {
             adaptive_delay: settings.as_ref().is_some_and(|settings| {
                 settings.boolean(POLITENESS_DOMAIN_ADAPTIVE_DELAY.name) == Some(true)
             }),
-            rate: settings.as_ref().and_then(goodfetch_frontier::Rate::of),
+            pace: settings
+                .as_ref()
+                .map(goodfetch_frontier::Pace::of)
+                .unwrap_or_default(),
             respect_robots_txt: settings.as_ref().is_none_or(|settings| {
                 settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false)
             }),
@@ -678,7 +682,7 @@ impl On<'_> {
             biased;
             document = async {
                 address_check(run, http, leased).await?;
-                let read = read_robots_txt(run, http, leased).await;
+                let read = read_robots_txt(run, http, leased, &*hand_over.lease).await;
                 if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
                     return Err(refused);
                 }

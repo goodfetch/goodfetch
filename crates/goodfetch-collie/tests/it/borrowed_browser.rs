@@ -37,8 +37,8 @@ use std::time::Duration;
 
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 use goodfetch_test_support::{
-    Answer, BROWSERS_PATH_VARIABLE, Family, Outcome, Process, Refusal, SsrfCase, SsrfTable,
-    TestEnv, browser_cache, run_cases,
+    Answer, BROWSERS_PATH_VARIABLE, Outcome, Process, Refusal, Runner, SsrfCase, SsrfTable,
+    TestEnv, browser_cache,
 };
 use serde_json::{Map, Value, json};
 
@@ -611,41 +611,39 @@ fn a_local_address_is_refused_on_a_borrowed_and_a_third_party_cdp_browser() {
     );
 }
 
-/// The host and the path of a case's `http:` URL, which names no port.
-fn host_and_path(url: &str) -> (&str, &str) {
-    let rest = url.strip_prefix("http://").unwrap();
-    rest.split_at(rest.find('/').unwrap_or(rest.len()))
+/// The names a Run maps and their answers.
+type Mapping = Vec<(String, Vec<String>)>;
+
+/// The Run's `network.resolve` mapping for `case`: the site's name, public,
+/// and the case's lookups.
+fn mapping_of(case: &SsrfCase) -> Mapping {
+    let mut names: Mapping = vec![(SITE.to_owned(), vec![PUBLIC.to_owned()])];
+    for lookup in &case.lookups {
+        let answers = lookup
+            .answers
+            .iter()
+            .map(|answer| match answer {
+                Answer::Address(address) => address.to_string(),
+                Answer::Public => PUBLIC.to_owned(),
+            })
+            .collect();
+        names.push((lookup.name.clone(), answers));
+    }
+    names
 }
 
-/// The SSRF table's thin runner on a Borrowed browser (ADR 0067), for its
-/// family: each case's URL on the site's port, its names resolved by the
-/// engine as its `lookups` say and by the browser to loopback, so a case
-/// let through reaches the site, which then stands in for its target.
-/// Positive control: the site's public name goes through.
-///
-/// Covers: story:4-14, error:egress_refused
-#[test]
-fn every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception() {
-    let env = TestEnv::new();
-    let cache = browser_cache(&env).unwrap();
-    let lent = Lent::start(&env, &cache);
-    let site = Site::start();
-    let table = SsrfTable::committed().unwrap();
-    let cases: Vec<&SsrfCase> = table.cases_of(Family::BorrowedBrowser).collect();
-    let mut names: Vec<(String, Vec<String>)> = vec![(SITE.to_owned(), vec![PUBLIC.to_owned()])];
-    for case in &cases {
-        for lookup in &case.lookups {
-            let answers = lookup
-                .answers
-                .iter()
-                .map(|answer| match answer {
-                    Answer::Address(address) => address.to_string(),
-                    Answer::Public => PUBLIC.to_owned(),
-                })
-                .collect();
-            names.push((lookup.name.clone(), answers));
-        }
+/// The page of the Run whose mapping is `names`, started with a Session on
+/// the browser at `cdp_url` the first time.
+fn borrowed_page(
+    program: &mut Program<'_>,
+    cdp_url: &str,
+    sessions: &mut Vec<(Mapping, String)>,
+    names: Mapping,
+) -> String {
+    if let Some((_, page)) = sessions.iter().find(|(mapped, _)| *mapped == names) {
+        return page.clone();
     }
+    let run_id = format!("table-{}", sessions.len());
     let answers: Vec<Vec<&str>> = names
         .iter()
         .map(|(_, answers)| answers.iter().map(String::as_str).collect())
@@ -655,17 +653,72 @@ fn every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception() {
         .zip(&answers)
         .map(|((name, _), answers)| (name.as_str(), answers.as_slice()))
         .collect();
-    let mut program = Program::start(&env, &cache, "sdk_python");
-    program.run("table", &resolve);
-    let session = program.borrow("table", &lent.cdp_url)["result"]["session_id"].clone();
-    let public = PUBLIC.parse().unwrap();
+    program.run(&run_id, &resolve);
+    let session = program.borrow(&run_id, cdp_url)["result"]["session_id"].clone();
+    let page = program.new_page(&session);
+    sessions.push((names, page.clone()));
+    page
+}
 
-    let mut run_case = |case: &SsrfCase| {
-        let (host, path) = host_and_path(&case.url);
+/// The SSRF table's thin runner on a Borrowed browser (ADR 0067), for its
+/// own family and the address families: each case's URL on the site's
+/// port, as the WHATWG parser writes it (as written when it refuses it),
+/// its names resolved by the engine as its `lookups` say and by the browser
+/// to loopback, so a case let through reaches the site, which then stands
+/// in for its target. One Run, and its Borrowed Session and page, per
+/// mapping its cases share. Positive control: the site's public name goes through.
+///
+/// Covers: story:4-14, story:4-89, error:egress_refused
+#[test]
+fn every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let site = Site::start();
+    let runner = Runner::committed(
+        "borrowed_browser",
+        file!(),
+        "every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception",
+    )
+    .unwrap();
+    let controls = SsrfTable::parse(&format!(
+        r#"
+        [[cases]]
+        name = "the_sites_public_name"
+        family = "borrowed_browser"
+        url = "http://{SITE}/"
+        target = "public"
+        refusal = {{ code = "egress_refused", rule = "private_address" }}
+        "#
+    ))
+    .unwrap();
+    let mut program = Program::start(&env, &cache, "sdk_python");
+    let public = PUBLIC.parse().unwrap();
+    // One Run per mapping, each with its Session on the lent browser.
+    let mut sessions: Vec<(Mapping, String)> = Vec::new();
+
+    let result = runner.run(&controls.cases, public, |case| {
+        let page = borrowed_page(&mut program, &lent.cdp_url, &mut sessions, mapping_of(case));
+        let url = match url::Url::parse(&case.url) {
+            Ok(mut url) => {
+                let _ = url.set_port(Some(site.port));
+                url.to_string()
+            }
+            Err(_) => case.url.clone(),
+        };
         let before = site.hosts().len();
-        let page = program.new_page(&session);
-        let went = program.goto(&page, &site.url(host, path));
-        let reached = site.hosts().len() > before;
+        let went = program.goto(&page, &url);
+        // Only a request for the case's own host counts: the browser's own
+        // for an earlier page's icon may arrive meanwhile.
+        let own = url::Url::parse(&url)
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_owned));
+        let reached = site.hosts().iter().skip(before).any(|host| {
+            let name = host
+                .rsplit_once(':')
+                .map_or(host.as_str(), |(name, _)| name);
+            own.as_deref() == Some(name)
+        });
         let refusal = match error(&went) {
             (code, details) if code == "egress_refused" => {
                 serde_json::from_value(details["rule"].clone())
@@ -674,11 +727,9 @@ fn every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception() {
             }
             _ => None,
         };
-        let target = if host == SITE {
-            Some(public)
-        } else {
-            case.target_address(public)
-        };
+        // The browser resolves every name to the site, which then stands
+        // in for the case's target; an address it connects to itself.
+        let target = case.target_address(public);
         Outcome {
             refusal,
             connections: if reached {
@@ -687,23 +738,19 @@ fn every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception() {
                 Vec::new()
             },
         }
-    };
-    let result = run_cases(cases.iter().copied(), public, &mut run_case);
-    let control = run_case(&SsrfCase {
-        url: format!("http://{SITE}/"),
-        ..cases[0].clone()
     });
-    program.finish("table");
+    for run in 1..sessions.len() {
+        let _ = program.call("run.finish", &json!({ "run_id": format!("table-{run}") }));
+    }
+    program.finish("table-0");
     lent.stop();
 
-    assert_eq!(
-        (
-            result.map_err(|let_through| let_through.to_string()),
-            control.refusal,
-            control.connections
-        ),
-        (Ok(()), None, vec![public])
+    assert!(
+        runner.cases().len() > 70,
+        "only {} cases",
+        runner.cases().len()
     );
+    assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
 }
 
 /// On a Borrowed browser, whose launch the engine never chose, the

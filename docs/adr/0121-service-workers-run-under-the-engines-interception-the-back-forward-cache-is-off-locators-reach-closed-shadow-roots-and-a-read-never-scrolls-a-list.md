@@ -65,6 +65,7 @@ Principles are cited by their IDs in [ADR 0077](0077-the-sdk-api-follows-eight-g
 - **A restore would skip all of that.** It sends no request and fires only `pageshow`. Playwright's docs call restores unsupported because they desynchronize the page object.
 - **Turning the cache off shows a site nothing it could single out.** Chromium reports the switch to the page as the `notRestoredReasons` reason `masked`, which other browser-internal causes also produce.
 - **Prerendering by Speculation Rules** also activates a document without a load of its own, and Playwright leaves it on. Area 5's spec tests an activation against `waitForURL`, a Page check and the navigation gate. If an activation skips them, prerendering is switched off under the same rule as the back/forward cache.
+  > Note (agent decision, pending owner review), 2026-10-25, fix-queue 83: a page left on a network error page is not loaded again by the browser on its own either. Chromium reloads such a page a second after its error page, then with backoff, unless it runs with `--enable-automation`, as Playwright and Puppeteer launch it and the engine does not; so every Chromium launch passes `--disable-auto-reload`. The reload is a request no call made, and the egress relay's refusal of it was raised by the page's next call as that call's own: under load, the H03 certificate test saw the earlier host's `certificate_invalid` for the next host's navigation.
 
 ### Virtualized lists
 

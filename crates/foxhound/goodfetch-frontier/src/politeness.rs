@@ -31,11 +31,12 @@
 //! responses' latency, as any sharing run measured it, that mean capped at
 //! `politeness.backoff.max`. With `politeness.domain.rate`, a run also
 //! starts a request only while the key's token bucket, which every sharing
-//! run's rated starts draw on, holds a token ([`Rate`], a GCRA of
+//! run's rated starts draw on, holds a token (a GCRA of
 //! `politeness.domain.burst` tokens); a start counts from its request's
-//! send when that is later than its admission, and a request's own send
-//! also waits for a token of the key's sends, so a send that came later
-//! than the next request's admission is never overtaken within the
+//! send when that is later than its admission. A crawl request's own send
+//! also waits for its delay after the key's last send and for a token of
+//! the key's sends ([`Pace`]), so a send that came later than the next
+//! request's admission is never overtaken within the delay or the
 //! interval.
 //!
 //! The per-domain state lives in the `domain_limits`, `crawl_delays` and
@@ -61,15 +62,17 @@ use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::settings::{
     POLITENESS_BACKOFF_ENABLED, POLITENESS_BACKOFF_INITIAL, POLITENESS_BACKOFF_MAX,
-    POLITENESS_DOMAIN_ADAPTIVE_DELAY, POLITENESS_DOMAIN_BURST, POLITENESS_DOMAIN_CONCURRENCY,
-    POLITENESS_DOMAIN_DELAY, POLITENESS_DOMAIN_RATE, POLITENESS_RETRY_AFTER_MAX,
-    SITE_PREFERENCES_MAX_CRAWL_DELAY, SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
+    POLITENESS_DOMAIN_CONCURRENCY, POLITENESS_RETRY_AFTER_MAX,
 };
 use goodfetch_protocol::settings::{SETTING_NOT_APPLICABLE, SettingNotApplicableDetails};
 use rusqlite::{Connection, OptionalExtension as _};
 
 use crate::robots_txt;
 use serde_json::Value;
+
+mod pace;
+
+pub use pace::Pace;
 
 /// How long a lowered ceiling stays quiet before it grows back by one.
 pub(crate) const RECOVERY: Duration = Duration::from_secs(10);
@@ -84,7 +87,8 @@ pub(crate) const TABLES: PolitenessTables = PolitenessTables {
             backoff INTEGER,
             ceiling INTEGER,
             ceiling_changed_at INTEGER,
-            last_start INTEGER
+            last_start INTEGER,
+            last_send INTEGER
         ) STRICT",
         "CREATE TABLE IF NOT EXISTS crawl_delays (
             key TEXT NOT NULL,
@@ -159,13 +163,16 @@ struct Limits {
     ceiling_changed_at: Option<i64>,
     /// The last request start by any sharing run, in milliseconds.
     last_start: Option<i64>,
+    /// The last send any sharing run recorded when it sent, in
+    /// milliseconds: what a crawl request's own send counts its delay from.
+    last_send: Option<i64>,
 }
 
 impl Limits {
     fn read(connection: &Connection, key: &str) -> rusqlite::Result<Self> {
         Ok(connection
             .query_row(
-                "SELECT ready_at, backoff, ceiling, ceiling_changed_at, last_start
+                "SELECT ready_at, backoff, ceiling, ceiling_changed_at, last_start, last_send
                  FROM domain_limits WHERE key = ?1",
                 [key],
                 |row| {
@@ -177,6 +184,7 @@ impl Limits {
                             .and_then(|ceiling| u64::try_from(ceiling).ok()),
                         ceiling_changed_at: row.get(3)?,
                         last_start: row.get(4)?,
+                        last_send: row.get(5)?,
                     })
                 },
             )
@@ -186,10 +194,11 @@ impl Limits {
 
     fn write(&self, connection: &Connection, key: &str) -> rusqlite::Result<()> {
         connection.execute(
-            "INSERT INTO domain_limits (key, ready_at, backoff, ceiling, ceiling_changed_at, last_start)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO domain_limits
+                 (key, ready_at, backoff, ceiling, ceiling_changed_at, last_start, last_send)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT (key) DO UPDATE SET ready_at = ?2, backoff = ?3, ceiling = ?4,
-                 ceiling_changed_at = ?5, last_start = ?6",
+                 ceiling_changed_at = ?5, last_start = ?6, last_send = ?7",
             (
                 key,
                 self.ready_at,
@@ -198,6 +207,7 @@ impl Limits {
                     .map(|ceiling| i64::try_from(ceiling).unwrap_or(i64::MAX)),
                 self.ceiling_changed_at,
                 self.last_start,
+                self.last_send,
             ),
         )?;
         Ok(())
@@ -224,11 +234,13 @@ impl Limits {
             };
         }
         let delayed = rule
+            .pace
             .between_starts(crawl_delays, pacing.latency)
             .zip(self.last_start)
             .map(|(delay, last_start)| last_start.saturating_add(duration_milliseconds(delay)))
             .filter(|next| *next > now);
         let rated = rule
+            .pace
             .rate
             .and_then(|rate| rate.waits_until(pacing.theoretical_start, now));
         if let Some(next) = delayed.max(rated) {
@@ -358,57 +370,6 @@ fn averaged(previous: Option<i64>, measured: i64) -> i64 {
     })
 }
 
-/// A run's per-domain rate: a token bucket of `burst` tokens, one coming
-/// back every `interval`, as GCRA keeps it, one theoretical start per key
-/// for the admissions and one for the sends.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Rate {
-    /// A minute divided by `politeness.domain.rate`, rounded up to the
-    /// millisecond so the rate is never exceeded.
-    interval: i64,
-    /// `politeness.domain.burst`, at least 1.
-    burst: u64,
-}
-
-impl Rate {
-    /// The rate `settings` give a crawl; `None` without
-    /// `politeness.domain.rate`, or with one of 0.
-    pub fn of(settings: &Resolved) -> Option<Self> {
-        Self::per_minute(
-            settings.count(POLITENESS_DOMAIN_RATE.name)?,
-            settings.count(POLITENESS_DOMAIN_BURST.name).unwrap_or(1),
-        )
-    }
-
-    /// `rate` requests a minute in bursts of `burst`, a burst of 0 read as
-    /// 1; `None` for a rate of 0.
-    pub fn per_minute(rate: u64, burst: u64) -> Option<Self> {
-        (rate > 0).then(|| Self {
-            interval: i64::try_from(60_000_u64.div_ceil(rate)).unwrap_or(i64::MAX),
-            burst: burst.max(1),
-        })
-    }
-
-    /// The moment a start at `now` must wait for, when the bucket whose
-    /// theoretical start is `theoretical` holds no token; `None` when one
-    /// is there.
-    fn waits_until(&self, theoretical: Option<i64>, now: i64) -> Option<i64> {
-        let tolerance = self
-            .interval
-            .saturating_mul(i64::try_from(self.burst - 1).unwrap_or(i64::MAX));
-        theoretical
-            .map(|theoretical| theoretical.saturating_sub(tolerance))
-            .filter(|earliest| *earliest > now)
-    }
-
-    /// The theoretical start after a start at `now` took a token.
-    fn taken(&self, theoretical: Option<i64>, now: i64) -> i64 {
-        theoretical
-            .map_or(now, |theoretical| theoretical.max(now))
-            .saturating_add(self.interval)
-    }
-}
-
 /// The first whole millisecond at or after `wall`, as the Politeness file
 /// keeps moments: a start counted from it is never sooner than from `wall`.
 fn milliseconds_from(wall: SystemTime) -> i64 {
@@ -500,16 +461,8 @@ impl Waits {
 #[derive(Clone, Debug)]
 pub(crate) struct DomainRule {
     concurrency: Option<u64>,
-    delay: Option<Duration>,
-    /// `site_preferences.max_crawl_delay`; `None` while
-    /// `site_preferences.respect_robots_txt` is off, which waits for no
-    /// Crawl-delay.
-    max_crawl_delay: Option<Duration>,
-    /// `politeness.backoff.max`, which caps the latency's mean, while
-    /// `politeness.domain.adaptive_delay` is on; `None` while it is off.
-    adaptive_max: Option<Duration>,
-    /// `politeness.domain.rate` and `politeness.domain.burst`.
-    rate: Option<Rate>,
+    /// Its delay between starts and its rate.
+    pub(crate) pace: Pace,
     waits: Waits,
     entropy: SharedEntropy,
 }
@@ -520,47 +473,10 @@ impl DomainRule {
     pub(crate) fn of(settings: &Resolved, entropy: SharedEntropy) -> Self {
         Self {
             concurrency: settings.count(POLITENESS_DOMAIN_CONCURRENCY.name),
-            delay: settings
-                .duration(POLITENESS_DOMAIN_DELAY.name)
-                .filter(|delay| !delay.is_zero()),
-            max_crawl_delay: (settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name)
-                != Some(false))
-            .then(|| settings.duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name))
-            .flatten(),
-            adaptive_max: (settings.boolean(POLITENESS_DOMAIN_ADAPTIVE_DELAY.name) == Some(true))
-                .then(|| {
-                    settings
-                        .duration(POLITENESS_BACKOFF_MAX.name)
-                        .unwrap_or_default()
-                }),
-            rate: Rate::of(settings),
+            pace: Pace::of(settings),
             waits: Waits::of(settings),
             entropy,
         }
-    }
-
-    /// The delay between starts on a domain key whose hosts ask for
-    /// `crawl_delays` (ADR 0086) and whose responses' latency averages
-    /// `latency` milliseconds: the longest of `politeness.domain.delay`,
-    /// each Crawl-delay up to `site_preferences.max_crawl_delay`, so a
-    /// shorter one never shortens it and a longer one never raises it, and,
-    /// with the adaptive delay on, that latency up to
-    /// `politeness.backoff.max`; `None` for no wait.
-    fn between_starts(&self, crawl_delays: &[Duration], latency: Option<i64>) -> Option<Duration> {
-        let honoured = self.max_crawl_delay.and_then(|max| {
-            crawl_delays
-                .iter()
-                .copied()
-                .filter(|asked| *asked <= max)
-                .max()
-        });
-        let adaptive = self.adaptive_max.zip(latency).map(|(max, latency)| {
-            Duration::from_millis(u64::try_from(latency).unwrap_or_default()).min(max)
-        });
-        self.delay
-            .max(honoured)
-            .max(adaptive)
-            .filter(|delay| !delay.is_zero())
     }
 }
 
@@ -588,7 +504,7 @@ impl PermitRule for DomainRule {
         let now = milliseconds(now);
         limits.last_start = Some(now);
         limits.write(connection, key)?;
-        if let Some(rate) = self.rate {
+        if let Some(rate) = self.pace.rate {
             let mut pacing = Pacing::read(connection, key)?;
             pacing.theoretical_start = Some(rate.taken(pacing.theoretical_start, now));
             pacing.interval = Some(rate.interval);
@@ -649,14 +565,16 @@ pub async fn started_again(
 /// file records the send, so a send that waited for the file, which
 /// another engine or run held, never counts from before that wait (ADR
 /// 0086: a start is its send, the later of the two instants). A crawl
-/// request's own send by a run of `rate` also takes a token of the key's
-/// sends, every sharing rated run's together: when the sends before it
-/// left none, it records nothing and answers the moment the next comes
-/// back, which the caller waits for before asking again, so the token and
-/// the start are taken when the request goes. An admission's token therefore
-/// never lets a request reach the site within the interval of one whose
-/// send came later than its own admission. Hops and runs with no rate
-/// pass `None`.
+/// request's own send, by a run of `pace`, also waits for its delay after
+/// the key's last send by any sharing run, the delay as the key's latency
+/// lengthened it meanwhile, and takes a token of the key's sends under its
+/// rate, every sharing rated run's together: when either holds it, it
+/// records nothing and answers when to ask again, which the caller waits
+/// for, so its start is taken when the request goes. An admission that
+/// counted from an earlier start therefore never lets a request reach the
+/// site within the delay or the interval of one whose send came later than
+/// its own admission. Hops and a handler's navigations pass `None`: they
+/// wait for nothing here, and their sends still count.
 ///
 /// # Errors
 ///
@@ -669,32 +587,39 @@ pub async fn started_at_send(
     politeness: &Politeness,
     key: &str,
     clock: Clock,
-    rate: Option<Rate>,
+    pace: Option<Pace>,
 ) -> Result<Option<SystemTime>, PolitenessError> {
     let key = key.to_owned();
     politeness
-        .transact(move |connection| send_taken(connection, &key, clock.wall(), rate))
+        .transact(move |connection| send_taken(connection, &key, clock.wall(), pace))
         .await
 }
 
-/// Takes in `connection` the start of a request of `key` sent at `now` by
-/// a run of `rate`; when the key's sends left that run no token, it takes
-/// nothing and answers when to ask again.
+/// Takes in `connection` the start of a request of `key` sent at `now`, a
+/// crawl request's own by a run of `pace`; when the key's last send or
+/// sends leave that run's delay or rate unmet, it takes nothing and
+/// answers when to ask again.
 pub(crate) fn send_taken(
     connection: &Connection,
     key: &str,
     now: SystemTime,
-    rate: Option<Rate>,
+    pace: Option<Pace>,
 ) -> rusqlite::Result<Option<SystemTime>> {
     let now = milliseconds_from(now);
-    if let Some(rate) = rate {
+    let mut limits = Limits::read(connection, key)?;
+    if let Some(pace) = pace {
         let mut pacing = Pacing::read(connection, key)?;
-        if let Some(until) = rate.waits_until(pacing.theoretical_send, now) {
+        let crawl_delays = crawl_delays(connection, key)?;
+        if let Some(until) = pace.send_waits_until(&limits, &pacing, &crawl_delays, now) {
             return Ok(Some(moment(until)));
         }
-        pacing.theoretical_send = Some(rate.taken(pacing.theoretical_send, now));
-        pacing.write(connection, key)?;
+        if let Some(rate) = pace.rate {
+            pacing.theoretical_send = Some(rate.taken(pacing.theoretical_send, now));
+            pacing.write(connection, key)?;
+        }
     }
+    limits.last_send = Some(limits.last_send.map_or(now, |last| last.max(now)));
+    limits.write(connection, key)?;
     start_noted(connection, key, moment(now))?;
     Ok(None)
 }

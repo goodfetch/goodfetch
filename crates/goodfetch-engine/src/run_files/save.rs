@@ -15,6 +15,8 @@ use std::fs::File;
 use std::io::{self, Read as _, Write as _};
 use std::path::Path;
 
+use crate::durable::sync_folder;
+
 /// Why a kept file did not reach the program's path, which holds what it
 /// held before.
 #[derive(Debug, thiserror::Error)]
@@ -150,17 +152,6 @@ pub(crate) fn save(
         .map_err(|error| classify(&error.error, "rename it over the path"))?;
     sync_folder(folder);
     Ok(())
-}
-
-/// Syncs the folder `folder`, where the OS allows it, so a rename into it
-/// survives a power cut.
-pub(super) fn sync_folder(folder: &Path) {
-    #[cfg(unix)]
-    if let Ok(folder) = File::open(folder) {
-        let _ = folder.sync_all();
-    }
-    #[cfg(not(unix))]
-    let _ = folder;
 }
 
 /// Creates the temporary file at `path`, hidden on Windows, where a leading

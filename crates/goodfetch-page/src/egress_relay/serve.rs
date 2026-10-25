@@ -562,12 +562,10 @@ where
         return pass(Noting::new(browser, &rest, noted), site, &rest).await;
     };
     let passed = |used: Option<&ExceptionUsed>| observe.terminated(host, used);
-    match terminate::terminate(browser, site, (rest, host), terminating, passed).await {
+    let stopped = |stop: &Stop| observe.stopped(&head.target.url(), &head.method, stop);
+    match terminate::terminate(browser, site, (rest, host), terminating, passed, stopped).await {
         Terminated::Relayed { up, down } => Served::Relayed { up, down },
-        Terminated::Stopped(stop) => {
-            observe.stopped(&head.target.url(), &head.method, &stop);
-            Served::Refused
-        }
+        Terminated::Stopped => Served::Refused,
         Terminated::Failed => Served::Failed,
     }
 }

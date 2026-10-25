@@ -148,6 +148,20 @@ fn every_launch_turns_the_back_forward_cache_off() {
     );
 }
 
+/// A page left on a network error page stays there: Chromium loads one
+/// again on its own a second later unless told not to, or unless it runs
+/// with `--enable-automation`, which the engine never passes (fix-queue 83).
+#[test]
+fn every_launch_leaves_a_failed_page_on_its_error_page() {
+    assert_eq!(
+        (
+            has(&arguments(&launch(true, None)), "--disable-auto-reload"),
+            has(&arguments(&launch(false, None)), "--disable-auto-reload"),
+        ),
+        (true, true)
+    );
+}
+
 #[test]
 fn a_small_dev_shm_moves_chromiums_shared_memory_to_tmp_with_a_warning() {
     let built = arguments(&launch(true, Some(64 * MEBIBYTE)));

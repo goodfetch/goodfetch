@@ -70,6 +70,7 @@ mod process;
 mod protocol_fuzz;
 mod proving_ground;
 mod pty;
+mod resident;
 mod resolver;
 mod runtime;
 mod runtime_file;
@@ -161,6 +162,7 @@ pub use proving_ground::{
     ProvingGroundError, ProvingGroundFixtures, ProxyCredentials,
 };
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
+pub use resident::peak_resident_bytes;
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
 pub use runtime_file::{

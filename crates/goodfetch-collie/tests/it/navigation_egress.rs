@@ -30,6 +30,7 @@ use serde_json::{Map, Value, json};
 
 use crate::attached::{Attached, hello};
 use crate::page::{BROWSER_DEADLINE, opened};
+use crate::proxy::robots_txt_read;
 use crate::run::call;
 
 /// The Proving ground's own seed for these tests.
@@ -164,6 +165,15 @@ fn pages_requested(proving_ground: &ProvingGround) -> usize {
         .count()
 }
 
+/// Whether a request is one a navigation's hop sent: neither the browser's
+/// own for an icon nor the engine's robots.txt read of a loaded document's
+/// origin, which starts once the document loaded and which the navigation
+/// never waits for (ADR 0086), so it may reach the site before or after
+/// the navigation answers.
+fn sent_by_a_hop(target: &str) -> bool {
+    target != "/favicon.ico" && target != "/robots.txt"
+}
+
 /// Covers: story:4-5, error:egress_refused, operation:page.goto
 #[test]
 fn a_chain_whose_third_hop_leaves_the_policy_is_refused_at_that_hop() {
@@ -184,12 +194,13 @@ fn a_chain_whose_third_hop_leaves_the_policy_is_refused_at_that_hop() {
     let open_requests = requests(&proving_ground);
     program.finish(&["held", "open"]);
 
-    // The browser's own request for the page's icon may come before the
-    // `goto` answers, so only the page's own requests count.
+    // The browser's own request for the page's icon and the engine's
+    // robots.txt read of the document's origin may come before the `goto`
+    // answers, so only the page's own requests count.
     let reached = |requests: &[(String, String)]| {
         requests
             .iter()
-            .filter(|(host, target)| host == "catalog.test" && target != "/favicon.ico")
+            .filter(|(host, target)| host == "catalog.test" && sent_by_a_hop(target))
             .count()
     };
     assert_eq!(
@@ -241,9 +252,7 @@ fn run_case(
         requests(proving_ground)
             .into_iter()
             .skip(before)
-            .filter(|(host, target)| {
-                !(*host == own.0 && *target == own.1) && target != "/favicon.ico"
-            })
+            .filter(|(host, target)| !(*host == own.0 && *target == own.1) && sent_by_a_hop(target))
             .map(|_| proving_ground.address().ip())
             .collect()
     };
@@ -516,6 +525,10 @@ fn a_javascript_url_runs_in_a_frame_the_policy_allows_and_opens_no_connection() 
     let page = program.new_page("scripts");
     let went = program.goto(&page, &proving_ground.url("catalog.test", "/catalog/1"));
     assert!(went.get("result").is_some(), "{went}");
+    // The document's robots.txt read, which its `goto` never waits for,
+    // has sent its request once the Run recorded its reading: no request
+    // the document's load started comes after the count.
+    robots_txt_read(&env, "scripts");
     let before = pages_requested(&proving_ground);
 
     let ran = program.goto(&page, SCRIPT);

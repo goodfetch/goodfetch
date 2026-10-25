@@ -1425,8 +1425,10 @@ fn robots_txt_readings(env: &TestEnv, run_id: &str) -> Vec<Value> {
 }
 
 /// Waits until the Run `run_id` recorded a robots.txt reading, a minute at
-/// most: the engine's page that read it is closed by then.
-fn robots_txt_read(env: &TestEnv, run_id: &str) {
+/// most: the engine's page that read it is closed by then, and the read's
+/// request, if it sent one, has reached the site, as it came before its
+/// answer.
+pub(crate) fn robots_txt_read(env: &TestEnv, run_id: &str) {
     for _ in 0..600 {
         if !robots_txt_readings(env, run_id).is_empty() {
             return;

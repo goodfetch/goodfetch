@@ -538,6 +538,28 @@ fn reject(request: &Value) -> Value {
     })
 }
 
+/// What the home page's attempt sends after `received`, the reply to its
+/// enqueue or to its push: the rejected push, then its answer, which ends
+/// the attempt; `None` for any other message.
+fn after_enqueue(enqueuing: &mut Option<Value>, received: &Value) -> Result<Option<Value>, String> {
+    let Some(request) = enqueuing.as_ref() else {
+        return Ok(None);
+    };
+    if received["id"] == "enqueue" {
+        if received["result"]["kind"] != "added" {
+            return Err(format!("the enqueue failed: {received}"));
+        }
+        return Ok(Some(reject(request)));
+    }
+    if received["id"] == "reject" {
+        if received["error"]["data"]["code"] != "record_invalid" {
+            return Err(format!("the push was not rejected: {received}"));
+        }
+        return Ok(enqueuing.take().map(|request| handle(&request)));
+    }
+    Ok(None)
+}
+
 /// The handler's answer to one handler request.
 fn handle(request: &Value) -> Value {
     let id = &request["id"];
@@ -645,20 +667,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         } else {
                             writer.write_all(&line(&handle(&received))?).await?;
                         }
-                    } else if received["id"] == "enqueue"
-                        && let Some(request) = &enqueuing
-                    {
-                        if received["result"]["kind"] != "added" {
-                            return Err(format!("the enqueue failed: {received}").into());
-                        }
-                        writer.write_all(&line(&reject(request))?).await?;
-                    } else if received["id"] == "reject"
-                        && let Some(request) = enqueuing.take()
-                    {
-                        if received["error"]["data"]["code"] != "record_invalid" {
-                            return Err(format!("the push was not rejected: {received}").into());
-                        }
-                        writer.write_all(&line(&handle(&request))?).await?;
+                    } else if let Some(next) = after_enqueue(&mut enqueuing, &received)? {
+                        writer.write_all(&line(&next)?).await?;
                     } else if received["id"] == message["id"] {
                         if received.get("error").is_some() {
                             return Err(format!("the scenario failed: {received}").into());

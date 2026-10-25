@@ -359,6 +359,7 @@ fn admit_seed(connection: &Connection, asked: Asked) -> rusqlite::Result<Enqueue
             method: &method,
             body: None,
             key: None,
+            keeps_fragment: false,
         },
     };
     let every_host = Policy::new(&["*"], &[] as &[&str]).unwrap();

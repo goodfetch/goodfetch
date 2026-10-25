@@ -310,6 +310,7 @@ fn admit_seed(connection: &Connection, asked: Asked) -> rusqlite::Result<Enqueue
             method: &method,
             body: body.as_deref(),
             key: key.as_deref(),
+            keeps_fragment: false,
         },
     };
     admit(

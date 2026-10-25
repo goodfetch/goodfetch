@@ -12,6 +12,11 @@
 //!   ancestor's inline `display: none`, an inline `visibility:hidden`),
 //!   with a link to `/products/2`, so a document tier answers questions
 //!   and waits from markup (spec #582's served-call table).
+//! - `/routes`: a hash-routed app (pitfall U05): its script writes the
+//!   view its URL's fragment names, `#/a` as `view a`, into its `h1.view`,
+//!   and again on each `hashchange`, with links to `#/a` and `#/b`; its
+//!   markup holds no view, so only a browser sees one, and every fragment
+//!   is the same document to the server.
 //!
 //! `n` runs from 1 to 99, written without leading zeros; each listing holds
 //! three entries named from the seed and `n`. A query `hold=<ms>`, from 1
@@ -60,10 +65,26 @@ const STATES: &str = r#"<h1>states</h1>
 <p><a id="next" href="/products/2">products 2</a></p>
 "#;
 
+/// The hash-routed app's body: an empty view its script fills from the
+/// URL's fragment, and links to two routes.
+const ROUTES: &str = r##"<h1 class="view"></h1>
+<p><a href="#/a">a</a> <a href="#/b">b</a></p>
+<script>
+const show = () => {
+  document.querySelector(".view").textContent = "view " + location.hash.replace(/^#\//, "");
+};
+show();
+addEventListener("hashchange", show);
+</script>
+"##;
+
 pub(super) fn respond(visit: &Visit<'_>) -> Page {
     let path = visit.request.path;
     if path == "/states" {
         return Page::ok(document("states", STATES));
+    }
+    if path == "/routes" {
+        return Page::ok(document("routes", ROUTES));
     }
     let scripted = |kind: &str, number: u64| match kind {
         "products" => Some(false),

@@ -23,6 +23,7 @@ use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{RUN_STATE_UNAVAILABLE, RunDetails};
 use rusqlite::Connection;
 
+use crate::labels::Fragments;
 use crate::serving::{Crawls, LiveCrawl};
 use crate::staging::Answered;
 use crate::work_items::{self, Adding, Positions};
@@ -138,6 +139,7 @@ fn add(
             method: &params.method,
             body: params.body.as_ref().map(HttpBody::bytes),
             key: params.key.as_deref(),
+            keeps_fragment: Fragments::read(connection)?.keeps(&params.label),
         },
         narrowing: Narrowing::none(),
         depth: depth + 1,

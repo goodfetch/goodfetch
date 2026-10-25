@@ -17,9 +17,10 @@ use encoding_rs::Encoding;
 use goodfetch_engine::CallError;
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, LabelDeclaration};
 use goodfetch_protocol::foxhound::fetch::{
-    BROWSER_REQUIRED, BrowserRequiredDetails, FETCH_ENCODING, FETCH_TIER, FETCH_TIER_RACE,
-    FETCH_TIERS, FetchTier,
+    BROWSER_REQUIRED, BrowserRequiredDetails, FETCH_ENCODING, FETCH_KEPT_RESPONSES_URLS,
+    FETCH_TIER, FETCH_TIER_RACE, FETCH_TIERS, FetchTier,
 };
+use goodfetch_protocol::foxhound::frontier::CRAWL_KEEP_URL_FRAGMENT;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
     SESSION_PAGE_CHECK, SESSION_SOURCE, SETTING_INVALID, SETTING_NOT_APPLICABLE,
@@ -33,12 +34,17 @@ const SESSION_SOURCE_KEYS: &str = "session.source.";
 
 /// The Labels a crawl declares, each with what it sets of its own: its
 /// `fetch.tier`, the `fetch.encoding` and the `session.page_check` it sets,
-/// if any (ADR 0093). Its `session.source` is the Session pool's to read.
+/// if any (ADR 0093), whether it keeps its URLs' fragments
+/// (`crawl.keep_url_fragment`, ADR 0120) and whether it keeps responses
+/// for its handler (`fetch.kept_responses.urls`, ADR 0110), when it says.
+/// Its `session.source` is the Session pool's to read.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LabelSettings {
     tiers: BTreeMap<String, SetTier>,
     encodings: BTreeMap<String, String>,
     page_checks: BTreeMap<String, PageCheck>,
+    fragments: BTreeMap<String, bool>,
+    kept_responses: BTreeMap<String, bool>,
 }
 
 /// How a request's tier is chosen.
@@ -71,15 +77,20 @@ impl LabelSettings {
     /// # Errors
     ///
     /// `setting_not_applicable` for a key a Label does not take here (every
-    /// key but `fetch.tier`, `fetch.encoding`, `session.page_check` and
+    /// key but `fetch.tier`, `fetch.encoding`, `session.page_check`,
+    /// `crawl.keep_url_fragment`, `fetch.kept_responses.urls` and
     /// `session.source`, which the Session pool reads; `fetch.tier_race` is
     /// the Run's only), and `setting_invalid` for a `fetch.tier` that names no
-    /// tier, a `fetch.encoding` that is no WHATWG Encoding label or a
-    /// `session.page_check` that is no Page check.
+    /// tier, a `fetch.encoding` that is no WHATWG Encoding label, a
+    /// `session.page_check` that is no Page check, a
+    /// `crawl.keep_url_fragment` that is no Boolean or a
+    /// `fetch.kept_responses.urls` that is no list of patterns.
     pub fn of(labels: &BTreeMap<String, LabelDeclaration>) -> Result<Self, CallError> {
         let mut tiers = BTreeMap::new();
         let mut encodings = BTreeMap::new();
         let mut page_checks = BTreeMap::new();
+        let mut fragments = BTreeMap::new();
+        let mut kept_responses = BTreeMap::new();
         for (name, declaration) in labels {
             let mut keys = Vec::new();
             flatten("", &declaration.settings, &mut keys);
@@ -97,6 +108,23 @@ impl LabelSettings {
                     }
                     continue;
                 }
+                if key == CRAWL_KEEP_URL_FRAGMENT.name {
+                    let Value::Bool(keeps) = value else {
+                        return Err(invalid(name, &key, &value, "is no Boolean"));
+                    };
+                    fragments.insert(name.clone(), keeps);
+                    continue;
+                }
+                if key == FETCH_KEPT_RESPONSES_URLS.name {
+                    let Some(patterns) = value
+                        .as_array()
+                        .filter(|patterns| patterns.iter().all(Value::is_string))
+                    else {
+                        return Err(invalid(name, &key, &value, "is no list of URL patterns"));
+                    };
+                    kept_responses.insert(name.clone(), !patterns.is_empty());
+                    continue;
+                }
                 // The Session pool reads a Label's own Session source.
                 if key == SESSION_SOURCE.name || key.starts_with(SESSION_SOURCE_KEYS) {
                     continue;
@@ -110,7 +138,7 @@ impl LabelSettings {
                     return Err(CallError::new(
                         &SETTING_NOT_APPLICABLE,
                         format!(
-                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.encoding`, `session.page_check` and `session.source` are set per Label; set `{key}` for the Run instead."
+                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.encoding`, `fetch.kept_responses.urls`, `crawl.keep_url_fragment`, `session.page_check` and `session.source` are set per Label; set `{key}` for the Run instead."
                         ),
                         &SettingNotApplicableDetails {
                             key,
@@ -145,7 +173,34 @@ impl LabelSettings {
             tiers,
             encodings,
             page_checks,
+            fragments,
+            kept_responses,
         })
+    }
+
+    /// Each declared Label, with the `fetch.tier` it sets.
+    pub fn tiers(&self) -> impl Iterator<Item = (&str, SetTier)> {
+        self.tiers.iter().map(|(name, tier)| (name.as_str(), *tier))
+    }
+
+    /// Each declared Label that sets `crawl.keep_url_fragment`, with its
+    /// value.
+    pub fn fragments(&self) -> impl Iterator<Item = (&str, bool)> {
+        self.fragments
+            .iter()
+            .map(|(name, keeps)| (name.as_str(), *keeps))
+    }
+
+    /// The `crawl.keep_url_fragment` the Label `label` sets: `None` when
+    /// it leaves it to the Run.
+    pub fn keeps_fragment(&self, label: &str) -> Option<bool> {
+        self.fragments.get(label).copied()
+    }
+
+    /// Whether the Label `label` sets `fetch.kept_responses.urls`, and to
+    /// a list that keeps any: `None` when it leaves it to the Run.
+    pub fn keeps_responses(&self, label: &str) -> Option<bool> {
+        self.kept_responses.get(label).copied()
     }
 
     /// Each declared Label that sets `fetch.encoding`, with its label.
@@ -194,6 +249,20 @@ impl LabelSettings {
             (SetTier::Unset, SetTier::Unset) => Choosing::Alone,
         }
     }
+}
+
+/// `setting_invalid` for the Label `name`'s `key`, set to `value`, which
+/// `reason`.
+fn invalid(name: &str, key: &str, value: &Value, reason: &str) -> CallError {
+    CallError::new(
+        &SETTING_INVALID,
+        format!("The Label `{name}` sets `{key}` to {value}, which {reason}."),
+        &SettingInvalidDetails {
+            key: key.to_owned(),
+            layer: Some(SettingsLayer::Run),
+            reason: format!("{value} {reason}"),
+        },
+    )
 }
 
 /// The WHATWG Encoding label the Label `name` sets `fetch.encoding` to, as

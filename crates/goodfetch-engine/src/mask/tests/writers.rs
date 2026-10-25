@@ -34,8 +34,8 @@ const WRITING: [&str; 9] = [
 const WRITERS: &[(&str, usize, &str)] = &[
     (
         "crates/foxhound/goodfetch-crawl/src/labels.rs",
-        1,
-        "holds no value: the Labels a crawl declares, their Payloads' schemas and their `fetch.tier`",
+        2,
+        "holds no value: the Labels a crawl declares, their Payloads' schemas and their `fetch.tier`, and whether the Run and each Label keep URL fragments",
     ),
     (
         "crates/foxhound/goodfetch-crawl/src/tier_choice.rs",

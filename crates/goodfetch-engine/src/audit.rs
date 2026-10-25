@@ -46,6 +46,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
+use crate::durable;
 use crate::home::Home;
 use crate::settings::{Layers, SettingsFiles, resolve};
 
@@ -666,19 +667,15 @@ impl AuditLog {
     }
 
     /// Replaces the head file with `head`, through a file renamed over it,
-    /// so a reader never sees half of one.
+    /// so a reader never sees half of one, and an entry recorded still
+    /// verifies after a power cut (ADR 0002).
     fn write_head(&self, head: &Head) -> Result<(), AuditError> {
         let failed = |error: &dyn std::fmt::Display| AuditError::Head {
             path: self.head.clone(),
             message: error.to_string(),
         };
-        let folder = self.head.parent().unwrap_or_else(|| Path::new("."));
-        let mut file = tempfile::NamedTempFile::new_in(folder).map_err(|error| failed(&error))?;
-        serde_json::to_writer(&mut file, head).map_err(|error| failed(&error))?;
-        file.as_file().sync_all().map_err(|error| failed(&error))?;
-        file.persist(&self.head)
-            .map_err(|error| failed(&error.error))?;
-        Ok(())
+        let text = serde_json::to_vec(head).map_err(|error| failed(&error))?;
+        durable::replace(&self.head, &text).map_err(|error| failed(&error))
     }
 
     fn failed(&self, error: &dyn std::fmt::Display) -> AuditError {

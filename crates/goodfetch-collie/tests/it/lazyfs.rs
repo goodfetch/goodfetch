@@ -13,7 +13,7 @@
 
 use goodfetch_test_support::{LazyFs, TestEnv};
 use rusqlite::Connection;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::attached::{Attached, hello};
 use crate::run::call;
@@ -122,4 +122,58 @@ fn a_power_cut_in_fast_durability_leaves_a_run_file_that_passes_its_integrity_ch
         (&started["result"]["started_as"], integrity.as_str()),
         (&json!("new"), "ok")
     );
+}
+
+/// A person's answer to a consent wall, acknowledged before a power cut, is
+/// still in the user configuration after it: the next engine reads the file
+/// as written and finds the domain listed already (ADR 0002).
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the user configuration back as a reboot would, outside any async worker"
+)]
+fn a_consent_domain_allowed_before_a_power_cut_is_still_allowed_after_it() {
+    let env = TestEnv::new();
+    let file = env.home().join("0.0").join("configuration.toml");
+    let home = LazyFs::mount(&env, env.home()).unwrap();
+    let mut engine = Attached::start(&env);
+    engine.send(&from_the_cli());
+    let _ = engine.next();
+    let allowed = call(
+        &mut engine,
+        1,
+        "needs_you.allow_consent_domain",
+        &json!({ "domain": "walled.test" }),
+    );
+    let written = std::fs::read_to_string(&file).unwrap();
+
+    engine.kill();
+    home.clear_cache().unwrap();
+    drop(home);
+    let _home = LazyFs::mount(&env, env.home()).unwrap();
+
+    let kept = std::fs::read_to_string(&file).unwrap();
+    let mut engine = Attached::start(&env);
+    engine.send(&from_the_cli());
+    let _ = engine.next();
+    let again = call(
+        &mut engine,
+        2,
+        "needs_you.allow_consent_domain",
+        &json!({ "domain": "walled.test" }),
+    );
+    let _ = engine.finish();
+    assert_eq!(
+        (&allowed["result"]["added"], kept, &again["result"]["added"]),
+        (&json!(true), written, &json!(false)),
+        "{allowed} {again}"
+    );
+}
+
+/// A `hello` from the CLI, a person's surface, which may answer a consent
+/// wall.
+fn from_the_cli() -> Value {
+    let mut hello = hello("collie", "0.1");
+    hello["params"]["surface"] = json!("cli");
+    hello
 }

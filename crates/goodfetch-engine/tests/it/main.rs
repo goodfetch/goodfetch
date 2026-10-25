@@ -26,6 +26,8 @@ mod extra_loopback;
 mod governor;
 mod happy_eyeballs;
 mod held_clock;
+#[cfg(target_os = "linux")]
+mod lazyfs;
 mod local_addresses;
 mod name_server;
 mod nothing_leaves;

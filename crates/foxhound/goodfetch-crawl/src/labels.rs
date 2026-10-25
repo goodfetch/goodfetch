@@ -1,12 +1,38 @@
 //! The Labels a crawl declares (ADR 0093), kept in its run file as its
 //! start declared them, so a resumed crawl takes each Label's settings
-//! again, its `fetch.tier` among them.
+//! again: its `fetch.tier`, and the Session pool its `session.source`
+//! gives it.
 
 use std::collections::BTreeMap;
 
+use goodfetch_engine::CallError;
 use goodfetch_engine::run_state::RunStateTables;
+use goodfetch_fetch_tier::LabelTiers;
 use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
+use goodfetch_session_pool::LabelPools;
 use rusqlite::{Connection, params};
+
+/// What a crawl's declared Labels set: each one's tier, and which have a
+/// Session pool of their own.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Declared {
+    pub(crate) tiers: LabelTiers,
+    pub(crate) pools: LabelPools,
+}
+
+impl Declared {
+    /// What `labels` set.
+    ///
+    /// # Errors
+    ///
+    /// Those of [`LabelTiers::of`] and [`LabelPools::of`].
+    pub(crate) fn of(labels: &BTreeMap<String, LabelDeclaration>) -> Result<Self, CallError> {
+        Ok(Self {
+            tiers: LabelTiers::of(labels)?,
+            pools: LabelPools::of(labels)?,
+        })
+    }
+}
 
 /// The table that keeps a crawl's declared Labels in every run file.
 pub(crate) const TABLES: RunStateTables = RunStateTables {

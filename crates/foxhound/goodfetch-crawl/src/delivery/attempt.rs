@@ -51,7 +51,8 @@ use goodfetch_engine::robots_txt::{self, Fetch, Fetched};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    FetchTiers, HandOver, HandedOver, HttpTier, Purpose, Requester, RobotsTxtFetch, TierChoice,
+    FetchTiers, HandOver, HandedOver, HttpTier, PooledSession, Purpose, Requester, RobotsTxtFetch,
+    TierChoice,
 };
 use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt};
 use goodfetch_protocol::block::BlockCause;
@@ -434,7 +435,7 @@ pub(super) async fn attempt(
     run: Run,
     server: usize,
     context: CallContext,
-    (leased, session, counted): (Leased, ServingSession, Counted),
+    (leased, (session, in_browser), counted): (Leased, (ServingSession, PooledSession), Counted),
     lease: WorkItemLease,
     (tiering, gating): (Tiering, Gating),
     in_flight: SharedInFlight,
@@ -444,6 +445,7 @@ pub(super) async fn attempt(
         context: &context,
         leased: &leased,
         session: &session,
+        in_browser: &in_browser,
         lease: &lease,
         gating: &gating,
         in_flight: &in_flight,
@@ -490,6 +492,8 @@ struct On<'a> {
     context: &'a CallContext,
     leased: &'a Leased,
     session: &'a ServingSession,
+    /// That Session as the browser tier opens its page in it.
+    in_browser: &'a PooledSession,
     lease: &'a WorkItemLease,
     gating: &'a Gating,
     in_flight: &'a SharedInFlight,
@@ -601,7 +605,7 @@ impl On<'_> {
             .await;
         let opened = tokio::select! {
             biased;
-            opened = tiers.browser(run.id(), &leased.crawl_request.url, self.context) => {
+            opened = tiers.browser(run.id(), self.in_browser, &leased.crawl_request.url, self.context) => {
                 opened.map_err(|error| failed(&error))
             }
             _ = lease.ended() => Err(Answer::LeaseEnded),

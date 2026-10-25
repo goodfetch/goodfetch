@@ -66,12 +66,15 @@ use goodfetch_engine::mask::Scope;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
-use goodfetch_fetch_tier::{FetchTiers, HttpTier, LabelTiers, RobotsTxtFetch, SetTier};
+use goodfetch_fetch_tier::{
+    FetchTiers, HttpTier, PooledSession, RobotsTxtFetch, SetTier, TierChoice,
+};
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED, HANDLER_LOST, LEASE_LOST,
     WORK_ITEM_RETRIED,
 };
+use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::governor::WorkKind;
@@ -151,7 +154,7 @@ pub(crate) async fn drive(
     mut arrivals: Opened,
     crawls: Crawls,
     settings: RunSettings,
-    (tiers, labels): (FetchTiers, LabelTiers),
+    (tiers, labels): (FetchTiers, labels::Declared),
 ) {
     let mut servers = vec![Serving {
         context,
@@ -165,7 +168,7 @@ pub(crate) async fn drive(
     let http = match FetchTiers::built(&run, settings.resolved()) {
         Ok(http) => Some(http),
         // A request may take the `http` tier: the Run cannot go on.
-        Err(error) if labels.any() || run_tier != SetTier::Unset => {
+        Err(error) if labels.tiers.any() || run_tier != SetTier::Unset => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's HTTP tier could not be built");
             run.end(failed(&run, &error)).await;
             crawls.close(run.id()).await;
@@ -285,7 +288,7 @@ async fn deliver(
             }
             Some(ended) = attempts.join_next() => {
                 if let Ok(attempt) = ended {
-                    let pool = (&mut pool, &fetching.in_flight);
+                    let pool = (&mut pool, fetching);
                     settled(run, settings, &mut admission, pool, servers, attempt).await;
                 }
             }
@@ -377,9 +380,9 @@ pub(crate) async fn resume(
         })
         .await;
     let left = left.map(|(left, declared)| {
-        let labels = LabelTiers::of(&declared).unwrap_or_else(|error| {
-            tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier");
-            LabelTiers::default()
+        let labels = labels::Declared::of(&declared).unwrap_or_else(|error| {
+            tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier and pool");
+            labels::Declared::default()
         });
         (left, labels)
     });
@@ -408,8 +411,8 @@ pub(crate) async fn resume(
 struct Fetching<'a> {
     tiers: &'a FetchTiers,
     http: Option<&'a HttpTier>,
-    /// The Labels the crawl declares.
-    labels: &'a LabelTiers,
+    /// The Labels the crawl declares: their tiers and their pools.
+    labels: &'a labels::Declared,
     /// The tier the Run's own `fetch.tier` forces.
     run_tier: SetTier,
     /// How the navigation gate fetches robots.txt.
@@ -429,14 +432,31 @@ impl Fetching<'_> {
     }
 
     /// The tier a request of `label` takes, and what its attempt fetches
-    /// its document with.
-    fn served(&self, label: &str, second_copies: &SecondCopies) -> Tiering {
-        Tiering::of(
-            self.tiers,
-            self.http,
-            self.labels.choose(label, self.run_tier),
-            second_copies,
-        )
+    /// its document with: under `auto`, the browser for a domain a
+    /// Challenge moved there, `to_browser` (ADR 0021).
+    fn served(&self, label: &str, to_browser: bool, second_copies: &SecondCopies) -> Tiering {
+        let choice = self
+            .labels
+            .tiers
+            .choose(label, self.run_tier)
+            .map(|choice| match choice.forced {
+                None if to_browser => TierChoice {
+                    tier: FetchTier::Browser,
+                    forced: None,
+                },
+                _ => choice,
+            });
+        Tiering::of(self.tiers, self.http, choice, second_copies)
+    }
+
+    /// Closes the browser contexts of the retired Sessions of `pool` no
+    /// attempt holds any more, for the call `context`.
+    async fn retire(&self, run: &Run, pool: &mut SessionPool, context: &CallContext) {
+        for session in pool.closable() {
+            if let Err(error) = self.tiers.retire_browser(run.id(), &session, context).await {
+                tracing::error!(%error, run_id = %run.id(), session_id = %session.0, "a retired Session's browser context did not close");
+            }
+        }
     }
 }
 
@@ -486,33 +506,49 @@ async fn lease_to_servers(
         if permits.is_empty() {
             return Ok(());
         }
-        let served: Vec<(Leased, ServingSession)> = admit(run, admission, permits.len())
-            .await?
-            .into_iter()
-            .map(|leased| {
-                let session =
-                    pooled
-                        .pool
-                        .draw(&leased.waiting.key, &pooled.settings, run.clock().wall());
-                (leased, session)
-            })
-            .collect();
+        let labels = &pooled.fetching.labels.pools;
+        let served: Vec<(Leased, ServingSession, PooledSession, bool)> =
+            admit(run, admission, permits.len())
+                .await?
+                .into_iter()
+                .map(|leased| {
+                    let key = labels.pool(&leased.crawl_request.label);
+                    let session = pooled.pool.draw(
+                        &key,
+                        &leased.waiting.key,
+                        &pooled.settings,
+                        run.clock().wall(),
+                    );
+                    let in_browser = PooledSession {
+                        id: session.id.clone(),
+                        source: labels.source(&key),
+                    };
+                    let to_browser = pooled.pool.browser(&leased.waiting.key);
+                    (leased, session, in_browser, to_browser)
+                })
+                .collect();
+        pooled
+            .fetching
+            .retire(run, pooled.pool, &server.context)
+            .await;
         let changes = pooled.pool.changes();
         if !changes.is_empty() {
             run.state()
                 .write(move |connection| changes.write(connection))
                 .await?;
         }
-        for (leased, session) in served {
+        for (leased, session, in_browser, to_browser) in served {
             let lease = run_leases.grant(
                 &leased.crawl_request.id,
                 leased.lease_epoch,
                 policy.lease_length(),
             );
             server.in_flight += 1;
-            let tiering = pooled
-                .fetching
-                .served(&leased.crawl_request.label, &admission.second_copies());
+            let tiering = pooled.fetching.served(
+                &leased.crawl_request.label,
+                to_browser,
+                &admission.second_copies(),
+            );
             let fetches = tiering.tier();
             pooled.fetching.in_flight.lock().await.began(
                 run,
@@ -538,7 +574,7 @@ async fn lease_to_servers(
                     run.clone(),
                     place,
                     server.context.clone(),
-                    (leased, session, leased_count(run)),
+                    (leased, (session, in_browser), leased_count(run)),
                     lease,
                     (tiering, pooled.fetching.gating(&admission.second_copies())),
                     std::sync::Arc::clone(&pooled.fetching.in_flight),
@@ -661,11 +697,12 @@ async fn settled(
     run: &Run,
     settings: &RunSettings,
     admission: &mut Admission,
-    (pool, in_flight): (&mut SessionPool, &SharedInFlight),
+    (pool, fetching): (&mut SessionPool, &Fetching<'_>),
     servers: &mut [Serving],
     mut attempt: Attempt,
 ) {
-    in_flight
+    fetching
+        .in_flight
         .lock()
         .await
         .ended(run, &attempt.leased.crawl_request.id);
@@ -693,6 +730,9 @@ async fn settled(
     {
         tracing::warn!(%error, run_id = %run.id(), "the crawl's Session pool was not written");
     }
+    fetching
+        .retire(run, pool, &servers[attempt.server].context)
+        .await;
     let retried = settle(
         run,
         CrawlPolicy::of(&resolved),

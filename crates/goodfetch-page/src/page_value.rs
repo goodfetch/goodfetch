@@ -37,6 +37,7 @@ use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_protocol::page::{Navigated, PageId, SessionId, SitePreference};
 use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::settings::session_source::SessionSource;
 
 use crate::url_pattern::UrlPattern;
 
@@ -46,16 +47,18 @@ pub type Opening<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// The browser pages a Product opens for its handlers itself (ADR 0093's
 /// browser tier), which [`HandlerPages::opened`] hands it once.
 pub trait BrowserPages: Send + Sync {
-    /// Opens a page in the default Session of the live Run `run_id` for the
-    /// call `context`, whose Connection's Client then reaches it, taking
-    /// the value [`HandlerPages::value`] gives as it opens, and navigates
-    /// it to `url` as `page.goto` does, through its navigation gate;
-    /// answers its ID and the navigation's answer. A page whose navigation
-    /// failed is closed again.
+    /// Opens a page in the Session of the live Run `run_id` that the
+    /// Product's Session pool names `pooled.id`, its own browser context,
+    /// opened at its first page from `pooled.source` (ADRs 0088 and 0093),
+    /// for the call `context`, whose Connection's Client then reaches it,
+    /// taking the value [`HandlerPages::value`] gives as it opens, and
+    /// navigates it to `url` as `page.goto` does, through its navigation
+    /// gate; answers its ID and the navigation's answer. A page whose
+    /// navigation failed is closed again.
     ///
     /// # Errors
     ///
-    /// Those of `run.new_page` and `page.goto`.
+    /// Those of `run.new_session`, `run.new_page` and `page.goto`.
     ///
     /// # Cancel safety
     ///
@@ -64,12 +67,39 @@ pub trait BrowserPages: Send + Sync {
     fn open<'a>(
         &'a self,
         run_id: &'a RunId,
+        pooled: &'a PooledSession,
         url: &'a str,
         context: &'a CallContext,
     ) -> Opening<'a, Result<(PageId, Navigated), CallError>>;
 
     /// Closes the page `page_id`, unless it is closed already.
     fn close<'a>(&'a self, page_id: &'a PageId) -> Opening<'a, ()>;
+
+    /// Retires the Session of the Run `run_id` that the Product's Session
+    /// pool names `pooled` (spec #594's `Retire`): its pages and browser
+    /// context close, and the pool's next Session is a new one. One the
+    /// pool never opened a page in, or one closing or closed already,
+    /// changes nothing.
+    ///
+    /// # Errors
+    ///
+    /// `internal`, for a Session its table does not let the pool retire.
+    fn retire<'a>(
+        &'a self,
+        run_id: &'a RunId,
+        pooled: &'a SessionId,
+        context: &'a CallContext,
+    ) -> Opening<'a, Result<(), CallError>>;
+}
+
+/// A Session of a Product's Session pool, as a browser page opens in it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PooledSession {
+    /// The pool's ID for it.
+    pub id: SessionId,
+    /// The Session source it opens from: `None` for the Run's
+    /// `session.source`, `Some(None)` for a fresh Session (ADR 0083).
+    pub source: Option<Option<SessionSource>>,
 }
 
 /// A request the navigation gate is asked to admit.

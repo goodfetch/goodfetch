@@ -278,6 +278,59 @@ fn an_event_a_state_cannot_receive_raises_internal_with_the_object_state_and_eve
     );
 }
 
+/// A fresh Session a crawl's Session pool opened.
+const POOLS: Attributes = Attributes {
+    source: Source::Launched,
+    owner: Owner::Pool,
+};
+
+/// A fresh Session an Agent opened.
+const AGENTS: Attributes = Attributes {
+    source: Source::Launched,
+    owner: Owner::Agent,
+};
+
+/// The Session pool's `Retire` closes a pool's Session's pages and
+/// context; on a Session a program or an Agent opened it is a bug,
+/// `internal` (those meet `blocked` instead, ADR 0088); and a `Retire`
+/// racing a `Close`, or after it, changes nothing (spec #594's S11 and
+/// L).
+///
+/// Covers: story:5-138
+#[rstest]
+#[case::a_pools_session(POOLS, &[], Ok((SessionState::Closing, SessionEffect::CloseChildren)))]
+#[case::racing_a_close(POOLS, &[SessionEvent::Close], Ok((SessionState::Closing, SessionEffect::Nothing)))]
+#[case::after_a_close(
+    POOLS,
+    &[SessionEvent::Close, SessionEvent::ChildrenClosed],
+    Ok((SessionState::Closed, SessionEffect::Nothing))
+)]
+#[case::a_programs_session(LAUNCHED, &[], Err("internal"))]
+#[case::an_agents_session(AGENTS, &[], Err("internal"))]
+fn the_pool_retires_only_its_own_sessions_and_a_retire_racing_a_close_changes_nothing(
+    #[case] attributes: Attributes,
+    #[case] before: &[SessionEvent],
+    #[case] expected: Result<(SessionState, SessionEffect), &str>,
+) {
+    let life = SessionLife::new(
+        SessionId("run.session-1".to_owned()),
+        attributes,
+        SessionState::Open,
+    );
+    for event in before {
+        life.apply(*event, None).expect("the table takes the event");
+    }
+
+    let retired = life.apply(SessionEvent::Retire, None);
+
+    assert_eq!(
+        retired
+            .map(|effect| (life.state(), effect))
+            .map_err(|error| error.code()),
+        expected
+    );
+}
+
 /// Bytes a test's subscriber writes.
 #[derive(Clone, Default)]
 struct Captured(Arc<Mutex<Vec<u8>>>);

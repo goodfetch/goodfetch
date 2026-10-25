@@ -158,6 +158,9 @@ struct RunSessions {
     default: Arc<OnceCell<u32>>,
     /// The positions of its closed Sessions.
     closed: BTreeSet<u32>,
+    /// The position of each Session a crawl's Session pool opened, by the
+    /// pool's own ID for it, set once it opened.
+    pooled: BTreeMap<SessionId, Arc<OnceCell<u32>>>,
 }
 
 /// One Session this engine holds: opening, open, or crashed.
@@ -202,6 +205,31 @@ const BORROWED: Attributes = Attributes {
     source: Source::Borrowed,
     owner: Owner::Program,
 };
+
+/// A fresh Session a crawl's Session pool opened, in a browser the engine
+/// launched.
+const POOL: Attributes = Attributes {
+    source: Source::Launched,
+    owner: Owner::Pool,
+};
+
+/// A Session a crawl's Session pool opened on a Borrowed browser.
+const POOL_BORROWED: Attributes = Attributes {
+    source: Source::Borrowed,
+    owner: Owner::Pool,
+};
+
+/// Who opens a Session no `run.new_session` call opens.
+#[derive(Clone, Copy)]
+enum Opener {
+    /// The Run's first `run.new_page`: its default Session, kept in run
+    /// state.
+    Default,
+    /// A crawl's Session pool, which keeps its Sessions itself: a resumed
+    /// Run reopens none of them, the pool opening each again at its next
+    /// page.
+    Pool,
+}
 
 /// The Provenance action of a Session held to the policy by interception
 /// alone.
@@ -438,7 +466,7 @@ impl Sessions {
         self.reach(&run, context).await?;
         let default = Arc::clone(&reached(&mut *self.state.lock().await, &run)?.default);
         let position = *default
-            .get_or_try_init(|| self.open_default(&run, borrowed.as_ref(), context))
+            .get_or_try_init(|| self.open_held(&run, borrowed.as_ref(), Opener::Default, context))
             .await?;
         if reached(&mut *self.state.lock().await, &run)?
             .closed
@@ -457,14 +485,16 @@ impl Sessions {
         self.new_page(&session, context).await
     }
 
-    /// Opens the default Session of `run`, on the Borrowed browser at
-    /// `borrowed` if there is one, and answers its position: its proxy and
-    /// its record in run state are opened and written outside the table's
-    /// lock.
-    async fn open_default(
+    /// Opens the default Session of `run`, or a Session its crawl's Session
+    /// pool holds, as `opener` says, on the Borrowed browser at `borrowed`
+    /// if there is one, and answers its position: its proxy and the default
+    /// Session's record in run state are opened and written outside the
+    /// table's lock.
+    async fn open_held(
         &self,
         run: &Run,
         borrowed: Option<&CdpUrl>,
+        opener: Opener,
         context: &CallContext,
     ) -> Result<u32, CallError> {
         let next = reached(&mut *self.state.lock().await, run)?.last + 1;
@@ -485,8 +515,16 @@ impl Sessions {
             };
             (runs.last, seat)
         };
-        self.record(run, position, true, &Values::default(), borrowed, context)
-            .await?;
+        if let Opener::Default = opener {
+            self.record(run, position, true, &Values::default(), borrowed, context)
+                .await?;
+        }
+        let attributes = match (opener, borrowed.is_some()) {
+            (Opener::Default, false) => FRESH,
+            (Opener::Default, true) => BORROWED,
+            (Opener::Pool, false) => POOL,
+            (Opener::Pool, true) => POOL_BORROWED,
+        };
         let session = session_id(run.id(), position);
         self.state.lock().await.sessions.insert(
             session.clone(),
@@ -495,11 +533,7 @@ impl Sessions {
                 position,
                 seat,
                 settings: Values::default(),
-                life: SessionLife::new(
-                    session.clone(),
-                    if borrowed.is_some() { BORROWED } else { FRESH },
-                    SessionState::Open,
-                ),
+                life: SessionLife::new(session.clone(), attributes, SessionState::Open),
                 proxy,
                 egress_marked: OnceCell::new(),
                 relay,
@@ -574,6 +608,87 @@ impl Sessions {
             }
         };
         let effect = open.life.apply(SessionEvent::Close, None)?;
+        self.end_session(&open, session, effect, context).await
+    }
+
+    /// Opens a page in the Session a crawl's Session pool names `pooled`
+    /// in the live Run `run_id`, opening that Session first when it has no
+    /// browser context yet: from `source`, `Some(None)` for a fresh one,
+    /// or else from the Run's `session.source` (ADR 0093). The Session is
+    /// the pool's (ADR 0088): only [`Sessions::retire`] ends it, besides
+    /// its Run; `closed` once it is retired.
+    #[expect(
+        clippy::option_option,
+        reason = "a setting's three states (ADR 0083): the Run's, `null` for a fresh Session, a source"
+    )]
+    pub(crate) async fn new_pool_page(
+        &self,
+        run_id: &RunId,
+        pooled: &SessionId,
+        source: Option<Option<SessionSource>>,
+        context: &CallContext,
+    ) -> Result<PageOpened, CallError> {
+        let run = live(run_id, context).await?;
+        let borrowed = opening_source(&run, source, context)?;
+        self.reach(&run, context).await?;
+        let cell = Arc::clone(
+            reached(&mut *self.state.lock().await, &run)?
+                .pooled
+                .entry(pooled.clone())
+                .or_default(),
+        );
+        let position = *cell
+            .get_or_try_init(|| self.open_held(&run, borrowed.as_ref(), Opener::Pool, context))
+            .await?;
+        let session = session_id(run.id(), position);
+        self.new_page(&session, context).await
+    }
+
+    /// Retires the Session a crawl's Session pool names `pooled` in the
+    /// Run `run_id` (spec #594's `Retire`): its pages and its browser
+    /// context close, as `session.close` closes them, and the pool opens
+    /// its replacement as a new Session. A Session the pool never opened a
+    /// browser context for, one already closing or closed (a `Retire`
+    /// racing a `Close`) and a Run no longer live change nothing.
+    ///
+    /// # Errors
+    ///
+    /// `internal`, for a Session the table does not let the pool retire,
+    /// such as one on a Borrowed browser.
+    pub(crate) async fn retire(
+        &self,
+        run_id: &RunId,
+        pooled: &SessionId,
+        context: &CallContext,
+    ) -> Result<(), CallError> {
+        let position = {
+            let state = self.state.lock().await;
+            state
+                .runs
+                .get(run_id)
+                .and_then(|runs| runs.pooled.get(pooled))
+                .and_then(|cell| cell.get().copied())
+        };
+        let Some(position) = position else {
+            return Ok(());
+        };
+        let session = session_id(run_id, position);
+        let Some(open) = self.state.lock().await.sessions.get(&session).cloned() else {
+            return Ok(());
+        };
+        let effect = open.life.apply(SessionEvent::Retire, None)?;
+        self.end_session(&open, &session, effect, context).await
+    }
+
+    /// Ends the Session `open`, whose table answered `effect` to its
+    /// `Close` or its `Retire`: its pages, then its browser context, close.
+    async fn end_session(
+        &self,
+        open: &Arc<Session>,
+        session: &SessionId,
+        effect: SessionEffect,
+        context: &CallContext,
+    ) -> Result<(), CallError> {
         if let Some(proxy) = &open.proxy {
             proxy.warn_if_outlived(&open.run, session).await;
         }
@@ -602,7 +717,7 @@ impl Sessions {
                 return Err(invalid_transition(
                     "session",
                     &format!("{:?}", open.life.state()),
-                    &format!("Close (effect {effect:?})"),
+                    &format!("Close or Retire (effect {effect:?})"),
                 ));
             }
         };
@@ -627,7 +742,7 @@ impl Sessions {
             return Ok(());
         }
         open.life.apply(SessionEvent::ChildrenClosed, None)?;
-        self.session_ended(&open, session)
+        self.session_ended(open, session)
             .await
             .map_err(|error| unavailable(&open.run, &error, context))
     }
@@ -816,6 +931,7 @@ impl Sessions {
             last: 0,
             default: Arc::new(OnceCell::new()),
             closed: BTreeSet::new(),
+            pooled: BTreeMap::new(),
         };
         let mut reopened = Vec::new();
         for (position, is_default, closed, settings, source) in recorded {

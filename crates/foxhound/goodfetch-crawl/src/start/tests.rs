@@ -26,6 +26,7 @@ mod progress;
 mod report;
 mod resume;
 mod safe_point;
+mod staging;
 
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -74,6 +75,10 @@ pub(crate) enum Reply {
     Blocked(&'static str),
     /// Never answers.
     Silent,
+    /// Sends these calls to the engine from inside the attempt, each
+    /// method with its params, waiting for each reply, which
+    /// [`Client::replies`] keeps, then answers as the inner reply says.
+    Calls(Vec<(&'static str, Value)>, Box<Reply>),
 }
 
 /// The Client's end of the engine's Connection.
@@ -91,6 +96,12 @@ pub(crate) struct Client {
     /// The Records a request left unanswered is answered with once the
     /// engine cancels it: a late commit.
     pub(crate) late: Option<Vec<Value>>,
+    /// The replies to the calls a handler sent from inside its attempts,
+    /// in order.
+    pub(crate) replies: Vec<Value>,
+    /// What came while a handler's call from inside its attempt waited for
+    /// its reply, read next.
+    early: std::collections::VecDeque<Value>,
 }
 
 impl Client {
@@ -101,6 +112,14 @@ impl Client {
     }
 
     async fn next(&mut self) -> Option<Value> {
+        if let Some(early) = self.early.pop_front() {
+            return Some(early);
+        }
+        self.read().await
+    }
+
+    /// The next message off the Connection, past what came early.
+    async fn read(&mut self) -> Option<Value> {
         let line = self.lines.next_line().await.unwrap()?;
         Some(serde_json::from_str(&line).unwrap())
     }
@@ -140,7 +159,27 @@ impl Client {
             } else if message.get("method").and_then(Value::as_str) == Some("crawl_request.handle")
             {
                 self.handled.push(message["params"].clone());
-                match handler(&message["params"]) {
+                let mut reply = handler(&message["params"]);
+                while let Reply::Calls(calls, then) = reply {
+                    for (method, params) in calls {
+                        let inside = format!("inside-{}", self.replies.len());
+                        self.send(&json!({ "jsonrpc": "2.0", "id": inside, "method": method, "params": params }))
+                            .await;
+                        loop {
+                            let message = self
+                                .read()
+                                .await
+                                .expect("the engine closed before replying");
+                            if message["id"] == json!(inside) {
+                                self.replies.push(message);
+                                break;
+                            }
+                            self.early.push_back(message);
+                        }
+                    }
+                    reply = *then;
+                }
+                match reply {
                     Reply::Records(records) => {
                         let records: Vec<Value> = records
                             .into_iter()
@@ -184,6 +223,7 @@ impl Client {
                         .await;
                     }
                     Reply::Silent => self.silent.push(message["id"].clone()),
+                    Reply::Calls(..) => unreachable!("invariant: the calls were sent above"),
                 }
             } else if message["id"] == json!(id) {
                 return message;
@@ -298,6 +338,8 @@ pub(crate) fn crawl_on<T>(
                 silent: Vec::new(),
                 arrivals: Vec::new(),
                 late: None,
+                replies: Vec::new(),
+                early: std::collections::VecDeque::new(),
             };
             let hello = client
                 .call(

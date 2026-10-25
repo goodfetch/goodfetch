@@ -426,6 +426,17 @@ pub const ATTEMPT_ENDED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A call that stages an output with an attempt while a declared Effect's
+/// body runs in it (ADR 0106).
+pub const EFFECT_STAGING_REFUSED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "effect_staging_refused",
+    description: "The call would stage an output with its attempt (an enqueue, a seed added through `ctx.run`, a Record or a Key-value store write through `ctx.run`) while a declared Effect's body runs in that attempt. A re-run that finds the Effect in the Effect journal does not run the body again, so the output would be lost for good; nothing was staged. The details' `fix` says to stage it after the declaration, from the output the body returned.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A commit refused because its attempt's lease ended (ADR 0003).
 pub const LEASE_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "lease_lost",
@@ -582,6 +593,7 @@ pub const ENTRIES: Entries = Entries {
         CLIENT_GONE,
         LEASE_LOST,
         ATTEMPT_ENDED,
+        EFFECT_STAGING_REFUSED,
     ],
     plugin_kinds: &[],
     metrics: &[WORK_ITEM_LEASED, WORK_ITEM_RETRIED],

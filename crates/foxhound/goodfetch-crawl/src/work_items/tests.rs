@@ -175,6 +175,7 @@ impl Subject {
                 |request| {
                     super::add(
                         connection,
+                        &mut super::Positions::of(connection)?,
                         request,
                         Adding {
                             method: &get,

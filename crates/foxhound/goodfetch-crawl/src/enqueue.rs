@@ -6,9 +6,10 @@
 //! with its reason; a Payload that does not fit its Label's JSON Schema or
 //! `crawl.payload.max_size` fails the call with `payload_invalid` first
 //! (ADR 0082). The
-//! request is one level deeper than the attempt's, and is committed at once
-//! in the Run's state; the crawl's delivery keys it and queues it under its
-//! domain once the attempt settles.
+//! request is one level deeper than the attempt's, and is staged with the
+//! attempt, answered as the Frontier will admit it, and committed with the
+//! attempt or discarded with it (ADR 0093); the crawl's delivery keys it
+//! and queues it under its domain once the attempt settles.
 
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::{CallContext, CallError, Handler};
@@ -24,7 +25,8 @@ use rusqlite::Connection;
 
 use crate::labels::Fragments;
 use crate::serving::{Crawls, LiveCrawl};
-use crate::work_items::{self, Adding};
+use crate::staging::Answered;
+use crate::work_items::{self, Adding, Positions};
 
 /// The handler of `crawl_request.enqueue` on the live crawls of `crawls`.
 pub(crate) fn handler(crawls: Crawls) -> Handler {
@@ -48,7 +50,13 @@ async fn enqueue(
             &(),
         )
     };
-    let Some(LiveCrawl { run, egress, .. }) = crawls.live(&params.run_id).await else {
+    let Some(LiveCrawl {
+        run,
+        egress,
+        staging,
+        ..
+    }) = crawls.live(&params.run_id).await
+    else {
         return Err(ended());
     };
     let document = params
@@ -66,7 +74,18 @@ async fn enqueue(
     let request = params.clone();
     let answered = run
         .state()
-        .write(move |connection| add(connection, &egress, &request, document.as_ref()))
+        .write(move |connection| {
+            let (crawl_request_id, lease_epoch) =
+                (request.crawl_request_id.clone(), request.lease_epoch);
+            staging.admit(
+                connection,
+                &crawl_request_id,
+                lease_epoch,
+                move |connection, positions| {
+                    add(connection, positions, &egress, &request, document.as_ref())
+                },
+            )
+        })
         .await;
     match answered {
         Ok(Some(answered)) => answered,
@@ -85,17 +104,19 @@ async fn enqueue(
     }
 }
 
-/// Adds `params`'s request through the Frontier, under the Run's domain
-/// policy `egress`, while its attempt holds its lease, against
+/// Adds `params`'s request through the Frontier, at its position from
+/// `positions`, under the Run's domain policy `egress`, while its attempt
+/// holds its lease, against
 /// `document`'s base URL, else the attempt's own URL, once its Payload fits
 /// its Label's schema and the cap, else `payload_invalid`; `None` once the
 /// attempt ended.
 fn add(
     connection: &Connection,
+    positions: &mut Positions,
     egress: &Policy,
     params: &CrawlRequestEnqueueParams,
     document: Option<&goodfetch_frontier::Url>,
-) -> rusqlite::Result<Option<Result<Enqueued, CallError>>> {
+) -> Answered<Enqueued> {
     let Some((url, depth)) =
         work_items::attempt(connection, &params.crawl_request_id, params.lease_epoch)?
     else {
@@ -131,6 +152,7 @@ fn add(
         |url| {
             work_items::add(
                 connection,
+                positions,
                 url,
                 Adding {
                     method: &params.method,

@@ -6,8 +6,9 @@
 //! the document's encoding, under the call's own `include` and `exclude`,
 //! and answers each element: added, not added with its reason, `no_link`
 //! or `skipped_by_payload`. Every Payload is checked before any link is
-//! admitted, so a `payload_invalid` adds none; the links are committed in
-//! one write of the Run's state, as one enqueue is.
+//! admitted, so a `payload_invalid` adds none; the links are staged with
+//! the attempt together, and commit or are discarded with it, as one
+//! enqueue is (ADR 0093).
 
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::{CallContext, CallError, Handler};
@@ -31,7 +32,8 @@ use serde_json::Value;
 
 use crate::labels::Fragments;
 use crate::serving::{Crawls, LiveCrawl};
-use crate::work_items::{self, Adding};
+use crate::staging::Answered;
+use crate::work_items::{self, Adding, Positions};
 
 /// The handlers of `crawl_request.links` and `crawl_request.enqueue_links`
 /// on the live crawls of `crawls`, whose pages `tiers` serve.
@@ -172,7 +174,13 @@ async fn enqueue_links(
     }
     let include = Patterns::globs(&params.include).map_err(CallError::from)?;
     let exclude = Patterns::globs(&params.exclude).map_err(CallError::from)?;
-    let Some(LiveCrawl { run, egress, .. }) = crawls.live(&params.run_id).await else {
+    let Some(LiveCrawl {
+        run,
+        egress,
+        staging,
+        ..
+    }) = crawls.live(&params.run_id).await
+    else {
         return Err(attempt.ended());
     };
     let (served, base) = served(&tiers, &params.locator).await?;
@@ -209,18 +217,28 @@ async fn enqueue_links(
     let answered = run
         .state()
         .write(move |connection| {
-            add(
+            let (crawl_request_id, lease_epoch) =
+                (request.crawl_request_id.clone(), request.lease_epoch);
+            staging.admit(
                 connection,
-                &egress,
-                &request,
-                &Batch {
-                    links: &links,
-                    base: &base,
-                    encoding,
-                    narrowing: Narrowing {
-                        include: &include,
-                        exclude: &exclude,
-                    },
+                &crawl_request_id,
+                lease_epoch,
+                move |connection, positions| {
+                    add(
+                        connection,
+                        positions,
+                        &egress,
+                        &request,
+                        &Batch {
+                            links: &links,
+                            base: &base,
+                            encoding,
+                            narrowing: Narrowing {
+                                include: &include,
+                                exclude: &exclude,
+                            },
+                        },
+                    )
                 },
             )
         })
@@ -254,16 +272,18 @@ struct Batch<'a> {
     narrowing: Narrowing<'a>,
 }
 
-/// Admits each of `batch`'s links through the Frontier, under the Run's
+/// Admits each of `batch`'s links through the Frontier, each added at its
+/// position from `positions`, under the Run's
 /// domain policy `egress`, while `params`'s attempt holds its lease, once
 /// every Payload fits its Label, else `payload_invalid` and none admitted;
 /// `None` once the attempt ended.
 fn add(
     connection: &Connection,
+    positions: &mut Positions,
     egress: &Policy,
     params: &CrawlRequestEnqueueLinksParams,
     batch: &Batch<'_>,
-) -> rusqlite::Result<Option<Result<EnqueuedLinks, CallError>>> {
+) -> Answered<EnqueuedLinks> {
     let Some((url, depth)) =
         work_items::attempt(connection, &params.crawl_request_id, params.lease_epoch)?
     else {
@@ -301,6 +321,7 @@ fn add(
                 let enqueued = admit(connection, &scope, egress, candidate, |url| {
                     work_items::add(
                         connection,
+                        positions,
                         url,
                         Adding {
                             method: &method,

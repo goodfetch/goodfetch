@@ -191,7 +191,13 @@ async fn start(
                 payloads.record(connection)?;
                 labels::record(connection, &declared)?;
                 fragments.record(connection)?;
-                let answers = work_items::admit_seeds(connection, &scope, &seeding, &seeds)?;
+                let answers = work_items::admit_seeds(
+                    connection,
+                    &mut work_items::Positions::of(connection)?,
+                    &scope,
+                    &seeding,
+                    &seeds,
+                )?;
                 goodfetch_frontier::seeds::answered(connection, &answers)
             })),
             policy_version: settings.resolved().policy_version().map(str::to_owned),

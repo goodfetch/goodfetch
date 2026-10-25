@@ -288,6 +288,10 @@ CREATE TABLE warnings (
     ) STRICT;
 INSERT INTO "warnings" VALUES(1,'clean_up_rules_fallback','The Run''s Clean-up rules are not the version asked for: the Run''s recorded Clean-up rules, 6c8abc7a55f570dbb19512bdf4a9321337d1cb2c9b507c105b01b87fabbcc34b, is not on this machine, and no source the Run names fetches it: the Run holds to the embedded part, sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9, instead.','[]',NULL);
 INSERT INTO "warnings" VALUES(2,'storage_low','The run folder''s filesystem met the `low` storage level.','["laptop"]','runs/paused');
+CREATE TABLE work_item_positions (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            reserved INTEGER NOT NULL
+        ) STRICT;
 CREATE TABLE work_items (
             id TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL UNIQUE,

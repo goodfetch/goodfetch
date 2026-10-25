@@ -337,6 +337,7 @@ impl StateMachineTest for Subject {
                 .write(move |connection| {
                     work_items::admit_seeds(
                         connection,
+                        &mut work_items::Positions::of(connection)?,
                         &goodfetch_frontier::Scope::default(),
                         &goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap(),
                         &seeds,
@@ -440,7 +441,7 @@ impl StateMachineTest for Subject {
                             .runtime
                             .block_on(lease.commit(&state, records, ended_at()));
                     let counted = match committed {
-                        Ok(()) => true,
+                        Ok(_) => true,
                         Err(CommitError::LeaseLost) => false,
                         Err(CommitError::RunState(error)) => panic!("the run file failed: {error}"),
                     };

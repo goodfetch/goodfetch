@@ -45,7 +45,14 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
     let seed: Seed =
         serde_json::from_value(json!({ "url": "http://shop.test/", "label": "page" })).unwrap();
     let every_host = Policy::new(&["*"], &[] as &[&str]).unwrap();
-    work_items::admit_seeds(&connection, &scope, &every_host, &[seed]).unwrap();
+    work_items::admit_seeds(
+        &connection,
+        &mut work_items::Positions::of(&connection).unwrap(),
+        &scope,
+        &every_host,
+        &[seed],
+    )
+    .unwrap();
     let leased = work_items::lease(&connection, &["1".to_owned()]).unwrap();
     let enqueue = |url: &str| {
         let params: CrawlRequestEnqueueParams = serde_json::from_value(json!({
@@ -56,11 +63,17 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
             "label": "page",
         }))
         .unwrap();
-        add(&connection, &every_host, &params, None)
-            .unwrap()
-            .unwrap()
-            .map_err(|error| error.code())
-            .unwrap()
+        add(
+            &connection,
+            &mut work_items::Positions::of(&connection).unwrap(),
+            &every_host,
+            &params,
+            None,
+        )
+        .unwrap()
+        .unwrap()
+        .map_err(|error| error.code())
+        .unwrap()
     };
 
     let answers = [

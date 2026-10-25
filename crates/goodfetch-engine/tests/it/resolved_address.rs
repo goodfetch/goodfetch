@@ -27,14 +27,16 @@ use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::tls::{CertificateExceptions, ClientCertificates, Trust};
 use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
 use goodfetch_test_support::{
-    Answer, CaseDomains, Family, Outcome, ProvingGround, Refusal, SsrfCase, SsrfTable, TestEnv,
-    run_cases,
+    Answer, CaseDomains, Outcome, ProvingGround, Refusal, Runner, SsrfCase, SsrfTable, TestEnv,
 };
 use serde_json::json;
 
 use crate::egress::{at_port, request_log_lines, table_rule, target_connections};
 
 const SEED: u64 = 621;
+
+/// The table's layer this file's runners run.
+const LAYER: &str = "http_client";
 
 /// The Proving ground's watched target, which answers any plain HTTP
 /// request and whose every connection the record lists.
@@ -135,22 +137,18 @@ fn aims_at(case: &SsrfCase, public: IpAddr) -> bool {
         .is_some_and(|target| target.to_canonical() == public.to_canonical())
 }
 
-/// Covers: story:4-8, story:4-9, error:egress_refused
+/// Covers: story:4-8, story:4-9, story:4-89, error:egress_refused
 #[test]
 fn every_address_case_of_the_ssrf_table_is_refused_before_any_connection() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let public = target(&proving_ground).ip();
-    let table = SsrfTable::committed().unwrap();
-    let cases: Vec<&SsrfCase> = [
-        Family::Encoding,
-        Family::Ipv6Form,
-        Family::SpecialPurposeBlock,
-        Family::MixedAnswers,
-    ]
-    .iter()
-    .flat_map(|family| table.cases_of(*family))
-    .collect();
+    let runner = Runner::committed(
+        LAYER,
+        file!(),
+        "every_address_case_of_the_ssrf_table_is_refused_before_any_connection",
+    )
+    .unwrap();
     // The positive controls: the loopback address of the encodings, once
     // the Session lists it, and a name whose only answer is public, each
     // reach the target, which the record shows.
@@ -173,28 +171,21 @@ fn every_address_case_of_the_ssrf_table_is_refused_before_any_connection() {
         "#,
     )
     .unwrap();
+    let control = |case: &SsrfCase| controls.cases.iter().any(|listed| listed.name == case.name);
 
-    let controlled = run_cases(&controls.cases, public, |case| {
-        run_case(&proving_ground, case, true)
-    });
-    let result = run_cases(cases.iter().copied(), public, |case| {
-        run_case(&proving_ground, case, !aims_at(case, public))
+    let result = runner.run(&controls.cases, public, |case| {
+        run_case(
+            &proving_ground,
+            case,
+            control(case) || !aims_at(case, public),
+        )
     });
 
-    assert_eq!(
-        controlled.map_err(|let_through| {
-            let_through
-                .misses
-                .iter()
-                .map(|miss| (miss.case.clone(), miss.refusal.clone(), miss.reached_target))
-                .collect::<Vec<_>>()
-        }),
-        Err(vec![
-            ("listed_loopback".to_owned(), None, true),
-            ("public_only".to_owned(), None, true),
-        ])
+    assert!(
+        runner.cases().len() >= 70,
+        "only {} cases",
+        runner.cases().len()
     );
-    assert!(cases.len() >= 70, "only {} cases", cases.len());
     assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
 }
 
@@ -300,10 +291,12 @@ fn a_private_address_no_call_waits_on_is_a_request_failed_event_in_the_run_trace
 
 /// Rebinding end to end (ADR 0067): this test binary runs again in a
 /// `DnsNamespace` whose resolver is the Proving ground's DNS fixture, and
-/// there fetches a name that answers `127.0.0.2`, which stands for a public
-/// address its Session lists, and then `127.0.0.1`. The first fetch reaches
-/// its server; the second is refused, naming `127.0.0.1`, and nothing
-/// connects to the server listening there.
+/// there fetches each rebinding case of the SSRF table twice, its name the
+/// fixture's that answers `127.0.0.2`, which stands for a public address
+/// its Session lists, and then the case's private answer. The first fetch
+/// reaches the server on `127.0.0.2`; the second is refused, and nothing
+/// connects to a server listening on the case's target where the namespace
+/// can bind it (its loopback addresses).
 #[cfg(target_os = "linux")]
 mod linux {
     use std::io::ErrorKind;
@@ -312,16 +305,21 @@ mod linux {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
     use goodfetch_engine::http_client::{FetchError, Resolve, Waiter};
-    use goodfetch_test_support::{DnsNamespace, ProvingGround, TestEnv};
+    use goodfetch_test_support::{
+        Answer, DnsNamespace, Outcome, ProvingGround, Refusal, Runner, SsrfCase, SsrfTable, TestEnv,
+    };
 
-    use super::{SEED, traffic};
+    use super::{LAYER, SEED, traffic};
+    use crate::egress::table_rule;
 
-    const NAME: &str = "127-0-0-2.127-0-0-1.alternating.dns.test";
-    const CHILD: &str = "resolved_address::linux::in_the_namespace_a_name_that_rebinds_to_loopback_is_refused_on_its_second_connection";
+    const CHILD: &str = "resolved_address::linux::in_the_namespace_every_rebinding_case_of_the_ssrf_table_is_refused_on_its_second_connection";
 
-    /// Covers: story:4-8
+    /// The address that stands for a public one in the namespace.
+    const PUBLIC: IpAddr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
+
+    /// Covers: story:4-8, story:4-89
     #[test]
-    fn on_linux_a_name_that_rebinds_to_loopback_is_refused_on_its_second_connection() {
+    fn on_linux_every_rebinding_case_of_the_ssrf_table_is_refused_end_to_end_in_a_dns_namespace() {
         let env = TestEnv::new();
         let proving_ground = ProvingGround::start(&env, SEED).unwrap();
         let fixture = proving_ground.description().fixtures.dns.parse().unwrap();
@@ -355,48 +353,130 @@ mod linux {
             .unwrap();
     }
 
-    /// The child, which runs only inside the namespace.
-    #[test]
-    #[ignore = "run as a child by resolved_address::linux::on_linux_a_name_that_rebinds_to_loopback_is_refused_on_its_second_connection"]
-    fn in_the_namespace_a_name_that_rebinds_to_loopback_is_refused_on_its_second_connection() {
-        let public = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
-        let server = TcpListener::bind(SocketAddr::new(public, 0)).unwrap();
+    /// The DNS fixture's label for `address`.
+    fn label(address: IpAddr) -> String {
+        match address {
+            IpAddr::V4(address) => address.octets().map(|octet| octet.to_string()).join("-"),
+            IpAddr::V6(address) => format!("{:032x}", u128::from(address)),
+        }
+    }
+
+    /// The fixture's name answering `case`'s lookups in turn, [`PUBLIC`]
+    /// for the public stand-in.
+    fn fixture_name(case: &SsrfCase) -> String {
+        let labels: Vec<String> = case
+            .lookups
+            .iter()
+            .flat_map(|lookup| &lookup.answers)
+            .map(|answer| match answer {
+                Answer::Public => label(PUBLIC),
+                Answer::Address(address) => label(*address),
+            })
+            .collect();
+        format!("{}.alternating.dns.test", labels.join("."))
+    }
+
+    /// The case's fetches on the namespace's network, its name the
+    /// fixture's, at `port`: the refusal, and the connections the public
+    /// server and a listener on the target, where one binds, accepted.
+    fn run_case(
+        runtime: &tokio::runtime::Runtime,
+        server: &tokio::net::TcpListener,
+        case: &SsrfCase,
+    ) -> Outcome {
         let port = server.local_addr().unwrap().port();
-        let private =
-            TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)).unwrap();
-        private.set_nonblocking(true).unwrap();
+        let target = case.target_address(PUBLIC);
+        let watched = target
+            .filter(|target| *target != PUBLIC)
+            .and_then(|target| TcpListener::bind(SocketAddr::new(target, port)).ok());
+        if let Some(watched) = &watched {
+            watched.set_nonblocking(true).unwrap();
+        }
         let traffic = traffic(
             &["*".to_owned()],
             &[],
             Resolve::new(),
-            &[public.to_string()],
+            &[PUBLIC.to_string()],
         );
-        let url = format!("http://{NAME}:{port}/");
+        let path = case.url.splitn(4, '/').nth(3).unwrap_or_default();
+        let url = format!("http://{}:{port}/{path}", fixture_name(case));
+        let mut outcome = Outcome::default();
+        runtime.block_on(async {
+            for _ in 0..case.fetches {
+                // The server answers every connection until the fetch ends.
+                let answered = std::cell::Cell::new(0);
+                let serving = async {
+                    loop {
+                        answer_once(server).await;
+                        answered.set(answered.get() + 1);
+                    }
+                };
+                let fetched = tokio::select! {
+                    fetched = traffic.get(&url, Waiter::Call) => fetched.map(|_| ()),
+                    () = serving => unreachable!("the server serves until the fetch ends"),
+                };
+                outcome
+                    .connections
+                    .extend(std::iter::repeat_n(PUBLIC, answered.get()));
+                if let Err(FetchError::Refused(refused)) = fetched {
+                    outcome.refusal = Some(Refusal::EgressRefused {
+                        rule: table_rule(refused.rule),
+                    });
+                    break;
+                }
+            }
+        });
+        if let (Some(watched), Some(target)) = (watched, target)
+            && watched.accept().map(|_| ()).err().map(|error| error.kind())
+                != Some(ErrorKind::WouldBlock)
+        {
+            outcome.connections.push(target);
+        }
+        outcome
+    }
 
-        let (first, second) = goodfetch_test_support::runtime().block_on(async {
-            server.set_nonblocking(true).unwrap();
-            let server = tokio::net::TcpListener::from_std(server).unwrap();
-            let (first, ()) = tokio::join!(
-                async {
-                    traffic
-                        .get(&url, Waiter::Call)
-                        .await
-                        .map(|response| response.status())
-                },
-                answer_once(&server),
-            );
-            let second = traffic.get(&url, Waiter::Call).await.map(|_| ());
-            (first, second)
+    /// The child, which runs only inside the namespace.
+    #[test]
+    #[ignore = "run as a child by resolved_address::linux::on_linux_every_rebinding_case_of_the_ssrf_table_is_refused_end_to_end_in_a_dns_namespace"]
+    fn in_the_namespace_every_rebinding_case_of_the_ssrf_table_is_refused_on_its_second_connection()
+    {
+        let runner = Runner::committed(
+            LAYER,
+            file!(),
+            "in_the_namespace_every_rebinding_case_of_the_ssrf_table_is_refused_on_its_second_connection",
+        )
+        .unwrap();
+        let runtime = goodfetch_test_support::runtime();
+        let server = TcpListener::bind(SocketAddr::new(PUBLIC, 0)).unwrap();
+        server.set_nonblocking(true).unwrap();
+        let server = {
+            let _entered = runtime.enter();
+            tokio::net::TcpListener::from_std(server).unwrap()
+        };
+        // The positive control: a name that answers the public stand-in
+        // both times is reached both times.
+        let controls = SsrfTable::parse(
+            r#"
+            [[cases]]
+            name = "public_twice"
+            family = "rebinding"
+            url = "http://rebind.ssrf.test/"
+            lookups = [
+                { name = "rebind.ssrf.test", answers = ["public"] },
+                { name = "rebind.ssrf.test", answers = ["public"] },
+            ]
+            fetches = 2
+            target = "public"
+            refusal = { code = "egress_refused", rule = "private_address" }
+            "#,
+        )
+        .unwrap();
+
+        let result = runner.run(&controls.cases, PUBLIC, |case| {
+            run_case(&runtime, &server, case)
         });
 
-        assert_eq!(first.unwrap(), 200);
-        let Err(FetchError::Refused(refused)) = second else {
-            panic!("the second fetch is refused: {second:?}");
-        };
-        assert_eq!(refused.address, Some(IpAddr::V4(Ipv4Addr::LOCALHOST)));
-        assert_eq!(
-            private.accept().map(|_| ()).unwrap_err().kind(),
-            ErrorKind::WouldBlock
-        );
+        assert_eq!(runner.cases().len(), 3);
+        assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
     }
 }

@@ -18,7 +18,7 @@ use crate::locales::LocaleTable;
 use crate::proving_ground::ProvingGroundDescription;
 use crate::script::Script;
 use crate::snapshot::SnapshotFilters;
-use crate::ssrf::SsrfTable;
+use crate::ssrf::{SsrfLayers, SsrfTable};
 use crate::tools::Tools;
 use crate::unicode::UnicodeRecord;
 
@@ -130,6 +130,10 @@ pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
         (
             "schemas/ssrf-cases.schema.json",
             schemars::schema_for!(SsrfTable).to_value(),
+        ),
+        (
+            "schemas/ssrf-layers.schema.json",
+            schemars::schema_for!(SsrfLayers).to_value(),
         ),
         (
             "schemas/test-env-description.schema.json",

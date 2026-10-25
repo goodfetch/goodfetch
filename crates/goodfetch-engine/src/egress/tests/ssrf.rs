@@ -3,17 +3,20 @@
 //! request, then the addresses its host stands for (its literal address, or
 //! the `ScriptedResolver`'s answers in turn) judged as the connection that
 //! would try them. The addresses a judgment let through are those a
-//! connection would reach; nothing connects. Rebinding is a name whose
-//! answer changes between two fetches.
+//! connection would reach; nothing connects. A redirect's location is
+//! judged as the next hop's request, and an upstream proxy's case as the
+//! request the engine judges before the proxy sees it. Rebinding is a name
+//! whose answer changes between two fetches. The cases each runner takes
+//! are its entry's in the table's layers (`classification`).
 //!
-//! Covers: story:4-8, story:4-9
+//! Covers: story:4-8, story:4-9, story:4-89
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use goodfetch_protocol::egress::EgressRule;
 use goodfetch_test_support::{
-    CaseDomains, Family, Outcome, Refusal, ResolverHandle, ScriptedResolver, SsrfCase, SsrfTable,
-    run_cases,
+    CaseDomains, Outcome, Redirect, Refusal, ResolverHandle, Runner, ScriptedResolver, SsrfCase,
+    SsrfTable,
 };
 use url::Host;
 
@@ -23,16 +26,8 @@ use crate::egress::{Judgment, Policy, Refused, Request, RequestKind, judge, judg
 /// connects to.
 const PUBLIC: IpAddr = IpAddr::V4(Ipv4Addr::new(93, 184, 215, 14));
 
-/// The families whose cases a request of the run meets directly, with no
-/// redirect, proxy, Plugin or Lent page.
-const DIRECT: [Family; 6] = [
-    Family::Encoding,
-    Family::Ipv6Form,
-    Family::SpecialPurposeBlock,
-    Family::MixedAnswers,
-    Family::Rebinding,
-    Family::DomainPolicy,
-];
+/// The table's layer this module runs.
+const LAYER: &str = "classification";
 
 /// The case's domain policy, every host allowed when it sets none.
 fn session(case: &SsrfCase) -> Policy {
@@ -43,44 +38,56 @@ fn session(case: &SsrfCase) -> Policy {
     Policy::new(&domains.allowed, &domains.blocked).unwrap()
 }
 
-/// One fetch of the case's URL: the addresses a connection would try, or
-/// the refusal.
+/// One fetch of `url`: the addresses a connection would try, or the
+/// refusal.
 fn fetch_once(
-    case: &SsrfCase,
+    url: &str,
     session: &Policy,
     resolver: &ResolverHandle,
 ) -> Result<Vec<IpAddr>, Refused> {
     let request = Request {
-        url: &case.url,
+        url,
         kind: RequestKind::Fetch,
     };
-    let url = match judge(&request, session) {
-        Judgment::Allowed(url) => url,
+    let parsed = match judge(&request, session) {
+        Judgment::Allowed(parsed) => parsed,
         Judgment::Refused(refused) => return Err(refused),
     };
-    let addresses = match url.host() {
+    let addresses = match parsed.host() {
         Some(Host::Ipv4(address)) => vec![IpAddr::V4(address)],
         Some(Host::Ipv6(address)) => vec![IpAddr::V6(address)],
         Some(Host::Domain(name)) => resolver.lookup(name),
         None => Vec::new(),
     };
-    let port = url.port_or_known_default().unwrap_or(80);
+    let port = parsed.port_or_known_default().unwrap_or(80);
     let sockets: Vec<SocketAddr> = addresses
         .iter()
         .map(|address| SocketAddr::new(*address, port))
         .collect();
-    judge_addresses(&case.url, &sockets, session)?;
+    judge_addresses(url, &sockets, session)?;
     Ok(addresses)
 }
 
-/// Each of the case's fetches in turn, up to the first refusal.
+/// Where the case's redirect sends its next hop, if it has one.
+fn location(case: &SsrfCase) -> Option<&str> {
+    case.redirect.as_ref().map(|redirect| match redirect {
+        Redirect::Status { location, .. }
+        | Redirect::RefreshHeader { location }
+        | Redirect::MetaRefresh { location }
+        | Redirect::Script { location } => location.as_str(),
+    })
+}
+
+/// Each of the case's fetches in turn, a redirect's hop after its fetch,
+/// up to the first refusal.
 fn fetches(case: &SsrfCase) -> Vec<Result<Vec<IpAddr>, Refused>> {
     let resolver = ScriptedResolver::new(case.script(PUBLIC));
     let handle = resolver.handle();
     let session = session(case);
     let mut fetched = Vec::new();
-    for _ in 0..case.fetches {
-        let result = fetch_once(case, &session, &handle);
+    let hops = std::iter::once(case.url.as_str()).chain(location(case));
+    for url in std::iter::repeat_n(hops, case.fetches as usize).flatten() {
+        let result = fetch_once(url, &session, &handle);
         let refused = result.is_err();
         fetched.push(result);
         if refused {
@@ -115,11 +122,17 @@ fn run_case(case: &SsrfCase) -> Outcome {
 }
 
 #[test]
-fn every_direct_case_of_the_table_is_refused_before_a_connection_would_try_its_target() {
-    let table = SsrfTable::committed().unwrap();
-    // The positive control: a name whose only answer is public is let
-    // through to it, which the runner sees.
-    let control = SsrfTable::parse(
+fn every_case_of_the_table_is_refused_before_a_connection_would_try_its_target() {
+    let runner = Runner::committed(
+        LAYER,
+        file!(),
+        "every_case_of_the_table_is_refused_before_a_connection_would_try_its_target",
+    )
+    .unwrap();
+    // The positive controls: a name whose only answer is public is let
+    // through to it, and so is a redirect's hop to it, which the runner
+    // sees.
+    let controls = SsrfTable::parse(
         r#"
         [[cases]]
         name = "public_only"
@@ -128,25 +141,29 @@ fn every_direct_case_of_the_table_is_refused_before_a_connection_would_try_its_t
         lookups = [{ name = "public.ssrf.test", answers = ["public"] }]
         target = "public"
         refusal = { code = "egress_refused", rule = "private_address" }
+
+        [[cases]]
+        name = "redirect_to_a_public_name"
+        family = "redirect"
+        url = "http://redirect.ssrf.test/"
+        lookups = [
+            { name = "redirect.ssrf.test", answers = ["public"] },
+            { name = "public.ssrf.test", answers = ["public"] },
+        ]
+        redirect = { kind = "status", status = 302, location = "http://public.ssrf.test/" }
+        target = "public"
+        refusal = { code = "egress_refused", rule = "private_address" }
         "#,
     )
     .unwrap();
-    let cases: Vec<&SsrfCase> = DIRECT
-        .iter()
-        .flat_map(|family| table.cases_of(*family))
-        .collect();
 
-    let controlled = run_cases(&control.cases, PUBLIC, run_case);
-    let result = run_cases(cases.iter().copied(), PUBLIC, run_case);
+    let result = runner.run(&controls.cases, PUBLIC, run_case);
 
-    assert_eq!(
-        controlled.map_err(|let_through| {
-            let miss = &let_through.misses[0];
-            (miss.refusal.clone(), miss.reached_target)
-        }),
-        Err((None, true))
+    assert!(
+        runner.cases().len() > 100,
+        "only {} cases",
+        runner.cases().len()
     );
-    assert!(cases.len() > 80, "only {} direct cases", cases.len());
     assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
 }
 
@@ -159,8 +176,13 @@ type Turn = Result<Vec<IpAddr>, Option<IpAddr>>;
 /// private address: the check runs on every connection's own lookup.
 #[test]
 fn a_rebinding_name_is_refused_on_the_connection_after_its_answer_changes() {
-    let table = SsrfTable::committed().unwrap();
-    let cases: Vec<&SsrfCase> = table.cases_of(Family::Rebinding).collect();
+    let runner = Runner::committed(
+        LAYER,
+        file!(),
+        "a_rebinding_name_is_refused_on_the_connection_after_its_answer_changes",
+    )
+    .unwrap();
+    let cases = runner.cases();
 
     let fetched: Vec<(String, Vec<Turn>)> = cases
         .iter()

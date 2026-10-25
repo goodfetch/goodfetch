@@ -23,7 +23,7 @@ use goodfetch_engine::http_client::{
 use goodfetch_engine::tls::{CertificateExceptions, ClientCertificates, Trust};
 use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
 use goodfetch_test_support::{
-    Answer, Family, Outcome, ProvingGround, Refusal, SsrfCase, SsrfTable, TestEnv, run_cases,
+    Answer, Outcome, ProvingGround, Refusal, Runner, SsrfCase, SsrfTable, TestEnv,
 };
 use rstest::rstest;
 use rustls::pki_types::CertificateDer;
@@ -204,14 +204,18 @@ fn run_case(proving_ground: &ProvingGround, case: &SsrfCase, public_listed: bool
     }
 }
 
-/// Covers: story:4-12, error:egress_refused
+/// Covers: story:4-12, story:4-89, error:egress_refused
 #[test]
 fn every_upstream_proxy_case_of_the_ssrf_table_is_refused_before_the_proxy_sees_it() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let public = target(&proving_ground).ip();
-    let table = SsrfTable::committed().unwrap();
-    let cases: Vec<&SsrfCase> = table.cases_of(Family::UpstreamProxy).collect();
+    let runner = Runner::committed(
+        "http_client",
+        file!(),
+        "every_upstream_proxy_case_of_the_ssrf_table_is_refused_before_the_proxy_sees_it",
+    )
+    .unwrap();
     // The positive control: a name whose only answer is public reaches the
     // target through the proxy, which the record shows.
     let controls = SsrfTable::parse(
@@ -227,36 +231,28 @@ fn every_upstream_proxy_case_of_the_ssrf_table_is_refused_before_the_proxy_sees_
         "#,
     )
     .unwrap();
+    let mut proxied = 0;
 
-    let controlled = run_cases(&controls.cases, public, |case| {
-        run_case(&proving_ground, case, true)
-    });
-    let before = proxy_connections(&proving_ground.observations().unwrap(), "open");
-    let result = run_cases(cases.iter().copied(), public, |case| {
+    let result = runner.run(&controls.cases, public, |case| {
+        let control = case.name == "public_name_through_the_proxy";
         let aims_at_public = case
             .target_address(public)
             .is_some_and(|target| target.to_canonical() == public.to_canonical());
-        run_case(&proving_ground, case, !aims_at_public)
+        let before = proxy_connections(&proving_ground.observations().unwrap(), "open");
+        let outcome = run_case(&proving_ground, case, control || !aims_at_public);
+        if !control {
+            proxied += proxy_connections(&proving_ground.observations().unwrap(), "open") - before;
+        }
+        outcome
     });
-    let after = proxy_connections(&proving_ground.observations().unwrap(), "open");
 
-    assert_eq!(
-        controlled.map_err(|let_through| {
-            let_through
-                .misses
-                .iter()
-                .map(|miss| (miss.case.clone(), miss.refusal.clone(), miss.reached_target))
-                .collect::<Vec<_>>()
-        }),
-        Err(vec![(
-            "public_name_through_the_proxy".to_owned(),
-            None,
-            true
-        )])
+    assert!(
+        runner.cases().len() >= 6,
+        "only {} cases",
+        runner.cases().len()
     );
-    assert!(cases.len() >= 6, "only {} cases", cases.len());
     assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
-    assert_eq!(after - before, 0);
+    assert_eq!(proxied, 0, "the proxy saw a refused case's request");
 }
 
 /// Covers: story:4-13, error:egress_refused, setting:network.resolve

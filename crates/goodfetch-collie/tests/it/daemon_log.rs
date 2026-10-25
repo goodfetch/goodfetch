@@ -176,6 +176,13 @@ fn at_the_default_level_a_thousand_requests_write_no_line_per_request() {
 /// counted, and once space returns the next line written says how many were
 /// dropped. The log folder is a tmpfs of its own.
 ///
+/// A full tmpfs still takes the bytes that fit in the log file's last page,
+/// so a few lines, and a count of the lines dropped before them, may still
+/// be written while it is full: how many depends on where the file ended
+/// when it filled. Every request's line is therefore either written or
+/// counted, and the last count comes before the first line written once
+/// space returns.
+///
 /// Covers: row:RT-17, command:daemon.run, setting:log.output
 #[cfg(target_os = "linux")]
 #[test]
@@ -210,19 +217,37 @@ fn on_a_full_filesystem_the_daemon_keeps_serving_and_then_says_how_many_lines_it
     drop(client);
     let exited = daemon.terminate();
 
-    let dropped: Vec<u64> = written
+    let lines: Vec<Value> = written
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .collect();
+    let dropped: Vec<u64> = lines
+        .iter()
         .filter_map(|line| line["fields"]["dropped"].as_u64())
         .collect();
+    // Each `engine.info` request logs two lines at `trace`: the dispatch's
+    // "request answered" and its span's "close".
+    let request_lines = lines
+        .iter()
+        .filter(|line| {
+            line["fields"]["method"] == "engine.info" || line["span"]["rpc.method"] == "engine.info"
+        })
+        .count();
+    let last_count = lines
+        .iter()
+        .rposition(|line| line["fields"]["dropped"].is_u64());
+    let after_space_returned = lines
+        .iter()
+        .position(|line| line["span"]["jsonrpc.request.id"] == "22");
     assert_eq!(
         (
             served.iter().all(|product| product == "collie"),
-            dropped.len(),
-            dropped.iter().all(|count| *count > 0),
+            !dropped.is_empty() && dropped.iter().all(|count| *count > 0),
+            u64::try_from(request_lines).unwrap() + dropped.iter().sum::<u64>() >= 2 * 22,
+            matches!((last_count, after_space_returned), (Some(count), Some(line)) if count < line),
             exited
         ),
-        (true, 1, true, true),
+        (true, true, true, true, true),
         "{written}"
     );
 }

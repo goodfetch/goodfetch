@@ -1110,45 +1110,45 @@ fn a_crawl_setting_a_fetch_key_not_built_is_refused_before_it_begins(
 /// could serve them are refused with `capability_unavailable` until the
 /// engine keeps them.
 ///
-/// Covers: story:6-262, error:setting_not_applicable
+/// Covers: story:6-262
 #[rstest::rstest]
-/// Covers: setting:fetch.kept_responses.urls
+/// Covers: setting:fetch.kept_responses.urls, error:setting_not_applicable
 #[case::responses_kept_on_a_labels_forced_http(
     json!({}),
     json!({ "api": { "settings": { "fetch": { "tier": "http", "kept_responses": { "urls": ["**/api/*"] } } } } }),
     json!(["setting_not_applicable", "fetch.kept_responses.urls", null])
 )]
-/// Covers: setting:fetch.kept_responses.urls
+/// Covers: setting:fetch.kept_responses.urls, error:setting_not_applicable
 #[case::responses_kept_on_a_labels_forced_browser_fetch(
     json!({}),
     json!({ "api": { "settings": { "fetch": { "tier": "browser_fetch", "kept_responses": { "urls": ["**/api/*"] } } } } }),
     json!(["setting_not_applicable", "fetch.kept_responses.urls", null])
 )]
-/// Covers: setting:fetch.kept_responses.urls
+/// Covers: setting:fetch.kept_responses.urls, error:setting_not_applicable
 #[case::responses_kept_by_a_label_on_the_runs_forced_http(
     json!({ "fetch": { "tier": "http" } }),
     json!({ "api": { "settings": { "fetch": { "kept_responses": { "urls": ["**/api/*"] } } } } }),
     json!(["setting_not_applicable", "fetch.kept_responses.urls", null])
 )]
-/// Covers: story:6-221, setting:crawl.keep_url_fragment
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
 #[case::fragments_kept_on_a_labels_forced_http(
     json!({}),
     json!({ "app": { "settings": { "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "http" } } } }),
     json!(["setting_not_applicable", "crawl.keep_url_fragment", null])
 )]
-/// Covers: story:6-221, setting:crawl.keep_url_fragment
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
 #[case::fragments_kept_on_a_labels_forced_discovered_api(
     json!({}),
     json!({ "app": { "settings": { "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "discovered_api" } } } }),
     json!(["setting_not_applicable", "crawl.keep_url_fragment", null])
 )]
-/// Covers: story:6-221, setting:crawl.keep_url_fragment
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
 #[case::fragments_kept_by_the_run_on_a_labels_forced_browser_fetch(
     json!({ "crawl": { "keep_url_fragment": true } }),
     json!({ "app": { "settings": { "fetch": { "tier": "browser_fetch" } } } }),
     json!(["setting_not_applicable", "crawl.keep_url_fragment", null])
 )]
-/// Covers: story:6-221, setting:crawl.keep_url_fragment
+/// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
 #[case::fragments_kept_by_the_run_on_its_forced_http(
     json!({ "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "http" } }),
     json!({}),

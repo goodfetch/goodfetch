@@ -289,6 +289,26 @@ impl ProvingGround {
             .and_then(|mut response| response.body_mut().read_json())
             .map_err(|error| ProvingGroundError::Oracle(error.to_string()))
     }
+
+    /// The oracle's verdict on the task `id`, which the tool under test
+    /// reports as `status` with the Records `records`, such as the
+    /// Markdown of each page of `extraction/7`: its `outcome` and what it
+    /// found.
+    ///
+    /// # Errors
+    ///
+    /// `Oracle` when it gave no answer.
+    pub fn judge_records(
+        &self,
+        id: &str,
+        status: &str,
+        records: &[serde_json::Value],
+    ) -> Result<serde_json::Value, ProvingGroundError> {
+        ureq::post(format!("http://{}/oracle", self.address))
+            .send_json(serde_json::json!({ "task": id, "status": status, "records": records }))
+            .and_then(|mut response| response.body_mut().read_json())
+            .map_err(|error| ProvingGroundError::Oracle(error.to_string()))
+    }
 }
 
 impl Drop for ProvingGround {

@@ -14,6 +14,11 @@
 //!   `elsewhere.certificates.test` only.
 //! - `self-signed.certificates.test`: signed by its own key.
 //!
+//! `GET /set-cookie` on any host of the family sets `session=c00k1e` on the
+//! whole `certificates.test` domain, so a client holds a cookie each host of
+//! the family would be sent: the Session cookie an exception host must not
+//! receive (ADR 0042).
+//!
 //! Beside them, two hosts with a valid leaf require mutual TLS (story
 //! 4-34): `client-certificate.certificates.test` and
 //! `other-client-certificate.certificates.test` each refuse a handshake
@@ -102,10 +107,25 @@ pub(crate) fn hosts() -> Vec<(String, Option<String>)> {
         .collect()
 }
 
+/// The path of any host of the family that sets a cookie on the whole
+/// `certificates.test` domain, which a client then sends every host of the
+/// family: the Session cookie no exception host may receive (ADR 0042).
+pub(crate) const SET_COOKIE_PATH: &str = "/set-cookie";
+
+/// The cookie [`SET_COOKIE_PATH`] sets.
+pub(crate) const DOMAIN_COOKIE: &str = "session=c00k1e; Domain=certificates.test; Path=/";
+
 /// The page every path of a host of the family answers, for a client that
-/// accepted its certificate or presented its own; `None` for any other
-/// host.
-pub(crate) fn respond(name: &str) -> Option<Reply> {
+/// accepted its certificate or presented its own, and the domain cookie at
+/// [`SET_COOKIE_PATH`]; `None` for any other host.
+pub(crate) fn respond(name: &str, path: &str) -> Option<Reply> {
+    if path == SET_COOKIE_PATH && hosts().iter().any(|(host, _)| host == name) {
+        let mut reply = Reply::html(
+            "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Cookie set</title></head>\n<body><main><h1>Cookie set</h1><p>This page set a cookie on the whole certificates.test domain.</p></main></body>\n</html>\n".to_owned(),
+        );
+        reply.headers.push(("set-cookie", DOMAIN_COOKIE.to_owned()));
+        return Some(reply);
+    }
     if requires_client_certificate(name) {
         return Some(Reply::html(
             "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>Reached with a client certificate</title></head>\n<body><main><h1>Reached with a client certificate</h1><p>This host requires mutual TLS; a client reads this page only when it presented the client certificate the Proving ground's client authority signed.</p></main></body>\n</html>\n".to_owned(),

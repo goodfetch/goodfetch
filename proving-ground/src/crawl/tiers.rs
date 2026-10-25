@@ -7,6 +7,11 @@
 //! - `/blog/<n>`: a script-rendered listing, its posts added by its script
 //!   as `li.item`, so only a browser sees them.
 //! - `/mixed/<n>`: static for an odd `n`, script-rendered for an even one.
+//! - `/states`: a static page whose one `h1` is visible and whose other
+//!   elements are hidden by their own markup (a `hidden` attribute, an
+//!   ancestor's inline `display: none`, an inline `visibility:hidden`),
+//!   with a link to `/products/2`, so a document tier answers questions
+//!   and waits from markup (spec #582's served-call table).
 //!
 //! `n` runs from 1 to 99, written without leading zeros; each listing holds
 //! three entries named from the seed and `n`. A query `hold=<ms>`, from 1
@@ -45,8 +50,21 @@ for (const name of list.dataset.names.split("|")) {
 }
 "#;
 
+/// The states page's body: one visible heading, elements hidden by their
+/// own markup in each way a document tier reads, and a link to a static
+/// listing.
+const STATES: &str = r#"<h1>states</h1>
+<p id="hidden-attribute" hidden>hidden by its attribute</p>
+<div style="color: gray; display : none"><span id="in-display-none">inside display:none</span></div>
+<p id="visibility-hidden" style="visibility:hidden">hidden by its visibility</p>
+<p><a id="next" href="/products/2">products 2</a></p>
+"#;
+
 pub(super) fn respond(visit: &Visit<'_>) -> Page {
     let path = visit.request.path;
+    if path == "/states" {
+        return Page::ok(document("states", STATES));
+    }
     let scripted = |kind: &str, number: u64| match kind {
         "products" => Some(false),
         "blog" => Some(true),

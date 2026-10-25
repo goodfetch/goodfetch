@@ -113,6 +113,12 @@ reason = "No engine path ends a Run with a Verdict other than `verified` yet, an
 link = "https://github.com/goodfetch/goodfetch/issues/1183"
 
 [[exception]]
+feature = "error:response_not_document"
+evidence = "none"
+reason = "Declared with the served-call table (#931), whose rows say which calls read the document; no page holds no document until `crawl.content_types` hands a handler a non-HTML response, so no call raises it yet. #950 builds that page and its Response decoding conformance case, which removes this exception."
+link = "https://github.com/goodfetch/goodfetch/issues/950"
+
+[[exception]]
 feature = "error:sample_crawl_refused"
 evidence = "none"
 reason = "A sample entry of `goodfetch-protocol`, which carries `xtask codegen`'s pipeline and has no behaviour to test; the area that defines the real contracts removes it, and this exception with it."

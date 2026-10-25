@@ -919,6 +919,23 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 259
+title = "As a crawl developer, I want a written table of which page calls each tier serves exactly, and a call it cannot serve to escalate the request to the browser under `auto` or fail with `browser_required` under a forced tier, so that I know what my handler costs (ADR 0093; P49)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 260
+title = "As a crawl developer, I want a wait for content a static document lacks, and a page failing its expected page, to escalate rather than pass empty, so that a script-rendered page never counts as an empty success (ADR 0093; P04; pitfall H22)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 263
 title = "As a crawl developer, I want `fetch.tier_race` to start browser-fetch and, after the Label-on-domain's median browser-fetch latency (500 ms before any sample), a full navigation in the same Session, the first result passing the Page check and the Label's comparison winning and the other cancelled, both counted in Politeness and Usage and the race in Provenance, so that a latency-sensitive crawl gets its page sooner (CO-16, ADRs 0040, 0086)."
 milestone = "M1 Core"

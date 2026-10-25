@@ -76,6 +76,15 @@ export class PayloadSchemaChangedError extends ProgramError {
 }
 
 /**
+ * A handler's call that reads, waits on or acts on the document of a page whose accepted response is not an HTML document, such as a PDF its Label's `crawl.content_types` lists: a locator, `content()`, `formats`, `evaluate`, a screenshot or an AI verb. It fails at once on every tier and never escalates. The details name the response's content type and the call; the fix names `ctx.response`, which holds the body.
+ */
+export class ResponseNotDocumentError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "response_not_document", group: "program", retryable: false });
+  }
+}
+
+/**
  * The response is not one a handler is handed: a 3xx that is not one of Fetch's redirect statuses (301, 302, 303, 307, 308), or a redirect whose `Location` is missing, does not parse or names no HTTP(S) URL. The details name the response's `url` and `status`, and a `fix` naming `crawl.handle_statuses`, which hands a status to the handler. Not retried: the site answers the same again.
  */
 export class ResponseNotOKError extends PageError {
@@ -112,6 +121,7 @@ export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   lease_lost: LeaseLostError,
   payload_invalid: PayloadInvalidError,
   payload_schema_changed: PayloadSchemaChangedError,
+  response_not_document: ResponseNotDocumentError,
   response_not_ok: ResponseNotOKError,
   response_unavailable: ResponseUnavailableError,
   sample_crawl_refused: SampleCrawlRefusedError,

@@ -194,6 +194,31 @@ pub const BROWSER_REQUIRED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// What `response_not_document` details (ADR 0119).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ResponseNotDocumentDetails {
+    /// The response's content type, as its `Content-Type` names it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub content_type: String,
+    /// The call on the document, by its operation's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub call: String,
+    /// What reads such a response: the handler's `ctx.response`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
+/// A call on the document of a page whose response is no HTML document
+/// (ADR 0119).
+pub const RESPONSE_NOT_DOCUMENT: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "response_not_document",
+    description: "A handler's call that reads, waits on or acts on the document of a page whose accepted response is not an HTML document, such as a PDF its Label's `crawl.content_types` lists: a locator, `content()`, `formats`, `evaluate`, a screenshot or an AI verb. It fails at once on every tier and never escalates. The details name the response's content type and the call; the fix names `ctx.response`, which holds the body.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 fn nineteen() -> Value {
     Value::from(19_u64)
 }
@@ -236,7 +261,7 @@ pub const ENTRIES: Entries = Entries {
     operations: &[],
     events: &[],
     handler_requests: &[],
-    error_codes: &[BROWSER_REQUIRED],
+    error_codes: &[BROWSER_REQUIRED, RESPONSE_NOT_DOCUMENT],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[

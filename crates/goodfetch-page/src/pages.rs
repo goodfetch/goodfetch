@@ -1305,8 +1305,9 @@ impl Pages {
 
     /// The formats the request names, read from one serialization of the
     /// page's document, its shadow roots included, on a blocking thread of
-    /// its Run's, once extraction-side removal took what its Session's
-    /// cosmetic rules match (ADR 0047), which Provenance records.
+    /// its Run's, the Clean-up rules of its Session applied before the main
+    /// content (ADR 0047); Provenance records each call with the rules'
+    /// version and what they removed (G6).
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
         if let Some(served) = self.product.document(&params.page_id) {
@@ -1317,11 +1318,12 @@ impl Pages {
                 base_url: served.base_url,
             };
             let request = params.formats;
-            let (formats, _) = served
+            let (formats, read) = served
                 .run
                 .owner()
                 .blocking(move || clean_up::read(&document, request, None, &[]))
                 .await;
+            trace::provenance(&served.run, &read.entry(&params.page_id, None)).await;
             return Ok(formats);
         }
         let page = self.open(&params.page_id).await?;
@@ -1333,14 +1335,12 @@ impl Pages {
         let request = params.formats;
         let cosmetic = self.interception.cosmetic(&params.page_id);
         let hidden = page.sheets.runner_hidden();
-        let (formats, removed) = page
+        let (formats, read) = page
             .run
             .owner()
             .blocking(move || clean_up::read(&document, request, cosmetic.as_ref(), &hidden))
             .await;
-        if let Some(removed) = removed {
-            trace::provenance(&page.run, &removed.entry(&params.page_id, &page.session)).await;
-        }
+        trace::provenance(&page.run, &read.entry(&params.page_id, Some(&page.session))).await;
         Ok(formats)
     }
 }

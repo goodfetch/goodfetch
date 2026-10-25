@@ -6,9 +6,13 @@
 //! the switch once in the Audit log and logs one warning. Controls with no
 //! run-time cost have no setting: they cannot be switched off.
 
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::catalog::{Authority, Entries, ProtocolVersion, Setting, ValueKind};
+use crate::catalog::{
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion, Setting, ValueKind,
+};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -59,11 +63,54 @@ pub const SECURITY_RAW_CDP_EGRESS_PROXY: Setting = control(
     "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
 );
 
-/// `security.browser_sandbox` (ADRs 0016, 0017 and 0049).
-pub const SECURITY_BROWSER_SANDBOX: Setting = control(
-    "security.browser_sandbox",
-    "Whether Chromium's renderers run in their namespace sandbox (ADR 0017). On by default; off, they run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
-);
+/// `security.browser_sandbox` (ADRs 0016, 0017 and 0049): switched off
+/// only by Operator policy or configuration, never by a Recipe or a run,
+/// and off by default only on a host whose platform allows no sandbox.
+pub const SECURITY_BROWSER_SANDBOX: Setting = Setting {
+    authority: Authority::Configuration,
+    ..control(
+        "security.browser_sandbox",
+        "Whether Chromium's renderers run in their sandbox (ADRs 0017 and 0049): the engine never passes `--no-sandbox` while it is on. On by default, except on a host whose platform allows no sandbox (AWS Lambda, Fargate, Azure Container Apps), where the engine switches it off. Only an Operator policy or configuration switches it off; a Recipe's or a run's value is `setting_locked`. Off, the renderers run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+    )
+};
+
+/// A host where Chromium's sandbox cannot start, and a fix exists (ADR
+/// 0049).
+pub const BROWSER_SANDBOX_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "browser_sandbox_unavailable",
+    description: "Chromium's sandbox cannot start on this host, where a fix exists, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What refuses the user namespace Chromium's sandbox starts in, on a host
+/// where a fix exists (ADR 0049).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxEnvironment {
+    /// Docker's or containerd's default seccomp profile, which refuses
+    /// `CLONE_NEWUSER`.
+    DockerDefaultSeccomp,
+    /// Kubernetes' `RuntimeDefault` seccomp profile, the container
+    /// runtime's default.
+    KubernetesRuntimeDefault,
+    /// Ubuntu's AppArmor restriction on unprivileged user namespaces, with
+    /// no profile that gives the browser one.
+    ApparmorUserns,
+}
+
+/// What `browser_sandbox_unavailable` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct BrowserSandboxUnavailableDetails {
+    /// What refuses the sandbox.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub environment: SandboxEnvironment,
+    /// The fix for that environment.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
 
 /// `security.audit_chain` (ADRs 0016 and 0055).
 pub const SECURITY_AUDIT_CHAIN: Setting = control(
@@ -95,7 +142,7 @@ pub const ENTRIES: Entries = Entries {
     operations: &[],
     events: &[],
     handler_requests: &[],
-    error_codes: &[],
+    error_codes: &[BROWSER_SANDBOX_UNAVAILABLE],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[

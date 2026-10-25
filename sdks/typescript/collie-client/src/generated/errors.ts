@@ -208,6 +208,15 @@ export class BrowserNotInstalledError extends UnavailableError {
 }
 
 /**
+ * Chromium's sandbox cannot start on this host, where a fix exists, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.
+ */
+export class BrowserSandboxUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "browser_sandbox_unavailable", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.
  */
 export class CallCancelledError extends UnavailableError {
@@ -857,6 +866,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   browser_host_outdated: BrowserHostOutdatedError,
   browser_launch_failed: BrowserLaunchFailedError,
   browser_not_installed: BrowserNotInstalledError,
+  browser_sandbox_unavailable: BrowserSandboxUnavailableError,
   call_cancelled: CallCancelledError,
   capability_unavailable: CapabilityUnavailableError,
   cdp_url_not_allowed: CDPURLNotAllowedError,

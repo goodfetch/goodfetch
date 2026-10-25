@@ -205,7 +205,7 @@ fn the_pools_settings_retire_a_session_by_its_uses_its_age_and_its_error_score(
     assert_eq!((ids, lifecycle), (served_by, json!("finished")));
 }
 
-/// Covers: story:6-251, setting:session.pool.max_size
+/// Covers: story:6-251, story:5-138, setting:session.pool.max_size
 #[rstest]
 #[case::a_403("/corpus/ip-block", session("session-2", "datacenter", false))]
 #[case::a_429("/corpus/rate-limit", session("session-2", "datacenter", false))]

@@ -138,35 +138,38 @@ CREATE TABLE payloads (
         ) STRICT, WITHOUT ROWID;
 INSERT INTO "payloads" VALUES('1','{"depth":0}');
 CREATE TABLE pool_sessions (
-            position INTEGER NOT NULL PRIMARY KEY,
+            pool TEXT NOT NULL,
+            position INTEGER NOT NULL,
             proxy_tier TEXT NOT NULL,
             opened_at INTEGER NOT NULL,
             uses INTEGER NOT NULL,
             error_score REAL NOT NULL,
-            retired_because TEXT
+            retired_because TEXT,
+            PRIMARY KEY (pool, position)
         ) STRICT;
-INSERT INTO "pool_sessions" VALUES(1,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(2,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(3,'none',1767603600000,1,1.0,'escalated');
-INSERT INTO "pool_sessions" VALUES(4,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(5,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(6,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(7,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(8,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(9,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(10,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(11,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(12,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(13,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(14,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(15,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(16,'none',1767603600000,1,0.0,NULL);
-INSERT INTO "pool_sessions" VALUES(17,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',1,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',2,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',3,'none',1767603600000,1,1.0,'escalated');
+INSERT INTO "pool_sessions" VALUES('',4,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',5,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',6,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',7,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',8,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',9,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',10,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',11,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',12,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',13,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',14,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',15,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',16,'none',1767603600000,1,0.0,NULL);
+INSERT INTO "pool_sessions" VALUES('',17,'none',1767603600000,1,0.0,NULL);
 CREATE TABLE pool_tiers (
             domain_key TEXT NOT NULL PRIMARY KEY,
-            proxy_tier TEXT NOT NULL
+            proxy_tier TEXT NOT NULL,
+            browser INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "pool_tiers" VALUES('guarded.test','datacenter');
+INSERT INTO "pool_tiers" VALUES('guarded.test','datacenter',0);
 CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
@@ -446,7 +449,7 @@ INSERT INTO "work_items" VALUES('15',15,'https://list.test/guide','GET',NULL,'li
 INSERT INTO "work_items" VALUES('16',16,'https://list.test/guide/','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
 INSERT INTO "work_items" VALUES('17',17,'https://outlet.test/sale','GET',NULL,'home',1,'succeeded',1,1,NULL,'outlet.test',0,17);
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
-CREATE INDEX pool_sessions_open ON pool_sessions (position)
+CREATE INDEX pool_sessions_open ON pool_sessions (pool, position)
             WHERE retired_because IS NULL;
 CREATE INDEX rules_pages_by_query ON rules_pages (host, path, query);
 CREATE INDEX rules_pages_by_url ON rules_pages (url);

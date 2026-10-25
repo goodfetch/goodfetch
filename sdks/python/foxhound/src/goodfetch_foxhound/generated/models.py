@@ -287,8 +287,9 @@ class LabelDeclaration(BaseModel):
     """
     settings: dict[str, Any] | None = None
     """
-    Its settings, nested by key: today `fetch.tier` alone, any other key
-    refused with `setting_not_applicable`.
+    Its settings, nested by key: today `fetch.tier` and `session.source`,
+    which gives the Label a Session pool of its own (ADR 0093), any other
+    key refused with `setting_not_applicable`.
     """
 
 

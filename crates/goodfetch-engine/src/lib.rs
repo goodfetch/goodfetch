@@ -85,7 +85,7 @@ mod usage;
 
 pub use composition::{
     CallContext, CallError, CallInput, Composition, CompositionError, ConsoleBuild, ConsoleFile,
-    Contribution, Handler,
+    Contribution, Driver, Guard, GuardAnswer, Handler,
 };
 pub use engine::{Dependencies, Engine};
 pub use info::contribution;

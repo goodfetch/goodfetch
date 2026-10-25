@@ -890,6 +890,16 @@
       ]
     },
     {
+      "id": "error:browser_required",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:call_cancelled",
       "kind": "error",
       "area": 3,
@@ -18315,6 +18325,16 @@
     },
     {
       "id": "story:6-242",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-243",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

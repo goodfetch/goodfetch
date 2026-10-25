@@ -8,14 +8,15 @@
 //! the Records read before it are tolerated; the paths the task must not
 //! request are judged from the Proving ground's own observations.
 //!
-//! Two named hosts belong to no task: their robots.txt files hold the
+//! Three named hosts belong to no task. Two have robots.txt files holding the
 //! product-token groups a crawl's robots.txt selection is judged on (ADRs
 //! 0086 and 0090), and every other path is a page. On
 //! `tokens.access-policy.test` a group for `Goodfetch-Foxhound` disallows
 //! `/foxhound/`, one for the operator token `operator-bot` `/operator/`,
 //! one for a bare `Foxhound` `/bare/` and the `*` group `/star/`; on
 //! `star.access-policy.test` only the bare `Foxhound` and `*` groups
-//! remain.
+//! remain. A third, `crawl-delay.access-policy.test`, asks every crawler
+//! for a Crawl-delay of 5 s, which a crawl's pacing is judged on.
 
 use super::shelf::{self, Shelf};
 use crate::raw::{Answer, Page, Request};
@@ -52,8 +53,17 @@ pub(super) const TOKENS_HOST: &str = "tokens.access-policy.test";
 /// The named host whose robots.txt names only a bare `Foxhound` and `*`.
 pub(super) const STAR_HOST: &str = "star.access-policy.test";
 
+/// The named host whose robots.txt asks every crawler for a Crawl-delay of
+/// 5 s.
+pub(super) const CRAWL_DELAY_HOST: &str = "crawl-delay.access-policy.test";
+
 /// The family's named hosts, which belong to no task.
-pub(super) const NAMED_HOSTS: [&str; 2] = [TOKENS_HOST, STAR_HOST];
+pub(super) const NAMED_HOSTS: [&str; 3] = [TOKENS_HOST, STAR_HOST, CRAWL_DELAY_HOST];
+
+/// The robots.txt of [`CRAWL_DELAY_HOST`].
+const CRAWL_DELAY: &str = "User-agent: *
+Crawl-delay: 5
+";
 
 /// The robots.txt of [`TOKENS_HOST`].
 const TOKENS: &str = "User-agent: Goodfetch-Foxhound
@@ -208,6 +218,7 @@ pub(super) fn answer(seed: u64, host: &str, request: &Request) -> Answer {
     if let Some(robots) = match host {
         TOKENS_HOST => Some(TOKENS),
         STAR_HOST => Some(STAR),
+        CRAWL_DELAY_HOST => Some(CRAWL_DELAY),
         _ => None,
     } {
         return Answer::Page(match request.path() {

@@ -21,6 +21,7 @@
 mod completeness;
 mod delivery;
 mod enqueue;
+mod labels;
 mod lease;
 mod outcomes;
 mod policy;

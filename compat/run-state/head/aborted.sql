@@ -45,6 +45,10 @@ CREATE TABLE key_values (key TEXT NOT NULL PRIMARY KEY, value TEXT, content BLOB
 INSERT INTO "key_values" VALUES('cursor','{"page":2,"seen":[1,null]}',NULL,NULL,NULL);
 INSERT INTO "key_values" VALUES('note',NULL,X'6869','text/plain',NULL);
 INSERT INTO "key_values" VALUES('archive',NULL,NULL,'application/octet-stream',1);
+CREATE TABLE labels (
+            name TEXT NOT NULL PRIMARY KEY,
+            declaration TEXT NOT NULL
+        ) STRICT;
 CREATE TABLE learned_identities (
             identity TEXT NOT NULL PRIMARY KEY,
             rule INTEGER NOT NULL,

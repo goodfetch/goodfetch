@@ -8,7 +8,8 @@
 //! share, disallows it for `goodfetch-foxhound` or asks for a Crawl-delay
 //! above `site_preferences.max_crawl_delay`; a refusal the handler lets
 //! escape ends its request `skipped` with the refusal's reason, and eight
-//! handlers at once press their one domain a delay apart.
+//! handlers at once press their one domain a delay apart. Its lease check
+//! is the work item's lease: past it, the handler's page sends nothing more.
 #![expect(
     clippy::disallowed_methods,
     reason = "the handler, the test's own code, waits in real time for the popup the browser navigates"
@@ -859,4 +860,176 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
         ),
         "{arrived:?}"
     );
+}
+
+/// The Error code of a call's refusal.
+fn code(answer: &Value) -> Value {
+    answer["error"]["data"]["code"].clone()
+}
+
+/// A handler's page past its work item's lease sends nothing more (ADRs
+/// 0003 and 0087; spec #594's P31): once the lease ended, a click, a
+/// navigation and a `page.request`, each the first call on a page of the
+/// handler's, are refused with `attempt_ended` and the site gets no request
+/// after the lease's end; each page then moves to `Closing`, so a later call
+/// on it raises `closed`. A page a program opened in a Run of its own
+/// carries no lease and still navigates long after.
+///
+/// The lease is the 1 s handler timeout plus its 10 s margin, in real time:
+/// a test of the binary sets short durations through settings (TESTING.md,
+/// "Time").
+///
+/// Covers: story:5-135, error:attempt_ended, setting:timeout.handler, setting:crawl.retry.max, operation:page.goto, operation:page.request, operation:locator.click, operation:run.new_page
+#[test]
+fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let mut settings = settings(
+        &proving_ground,
+        &json!({
+            // A lease of 1 s plus the 10 s margin.
+            "timeout": { "handler": 1_000 },
+            "crawl": { "retry": { "max": 0 } },
+        }),
+    );
+    let mut others = Vec::new();
+    let program_page = program_page(&mut engine, &settings["network"], &mut others);
+    // The built-in tier: the engine sends nothing for the seed, so every
+    // request the site gets is the handler's.
+    if let Some(settings) = settings.as_object_mut() {
+        settings.remove("fetch");
+    }
+    let url = |path: &str| proving_ground.url(CATALOG_HOST, path);
+
+    let (mut before, mut refused, mut later, mut requests) = (None, Vec::new(), Vec::new(), None);
+    let report = crawl_with(
+        &mut engine,
+        "zombie",
+        // The second seed keeps the Run going past the first's lease.
+        &[
+            json!({ "url": "https://seed-1.test/", "label": "page" }),
+            json!({ "url": "https://seed-2.test/", "label": "page" }),
+        ],
+        &settings,
+        &mut |inside, handle| {
+            if handle["crawl_request"]["url"] != "https://seed-1.test/" {
+                return json!({ "result": { "records": [] } });
+            }
+            let pages: Vec<String> = (0..3).map(|_| new_page(inside, handle)).collect();
+            before = Some(inside.call(
+                "page.goto",
+                &json!({ "page_id": pages[0], "url": url("/catalog/1") }),
+            ));
+            std::thread::sleep(Duration::from_secs(12));
+            let lease_ended = requested_in_all(&proving_ground);
+            let engine = inside.engine();
+            (refused, later) = past_the_lease(engine, &pages, &url, &mut others);
+            requests = Some((lease_ended, requested_in_all(&proving_ground)));
+            // The second seed's attempt, delivered meanwhile, ends at once.
+            for delivered in others
+                .iter()
+                .filter(|other| other["method"] == "crawl_request.handle")
+            {
+                engine.send(&json!({
+                    "jsonrpc": "2.0", "id": delivered["id"], "result": { "records": [] },
+                }));
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "program-goto", "method": "page.goto",
+        "params": { "page_id": program_page, "url": url("/catalog/5") },
+    }));
+    let program_goto = answer_to(&mut engine, "program-goto", &mut others);
+    assert!(engine.finish());
+
+    let (lease_ended, after) = requests.expect("the handler ran");
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            before.map(|before| before["result"]["response"]["status"].clone()),
+            refused,
+            later,
+            after - lease_ended,
+            requested(&proving_ground, CATALOG_HOST, "/catalog/4"),
+            program_goto["result"]["response"]["status"].clone(),
+        ),
+        (
+            &json!("finished"),
+            Some(json!(200)),
+            vec![json!("attempt_ended"); 3],
+            vec![json!("closed"); 3],
+            0,
+            0,
+            json!(200),
+        ),
+        "{others:?}"
+    );
+}
+
+/// Opens a page in a Run of the program's own, `program`, whose settings
+/// hold `network`, answering its ID; the replies and requests before it are
+/// kept in `others`.
+fn program_page(engine: &mut Attached, network: &Value, others: &mut Vec<Value>) -> Value {
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "program", "method": "run.start",
+        "params": { "run_id": "program", "settings": { "network": network } },
+    }));
+    let started = answer_to(engine, "program", others);
+    assert!(started.get("result").is_some(), "{started}");
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "program-page", "method": "run.new_page",
+        "params": { "run_id": "program" },
+    }));
+    answer_to(engine, "program-page", others)["result"]["page_id"].clone()
+}
+
+/// What a handler past its lease gets: the codes of a click on its first
+/// page, a navigation of its second and a `page.request` of its third, each
+/// the first call on its page, then of a navigation of each page.
+fn past_the_lease(
+    engine: &mut Attached,
+    pages: &[String],
+    url: &impl Fn(&str) -> String,
+    others: &mut Vec<Value>,
+) -> (Vec<Value>, Vec<Value>) {
+    let calls = [
+        (
+            "locator.click",
+            json!({ "locator": { "page_id": pages[0], "selector": "a" } }),
+        ),
+        (
+            "page.goto",
+            json!({ "page_id": pages[1], "url": url("/catalog/2") }),
+        ),
+        (
+            "page.request",
+            json!({ "page_id": pages[2], "url": url("/catalog/3") }),
+        ),
+    ];
+    let mut refused = Vec::new();
+    for (n, (method, params)) in calls.iter().enumerate() {
+        let id = format!("zombie-{n}");
+        engine.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
+        refused.push(code(&answer_to(engine, &id, others)));
+    }
+    let mut later = Vec::new();
+    for (n, page) in pages.iter().enumerate() {
+        let id = format!("later-{n}");
+        engine.send(&json!({
+            "jsonrpc": "2.0", "id": id, "method": "page.goto",
+            "params": { "page_id": page, "url": url("/catalog/4") },
+        }));
+        later.push(code(&answer_to(engine, &id, others)));
+    }
+    (refused, later)
+}
+
+/// How many requests the Proving ground received, on every host.
+fn requested_in_all(proving_ground: &ProvingGround) -> usize {
+    proving_ground.observations().unwrap()["requests"]
+        .as_array()
+        .map_or(0, Vec::len)
 }

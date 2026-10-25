@@ -274,6 +274,57 @@ fn the_limited_proxy_counts_no_robots_txt_or_icon(#[case] path: &str) {
     assert_eq!((first.status(), second.status() == 429), (200, false));
 }
 
+/// While a harness holds the limited proxy, the first request it counts
+/// waits until the hold is released, however late the second comes: the
+/// second, sent well past the proxy's usual 300 ms hold, is still refused,
+/// and the first is relayed once released.
+/// Covers: story:5-90
+#[test]
+fn the_limited_proxy_held_keeps_its_request_until_released_and_refuses_another() {
+    let proving_ground = ProvingGround::start(SEED);
+    let url = format!("http://catalog.test:{}/catalog/1", proving_ground.port());
+    let proxy = proving_ground.proxy("limited");
+
+    let held = proving_ground.put_control("/limited-proxy-hold", r#"{ "held": true }"#);
+    let (statuses, released) = std::thread::scope(|scope| {
+        let first = scope.spawn(|| clients::raw(&proxy, &absolute(&url, None)));
+        pause(LATE);
+        let second = scope.spawn(|| clients::raw(&proxy, &absolute(&url, None)));
+        // Whichever came first is held: the other's refusal ends first.
+        while !first.is_finished() && !second.is_finished() {
+            pause(POLL);
+        }
+        let released = proving_ground.put_control("/limited-proxy-hold", r#"{ "held": false }"#);
+        let mut statuses = [
+            first.join().unwrap().status(),
+            second.join().unwrap().status(),
+        ];
+        statuses.sort_unstable();
+        (statuses, released)
+    });
+
+    assert_eq!(
+        (held.status, released.status, statuses),
+        (200, 200, [200, 429])
+    );
+}
+
+/// Past the limited proxy's usual 300 ms hold, as late as a request sent
+/// at once may come under load.
+const LATE: std::time::Duration = std::time::Duration::from_millis(800);
+
+/// How often the test looks whether a request ended.
+const POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// Waits `duration` on the test's own thread.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test paces its own threads, outside any runtime"
+)]
+fn pause(duration: std::time::Duration) {
+    std::thread::sleep(duration);
+}
+
 #[test]
 fn the_down_proxy_refuses_every_connection() {
     let proving_ground = ProvingGround::start(SEED);

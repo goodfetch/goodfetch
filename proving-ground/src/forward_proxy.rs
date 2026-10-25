@@ -12,7 +12,9 @@
 //! may refuse every tunnel (`403`), and one relays one request at a time,
 //! answering any other `429` as a vendor's plan does: it counts a request
 //! until it read the site's whole answer, before relaying it, and counts
-//! none for a site's robots.txt or icon. A proxy's own refusal names its cause in
+//! none for a site's robots.txt or icon. It holds each request it counts
+//! [`LIMITED_HOLD`] before relaying it, or, while a harness turned its hold
+//! on (`PUT /limited-proxy-hold`), until the harness turns it off. A proxy's own refusal names its cause in
 //! `Proxy-Status` (RFC 9209). The SOCKS5 proxy ([`socks5`]) takes the same
 //! credentials by RFC 1929 and relays one `CONNECT` per connection.
 #![expect(
@@ -400,7 +402,11 @@ async fn relay(mut client: TcpStream, source: SocketAddr, proxy: &Proxy, context
     match admitted {
         Ok(((address, destination), in_flight)) => {
             if in_flight.is_some() {
-                tokio::time::sleep(LIMITED_HOLD).await;
+                if context.observations.limited_held() {
+                    context.observations.limited_released().await;
+                } else {
+                    tokio::time::sleep(LIMITED_HOLD).await;
+                }
             }
             carry(
                 client,

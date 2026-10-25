@@ -53,6 +53,23 @@ fn a_file_navigation_is_refused_for_anyone_but_the_program_on_an_engine_without_
     );
 }
 
+/// A navigation to an IPv6 address with a zone ID, a URL the WHATWG parser
+/// refuses, is refused as `judge` refuses the request: a private address,
+/// named, since a zone names a link (the SSRF table's `zone_id`, which the
+/// Chromium layer met as a domain policy refusal).
+#[test]
+fn a_navigation_to_an_address_with_a_zone_id_is_refused_as_a_private_address() {
+    let url = "http://[fe80::1%25eth0]/";
+
+    assert_eq!(
+        navigation(url, PROGRAM),
+        Err(Refused {
+            address: Some("fe80::1".parse().unwrap()),
+            ..refused(url, EgressRule::PrivateAddress, None)
+        })
+    );
+}
+
 #[rstest]
 #[case::http("http://scope.test/")]
 #[case::https("https://scope.test/news")]

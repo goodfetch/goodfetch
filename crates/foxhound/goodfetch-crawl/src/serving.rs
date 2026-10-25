@@ -53,6 +53,8 @@ pub(crate) struct Opened {
     pub(crate) joined: mpsc::UnboundedReceiver<Server>,
     /// Notified once seeds were added since its last notification.
     pub(crate) seeded: Arc<Notify>,
+    /// The Run's domain policy, which judges each redirect hop.
+    pub(crate) egress: Arc<Policy>,
 }
 
 /// The live crawls of one engine.
@@ -66,16 +68,21 @@ impl Crawls {
     pub(crate) async fn open(&self, run: &Run, egress: Policy) -> Opened {
         let (joining, joined) = mpsc::unbounded_channel();
         let seeded = Arc::new(Notify::new());
+        let egress = Arc::new(egress);
         self.0.lock().await.insert(
             run.id().clone(),
             Live {
                 run: run.clone(),
-                egress: Arc::new(egress),
+                egress: Arc::clone(&egress),
                 joining,
                 seeded: Arc::clone(&seeded),
             },
         );
-        Opened { joined, seeded }
+        Opened {
+            joined,
+            seeded,
+            egress,
+        }
     }
 
     /// What adds to the live crawl `run_id`, if this engine runs it.

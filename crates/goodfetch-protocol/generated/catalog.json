@@ -5609,6 +5609,39 @@
     {
       "arrived_in": "0.1",
       "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Whether a domain key's delay between request starts lengthens as its responses slow: on, the delay is the longer of `politeness.domain.delay` and the exponentially weighted mean (weight 0.3) of the latency of its last responses on the `http` tier, that mean capped at `politeness.backoff.max`. It only lengthens the delay, never below `politeness.domain.delay`. Off by default.",
+      "name": "politeness.domain.adaptive_delay",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 1,
+      "description": "How many crawl requests may start at once on one domain key under `politeness.domain.rate`, the size of its token bucket: 1 by default, so the starts are spread evenly over the minute. A value of 0 is read as 1.",
+      "name": "politeness.domain.burst",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
       "clearable": true,
       "default": null,
       "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1.",
@@ -5636,6 +5669,23 @@
       ],
       "value": {
         "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "How many crawl requests a minute may start on one domain key, counted across every run of the user that shares Politeness, as a token bucket of `politeness.domain.burst` tokens refilled at this rate: 30 holds a site to 30 requests a minute. Each run is held to its own value; the delay between starts still applies. None by default.",
+      "name": "politeness.domain.rate",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
         "minimum": 0,
         "type": "integer"
       },

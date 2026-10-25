@@ -15,6 +15,10 @@
 //! #764 builds the rest of ADR 0119's charset order; the links a locator
 //! matches in it are read for `enqueueLinks` with that encoding, in which
 //! their queries are percent-encoded (ADR 0120).
+//!
+//! Size: the crate's one composition value and the pages it serves, each
+//! method a step of one served page's life, from its fetch on the tier
+//! its Session takes to its close.
 #![expect(
     clippy::disallowed_types,
     reason = "the served pages' table is read and written in one step, before any `.await` and never under another lock, so there is no lock order to test under loom (ADR 0060)"
@@ -53,11 +57,11 @@ use crate::canonical::canonical;
 use crate::chain::{Following, Stop, follow};
 use crate::choice::{LabelSettings, SetTier, TierChoice, Unserved, unserved};
 use crate::document::{Matched, SelectorInvalid, decode, matched};
-use crate::driver::{Deadlines, Hop, fetch};
+use crate::driver::{Deadlines, Hop, Transport, fetch};
 use crate::expected_page::{self, Verdict};
-use crate::gate::{ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
+use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::redundant::{Redundant, Requester};
-use crate::transports::{Reqwest, TransportConfig};
+use crate::transports::{BrowserFetch, Reqwest, TransportConfig};
 use crate::use_signals::UseSignals;
 
 mod calls;
@@ -323,16 +327,49 @@ impl FetchTiers {
             trust: Trust::default_roots(),
             proxy: None,
             resolve: settings.hosts(NETWORK_RESOLVE.name),
-            egress,
+            egress: egress.clone(),
             clock: run.clock(),
         })
         .map_err(|error| error.to_string())?;
         Ok(HttpTier {
             transport: Arc::new(transport),
+            egress,
             deadlines: Deadlines::of(settings),
             redundant: Arc::new(Redundant::of(settings)),
             following: Following::of(settings),
         })
+    }
+
+    /// The HTTP tier of an attempt of `run` in a Session that may move to
+    /// the browser, `pooled` of the crawl's Session pool: `http` sending
+    /// through browser-fetch from inside that Session's browser context,
+    /// for the call `context`, the pages it sends from holding the lease of
+    /// `hand_over`, the attempt's (ADR 0020). Its document, and each
+    /// `page.request` of the page served from it, then carry the Session's
+    /// cookies and TLS fingerprint, as its browser tier does (pitfall
+    /// H20). `http` itself when the engine composed no browser pages.
+    pub fn in_browser(
+        &self,
+        http: &HttpTier,
+        run: &Run,
+        pooled: &PooledSession,
+        hand_over: &Arc<HandOver>,
+        context: &CallContext,
+    ) -> HttpTier {
+        let Some(pages) = self.served.browser.get() else {
+            return http.clone();
+        };
+        HttpTier {
+            transport: Arc::new(BrowserFetch {
+                pages: Arc::clone(pages),
+                run_id: run.id().clone(),
+                pooled: pooled.clone(),
+                value: PageValue::new(Admitted, Lease::new(Arc::clone(hand_over))),
+                context: context.clone(),
+                egress: http.egress.clone(),
+            }),
+            ..http.clone()
+        }
     }
 
     /// Fetches `request`'s document on `tier` for `run`, sent for
@@ -789,7 +826,10 @@ impl HandlerPages for FetchTiers {
 /// share, and the engine's timeouts its fetches wait under.
 #[derive(Clone)]
 pub struct HttpTier {
-    transport: Arc<Reqwest>,
+    /// reqwest, or browser-fetch in a Session that may move to the browser.
+    transport: Arc<dyn Transport>,
+    /// The Run's egress policy, which every transport judges each URL by.
+    egress: Policy,
     deadlines: Deadlines,
     /// Its Run's hedges and requests in flight, which no other Run shares.
     redundant: Arc<Redundant>,

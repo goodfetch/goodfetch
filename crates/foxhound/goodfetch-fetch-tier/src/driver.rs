@@ -7,8 +7,10 @@
 //! enum, [`TransportFailure`], with the Error code each variant ends an
 //! attempt with (ADR 0118). Cancelling a fetch is dropping it. A fetch is
 //! one hop: the `chain` module follows a crawl request's redirects and
-//! refresh stubs over it (#762); retries and cookies join with their
-//! tickets.
+//! refresh stubs over it (#762); retries join with their ticket. A
+//! Session that may move to the browser keeps its cookies in its browser
+//! context, which browser-fetch sends from (`transports`); a Session that
+//! never moves keeps none yet.
 //!
 //! **Cut bodies (ADR 0118; pitfall H15):** once a hop's head arrived, any
 //! failure of its body, or a compressed stream that stops before its end,
@@ -24,19 +26,20 @@
 //! fetch's, never sent again.
 
 use std::future::Future;
+use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 
 use bytes::Bytes;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
-use goodfetch_engine::egress::Refused;
+use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NavigationFailedDetails, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
 };
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
-use url::Url;
+use url::{Host, Url};
 
 use crate::decoding::{self, DecodingFailed};
 
@@ -105,6 +108,10 @@ pub struct Sent {
     /// Whether it came on an idle connection an earlier hop left, whose
     /// 408 means the site timed the connection out, not the request.
     pub reused: bool,
+    /// Whether its body arrives with its content codings decoded already,
+    /// as the browser hands a body over on the browser-fetch tier, which
+    /// the driver then only checks (ADR 0119).
+    pub decoded: bool,
 }
 
 impl std::fmt::Debug for Sent {
@@ -114,6 +121,7 @@ impl std::fmt::Debug for Sent {
             .field("status", &self.status)
             .field("headers", &self.headers)
             .field("reused", &self.reused)
+            .field("decoded", &self.decoded)
             .finish_non_exhaustive()
     }
 }
@@ -193,8 +201,36 @@ pub enum TransportFailure {
     /// A content coding the body is labelled with did not decode
     /// (`net::ERR_CONTENT_DECODING_FAILED`, ADR 0119).
     ContentDecodingFailed,
+    /// The browser of the browser-fetch tier ended the hop with this
+    /// error of its own, its network error named as the browser names it
+    /// (ADR 0020): the browser resends and decodes itself, so it is never
+    /// sent again.
+    Browser(BrowserFailure),
     /// Any other failure: the generic case (ADR 0118; `net::ERR_FAILED`).
     Other,
+}
+
+/// The error the browser of the browser-fetch tier ended a hop with, two
+/// of them equal when their codes and messages are.
+#[derive(Clone)]
+pub struct BrowserFailure(pub CallError);
+
+impl PartialEq for BrowserFailure {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.code() == other.0.code() && self.0.message() == other.0.message()
+    }
+}
+
+impl Eq for BrowserFailure {}
+
+impl std::fmt::Debug for BrowserFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BrowserFailure")
+            .field("code", &self.0.code())
+            .field("message", &self.0.message())
+            .finish()
+    }
 }
 
 impl TransportFailure {
@@ -217,16 +253,19 @@ impl TransportFailure {
             Self::ProxyAuthenticationRequired => "net::ERR_PROXY_AUTH_REQUESTED",
             Self::ProxyUnreachable => "net::ERR_PROXY_CONNECTION_FAILED",
             Self::ContentDecodingFailed => "net::ERR_CONTENT_DECODING_FAILED",
-            Self::Other => "net::ERR_FAILED",
+            Self::Browser(_) | Self::Other => "net::ERR_FAILED",
         }
     }
 
     /// What it ends the attempt fetching `url` with: `egress_refused` for
-    /// the egress policy's refusal, and `navigation_failed` with its network
-    /// error for every other failure, retryable (ADR 0118).
+    /// the egress policy's refusal, the browser's own error on the
+    /// browser-fetch tier, and `navigation_failed` with its network error
+    /// for every other failure, retryable (ADR 0118).
     pub fn error(&self, url: &str) -> CallError {
-        if let Self::Egress(refused) = self {
-            return refused.error();
+        match self {
+            Self::Egress(refused) => return refused.error(),
+            Self::Browser(failure) => return failure.0.clone(),
+            _ => {}
         }
         let error = self.network_error();
         CallError::new(
@@ -395,7 +434,7 @@ async fn fetch_on(
         let codings = sent
             .headers
             .iter()
-            .filter(|(name, _)| name == "content-encoding")
+            .filter(|(name, _)| name == "content-encoding" && !sent.decoded)
             .map(|(_, value)| value.as_str());
         let received = body.len();
         let body = decoding::decode(codings, body).map_err(|failed| match failed {
@@ -446,4 +485,30 @@ fn truncated(url: &str, received: usize, expected: Option<u64>) -> CallError {
             expected,
         },
     )
+}
+
+/// Judges a hop to `url` under the Session's egress policy `egress` before
+/// anything is sent (ADR 0017): its URL, and, when the connection goes
+/// `direct`, the address the URL names in place of a host, which the
+/// transport connects to without asking its resolver.
+///
+/// # Errors
+///
+/// [`Refused`] by the domain policy, or by the address check for an address
+/// a page may not reach.
+pub(crate) fn judged(url: &Url, egress: &Policy, direct: bool) -> Result<(), Refused> {
+    let request = egress::Request {
+        url: url.as_str(),
+        kind: RequestKind::Fetch,
+    };
+    if let Judgment::Refused(refused) = egress::judge(&request, egress) {
+        return Err(refused);
+    }
+    let address = match url.host() {
+        Some(Host::Ipv4(address)) if direct => IpAddr::V4(address),
+        Some(Host::Ipv6(address)) if direct => IpAddr::V6(address),
+        _ => return Ok(()),
+    };
+    let port = url.port_or_known_default().unwrap_or_default();
+    egress::judge_addresses(url.as_str(), &[SocketAddr::new(address, port)], egress)
 }

@@ -20,6 +20,10 @@
 //!   its permit, held until its answer's head arrived, or ends the request
 //!   [skipped](Stop::Skipped). The first hop's permit is its admission's.
 //!   The gate is told as each hop, the first included, is sent.
+//! - **A hop after the first that the transport's egress check refuses**,
+//!   its URL or the address it would connect to (ADRs 0017 and 0118), ends
+//!   the request `skipped` with `domain_policy`: a redirect is no way
+//!   around the policy, and its refusal is an outcome, not a failure.
 
 use std::collections::BTreeSet;
 use std::future::Future;
@@ -31,6 +35,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_page::page_value::Permit;
+use goodfetch_protocol::egress::EGRESS_REFUSED;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_HANDLE_STATUSES, RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE,
 };
@@ -115,20 +120,26 @@ pub trait HopGate: Send + Sync {
     /// its admission by whatever ran between them.
     fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()>;
 
+    /// Records that `hop`'s answer arrived `latency` after it was sent,
+    /// for its domain's adaptive delay.
+    fn answered<'a>(&'a self, hop: &'a Hop, latency: Duration) -> Gating<'a, ()>;
+
     /// Records that the chain ended on `hop`, one after its first, whose
     /// answer is its document.
     fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()>;
 }
 
 /// Follows the chain from `first` under `following`, each hop fetched with
-/// `fetch` and each after the first admitted by `gate`, on `clock`; answers
-/// the document the chain ends on.
+/// `fetch` and each after the first admitted by `gate`, on `clock`, each
+/// told to `gate` as it is sent and once its answer arrived; answers the
+/// document the chain ends on.
 ///
 /// # Errors
 ///
 /// [`Stop::Failed`] with `fetch`'s error, `too_many_redirects`,
 /// `response_not_ok` or `response_unavailable`; [`Stop::Skipped`] when
-/// `gate` skips a hop.
+/// `gate` skips a hop, and with `domain_policy` when `fetch` fails a hop
+/// after the first with `egress_refused`.
 ///
 /// # Cancel safety
 ///
@@ -150,7 +161,21 @@ where
     let mut permit: Option<Permit> = None;
     loop {
         gate.sending(&hop).await;
-        let fetched = fetch(hop.clone()).await.map_err(Stop::Failed)?;
+        let sent = clock.now();
+        let fetched = fetch(hop.clone()).await.map_err(|error| {
+            if hops.is_empty() || error.code() != EGRESS_REFUSED.name {
+                return Stop::Failed(error);
+            }
+            Stop::Skipped(Skip {
+                reason: SkipReason::DomainPolicy,
+                message: format!(
+                    "A redirect to `{}` reaches an address the Run's egress policy refuses: {}",
+                    hop.url,
+                    error.message()
+                ),
+            })
+        })?;
+        gate.answered(&hop, clock.now().duration_since(sent)).await;
         // The hop's answer arrived: its permit is released (ADR 0118).
         drop(permit.take());
         let Some(next) = next_hop(&hop, &fetched, following)? else {

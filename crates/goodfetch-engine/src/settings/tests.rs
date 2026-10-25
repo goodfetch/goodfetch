@@ -949,6 +949,105 @@ fn the_bound_on_a_sites_retry_after_is_not_in_product_on_a_collie_engine() {
     );
 }
 
+/// A crawl's pacing keys (spec #582's Settings) are a crawl's, which a
+/// Collie engine refuses.
+///
+/// Covers: error:not_in_product
+#[rstest]
+/// Covers: story:6-247, setting:politeness.domain.adaptive_delay
+#[case::the_adaptive_delay(json!({ "adaptive_delay": true }), "politeness.domain.adaptive_delay")]
+/// Covers: story:6-248, setting:politeness.domain.rate
+#[case::the_rate(json!({ "rate": 30 }), "politeness.domain.rate")]
+/// Covers: story:6-248, setting:politeness.domain.burst
+#[case::the_burst(json!({ "burst": 2 }), "politeness.domain.burst")]
+fn a_crawls_pacing_key_is_not_in_product_on_a_collie_engine(
+    #[case] domain: Value,
+    #[case] key: &str,
+) {
+    let read = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "politeness": { "domain": domain } })),
+        Product::Collie,
+    );
+
+    assert_eq!(
+        read,
+        Err(SettingsError::NotInProduct {
+            key: key.to_owned(),
+            needs: Product::Foxhound,
+        })
+    );
+}
+
+/// An Operator policy caps a crawl's per-domain rate and burst, a run
+/// asking for none or for more taking the cap, and locks its adaptive
+/// delay on (spec #582's Settings; ADR 0028).
+///
+/// Covers: story:3-88
+#[rstest]
+/// Covers: story:6-248, setting:politeness.domain.rate
+#[case::an_unset_rate(
+    json!({ "politeness": { "domain": { "rate": 30 } } }),
+    json!({}),
+    "politeness.domain.rate",
+    json!(30)
+)]
+/// Covers: story:6-248, setting:politeness.domain.rate
+#[case::a_higher_rate(
+    json!({ "politeness": { "domain": { "rate": 30 } } }),
+    json!({ "politeness": { "domain": { "rate": 600 } } }),
+    "politeness.domain.rate",
+    json!(30)
+)]
+/// Covers: story:6-248, setting:politeness.domain.burst
+#[case::a_larger_burst(
+    json!({ "politeness": { "domain": { "burst": 1 } } }),
+    json!({ "politeness": { "domain": { "burst": 10 } } }),
+    "politeness.domain.burst",
+    json!(1)
+)]
+fn an_operator_policy_caps_a_crawls_pacing(
+    #[case] cap: Value,
+    #[case] run: Value,
+    #[case] key: &str,
+    #[case] held_to: Value,
+) {
+    let opened = resolve(
+        &Layers {
+            run: values(SettingsLayer::Run, run),
+            ..Layers::default()
+        },
+        Product::Foxhound,
+        Product::Foxhound,
+    );
+    let opened = match opened {
+        Ok(opened) => opened.under_caps_of(&policy(json!({}), json!({}), cap.clone())),
+        Err(refused) => panic!("{refused:?}"),
+    };
+    let capped = resolved(&Layers {
+        operator_policy: policy(json!({}), json!({}), cap),
+        ..Layers::default()
+    });
+
+    assert_eq!((opened.value(key), capped.value(key)), (&held_to, &held_to));
+}
+
+/// Covers: story:6-247, setting:politeness.domain.adaptive_delay
+#[test]
+fn an_operator_policy_locks_the_adaptive_delay_on() {
+    let locked = json!({ "politeness": { "domain": { "adaptive_delay": true } } });
+    let layers = Layers {
+        operator_policy: policy(locked.clone(), locked, json!({})),
+        run: values(
+            SettingsLayer::Run,
+            json!({ "politeness": { "domain": { "adaptive_delay": false } } }),
+        ),
+        ..Layers::default()
+    };
+
+    assert_eq!(refusal(&layers).code(), "setting_locked");
+}
+
 /// Covers: story:3-143
 #[test]
 fn a_crawls_key_on_a_collie_run_of_a_foxhound_engine_is_not_applicable() {

@@ -7,7 +7,9 @@
 //! `network.resolve` mapping, then the engine's resolver) and verifies
 //! certificates under the engine's [`Trust`]. Neither follows a redirect,
 //! resends anything, decodes a content coding or sets a timeout of its
-//! own: the driver does each.
+//! own: the driver does each. In a Session that may move to the browser,
+//! browser-fetch (`in_browser`) takes their place, sending from inside the
+//! Session's browser context (ADR 0020).
 //!
 //! **Connections (ADR 0118):** it keeps a pool of idle connections for
 //! [`Reuse::Allowed`] hops and opens a new one, kept for nothing, for
@@ -26,7 +28,8 @@
 //!
 //! **The resolved-address check (ADR 0017):** a URL the egress policy
 //! refuses opens no connection, and the resolver's answers are judged
-//! before any connection. The `network.resolve` mapping's addresses are
+//! before any connection, as is the address a URL names in place of a
+//! host, in any spelling, which no resolver answers (the driver's `judged`). The `network.resolve` mapping's addresses are
 //! not judged, as on the browser path, until `egress.private_ranges` is a
 //! setting a Run can declare (#622, #623). Through a proxy, which resolves
 //! the site's name itself, only the URL is judged.
@@ -43,15 +46,17 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::{
     AnsweredBy, ConfigurationUnreadable, Dns, HostMapping, Resolution, ResolverConfiguration, Route,
 };
-use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
+use goodfetch_engine::egress::{self, Policy, Refused};
 use goodfetch_engine::tls::Trust;
 use url::Url;
 
-use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
+use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure, judged};
 
 mod impersonated;
+mod in_browser;
 
 pub use impersonated::Wreq;
+pub(crate) use in_browser::BrowserFetch;
 
 /// What a transport reaches and trusts.
 #[derive(Clone, Debug)]
@@ -90,6 +95,9 @@ pub struct Reqwest {
     http1: Clients,
     http1_origins: Http1Origins,
     egress: Policy,
+    /// Whether its connections go to the site directly, not through a
+    /// proxy.
+    direct: bool,
 }
 
 /// A pooled client and one that opens a new connection for each request.
@@ -150,6 +158,7 @@ impl Reqwest {
             any: clients(&[b"h2", b"http/1.1"])?,
             http1: clients(&[b"http/1.1"])?,
             http1_origins: Http1Origins::default(),
+            direct: config.proxy.is_none(),
             egress: config.egress,
         })
     }
@@ -179,13 +188,7 @@ fn build(builder: reqwest::ClientBuilder) -> reqwest::Result<reqwest::Client> {
 impl Transport for Reqwest {
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
-            let request = egress::Request {
-                url: hop.url.as_str(),
-                kind: RequestKind::Fetch,
-            };
-            if let Judgment::Refused(refused) = egress::judge(&request, &self.egress) {
-                return Err(TransportFailure::Egress(refused));
-            }
+            judged(&hop.url, &self.egress, self.direct).map_err(TransportFailure::Egress)?;
             let mut request = self
                 .client(hop, reuse)
                 .request(hop.method.clone(), hop.url.clone());
@@ -232,6 +235,7 @@ impl Transport for Reqwest {
                     url: hop.url.clone(),
                 }),
                 reused,
+                decoded: false,
             })
         })
     }

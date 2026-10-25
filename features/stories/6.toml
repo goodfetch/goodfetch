@@ -776,6 +776,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 238
+title = "As a crawl developer, I want `run.outcomes({ kinds: [\"skipped\", \"blocked\"], after: \"now\" })` to follow skipped and blocked links as they happen, each with its reason, in place of a callback, so that I can watch the crawl's refusals live (CO-11, ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 239
 title = "As a site owner, I want every crawl request, start URLs and sitemap entries included, and every navigation and fetch a handler makes from its page, to obey my robots.txt's group for `goodfetch-foxhound` and the operator's token merged before `*`, so that a crawl does what my file says (ADR 0086; SC-01; pitfall U17)."
 milestone = "M1 Core"
@@ -841,6 +850,24 @@ product = "foxhound"
 [[story]]
 id = 246
 title = "As a user, I want Collie's per-Run robots.txt reading replaced, on a crawl's Run, by the shared copy, so that a crawl fetches robots.txt once per origin for all its pages (ADR 0086; Collie's part)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 247
+title = "As a site owner, I want an opt-in adaptive delay, `politeness.domain.adaptive_delay`, that lengthens a domain's delay as its responses slow, never below `politeness.domain.delay`, so that a struggling site gets more room (CO-09) **(shape)**."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 248
+title = "As a user, I want an opt-in per-domain rate, `politeness.domain.rate`, enforced as a token bucket shared like the delay, so that I can cap a site at, say, 30 requests a minute on top of the delay (CO-09) **(shape)**."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

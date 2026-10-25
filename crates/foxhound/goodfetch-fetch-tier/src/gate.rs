@@ -40,10 +40,14 @@
 //!
 //! The same gate admits each hop after the first of a crawl request's
 //! redirect chain on a document tier ([`ChainGate`]; ADR 0118), after the
-//! Frontier's checks of the hop: a hop leaving the crawl's scope ends the
-//! request `skipped` with `out_of_scope`, and one to a key the Frontier
-//! admitted for another request with `duplicate` (ADR 0120); a refusal ends
-//! it `skipped` with its reason.
+//! Frontier's checks of the hop, in this order: a hop leaving the crawl's
+//! scope ends the request `skipped` with `out_of_scope`, one to a host the
+//! Run's domain policy refuses with `domain_policy`, and one to a key the
+//! Frontier admitted for another request with `duplicate` (ADRs 0093, 0118
+//! and 0120). A hop whose URL names an address a page may not reach in
+//! place of a host ends it `skipped` with `domain_policy` too, before the
+//! gate reads its robots.txt (ADR 0017); a refusal of the gate's ends it
+//! `skipped` with its reason.
 
 use std::fmt;
 use std::sync::Arc;
@@ -51,6 +55,7 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Room, SecondCopies};
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch, Fetched, Judgment, Rule};
@@ -68,7 +73,7 @@ use tokio::sync::oneshot;
 use url::Url;
 
 use crate::chain::{Gating, HopGate, Skip, Stop};
-use crate::driver::Hop;
+use crate::driver::{Hop, judged};
 
 /// Fetches the robots.txt at a location for a Run, as the crawl's HTTP
 /// tier does (`HttpTier::robots_txt_fetch`).
@@ -99,6 +104,9 @@ pub struct HandOver {
     pub operator_token: Option<String>,
     /// `politeness.domain.delay`.
     pub domain_delay: Duration,
+    /// `politeness.domain.adaptive_delay`: on, each hop's latency is
+    /// recorded for its domain key, for every sharing run.
+    pub adaptive_delay: bool,
     /// `site_preferences.respect_robots_txt`: off, robots.txt is neither
     /// read nor applied.
     pub respect_robots_txt: bool,
@@ -107,6 +115,8 @@ pub struct HandOver {
     pub max_crawl_delay: Option<Duration>,
     /// The attempt's lease.
     pub lease: Arc<dyn LeaseCheck>,
+    /// The Run's domain policy, which judges each redirect hop.
+    pub egress: Arc<Policy>,
     /// The Page check its crawl request's Label declares of its own, which
     /// judges the browser pages the attempt opens in place of their
     /// Session's (ADR 0093).
@@ -129,6 +139,22 @@ impl fmt::Debug for Gate {
             .field("run", self.0.run.id())
             .field("domain_key", &self.0.domain_key)
             .finish_non_exhaustive()
+    }
+}
+
+/// The navigation gate of the pages browser-fetch sends a crawl request's
+/// hops from: it admits each at once, since the redirect chain already
+/// took each hop through [`ChainGate`] (ADR 0118).
+#[derive(Debug)]
+pub(crate) struct Admitted;
+
+impl NavigationGate for Admitted {
+    fn admit<'a>(&'a self, _navigation: &'a Navigation) -> Admission<'a> {
+        Box::pin(async { Ok(Permit::unlimited()) })
+    }
+
+    fn judge_document(&self, _response: &DocumentResponse<'_>) -> Result<(), Refusal> {
+        Ok(())
     }
 }
 
@@ -444,18 +470,21 @@ pub(crate) struct ChainGate {
 }
 
 impl ChainGate {
-    /// What the Frontier says of `hop`: whether it leaves the scope or
-    /// reaches a key admitted for another request. A run file that cannot
-    /// answer leaves the hop to the navigation gate.
+    /// What the Frontier says of `hop`: whether it leaves the scope, goes
+    /// to a host the domain policy refuses or reaches a key admitted for
+    /// another request. A run file that cannot answer leaves the hop to the
+    /// navigation gate, and the transport's own judgment of it.
     async fn frontier(&self, hop: &Hop) -> goodfetch_frontier::Hop {
         let run = &self.hand_over.run;
         let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
+        let egress = Arc::clone(&self.hand_over.egress);
         run.state()
             .write(move |connection| {
                 let scope = Scope::read(connection)?;
                 goodfetch_frontier::redirect_hop(
                     connection,
                     &scope,
+                    &egress,
                     &id,
                     &url,
                     &method,
@@ -491,6 +520,15 @@ impl HopGate for ChainGate {
                         format!("A redirect to `{}` leaves the crawl's scope.", hop.url),
                     );
                 }
+                goodfetch_frontier::Hop::DomainPolicy => {
+                    return skipped(
+                        SkipReason::DomainPolicy,
+                        format!(
+                            "A redirect to `{}` goes to a host the Run's domain policy refuses.",
+                            hop.url
+                        ),
+                    );
+                }
                 goodfetch_frontier::Hop::Duplicate => {
                     return skipped(
                         SkipReason::Duplicate,
@@ -501,6 +539,17 @@ impl HopGate for ChainGate {
                     );
                 }
                 goodfetch_frontier::Hop::Follow => {}
+            }
+            // The crawl's HTTP tier connects directly: no proxy resolves
+            // its hops.
+            if let Err(refused) = judged(&hop.url, &self.hand_over.egress, true) {
+                return skipped(
+                    SkipReason::DomainPolicy,
+                    format!(
+                        "A redirect to `{}` is refused by the Run's egress policy: {refused}.",
+                        hop.url
+                    ),
+                );
             }
             let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
             match Gate::new(Arc::clone(&self.hand_over))
@@ -527,7 +576,8 @@ impl HopGate for ChainGate {
     /// every run sharing it, when later than the start its admission took:
     /// what ran between them (robots.txt, the Frontier's checks, the
     /// hand-over) would otherwise bring the next request that much closer
-    /// at the site than the delay (ADR 0086).
+    /// at the site than the delay (ADR 0086). It also moves the token the
+    /// admission took from the domain's rate to the send, when later.
     fn sending<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
         Box::pin(async move {
             let hand_over = &self.hand_over;
@@ -540,6 +590,27 @@ impl HopGate for ChainGate {
                 goodfetch_frontier::started_again(politeness, &key, run.clock().wall()).await
             {
                 tracing::warn!(%error, run_id = %run.id(), "a request's start at its send was not recorded");
+            }
+        })
+    }
+
+    /// Records the hop's latency for its domain key, for every run sharing
+    /// it, while the Run's adaptive delay is on (spec #582's Settings).
+    fn answered<'a>(&'a self, hop: &'a Hop, latency: Duration) -> Gating<'a, ()> {
+        Box::pin(async move {
+            let hand_over = &self.hand_over;
+            let Some(politeness) = hand_over
+                .politeness
+                .as_ref()
+                .filter(|_| hand_over.adaptive_delay)
+            else {
+                return;
+            };
+            let key = hand_over.keys.key(hop.url.as_str());
+            if let Err(error) =
+                goodfetch_frontier::latency_measured(politeness, &key, latency).await
+            {
+                tracing::warn!(%error, run_id = %hand_over.run.id(), "a response's latency was not recorded for its domain");
             }
         })
     }

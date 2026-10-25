@@ -39,12 +39,13 @@ pub use admit::{Candidate, admit};
 pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
 pub use domain_key::DomainKeys;
 pub use identity::{
-    Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, url_key,
+    Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, rewrite,
+    url_key,
 };
 pub use learn::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
 pub use politeness::{
-    crawl_delay_read, last_start, longest_wait, refuse_second_copies, start_after,
-    start_after_robots_txt, started_again,
+    crawl_delay_read, last_start, latency_measured, longest_wait, refuse_second_copies,
+    start_after, start_after_robots_txt, started_again,
 };
 pub use queues::DomainQueues;
 pub use robots_txt::SharedRobotsTxt;

@@ -134,6 +134,53 @@ fn a_request_over_tls_is_recorded_with_its_client_hello_and_ja4() {
     assert_eq!(tls["ja4_base"], ja4);
 }
 
+/// A client that trusts none of the Proving ground's certificates ends its
+/// handshake with no request, yet its `ClientHello` is in the record of
+/// TLS handshakes, which lists every one, a request's included, so a
+/// browser that cannot trust the Proving ground still shows its
+/// fingerprint.
+#[test]
+fn every_tls_handshake_is_recorded_with_its_client_hello_whether_or_not_it_completed() {
+    let proving_ground = ProvingGround::start(SEED);
+    let trusted = clients::trusting(&proving_ground.certificate_authority(), &["http/1.1"]);
+    let untrusted = clients::trusting("", &["http/1.1"]);
+    clients::raw_tls(
+        proving_ground.address(),
+        "catalog.test",
+        trusted,
+        b"GET /catalog/1 HTTP/1.1\r\nHost: catalog.test\r\nConnection: close\r\n\r\n",
+    )
+    .expect("the certificate verifies");
+    let refused = clients::raw_tls(
+        proving_ground.address(),
+        "1.access.test",
+        untrusted,
+        b"GET / HTTP/1.1\r\nHost: 1.access.test\r\nConnection: close\r\n\r\n",
+    );
+
+    let observations = proving_ground.observations();
+
+    assert!(refused.is_err());
+    let handshakes = observations["tls_handshakes"].as_array().expect("a list");
+    assert_eq!(
+        handshakes
+            .iter()
+            .map(|handshake| handshake["sni"].clone())
+            .collect::<Vec<_>>(),
+        vec![json!("catalog.test"), json!("1.access.test")]
+    );
+    assert_eq!(
+        handshakes[0]["connection"],
+        observations["requests"][0]["connection"]
+    );
+    assert_ne!(handshakes[0]["connection"], handshakes[1]["connection"]);
+    assert_eq!(
+        handshakes[0]["ja4"],
+        observations["requests"][0]["tls"]["ja4"]
+    );
+    assert_eq!(observations["requests"].as_array().map(Vec::len), Some(1));
+}
+
 #[test]
 fn a_resumed_connection_is_recorded_with_its_pre_shared_key() {
     let proving_ground = ProvingGround::start(SEED);

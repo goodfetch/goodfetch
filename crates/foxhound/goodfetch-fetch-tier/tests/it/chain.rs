@@ -33,7 +33,7 @@ use rstest::rstest;
 use serde_json::Value;
 use url::Url;
 
-use crate::{reqwest, running_clock_runtime};
+use crate::{Stack, reqwest, running_clock_runtime, transport};
 
 const SEED: u64 = 762;
 const HOST: &str = "fetch-edge.test";
@@ -68,6 +68,8 @@ struct Recording {
     reached: Mutex<Vec<String>>,
     /// Each hop as it was sent, with how many hops were admitted then.
     sent: Mutex<Vec<(String, usize)>>,
+    /// Each hop as its answer arrived, with how long after its send.
+    answered: Mutex<Vec<(String, Duration)>>,
 }
 
 impl HopGate for Recording {
@@ -114,6 +116,15 @@ impl HopGate for Recording {
                 .lock()
                 .unwrap()
                 .push((hop.url.path().to_owned(), admitted));
+        })
+    }
+
+    fn answered<'a>(&'a self, hop: &'a Hop, latency: Duration) -> Gating<'a, ()> {
+        Box::pin(async move {
+            self.answered
+                .lock()
+                .unwrap()
+                .push((hop.url.path().to_owned(), latency));
         })
     }
 }
@@ -261,6 +272,38 @@ fn each_hop_is_told_to_the_gate_as_it_is_sent() {
             ("/redirect/hops/1".to_owned(), 1),
             ("/redirect/hops/0".to_owned(), 2),
         ]
+    );
+}
+
+/// Each hop's latency, from its send to its answer's arrival, is told to
+/// the gate, for the domain's adaptive delay (spec #582's Settings): the
+/// `pacing` host held its answer as long as its `Server-Timing` names, and
+/// the latency is no shorter.
+///
+/// Covers: story:6-247
+#[test]
+fn each_hops_latency_is_told_to_the_gate_once_its_answer_arrived() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    proving_ground.set_time_step(5).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let gate = Recording::default();
+    let first = Hop::get(Url::parse(&proving_ground.url("pacing.test", "/")).unwrap());
+
+    let fetched = followed(&transport, first, &defaults(), &gate).unwrap();
+
+    let held = Duration::from_millis(
+        fetched
+            .headers
+            .iter()
+            .find(|(name, _)| name == "server-timing")
+            .and_then(|(_, value)| value.strip_prefix("hold;dur=")?.parse().ok())
+            .expect("a Server-Timing hold"),
+    );
+    let answered = gate.answered.lock().unwrap().clone();
+    assert!(
+        matches!(answered.as_slice(), [(path, latency)] if path == "/" && *latency >= held),
+        "{answered:?} after a hold of {held:?}"
     );
 }
 
@@ -490,6 +533,67 @@ fn a_refresh_stub_within_the_crawls_delay_is_one_more_hop_through_the_gate(
     );
     assert_eq!(*gate.admitted.lock().unwrap(), admitted);
     assert_eq!(requests_for(&proving_ground, HOST, path).len(), 1);
+}
+
+/// A hop to a private address, the Proving ground's loopback address
+/// written dotted or in hex, is refused by the address check at that hop
+/// on either transport and ends its request `skipped` with
+/// `domain_policy`, never connecting (ADRs 0017 and 0118): the target is
+/// never requested and every connection the Proving ground accepted
+/// carried a request; a hop on the request's own host, through its
+/// mapped name, reaches its target (the positive control).
+///
+/// Covers: story:4-103
+#[rstest]
+fn a_hop_to_a_private_address_ends_skipped_with_domain_policy_and_never_connects(
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
+    #[values("/redirect/address", "/redirect/address/hex")] path: &str,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = transport(stack, &proving_ground, None);
+    let gate = Recording::default();
+
+    let stopped = followed(
+        transport.as_ref(),
+        hop(&proving_ground, path),
+        &defaults(),
+        &gate,
+    );
+    let control = followed(
+        transport.as_ref(),
+        hop(&proving_ground, "/redirect/302"),
+        &defaults(),
+        &gate,
+    );
+
+    let observations = proving_ground.observations().unwrap();
+    let requests = observations["requests"].as_array().unwrap();
+    let addressed = requests
+        .iter()
+        .filter(|request| request["target"] == "/address/target")
+        .count();
+    // The observations' own read is the one connection with no request.
+    let connections = observations["connections"].as_array().unwrap().len() - 1;
+    assert!(
+        matches!(
+            &stopped,
+            Err(Stop::Skipped(Skip {
+                reason: SkipReason::DomainPolicy,
+                ..
+            }))
+        ),
+        "{:?}",
+        stopped.map(|fetched| fetched.url)
+    );
+    assert_eq!(
+        (
+            control.ok().map(|fetched| fetched.url.path().to_owned()),
+            addressed,
+            connections <= requests.len(),
+        ),
+        (Some("/target".to_owned()), 0, true)
+    );
 }
 
 /// Covers: story:5-124

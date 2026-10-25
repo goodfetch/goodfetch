@@ -8119,6 +8119,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Chromium's sandbox cannot start on this host, where a fix exists, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "browser_sandbox_unavailable",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The call was stopped in flight, at its next cancellation point: its Client sent `$/cancel`, or what it needed was closed under it.",
       "exit_code": null,
       "group": "unavailable",
@@ -12934,10 +12944,10 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "configuration",
       "clearable": false,
       "default": true,
-      "description": "Whether Chromium's renderers run in their namespace sandbox (ADR 0017). On by default; off, they run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "description": "Whether Chromium's renderers run in their sandbox (ADRs 0017 and 0049): the engine never passes `--no-sandbox` while it is on. On by default, except on a host whose platform allows no sandbox (AWS Lambda, Fargate, Azure Container Apps), where the engine switches it off. Only an Operator policy or configuration switches it off; a Recipe's or a run's value is `setting_locked`. Off, the renderers run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
       "name": "security.browser_sandbox",
       "product": "collie",
       "products": [

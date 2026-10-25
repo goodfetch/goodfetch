@@ -5,8 +5,10 @@
 //! head, `timeout.navigation` for all of it), reads its body, decodes its
 //! content codings as Chrome does (ADR 0119) and owns the transport-failure
 //! enum, [`TransportFailure`], with the Error code each variant ends an
-//! attempt with (ADR 0118). Cancelling a fetch is dropping it. Redirects,
-//! retries and cookies join it with their tickets (#762).
+//! attempt with (ADR 0118). Cancelling a fetch is dropping it. A fetch is
+//! one hop: the `chain` module follows a crawl request's redirects and
+//! refresh stubs over it (#762); retries and cookies join with their
+//! tickets.
 //!
 //! **Cut bodies (ADR 0118; pitfall H15):** once a hop's head arrived, any
 //! failure of its body, or a compressed stream that stops before its end,

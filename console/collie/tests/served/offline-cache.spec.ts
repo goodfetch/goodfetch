@@ -131,7 +131,7 @@ async function decrypted(
         "data" in row &&
         "name" in row
       ) {
-        const iv = row.iv instanceof Uint8Array ? row.iv : new Uint8Array();
+        const iv = row.iv instanceof Uint8Array ? new Uint8Array(row.iv) : new Uint8Array();
         const data = row.data instanceof ArrayBuffer ? row.data : new ArrayBuffer(0);
         const opened = await crypto.subtle.decrypt(
           { name: "AES-GCM", iv, additionalData: new TextEncoder().encode(String(row.name)) },

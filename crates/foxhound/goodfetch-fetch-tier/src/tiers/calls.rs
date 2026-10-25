@@ -189,7 +189,7 @@ fn navigated(
     tiers: &FetchTiers,
     page_id: &PageId,
     page: ServedPage,
-    operation: &str,
+    operation: &'static str,
     params: &Value,
 ) -> Option<GuardAnswer> {
     let step = match operation {
@@ -201,7 +201,7 @@ fn navigated(
     let tiers = tiers.clone();
     let page_id = page_id.clone();
     Some(Box::pin(async move {
-        let navigated = navigate(&tiers, &page_id, page, step).await?;
+        let navigated = navigate(&tiers, &page_id, page, step, operation).await?;
         Ok(encoded(&navigated))
     }))
 }

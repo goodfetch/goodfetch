@@ -1,8 +1,9 @@
 //! What an attempt stages (ADRs 0003, 0093, 0103 and 0106): a handler's
-//! enqueues, the seeds it adds through its `ctx.run` and the Key-value
-//! store writes it makes through it are staged with its attempt while its
-//! lease holds, and commit in the one write that commits its Records and
-//! its work item's success, or are discarded once it ends any other way, so
+//! enqueues, the Records it pushes, once checked, the seeds it adds
+//! through its `ctx.run` and the Key-value store writes it makes through it
+//! are staged with its attempt while its lease holds, and commit in the one
+//! write that commits the Records of its answer and its work item's
+//! success, or are discarded once it ends any other way, so
 //! a failed, retried or escalated attempt leaves no stray link, seed or key.
 //! Nothing staged reaches the run file before that commit, so a crash
 //! between the staging and the commit leaves the Frontier as the last
@@ -28,6 +29,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use goodfetch_dataset::Checked;
 use goodfetch_engine::CallError;
 use goodfetch_engine::staging::{AttemptWrites, StagedKey, StagedWrite, Unstaged};
 use goodfetch_protocol::catalog::ErrorCodeDefinition;
@@ -56,6 +58,7 @@ struct Admitted {
 #[derive(Default)]
 struct Entry {
     admitted: Vec<Admitted>,
+    records: Checked,
     writes: Vec<StagedWrite>,
     /// How many declared Effects' bodies run in it.
     effects: u32,
@@ -73,6 +76,7 @@ pub(crate) struct Staging(Arc<Mutex<HashMap<(String, u64), Entry>>>);
 #[derive(Default)]
 pub(crate) struct Staged {
     admitted: Vec<Admitted>,
+    records: Checked,
     writes: Vec<StagedWrite>,
 }
 
@@ -87,6 +91,11 @@ impl Staged {
             (admitted.admission)(connection, &mut positions)?;
         }
         Ok(&self.writes)
+    }
+
+    /// The Records the attempt pushed, in order.
+    pub(crate) fn records(self) -> Checked {
+        self.records
     }
 }
 
@@ -111,10 +120,22 @@ impl Staging {
             .insert((work_item.to_owned(), lease_epoch), Entry::default());
     }
 
-    /// Discards what the attempt staged, as it ends without committing;
-    /// every later staging call of it fails with `attempt_ended`.
-    pub(crate) fn discard(&self, work_item: &str, lease_epoch: u64) {
-        self.entries().remove(&(work_item.to_owned(), lease_epoch));
+    /// Discards what the attempt staged, as it ends without committing,
+    /// and answers the Records it had pushed; every later staging call of
+    /// it fails with `attempt_ended`.
+    pub(crate) fn discard(&self, work_item: &str, lease_epoch: u64) -> Checked {
+        self.entries()
+            .remove(&(work_item.to_owned(), lease_epoch))
+            .map(|entry| entry.records)
+            .unwrap_or_default()
+    }
+
+    /// The Records the attempt pushed so far, which stay staged.
+    pub(crate) fn pushed(&self, work_item: &str, lease_epoch: u64) -> Checked {
+        self.entries()
+            .get(&(work_item.to_owned(), lease_epoch))
+            .map(|entry| entry.records.clone())
+            .unwrap_or_default()
     }
 
     /// Takes out what the attempt staged, to commit it; every later staging
@@ -124,6 +145,7 @@ impl Staging {
             .remove(&(work_item.to_owned(), lease_epoch))
             .map(|entry| Staged {
                 admitted: entry.admitted,
+                records: entry.records,
                 writes: entry.writes,
             })
             .unwrap_or_default()
@@ -158,6 +180,32 @@ impl Staging {
         if let Some(entry) = self.entries().get_mut(&(work_item.to_owned(), lease_epoch)) {
             entry.effects = entry.effects.saturating_sub(1);
         }
+    }
+
+    /// Whether the attempt of `work_item` under `lease_epoch` still
+    /// stages.
+    pub(crate) fn holds(&self, work_item: &str, lease_epoch: u64) -> bool {
+        self.entries()
+            .contains_key(&(work_item.to_owned(), lease_epoch))
+    }
+
+    /// Stages `records`, which held for their Datasets, with the attempt of
+    /// `work_item` under `lease_epoch`, after those it staged before:
+    /// `None` once the attempt ended, or the refusal of a declared
+    /// Effect's body.
+    pub(crate) fn push(
+        &self,
+        work_item: &str,
+        lease_epoch: u64,
+        records: Checked,
+    ) -> Option<Result<(), CallError>> {
+        let mut entries = self.entries();
+        let entry = entries.get_mut(&(work_item.to_owned(), lease_epoch))?;
+        if entry.effects > 0 {
+            return Some(Err(refused_in_effect(work_item, lease_epoch)));
+        }
+        entry.records.append(records);
+        Some(Ok(()))
     }
 
     /// Stages `admission` with the attempt of `work_item` under

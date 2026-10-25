@@ -6,6 +6,7 @@
 //! the Runs' engine, is area 6's (#1005), so no engine-level case can
 //! re-admit yet.
 
+use goodfetch_dataset::Checked;
 use goodfetch_protocol::foxhound::outcomes::{OutcomeKind, SkipReason};
 use goodfetch_protocol::run::PointInTime;
 use proptest::prelude::*;
@@ -44,6 +45,7 @@ fn crawl_of(count: usize) -> Connection {
         .statements
         .iter()
         .chain(crate::labels::TABLES.statements)
+        .chain(goodfetch_dataset::TABLES.statements)
         .chain(goodfetch_frontier::VISITED_TABLES.statements)
         .chain(goodfetch_frontier::SCOPE_TABLES.statements)
         .chain(goodfetch_frontier::BOUNDS_TABLES.statements)
@@ -103,7 +105,9 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
         let index: usize = id.parse::<usize>().unwrap() - 1;
         let epoch = leased.lease_epoch;
         let ended = match end(index) {
-            First::Succeeds => work_items::commit(connection, id, epoch, &[], &ended_at()),
+            First::Succeeds => {
+                work_items::commit(connection, id, epoch, &Checked::default(), &ended_at())
+            }
             First::Fails => work_items::end(
                 connection,
                 id,

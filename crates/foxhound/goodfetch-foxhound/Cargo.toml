@@ -19,6 +19,7 @@ executable = ["dep:mimalloc", "goodfetch-collie/executable"]
 goodfetch-collie.workspace = true
 goodfetch-crawl.workspace = true
 goodfetch-frontier.workspace = true
+goodfetch-dataset.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-fetch-tier.workspace = true
 goodfetch-protocol.workspace = true

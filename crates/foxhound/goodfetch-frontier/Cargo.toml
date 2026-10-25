@@ -39,6 +39,8 @@ gungraun.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
 rstest.workspace = true
+# The Frontier at scale keeps its run file on disk, in a folder of its own.
+tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.

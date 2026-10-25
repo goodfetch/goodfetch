@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated";
-import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, FailedRequests, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, FailedRequests, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
 
 /** The params and result of each of Foxhound's operations. */
 export interface FoxhoundOperationTypes {
@@ -11,6 +11,7 @@ export interface FoxhoundOperationTypes {
   "crawl_request.enqueue": { params: CrawlRequestEnqueueParams; result: Enqueued };
   "crawl_request.enqueue_links": { params: CrawlRequestEnqueueLinksParams; result: EnqueuedLinks };
   "crawl_request.links": { params: CrawlRequestLinksParams; result: CrawlRequestLinks };
+  "crawl_request.push": { params: CrawlRequestPushParams; result: CrawlRequestPushed };
   "run.add_seed": { params: RunAddSeedParams; result: Enqueued };
   "run.add_seeds": { params: RunAddSeedsParams; result: RunSeedsAdded };
   "run.failed_requests": { params: RunFailedRequestsParams; result: FailedRequests };
@@ -70,6 +71,15 @@ export class FoxhoundOperations {
    */
   crawlRequestLinks(params: CrawlRequestLinksParams): Promise<CrawlRequestLinks> {
     return this.#caller.call("crawl_request.links", params, {});
+  }
+
+  /**
+   * Pushes one Record into a Dataset the crawl declares from inside a handler's attempt, a handler context's `push`, and answers once it is staged: it commits once with the attempt's other outputs when the handler returns, and is discarded with them when the attempt ends any other way. The Record is checked first: a Dataset the crawl does not declare fails with `dataset_unknown`; a Record that is no JSON object, fails its Dataset's JSON Schema or lacks one of its key's fields fails with `record_invalid`, naming each issue's path, and is not staged, while the attempt keeps what it staged before. An attempt that already ended fails with `attempt_ended`.
+   *
+   * @experimental
+   */
+  crawlRequestPush(params: CrawlRequestPushParams): Promise<CrawlRequestPushed> {
+    return this.#caller.call("crawl_request.push", params, {});
   }
 
   /**

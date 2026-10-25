@@ -20,6 +20,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_dataset::{Checked, Datasets};
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
@@ -174,6 +175,10 @@ pub(crate) enum CommitError {
     /// The lease ended first, or the run file holds a later one of its
     /// work item: `lease_lost`.
     LeaseLost,
+    /// A Record of the attempt's answer does not hold for its Dataset
+    /// (`dataset_unknown`, `record_invalid`): nothing is committed, and the
+    /// attempt fails with that error.
+    Refused(CallError),
     /// The run file refused or failed the write.
     RunState(RunStateError),
 }
@@ -223,13 +228,21 @@ impl WorkItemLease {
 
     /// Discards what its attempt staged so far and stages anew, as its
     /// handler runs again on another tier with its first answer discarded:
-    /// an escalation or a sample's browser run (ADR 0093).
-    pub(crate) fn restage(&self) {
+    /// an escalation or a sample's browser run (ADR 0093). Answers the
+    /// Records the discarded run had pushed, which a sample compares.
+    pub(crate) fn restage(&self) -> Checked {
         let epoch = self.0.state.borrow().lease.epoch();
-        self.0.leases.staging.discard(&self.0.work_item, epoch);
+        let pushed = self.0.leases.staging.discard(&self.0.work_item, epoch);
         if self.check().is_ok() {
             self.0.leases.staging.open(&self.0.work_item, epoch);
         }
+        pushed
+    }
+
+    /// The Records its attempt pushed so far, which stay staged.
+    pub(crate) fn pushed(&self) -> Checked {
+        let epoch = self.0.state.borrow().lease.epoch();
+        self.0.leases.staging.pushed(&self.0.work_item, epoch)
     }
 
     /// Discards what its attempt staged and did not commit.
@@ -258,17 +271,19 @@ impl WorkItemLease {
         }
     }
 
-    /// Commits `records` as its attempt's outputs, once, with what the
-    /// attempt staged and its work item's outcome ended at `ended_at`, when
-    /// it still holds and the run file holds it too; answers the kept files
-    /// of the Run's folder the staged Key-value store writes took out,
-    /// which the caller forgets.
+    /// Commits `records`, its attempt's answer, once, after the Records the
+    /// attempt pushed and with what else it staged and its work item's
+    /// outcome ended at `ended_at`, when it still holds, the run file
+    /// holds it too and each of `records` holds for the Dataset it names;
+    /// answers the kept files of the Run's folder the staged Key-value
+    /// store writes took out, which the caller forgets.
     ///
     /// # Errors
     ///
     /// `LeaseLost` when it ended first or the run file holds a later lease
-    /// of its work item, and nothing is committed; `RunState` when the
-    /// write failed or a later writer holds the run file.
+    /// of its work item, and nothing is committed; `Refused` when a Record
+    /// of `records` does not hold, and nothing is committed; `RunState`
+    /// when the write failed or a later writer holds the run file.
     ///
     /// # Cancel safety
     ///
@@ -293,19 +308,26 @@ impl WorkItemLease {
                 if work_items::attempt(connection, &work_item, epoch)?.is_none() {
                     return Ok(None);
                 }
+                let answered = match Datasets::read(connection)?.check(records) {
+                    Ok(answered) => answered,
+                    Err(refused) => return Ok(Some(Err(refused))),
+                };
                 let writes = staged.admit(connection)?;
                 let files = goodfetch_engine::key_value_store::apply(connection, writes)?;
+                let mut records = staged.records();
+                records.append(answered);
                 Ok(
                     work_items::commit(connection, &work_item, epoch, &records, &ended_at)?
-                        .then_some(files),
+                        .then_some(Ok(files)),
                 )
             })
             .await
         {
-            Ok(Some(files)) => {
+            Ok(Some(Ok(files))) => {
                 self.trace("commit", &lease, None);
                 Ok(files)
             }
+            Ok(Some(Err(refused))) => Err(CommitError::Refused(refused)),
             Ok(None) => {
                 self.trace("refuse_commit", &lease, Some("lease_lost"));
                 Err(CommitError::LeaseLost)

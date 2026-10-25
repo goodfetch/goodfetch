@@ -11,6 +11,8 @@ use std::io;
 use std::path::Path;
 use std::time::Duration;
 
+use crate::durable;
+
 /// The writer's lock file, beside the Run's state (ADR 0031).
 pub(super) const LOCK_FILE: &str = "run.lock";
 
@@ -61,13 +63,11 @@ pub(super) enum LockError {
     Io(String),
 }
 
-/// Creates the Run's folder and takes its writer's lock (ADR 0031).
+/// Creates the Run's folder, synced into the folder above it so that the
+/// run file it holds outlasts a power cut (ADR 0002), and takes its
+/// writer's lock (ADR 0031).
 pub(super) fn take_lock(folder: &Path) -> Result<File, LockError> {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "runs under the registry owner's blocking policy"
-    )]
-    std::fs::create_dir_all(folder).map_err(|error| LockError::Io(error.to_string()))?;
+    durable::create_folder(folder).map_err(|error| LockError::Io(error.to_string()))?;
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)

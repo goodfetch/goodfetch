@@ -10,10 +10,13 @@
 use std::future::pending;
 use std::io;
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::CallError;
-use goodfetch_protocol::connection::ClosedValue;
+use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
+use goodfetch_protocol::connection::{
+    CALL_CANCELLED, CallCancelledDetails, ClosedValue, StoppedBy,
+};
 use goodfetch_protocol::page::{BrowserExit, PageId, SessionId};
 use goodfetch_test_support::{runtime, subscriber_writing_to};
 use rstest::rstest;
@@ -39,7 +42,36 @@ const KILLED: BrowserExit = BrowserExit {
 };
 
 fn page() -> PageLife {
-    PageLife::new(PageId("page-1".to_owned()))
+    PageLife::new(PageId("page-1".to_owned()), None)
+}
+
+/// A lease check whose lease ended, as a crawl handler's past its work
+/// item's lease.
+#[derive(Debug)]
+struct Ended;
+
+impl LeaseCheck for Ended {
+    fn check(&self) -> Result<(), LeaseEnded> {
+        Err(LeaseEnded::Lost)
+    }
+
+    /// `call_cancelled`, by the program, in place of the Product's own
+    /// code.
+    fn withheld(&self, ended: LeaseEnded, method: &str) -> CallError {
+        CallError::new(
+            &CALL_CANCELLED,
+            format!("the lease ended ({ended}): `{method}` withheld"),
+            &CallCancelledDetails {
+                by: StoppedBy::Program,
+                closed: None,
+            },
+        )
+    }
+}
+
+/// What the lease check `Ended` raises.
+fn withheld() -> CallError {
+    Ended.withheld(LeaseEnded::Lost, "Input.dispatchMouseEvent")
 }
 
 /// An error's code and details.
@@ -86,6 +118,11 @@ fn in_flight_then_later(life: &PageLife, ending: &Ending) -> (CallError, CallErr
     ("call_cancelled", json!({ "by": "browser", "closed": "browser" })),
     ("closed", json!({ "page_id": "page-1" }))
 )]
+#[case::its_lease_ended(
+    Ending::LeaseEnded(withheld()),
+    ("call_cancelled", json!({ "by": "program" })),
+    ("closed", json!({ "page_id": "page-1" }))
+)]
 #[case::its_renderer_crashed(
     Ending::RendererCrash,
     ("page_crashed", json!({ "browser_exit": null })),
@@ -106,6 +143,72 @@ fn a_page_that_ends_ends_its_call_in_flight_and_refuses_the_next(
     let (answered, refused) = in_flight_then_later(&life, &ending);
 
     assert_eq!((raised(&answered), raised(&refused)), (in_flight, later));
+}
+
+/// A call whose command its lease check withheld raises the lease check's
+/// error and moves its page to `Closing`, its next call raising `closed`
+/// (spec #594's P31, decision 13): the page then closes.
+///
+/// Covers: story:5-135
+#[test]
+fn a_call_its_lease_withheld_moves_its_page_to_closing() {
+    let life = PageLife::new(PageId("page-1".to_owned()), Some(Arc::new(Ended)));
+
+    let (answered, later, closing) = runtime().block_on(async {
+        let answered = life
+            .call(PageEvent::Gesture, async { Err::<(), _>(withheld()) })
+            .await;
+        let later = life.call(PageEvent::Read, async { Ok(()) }).await;
+        let closing = tokio::time::timeout(Duration::from_secs(1), life.ended_by_lease()).await;
+        (answered, later, closing.is_ok())
+    });
+
+    assert_eq!(
+        (
+            raised(&answered.expect_err("the call is withheld")),
+            raised(&later.expect_err("the later call is refused")),
+            life.state(),
+            closing,
+        ),
+        (
+            ("call_cancelled", json!({ "by": "program" })),
+            ("closed", json!({ "page_id": "page-1" })),
+            PageState::Closing,
+            true,
+        )
+    );
+}
+
+/// A call that failed on its own while its lease holds leaves its page
+/// open.
+///
+/// Covers: story:5-27
+#[test]
+fn a_failed_call_under_a_lease_that_holds_leaves_its_page_open() {
+    let life = PageLife::new(PageId("page-1".to_owned()), Some(Arc::new(Holds)));
+
+    let answered = runtime().block_on(life.call(PageEvent::Gesture, async {
+        Err::<(), _>(renderer_crashed())
+    }));
+
+    assert_eq!(
+        (answered.map_err(|error| error.code()), life.state()),
+        (Err("page_crashed"), PageState::Open)
+    );
+}
+
+/// A lease check whose lease holds.
+#[derive(Debug)]
+struct Holds;
+
+impl LeaseCheck for Holds {
+    fn check(&self) -> Result<(), LeaseEnded> {
+        Ok(())
+    }
+
+    fn withheld(&self, ended: LeaseEnded, method: &str) -> CallError {
+        Ended.withheld(ended, method)
+    }
 }
 
 /// A call whose own command failed as its page went raises what ended the

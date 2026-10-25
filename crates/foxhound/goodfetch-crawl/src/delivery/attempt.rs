@@ -57,8 +57,7 @@ use goodfetch_engine::robots_txt::{self, Fetch, Fetched};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    Chosen, FetchTiers, HandOver, HandedOver, HttpTier, Purpose, Requester, RobotsTxtFetch,
-    TierChoice,
+    Chosen, FetchTiers, HandOver, HttpTier, Purpose, Requester, RobotsTxtFetch, Stop, TierChoice,
 };
 use goodfetch_frontier::{DomainKeys, EndMerged, PageSeen, SharedRobotsTxt};
 use goodfetch_protocol::block::BlockCause;
@@ -111,9 +110,11 @@ pub(super) enum Answer {
         message: String,
         details: Map<String, Value>,
     },
-    /// The site's preferences refused the request before its handler ran:
-    /// its robots.txt, or an AI-use signal its response carries (ADRs 0086
-    /// and 0093).
+    /// The request ended `skipped` before its handler ran: the site's
+    /// preferences refused it (its robots.txt, or an AI-use signal its
+    /// response carries; ADRs 0086 and 0093), or a hop of its document's
+    /// redirect chain left the scope, reached a key admitted for another
+    /// request or was refused by the navigation gate (ADRs 0118 and 0120).
     Refused(SkipReason),
     /// Its origin's robots.txt answered 429 or 5xx, or no answer, with no
     /// earlier copy to apply, for the reason given: the request was not
@@ -178,22 +179,23 @@ pub(super) struct Gating {
 }
 
 impl Gating {
-    /// Hands the Run's pages over to the attempt of `leased` holding
-    /// `lease`, while its handler runs; `in_flight` names its waits.
+    /// What the attempt of `leased` holding `lease` gates its document's
+    /// redirect hops with, then hands its Run's pages over with while its
+    /// handler runs; `in_flight` names its waits.
     async fn hand_over(
         &self,
         run: &Run,
         leased: &Leased,
         lease: &WorkItemLease,
         in_flight: &SharedInFlight,
-    ) -> HandedOver {
+    ) -> Arc<HandOver> {
         let politeness = share_robots_txt(run).await;
         let settings = run.settings().map(|settings| settings.resolved().clone());
         let domain_delay = settings
             .as_ref()
             .and_then(|settings| settings.duration(POLITENESS_DOMAIN_DELAY.name))
             .unwrap_or_default();
-        self.tiers.hand_over(HandOver {
+        Arc::new(HandOver {
             run: run.clone(),
             domain_key: leased.waiting.key.clone(),
             keys: settings.as_ref().map(DomainKeys::of).unwrap_or_default(),
@@ -474,7 +476,8 @@ pub(super) async fn attempt(
     let answer = match (&tiering.plan, &tiering.http) {
         (AttemptPlan::Alone, _) => {
             let params = on.params(None, None);
-            let handed_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
+            let hand_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
+            let handed_over = gating.tiers.hand_over(hand_over);
             let answer = handled(&run, context.client(), &params, &lease).await;
             drop(handed_over);
             answer
@@ -655,6 +658,10 @@ impl On<'_> {
             paid: false,
         };
         let tiers = &tiering.tiers;
+        let hand_over = self
+            .gating
+            .hand_over(run, leased, lease, self.in_flight)
+            .await;
         let fetched = tokio::select! {
             biased;
             document = async {
@@ -663,9 +670,15 @@ impl On<'_> {
                     return Err(refused);
                 }
                 tiers
-                    .serve(http, run, &leased.crawl_request, &requester, choice)
+                    .serve(http, run, &leased.crawl_request, &requester, choice, &hand_over)
                     .await
-                    .map_err(|error| failed(&error))
+                    .map_err(|stop| match stop {
+                        Stop::Failed(error) => failed(&error),
+                        Stop::Skipped(skip) => {
+                            tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
+                            Answer::Refused(skip.reason)
+                        }
+                    })
             } => document,
             _ = lease.ended() => Err(Answer::LeaseEnded),
         };
@@ -681,10 +694,7 @@ impl On<'_> {
             .await
             .went_on(run, &leased.crawl_request.id, InFlightPhase::Handling);
         let params = self.params(Some(FetchTier::Http), Some(page_id.clone()));
-        let handed_over = self
-            .gating
-            .hand_over(run, leased, lease, self.in_flight)
-            .await;
+        let handed_over = self.gating.tiers.hand_over(hand_over);
         let answer = handled(run, self.context.client(), &params, lease).await;
         drop(handed_over);
         let escalated = tiers.escalated(&page_id);
@@ -699,10 +709,11 @@ impl On<'_> {
     /// sample's run, or by an escalation from a cheaper tier.
     async fn browser(&self, tiers: &FetchTiers, choice: &TierChoice, how: Chosen) -> Answer {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
-        let handed_over = self
+        let hand_over = self
             .gating
             .hand_over(run, leased, lease, self.in_flight)
             .await;
+        let handed_over = self.gating.tiers.hand_over(hand_over);
         let opened = tokio::select! {
             biased;
             opened = tiers.browser(run.id(), &leased.crawl_request.url, self.context) => {

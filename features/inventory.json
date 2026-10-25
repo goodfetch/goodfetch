@@ -1444,6 +1444,16 @@
       ]
     },
     {
+      "id": "error:response_not_ok",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:response_truncated",
       "kind": "error",
       "area": 5,
@@ -5642,6 +5652,16 @@
       ]
     },
     {
+      "id": "setting:crawl.handle_statuses",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:crawl.handler.concurrency",
       "kind": "setting",
       "area": 3,
@@ -5922,6 +5942,26 @@
       "id": "setting:fetch.hedge.max_percent",
       "kind": "setting",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:fetch.redirect.max",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:fetch.refresh.max_delay",
+      "kind": "setting",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [

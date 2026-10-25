@@ -612,6 +612,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The response is not one a handler is handed: a 3xx that is not one of Fetch's redirect statuses (301, 302, 303, 307, 308), or a redirect whose `Location` is missing, does not parse or names no HTTP(S) URL. The details name the response's `url` and `status`, and a `fix` naming `crawl.handle_statuses`, which hands a status to the handler. Not retried: the site answers the same again.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "response_not_ok",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.",
       "exit_code": null,
       "group": "page",
@@ -4071,6 +4081,26 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": [],
+      "description": "Statuses whose responses go to the handler as they are: a redirect status listed here is not followed, and the handler gets the 3xx as its response. None by default.",
+      "name": "crawl.handle_statuses",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 16,
       "description": "How many work items the program's handler is given at once: 16, Scrapy's `CONCURRENT_REQUESTS`. A run already going takes a tightened Operator policy cap at its next admission.",
       "name": "crawl.handler.concurrency",
@@ -4569,6 +4599,41 @@
         "foxhound"
       ],
       "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 19,
+      "description": "How many redirects a crawl request's fetch follows, a refresh stub's hop counted as one: 19 by default, as many as the browser follows in a navigation, from 1 to 19; any other value is refused with `setting_invalid` when the crawl starts. One more fails the request with `too_many_redirects`, so a redirect loop costs a site this many requests and one more. To hand a redirect to the handler unfollowed, list its status in `crawl.handle_statuses`.",
+      "name": "fetch.redirect.max",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": 100000,
+      "description": "The longest delay of a refresh stub a crawl request's fetch follows: a `Refresh` header, or a `<meta http-equiv=\"refresh\">` outside `<noscript>`, to another URL with a delay up to this is followed at once as one more hop, counted in `fetch.redirect.max`. 100 s by default; `0` follows instant refreshes only, and `null` any delay. A refresh with no URL or to the document's own is never followed.",
+      "name": "fetch.refresh.max_delay",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
       },

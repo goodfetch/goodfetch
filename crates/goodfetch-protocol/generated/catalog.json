@@ -2243,6 +2243,44 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists the Datasets a crawl's Run declares, in the order declared, each with its JSON Schema, its key and how many Records the crawl committed into it, a Hook dropped and were rejected into its rejection table, read from the Run's committed state. A Run no crawl wrote declares none.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dataset.list",
+      "params": {
+        "$ref": "#/$defs/DatasetListParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DatasetList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads one page of a Dataset's committed Records, paged by key: the Records that meet `filter` (conditions on top-level fields, and the `wall` marker a Record's Provenance carries or not), in the order of `sort` (one top-level field, Records that lack it last, then by number), each value keeping only the fields `columns` names, at most `limit`. Filtering, sorting and column selection run in the engine. A page starts after the Record `after` names, the previous page's `next`, and reads only the Records committed through `through`, the number the first page answered, so Records committed meanwhile never make a page repeat or skip one. A Dataset the crawl does not declare fails with `dataset_unknown`; a field name holding `\"`, or a `limit` outside 1 to 1000, with `invalid_params`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dataset.page",
+      "params": {
+        "$ref": "#/$defs/DatasetPageParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DatasetPage"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "effect",
       "deprecated": null,
       "description": "Answers a dialog by accepting it, a prompt with `prompt_text`, or else its default value; it answers once the page closed the dialog.",

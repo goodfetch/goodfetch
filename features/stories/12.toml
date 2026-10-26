@@ -419,3 +419,38 @@ journey = false
 not_journey = "part"
 status = "active"
 product = "foxhound"
+
+[[story]]
+id = 204
+title = "As a user, I want a crawl run's page to list its Datasets with their declared schema and their committed, dropped and rejected Record counts, so that I see what the crawl kept (ADR 0103)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 205
+title = "As a user, I want Records paged by key, with filtering (the `wall` marker included), sorting and column selection done in the engine, so that a Dataset of millions of Records opens at once (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 207
+title = "As a user reading text in any script, I want each cell isolated with `dir=\"auto\"` and data kept out of browser translation, so that mixed-direction values and names read correctly (ADR 0073)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 233
+title = "As a user, I want a Records grid of 10,000 rows to render only the rows on screen, so that large Datasets stay smooth (ADR 0071)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"

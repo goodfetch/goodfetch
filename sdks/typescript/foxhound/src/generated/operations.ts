@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated";
-import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
 
 /** The params and result of each of Foxhound's operations. */
 export interface FoxhoundOperationTypes {
@@ -12,6 +12,8 @@ export interface FoxhoundOperationTypes {
   "crawl_request.enqueue_links": { params: CrawlRequestEnqueueLinksParams; result: EnqueuedLinks };
   "crawl_request.links": { params: CrawlRequestLinksParams; result: CrawlRequestLinks };
   "crawl_request.push": { params: CrawlRequestPushParams; result: CrawlRequestPushed };
+  "dataset.list": { params: DatasetListParams; result: DatasetList };
+  "dataset.page": { params: DatasetPageParams; result: DatasetPage };
   "export.save_as": { params: ExportSaveAsParams; result: ExportSaved };
   "export.stream": { params: ExportStreamParams; result: ExportStreamed };
   "run.add_seed": { params: RunAddSeedParams; result: Enqueued };
@@ -85,6 +87,24 @@ export class FoxhoundOperations {
    */
   crawlRequestPush(params: CrawlRequestPushParams): Promise<CrawlRequestPushed> {
     return this.#caller.call("crawl_request.push", params, {});
+  }
+
+  /**
+   * Lists the Datasets a crawl's Run declares, in the order declared, each with its JSON Schema, its key and how many Records the crawl committed into it, a Hook dropped and were rejected into its rejection table, read from the Run's committed state. A Run no crawl wrote declares none.
+   *
+   * @experimental
+   */
+  datasetList(params: DatasetListParams): Promise<DatasetList> {
+    return this.#caller.call("dataset.list", params, {});
+  }
+
+  /**
+   * Reads one page of a Dataset's committed Records, paged by key: the Records that meet `filter` (conditions on top-level fields, and the `wall` marker a Record's Provenance carries or not), in the order of `sort` (one top-level field, Records that lack it last, then by number), each value keeping only the fields `columns` names, at most `limit`. Filtering, sorting and column selection run in the engine. A page starts after the Record `after` names, the previous page's `next`, and reads only the Records committed through `through`, the number the first page answered, so Records committed meanwhile never make a page repeat or skip one. A Dataset the crawl does not declare fails with `dataset_unknown`; a field name holding `"`, or a `limit` outside 1 to 1000, with `invalid_params`.
+   *
+   * @experimental
+   */
+  datasetPage(params: DatasetPageParams): Promise<DatasetPage> {
+    return this.#caller.call("dataset.page", params, {});
   }
 
   /**

@@ -12,7 +12,7 @@ of the site's catalog."""
 area = 12
 product = "foxhound"
 status = "active"
-covers = ["row:CN-03", "row:CN-04", "row:RT-15"]
+covers = ["row:CN-03", "row:CN-04", "row:RT-15", "story:12-204", "story:12-205"]
 
 [proving_ground]
 seed = 4

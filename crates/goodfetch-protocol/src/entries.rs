@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 49] = [
+pub const MODULES: [&Entries; 50] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,
@@ -53,6 +53,7 @@ pub const MODULES: [&Entries; 49] = [
     &foxhound::fetch::ENTRIES,
     &foxhound::frontier::ENTRIES,
     &foxhound::dataset::ENTRIES,
+    &foxhound::dataset_view::ENTRIES,
     &foxhound::export::ENTRIES,
     &foxhound::outcomes::ENTRIES,
     &foxhound::rejections::ENTRIES,
@@ -212,6 +213,8 @@ mod tests {
                     "crawl_request.enqueue_links",
                     "crawl_request.push",
                     "run.records",
+                    "dataset.list",
+                    "dataset.page",
                     "run.export",
                     "export.save_as",
                     "export.stream",

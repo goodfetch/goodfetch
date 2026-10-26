@@ -3291,6 +3291,167 @@
       ],
       "type": "object"
     },
+    "DatasetList": {
+      "description": "What `dataset.list` answers.",
+      "properties": {
+        "datasets": {
+          "arrived_in": "0.1",
+          "description": "Each Dataset the crawl declares, in the order declared.",
+          "items": {
+            "$ref": "#/$defs/DatasetSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "datasets"
+      ],
+      "type": "object"
+    },
+    "DatasetListParams": {
+      "additionalProperties": false,
+      "description": "What `dataset.list` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "DatasetPage": {
+      "description": "One page of `dataset.page`.",
+      "properties": {
+        "next": {
+          "arrived_in": "0.1",
+          "description": "The next page's `after`; absent once no Record follows.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "The Records, in the page's order.",
+          "items": {
+            "$ref": "#/$defs/DatasetRecord"
+          },
+          "type": "array"
+        },
+        "through": {
+          "arrived_in": "0.1",
+          "description": "The number of the last Record committed when the first page was\nread: the next page's `through`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "records",
+        "through"
+      ],
+      "type": "object"
+    },
+    "DatasetPageParams": {
+      "additionalProperties": false,
+      "description": "What `dataset.page` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "after": {
+          "arrived_in": "0.1",
+          "description": "The number of the last Record of the previous page, its `next`: the\npage starts after that Record in the page's order. Absent, at the\nfirst.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "columns": {
+          "arrived_in": "0.1",
+          "description": "The top-level fields each Record's value keeps; absent, every one.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "filter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecordFilter"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Which Records to take; absent, every one."
+        },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "The most Records the page carries, from 1 to 1000; absent, 100.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        },
+        "sort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecordSort"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Their order; absent, by number."
+        },
+        "through": {
+          "arrived_in": "0.1",
+          "description": "The previous page's `through`, so every page reads the Records\ncommitted when the first was read. Absent, the last number\ncommitted now.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset"
+      ],
+      "type": "object"
+    },
     "DatasetRecord": {
       "description": "One committed Record of a Dataset, as a reader reads it (ADR 0103).",
       "properties": {
@@ -3368,6 +3529,57 @@
       },
       "required": [
         "dataset",
+        "committed",
+        "dropped",
+        "rejected"
+      ],
+      "type": "object"
+    },
+    "DatasetSummary": {
+      "description": "One Dataset a crawl declares, with what its crawl kept of it.",
+      "properties": {
+        "committed": {
+          "arrived_in": "0.1",
+          "description": "How many Records the crawl committed into it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dropped": {
+          "arrived_in": "0.1",
+          "description": "How many a Hook dropped before their commit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The top-level fields that identify one Record; empty when none do.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name.",
+          "type": "string"
+        },
+        "rejected": {
+          "arrived_in": "0.1",
+          "description": "How many were rejected into its rejection table.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema its Records are checked against; none takes any\nJSON object."
+        }
+      },
+      "required": [
+        "name",
+        "key",
         "committed",
         "dropped",
         "rejected"
@@ -4784,6 +4996,59 @@
           "type": "string"
         }
       ]
+    },
+    "FieldFilter": {
+      "description": "A condition on one top-level field of a Record.",
+      "oneOf": [
+        {
+          "description": "The field equals this JSON value.",
+          "properties": {
+            "op": {
+              "const": "equals",
+              "type": "string"
+            },
+            "value": {
+              "arrived_in": "0.1",
+              "description": "The value."
+            }
+          },
+          "required": [
+            "op",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The field is text holding this text, compared code point by code\npoint, case included.",
+          "properties": {
+            "op": {
+              "const": "contains",
+              "type": "string"
+            },
+            "text": {
+              "arrived_in": "0.1",
+              "description": "The text.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "text"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "field": {
+          "arrived_in": "0.1",
+          "description": "The field's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field"
+      ],
+      "type": "object"
     },
     "FilesUpgraded": {
       "description": "What `upgrade-files --json` prints (spec #608): the files of the new\nmajor's copy, by their path in Goodfetch home; every list empty when\nGoodfetch home holds no older major's files.",
@@ -9551,6 +9816,33 @@
       ],
       "type": "object"
     },
+    "RecordFilter": {
+      "additionalProperties": false,
+      "description": "Which Records a page takes: those that meet every condition.",
+      "properties": {
+        "fields": {
+          "arrived_in": "0.1",
+          "description": "Conditions on the Records' fields, every one met.",
+          "items": {
+            "$ref": "#/$defs/FieldFilter"
+          },
+          "type": "array"
+        },
+        "wall": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WallFilter"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Wall marker a Record carries or not; absent takes both."
+        }
+      },
+      "type": "object"
+    },
     "RecordIssue": {
       "description": "One way a Record does not hold for its Dataset.",
       "properties": {
@@ -9704,6 +9996,27 @@
       "required": [
         "id",
         "record"
+      ],
+      "type": "object"
+    },
+    "RecordSort": {
+      "additionalProperties": false,
+      "description": "The order of a page's Records: by one top-level field, Records that\nlack it last, then by number.",
+      "properties": {
+        "direction": {
+          "$ref": "#/$defs/SortDirection",
+          "arrived_in": "0.1",
+          "description": "Its direction."
+        },
+        "field": {
+          "arrived_in": "0.1",
+          "description": "The field's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "direction"
       ],
       "type": "object"
     },
@@ -13953,6 +14266,21 @@
       ],
       "type": "object"
     },
+    "SortDirection": {
+      "description": "A sort's direction.",
+      "oneOf": [
+        {
+          "const": "ascending",
+          "description": "Smallest first.",
+          "type": "string"
+        },
+        {
+          "const": "descending",
+          "description": "Largest first.",
+          "type": "string"
+        }
+      ]
+    },
     "SortOrder": {
       "description": "Which way `run.list` sorts.",
       "oneOf": [
@@ -15542,6 +15870,21 @@
         "reason"
       ],
       "type": "object"
+    },
+    "WallFilter": {
+      "description": "Which Records a page takes by a Wall read past (ADR 0052).",
+      "oneOf": [
+        {
+          "const": "with",
+          "description": "Only Records whose page was read past a Wall: their Provenance\ncarries the `wall` marker.",
+          "type": "string"
+        },
+        {
+          "const": "without",
+          "description": "Only Records whose page met no Wall.",
+          "type": "string"
+        }
+      ]
     },
     "WallKind": {
       "description": "A Wall's kind (ADR 0052).",

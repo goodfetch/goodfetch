@@ -466,6 +466,14 @@ class ProxyAuthFailedError(RefusedError):
         super().__init__(message, code="proxy_auth_failed", group="refused", retryable=False)
 
 
+class ProxyProviderUnavailableError(UnavailableError):
+    """The Session's Proxy provider answered through its proxy with a failure of its own: its traffic quota or balance is spent (`quota_exhausted`), the Session's sticky exit is gone (`sticky_session_expired`), or a failure Goodfetch does not recognize (`unrecognized`, whose text is logged, never returned). The details name the provider, the proxy and the failure, never the credentials. A provider's refusal of the credentials is `proxy_auth_failed` instead. Retry later, or open a new Session for a new exit."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="proxy_provider_unavailable", group="unavailable", retryable=True)
+
+
 class ProxyUnavailableError(UnavailableError):
     """The Session's proxy could not be reached, its TLS failed, or it refused the tunnel or the request with an error of its own: the details name the proxy, never its credentials, and the browser's network error when it named one. It is the proxy's failure, never the site's and never `navigation_failed`: retry later, or through another proxy."""
 
@@ -766,6 +774,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "policy_conflict": PolicyConflictError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "proxy_auth_failed": ProxyAuthFailedError,
+    "proxy_provider_unavailable": ProxyProviderUnavailableError,
     "proxy_unavailable": ProxyUnavailableError,
     "resources_exhausted": ResourcesExhaustedError,
     "response_limit_exceeded": ResponseLimitExceededError,

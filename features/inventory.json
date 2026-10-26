@@ -1484,6 +1484,17 @@
       ]
     },
     {
+      "id": "error:proxy_provider_unavailable",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:proxy_unavailable",
       "kind": "error",
       "area": 5,
@@ -6264,6 +6275,26 @@
     },
     {
       "id": "setting:fetch.refresh.max_delay",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:fetch.sample.count",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:fetch.sample.refresh_after",
       "kind": "setting",
       "area": 5,
       "milestone": null,

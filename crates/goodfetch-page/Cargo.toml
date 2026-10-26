@@ -46,6 +46,9 @@ rusqlite.workspace = true
 secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The name of a Session's sticky session at a Proxy provider: a digest of
+# its Session ID, so the provider never sees the Run's own ID.
+sha2.workspace = true
 thiserror.workspace = true
 # `net` and `io-util` for the per-Session SOCKS5 relay (the `proxy` module).
 tokio = { workspace = true, features = ["io-util", "net", "process", "sync", "time", "macros"] }

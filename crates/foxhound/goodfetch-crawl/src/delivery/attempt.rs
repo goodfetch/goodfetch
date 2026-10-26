@@ -98,7 +98,8 @@ use tokio::sync::oneshot;
 
 use crate::lease::{CommitError, WorkItemLease};
 use crate::progress::SharedInFlight;
-use crate::tier_choice::{self, AttemptPlan, Sampled};
+use crate::tier_choice::weighing::{self, StagedRun};
+use crate::tier_choice::{AttemptPlan, Sampled, Weighed};
 use crate::tier_race::Raced;
 use crate::work_items::{Fetched, Leased};
 
@@ -356,9 +357,9 @@ pub(super) struct Attempt {
     /// `skipped` with `duplicate`, by ID with their domain key: they leave
     /// their queues.
     pub(super) merged: Vec<(String, String)>,
-    /// The sample it was, with whether its two runs matched, once both
+    /// The sample it was, with how its two runs weighed, once both
     /// answered.
-    pub(super) sampled: Option<(Sampled, bool)>,
+    pub(super) sampled: Option<(Sampled, Weighed)>,
     /// The race it was, with its browser-fetch's latency, once its
     /// document arrived.
     pub(super) raced: Option<(Raced, Duration)>,
@@ -421,9 +422,9 @@ pub(super) async fn attempt(
             answer
         }
         (AttemptPlan::Sample(sample), Some(http)) => {
-            let (answer, learned, matched) = on.sample(&tiering, http).await;
+            let (answer, learned, weighed) = on.sample(&tiering, http).await;
             merged = learned;
-            sampled = matched.map(|matched| (sample.clone(), matched));
+            sampled = weighed.map(|weighed| (sample.clone(), weighed));
             answer
         }
         (AttemptPlan::Race(race), Some(http)) => {
@@ -457,13 +458,24 @@ pub(super) async fn attempt(
 }
 
 /// What a run on the `http` tier gave: the handler's answer, the call
-/// that escalated its page, if one did, whether its page held a document
-/// and the encoding it was read in (ADR 0119).
+/// that escalated its page, if one did, whether its page held a document,
+/// the encoding it was read in (ADR 0119) and the URL its document came
+/// from, its redirects followed (ADR 0118).
 struct HttpRun {
     answer: Answer,
     escalated: Option<&'static str>,
     document: bool,
     encoding: Option<String>,
+    url: Option<String>,
+}
+
+/// What a run on the `browser` tier gave: the handler's answer, the
+/// encoding its document was read in, `document.characterSet`, and the URL
+/// of the last main-frame document its page reached.
+struct BrowserRun {
+    answer: Answer,
+    encoding: Option<String>,
+    ended_at: Option<String>,
 }
 
 /// What one attempt runs its handler with.
@@ -532,15 +544,18 @@ impl On<'_> {
 
     /// A sample of the crawl's sample comparison: its run on `http`, then,
     /// unless that run ended the attempt, its run on `browser` under a
-    /// whole lease of its own, whose answer is the attempt's. Answers it,
-    /// the pending requests the page's rules merged, and whether the two
-    /// runs matched once the browser's answered: each run's Records, those
-    /// it pushed then those of its answer (ADR 0103).
+    /// whole lease of its own, whose answer is the attempt's, matched or
+    /// not. Answers it, the pending requests the page's rules merged, and
+    /// how the two runs weighed once the browser's answered: what each run
+    /// staged, the Records it pushed then those of its answer and the
+    /// requests it enqueued, before any Hook (ADR 0103), the URL each ended
+    /// on and the encoding each read in (ADRs 0118 and 0119). A browser run
+    /// that met a consent wall keeps its Label on `browser` (ADR 0048).
     async fn sample(
         &self,
         tiering: &Tiering,
         http: &HttpTier,
-    ) -> (Answer, Vec<(String, String)>, Option<bool>) {
+    ) -> (Answer, Vec<(String, String)>, Option<Weighed>) {
         let (run, merged) = match self
             .on_http(tiering, http, &SAMPLED, Chosen::Sample(None))
             .await
@@ -554,16 +569,15 @@ impl On<'_> {
             return (run.answer, merged, None);
         }
         self.lease.renew(self.lease.length());
-        let cheaper_pushed = self.lease.restage();
-        let (answer, browser_encoding) = self
+        let cheaper = self.lease.restage();
+        let browser = self
             .browser_run(&tiering.tiers, &BROWSER, Chosen::Sample(run.escalated))
             .await;
-        let browser_pushed = self.lease.pushed();
-        // A browser that read the document in another encoding never
-        // matches (ADR 0119).
-        let read_alike =
-            tier_choice::same_encoding(run.encoding.as_deref(), browser_encoding.as_deref());
-        let matched = match (&answer, &run) {
+        let browser_staged = self.lease.pushed();
+        let weighed = match (&browser.answer, &run) {
+            (Answer::Failed { code, details, .. }, _) if walled(code, details) => {
+                Some(Weighed::Walled)
+            }
             (
                 Answer::Handled(CrawlRequestHandled {
                     records,
@@ -572,30 +586,46 @@ impl On<'_> {
                 HttpRun {
                     answer:
                         Answer::Handled(CrawlRequestHandled {
-                            records: cheaper,
+                            records: cheaper_records,
                             skipped: None,
                         }),
                     escalated: None,
                     ..
                 },
-            ) => Some(tier_choice::matches(
-                Some(&[cheaper_pushed.records(), cheaper].concat()),
-                &[browser_pushed.records(), records].concat(),
-            )),
-            (
-                Answer::Handled(CrawlRequestHandled {
-                    records,
-                    skipped: None,
-                }),
-                _,
-            ) => Some(tier_choice::matches(
-                None,
-                &[browser_pushed.records(), records].concat(),
-            )),
+            ) => {
+                let cheaper_records =
+                    [cheaper.records.records(), cheaper_records.as_slice()].concat();
+                let browser_records =
+                    [browser_staged.records.records(), records.as_slice()].concat();
+                // No field is named removed yet: the extraction's removal
+                // reports none per attempt.
+                let matched = weighing::weigh(
+                    &StagedRun {
+                        records: &cheaper_records,
+                        enqueues: &cheaper.enqueues,
+                        ended_at: run.url.as_deref(),
+                        encoding: run.encoding.as_deref(),
+                    },
+                    &StagedRun {
+                        records: &browser_records,
+                        enqueues: &browser_staged.enqueues,
+                        ended_at: browser.ended_at.as_deref(),
+                        encoding: browser.encoding.as_deref(),
+                    },
+                    &std::collections::BTreeSet::new(),
+                );
+                Some(if matched {
+                    Weighed::Matched
+                } else {
+                    Weighed::Differed
+                })
+            }
+            (Answer::Handled(CrawlRequestHandled { skipped: None, .. }), _) => {
+                Some(Weighed::Differed)
+            }
             _ => None,
         };
-        let matched = matched.map(|matched| matched && read_alike);
-        (answer, merged, matched)
+        (browser.answer, merged, weighed)
     }
 
     /// One run on the `http` tier: its origin's robots.txt read and its
@@ -672,6 +702,7 @@ impl On<'_> {
             .await
             .went_on(run, &leased.crawl_request.id, InFlightPhase::Handling);
         let document = tiers.not_document(&page_id).is_none();
+        let url = tiers.response(&page_id).map(|response| response.url);
         let params = self.params(
             Some(FetchTier::Http),
             Some(page_id.clone()),
@@ -688,6 +719,7 @@ impl On<'_> {
                 escalated,
                 document,
                 encoding: encoding.map(|encoding| encoding.encoding),
+                url,
             },
             merged,
         ))
@@ -772,7 +804,7 @@ impl On<'_> {
     /// answered. `how` says how the request came here: as chosen, as a
     /// sample's run, or by an escalation from a cheaper tier.
     async fn browser(&self, tiers: &FetchTiers, choice: &TierChoice, how: Chosen) -> Answer {
-        self.browser_run(tiers, choice, how).await.0
+        self.browser_run(tiers, choice, how).await.answer
     }
 
     /// [`On::browser`], answering also the encoding the browser read the
@@ -782,7 +814,12 @@ impl On<'_> {
         tiers: &FetchTiers,
         choice: &TierChoice,
         how: Chosen,
-    ) -> (Answer, Option<String>) {
+    ) -> BrowserRun {
+        let ended = |answer| BrowserRun {
+            answer,
+            encoding: None,
+            ended_at: None,
+        };
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let hand_over = self
             .gating
@@ -798,10 +835,10 @@ impl On<'_> {
         };
         let (page_id, navigated) = match opened {
             Ok(opened) => opened,
-            Err(answer) => return (answer, None),
+            Err(answer) => return ended(answer),
         };
         if let Some(refused) = refused_type(tiers, &page_id, run, leased).await {
-            return (refused, None);
+            return ended(refused);
         }
         let browser = TierChoice {
             tier: FetchTier::Browser,
@@ -820,8 +857,13 @@ impl On<'_> {
         );
         let answer = handled(run, self.context.client(), &params, lease).await;
         drop(handed_over);
+        let ended_at = tiers.browser_ended_at(&page_id);
         tiers.close_browser(&page_id).await;
-        (answer, encoding.map(|encoding| encoding.encoding))
+        BrowserRun {
+            answer,
+            encoding: encoding.map(|encoding| encoding.encoding),
+            ended_at,
+        }
     }
 }
 
@@ -858,6 +900,14 @@ pub(super) fn read_by_browser(
     )
 }
 
+/// Whether a run that failed with `code` and `details` met a consent
+/// wall: `blocked` with `consent_required` (ADR 0048).
+fn walled(code: &str, details: &Map<String, Value>) -> bool {
+    code == BLOCKED
+        && details.get("cause").and_then(Value::as_str)
+            == Some(BlockCause::ConsentRequired.as_str())
+}
+
 /// A run on the `http` tier that escalated at `call` before its handler
 /// ran, its answer failing with `code` and `message`, which the browser's
 /// run replaces.
@@ -872,6 +922,7 @@ fn escalated_unhandled(code: &str, message: &str, call: &'static str) -> HttpRun
         escalated: Some(call),
         document: true,
         encoding: None,
+        url: None,
     }
 }
 

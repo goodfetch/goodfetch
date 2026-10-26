@@ -52,7 +52,15 @@ pub(crate) use self::party::{Answer, PROXY_STATUS, Party, party, proxy_error, re
 use self::relay::{Mode, Relay};
 use crate::egress_relay::serve::{Met, Upstream};
 use crate::egress_relay::{Chain, Latest};
-use crate::proxy_provider::{Chosen, ProxyDriver, ProxyUsage, Refusal, Wanted, list, priced};
+use crate::proxy_provider::failure::{ProviderAnswer, ProviderFailure};
+use crate::proxy_provider::{
+    Chosen, ProxyDriver, ProxyProvider, ProxyUsage, Refusal, Wanted, apify, bright_data, list,
+    oxylabs, priced,
+};
+
+/// A hosted provider adapter's translation point (ADR 0127): its reading of
+/// its provider's own failed answer.
+type Translation = fn(&ProviderAnswer) -> ProviderFailure;
 
 /// The rule that sends loopback through the proxy too, as Playwright does,
 /// so a Session's every request takes its proxy.
@@ -80,6 +88,10 @@ pub(crate) struct SessionProxy {
 
 /// The proxy a Proxy provider gave a Session, for its life.
 struct Provided {
+    /// The provider's name, as `proxy.provider` gave it.
+    provider: String,
+    /// Its adapter's reading of its failures, for a hosted provider.
+    translation: Option<Translation>,
     chosen: Chosen,
     /// What its bytes are charged to.
     usage: Arc<ProxyUsage>,
@@ -212,6 +224,45 @@ fn fits_socks5(
     }
 }
 
+/// The built-in Proxy provider `name` of `configuration`, and its adapter's
+/// reading of its failures for a hosted provider.
+///
+/// # Errors
+///
+/// `setting_invalid` for a name no built-in provider has, or an account
+/// its adapter cannot build on.
+fn adapter(
+    settings: &Resolved,
+    name: &str,
+    configuration: &ProxyProviderConfiguration,
+) -> Result<(Box<dyn ProxyProvider>, Option<Translation>), CallError> {
+    let account = |reason: String| invalid(settings, PROXY_PROVIDERS.name, reason);
+    Ok(match name {
+        list::NAME => (Box::new(list::List::new(configuration)), None),
+        bright_data::NAME => (
+            Box::new(bright_data::BrightData::new(configuration).map_err(account)?),
+            Some(bright_data::failure),
+        ),
+        oxylabs::NAME => (
+            Box::new(oxylabs::Oxylabs::new(configuration).map_err(account)?),
+            Some(oxylabs::failure),
+        ),
+        apify::NAME => (
+            Box::new(apify::Apify::new(configuration)),
+            Some(apify::failure),
+        ),
+        _ => {
+            return Err(invalid(
+                settings,
+                PROXY_PROVIDER.name,
+                format!(
+                    "no Proxy provider is named `{name}`: the built-in ones are `bright_data`, `oxylabs`, `apify` and `list`"
+                ),
+            ));
+        }
+    })
+}
+
 /// How the relay relays the proxy a Proxy provider chose: SOCKS5 with its
 /// credentials, or as it is.
 ///
@@ -326,7 +377,7 @@ impl SessionProxy {
                     username: username.clone(),
                     password,
                 };
-                let relay = Relay::open(run, address, mode, None)
+                let relay = Relay::open(run, address, mode, None, false)
                     .await
                     .map_err(|error| unavailable(&server, None, &error.to_string()))?;
                 Some(relay)
@@ -364,16 +415,8 @@ impl SessionProxy {
             .transpose()
             .expect("invariant: `proxy.providers`' entries were checked against their kind")
             .unwrap_or_default();
-        let driver = match name {
-            list::NAME => ProxyDriver::new(list::NAME, Box::new(list::List::new(&configuration))),
-            _ => {
-                return Err(invalid(
-                    settings,
-                    PROXY_PROVIDER.name,
-                    format!("no Proxy provider is named `{name}`: the built-in one is `list`"),
-                ));
-            }
-        };
+        let (provider, translation) = adapter(settings, name, &configuration)?;
+        let driver = ProxyDriver::new(name, provider);
         let wanted = Wanted {
             kind: settings
                 .value(PROXY_KIND.name)
@@ -419,9 +462,15 @@ impl SessionProxy {
         let address = address_of(&chosen.server, settings).await?;
         let mode = provided_mode(settings, &chosen, password.as_ref())?;
         let usage = Arc::new(ProxyUsage::new(run.clone(), chosen.kind, price));
-        let relay = Relay::open(run, address, mode, Some(Arc::clone(&usage)))
-            .await
-            .map_err(|error| unavailable(&chosen.server, None, &error.to_string()))?;
+        let relay = Relay::open(
+            run,
+            address,
+            mode,
+            Some(Arc::clone(&usage)),
+            translation.is_some(),
+        )
+        .await
+        .map_err(|error| unavailable(&chosen.server, None, &error.to_string()))?;
         let limits = ProxyLimits::open(settings, run, &chosen.server, chosen.username.as_deref())
             .await
             .map_err(|reason| invalid(settings, POLITENESS_PROXY_CONCURRENCY.name, reason))?;
@@ -436,6 +485,8 @@ impl SessionProxy {
             password,
             relay: Some(relay),
             provided: Some(Provided {
+                provider: name.to_owned(),
+                translation,
                 chosen,
                 usage,
                 opened: run.clock().now(),
@@ -574,11 +625,34 @@ impl SessionProxy {
         if party(Answer::Failure { error }) != Party::Proxy {
             return None;
         }
+        if let Some(failure) = self.provider_failure() {
+            return Some(
+                failure
+                    .unavailable(&self.provider_name(), &self.server, Some(url))
+                    .unwrap_or_else(|| self.auth_failed(url)),
+            );
+        }
         Some(if self.refused_credentials() {
             self.auth_failed(url)
         } else {
             self.unavailable(url, error)
         })
+    }
+
+    /// The hosted provider's failure in its proxy's answer to the latest
+    /// `CONNECT` it refused, as its adapter reads it (ADR 0127).
+    fn provider_failure(&self) -> Option<ProviderFailure> {
+        let translation = self.provided.as_ref()?.translation?;
+        let answer = self.relay.as_ref()?.latest_refusal()?;
+        Some(translation(&answer))
+    }
+
+    /// The name of the Proxy provider that gave the proxy, if one did.
+    fn provider_name(&self) -> String {
+        self.provided
+            .as_ref()
+            .map(|provided| provided.provider.clone())
+            .unwrap_or_default()
     }
 
     /// Whether a request to `url` goes around the proxy, as its

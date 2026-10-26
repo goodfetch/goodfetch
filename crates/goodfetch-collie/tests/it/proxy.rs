@@ -9,7 +9,11 @@
 //! servers per Session for its life, and its bytes by proxy kind in Usage,
 //! priced under a currency Limit (ADRs 0021, 0041, 0101 and 0129), the Run
 //! that Limit stopped waiting in "Needs you" until a person raises it at
-//! the interactive prompt (ADRs 0031 and 0041).
+//! the interactive prompt (ADRs 0031 and 0041); and the `bright_data`,
+//! `oxylabs` and `apify` adapters (ticket #891), against a forward proxy
+//! that reads each provider's sticky username: one sticky exit per Session
+//! for its life, and `proxy_exit_may_change` for a Session that outlives
+//! its sticky lifetime.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -1488,5 +1492,209 @@ fn the_robots_txt_read_and_page_request_each_send_one_request_through_the_sessio
                 (json!("1.incidents.test"), json!("/robots.txt")),
             ],
         )
+    );
+}
+
+/// User configuration declaring the adapter `name` on the Proving ground's
+/// proxy account, its `endpoint` the Proving ground's residential proxy,
+/// which reads every provider's sticky username.
+fn adapter_configuration(proving_ground: &ProvingGround, name: &str) -> String {
+    let credentials = &proving_ground.description().fixtures.proxy_credentials;
+    format!(
+        "[settings.proxy.providers.{name}]\nusername = \"{}\"\npassword = \"env:{PASSWORD_VARIABLE}\"\nendpoint = \"http://{}\"\n",
+        credentials.username,
+        proxy_address(proving_ground, "residential"),
+    )
+}
+
+/// Opens a Session of `run_id` with `own` settings and a page in it, as
+/// the `position`-th call: the Session's and the page's IDs.
+fn session_page(engine: &mut Attached, position: i64, run_id: &str, own: &Value) -> (Value, Value) {
+    let session = call(
+        engine,
+        position,
+        "run.new_session",
+        &json!({ "run_id": run_id, "settings": own }),
+    );
+    let session = session["result"]["session_id"].clone();
+    assert!(!session.is_null(), "{session}");
+    let page = call(
+        engine,
+        position + 1,
+        "session.new_page",
+        &json!({ "session_id": session }),
+    );
+    (session, json!(opened(&page).page_id.0))
+}
+
+/// Visits `/storage?mark=<mark>` of `scope.test` in `page`, as the
+/// `position`-th call.
+fn visit_marked(
+    engine: &mut Attached,
+    proving_ground: &ProvingGround,
+    position: i64,
+    page: &Value,
+    mark: &str,
+) {
+    let url = proving_ground.url("scope.test", &format!("/storage?mark={mark}"));
+    let went = call(
+        engine,
+        position,
+        "page.goto",
+        &json!({ "page_id": page, "url": url }),
+    );
+    assert!(went.get("result").is_some(), "{went}");
+}
+
+/// The relayed requests whose target holds `marker`: each one's sticky
+/// session as the proxy read it, and the exit it left from.
+fn sticky_relays(proving_ground: &ProvingGround, marker: &str) -> Vec<(Value, Value)> {
+    proving_ground.observations().unwrap()["relays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|relay| {
+            relay["outcome"] == json!("relayed")
+                && relay["target"]
+                    .as_str()
+                    .is_some_and(|target| target.contains(marker))
+        })
+        .map(|relay| (relay["sticky"].clone(), relay["exit"].clone()))
+        .collect()
+}
+
+/// Covers: story:8-89, story:8-90, setting:proxy.provider, setting:proxy.providers, setting:proxy.country, operation:run.new_session
+#[cfg(unix)]
+#[rstest]
+#[case::bright_data("bright_data", "us")]
+#[case::oxylabs("oxylabs", "US")]
+#[case::apify("apify", "US")]
+fn each_adapters_session_leaves_from_one_sticky_exit_named_in_its_providers_username(
+    #[case] name: &str,
+    #[case] country_as_read: &str,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let configuration = adapter_configuration(&proving_ground, name);
+    let run_id = format!("through-{name}");
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        &run_id,
+        &configuration,
+        &json!({ "proxy": { "provider": name, "kind": "residential", "country": "US" } }),
+        &[],
+    );
+
+    let (_, first) = session_page(&mut engine, 2, &run_id, &json!({}));
+    let (_, second) = session_page(&mut engine, 4, &run_id, &json!({}));
+    let mut position = 10;
+    for round in ["one", "two"] {
+        for (page, session) in [(&first, "first"), (&second, "second")] {
+            position += 1;
+            visit_marked(
+                &mut engine,
+                &proving_ground,
+                position,
+                page,
+                &format!("{session}-{round}"),
+            );
+        }
+    }
+    let _ = call(&mut engine, 50, "run.finish", &json!({ "run_id": run_id }));
+    let _ = engine.finish();
+
+    // Whether each Session's two visits were relayed (a page may ask for
+    // more), its sticky sessions and exits, and what its username named.
+    let of = |session: &str| {
+        let relays = sticky_relays(&proving_ground, &format!("mark={session}-"));
+        let stickies: BTreeSet<String> = relays
+            .iter()
+            .map(|(sticky, _)| sticky["session"].to_string())
+            .collect();
+        let exits: BTreeSet<String> = relays.iter().map(|(_, exit)| exit.to_string()).collect();
+        let named: BTreeSet<String> = relays
+            .iter()
+            .map(|(sticky, _)| format!("{} {}", sticky["provider"], sticky["country"]))
+            .collect();
+        (relays.len() >= 2, stickies, exits.len(), named)
+    };
+    let (first, second) = (of("first"), of("second"));
+    let named = BTreeSet::from([format!("{} {}", json!(name), json!(country_as_read))]);
+    assert_eq!(
+        (
+            (first.0, first.1.len(), first.2, &first.3),
+            (second.0, second.1.len(), second.2, &second.3),
+            first.1.is_disjoint(&second.1),
+        ),
+        ((true, 1, 1, &named), (true, 1, 1, &named), true),
+        "{first:?} {second:?}"
+    );
+}
+
+/// Covers: story:8-90, setting:proxy.sticky_lifetime, operation:session.close, operation:run.finish
+#[cfg(unix)]
+#[test]
+fn a_session_that_outlives_its_sticky_lifetime_is_named_by_proxy_exit_may_change() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let configuration = adapter_configuration(&proving_ground, "oxylabs");
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "outlived",
+        &configuration,
+        &json!({ "proxy": { "provider": "oxylabs" } }),
+        &[],
+    );
+
+    // The first Session asks its exit for a millisecond, which its page's
+    // visit outlives; the second keeps the provider's longest, 24 hours.
+    let (short, short_page) = session_page(
+        &mut engine,
+        2,
+        "outlived",
+        &json!({ "proxy": { "sticky_lifetime": 1 } }),
+    );
+    let (long, long_page) = session_page(&mut engine, 4, "outlived", &json!({}));
+    visit_marked(&mut engine, &proving_ground, 6, &short_page, "short");
+    visit_marked(&mut engine, &proving_ground, 7, &long_page, "long");
+    for (position, session) in [(8, &short), (9, &long)] {
+        let closed = call(
+            &mut engine,
+            position,
+            "session.close",
+            &json!({ "session_id": session }),
+        );
+        assert!(closed.get("result").is_some(), "{closed}");
+    }
+    let finished = call(
+        &mut engine,
+        10,
+        "run.finish",
+        &json!({ "run_id": "outlived" }),
+    );
+    let _ = engine.finish();
+
+    let warned: Vec<Value> = finished["result"]["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|warning| warning["code"] == json!("proxy_exit_may_change"))
+        .map(|warning| warning["sessions"].clone())
+        .collect();
+    let lifetimes: Vec<Value> = ["short", "long"]
+        .iter()
+        .flat_map(|mark| sticky_relays(&proving_ground, &format!("mark={mark}")))
+        .map(|(sticky, _)| sticky["lifetime_minutes"].clone())
+        .collect();
+    assert_eq!(
+        (warned, lifetimes),
+        (vec![json!([short])], vec![json!(1), json!(1440)]),
+        "{finished}"
     );
 }

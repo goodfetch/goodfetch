@@ -652,6 +652,13 @@ number = 5
 kind = "setting"
 prefix = "fetch.tier"
 
+# How the tier choice samples a Label on a domain (spec #579's
+# `comparison`, #768).
+[[area]]
+number = 5
+kind = "setting"
+prefix = "fetch.sample."
+
 # The encoding forced on a crawl request's document, in spec #582's
 # settings table (#926 declares it; `fetch.tier_race` falls under area 5's
 # `fetch.tier`).

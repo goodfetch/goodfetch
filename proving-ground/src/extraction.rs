@@ -8,12 +8,14 @@
 //! and pages whose main content's Markdown the lab wrote by hand (ADR 0007),
 //! judged by their Markdown's structure; and pages read in every form
 //! `page.formats` gives, each written by hand too; and pages whose links,
-//! images, media and tables are read, one behind a redirect, also by hand.
+//! images, media and tables are read, one behind a redirect, also by hand;
+//! and pages whose metadata and contacts are read, by hand too.
 //! Every other expected Record comes from the same seed data as the pages.
 
 mod content_pages;
 mod markdown_pages;
 mod reference_pages;
+mod structured_pages;
 
 use std::fmt::Write as _;
 
@@ -184,6 +186,7 @@ pub(crate) fn page(seed: u64, path: &str) -> Option<(&'static str, Vec<u8>)> {
         _ if path.starts_with(markdown_pages::INDEX) => markdown_pages::page(path)?,
         _ if path.starts_with(content_pages::INDEX) => content_pages::page(path)?,
         _ if path.starts_with(reference_pages::INDEX) => reference_pages::page(path)?,
+        _ if path.starts_with(structured_pages::INDEX) => structured_pages::page(path)?,
         _ => return routed(seed, path),
     };
     Some(html(page))
@@ -723,7 +726,43 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
         },
         content_modes_task(port),
         references_task(port),
+        structured_task(port),
     ]
+}
+
+/// Task 10: the structured pages, each read for its metadata and contacts
+/// (spec #580, ticket #787).
+fn structured_task(port: Option<u16>) -> Task {
+    const ORDINAL: u32 = 10;
+    let origin = origin(&task_host(ORDINAL), port);
+    Task {
+        host: task_host(ORDINAL),
+        entry: Entry {
+            id: format!("{FAMILY}/{ORDINAL}"),
+            family: FAMILY,
+            kind: Kind::Crawl,
+            start_url: format!("{origin}{}", structured_pages::INDEX),
+            description: "Crawl every page the index links and return one Record per page with \
+                the fields `id` (the path the index links) and, as JSON objects: `metadata`, \
+                `{ \"title\", \"description\", \"canonical\", \"lang\", \"open_graph\", \
+                \"twitter\", \"json_ld\", \"microdata\", \"meta\" }`, the first `<title>`'s \
+                text, the `description` meta tag, the canonical link resolved, the root's \
+                `lang` (each `null` when absent), the Open Graph and Twitter meta tags as \
+                `{ \"property\", \"content\" }` in document order, each JSON-LD block as JSON, \
+                each top-level microdata item as `{ \"type\", \"id\", \"properties\" }` by the \
+                HTML Standard's JSON conversion, and the other named meta tags by name; and \
+                `contacts`, `{ \"emails\", \"phones\", \"social\" }`, each value once with the \
+                text it was read from (its link's text, else the value as written): e-mail \
+                addresses from `mailto:` links and text, telephone numbers from `tel:` links \
+                and text with `e164` only when the number carries its country code or the \
+                page's language tag has a region (a national number in text with neither is \
+                no number), and social profiles with their `network`. Each field is judged as \
+                a JSON value.",
+            account: None,
+            time_steps: None,
+        },
+        expected: Expected::records(structured_pages::records(&origin)),
+    }
 }
 
 /// Task 9: the reference pages, each read for its links, images, media

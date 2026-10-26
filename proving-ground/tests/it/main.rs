@@ -28,6 +28,7 @@ mod extraction_content_modes;
 mod extraction_families;
 mod extraction_markdown;
 mod extraction_references;
+mod extraction_structured;
 mod facets;
 mod fake_model;
 mod fetch_edge;

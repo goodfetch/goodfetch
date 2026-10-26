@@ -284,7 +284,7 @@ pub(crate) fn marks(records: &[Value]) -> Vec<(String, Value)> {
             (path, mark)
         })
         .collect();
-    marks.sort();
+    marks.sort_by(|left, right| left.0.cmp(&right.0));
     marks
 }
 

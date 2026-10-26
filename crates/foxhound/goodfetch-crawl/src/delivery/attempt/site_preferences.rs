@@ -208,7 +208,10 @@ pub(super) fn robots_txt_refusal(
 /// Provenance of each Record it commits then marks it `ignored` (ADR
 /// 0086). A robots.txt that could not be read disallows nothing here.
 pub(super) fn robots_txt_ignored(run: &Run, leased: &Leased, read: Option<&Fetched>) -> bool {
-    let Some(settings) = run.settings().map(|settings| settings.resolved()) else {
+    let Some(settings) = run
+        .settings()
+        .map(goodfetch_engine::settings::RunSettings::resolved)
+    else {
         return false;
     };
     if settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false) {

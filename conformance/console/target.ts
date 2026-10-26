@@ -11,11 +11,7 @@ import { expect } from "@goodfetch/test-support/conformance";
 import { command } from "@goodfetch/test-support/daemon-calls";
 import type { ServedDaemon } from "@goodfetch/test-support/playwright";
 import { WebSocket } from "ws";
-import {
-  createConsoleClient,
-  type ConsoleClient,
-  type Transport,
-} from "@goodfetch/console/src/client/client.ts";
+import { createConsoleClient, type ConsoleClient, type Transport } from "@goodfetch/console/client";
 
 /** The banner of a page with no Connection to its engine. */
 export const BANNER =

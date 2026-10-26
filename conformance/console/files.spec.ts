@@ -4,7 +4,7 @@
 // and a file to show is shown only from the content origin, by an address
 // signed for it, sandboxed and with no cookie of the Console's.
 import { expect, test } from "@goodfetch/test-support/conformance";
-import { httpBodyFetcher } from "@goodfetch/console/src/client/browser.ts";
+import { httpBodyFetcher } from "@goodfetch/console/client/browser";
 import { cookieHeader, startRun, storeBody } from "./target.ts";
 
 /** A file larger than any protocol message may be: 20 MiB. */

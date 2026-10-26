@@ -27,6 +27,25 @@ pub struct RunReader {
     following: Option<Following>,
 }
 
+/// What opens a Run's state read-only, as a reader that takes no lock.
+#[derive(Clone, Debug)]
+pub struct RunFileOpener {
+    file: PathBuf,
+    vfs: Option<String>,
+}
+
+impl RunFileOpener {
+    /// A read-only connection of the run file's committed state; `None`
+    /// when the Run has no run file.
+    ///
+    /// # Errors
+    ///
+    /// SQLite's, when the file cannot be opened.
+    pub fn open(&self) -> rusqlite::Result<Option<Connection>> {
+        open_reader(&self.file, self.vfs.as_deref())
+    }
+}
+
 /// What a reader follows of a Run this engine works: its writer's commits
 /// and its end.
 #[derive(Debug)]
@@ -57,6 +76,31 @@ impl RunReader {
     /// The Run's folder.
     pub(super) fn folder(&self) -> &std::path::Path {
         &self.folder
+    }
+
+    /// What opens the run file read-only as each of this reader's reads
+    /// does, for a reader that reads off the engine's tasks, such as the
+    /// SQL tab's table functions, which DuckDB calls on its own threads
+    /// (ADR 0057).
+    pub fn opener(&self) -> RunFileOpener {
+        RunFileOpener {
+            file: self.folder.join(RUN_FILE),
+            vfs: self.vfs.clone(),
+        }
+    }
+
+    /// Runs `work` under the engine's blocking policy, opening nothing:
+    /// work that reads the run file through [`RunReader::opener`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future only stops waiting: the work runs to its end.
+    pub async fn blocking<T, F>(&self, work: F) -> T
+    where
+        T: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
+    {
+        self.tasks.blocking(work).await
     }
 
     /// Whether more may be committed: this engine's writer still works the

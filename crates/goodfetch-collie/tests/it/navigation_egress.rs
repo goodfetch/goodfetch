@@ -18,6 +18,7 @@
     reason = "the tests poll the Proving ground and the page on their own thread, never an async worker"
 )]
 
+use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -476,23 +477,61 @@ fn case_settings(
     settings
 }
 
+/// What one case's navigation did in the Run `run_id`, on a page of its
+/// own, closed once it answered, so no refusal of a case's reaches
+/// another's call: the refusal its `page.goto` raised, and a connection to
+/// the Proving ground's address for each request it received meanwhile and
+/// to the case's target for each connection its open proxy accepted, which
+/// the proxy would pass on.
+fn navigation(
+    program: &mut Program<'_>,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    case: &SsrfCase,
+) -> Outcome {
+    let public = proving_ground.address().ip();
+    let page = program.new_page(run_id);
+    let requested = requests(proving_ground).len();
+    let proxied = listener_connections(proving_ground, "open");
+    let went = program.goto(&page, &navigated_url(case, proving_ground.address().port()));
+    let _ = program.call("page.close", &json!({ "page_id": page }));
+    let reached = requests(proving_ground).len() - requested;
+    let proxied_now = listener_connections(proving_ground, "open") - proxied;
+    Outcome {
+        refusal: match error(&went) {
+            (code, details) if code == "egress_refused" => {
+                serde_json::from_value(details["rule"].clone())
+                    .ok()
+                    .map(|rule| Refusal::EgressRefused { rule })
+            }
+            _ => None,
+        },
+        connections: [
+            vec![public; reached],
+            vec![case.target_address(public).unwrap_or(public); proxied_now],
+        ]
+        .concat(),
+    }
+}
+
 /// The SSRF table's thin runner on Chromium (ADR 0067) for the program's
 /// own navigation, `test` the runner's test: each of its cases as
 /// `page.goto`, at the Proving ground's port, is refused with
 /// `egress_refused` and its rule, and neither the Proving ground nor its
 /// open proxy receives anything meanwhile. One Run per domain policy, proxy
-/// and mapping, which its cases share, and a page of its own per case, so
-/// no refusal of a case's reaches another's call. The positive controls, a
-/// Proving ground page directly and a public name through the open proxy,
-/// reach the Proving ground. Chromium and the engine read a URL as the
-/// WHATWG parser does, so each URL is navigated as that parser writes it,
-/// but for those it refuses, navigated as written.
+/// and mapping, which its cases share, finished once they are done, so the
+/// test holds one browser and one page at a time: the Resource governor
+/// admits no page past its floor, one, while the host is under pressure
+/// (ADR 0040). The positive controls, a Proving ground page directly and a
+/// public name through the open proxy, reach the Proving ground. Chromium
+/// and the engine read a URL as the WHATWG parser does, so each URL is
+/// navigated as that parser writes it, but for those it refuses, navigated
+/// as written.
 fn navigations_are_refused_on_chromium(test: &str) -> Runner {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let public = proving_ground.address().ip();
-    let port = proving_ground.address().port();
     let runner = Runner::committed("chromium_navigation", file!(), test).unwrap();
     let controls = SsrfTable::parse(
         r#"
@@ -516,54 +555,33 @@ fn navigations_are_refused_on_chromium(test: &str) -> Runner {
     .unwrap();
     let listed = ["proxied.ssrf.test".to_owned()];
     let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
-    let mut runs: Vec<Value> = Vec::new();
+    let mut groups: Vec<(Value, Vec<&SsrfCase>)> = Vec::new();
+    for case in controls.cases.iter().chain(runner.cases()) {
+        let settings = case_settings(&program, &proving_ground, case, &listed);
+        match groups.iter_mut().find(|(shared, _)| *shared == settings) {
+            Some((_, members)) => members.push(case),
+            None => groups.push((settings, vec![case])),
+        }
+    }
+    let mut outcomes: BTreeMap<String, Outcome> = BTreeMap::new();
+    for (index, (settings, members)) in groups.into_iter().enumerate() {
+        let run_id = format!("run-{index}");
+        let started = program.call(
+            "run.start",
+            &json!({ "run_id": run_id, "settings": settings }),
+        );
+        assert!(started.get("result").is_some(), "{started}");
+        for case in members {
+            let outcome = navigation(&mut program, &proving_ground, &run_id, case);
+            outcomes.insert(case.name.clone(), outcome);
+        }
+        let _ = program.call("run.finish", &json!({ "run_id": run_id }));
+    }
+    program.finish(&[]);
 
     let result = runner.run(&controls.cases, public, |case| {
-        let settings = case_settings(&program, &proving_ground, case, &listed);
-        let run = if let Some(run) = runs.iter().position(|shared| *shared == settings) {
-            run
-        } else {
-            let started = program.call(
-                "run.start",
-                &json!({ "run_id": format!("run-{}", runs.len()), "settings": settings }),
-            );
-            assert!(started.get("result").is_some(), "{started}");
-            // The Run's first page stays open, so closing a case's own
-            // never ends its Session.
-            let _ = program.new_page(&format!("run-{}", runs.len()));
-            runs.push(settings);
-            runs.len() - 1
-        };
-        let page = program.new_page(&format!("run-{run}"));
-        let requested = requests(&proving_ground).len();
-        let proxied = listener_connections(&proving_ground, "open");
-        let went = program.goto(&page, &navigated_url(case, port));
-        let _ = program.call("page.close", &json!({ "page_id": page }));
-        // The Proving ground's own requests reached its address; the open
-        // proxy's connections stand for the case's target, which the proxy
-        // would reach.
-        let reached = requests(&proving_ground).len() - requested;
-        let proxied_now = listener_connections(&proving_ground, "open") - proxied;
-        Outcome {
-            refusal: match error(&went) {
-                (code, details) if code == "egress_refused" => {
-                    serde_json::from_value(details["rule"].clone())
-                        .ok()
-                        .map(|rule| Refusal::EgressRefused { rule })
-                }
-                _ => None,
-            },
-            connections: [
-                vec![public; reached],
-                vec![case.target_address(public).unwrap_or(public); proxied_now],
-            ]
-            .concat(),
-        }
+        outcomes.remove(&case.name).unwrap_or_default()
     });
-    let finished: Vec<String> = (0..runs.len()).map(|run| format!("run-{run}")).collect();
-    let finished: Vec<&str> = finished.iter().map(String::as_str).collect();
-    program.finish(&finished);
-
     assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
     runner
 }

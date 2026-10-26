@@ -1,0 +1,16 @@
+[
+  {
+    "name": "collie-console",
+    "path": ["crates/goodfetch-collie/console-build/**/*.br"],
+    "brotli": false
+  },
+  {
+    "name": "collie-console-initial-route",
+    "path": [
+      "crates/goodfetch-collie/console-build/index.html.br",
+      "crates/goodfetch-collie/console-build/assets/index-*.js.br",
+      "crates/goodfetch-collie/console-build/assets/index-*.css.br"
+    ],
+    "brotli": false
+  }
+]

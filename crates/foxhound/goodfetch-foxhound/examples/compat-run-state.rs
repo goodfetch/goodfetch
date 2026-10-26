@@ -177,14 +177,6 @@ fn scenario() -> Vec<Value> {
         ),
         call(12, "compat.keyed", json!({ "run_id": "aborted" })),
         call(4, "run.abort", json!({ "run_id": "aborted" })),
-        call(5, "compat.bound", json!({})),
-        call(
-            6,
-            "run.set_progress_message",
-            json!({ "run_id": "paused", "message": "Waiting for the next page" }),
-        ),
-        call(7, "run.checkpoint", json!({ "run_id": "paused" })),
-        call(8, "run.pause", json!({ "run_id": "paused" })),
         call(
             16,
             "crawl.start",
@@ -194,6 +186,14 @@ fn scenario() -> Vec<Value> {
                 "extraction": { "formats": { "markdown": true }, "follow": "none" },
             }),
         ),
+        call(5, "compat.bound", json!({})),
+        call(
+            6,
+            "run.set_progress_message",
+            json!({ "run_id": "paused", "message": "Waiting for the next page" }),
+        ),
+        call(7, "run.checkpoint", json!({ "run_id": "paused" })),
+        call(8, "run.pause", json!({ "run_id": "paused" })),
     ]
 }
 

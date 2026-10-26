@@ -174,3 +174,31 @@ fn records_once(pages: &[Fetched]) -> Vec<Value> {
     records.dedup();
     records
 }
+
+/// `/hidden-links`, which no page links, holds a honeypot under `/hp/` for
+/// each way a link hides from people, eight, beside the three links a
+/// person sees: a plain one, a `nofollow` one and one in an ad.
+#[test]
+fn the_hidden_links_page_hides_eight_honeypots_beside_three_shown_links() {
+    let proving_ground = ProvingGround::start(SEED);
+    let start = start_url(&proving_ground);
+
+    let page = proving_ground.get(&format!("{start}hidden-links"));
+    let every = links(&page.body, true);
+
+    assert_eq!(page.status, 200);
+    assert_eq!(
+        every.iter().filter(|link| link.starts_with("/hp/")).count(),
+        8,
+        "{}",
+        page.body
+    );
+    assert_eq!(
+        every
+            .iter()
+            .filter(|link| !link.starts_with("/hp/"))
+            .collect::<Vec<_>>(),
+        ["/items/I-0001", "/items/I-0002", "/items/I-0003"]
+    );
+    assert!(!links(&proving_ground.get(&start).body, true).contains(&"/hidden-links".to_owned()));
+}

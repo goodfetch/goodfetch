@@ -8,12 +8,14 @@
 //! or `skipped_by_payload`. Every Payload is checked before any link is
 //! admitted, so a `payload_invalid` adds none; the links are staged with
 //! the attempt together, and commit or are discarded with it, as one
-//! enqueue is (ADR 0093).
+//! enqueue is (ADR 0093). On the browser tier, a link a person cannot see
+//! is not added, with `trap_link` (ADR 0035; the Frontier's `trap_links`).
 
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::{CallContext, CallError, Handler};
-use goodfetch_fetch_tier::{FetchTiers, ServedLinks};
+use goodfetch_fetch_tier::{FetchTiers, LinksUnread, ServedLinks};
 use goodfetch_frontier::payload::PayloadRules;
+use goodfetch_frontier::trap_links::{self, Trap};
 use goodfetch_frontier::{
     Candidate, Narrowing, Patterns, Scope, Url, admit, document_base, resolve_link,
 };
@@ -22,7 +24,7 @@ use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::frontier::{
     CRAWL_REQUEST_ENQUEUE_LINKS, CRAWL_REQUEST_LINKS, CrawlRequestEnqueueLinksParams,
     CrawlRequestLinks, CrawlRequestLinksParams, Enqueued, EnqueuedLink, EnqueuedLinks, HttpMethod,
-    MatchedLink,
+    MatchedLink, NotAddedReason,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::Locator;
@@ -100,7 +102,12 @@ async fn served(tiers: &FetchTiers, locator: &Locator) -> Result<(ServedLinks, U
                 &(),
             )
         })?
-        .map_err(|invalid| CallError::protocol(ProtocolFailure::InvalidParams, invalid.to_string()))?;
+        .map_err(|unread| match unread {
+            LinksUnread::Selector(invalid) => {
+                CallError::protocol(ProtocolFailure::InvalidParams, invalid.to_string())
+            }
+            LinksUnread::Page(error) => error,
+        })?;
     let base = document_base(&served.base_url, None).ok_or_else(|| {
         CallError::protocol(
             ProtocolFailure::InvalidParams,
@@ -202,6 +209,7 @@ async fn enqueue_links(
         .into_iter()
         .enumerate()
         .map(|(at, element)| Link {
+            trap: element.seen.as_ref().and_then(trap_links::judge),
             href: element.href,
             payload: match &params.payloads {
                 Some(payloads) => match &payloads[at] {
@@ -261,6 +269,9 @@ enum Chosen {
 /// One matched element: its `href`, if any, and what its link takes.
 struct Link {
     href: Option<String>,
+    /// Why it is a trap a person cannot see, as its browser page read it
+    /// (ADR 0035); none for one a person sees, or a served document's.
+    trap: Option<Trap>,
     payload: Chosen,
 }
 
@@ -307,6 +318,17 @@ fn add(
     for link in batch.links {
         let answer = match (&link.href, &link.payload) {
             (None, _) => EnqueuedLink::NoLink,
+            (Some(href), _) if link.trap.is_some() => {
+                tracing::debug!(
+                    url = %href,
+                    trap = link.trap.map(Trap::name),
+                    "a link a person cannot see was not added"
+                );
+                EnqueuedLink::NotAdded {
+                    reason: NotAddedReason::TrapLink,
+                    url: href.clone(),
+                }
+            }
             (Some(href), Chosen::Skipped) => EnqueuedLink::SkippedByPayload { url: href.clone() },
             (Some(href), Chosen::Payload(payload)) => {
                 let candidate = Candidate::Href {

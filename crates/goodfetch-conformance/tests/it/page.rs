@@ -202,7 +202,7 @@ fn the_page_suite_proves_navigation_against_collies_attached_engine() {
     prove(NAVIGATION);
 }
 
-/// Covers: story:6-1, story:6-8, story:6-12, story:6-9, story:6-10, story:6-14, story:6-2, story:6-3, operation:page.formats, operation:page.wait_for_function, operation:page.evaluate, operation:locator.wait_for, setting:filter_lists.ads
+/// Covers: story:6-1, story:6-8, story:6-12, story:6-9, story:6-10, story:6-14, story:6-2, story:6-3, story:6-4, story:6-5, operation:page.formats, operation:page.wait_for_function, operation:page.evaluate, operation:locator.wait_for, setting:filter_lists.ads
 #[test]
 fn the_page_suite_proves_formats_against_collies_attached_engine() {
     prove(FORMATS);

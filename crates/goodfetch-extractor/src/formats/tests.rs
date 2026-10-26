@@ -7,6 +7,8 @@ mod extractors;
 mod live_document;
 mod markdown;
 mod properties;
+mod references;
+mod tables;
 mod unicode;
 
 use goodfetch_protocol::page::{FormatsRequest, PageFormats};

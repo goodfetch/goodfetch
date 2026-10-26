@@ -773,6 +773,26 @@ class HttpMethod(RootModel[str]):
     """The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused."""
 
 
+class Image(BaseModel):
+    """An image of the page: an `<img src>`, in document order."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    alt: str | None = None
+    """
+    Its `alt`: empty for an image marked decorative, `null` when it has
+    none.
+    """
+    src: str
+    """Its `src` as the document writes it."""
+    url: str | None = None
+    """
+    Its `src` resolved against the document's base URL; `null` when it
+    does not parse.
+    """
+
+
 class InitScriptEnded(BaseModel):
     """What an init script's subscription answers when its page closes."""
 
@@ -935,6 +955,28 @@ class LimitStanding(StrEnum):
     """It cannot evaluate it: a newer engine wrote it."""
 
 
+class Link(BaseModel):
+    """A link of the page: an `<a href>` or `<area href>`, in document order."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    href: str
+    """
+    Its `href` as the document writes it, its character references
+    decoded.
+    """
+    rel: list[str]
+    """The tokens of its `rel`, as written; empty when it has none."""
+    text: str
+    """Its text, white space collapsed."""
+    url: str | None = None
+    """
+    Its `href` resolved against the document's base URL by the WHATWG
+    URL Standard; `null` when it does not parse.
+    """
+
+
 class LoadState(StrEnum):
     """A state the page's document reaches (Playwright's `LoadState`)."""
 
@@ -1013,6 +1055,15 @@ class MarkdownOptions(BaseModel):
     )
     content: MarkdownContent
     """How much of the page it holds."""
+
+
+class MediaKind(StrEnum):
+    """Whether a media source plays video or audio."""
+
+    video = "video"
+    """A `<video>`'s, its own `src` or one of its `<source>`s."""
+    audio = "audio"
+    """An `<audio>`'s, its own `src` or one of its `<source>`s."""
 
 
 class MemoryReading(BaseModel):
@@ -1185,6 +1236,11 @@ class NotAddedReason(StrEnum):
     """
     no_rule = "no_rule"
     """A sitemap entry no rule of its sitemap seed matches (ADR 0093)."""
+    trap_link = "trap_link"
+    """
+    On the browser tier, its link is one a person cannot see, a
+    `nofollow` one among them: a trap a crawl never enters (ADR 0035).
+    """
 
 
 class NothingDone3(BaseModel):
@@ -1244,33 +1300,6 @@ class PageEventName(StrEnum):
     """`page.close`."""
     popup = "popup"
     """`page.popup`."""
-
-
-class PageFormats(BaseModel):
-    """
-    What `page.formats` answers: the formats the request asked for, and
-    none it did not, with the document's URL, its base URL and whether it
-    has main content. Text is as the document holds it, never repaired.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    base_url: str
-    """
-    The URL its relative URLs resolve against: its first `<base href>`,
-    else its URL.
-    """
-    html: str | None = None
-    """Its HTML of the kind the request named, when it asked for it."""
-    main_content: MainContent
-    """Whether it has main content."""
-    markdown: str | None = None
-    """Its content as Markdown, when the request asked for it."""
-    text: str | None = None
-    """Its main content's text, when the request asked for it."""
-    url: str
-    """The document's URL, after redirects."""
 
 
 class PageId(RootModel[str]):
@@ -2654,6 +2683,27 @@ class Surface(StrEnum):
     """
     worker = "worker"
     """A Script sandbox worker."""
+
+
+class Table(BaseModel):
+    """
+    A table of the page, in document order, a table inside another listed
+    on its own: each row its cells' text, white space collapsed, a row's
+    header kept as its first cell.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    body_rows: list[list[str]]
+    """Its other rows, its `<tfoot>`'s last."""
+    caption: str | None = None
+    """Its `<caption>`'s text; `null` when it has none."""
+    header_rows: list[list[str]]
+    """
+    Its header rows: its `<thead>`'s, else the rows it begins with whose
+    cells are all `<th>`.
+    """
 
 
 class Tag(RootModel[str]):
@@ -4046,6 +4096,31 @@ class MarkdownFormat(RootModel[Asked | MarkdownOptions]):
     """The `markdown` format of a request: `true`, or its options."""
 
 
+class Media(BaseModel):
+    """
+    A media source of the page: a `<video src>`, an `<audio src>` or a
+    `<source src>` of either, in document order.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: MediaKind
+    """Whether it plays video or audio."""
+    src: str
+    """Its `src` as the document writes it."""
+    type: str | None = None
+    """
+    Its `type`, the MIME type a `<source>` declares; `null` when it has
+    none.
+    """
+    url: str | None = None
+    """
+    Its `src` resolved against the document's base URL; `null` when it
+    does not parse.
+    """
+
+
 class Navigated(BaseModel):
     """
     What a navigation answers: the document's response, or none for a
@@ -4275,6 +4350,41 @@ class PageFired(BaseModel):
     )
     page_id: PageId
     """The page."""
+
+
+class PageFormats(BaseModel):
+    """
+    What `page.formats` answers: the formats the request asked for, and
+    none it did not, with the document's URL, its base URL and whether it
+    has main content. Text is as the document holds it, never repaired.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    base_url: str
+    """
+    The URL its relative URLs resolve against: its first `<base href>`,
+    else its URL.
+    """
+    html: str | None = None
+    """Its HTML of the kind the request named, when it asked for it."""
+    images: list[Image] | None = None
+    """Its images, when the request asked for them."""
+    links: list[Link] | None = None
+    """Its links, when the request asked for them."""
+    main_content: MainContent
+    """Whether it has main content."""
+    markdown: str | None = None
+    """Its content as Markdown, when the request asked for it."""
+    media: list[Media] | None = None
+    """Its media sources, when the request asked for them."""
+    tables: list[Table] | None = None
+    """Its tables, when the request asked for them."""
+    text: str | None = None
+    """Its main content's text, when the request asked for it."""
+    url: str
+    """The document's URL, after redirects."""
 
 
 class PageOpened(BaseModel):
@@ -5258,8 +5368,16 @@ class FormatsRequest(BaseModel):
     )
     html: HtmlFormat | None = None
     """The page's HTML: its main content by default."""
+    images: Asked | None = None
+    """The page's images, each with its URL resolved and its `alt`."""
+    links: Asked | None = None
+    """The page's links, each with its URL resolved."""
     markdown: MarkdownFormat | None = None
     """The page's content as Markdown, with GFM's tables."""
+    media: Asked | None = None
+    """The page's video and audio sources, each with its URL resolved."""
+    tables: Asked | None = None
+    """The page's tables, as rows of cells."""
     text: Asked | None = None
     """The text of the page's main content, a paragraph per block."""
 

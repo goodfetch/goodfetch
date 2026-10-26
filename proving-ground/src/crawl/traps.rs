@@ -5,7 +5,11 @@
 //! another order); two crawler traps, an events calendar whose months page
 //! on without end and an archive whose relative "older" link nests without
 //! end; and honeypot links, hidden from people in four ways and disallowed
-//! by `robots.txt`.
+//! by `robots.txt`; and `/hidden-links`, which no page links, a page of
+//! every way a link hides from people (ADR 0035's trap links): the four,
+//! an `opacity` of 0, a link clipped to nothing and two invisible
+//! `nofollow` links, each under `/hp/`, beside three links a person sees,
+//! one plain, one `nofollow` and one in an ad (EasyList's `##.ad-slot`).
 //!
 //! The family records a `duplicate` finding for each page a task fetches
 //! again, a `trap` finding for each trap request past the task's allowance,
@@ -28,6 +32,9 @@ pub(super) const FAMILY: &str = "traps";
 const FAMILY_PLACE: u64 = 22;
 const HONEYPOT_PLACE: u64 = 1;
 const TOKEN_PLACE: u64 = 2;
+/// The page number `/hidden-links` draws its honeypots' tokens at, past
+/// every category's.
+const HIDDEN_LINKS_PAGE: u64 = 1000;
 
 const CATEGORIES: u64 = 3;
 const ITEMS_PER_CATEGORY: u64 = 10;
@@ -67,6 +74,9 @@ pub(super) fn respond(visit: &Visit<'_>, state: &State) -> Page {
             "text/plain; charset=utf-8",
             "User-agent: *\nDisallow: /hp/\n".to_owned(),
         );
+    }
+    if path == "/hidden-links" {
+        return Page::ok(hidden_links(visit.seed));
     }
     if path.starts_with("/hp/") {
         visit.find(Finding::Honeypot {
@@ -153,6 +163,35 @@ fn honeypots(seed: u64, page: u64) -> String {
         token(3),
         token(4),
     )
+}
+
+/// The page of `/hidden-links`: the honeypot links of every way a link
+/// hides, and the three a person sees, to items 1, 2 and 3.
+fn hidden_links(seed: u64) -> String {
+    let token = |form: u64| {
+        generator::draw(
+            seed,
+            &[FAMILY_PLACE, HONEYPOT_PLACE, HIDDEN_LINKS_PAGE, form],
+        ) & 0xFFFF_FFFF
+    };
+    let mut body = String::from("<main>\n<h1>Hidden links</h1>\n");
+    body.push_str(&honeypots(seed, HIDDEN_LINKS_PAGE));
+    write!(
+        body,
+        "<a href=\"/hp/{:08x}\" style=\"opacity:0\">Members</a>\n\
+        <span style=\"position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)\"><a href=\"/hp/{:08x}\">Wholesale</a></span>\n\
+        <a href=\"/hp/{:08x}\" rel=\"nofollow\" style=\"display:none\">Login</a>\n\
+        <a href=\"/hp/{:08x}\" rel=\"nofollow noopener\" style=\"position:absolute;top:-5000px\">Feeds</a>\n\
+        <ul>\n<li><a href=\"/items/I-0001\">The first item</a></li>\n\
+        <li><a href=\"/items/I-0002\" rel=\"nofollow\">The second item</a></li>\n</ul>\n\
+        <div class=\"ad-slot\"><a href=\"/items/I-0003\">The third item, in an ad</a></div>\n</main>\n",
+        token(5),
+        token(6),
+        token(7),
+        token(8),
+    )
+    .expect("invariant: writing to a String succeeds");
+    document("Hidden links", &body)
 }
 
 fn home(seed: u64) -> String {

@@ -48,11 +48,13 @@ use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, Reader,
     ServedDocument,
 };
+use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::{CRAWL_CONTENT_TYPES, CrawlRequest};
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_HEDGE_ENABLED, FETCH_REDIRECT_MAX, FETCH_TIER, FETCH_TIER_RACE,
     FetchTier, REDIRECT_MAX_LIMIT,
 };
+use goodfetch_protocol::foxhound::frontier::CRAWL_REQUEST_LINKS;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::provenance::{
     CertificateExceptionKind, CertificateExceptionMark,
@@ -78,7 +80,7 @@ use crate::choice::{
     ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
 };
 use crate::content_types::{Accepts, ContentTypes, is_document, typed};
-use crate::document::{Matched, SelectorInvalid, matched};
+use crate::document::{self, Matched, SelectorInvalid, matched};
 use crate::driver::{Deadlines, Hop, Transport, fetch, fetch_accepting};
 use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
@@ -152,6 +154,15 @@ struct Pages {
     /// What the browser tier's document reader learned of each browser
     /// page a handler holds (ADR 0119).
     browser: BTreeMap<PageId, reading::BrowserRead>,
+}
+
+/// Why a page's links could not be read.
+#[derive(Debug)]
+pub enum LinksUnread {
+    /// The locator's selector is no CSS selector.
+    Selector(SelectorInvalid),
+    /// The browser page's read failed with this Error code.
+    Page(CallError),
 }
 
 /// The elements a locator matched in a served page's document, with what
@@ -757,13 +768,17 @@ impl FetchTiers {
         Some(signed)
     }
 
-    /// The elements the CSS selector `selector` matches in the served
-    /// page `page_id`'s document, read on its Run's blocking owner;
-    /// `None` when no tier serves that page, as a closed one.
+    /// The elements the CSS selector `selector` matches in the page
+    /// `page_id`'s document: a served page's, read on its Run's blocking
+    /// owner; a browser page's, read by the page itself in the guard's
+    /// isolated world with what a person sees of each element (the
+    /// Frontier's `trap_links`, ADR 0035); `None` when no tier serves that
+    /// page, as a closed one.
     ///
     /// # Errors
     ///
-    /// When `selector` is no CSS selector.
+    /// When `selector` is no CSS selector, or the browser page's read
+    /// failed.
     ///
     /// # Cancel safety
     ///
@@ -772,16 +787,20 @@ impl FetchTiers {
         &self,
         page_id: &PageId,
         selector: &str,
-    ) -> Option<Result<ServedLinks, SelectorInvalid>> {
-        let (served, encoding) = {
+    ) -> Option<Result<ServedLinks, LinksUnread>> {
+        let opened = {
             let pages = lock(&self.served.pages);
-            let served = pages.open.get(page_id)?.document.clone();
-            let encoding = pages
-                .encodings
-                .get(page_id)
-                .copied()
-                .unwrap_or(encoding_rs::UTF_8);
-            (served, encoding)
+            pages.open.get(page_id).map(|page| {
+                let encoding = pages
+                    .encodings
+                    .get(page_id)
+                    .copied()
+                    .unwrap_or(encoding_rs::UTF_8);
+                (page.document.clone(), encoding)
+            })
+        };
+        let Some((served, encoding)) = opened else {
+            return self.browser_links(page_id, selector).await;
         };
         let selector = selector.to_owned();
         let run = served.run.clone();
@@ -796,7 +815,48 @@ impl FetchTiers {
                 })
             })
             .await;
-        Some(read)
+        Some(read.map_err(LinksUnread::Selector))
+    }
+
+    /// The elements `selector` matches in the browser page `page_id`'s
+    /// document, as [`FetchTiers::links`] reads them; `None` for a page no
+    /// browser holds.
+    async fn browser_links(
+        &self,
+        page_id: &PageId,
+        selector: &str,
+    ) -> Option<Result<ServedLinks, LinksUnread>> {
+        let pages = self.served.browser.get()?;
+        if let Err(invalid) = document::check_selector(selector) {
+            return Some(Err(LinksUnread::Selector(invalid)));
+        }
+        let answer = match pages
+            .read(
+                page_id,
+                goodfetch_frontier::trap_links::READ,
+                serde_json::json!({ "selector": selector }),
+                CRAWL_REQUEST_LINKS.name,
+            )
+            .await
+        {
+            Ok(Some(answer)) => answer,
+            // Its document went, or the page closed: no tier serves it now.
+            Ok(None) => return None,
+            Err(error) if error.code() == CLOSED.name => return None,
+            Err(error) => return Some(Err(LinksUnread::Page(error))),
+        };
+        let Some((url, base_url, encoding, elements)) = document::browser_matched(&answer) else {
+            return Some(Err(LinksUnread::Page(CallError::protocol(
+                ProtocolFailure::InternalError,
+                "the browser page's read of its links answered no list of elements",
+            ))));
+        };
+        Some(Ok(ServedLinks {
+            url,
+            base_url,
+            encoding: Encoding::for_label(encoding.as_bytes()).unwrap_or(encoding_rs::UTF_8),
+            elements,
+        }))
     }
 
     /// Judges the served page `page_id`'s document against `check`, its

@@ -7,7 +7,11 @@
 //! its other entries, here the use of its key-encryption key, are written
 //! unchained and the log still verifies. A control another composition
 //! registers, as Foxhound's may, is reported the same way, and a setting no
-//! composition registers only weakens.
+//! composition registers only weakens. A key a composition registers as a
+//! weakening of its own, as Foxhound's Politeness values are, is recorded
+//! as the kind it names, with its value, its built-in default and the
+//! layer that set it, once per Run, and warned of once; a value that does
+//! not weaken records nothing.
 #![expect(
     clippy::disallowed_types,
     reason = "the test's `tracing` layer collects warnings from the engine's threads"
@@ -17,6 +21,8 @@ use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::foxhound::settings::POLITENESS_WEAKENED;
+use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::RUN_STATE_DURABILITY;
 use goodfetch_test_support::{Canaries, SecretKind, TestEnv};
 use serde_json::{Value, json};
@@ -241,6 +247,77 @@ fn a_control_another_composition_registers_is_reported_as_the_engines_own() {
                     json!(["secret_reference_used", "switched", true, null]),
                 ]
             ),
+        )
+    );
+}
+
+/// Each Audit log entry of `env`'s home that is not a key reference's use,
+/// as its kind, its Run, the layer that set it and its details.
+fn recorded(env: &TestEnv) -> Vec<Value> {
+    AuditLog::of(&Home::new(env.home().to_owned()), None)
+        .export()
+        .unwrap()
+        .into_iter()
+        .filter(|exported| exported.entry.kind != "secret_reference_used")
+        .map(|exported| {
+            json!([
+                exported.entry.kind,
+                exported.entry.run_id,
+                exported.entry.layer,
+                exported.entry.details,
+            ])
+        })
+        .collect()
+}
+
+/// A key a composition registers as a weakening recorded as a kind of its
+/// own, as Foxhound's composition registers its Politeness values (ADR
+/// 0086), is recorded once per Run as that kind, with its value, its
+/// built-in default and the layer that set it, warned of once and listed
+/// in `weakened`, however often the Run starts; its default records
+/// nothing (positive control).
+/// Covers: story:4-117, setting:politeness.sharing
+#[test]
+fn a_registered_weakening_is_recorded_once_as_its_kind_with_its_default_and_layer() {
+    let (pressing, gentle) = (TestEnv::new(), TestEnv::new());
+    let registering = || {
+        Contribution::new("test-politeness")
+            .with_recorded_weakening(&POLITENESS_SHARING, &POLITENESS_WEAKENED)
+    };
+
+    let pressed = started_twice(
+        &engine_with(Product::Collie, Some(registering())),
+        &pressing,
+        &json!({ "politeness": { "sharing": "run" } }),
+    );
+    let gentler = started_twice(
+        &engine_with(Product::Collie, Some(registering())),
+        &gentle,
+        &json!({ "politeness": { "sharing": "shared" } }),
+    );
+
+    assert_eq!(
+        (
+            (&pressed.0["weakened"], pressed.1, recorded(&pressing)),
+            (&gentler.0["weakened"], gentler.1, recorded(&gentle)),
+        ),
+        (
+            (
+                &json!([{
+                    "key": "politeness.sharing",
+                    "value": "run",
+                    "layer": "run",
+                    "origin": "settings",
+                }]),
+                vec!["politeness.sharing".to_owned()],
+                vec![json!([
+                    "politeness_weakened",
+                    "switched",
+                    "run",
+                    { "setting": "politeness.sharing", "value": "run", "default": "shared" },
+                ])],
+            ),
+            (&Value::Null, Vec::<String>::new(), Vec::<Value>::new()),
         )
     );
 }

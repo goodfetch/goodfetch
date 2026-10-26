@@ -1096,7 +1096,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1."
+                    "description": "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder."
                   },
                   "delay": {
                     "anyOf": [
@@ -1109,7 +1109,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s."
+                    "description": "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder."
                   },
                   "rate": {
                     "anyOf": [
@@ -1447,6 +1447,23 @@
                       }
                     ],
                     "description": "The absolute path of the 1Password CLI, `op`, that answers `op://vault/item/field` Secret references: the engine runs `op read` with its own environment, so `OP_SERVICE_ACCOUNT_TOKEN` or the desktop app's integration signs it in. Unset, the default, an `op://` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration."
+                  }
+                },
+                "type": "object"
+              },
+              "vault": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The URL of the HashiCorp Vault or OpenBao server that answers `vault:mount/path#field` Secret references, such as `https://vault.example.com:8200`: the engine reads `field` of the KV version 2 secret `path` in the secrets engine mounted at `mount`, with the token in its environment's `VAULT_TOKEN`, or `BAO_TOKEN`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address, as a development server's. Unset, the default, a `vault:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration."
                   }
                 },
                 "type": "object"

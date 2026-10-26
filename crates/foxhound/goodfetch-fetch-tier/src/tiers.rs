@@ -85,7 +85,7 @@ use crate::driver::{Deadlines, Hop, Transport, fetch, fetch_accepting};
 use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::redundant::{Redundant, Requester};
-use crate::transports::{AddressCheck, BrowserFetch, Reqwest, TransportConfig};
+use crate::transports::{AddressCheck, BrowserFetch, LocalSource, Reqwest, TransportConfig};
 use crate::use_signals::UseSignals;
 
 mod calls;
@@ -459,7 +459,9 @@ impl FetchTiers {
 
     /// An HTTP tier for `run` under its settings, one per Run so its hops
     /// share connections: the one its crawl requests on the `http` tier
-    /// take, and its navigation gate fetches robots.txt with.
+    /// take, and its navigation gate fetches robots.txt with, sending from
+    /// `local` when the Run sets `egress.local_addresses` (ADR 0044). Each
+    /// Session's own local addresses take [`HttpTier::from_session`].
     ///
     /// # Errors
     ///
@@ -470,7 +472,11 @@ impl FetchTiers {
     /// # Cancel safety
     ///
     /// Dropping the future loses only the tier.
-    pub async fn built(run: &Run, settings: &Resolved) -> Result<HttpTier, String> {
+    pub async fn built(
+        run: &Run,
+        settings: &Resolved,
+        local: Option<LocalSource>,
+    ) -> Result<HttpTier, String> {
         let egress = Policy::of(settings).map_err(|error| error.to_string())?;
         let trust = trusted_cas(settings.value(TLS_TRUSTED_CAS.name), run.owner()).await;
         let client_certificates = ClientCertificates::listed(
@@ -482,7 +488,7 @@ impl FetchTiers {
             Some(run.id().clone()),
         )
         .map_err(|error| error.to_string())?;
-        let transport = Reqwest::new(TransportConfig {
+        let config = TransportConfig {
             trust,
             exceptions: exceptions_of(run, settings),
             client_certificates: Some(client_certificates),
@@ -491,8 +497,9 @@ impl FetchTiers {
             egress: egress.clone(),
             clock: run.clock(),
             resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,
-        })
-        .map_err(|error| error.to_string())?;
+            local,
+        };
+        let transport = Reqwest::new(config.clone()).map_err(|error| error.to_string())?;
         Ok(HttpTier {
             addresses: transport.address_check(),
             transport: Arc::new(transport),
@@ -500,6 +507,10 @@ impl FetchTiers {
             deadlines: Deadlines::of(settings),
             redundant: Arc::new(Redundant::of(settings)),
             following: Following::of(settings),
+            sessions: Arc::new(SessionTransports {
+                config,
+                built: Mutex::new(BTreeMap::new()),
+            }),
         })
     }
 
@@ -1201,6 +1212,26 @@ pub struct HttpTier {
     redundant: Arc<Redundant>,
     /// What its requests' redirect chains follow.
     following: Following,
+    /// The reqwest transports of the Run's Sessions that hold their own
+    /// local addresses, which every clone shares.
+    sessions: Arc<SessionTransports>,
+}
+
+/// The reqwest transport of each local source a Session of the Run sends
+/// from (ADR 0044), built on its first use, so the hops of Sessions that
+/// share one share its connections.
+struct SessionTransports {
+    /// The Run's transport configuration, its `local` replaced for each.
+    config: TransportConfig,
+    built: Mutex<BTreeMap<LocalSource, (Arc<Reqwest>, AddressCheck)>>,
+}
+
+impl SessionTransports {
+    fn built(&self) -> MutexGuard<'_, BTreeMap<LocalSource, (Arc<Reqwest>, AddressCheck)>> {
+        self.built
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 /// How many redirects a robots.txt fetch follows: RFC 9309 §2.3.1.2's
@@ -1208,6 +1239,41 @@ pub struct HttpTier {
 const ROBOTS_TXT_REDIRECTS: usize = 5;
 
 impl HttpTier {
+    /// The tier as a Session holding the local addresses `local` sends on
+    /// it: its connections and DNS queries leave from them (ADR 0044);
+    /// the tier itself for `None`, a Session sending from the Run's.
+    ///
+    /// # Errors
+    ///
+    /// A message when its transport cannot be built.
+    pub fn from_session(&self, local: Option<&LocalSource>) -> Result<HttpTier, String> {
+        let Some(local) = local else {
+            return Ok(self.clone());
+        };
+        if self.sessions.config.local.as_ref() == Some(local) {
+            return Ok(self.clone());
+        }
+        let mut built = self.sessions.built();
+        let (transport, addresses) = if let Some(transport) = built.get(local) {
+            transport.clone()
+        } else {
+            let transport = Reqwest::new(TransportConfig {
+                local: Some(local.clone()),
+                ..self.sessions.config.clone()
+            })
+            .map_err(|error| error.to_string())?;
+            let addresses = transport.address_check();
+            let transport = (Arc::new(transport), addresses);
+            built.insert(local.clone(), transport.clone());
+            transport
+        };
+        Ok(HttpTier {
+            transport,
+            addresses,
+            ..self.clone()
+        })
+    }
+
     /// The address check of the tier's connections, which judges a crawl
     /// request's URL, and the addresses its name resolves to, before
     /// anything is sent for it (ADR 0017).

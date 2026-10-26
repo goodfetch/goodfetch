@@ -7,7 +7,16 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
-from goodfetch_collie_client.generated.shared_types import BlockCause as CollieBlockCause, CompletenessReasonCode as CollieCompletenessReasonCode, LimitScope as CollieLimitScope, RunWarningCode as CollieRunWarningCode, UsageKind as CollieUsageKind
+from goodfetch_collie_client.generated.shared_types import AuditKind as CollieAuditKind, BlockCause as CollieBlockCause, CompletenessReasonCode as CollieCompletenessReasonCode, LimitScope as CollieLimitScope, RunWarningCode as CollieRunWarningCode, UsageKind as CollieUsageKind
+
+AuditKind: TypeAlias = CollieAuditKind | Literal["politeness_weakened"]
+"""A `audit_kind`, a type both Products share (ADR 0095).
+
+Collie's values and Foxhound's own below; a value this package does not know is
+kept as received (ADR 0079).
+
+- `politeness_weakened`: A run set a Politeness or Site-preferences value that presses a site harder than its built-in default, or a `site_preferences.robots_txt_user_agent`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0086).
+"""
 
 BlockCause: TypeAlias = CollieBlockCause | Literal["decoy"]
 """A `block_cause`, a type both Products share (ADR 0095).
@@ -47,12 +56,13 @@ kept as received (ADR 0079).
 - `partitioned_crawl`: Every Partition of a Partitioned crawl (ADR 0054).
 """
 
-RunWarningCode: TypeAlias = CollieRunWarningCode | Literal["trap_links_off"]
+RunWarningCode: TypeAlias = CollieRunWarningCode | Literal["local_address_rotated_within_block", "trap_links_off"]
 """A `run_warning_code`, a type both Products share (ADR 0095).
 
 Collie's values and Foxhound's own below; a value this package does not know is
 kept as received (ADR 0079).
 
+- `local_address_rotated_within_block`: A Session replacing one a block retired found every block of `egress.local_addresses` blocked on its domain, so it took an address within a blocked block; `sessions` names it.
 - `trap_links_off`: The crawl ran with its trap-link detection off.
 """
 

@@ -15,6 +15,11 @@
 //! of the rest. A work item is added once per identity, as the Frontier's
 //! visited set, in the same run file, decides; it keeps the method and body
 //! it is sent with.
+//!
+//! Size: one concern, the run state's work item tables and the statements
+//! that move a work item through them; a fetched document's Provenance
+//! marks (encoding, certificate exception, robots.txt) are fields its
+//! commit writes, not a concern of their own.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
@@ -33,7 +38,7 @@ use goodfetch_protocol::foxhound::outcomes::{
     AttemptError, CrawlRequestOutcome, Ending, NothingCommitted, OutcomeRequest, SkipReason,
 };
 use goodfetch_protocol::foxhound::provenance::{
-    CertificateExceptionMark, EncodingProvenance, RecordProvenance, TierProvenance,
+    CertificateExceptionMark, EncodingProvenance, RecordProvenance, RobotsTxtMark, TierProvenance,
 };
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension as _};
@@ -604,6 +609,10 @@ pub(crate) struct Fetched {
     /// The invalid-certificate exception its document's host was reached
     /// through (ADR 0042).
     pub(crate) certificate_exception: Option<CertificateExceptionMark>,
+    /// `ignored` when its request's URL is one its origin's robots.txt
+    /// disallows, fetched while `site_preferences.respect_robots_txt` was
+    /// off (ADR 0086).
+    pub(crate) robots_txt: Option<RobotsTxtMark>,
 }
 
 /// What an attempt commits: its Records, how its run fetched its
@@ -654,6 +663,7 @@ pub(crate) fn commit(
         wall: None,
         payment: None,
         certificate_exception: fetched.certificate_exception.clone(),
+        robots_txt: fetched.robots_txt,
         value_transforms: Vec::new(),
     };
     let committing = Committing {

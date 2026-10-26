@@ -19,11 +19,28 @@
 //! retired, never back, in [`SessionPool::retire`]; a retired Session's
 //! browser context closes once no attempt holds it any more
 //! ([`SessionPool::closable`]).
+//!
+//! **Local addresses (ADR 0044):** under `egress.local_addresses`, each
+//! Session takes, when it opens, the addresses of the next position of the
+//! Run's rotation ([`LocalAddressing`]), kept in run state so a resumed
+//! Session keeps them. When a block retires a Session without a proxy, its
+//! addresses' blocks (`egress.rotation_block.ipv4` and `.ipv6`) are blocked
+//! on that domain for the rest of the run, and a Session opened for the
+//! domain takes the next position outside every one of them; with none
+//! left it rotates within a block, which [`SessionPool::rotated_within_block`]
+//! hands the crawl for its Run report. With a proxy, whose exit rotates
+//! instead (ADR 0021), the replacement keeps the retired Session's
+//! addresses.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use goodfetch_engine::entropy::Entropy;
+use goodfetch_engine::local_addresses::{
+    BlockSizes, Host, Rotation, SessionAddresses, Unavailable, block_of,
+};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::session_pool::{ProxyTier, ServingSession};
 use goodfetch_protocol::page::SessionId;
@@ -102,6 +119,56 @@ struct Sessions {
     opened: u64,
 }
 
+/// How a crawl's Sessions take local addresses (ADR 0044): the Run's
+/// rotation over `egress.local_addresses`, the block sizes it spreads them
+/// over, the host that holds them, and whether the Run's Sessions send
+/// through a proxy.
+pub struct LocalAddressing {
+    rotation: Rotation,
+    blocks: BlockSizes,
+    host: Arc<dyn Host>,
+    proxied: bool,
+}
+
+impl std::fmt::Debug for LocalAddressing {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LocalAddressing")
+            .field("rotation", &self.rotation)
+            .field("blocks", &self.blocks)
+            .field("proxied", &self.proxied)
+            .finish_non_exhaustive()
+    }
+}
+
+impl LocalAddressing {
+    /// Sessions taking `rotation`'s addresses on `host`, in blocks of
+    /// `blocks`, sending through a proxy when `proxied`.
+    pub fn new(rotation: Rotation, blocks: BlockSizes, host: Arc<dyn Host>, proxied: bool) -> Self {
+        Self {
+            rotation,
+            blocks,
+            host,
+            proxied,
+        }
+    }
+
+    /// The addresses of the rotation's `ordinal`-th position.
+    fn at(&self, ordinal: u64) -> Result<SessionAddresses, Unavailable> {
+        self.rotation.session(self.host.as_ref(), ordinal)
+    }
+}
+
+/// A Session opened for a domain whose every block was blocked there, so
+/// it rotated within one (ADR 0044).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Rotated {
+    /// The Session.
+    pub session: SessionId,
+    /// The domain key it opened for.
+    pub domain_key: String,
+}
+
 /// A crawl's Session pools: each pool's open Sessions, each domain's proxy
 /// tier and whether it moved to the browser tier, the attempts each
 /// Session serves, and what changed since run state last took it.
@@ -117,6 +184,17 @@ pub struct SessionPool {
     /// The retired Sessions no attempt holds, not yet taken.
     closable: Vec<SessionId>,
     changes: Changes,
+    /// How its Sessions take local addresses, if they do.
+    local: Option<LocalAddressing>,
+    /// The rotation's next position.
+    next_ordinal: u64,
+    /// The address blocks a block retired a Session of, by domain key.
+    blocked: BTreeMap<String, BTreeSet<String>>,
+    /// The position of the Session a block retired, by domain key, which
+    /// its replacement keeps through a proxy.
+    replaced: BTreeMap<String, u64>,
+    /// The Sessions that rotated within a block, not yet taken.
+    rotated: Vec<Rotated>,
 }
 
 impl SessionPool {
@@ -150,7 +228,50 @@ impl SessionPool {
             retiring: BTreeSet::new(),
             closable: Vec::new(),
             changes: Changes::default(),
+            local: None,
+            next_ordinal: stored.next_ordinal,
+            blocked: stored.blocked,
+            replaced: BTreeMap::new(),
+            rotated: Vec::new(),
         })
+    }
+
+    /// The pools, their Sessions taking local addresses as `local` says.
+    #[must_use]
+    pub fn with_local_addresses(self, local: LocalAddressing) -> Self {
+        Self {
+            local: Some(local),
+            ..self
+        }
+    }
+
+    /// The local addresses the open Session `session` holds: `None`
+    /// without `egress.local_addresses`.
+    ///
+    /// # Errors
+    ///
+    /// [`Unavailable`] when the host no longer holds them, such as an
+    /// interface that lost its addresses.
+    pub fn local_addresses(
+        &self,
+        session: &SessionId,
+    ) -> Option<Result<SessionAddresses, Unavailable>> {
+        let local = self.local.as_ref()?;
+        let (pool, position) = key(session);
+        let ordinal = self
+            .pools
+            .get(&pool)?
+            .open
+            .get(&position)?
+            .stored
+            .address_ordinal?;
+        Some(local.at(ordinal))
+    }
+
+    /// The Sessions that rotated within a block since the last call, each
+    /// once, for the Run report.
+    pub fn rotated_within_block(&mut self) -> Vec<Rotated> {
+        std::mem::take(&mut self.rotated)
     }
 
     /// The Session of `pool` that serves a request on `domain_key` at
@@ -177,11 +298,11 @@ impl SessionPool {
             (sessions.open.len() < settings.max_size, at_tier, every)
         };
         let position = if room {
-            self.open_session(pool, tier, now)
+            self.open_session(pool, tier, now, domain_key)
         } else if at_tier.is_empty() {
             let making_room = self.pick(&every);
             self.retire(pool, making_room, Retirement::PoolFull);
-            self.open_session(pool, tier, now)
+            self.open_session(pool, tier, now, domain_key)
         } else {
             self.pick(&at_tier)
         };
@@ -248,6 +369,9 @@ impl SessionPool {
             },
         };
         if let Some(retirement) = retirement {
+            if matches!(retirement, Retirement::Escalated | Retirement::Blocked) {
+                self.blocked_on(&pool, position, domain_key);
+            }
             self.retire(&pool, position, retirement);
         }
         self.released(&session.id);
@@ -367,17 +491,26 @@ impl SessionPool {
         }
     }
 
-    /// Opens a Session of `pool` at `tier` and answers its position.
-    fn open_session(&mut self, pool: &PoolKey, tier: ProxyTier, now: SystemTime) -> u64 {
+    /// Opens a Session of `pool` at `tier` for a request on `domain_key`
+    /// and answers its position.
+    fn open_session(
+        &mut self,
+        pool: &PoolKey,
+        tier: ProxyTier,
+        now: SystemTime,
+        domain_key: &str,
+    ) -> u64 {
+        let position = self.pools.get(pool).map_or(0, |sessions| sessions.opened) + 1;
+        let address_ordinal = self.address_ordinal(&id(pool, position), domain_key);
         let sessions = self.pools.entry(pool.clone()).or_default();
-        sessions.opened += 1;
-        let position = sessions.opened;
+        sessions.opened = position;
         let stored = StoredSession {
             proxy_tier: tier,
             opened_at: now,
             uses: 0,
             error_score: 0.0,
             retired_because: None,
+            address_ordinal,
         };
         sessions.open.insert(
             position,
@@ -387,6 +520,79 @@ impl SessionPool {
             },
         );
         position
+    }
+
+    /// The rotation's position the Session `session`, opening for a
+    /// request on `domain_key`, takes its local addresses from: through a
+    /// proxy, that of the Session a block retired there, if any; else the
+    /// next one whose addresses lie outside every block blocked there,
+    /// within [`SEARCHED`] positions, or the next one, noted as rotating
+    /// within a block, when none does.
+    fn address_ordinal(&mut self, session: &SessionId, domain_key: &str) -> Option<u64> {
+        let local = self.local.as_ref()?;
+        if local.proxied
+            && let Some(ordinal) = self.replaced.remove(domain_key)
+        {
+            return Some(ordinal);
+        }
+        let next = self.next_ordinal;
+        let ordinal = match self.blocked.get(domain_key) {
+            Some(blocked) if !blocked.is_empty() => {
+                let outside = (next..next.saturating_add(SEARCHED)).find(|ordinal| {
+                    local.at(*ordinal).is_ok_and(|addresses| {
+                        blocks_of(addresses, local.blocks)
+                            .iter()
+                            .all(|block| !blocked.contains(block))
+                    })
+                });
+                outside.unwrap_or_else(|| {
+                    self.rotated.push(Rotated {
+                        session: session.clone(),
+                        domain_key: domain_key.to_owned(),
+                    });
+                    next
+                })
+            }
+            _ => next,
+        };
+        self.next_ordinal = ordinal.saturating_add(1);
+        Some(ordinal)
+    }
+
+    /// Keeps what a block on `domain_key` that retires the open Session at
+    /// `position` of `pool` means for its replacement's local addresses:
+    /// through a proxy, its position, which the replacement keeps; else
+    /// its addresses' blocks, blocked on the domain for the rest of the
+    /// run.
+    fn blocked_on(&mut self, pool: &PoolKey, position: u64, domain_key: &str) {
+        let Some(local) = self.local.as_ref() else {
+            return;
+        };
+        let Some(ordinal) = self
+            .pools
+            .get(pool)
+            .and_then(|sessions| sessions.open.get(&position))
+            .and_then(|open| open.stored.address_ordinal)
+        else {
+            return;
+        };
+        if local.proxied {
+            self.replaced.insert(domain_key.to_owned(), ordinal);
+            return;
+        }
+        let Ok(addresses) = local.at(ordinal) else {
+            return;
+        };
+        for block in blocks_of(addresses, local.blocks) {
+            if self
+                .blocked
+                .entry(domain_key.to_owned())
+                .or_default()
+                .insert(block.clone())
+            {
+                self.changes.blocked.insert((domain_key.to_owned(), block));
+            }
+        }
     }
 
     /// The position drawn among `positions`, which hold at least one.
@@ -418,6 +624,30 @@ impl SessionPool {
             self.closable.push(session);
         }
     }
+}
+
+/// How many positions of the rotation a Session opening for a domain with
+/// blocked blocks looks through for one outside them.
+const SEARCHED: u64 = 1024;
+
+/// The blocks `addresses` lie in, sized by `sizes`, as run state names
+/// them: the family, the prefix length and the block's number.
+fn blocks_of(addresses: SessionAddresses, sizes: BlockSizes) -> Vec<String> {
+    let ipv4 = addresses.ipv4.map(|address| {
+        format!(
+            "ipv4/{}:{}",
+            sizes.ipv4,
+            block_of(IpAddr::V4(address), sizes.ipv4)
+        )
+    });
+    let ipv6 = addresses.ipv6.map(|address| {
+        format!(
+            "ipv6/{}:{}",
+            sizes.ipv6,
+            block_of(IpAddr::V6(address), sizes.ipv6)
+        )
+    });
+    ipv4.into_iter().chain(ipv6).collect()
 }
 
 /// The ID of the Session at `position` of `pool`.

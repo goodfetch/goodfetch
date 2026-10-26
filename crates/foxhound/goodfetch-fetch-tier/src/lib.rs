@@ -64,5 +64,7 @@ pub use tiers::{
     Chosen, FetchTiers, HandedOver, HttpTier, Judged, LinksUnread, PAGE_CHECK_CALL, Race, RaceEnd,
     ServedLinks, Signed, record_race, record_tier, tier_provenance,
 };
-pub use transports::{AddressCheck, Reqwest, TransportConfig, TransportUnavailable, Wreq};
+pub use transports::{
+    AddressCheck, LocalSource, Reqwest, TransportConfig, TransportUnavailable, Wreq,
+};
 pub use use_signals::{Purpose, UseSignals};

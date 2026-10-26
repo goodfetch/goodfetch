@@ -14,7 +14,7 @@
 use std::collections::BTreeSet;
 use std::net::{IpAddr, SocketAddr};
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -38,13 +38,13 @@ fn settings(proving_ground: &ProvingGround, addresses: &[&str]) -> Value {
 }
 
 /// The source address of the connection each request `chosen` keeps came
-/// on, in arrival order.
+/// on, in arrival order. Every request, robots.txt's included: the tests
+/// claim where it leaves from, and read the observations once the crawl
+/// finished, so after its robots.txt reading, which its pages waited on.
 fn sources(observations: &Value, chosen: impl Fn(&Value) -> bool) -> Vec<IpAddr> {
     let connections = observations["connections"].as_array().unwrap();
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(observations)
+        .every()
         .filter(|request| chosen(request))
         .map(|request| {
             let connection = connections

@@ -42,7 +42,9 @@ use std::sync::Arc;
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
-use goodfetch_protocol::page::{Navigated, PageId, SessionId, SitePreference};
+use goodfetch_protocol::page::{
+    FormatsRequest, Navigated, PageFormats, PageId, SessionId, SitePreference,
+};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::session_source::SessionSource;
@@ -151,6 +153,24 @@ pub trait BrowserPages: Send + Sync {
         argument: serde_json::Value,
         operation: &'static str,
     ) -> Opening<'a, Result<Option<serde_json::Value>, CallError>>;
+
+    /// The formats `request` names of the page `page_id`, as `page.formats`
+    /// answers them: a browser page's, or a page a fetch tier serves from a
+    /// document ([`HandlerPages::document`]); what a code-free crawl reads
+    /// of each page it fetches (ADR 0103).
+    ///
+    /// # Errors
+    ///
+    /// Those of `page.formats`, such as `closed` for a page closed.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only what it reads.
+    fn formats<'a>(
+        &'a self,
+        page_id: &'a PageId,
+        request: FormatsRequest,
+    ) -> Opening<'a, Result<PageFormats, CallError>>;
 }
 
 /// A request a Product sends from inside a Session's browser through

@@ -33,6 +33,11 @@ const WRITING: [&str; 9] = [
 /// holds no resolved value, for the reason it says.
 const WRITERS: &[(&str, usize, &str)] = &[
     (
+        "crates/foxhound/goodfetch-crawl/src/code_free.rs",
+        1,
+        "holds no value: a code-free crawl's extraction, the formats it asks for and which links it follows, as the program gave them",
+    ),
+    (
         "crates/foxhound/goodfetch-crawl/src/labels.rs",
         2,
         "holds no value: the Labels a crawl declares, their Payloads' schemas and their `fetch.tier`, and whether the Run and each Label keep URL fragments",

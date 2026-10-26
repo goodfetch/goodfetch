@@ -5,6 +5,7 @@
   "description": "Collie's Console: its shell, its design system and Collie's build entry, which Collie's executable embeds (ADRs 0031, 0057 and 0087); never published.",
   "type": "module",
   "imports": {
+    "#tests/*": "./tests/*",
     "#*": "./src/*"
   },
   "scripts": {

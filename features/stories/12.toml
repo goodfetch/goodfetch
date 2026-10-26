@@ -375,3 +375,19 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 137
+title = "As Goodfetch Cloud, I want the Console to call only catalog operations and take its endpoint and authentication as configuration, so that the same build runs behind the Cloud gateway (ADR 0031; ADR 0037 / CL-06)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+
+[[story]]
+id = 138
+title = "As a Client author, I want the Console's own use of the protocol to pass the same Client conformance cases as the TypeScript SDK, so that the Console never relies on behaviour no other Client gets (ADR 0068)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"

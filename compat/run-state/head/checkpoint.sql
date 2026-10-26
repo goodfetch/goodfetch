@@ -34,6 +34,10 @@ CREATE TABLE bounds_refusals (
             setting TEXT NOT NULL PRIMARY KEY,
             count INTEGER NOT NULL
         ) STRICT, WITHOUT ROWID;
+CREATE TABLE code_free_extraction (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            extraction TEXT NOT NULL
+        ) STRICT;
 CREATE TABLE datasets (
             name TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL,

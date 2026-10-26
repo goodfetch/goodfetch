@@ -162,7 +162,7 @@ async fn links(
     })
 }
 
-async fn enqueue_links(
+pub(crate) async fn enqueue_links(
     params: CrawlRequestEnqueueLinksParams,
     _context: CallContext,
     crawls: Crawls,

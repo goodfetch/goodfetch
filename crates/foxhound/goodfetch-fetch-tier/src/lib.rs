@@ -66,6 +66,7 @@ pub use light_browser::{
 };
 pub use redundant::Requester;
 pub use refresh::fuzz_refresh;
+pub use served_calls::serves as tier_serves;
 pub use sniffing::sniff;
 pub use tiers::{
     Chosen, FetchTiers, HandedOver, HttpTier, Judged, LinksUnread, PAGE_CHECK_CALL, Race, RaceEnd,

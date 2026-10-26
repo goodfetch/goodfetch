@@ -222,6 +222,13 @@ impl Row {
 
 /// What the call `operation` on a page of `tier` leads to, `forced` when
 /// `fetch.tier` forces that tier; `None` for an operation on no page.
+/// Whether `tier` serves the call `operation`, an operation's name, under
+/// `auto`: `false` for one it escalates and for any name no row holds,
+/// such as the Page check's or `fetch.encoding`'s escalation.
+pub fn serves(operation: &str, tier: FetchTier) -> bool {
+    matches!(verdict(operation, tier, false), Some(Verdict::Serve(_)))
+}
+
 pub(crate) fn verdict(operation: &str, tier: FetchTier, forced: bool) -> Option<Verdict> {
     Some(match Row::of(operation)?.on(tier) {
         Service::Escalates if forced => Verdict::BrowserRequired,

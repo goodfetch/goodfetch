@@ -76,7 +76,7 @@ use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
     AddressCheck, Capture, Chosen, ContentTypes, FetchTiers, HandOver, HttpTier, Judged,
     PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, Stop, TierChoice,
-    infer_plan,
+    infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -665,13 +665,23 @@ impl On<'_> {
                     let light = light.as_ref().is_some_and(|(light, staged)| {
                         matches_browser(light, staged, &browser_run)
                     });
-                    Some(
-                        match self.replayed(tiering, http, &capture, &browser_run).await {
-                            Some(plan) => Weighed::MatchedApi { plan, light },
-                            None if light => Weighed::MatchedLight,
-                            None => Weighed::Differed,
-                        },
-                    )
+                    // `discovered_api` serves the document `http` did, so
+                    // its run can only differ from that one where `http`
+                    // escalated at a call only it serves: a network wait.
+                    let replayed = match run.escalated {
+                        Some(call)
+                            if tier_serves(call, FetchTier::DiscoveredApi)
+                                && !tier_serves(call, FetchTier::Http) =>
+                        {
+                            self.replayed(tiering, http, &capture, &browser_run).await
+                        }
+                        _ => None,
+                    };
+                    Some(match replayed {
+                        Some(plan) => Weighed::MatchedApi { plan, light },
+                        None if light => Weighed::MatchedLight,
+                        None => Weighed::Differed,
+                    })
                 }
             }
             _ => None,

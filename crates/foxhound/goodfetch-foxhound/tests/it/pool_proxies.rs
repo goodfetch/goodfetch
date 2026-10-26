@@ -120,7 +120,7 @@ fn every_session_of_a_runs_pools_leaves_from_a_proxy_of_the_runs_kind_and_provid
             }),
         ),
         &mut |_, handle| {
-            sessions.push(handle["session"]["id"].clone());
+            sessions.push(handle["session"]["id"].as_str().unwrap().to_owned());
             json!({ "result": { "records": [] } })
         },
     );
@@ -129,8 +129,8 @@ fn every_session_of_a_runs_pools_leaves_from_a_proxy_of_the_runs_kind_and_provid
     // The handled pages ran in the Label's own pool's Session and in the
     // replacement of the Run's pool Session the 403 retired (and in the
     // retired one too when the crawl admitted `public-1` before the 403).
-    let mut sessions: BTreeSet<Value> = sessions.into_iter().collect();
-    sessions.remove(&json!("session-1"));
+    let mut sessions: BTreeSet<String> = sessions.into_iter().collect();
+    sessions.remove("session-1");
     let isp = BTreeSet::from(["isp".to_owned()]);
     assert_eq!(
         (
@@ -142,7 +142,7 @@ fn every_session_of_a_runs_pools_leaves_from_a_proxy_of_the_runs_kind_and_provid
             &finished["result"]["lifecycle"],
         ),
         (
-            &BTreeSet::from([json!("account.session-1"), json!("session-2")]),
+            &BTreeSet::from(["account.session-1".to_owned(), "session-2".to_owned()]),
             isp.clone(),
             isp.clone(),
             isp.clone(),

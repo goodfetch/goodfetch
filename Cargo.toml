@@ -409,8 +409,10 @@ opt-level = 3
 
 # DuckDB's C++ sources, which the `duckdb` crate builds through
 # `libduckdb-sys`'s build script: unoptimized, a query of the SQL tab's
-# tests takes minutes, so its tests and a debug Foxhound run them optimized.
+# tests takes minutes, so its tests and a debug Foxhound run them optimized;
+# without debug information, which made each build of it 4 to 8 GB of target/.
 [profile.dev.package.libduckdb-sys]
+debug = false
 opt-level = 3
 
 # rs-trafilatura writes its debug notes to stderr whenever debug assertions

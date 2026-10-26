@@ -203,7 +203,10 @@ fn target_connections(proving_ground: &ProvingGround) -> usize {
 fn a_write_attach_install_or_outside_read_is_refused_beside_an_allowed_select(#[case] case: &str) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, 1208).unwrap();
-    let url = format!("http://{}/books.csv", proving_ground.description().target);
+    let url = format!(
+        "http://{}/books.csv",
+        proving_ground.description().fixtures.target
+    );
     let outside = env.home().join("outside.csv");
     std::fs::write(&outside, "a,b\n1,2\n").unwrap();
     let mut engine = Attached::start(&env);

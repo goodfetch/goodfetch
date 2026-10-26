@@ -7,7 +7,8 @@
 // run states copied from another machine are. One Runs screen lists both
 // Products' runs, one "Needs you" lists the storage stop of each, the
 // Collie run's page shows only the views every run has, and the crawl's
-// shows Foxhound's views beside them, each answered by Foxhound's engine.
+// shows Foxhound's views beside them, each answered by Foxhound's engine,
+// its SQL tab included.
 import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -73,6 +74,7 @@ test(
     annotation: [
       { type: "covers", description: "story:12-201" },
       { type: "covers", description: "story:12-203" },
+      { type: "covers", description: "story:12-210" },
       { type: "covers", description: "screen:/runs" },
       { type: "covers", description: "screen:/runs/$run" },
       { type: "covers", description: "screen:/needs-you" },
@@ -114,7 +116,7 @@ test(
 
     await page.goto(new URL(`/runs/${CRAWL_RUN}`, daemon.url).href);
     const tabs = page.getByRole("tablist", { name: "Run views" }).getByRole("tab");
-    await expect(tabs).toHaveText(["Run", "Seeds", "Outcomes", "Failed requests"]);
+    await expect(tabs).toHaveText(["Run", "Seeds", "Outcomes", "Failed requests", "SQL"]);
     await expect(page.getByRole("region", { name: "How it stands" })).toContainText("stopped");
     for (const name of ["Seeds", "Outcomes", "Failed requests"]) {
       await page.getByRole("tab", { name, exact: true }).click();
@@ -124,5 +126,16 @@ test(
     }
     await page.getByRole("tab", { name: "Seeds", exact: true }).click();
     await expect(page.getByRole("tabpanel", { name: "Seeds" })).toContainText("https://shop.test/");
+
+    // The SQL tab runs its statement through Foxhound's engine (story 210):
+    // a crawl that committed no Record counts none.
+    await page.getByRole("tab", { name: "SQL", exact: true }).click();
+    const sql = page.getByRole("tabpanel", { name: "SQL" });
+    await sql
+      .getByLabel("Statement")
+      .fill(`SELECT count(*) AS committed FROM records('${CRAWL_RUN}')`);
+    await sql.getByRole("button", { name: "Run the statement" }).click();
+    await expect(sql.getByRole("columnheader")).toHaveText(["committed BIGINT"]);
+    await expect(sql.getByRole("cell")).toHaveText(["0"]);
   },
 );

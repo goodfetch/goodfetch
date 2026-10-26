@@ -112,6 +112,33 @@ export class PayloadSchemaChangedError extends ProgramError {
 }
 
 /**
+ * The query failed in a way the engine does not recognise, such as a run file it could not read; the engine's log holds the cause. Try again; if it fails the same way, report it with the log.
+ */
+export class QueryFailedError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "query_failed", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The SQL tab did not run the statement: it does not parse, names a table, column or function that does not exist or a run the query did not select, is not one `SELECT` or `WITH` statement (a write, `ATTACH`, `INSTALL`, `LOAD` or `COPY`), or reads a file or URL, which the SQL tab never reaches. The details say which. Read only the selected runs' tables, and select the run first.
+ */
+export class QueryInvalidError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "query_invalid", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The query needed more memory than `dataset.query.memory_limit`, so it was stopped. The details name the setting, its value and its layer. Aggregate or filter sooner, select fewer runs, or raise `dataset.query.memory_limit`.
+ */
+export class QueryMemoryExceededError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "query_memory_exceeded", group: "program", retryable: false });
+  }
+}
+
+/**
  * A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each issue by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.
  */
 export class RecordInvalidError extends ProgramError {
@@ -170,6 +197,9 @@ export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   lease_lost: LeaseLostError,
   payload_invalid: PayloadInvalidError,
   payload_schema_changed: PayloadSchemaChangedError,
+  query_failed: QueryFailedError,
+  query_invalid: QueryInvalidError,
+  query_memory_exceeded: QueryMemoryExceededError,
   record_invalid: RecordInvalidError,
   response_not_document: ResponseNotDocumentError,
   response_not_ok: ResponseNotOKError,

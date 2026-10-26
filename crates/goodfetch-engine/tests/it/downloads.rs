@@ -226,6 +226,7 @@ fn pin(build_id: &str, url: String, build: &Build) -> PinnedArtifact {
         platform: Some(BuildPlatform::LinuxX64),
         url,
         archive_digest: Some(build.archive_digest),
+        application_settings: std::collections::BTreeMap::new(),
         digest: build.digest,
     }
 }

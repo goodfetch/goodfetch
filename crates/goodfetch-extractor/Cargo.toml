@@ -13,9 +13,13 @@ dom_query.workspace = true
 dom_smoothie.workspace = true
 goodfetch-protocol.workspace = true
 htmd.workspace = true
+html5ever.workspace = true
+lol_html.workspace = true
 markup5ever_rcdom.workspace = true
+scraper.workspace = true
 rs-trafilatura.workspace = true
 sha2.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true

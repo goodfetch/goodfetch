@@ -66,11 +66,13 @@ rules = []
 
 # Which of `egress_relay`'s own modules may import which.
 [submodules.egress_relay]
+application_settings = []
 authority = []
+capture = ["application_settings"]
 client_hello = []
 head = []
 serve = ["client_hello", "head", "terminate"]
-terminate = ["authority", "client_hello"]
+terminate = ["application_settings", "authority", "client_hello"]
 
 # Which of `proxy`'s own modules may import which.
 [submodules.proxy]
@@ -81,7 +83,11 @@ relay = ["party"]
 
 # Which of `proxy_provider`'s own modules may import which.
 [submodules.proxy_provider]
+apify = ["failure"]
+bright_data = ["failure"]
+failure = []
 list = []
+oxylabs = ["failure"]
 
 # Which of `launch`'s own modules may import which.
 [submodules.launch]

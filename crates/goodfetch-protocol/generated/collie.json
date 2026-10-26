@@ -1955,6 +1955,30 @@
           "arrived_in": "0.1",
           "description": "The page's HTML: its main content by default."
         },
+        "images": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Asked"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page's images, each with its URL resolved and its `alt`."
+        },
+        "links": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Asked"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page's links, each with its URL resolved."
+        },
         "markdown": {
           "anyOf": [
             {
@@ -1966,6 +1990,30 @@
           ],
           "arrived_in": "0.1",
           "description": "The page's content as Markdown, with GFM's tables."
+        },
+        "media": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Asked"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page's video and audio sources, each with its URL resolved."
+        },
+        "tables": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Asked"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page's tables, as rows of cells."
         },
         "text": {
           "anyOf": [
@@ -2154,6 +2202,37 @@
         "page",
         "raised_by",
         "since"
+      ],
+      "type": "object"
+    },
+    "Image": {
+      "additionalProperties": false,
+      "description": "An image of the page: an `<img src>`, in document order.",
+      "properties": {
+        "alt": {
+          "arrived_in": "0.1",
+          "description": "Its `alt`: empty for an image marked decorative, `null` when it has\nnone.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "src": {
+          "arrived_in": "0.1",
+          "description": "Its `src` as the document writes it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its `src` resolved against the document's base URL; `null` when it\ndoes not parse.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "src"
       ],
       "type": "object"
     },
@@ -2729,6 +2808,44 @@
       ],
       "type": "object"
     },
+    "Link": {
+      "additionalProperties": false,
+      "description": "A link of the page: an `<a href>` or `<area href>`, in document order.",
+      "properties": {
+        "href": {
+          "arrived_in": "0.1",
+          "description": "Its `href` as the document writes it, its character references\ndecoded.",
+          "type": "string"
+        },
+        "rel": {
+          "arrived_in": "0.1",
+          "description": "The tokens of its `rel`, as written; empty when it has none.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "Its text, white space collapsed.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its `href` resolved against the document's base URL by the WHATWG\nURL Standard; `null` when it does not parse.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "href",
+        "text",
+        "rel"
+      ],
+      "type": "object"
+    },
     "LoadState": {
       "description": "A state the page's document reaches (Playwright's `LoadState`).",
       "oneOf": [
@@ -2913,6 +3030,58 @@
         "content"
       ],
       "type": "object"
+    },
+    "Media": {
+      "additionalProperties": false,
+      "description": "A media source of the page: a `<video src>`, an `<audio src>` or a\n`<source src>` of either, in document order.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/MediaKind",
+          "arrived_in": "0.1",
+          "description": "Whether it plays video or audio."
+        },
+        "src": {
+          "arrived_in": "0.1",
+          "description": "Its `src` as the document writes it.",
+          "type": "string"
+        },
+        "type": {
+          "arrived_in": "0.1",
+          "description": "Its `type`, the MIME type a `<source>` declares; `null` when it has\nnone.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its `src` resolved against the document's base URL; `null` when it\ndoes not parse.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "src",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "MediaKind": {
+      "description": "Whether a media source plays video or audio.",
+      "oneOf": [
+        {
+          "const": "video",
+          "description": "A `<video>`'s, its own `src` or one of its `<source>`s.",
+          "type": "string"
+        },
+        {
+          "const": "audio",
+          "description": "An `<audio>`'s, its own `src` or one of its `<source>`s.",
+          "type": "string"
+        }
+      ]
     },
     "MemoryReading": {
       "description": "The engine's memory, as the governor read it.",
@@ -3772,6 +3941,22 @@
           "description": "Its HTML of the kind the request named, when it asked for it.",
           "type": "string"
         },
+        "images": {
+          "arrived_in": "0.1",
+          "description": "Its images, when the request asked for them.",
+          "items": {
+            "$ref": "#/$defs/Image"
+          },
+          "type": "array"
+        },
+        "links": {
+          "arrived_in": "0.1",
+          "description": "Its links, when the request asked for them.",
+          "items": {
+            "$ref": "#/$defs/Link"
+          },
+          "type": "array"
+        },
         "main_content": {
           "$ref": "#/$defs/MainContent",
           "arrived_in": "0.1",
@@ -3781,6 +3966,22 @@
           "arrived_in": "0.1",
           "description": "Its content as Markdown, when the request asked for it.",
           "type": "string"
+        },
+        "media": {
+          "arrived_in": "0.1",
+          "description": "Its media sources, when the request asked for them.",
+          "items": {
+            "$ref": "#/$defs/Media"
+          },
+          "type": "array"
+        },
+        "tables": {
+          "arrived_in": "0.1",
+          "description": "Its tables, when the request asked for them.",
+          "items": {
+            "$ref": "#/$defs/Table"
+          },
+          "type": "array"
         },
         "text": {
           "arrived_in": "0.1",
@@ -7659,6 +7860,47 @@
       ],
       "type": "object"
     },
+    "Table": {
+      "additionalProperties": false,
+      "description": "A table of the page, in document order, a table inside another listed\non its own: each row its cells' text, white space collapsed, a row's\nheader kept as its first cell.",
+      "properties": {
+        "body_rows": {
+          "arrived_in": "0.1",
+          "description": "Its other rows, its `<tfoot>`'s last.",
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "caption": {
+          "arrived_in": "0.1",
+          "description": "Its `<caption>`'s text; `null` when it has none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "header_rows": {
+          "arrived_in": "0.1",
+          "description": "Its header rows: its `<thead>`'s, else the rows it begins with whose\ncells are all `<th>`.",
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "header_rows",
+        "body_rows"
+      ],
+      "type": "object"
+    },
     "Tag": {
       "description": "An opaque text a Run is tagged with (ADR 0036).",
       "maxLength": 64,
@@ -9093,6 +9335,16 @@
       "name": "proxy_auth_failed",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Session's Proxy provider answered through its proxy with a failure of its own: its traffic quota or balance is spent (`quota_exhausted`), the Session's sticky exit is gone (`sticky_session_expired`), or a failure Goodfetch does not recognize (`unrecognized`, whose text is logged, never returned). The details name the provider, the proxy and the failure, never the credentials. A provider's refusal of the credentials is `proxy_auth_failed` instead. Retry later, or open a new Session for a new exit.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "proxy_provider_unavailable",
+      "product": "collie",
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -13396,7 +13648,7 @@
       "authority": "not_by_recipe_or_model",
       "clearable": true,
       "default": null,
-      "description": "The Proxy provider each Session of the Run, or the Session it is set on, draws its one proxy from when it opens, fixed for the Session's life: `list`, the user's own servers in `proxy.providers.list.servers`. None by default. A Session that resolves both `proxy.server` and `proxy.provider` is refused with `setting_invalid`. Set as `proxy.server` is: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`.",
+      "description": "The Proxy provider each Session of the Run, or the Session it is set on, draws its one proxy from when it opens, fixed for the Session's life: `bright_data`, `oxylabs` or `apify`, whose adapters build the provider's sticky-session username from the account in `proxy.providers.<name>` and ask for the provider's longest sticky lifetime, or `list`, the user's own servers in `proxy.providers.list.servers`. None by default. A Session that resolves both `proxy.server` and `proxy.provider` is refused with `setting_invalid`. Set as `proxy.server` is: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`.",
       "name": "proxy.provider",
       "product": "collie",
       "products": [
@@ -13413,7 +13665,7 @@
       "authority": "configuration",
       "clearable": false,
       "default": {},
-      "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
+      "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`); `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
       "name": "proxy.providers",
       "product": "collie",
       "products": [

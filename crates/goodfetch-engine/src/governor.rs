@@ -151,6 +151,13 @@ impl Governor {
         self.folders.hold(folder)
     }
 
+    /// Samples the filesystem holding each of `folders`, all from the same
+    /// sample on, so that no sample finds some of them without the others,
+    /// until each answer drops (ADR 0122).
+    pub fn sample_together(&self, folders: impl IntoIterator<Item = PathBuf>) -> Vec<Held> {
+        self.folders.hold_together(folders)
+    }
+
     /// What it found of the filesystems at its last storage sample, which
     /// changes at each sample; empty before the first, or ever when it
     /// never samples.

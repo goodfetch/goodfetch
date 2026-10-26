@@ -15,9 +15,10 @@ autobenches = false
 # through the fork `wreq` uses, upstream with a ClientHello rebuilt from the
 # browser's and toward the browser with the in-memory authority's leaf.
 btls.workspace = true
-# The one BoringSSL function `btls` has no method for that the mirrored
-# ClientHello needs: the browser's `trust_anchors` request.
+# The BoringSSL functions `btls` has no method for: the browser's
+# `trust_anchors` request, the ALPS payload and resuming a session.
 btls-sys.workspace = true
+foreign-types.workspace = true
 # The certificates the browser's ClientHello may ask compressed (RFC 8879):
 # Brotli and zlib, decoded only.
 brotli-decompressor.workspace = true
@@ -46,6 +47,9 @@ rusqlite.workspace = true
 secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The name of a Session's sticky session at a Proxy provider: a digest of
+# its Session ID, so the provider never sees the Run's own ID.
+sha2.workspace = true
 thiserror.workspace = true
 # `net` and `io-util` for the per-Session SOCKS5 relay (the `proxy` module).
 tokio = { workspace = true, features = ["io-util", "net", "process", "sync", "time", "macros"] }

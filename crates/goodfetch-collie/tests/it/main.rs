@@ -69,6 +69,7 @@ mod private_endpoint;
 mod private_ranges;
 mod proxy;
 mod proxy_limits;
+mod relay_fingerprint;
 mod request_kinds;
 mod run;
 mod secrets;

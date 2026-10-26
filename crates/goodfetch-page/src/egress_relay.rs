@@ -45,7 +45,9 @@
     reason = "the egress relay opens its own loopback listener and its connections out, in this module only (ADR 0060)"
 )]
 
+pub(crate) mod application_settings;
 pub(crate) mod authority;
+pub(crate) mod capture;
 pub(crate) mod client_hello;
 pub(crate) mod head;
 pub(crate) mod serve;
@@ -80,6 +82,7 @@ use tokio::io::AsyncWriteExt as _;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
+use self::application_settings::ApplicationSettings;
 use self::authority::Authority;
 use self::client_hello::ClientHello;
 use self::serve::{Met, Network, Observe, Relaying, Resolved, Unreached, Upstream};
@@ -107,6 +110,8 @@ pub(crate) struct EgressRelay {
     terminating: Option<Arc<Terminating>>,
     /// The authorities the Run trusts by domain.
     trust: Trust,
+    /// The ALPS payload of the Run's browser build.
+    application_settings: Arc<ApplicationSettings>,
     /// The per-host decision on a certificate the browser refused, made
     /// on its first use.
     examiner: OnceLock<Examiner>,
@@ -131,6 +136,9 @@ pub(crate) struct RelayTls {
     pub(crate) authority: Option<Arc<Authority>>,
     pub(crate) exceptions: CertificateExceptions,
     pub(crate) trust: Trust,
+    /// The ALPS payload of the Run's browser build, captured when it was
+    /// pinned, which the relay's own handshakes send.
+    pub(crate) application_settings: Arc<ApplicationSettings>,
 }
 
 /// A connection the relay refused or stopped before any byte of the
@@ -283,6 +291,7 @@ impl EgressRelay {
             authority,
             exceptions,
             trust,
+            application_settings,
         } = tls;
         let terminating = authority.map(|authority| {
             Arc::new(Terminating {
@@ -290,6 +299,8 @@ impl EgressRelay {
                 exceptions,
                 examiner: trust.examiner(),
                 trust: trust.clone(),
+                application_settings: Arc::clone(&application_settings),
+                sessions: Arc::default(),
             })
         });
         let relaying = Relaying {
@@ -337,6 +348,7 @@ impl EgressRelay {
             record,
             terminating,
             trust,
+            application_settings,
             examiner: OnceLock::new(),
             local: addresses,
             _closed_when_dropped: stop.drop_guard(),
@@ -440,7 +452,12 @@ impl EgressRelay {
             return None;
         }
         let examiner = self.examiner.get_or_init(|| self.trust.examiner());
-        let chain = match terminate::upstream(stream, &host, Some(&hello)).await {
+        let mirror = terminate::Mirror {
+            hello: &hello,
+            application_settings: &self.application_settings,
+            sessions: None,
+        };
+        let chain = match terminate::upstream(stream, &host, Some(mirror)).await {
             Ok(upstream) => Some(upstream.chain),
             Err((chain, _)) => chain,
         }?;

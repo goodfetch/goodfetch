@@ -19,18 +19,20 @@
     reason = "a handshake's verify callback keeps the chain it saw for the task that waits on the handshake, never across another lock or an `.await` (ADR 0060)"
 )]
 
+use std::collections::VecDeque;
 use std::io;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll};
 
 use btls::pkey::PKey;
 use btls::ssl::{
     self, AlpnError, CertificateCompressionAlgorithm, CertificateCompressor, ExtensionType,
-    KeyShare, SslAcceptor, SslConnector, SslContextBuilder, SslMethod, SslOptions, SslVerifyMode,
-    SslVersion,
+    KeyShare, SslAcceptor, SslConnector, SslContextBuilder, SslMethod, SslOptions, SslSession,
+    SslSessionCacheMode, SslVerifyMode, SslVersion,
 };
 use btls::x509::X509;
+use foreign_types::ForeignTypeRef as _;
 use goodfetch_engine::tls::{
     CertificateChanged, CertificateExceptions, CertificateInvalid, Examiner, ExceptionUsed, Trust,
 };
@@ -38,6 +40,7 @@ use goodfetch_protocol::tls::CertificateFailure;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, ReadBuf};
 use tokio_btls::SslStream;
 
+use super::application_settings::{self, ApplicationSettings};
 use super::authority::Authority;
 use super::client_hello::{self, ClientHello};
 
@@ -54,6 +57,45 @@ pub(crate) struct Terminating {
     pub(crate) trust: Trust,
     /// The per-host decision on each chain a site presents, under `trust`.
     pub(crate) examiner: Examiner,
+    /// The ALPS payload of the Run's browser build, captured when the
+    /// build was pinned; empty for a build with none.
+    pub(crate) application_settings: Arc<ApplicationSettings>,
+    /// The Session's upstream TLS sessions, which a returning connection
+    /// resumes; dropped with the Session's relay.
+    pub(crate) sessions: Arc<Sessions>,
+}
+
+/// The upstream TLS sessions of one Session's relay, the latest of each
+/// host, at most [`KEPT_SESSIONS`].
+#[derive(Default)]
+pub(crate) struct Sessions(Mutex<VecDeque<(String, SslSession)>>);
+
+/// The most upstream sessions a relay keeps (STYLE.md: every buffer is
+/// bounded).
+const KEPT_SESSIONS: usize = 64;
+
+impl Sessions {
+    fn kept(&self) -> MutexGuard<'_, VecDeque<(String, SslSession)>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The latest session of `host`.
+    fn of(&self, host: &str) -> Option<SslSession> {
+        self.kept()
+            .iter()
+            .find(|(kept, _)| kept == host)
+            .map(|(_, session)| session.clone())
+    }
+
+    /// Keeps `session` as `host`'s latest.
+    fn keep(&self, host: &str, session: SslSession) {
+        let mut kept = self.kept();
+        kept.retain(|(kept, _)| kept != host);
+        if kept.len() >= KEPT_SESSIONS {
+            kept.pop_front();
+        }
+        kept.push_back((host.to_owned(), session));
+    }
 }
 
 impl Terminating {
@@ -136,7 +178,12 @@ where
         return Terminated::Failed;
     };
     browser.replay(raw);
-    let mut up = match upstream(site, host, Some(&hello)).await {
+    let mirror = Mirror {
+        hello: &hello,
+        application_settings: &terminating.application_settings,
+        sessions: Some(&terminating.sessions),
+    };
+    let mut up = match upstream(site, host, Some(mirror)).await {
         Ok(up) => up,
         Err((chain, error)) => {
             let failure = chain
@@ -243,10 +290,21 @@ pub(crate) struct Upstream<S> {
 /// if it got that far, and BoringSSL's error.
 pub(crate) type Unfinished = (Option<Vec<Vec<u8>>>, Option<ssl::Error>);
 
+/// What an upstream handshake mirrors: the browser's ClientHello, the ALPS
+/// payload of its build, and the Session's upstream sessions, which it
+/// resumes and keeps, when it has them.
+#[derive(Clone, Copy)]
+pub(crate) struct Mirror<'a> {
+    pub(crate) hello: &'a ClientHello,
+    pub(crate) application_settings: &'a ApplicationSettings,
+    pub(crate) sessions: Option<&'a Arc<Sessions>>,
+}
+
 /// Opens the upstream handshake to `host` over `site`, with the values of
-/// `hello`, the browser's, or BoringSSL's own without one. Every chain
+/// `mirror`, the browser's, or BoringSSL's own without one. Every chain
 /// passes BoringSSL: the per-host decision reads it once the handshake is
-/// done, before anything is sent.
+/// done, before anything is sent. A resumed session's chain is the one its
+/// first handshake kept, which the decision reads again.
 ///
 /// # Errors
 ///
@@ -254,41 +312,60 @@ pub(crate) type Unfinished = (Option<Vec<Vec<u8>>>, Option<ssl::Error>);
 pub(crate) async fn upstream<S>(
     site: S,
     host: &str,
-    hello: Option<&ClientHello>,
+    mirror: Option<Mirror<'_>>,
 ) -> Result<Upstream<S>, Unfinished>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let seen: Arc<Mutex<Option<Vec<Vec<u8>>>>> = Arc::default();
-    let ssl = connector(hello, Arc::clone(&seen))
-        .and_then(|connector| {
-            let mut configuration = connector.configure()?;
-            configuration.set_verify_hostname(false);
-            configuration.set_use_server_name_indication(host.parse::<std::net::IpAddr>().is_err());
-            if let Some(hello) = hello {
-                configuration.set_enable_ech_grease(hello.ech_grease());
-                let shares: Vec<KeyShare> = hello
-                    .key_shares
-                    .iter()
-                    .filter_map(|group| key_share(*group))
-                    .collect();
-                if !shares.is_empty() {
-                    configuration.set_client_key_shares(&shares)?;
-                }
-                for protocol in &hello.alps {
-                    configuration.add_application_settings(protocol)?;
-                }
-                if !hello.alps.is_empty() {
-                    configuration.set_alps_use_new_codepoint(hello.alps_new_codepoint);
-                }
+    let hello = mirror.map(|mirror| mirror.hello);
+    let sessions = mirror.and_then(|mirror| mirror.sessions);
+    let ssl = connector(
+        hello,
+        Arc::clone(&seen),
+        sessions.map(|sessions| (sessions, host)),
+    )
+    .and_then(|connector| {
+        let mut configuration = connector.configure()?;
+        configuration.set_verify_hostname(false);
+        configuration.set_use_server_name_indication(host.parse::<std::net::IpAddr>().is_err());
+        if let Some(Mirror {
+            hello,
+            application_settings,
+            ..
+        }) = mirror
+        {
+            configuration.set_enable_ech_grease(hello.ech_grease());
+            let shares: Vec<KeyShare> = hello
+                .key_shares
+                .iter()
+                .filter_map(|group| key_share(*group))
+                .collect();
+            if !shares.is_empty() {
+                configuration.set_client_key_shares(&shares)?;
             }
-            configuration.into_ssl(host)
-        })
-        .map_err(|error| (None, Some(ssl::Error::from(error))))?;
+            for protocol in &hello.alps {
+                let payload = std::str::from_utf8(protocol)
+                    .ok()
+                    .and_then(|protocol| application_settings.get(protocol))
+                    .map_or(&[][..], Vec::as_slice);
+                application_settings::offer(&mut configuration, protocol, payload)?;
+            }
+            if !hello.alps.is_empty() {
+                configuration.set_alps_use_new_codepoint(hello.alps_new_codepoint);
+            }
+        }
+        let mut ssl = configuration.into_ssl(host)?;
+        if let Some(session) = sessions.and_then(|sessions| sessions.of(host)) {
+            resume(&mut ssl, &session)?;
+        }
+        Ok(ssl)
+    })
+    .map_err(|error| (None, Some(ssl::Error::from(error))))?;
     let taken = || seen.lock().unwrap_or_else(PoisonError::into_inner).take();
     let mut stream = SslStream::new(ssl, site).map_err(|error| (None, Some(error.into())))?;
     match Pin::new(&mut stream).connect().await {
-        Ok(()) => match taken() {
+        Ok(()) => match taken().or_else(|| resumed_chain(stream.ssl())) {
             Some(chain) => Ok(Upstream { stream, chain }),
             None => Err((None, None)),
         },
@@ -296,11 +373,50 @@ where
     }
 }
 
-/// The connector of one upstream handshake: the values of `hello`, and a
-/// verify callback that keeps the chain in `seen` and lets it through.
+/// The chain a resumed session's first handshake kept, leaf first; `None`
+/// for a connection that resumed nothing.
+fn resumed_chain(ssl: &ssl::SslRef) -> Option<Vec<Vec<u8>>> {
+    if !ssl.session_reused() {
+        return None;
+    }
+    let chain = ssl.peer_cert_chain()?;
+    Some(
+        chain
+            .iter()
+            .filter_map(|certificate| certificate.to_der().ok())
+            .collect(),
+    )
+}
+
+/// Offers to resume `session` on `ssl`, which `btls` allows only for a
+/// session of the same context: BoringSSL itself ties a client session to
+/// no context, and does not offer one that `ssl`'s settings cannot resume.
+#[expect(
+    unsafe_code,
+    reason = "btls's `set_session` asks for the session's own context, while each upstream connection has a context of its own built from the browser's ClientHello, so the relay calls BoringSSL's `SSL_set_session` through btls-sys (ADR 0124)"
+)]
+fn resume(ssl: &mut ssl::SslRef, session: &SslSession) -> Result<(), btls::error::ErrorStack> {
+    // SAFETY: `ssl.as_ptr()` is the live `SSL` that `ssl` borrows, whose
+    // handshake has not begun, as `SSL_set_session` requires; BoringSSL
+    // takes its own reference to the live `SSL_SESSION` that `session`
+    // owns. The session was made by this same BoringSSL, whose contexts
+    // share one X.509 method, and BoringSSL checks the session's version
+    // and cipher suite against `ssl`'s settings before it offers it.
+    let set = unsafe { btls_sys::SSL_set_session(ssl.as_ptr(), session.as_ptr()) };
+    if set == 1 {
+        Ok(())
+    } else {
+        Err(btls::error::ErrorStack::get())
+    }
+}
+
+/// The connector of one upstream handshake: the values of `hello`, a
+/// verify callback that keeps the chain in `seen` and lets it through, and,
+/// with `keeping`, the sessions the site gives kept as the host's.
 fn connector(
     hello: Option<&ClientHello>,
     seen: Arc<Mutex<Option<Vec<Vec<u8>>>>>,
+    keeping: Option<(&Arc<Sessions>, &str)>,
 ) -> Result<SslConnector, btls::error::ErrorStack> {
     let mut builder = SslConnector::bare_builder(SslMethod::tls())?;
     builder.set_custom_verify_callback(SslVerifyMode::PEER, move |ssl| {
@@ -316,6 +432,12 @@ fn connector(
         *seen.lock().unwrap_or_else(PoisonError::into_inner) = Some(chain);
         Ok(())
     });
+    if let Some((sessions, host)) = keeping {
+        let sessions = Arc::clone(sessions);
+        let host = host.to_owned();
+        builder.set_session_cache_mode(SslSessionCacheMode::CLIENT);
+        builder.set_new_session_callback(move |_, session| sessions.keep(&host, session));
+    }
     let Some(hello) = hello else {
         builder.set_alpn_protos(b"\x08http/1.1")?;
         return Ok(builder.build());

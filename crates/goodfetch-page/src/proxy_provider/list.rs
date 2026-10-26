@@ -28,13 +28,11 @@ impl List {
                 server: server.server.clone(),
                 kinds: vec![server.kind],
                 countries: Some(server.country.iter().cloned().collect()),
+                longest_lifetime: None,
             })
             .collect();
         Self {
-            offer: Offer {
-                endpoints,
-                longest_lifetime: None,
-            },
+            offer: Offer { endpoints },
             username: configuration.username.clone(),
         }
     }

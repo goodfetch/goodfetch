@@ -38,7 +38,9 @@ use std::sync::{Arc, Mutex as SyncMutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
 use goodfetch_engine::CallError;
-use goodfetch_engine::browser_cache::Pins;
+use goodfetch_engine::browser_cache::{
+    BrowserChoice, BrowserSource, Pins, Platform, browser_source,
+};
 use goodfetch_engine::dns::{Dns, HostMapping, ResolverConfiguration};
 use goodfetch_engine::governor::{BrowserUse, GovernedBrowser, PageHold, footprint_of};
 use goodfetch_engine::home::Home;
@@ -54,6 +56,7 @@ use crate::driver::{
     Behind, BorrowedBrowser, Carried, LocalBrowser, Origins, PageDriver, SessionDriver,
     SessionEgress, Visibility,
 };
+use crate::egress_relay::application_settings::ApplicationSettings;
 use crate::egress_relay::authority::Authority;
 use crate::egress_relay::{Local, RelayTls};
 use crate::trace::CommandLog;
@@ -177,6 +180,22 @@ impl Pooled {
     }
 }
 
+/// The ALPS payload of the build the Run's browsers launch, captured when
+/// it was pinned: none for an installed browser, which no capture names.
+fn application_settings_of(pins: &Pins) -> ApplicationSettings {
+    match browser_source(
+        Platform::current(),
+        &BrowserChoice::Default,
+        &BTreeMap::new(),
+    ) {
+        BrowserSource::Pinned { name, platform, .. } => pins
+            .browser(name, platform)
+            .map(|pinned| pinned.application_settings.clone())
+            .unwrap_or_default(),
+        BrowserSource::Installed { .. } => ApplicationSettings::new(),
+    }
+}
+
 /// Locks `browsers`, whose state no panic leaves half-written.
 fn lock(browsers: &SyncMutex<Browsers>) -> MutexGuard<'_, Browsers> {
     browsers.lock().unwrap_or_else(PoisonError::into_inner)
@@ -235,6 +254,7 @@ impl Pool {
             authority: shared.authority.clone(),
             exceptions: shared.exceptions.clone(),
             trust,
+            application_settings: Arc::new(application_settings_of(&shared.pins)),
         }
     }
 

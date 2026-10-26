@@ -528,6 +528,11 @@ class NotAddedReason(StrEnum):
     """
     no_rule = "no_rule"
     """A sitemap entry no rule of its sitemap seed matches (ADR 0093)."""
+    trap_link = "trap_link"
+    """
+    On the browser tier, its link is one a person cannot see, a
+    `nofollow` one among them: a trap a crawl never enters (ADR 0035).
+    """
 
 
 class NothingCommitted(StrEnum):

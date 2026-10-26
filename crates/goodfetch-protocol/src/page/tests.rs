@@ -119,3 +119,67 @@ fn a_request_naming_no_format_the_protocol_has_is_refused(#[case] value: Value) 
 
     assert!(parsed.is_err(), "{parsed:?}");
 }
+
+/// The result of a request for the page's references and tables, each
+/// field given.
+fn references_and_tables() -> Value {
+    json!({
+        "url": "https://a.test/",
+        "base_url": "https://a.test/",
+        "main_content": "found",
+        "links": [
+            { "url": "https://a.test/b", "href": "b", "text": "B", "rel": ["next"] },
+            { "url": null, "href": "http://[::1", "text": "Broken", "rel": [] },
+        ],
+        "images": [{ "url": "https://a.test/c.png", "src": "c.png", "alt": null }],
+        "media": [{ "url": "https://a.test/d.mp4", "src": "d.mp4", "kind": "video", "type": "video/mp4" }],
+        "tables": [{ "caption": "E", "header_rows": [["", "F"]], "body_rows": [["G", "1"]] }],
+    })
+}
+
+/// Covers: story:6-4, story:6-5
+#[rstest]
+#[case::every_field_given_a_url_that_does_not_parse_null(references_and_tables(), true)]
+#[case::a_link_without_its_url(remove(references_and_tables(), "/links/0", "url"), false)]
+#[case::an_image_without_its_alt(remove(references_and_tables(), "/images/0", "alt"), false)]
+#[case::media_of_an_unknown_kind(set(references_and_tables(), "/media/0/kind", json!("image")), false)]
+#[case::a_table_without_its_caption(remove(references_and_tables(), "/tables/0", "caption"), false)]
+#[case::the_tables_missing(remove(references_and_tables(), "", "tables"), false)]
+fn the_schema_of_a_references_and_tables_requests_result_holds_each(
+    #[case] result: Value,
+    #[case] holds: bool,
+) {
+    let schema = page_formats_schema(&request(
+        json!({ "links": true, "images": true, "media": true, "tables": true }),
+    ));
+
+    assert_eq!(valid(&schema, &result), holds);
+}
+
+/// `value` without the field `field` of the object at `pointer`.
+fn remove(mut value: Value, pointer: &str, field: &str) -> Value {
+    value
+        .pointer_mut(pointer)
+        .and_then(Value::as_object_mut)
+        .map(|object| object.remove(field));
+    value
+}
+
+/// `value` with `replacement` at `pointer`.
+fn set(mut value: Value, pointer: &str, replacement: Value) -> Value {
+    if let Some(slot) = value.pointer_mut(pointer) {
+        *slot = replacement;
+    }
+    value
+}
+
+/// Covers: story:6-4, story:6-5
+#[rstest]
+#[case::links(json!({ "links": { "rel": true } }))]
+#[case::images_false(json!({ "images": false }))]
+#[case::tables_with_options(json!({ "tables": { "headers": true } }))]
+fn references_and_tables_are_asked_for_with_true_alone(#[case] value: Value) {
+    let parsed = serde_json::from_value::<FormatsRequest>(value);
+
+    assert!(parsed.is_err(), "{parsed:?}");
+}

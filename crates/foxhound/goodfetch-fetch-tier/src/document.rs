@@ -2,7 +2,11 @@
 //! decoded as the `charset` module's order reads it (ADR 0119): a locator
 //! matches its CSS selector in the parsed document, each element read as
 //! an `enqueueLinks` Payload function reads it: its `href` as written, its
-//! text and its attributes.
+//! text and its attributes. On the browser tier, the page itself reads
+//! them, with what a person sees of each (the Frontier's `trap_links`).
+
+use goodfetch_frontier::trap_links::Seen;
+use serde_json::Value;
 
 /// One element a locator matched.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -13,6 +17,9 @@ pub struct Matched {
     pub text: String,
     /// Its attributes, in document order.
     pub attributes: Vec<(String, String)>,
+    /// What a person sees of it, as a browser page read it; `None` from a
+    /// served document, which has no layout.
+    pub seen: Option<Seen>,
 }
 
 /// A selector that is no CSS selector the engine reads.
@@ -46,8 +53,54 @@ pub(crate) fn matched(html: &str, selector: &str) -> Result<Vec<Matched>, Select
                     )
                 })
                 .collect(),
+            seen: None,
         })
         .collect())
+}
+
+/// Refuses `selector` when it is no CSS selector the engine reads.
+///
+/// # Errors
+///
+/// When `selector` is no CSS selector.
+pub(crate) fn check_selector(selector: &str) -> Result<(), SelectorInvalid> {
+    dom_query::Matcher::new(selector)
+        .map(|_| ())
+        .map_err(|_| SelectorInvalid(selector.to_owned()))
+}
+
+/// What a browser page answered the Frontier's `trap_links::READ`: its
+/// URL, base URL and encoding's name, and each element it matched; `None`
+/// for an answer it never gives.
+pub(crate) fn browser_matched(answer: &Value) -> Option<(String, String, String, Vec<Matched>)> {
+    let text = |value: &Value, name: &str| value.get(name)?.as_str().map(str::to_owned);
+    let elements = answer
+        .get("elements")?
+        .as_array()?
+        .iter()
+        .map(|element| {
+            Some(Matched {
+                href: text(element, "href"),
+                text: text(element, "text")?,
+                attributes: element
+                    .get("attributes")?
+                    .as_array()?
+                    .iter()
+                    .map(|pair| {
+                        let at = |index: usize| pair.get(index)?.as_str().map(str::to_owned);
+                        Some((at(0)?, at(1)?))
+                    })
+                    .collect::<Option<_>>()?,
+                seen: Some(Seen::read(element.get("seen")?)?),
+            })
+        })
+        .collect::<Option<_>>()?;
+    Some((
+        text(answer, "url")?,
+        text(answer, "baseUrl")?,
+        text(answer, "encoding")?,
+        elements,
+    ))
 }
 
 #[cfg(test)]

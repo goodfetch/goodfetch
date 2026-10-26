@@ -124,7 +124,7 @@ use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Charged, Charging, Ledger, LedgerError, Refusal, Reservation};
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
-use crate::metrics::Metrics;
+use crate::metrics::{FolderStorage, Metrics};
 use crate::needs_you::NeedsYou;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::robots_txt::{Copies, RunCopies};
@@ -3416,11 +3416,11 @@ impl Registry {
             .setup
             .location
             .folder(&self.setup.home, &self.setup.version);
-        self.sampled = vec![
-            governor.sample(location),
-            governor.sample(self.setup.home.root().to_owned()),
-            governor.sample(std::env::temp_dir()),
-        ];
+        self.sampled = governor.sample_together([
+            location,
+            self.setup.home.root().to_owned(),
+            std::env::temp_dir(),
+        ]);
         let mut samples = governor.storage();
         let registry = self.runs.clone();
         let token = self.owner.token().clone();
@@ -3523,20 +3523,23 @@ impl Registry {
             .setup
             .location
             .folder(&self.setup.home, &self.setup.version);
-        for (holds, folder) in [
-            (SampledFolder::RunState, &runs),
-            (SampledFolder::Home, &home),
-            (SampledFolder::Temp, &temporary),
-        ] {
-            if let Some(filesystem) = sample.of(folder) {
-                self.setup.metrics.storage(
+        self.setup.metrics.storage(
+            [
+                (SampledFolder::RunState, &runs),
+                (SampledFolder::Home, &home),
+                (SampledFolder::Temp, &temporary),
+            ]
+            .into_iter()
+            .filter_map(|(holds, folder)| {
+                let filesystem = sample.of(folder)?;
+                Some(FolderStorage {
                     holds,
-                    filesystem.level,
-                    filesystem.free,
-                    filesystem.free_inodes,
-                );
-            }
-        }
+                    level: filesystem.level,
+                    free: filesystem.free,
+                    free_inodes: filesystem.free_inodes,
+                })
+            }),
+        );
         for live in self.live.values_mut() {
             let Some(run) = &live.run else {
                 continue;

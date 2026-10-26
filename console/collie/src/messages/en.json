@@ -405,6 +405,7 @@
   "XZ46ih": "The Secret provider gave no value.",
   "9dp6-5": "The Session's local addresses hold no address this host can send from.",
   "vsV3Zk": "The Session's proxy could not be reached.",
+  "sWfnsd": "The Session's Proxy provider answered with a failure of its own, such as a spent quota or a lost sticky exit.",
   "_ND3r9": "The site refused the page with a Block cause the engine cannot get past.",
   "M2LJid": "The site's preferences refused the request.",
   "ucp3qG": "The Success check raised its own exception.",

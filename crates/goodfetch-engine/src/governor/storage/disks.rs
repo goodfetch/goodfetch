@@ -182,11 +182,25 @@ pub(crate) struct Folders(Arc<Mutex<BTreeMap<PathBuf, usize>>>);
 impl Folders {
     /// Samples `folder` until the answer drops.
     pub(crate) fn hold(&self, folder: PathBuf) -> Held {
-        *lock(&self.0).entry(folder.clone()).or_default() += 1;
-        Held {
-            folders: self.clone(),
-            folder,
-        }
+        self.hold_together([folder])
+            .pop()
+            .expect("invariant: one folder held gives one answer")
+    }
+
+    /// Samples each of `folders` until its answer drops, all from the same
+    /// sample on: no sample holds some of them without the others.
+    pub(crate) fn hold_together(&self, folders: impl IntoIterator<Item = PathBuf>) -> Vec<Held> {
+        let mut held = lock(&self.0);
+        folders
+            .into_iter()
+            .map(|folder| {
+                *held.entry(folder.clone()).or_default() += 1;
+                Held {
+                    folders: self.clone(),
+                    folder,
+                }
+            })
+            .collect()
     }
 
     /// Every folder held now, in order.

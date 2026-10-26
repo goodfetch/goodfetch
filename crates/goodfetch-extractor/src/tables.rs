@@ -6,11 +6,10 @@
 use goodfetch_protocol::page::Table;
 use scraper::{ElementRef, Html, Node, Selector};
 
-/// The tables of `html`, in document order.
-pub(crate) fn tables(html: &str) -> Vec<Table> {
-    let document = Html::parse_document(html);
+/// The tables of `tree`, in document order.
+pub(crate) fn tables(tree: &Html) -> Vec<Table> {
     let selector = Selector::parse("table").expect("invariant: `table` is a selector");
-    document.select(&selector).map(table).collect()
+    tree.select(&selector).map(table).collect()
 }
 
 fn table(table: ElementRef<'_>) -> Table {

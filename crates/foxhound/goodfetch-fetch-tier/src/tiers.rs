@@ -694,6 +694,7 @@ impl FetchTiers {
                         html: &served.html,
                         url: &served.url,
                         base_url: &served.base_url,
+                        serialization: goodfetch_extractor::Serialization::Served,
                     });
                 let canonical = match (Url::parse(&served.base_url), Url::parse(&served.url)) {
                     (Ok(base), Ok(url)) => canonical(&served.html, &links, &base, &url),

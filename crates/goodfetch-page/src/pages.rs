@@ -53,6 +53,7 @@ use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, Contribution, Guard, Handler};
+use goodfetch_extractor::Serialization;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::dialog::{
@@ -1359,7 +1360,9 @@ impl Pages {
             let (formats, read) = served
                 .run
                 .owner()
-                .blocking(move || clean_up::read(&document, request, None, &[]))
+                .blocking(move || {
+                    clean_up::read(&document, Serialization::Served, request, None, &[])
+                })
                 .await;
             trace::provenance(&served.run, &read.entry(&params.page_id, None)).await;
             return Ok(formats);
@@ -1376,7 +1379,15 @@ impl Pages {
         let (formats, read) = page
             .run
             .owner()
-            .blocking(move || clean_up::read(&document, request, cosmetic.as_ref(), &hidden))
+            .blocking(move || {
+                clean_up::read(
+                    &document,
+                    Serialization::Dom,
+                    request,
+                    cosmetic.as_ref(),
+                    &hidden,
+                )
+            })
             .await;
         trace::provenance(&page.run, &read.entry(&params.page_id, Some(&page.session))).await;
         Ok(formats)

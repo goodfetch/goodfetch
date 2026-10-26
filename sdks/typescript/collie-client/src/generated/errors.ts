@@ -559,6 +559,15 @@ export class PersonRequiredError extends RefusedError {
 }
 
 /**
+ * The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.
+ */
+export class PolicyConflictError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "policy_conflict", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.
  */
 export class ProtocolVersionUnsupportedError extends UnavailableError {
@@ -905,6 +914,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   path_unsafe: PathUnsafeError,
   pattern_unsupported: PatternUnsupportedError,
   person_required: PersonRequiredError,
+  policy_conflict: PolicyConflictError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
   proxy_auth_failed: ProxyAuthFailedError,
   proxy_unavailable: ProxyUnavailableError,

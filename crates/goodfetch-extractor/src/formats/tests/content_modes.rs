@@ -169,6 +169,7 @@ fn with_ads_removed(html: &str, request: Value) -> PageFormats {
         &self::request(request),
         &Context {
             clean_up: Some(&AdSlots),
+            ..Context::default()
         },
     )
 }

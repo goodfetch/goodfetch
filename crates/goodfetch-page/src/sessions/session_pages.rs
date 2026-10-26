@@ -56,6 +56,8 @@ pub(super) struct Adopting {
     pub(super) events: Events,
     /// Its response observer, when one is registered.
     pub(super) observer: Option<Observer>,
+    /// Its own settings: none for a popup, which takes its Session's.
+    pub(super) settings: Values,
 }
 
 /// A page its Session is taking in, until it is kept: if its taking in
@@ -209,6 +211,7 @@ impl Sessions {
             admission,
             events: stream,
             observer,
+            settings,
         } = adopting;
         let run = open.run.clone();
         let session = &super::session_id(run.id(), open.position);
@@ -269,6 +272,7 @@ impl Sessions {
             clock: run.clock(),
             run,
             session: session.clone(),
+            settings,
             driver,
             life,
             action_timeout,
@@ -392,6 +396,7 @@ impl Sessions {
                 admission,
                 events: opener_events.stream().clone(),
                 observer: None,
+                settings: Values::default(),
             })
             .await;
         match adopted {

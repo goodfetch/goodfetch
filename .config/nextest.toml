@@ -86,9 +86,21 @@ and not (
 # `daemon install`'s real installs (`service_manager::`) register services
 # with the user's own service manager, which the whole user shares: one at
 # a time, each named by its test's Goodfetch home (TESTING.md, Isolation).
+#
+# Timing-sensitive tests (TESTING.md, Time) wait on real time against a
+# figure of their own: a lease, a navigation timeout, a domain delay or
+# rate, an idle timer, a race's delay, a kill's deadline, the protocol
+# client's per-message deadline over a long browser run. On a CPU-starved
+# host their checks fail with no change to the product (fix-queue items 67,
+# 77, 79, 80, 82, 84, 87, 88 and 95), so at most four run at once whatever
+# the run's thread count, as when every run was capped at four, and the
+# rest of the suite takes the other threads. Each selection is a module, so
+# a new test of the module joins it; a timing-sensitive test elsewhere joins
+# the filter in the change that adds it.
 [test-groups]
 fixture-builds = { max-threads = 4 }
 service-manager = { max-threads = 1 }
+timing-sensitive = { max-threads = 4 }
 
 [[profile.default.overrides]]
 filter = "binary_id(xtask::it) & (test(/^codegen::/) | test(/^compat::/) | test(/^feature_generators::/) | test(/^perf_build::/) | test(/^stress::/) | test(/^test_tools::/))"
@@ -97,3 +109,13 @@ test-group = "fixture-builds"
 [[profile.default.overrides]]
 filter = "kind(test) & test(/^service_manager::/)"
 test-group = "service-manager"
+
+[[profile.default.overrides]]
+filter = """
+(binary_id(goodfetch-collie::it) & test(/^(browser_pool|request_kinds|storage)::/))
+| (binary_id(goodfetch-conformance::it) & test(/^protocol::/))
+| (binary_id(goodfetch-foxhound::it) & test(/^(fetch_tiers|limits|navigation_gate|pacing|robots_txt|staging|tier_race)::/))
+| (binary_id(goodfetch-page::it) & test(/^navigation_gate::/))
+| (binary_id(goodfetch-test-support::it) & test(/^seeded_kill::/))
+"""
+test-group = "timing-sensitive"

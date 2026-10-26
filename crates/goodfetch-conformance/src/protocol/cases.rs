@@ -95,6 +95,8 @@ pub(crate) enum Case {
     EveryFormMatchesTheOracle,
     RawHtmlIsContentBeforeTheRules,
     FormatsDefaultsAndUnknownOptions,
+    /// A `content.extractor` case (#788).
+    Extractor(formats::extractor::Case),
     HeadlessIdentity,
     BackgroundTimer,
     ClickWaitsOutACover,
@@ -431,7 +433,8 @@ impl Case {
                     .or_else(|| popups::Case::from_id(id).map(Self::Popup))
                     .or_else(|| page_functions::Case::from_id(id).map(Self::PageFunction))
                     .or_else(|| waits::Case::from_id(id).map(Self::Wait))
-                    .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt));
+                    .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt))
+                    .or_else(|| formats::extractor::Case::from_id(id).map(Self::Extractor));
             }
         })
     }
@@ -493,8 +496,9 @@ impl Case {
             Self::Wait(case) => case.run(connection, site, checks),
             Self::RobotsTxt(case) => case.run(connection, target, site, checks),
             Self::MarkdownMatchesTheOracle => {
-                formats::markdown_matches_the_oracle(connection, site, checks)
+                formats::markdown_matches_the_oracle(connection, site, None, checks)
             }
+
             Self::FormatNotNamedIsLeftOut => {
                 formats::a_format_not_named_is_left_out(connection, site, checks)
             }
@@ -512,8 +516,11 @@ impl Case {
                 formats::each_call_is_in_the_run_trace(connection, target, site, checks)
             }
             Self::EveryFormMatchesTheOracle => {
-                formats::content_modes::every_form_matches_the_oracle(connection, site, checks)
+                formats::content_modes::every_form_matches_the_oracle(
+                    connection, site, None, checks,
+                )
             }
+            Self::Extractor(case) => case.run(connection, site, checks),
             Self::RawHtmlIsContentBeforeTheRules => {
                 formats::content_modes::raw_html_is_content_before_the_rules(
                     connection, site, checks,

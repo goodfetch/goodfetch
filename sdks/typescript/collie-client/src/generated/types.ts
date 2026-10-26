@@ -3738,7 +3738,8 @@ export interface NeedsYouRemoveRefetchDomainParams {
   instead_of_star?: string[] | null;
 }
 /**
- * What `run.new_page` takes: the Run whose default Session opens the page.
+ * What `run.new_page` takes: the Run whose default Session opens the page,
+ * and the page's own settings.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "NewPageParams".
@@ -3748,6 +3749,39 @@ export interface NewPageParams {
    * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
+  /**
+   * The page's own settings, nested by key (ADR 0083), which it takes
+   * over its Session's and its Run's: `content.extractor`, the
+   * main-content step its formats read with. Any other key is refused
+   * with `setting_not_applicable`, as only its Session or its Run sets
+   * it.
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * What `session.new_page` takes: the Session, and the page's own
+ * settings.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NewSessionPageParams".
+ */
+export interface NewSessionPageParams {
+  /**
+   * The Session.
+   */
+  session_id: string;
+  /**
+   * The page's own settings, nested by key (ADR 0083), which it takes
+   * over its Session's and its Run's: `content.extractor`, the
+   * main-content step its formats read with. Any other key is refused
+   * with `setting_not_applicable`, as only its Session or its Run sets
+   * it.
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `run.new_session` takes: the Run whose Session it opens, the
@@ -3767,7 +3801,9 @@ export interface NewSessionParams {
    * `browser.block_resources` and `live_view.hiding` choose its pages'
    * Clean-up rules over the Run's, and `browser.service_workers` whether
    * a site's service workers run in them, and `session.page_check` the
-   * Page check its pages are judged against. `session.source` is refused here with `setting_not_applicable`,
+   * Page check its pages are judged against, and `content.extractor`
+   * the main-content step their formats read with. `session.source` is
+   * refused here with `setting_not_applicable`,
    * as the call's own `source` sets it, and so is any other key, which
    * only the Run sets.
    */
@@ -6207,7 +6243,7 @@ export interface SessionPages {
   pages: PageId[];
 }
 /**
- * What `session.new_page` and `session.close` take: the Session.
+ * What `session.close` takes: the Session.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "SessionParams".

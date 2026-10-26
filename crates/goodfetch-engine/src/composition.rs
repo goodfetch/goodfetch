@@ -39,8 +39,10 @@ use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
 use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Run, Runs};
+use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
 use goodfetch_protocol::run::RunKind;
+use goodfetch_protocol::secret_reference::Provider;
 
 /// A failure a call answers with: an Error code of the catalog, with its
 /// message and details, or a failure of the protocol itself.
@@ -541,12 +543,14 @@ pub struct Contribution {
     clean_up_versions: Option<Arc<dyn CleanUpVersions>>,
     needs_you_sources: Vec<NeedsYouSource>,
     controls: Vec<(&'static Setting, Option<&'static SharedTypeValue>)>,
+    secret_providers: Vec<(Provider, ProviderFactory)>,
 }
 
 impl Contribution {
     /// An empty contribution of the crate or concern `name`.
     pub fn new(name: &'static str) -> Self {
         Self {
+            secret_providers: Vec::new(),
             name,
             handlers: Vec::new(),
             run_state_tables: Vec::new(),
@@ -583,6 +587,16 @@ impl Contribution {
         kind: &'static SharedTypeValue,
     ) -> Self {
         self.controls.push((setting, Some(kind)));
+        self
+    }
+
+    /// The same, answering `provider`'s Secret references with the provider
+    /// `factory` builds for each Run from its settings (ADR 0129), such as
+    /// a built-in external provider configured by
+    /// `secret_providers.<scheme>.*`.
+    #[must_use]
+    pub fn with_secret_provider(mut self, provider: Provider, factory: ProviderFactory) -> Self {
+        self.secret_providers.push((provider, factory));
         self
     }
 
@@ -879,6 +893,15 @@ impl Composition {
                     None => controls.with(setting),
                 },
             )
+    }
+
+    /// Every contribution's Secret providers built for each Run, in order:
+    /// a later one for a scheme replaces an earlier.
+    pub fn secret_providers(&self) -> Vec<(Provider, ProviderFactory)> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| contribution.secret_providers.iter().cloned())
+            .collect()
     }
 
     /// Every contribution's sources of "Needs you", in order.

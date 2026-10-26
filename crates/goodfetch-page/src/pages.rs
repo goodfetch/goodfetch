@@ -886,6 +886,31 @@ impl BrowserPages for Opener {
             })
         })
     }
+
+    fn read<'a>(
+        &'a self,
+        page_id: &'a PageId,
+        function: &'static str,
+        mut argument: Value,
+        operation: &'static str,
+    ) -> Opening<'a, Result<Option<Value>, CallError>> {
+        Box::pin(async move {
+            let page = self.pages.sessions.page(page_id).await?;
+            let cosmetic = match &page.hiding {
+                Some(hiding) => hiding.applied().await,
+                None => Vec::new(),
+            };
+            if let Some(fields) = argument.as_object_mut() {
+                fields.insert("cosmetic".to_owned(), cosmetic.into());
+            }
+            page.life
+                .call(
+                    PageEvent::Read,
+                    page.driver.read_in_page(function, argument, operation),
+                )
+                .await
+        })
+    }
 }
 
 /// The page a call's params name, as a page call names it (`page_id`) or a

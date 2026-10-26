@@ -294,6 +294,21 @@ impl PageHiding {
         Ok(Some(rules))
     }
 
+    /// The selectors of the cosmetic rules the sheet of the page's main
+    /// frame applies now, but for those lifted for its Session.
+    pub(crate) async fn applied(&self) -> Vec<String> {
+        let lifted = self.session.lifted.lock().await.clone();
+        self.frames
+            .lock()
+            .await
+            .get(self.driver.main_frame())
+            .into_iter()
+            .flatten()
+            .filter(|rule| !lifted.contains(&rule.selector))
+            .map(|rule| rule.selector.clone())
+            .collect()
+    }
+
     /// When live hiding hid the target `selector` matches on the page's
     /// main frame, lifts the rules that hid it for the page's Session,
     /// writes every sheet of the Session's pages again without them and

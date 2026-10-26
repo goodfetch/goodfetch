@@ -13,4 +13,5 @@
 #[cfg(unix)]
 mod providers;
 
+mod clouds;
 mod vault;

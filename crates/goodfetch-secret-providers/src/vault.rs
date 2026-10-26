@@ -15,7 +15,6 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::net::IpAddr;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::secret_endpoint::{EndpointFailure, SecretProviderEndpoint};
@@ -29,7 +28,9 @@ use hyper::Request;
 use hyper::body::Bytes;
 use hyper::header::HeaderValue;
 use secrecy::{ExposeSecret as _, SecretString};
-use url::{Host, Url};
+use url::Url;
+
+use crate::endpoint::server_url;
 
 /// The environment variables that hold the token, in the order they are
 /// read: Vault's, then `OpenBao`'s.
@@ -113,31 +114,6 @@ impl Vault {
         })?;
         header.set_sensitive(true);
         Ok((url, header))
-    }
-}
-
-/// `address` as the server's URL: `https:`, or `http:` for a loopback
-/// host only, as a development server's; otherwise why not, as a clause.
-fn server_url(address: &str) -> Result<Url, &'static str> {
-    let url = Url::parse(address).map_err(|_| "which is no URL")?;
-    if url.query().is_some() || url.fragment().is_some() || !url.username().is_empty() {
-        return Err(
-            "a URL with a query, a fragment or a user name, which a server's address never holds",
-        );
-    }
-    let loopback = match url.host() {
-        Some(Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
-        Some(Host::Ipv4(address)) => IpAddr::V4(address).is_loopback(),
-        Some(Host::Ipv6(address)) => IpAddr::V6(address).is_loopback(),
-        None => return Err("a URL with no host"),
-    };
-    match url.scheme() {
-        "https" => Ok(url),
-        "http" if loopback => Ok(url),
-        "http" => Err(
-            "a plain `http:` URL off loopback, which would send the token unencrypted; use `https:`",
-        ),
-        _ => Err("a URL of neither `https:` nor `http:`"),
     }
 }
 

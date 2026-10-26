@@ -688,3 +688,153 @@ mod keychain {
         );
     }
 }
+
+/// The external providers Collie's composition registers for each Run
+/// (#645, #647), through Collie's executable: `run_state.key_reference`
+/// names a key held by 1Password or Bitwarden, whose CLI,
+/// `secret_providers.<scheme>.command` in user configuration, is a
+/// shell-script stand-in answering as `op read` and `bw get` do. The value
+/// resolves as the Run starts and is in no reply, log or file of the
+/// test's folder; with no command, the start fails with
+/// `secret_unavailable`, `not_configured`.
+#[cfg(unix)]
+mod external_providers {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    use goodfetch_test_support::TestEnv;
+    use rstest::rstest;
+    use serde_json::json;
+
+    use super::{leaks, planted, started};
+
+    /// The sign-in each stand-in takes; no real token's shape.
+    const SIGN_IN: &str = "stand-in-sign-in";
+
+    #[derive(Clone, Copy, Debug)]
+    enum Vendor {
+        OnePassword,
+        Bitwarden,
+    }
+
+    impl Vendor {
+        fn scheme(self) -> &'static str {
+            match self {
+                Self::OnePassword => "op",
+                Self::Bitwarden => "bw",
+            }
+        }
+
+        fn reference(self) -> &'static str {
+            match self {
+                Self::OnePassword => "op://Shop/run-key/password",
+                Self::Bitwarden => "bw:run-key/password",
+            }
+        }
+
+        /// The variable the vendor's CLI is signed in by.
+        fn sign_in(self) -> &'static str {
+            match self {
+                Self::OnePassword => "OP_SERVICE_ACCOUNT_TOKEN",
+                Self::Bitwarden => "BW_SESSION",
+            }
+        }
+
+        /// The stand-in, answering the reference with `store`'s content.
+        fn script(self, store: &std::path::Path) -> String {
+            let (expected, refusal) = match self {
+                Self::OnePassword => (
+                    "read --no-newline op://Shop/run-key/password",
+                    "[ERROR] 2026/10/26 10:00:00 You are not currently signed in.",
+                ),
+                Self::Bitwarden => ("get password -- run-key", "Vault is locked."),
+            };
+            format!(
+                "#!/bin/sh\nif [ \"${variable}\" != \"{SIGN_IN}\" ]; then printf '%s' '{refusal}' >&2; exit 1; fi\nif [ \"$*\" = \"{expected}\" ]; then cat '{store}'; exit 0; fi\nprintf 'Not found.' >&2\nexit 1\n",
+                variable = self.sign_in(),
+                store = store.display()
+            )
+        }
+    }
+
+    /// A Run whose key-encryption key the vendor's CLI holds starts, and
+    /// the key is in no reply, log or file.
+    /// Covers: story:4-50, setting:run_state.key_reference, setting:secret_providers.op.command, setting:secret_providers.bw.command
+    #[rstest]
+    #[case::one_password(Vendor::OnePassword)]
+    #[case::bitwarden(Vendor::Bitwarden)]
+    fn a_run_keyed_by_an_external_provider_starts_and_no_output_holds_the_key(
+        #[case] vendor: Vendor,
+    ) {
+        let env = TestEnv::new();
+        let (mut canaries, id, value) = planted(&env);
+        let folder = env.folder().join("stand-in");
+        std::fs::create_dir_all(&folder).unwrap();
+        let store = folder.join("value");
+        std::fs::write(&store, &value).unwrap();
+        canaries.record_planted(&id, &store.display().to_string());
+        let command = folder.join(vendor.scheme());
+        std::fs::write(&command, vendor.script(&store)).unwrap();
+        std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755)).unwrap();
+        env.user_configuration(&format!(
+            "run_state.key_reference = \"{}\"\nsecret_providers.{}.command = \"{}\"\n",
+            vendor.reference(),
+            vendor.scheme(),
+            command.display()
+        ));
+
+        let replies = started(&env, &[(vendor.sign_in(), SIGN_IN)], "keyed");
+
+        assert_eq!(
+            (
+                &replies[1]["result"]["lifecycle"],
+                leaks(&canaries, &env, &replies)
+            ),
+            (&json!("finished"), Vec::<String>::new()),
+            "{replies:?}"
+        );
+    }
+
+    /// With no `secret_providers.<scheme>.command`, the Run is refused with
+    /// `secret_unavailable`, `not_configured`, before it exists.
+    /// Covers: story:4-50, error:secret_unavailable, setting:run_state.key_reference
+    #[rstest]
+    #[case::one_password(Vendor::OnePassword)]
+    #[case::bitwarden(Vendor::Bitwarden)]
+    fn a_run_keyed_by_an_unconfigured_provider_is_refused_with_not_configured(
+        #[case] vendor: Vendor,
+    ) {
+        let env = TestEnv::new();
+        env.user_configuration(&format!(
+            "run_state.key_reference = \"{}\"\n",
+            vendor.reference()
+        ));
+
+        let replies = started(&env, &[], "unconfigured");
+
+        let data = &replies[0]["error"]["data"];
+        assert_eq!(
+            (
+                &data["code"],
+                &data["provider"],
+                &data["failure"],
+                data["fix"]
+                    .as_str()
+                    .is_some_and(|fix| fix
+                        .contains(&format!("secret_providers.{}.command", vendor.scheme()))),
+                env.home()
+                    .join("0.0")
+                    .join("runs")
+                    .join("unconfigured")
+                    .exists()
+            ),
+            (
+                &json!("secret_unavailable"),
+                &json!(vendor.scheme()),
+                &json!("not_configured"),
+                true,
+                false
+            ),
+            "{data}"
+        );
+    }
+}

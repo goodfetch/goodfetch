@@ -48,7 +48,7 @@ use crate::clock::Clock;
 use crate::home::Home;
 use crate::known_certificates::KeyHash;
 use crate::mask::{Mask, Masks, Reach, Redaction};
-use crate::settings::HostDefaults;
+use crate::settings::{HostDefaults, Resolved};
 use crate::tasks::TaskOwner;
 
 /// A provider's answer to one reference, which the driver bounds by
@@ -123,6 +123,33 @@ impl std::fmt::Debug for PartyText {
         write!(formatter, "PartyText(<{} bytes, redacted>)", self.0.len())
     }
 }
+
+/// What a Product's provider is built from for one Run: the Run's resolved
+/// settings, with its `secret_providers.<scheme>.*`, the engine's
+/// environment map (ADR 0083), where a provider's own sign-in is, and the
+/// engine's clock.
+#[derive(Clone, Copy, Debug)]
+pub struct ProviderInputs<'a> {
+    /// The Run's resolved settings.
+    pub settings: &'a Resolved,
+    /// The engine's environment map.
+    pub environment: &'a BTreeMap<OsString, OsString>,
+    /// The engine's clock.
+    pub clock: Clock,
+}
+
+/// Builds a Product's provider for each Run from [`ProviderInputs`], since
+/// its configuration may come from the Run's own project configuration.
+pub type ProviderFactory =
+    Arc<dyn for<'a> Fn(&ProviderInputs<'a>) -> Arc<dyn SecretProvider> + Send + Sync>;
+
+/// The schemes whose providers every engine carries, which
+/// [`Secrets::new`] registers: `env:`, `keychain:` and `secretfile:`.
+pub const CARRIED: [Provider; 3] = [
+    Provider::Environment,
+    Provider::Keychain,
+    Provider::SecretFile,
+];
 
 /// The providers every engine carries beside the ones a Product adds: the
 /// environment map `env:` reads, the OS keychain `keychain:` reads, and the
@@ -243,6 +270,10 @@ pub struct Secrets(Arc<Shared>);
 #[derive(Clone)]
 struct Shared {
     providers: BTreeMap<Provider, Implementation>,
+    /// The providers a Product builds for each Run from its settings.
+    configured: BTreeMap<Provider, ProviderFactory>,
+    /// The engine's environment map, which a configured provider reads.
+    environment: BTreeMap<OsString, OsString>,
     audit: Arc<AuditLog>,
     owner: Arc<TaskOwner>,
     clock: Clock,
@@ -278,6 +309,7 @@ impl Secrets {
         let keychain = carried.keychain.clone();
         let secret_files = carried.home.secret_files();
         let mut providers = BTreeMap::new();
+        let environment_map = carried.environment.clone();
         providers.insert(
             Provider::Environment,
             Implementation(Arc::new(environment::Environment::new(carried.environment))),
@@ -298,6 +330,8 @@ impl Secrets {
         );
         Self(Arc::new(Shared {
             providers,
+            configured: BTreeMap::new(),
+            environment: environment_map,
             audit,
             owner,
             clock,
@@ -396,6 +430,55 @@ impl Secrets {
             .providers
             .insert(provider, Implementation(implementation));
         self
+    }
+
+    /// The same driver with `factory` building, for each Run, the provider
+    /// that answers `provider`'s references from the Run's settings
+    /// ([`Secrets::for_run_under`]), in place of any it had: how a Product
+    /// adds a provider configured by `secret_providers.<scheme>.*`.
+    #[must_use]
+    pub fn with_configured(mut self, provider: Provider, factory: ProviderFactory) -> Self {
+        let shared = Arc::make_mut(&mut self.0);
+        shared.providers.remove(&provider);
+        shared.configured.insert(provider, factory);
+        self
+    }
+
+    /// The schemes it answers: those it carries, those added with
+    /// [`Secrets::with`] and those a Product builds for each Run.
+    pub fn schemes(&self) -> std::collections::BTreeSet<Provider> {
+        self.0
+            .providers
+            .keys()
+            .chain(self.0.configured.keys())
+            .copied()
+            .collect()
+    }
+
+    /// What one Run resolves through, as [`Secrets::for_run_with`], each
+    /// provider a Product builds for each Run built from `settings`, the
+    /// Run's resolved settings.
+    pub fn for_run_under(
+        &self,
+        settings: &Resolved,
+        timeout: Duration,
+        redaction: Redaction,
+    ) -> RunSecrets {
+        let mut secrets = self.clone();
+        if !self.0.configured.is_empty() {
+            let shared = Arc::make_mut(&mut secrets.0);
+            let inputs = ProviderInputs {
+                settings,
+                environment: &self.0.environment,
+                clock: self.0.clock,
+            };
+            for (provider, factory) in &self.0.configured {
+                shared
+                    .providers
+                    .insert(*provider, Implementation(factory(&inputs)));
+            }
+        }
+        secrets.for_run_with(timeout, redaction)
     }
 
     /// Every live Run's resolved values.

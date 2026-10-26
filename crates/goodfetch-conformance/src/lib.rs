@@ -23,12 +23,13 @@ mod writer;
 
 pub use case_list::{CaseList, DeclaredCapability, DeclaredCase};
 pub use protocol::{
-    EngineMode, EngineTarget, FabricatedHelloError, FabricatedHelloOutcome, ProtocolSuite,
-    ProtocolSuiteError, StartError, SuiteError, run_protocol_suite, send_fabricated_hello,
+    EngineMode, EngineTarget, FabricatedHelloError, FabricatedHelloOutcome,
+    PROXY_PASSWORD_VARIABLE, ProtocolSuite, ProtocolSuiteError, StartError, SuiteError,
+    run_protocol_suite, send_fabricated_hello,
 };
 pub use proving_ground::{
-    OWN_TARGETS, ProvingGround, ProvingGroundError, ReceivedRequests, Submission, Task,
-    TaskAccount, TaskList,
+    OWN_TARGETS, ProvingGround, ProvingGroundError, ProxyCredentials, ReceivedRequests, Submission,
+    Task, TaskAccount, TaskList,
 };
 pub use self_test::{Record, References, SelfTestError, run_self_test};
 pub use writer::{CaseLogError, WriteError, read_case_log, write_document};

@@ -556,6 +556,77 @@ fn a_console_change_reaches_the_crate_that_embeds_its_build_and_what_runs_it() {
     );
 }
 
+/// Each Product's executable embeds its own Console build (ADR 0087):
+/// Collie's crate Collie's package's, Foxhound's crate Foxhound's.
+#[test]
+fn each_products_executable_embeds_its_own_consoles_build() {
+    let crates = vec![
+        executable("goodfetch-collie", "crates/goodfetch-collie", &[]),
+        executable(
+            "goodfetch-foxhound",
+            "crates/foxhound/goodfetch-foxhound",
+            &[],
+        ),
+    ];
+    let packages = vec![
+        package(
+            Ecosystem::TypeScript,
+            "@goodfetch/console",
+            "console/collie",
+            &[],
+        ),
+        package(
+            Ecosystem::TypeScript,
+            "@goodfetch/console-foxhound",
+            "console/foxhound",
+            &["@goodfetch/console"],
+        ),
+    ];
+
+    let embedded = super::workspace::embedded(&crates, &packages);
+
+    let pairs: Vec<(&str, &str)> = embedded
+        .iter()
+        .map(|embedded| (embedded.package.as_str(), embedded.krate.as_str()))
+        .collect();
+    assert_eq!(
+        pairs,
+        [
+            ("console/collie", "goodfetch-collie"),
+            ("console/foxhound", "goodfetch-foxhound"),
+        ]
+    );
+}
+
+/// A change to Collie's Console reaches Foxhound's executable too, whose
+/// build composes Collie's screens with its own.
+#[test]
+fn a_change_to_collies_console_reaches_foxhounds_executable() {
+    let mut workspace = fixture();
+    for package in &mut workspace.packages {
+        if package.folder.as_str() == "console/foxhound" {
+            package.dependencies = names(&["@goodfetch/console"]);
+            package.runtime_dependencies = names(&["@goodfetch/console"]);
+        }
+    }
+    workspace.embedded = vec![
+        Embedded {
+            package: RepoPath::new("console"),
+            krate: "goodfetch-collie".to_owned(),
+        },
+        Embedded {
+            package: RepoPath::new("console/foxhound"),
+            krate: "goodfetch-foxhound".to_owned(),
+        },
+    ];
+
+    let selection = select(&workspace, &[RepoPath::new("console/src/app.tsx")]);
+
+    let crates = value(&selection, "crates");
+    assert!(crates.contains("goodfetch-collie"), "{selection}");
+    assert!(crates.contains("goodfetch-foxhound"), "{selection}");
+}
+
 /// What the Console's tests alone use, here test support, is no part of
 /// its build, so it does not reach the crate that embeds the build.
 #[test]

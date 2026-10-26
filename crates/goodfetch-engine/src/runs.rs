@@ -73,7 +73,7 @@ use goodfetch_protocol::run::{
     RunKind, RunListParams, RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage,
     RunWarning, RunWriter, StartInput, StartedAs, StopReason, Tags,
 };
-use goodfetch_protocol::secret_reference::SecretReference;
+use goodfetch_protocol::secret_reference::{Provider, SecretReference};
 use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure, TIMEOUT_SECRET,
 };
@@ -135,7 +135,9 @@ use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
     self, Durability, RunState, RunStateError, RunStateOptions, RunStateTables,
 };
-use crate::secrets::{Carried, Keychain, Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
+use crate::secrets::{
+    Carried, Keychain, ProviderFactory, Purpose, RunSecrets, SecretError, Secrets, is_engine_key,
+};
 use crate::settings::{Resolved, RunSettings, Settings};
 use crate::staging::AttemptWrites;
 use crate::tasks::TaskOwner;
@@ -164,6 +166,9 @@ const COMMANDS: usize = 256;
 pub(crate) struct RunsSetup {
     /// Every live Run's resolved values, which each Run's own join.
     pub(crate) masks: Masks,
+    /// The Secret providers the composition builds for each Run from its
+    /// settings.
+    pub(crate) secret_providers: Vec<(Provider, ProviderFactory)>,
     /// The engine's environment map, which `env:` Secret references
     /// resolve in.
     pub(crate) environment: BTreeMap<OsString, OsString>,
@@ -2020,6 +2025,18 @@ fn secret_timeout(settings: Option<&RunSettings>) -> Duration {
         .unwrap_or(Duration::from_secs(30))
 }
 
+/// What a Run whose settings resolved as `settings` resolves its Secret
+/// references through: each provider the composition builds for each Run
+/// built from them, bounded by its `timeout.secret` and masked by its
+/// `security.redaction`.
+fn run_secrets(secrets: &Secrets, settings: Option<&RunSettings>) -> RunSecrets {
+    let (timeout, redaction) = (secret_timeout(settings), redaction(settings));
+    match settings {
+        Some(settings) => secrets.for_run_under(settings.resolved(), timeout, redaction),
+        None => secrets.for_run_with(timeout, redaction),
+    }
+}
+
 /// Whether a Run whose settings resolved as `settings` masks its values in
 /// its kept outputs: its `security.redaction`, on when none resolved.
 fn redaction(settings: Option<&RunSettings>) -> Redaction {
@@ -2061,6 +2078,12 @@ impl Runs {
             setup.clock,
         )
         .masked_by(setup.masks.clone());
+        let secrets = setup
+            .secret_providers
+            .iter()
+            .fold(secrets, |secrets, (provider, factory)| {
+                secrets.with_configured(*provider, Arc::clone(factory))
+            });
         let runs = Self {
             commands,
             settings: setup.settings.clone(),
@@ -2292,10 +2315,7 @@ impl Runs {
 
     /// [`Runs::start_chosen`] before its switched-off controls are reported.
     async fn start_reported(&self, start: Start) -> Result<Started, StartError> {
-        let secrets = self.secrets.for_run_with(
-            secret_timeout(start.settings.as_ref()),
-            redaction(start.settings.as_ref()),
-        );
+        let secrets = run_secrets(&self.secrets, start.settings.as_ref());
         // Only a reference a layer set resolves here: the default's item,
         // in the OS keychain or the encrypted local file, is the engine's
         // own, made when run state first wraps a data key with it (#617).
@@ -2574,10 +2594,7 @@ impl Runs {
     ///
     /// Dropping the future after the resume was sent still resumes the Run.
     pub async fn resume(&self, resume: Resume) -> Result<Resumed, RunError> {
-        let secrets = self.secrets.for_run_with(
-            secret_timeout(resume.settings.as_ref()),
-            redaction(resume.settings.as_ref()),
-        );
+        let secrets = run_secrets(&self.secrets, resume.settings.as_ref());
         let unwrapped = self.unwrapped_key(&resume, &secrets).await?;
         let (stored, key) = match unwrapped {
             Some(Unwrapped { stored, key }) => (Some(stored), Some(key)),

@@ -17,6 +17,7 @@ use goodfetch_protocol::connection::PrivateEndpoint;
 use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::governor::{SYSTEM_INFO, SystemInfo};
 use goodfetch_protocol::run::RunOwner;
+use goodfetch_protocol::secret_reference::Provider;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -47,7 +48,7 @@ use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Runs, RunsSetup};
 use crate::sandbox_probe;
-use crate::secrets::{self, Keychain};
+use crate::secrets::{self, Keychain, ProviderFactory};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use crate::transition::{
@@ -71,6 +72,7 @@ pub struct Engine {
     clean_up: Option<Arc<dyn CleanUpVersions>>,
     gates: Option<Arc<dyn Gates>>,
     needs_you_sources: Vec<NeedsYouSource>,
+    secret_providers: Vec<(Provider, ProviderFactory)>,
     controls: Controls,
     events: EventsOptions,
     console: Option<&'static ConsoleBuild>,
@@ -123,6 +125,7 @@ impl Engine {
             clean_up: composition.clean_up_versions()?,
             gates: composition.admission_gates()?,
             needs_you_sources: composition.needs_you_sources(),
+            secret_providers: composition.secret_providers(),
             controls: composition.controls(),
             events: EventsOptions::default(),
             console: composition.console(),
@@ -438,6 +441,7 @@ impl Engine {
                 needs_you,
                 controls: self.controls.clone(),
                 masks: self.dispatch.masks.clone(),
+                secret_providers: self.secret_providers.clone(),
             },
             owner,
         );

@@ -25,6 +25,8 @@ goodfetch-cli = { workspace = true, optional = true }
 goodfetch-engine.workspace = true
 goodfetch-page.workspace = true
 goodfetch-protocol.workspace = true
+# The built-in external Secret providers (spec #564).
+goodfetch-secret-providers.workspace = true
 jiff = { workspace = true, optional = true }
 mimalloc = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }

@@ -10,8 +10,9 @@
 use std::cell::RefCell;
 
 use goodfetch_clean_up_rules::removal::{self, Removed, Share};
-use goodfetch_extractor::{CleanUp, Context, Document, Serialization};
-use goodfetch_protocol::page::{FormatsRequest, PageFormats, PageId, SessionId};
+use goodfetch_engine::settings::{Resolved, Values};
+use goodfetch_extractor::{BuiltIn, CleanUp, Context, Document, Extractor, Serialization};
+use goodfetch_protocol::page::{CONTENT_EXTRACTOR, FormatsRequest, PageFormats, PageId, SessionId};
 use serde_json::{Value, json};
 
 use crate::driver::SerializedDocument;
@@ -82,16 +83,30 @@ impl CleanUp for Matcher<'_> {
     }
 }
 
+/// The main-content step a page's formats read with: the
+/// `content.extractor` of its own settings `page`, else of its Session's
+/// `session`, else of its Run's resolved settings `run`; dom-smoothie
+/// without any. A value no built-in has never reaches here: it was refused
+/// where it was set.
+pub(super) fn extractor(run: Option<&Resolved>, session: &Values, page: &Values) -> BuiltIn {
+    page.get(CONTENT_EXTRACTOR.name)
+        .or_else(|| session.get(CONTENT_EXTRACTOR.name))
+        .or_else(|| run.map(|run| run.value(CONTENT_EXTRACTOR.name)))
+        .and_then(Value::as_str)
+        .and_then(BuiltIn::named)
+        .unwrap_or_default()
+}
+
 /// The formats `request` names, read from `document`, serialized as
-/// `serialization` says, the cosmetic rules
-/// `cosmetic` holds and the runner's rules of the selectors `hidden`
-/// applied before its main content, and what they did.
+/// `serialization` says, its main content found by `extractor`, the
+/// cosmetic rules `cosmetic` holds and the runner's rules of the selectors
+/// `hidden` applied before its main content, and what they did.
 pub(super) fn read(
     document: &SerializedDocument,
     serialization: Serialization,
     request: FormatsRequest,
-    cosmetic: Option<&Cosmetic>,
-    hidden: &[String],
+    extractor: &dyn Extractor,
+    (cosmetic, hidden): (Option<&Cosmetic>, &[String]),
 ) -> (PageFormats, FormatsRead) {
     let of = |html| Document {
         html,
@@ -106,14 +121,15 @@ pub(super) fn read(
     };
     let context = Context {
         clean_up: (cosmetic.is_some() || !hidden.is_empty()).then_some(&matcher as &dyn CleanUp),
+        extractor,
     };
     let formats = goodfetch_extractor::formats(&of(&document.html), &request, &context);
     let removal = matcher.removal.into_inner();
     let (removed, removed_text, share) = match removal {
         Some(removal) if !removal.removed.is_empty() => {
             let share = Share::of(
-                goodfetch_extractor::main_content_length(&of(&document.html)),
-                goodfetch_extractor::main_content_length(&of(&removal.html)),
+                goodfetch_extractor::main_content_length(&of(&document.html), extractor),
+                goodfetch_extractor::main_content_length(&of(&removal.html), extractor),
             );
             (removal.removed, removal.removed_text, Some(share))
         }

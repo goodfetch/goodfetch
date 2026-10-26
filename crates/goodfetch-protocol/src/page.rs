@@ -205,13 +205,22 @@ pub struct PageId(pub String);
 #[serde(transparent)]
 pub struct SessionId(pub String);
 
-/// What `run.new_page` takes: the Run whose default Session opens the page.
+/// What `run.new_page` takes: the Run whose default Session opens the page,
+/// and the page's own settings.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NewPageParams {
     /// The Run.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
+    /// The page's own settings, nested by key (ADR 0083), which it takes
+    /// over its Session's and its Run's: `content.extractor`, the
+    /// main-content step its formats read with. Any other key is refused
+    /// with `setting_not_applicable`, as only its Session or its Run sets
+    /// it.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: serde_json::Map<String, serde_json::Value>,
 }
 
 /// What `run.new_page` and `session.new_page` answer: the page, and the
@@ -1000,6 +1009,26 @@ fn allow() -> serde_json::Value {
     serde_json::Value::String("allow".to_owned())
 }
 
+/// The values of `content.extractor`: the built-in main-content steps
+/// (ADR 0007).
+pub const CONTENT_EXTRACTORS: &[&str] = &["dom_smoothie", "trafilatura"];
+
+/// `content.extractor` (ADRs 0007, 0083 and 0104; spec #580).
+pub const CONTENT_EXTRACTOR: Setting = Setting {
+    name: "content.extractor",
+    description: "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+    kind: ValueKind::Choice(CONTENT_EXTRACTORS),
+    default: dom_smoothie,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn dom_smoothie() -> serde_json::Value {
+    serde_json::Value::String("dom_smoothie".to_owned())
+}
+
 /// The name the Run trace's request log records a service worker's own
 /// request under, beside its pages' events (ADR 0121): no page sent it, so
 /// no page's event reports it.
@@ -1375,6 +1404,7 @@ pub const ENTRIES: Entries = Entries {
         BROWSER_BLOCK_RESOURCES,
         BROWSER_SERVICE_WORKERS,
         LIVE_VIEW_HIDING,
+        CONTENT_EXTRACTOR,
     ],
     hook_stages: &[],
     shared_type_values: &[],

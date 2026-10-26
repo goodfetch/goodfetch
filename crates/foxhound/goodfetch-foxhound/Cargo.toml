@@ -38,6 +38,13 @@ goodfetch-test-support.workspace = true
 # The Exports' bytes the tests decode and digest (tests/it/exports.rs).
 data-encoding.workspace = true
 sha2.workspace = true
+# The reference readers the table Exports are read back with: a CSV
+# reader, a spreadsheet library, an HTML parser and a Markdown parser
+# (tests/it/exports.rs; pitfall D07).
+calamine.workspace = true
+csv.workspace = true
+pulldown-cmark.workspace = true
+scraper.workspace = true
 gungraun.workspace = true
 # The refusals' messages through the executables (tests/it/daemon.rs).
 insta.workspace = true

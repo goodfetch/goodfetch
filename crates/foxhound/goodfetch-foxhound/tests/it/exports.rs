@@ -580,3 +580,307 @@ fn an_export_at_the_critical_storage_level_fails_before_writing() {
         )
     );
 }
+
+/// `run.export`'s reply for `books` of `run_id` in `format`, under the
+/// run layer `settings`.
+fn export_under(engine: &mut Attached, run_id: &str, format: &str, settings: &Value) -> Value {
+    engine.call(
+        "export",
+        "run.export",
+        &json!({ "run_id": run_id, "dataset": "books", "format": format, "settings": settings }),
+        &mut |_| None,
+    )
+}
+
+/// The bytes of the Export `reply` answered, saved by `export.save_as` in
+/// the test's home as `name`.
+fn saved(engine: &mut Attached, env: &TestEnv, reply: &Value, name: &str) -> Vec<u8> {
+    let path = env.home().join("saved").join(name);
+    let saved = save_as(engine, &reply["result"]["export_id"], &path);
+    assert_eq!(saved["result"]["written"], json!(true), "{reply} {saved}");
+    std::fs::read(path).unwrap()
+}
+
+/// The rows a CSV reader reads from `bytes`, its header row first.
+fn csv_rows(bytes: &[u8], delimiter: u8) -> Vec<Vec<String>> {
+    csv::ReaderBuilder::new()
+        .has_headers(false)
+        .delimiter(delimiter)
+        .from_reader(bytes)
+        .records()
+        .map(|record| record.unwrap().iter().map(str::to_owned).collect())
+        .collect()
+}
+
+/// The sheets' names a spreadsheet library reads in the XLSX `bytes`, and
+/// the rows of the first, its header row first, a number written as JSON
+/// writes it.
+fn xlsx_rows(bytes: Vec<u8>) -> (Vec<String>, Vec<Vec<String>>) {
+    use calamine::{Data, Reader as _};
+
+    let mut workbook = calamine::Xlsx::new(std::io::Cursor::new(bytes)).unwrap();
+    let names = workbook.sheet_names();
+    let range = workbook.worksheet_range(&names[0]).unwrap();
+    let rows = range
+        .rows()
+        .map(|row| {
+            row.iter()
+                .map(|cell| match cell {
+                    Data::Empty => String::new(),
+                    Data::String(text) => text.clone(),
+                    Data::Bool(boolean) => boolean.to_string(),
+                    Data::Int(number) => number.to_string(),
+                    Data::Float(number) if number.fract() == 0.0 => format!("{number:.0}"),
+                    Data::Float(number) => number.to_string(),
+                    other => panic!("an XLSX Export holds no {other:?}"),
+                })
+                .collect()
+        })
+        .collect();
+    (names, rows)
+}
+
+/// The title and the rows an HTML parser reads in `text`, its header row
+/// first.
+fn html_rows(text: &str) -> (String, Vec<Vec<String>>) {
+    let document = scraper::Html::parse_document(text);
+    let title = scraper::Selector::parse("title").unwrap();
+    let rows = scraper::Selector::parse("tr").unwrap();
+    let cells = scraper::Selector::parse("th, td").unwrap();
+    (
+        document
+            .select(&title)
+            .next()
+            .unwrap()
+            .text()
+            .collect::<String>(),
+        document
+            .select(&rows)
+            .map(|row| {
+                row.select(&cells)
+                    .map(|cell| cell.text().collect::<String>())
+                    .collect()
+            })
+            .collect(),
+    )
+}
+
+/// The rows of the table a Markdown parser reads in `text`, its header row
+/// first, an inline HTML line break kept as its text.
+fn markdown_rows(text: &str) -> Vec<Vec<String>> {
+    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+
+    let mut rows = Vec::new();
+    let mut row = Vec::new();
+    let mut cell = String::new();
+    for event in Parser::new_ext(text, Options::ENABLE_TABLES) {
+        match event {
+            Event::Start(Tag::TableCell) => cell.clear(),
+            Event::Text(text) | Event::InlineHtml(text) | Event::Code(text) => {
+                cell.push_str(&text);
+            }
+            Event::End(TagEnd::TableCell) => row.push(std::mem::take(&mut cell)),
+            Event::End(TagEnd::TableHead | TagEnd::TableRow) => {
+                rows.push(std::mem::take(&mut row));
+            }
+            _ => {}
+        }
+    }
+    rows
+}
+
+/// The text a table Export's cell holds for `value`: nothing for none or
+/// `null`, a string's text, and JSON's text of anything else.
+fn cell_text(value: Option<&Value>) -> String {
+    match value {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(text)) => text.clone(),
+        Some(other) => other.to_string(),
+    }
+}
+
+/// The rows a table of `records` under `columns` holds, its header row
+/// first.
+fn table_of(columns: &[&str], records: &[Value]) -> Vec<Vec<String>> {
+    let header = columns.iter().map(|&name| name.to_owned()).collect();
+    std::iter::once(header)
+        .chain(records.iter().map(|record| {
+            columns
+                .iter()
+                .map(|&name| cell_text(record.get(name)))
+                .collect()
+        }))
+        .collect()
+}
+
+/// The third book, which adds fields the first two lack: a nested object,
+/// a boolean, a `null`, a number and an array.
+fn third_book() -> Value {
+    json!({
+        "author": { "name": "Zoé" },
+        "in_stock": true,
+        "note": null,
+        "page": 3,
+        "price": 12.5,
+        "tags": ["roman", "poche"],
+        "title": "Café 3",
+    })
+}
+
+/// Pitfall D07's acceptance test: CSV, XLSX, HTML table and Markdown
+/// Exports of Records whose later ones add fields carry every field, in
+/// first-seen order, a field a Record lacks as an empty cell; each opens in
+/// a reference reader (a CSV reader, a spreadsheet library, an HTML parser,
+/// a Markdown parser) and gives the Records back, the Unicode record among
+/// them. CSV carries no BOM by default, and the XLSX sheet is named after
+/// the Dataset.
+///
+/// Covers: story:6-278, story:6-277, operation:run.export, operation:export.save_as, format:export
+#[test]
+fn csv_xlsx_html_and_markdown_exports_carry_every_field_seen_in_first_seen_order() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    crawl(&mut engine, "tables", 3);
+    finish(&mut engine, "tables", |page| match page {
+        1 => book(1),
+        2 => unicode_value(),
+        _ => third_book(),
+    });
+    let none = json!({});
+    let csv = export_under(&mut engine, "tables", "csv", &none);
+    let xlsx = export_under(&mut engine, "tables", "xlsx", &none);
+    let html = export_under(&mut engine, "tables", "html_table", &none);
+    let markdown = export_under(&mut engine, "tables", "markdown", &none);
+    let csv_bytes = saved(&mut engine, &env, &csv, "books.csv");
+    let xlsx_bytes = saved(&mut engine, &env, &xlsx, "books.xlsx");
+    let html_bytes = saved(&mut engine, &env, &html, "books.html");
+    let markdown_bytes = saved(&mut engine, &env, &markdown, "books.md");
+    assert!(engine.finish());
+
+    let columns = [
+        "page",
+        "title",
+        "astral",
+        "bidi",
+        "bom",
+        "nfc",
+        "nfd",
+        "tab_and_newline",
+        "zero_width_joiner",
+        "zwj_emoji",
+        "author",
+        "in_stock",
+        "note",
+        "price",
+        "tags",
+    ];
+    let expected = table_of(&columns, &[book(1), unicode_value(), third_book()]);
+    let in_markdown: Vec<Vec<String>> = expected
+        .iter()
+        .map(|row| row.iter().map(|cell| cell.replace('\n', "<br>")).collect())
+        .collect();
+    assert_eq!(
+        (
+            csv_bytes.starts_with(b"\xEF\xBB\xBF"),
+            csv_rows(&csv_bytes, b','),
+            xlsx_rows(xlsx_bytes),
+            html_rows(&String::from_utf8(html_bytes).unwrap()),
+            markdown_rows(&String::from_utf8(markdown_bytes).unwrap()),
+            [&csv, &xlsx, &html, &markdown].map(|reply| reply["result"]["records"].clone()),
+        ),
+        (
+            false,
+            expected.clone(),
+            (vec!["books".to_owned()], expected.clone()),
+            ("books".to_owned(), expected),
+            in_markdown,
+            [json!(3), json!(3), json!(3), json!(3)],
+        )
+    );
+}
+
+/// `export.csv.bom` puts a BOM first, `export.csv.delimiter` sets the
+/// character between fields, `export.csv.nested: flatten` writes an
+/// object's fields in dotted columns, and `export.xlsx.sheet` names the
+/// sheet; a delimiter of two characters and a sheet name holding `/` fail
+/// with `setting_invalid` naming the key.
+///
+/// Covers: story:6-278, story:6-277, operation:run.export, setting:export.csv.bom, setting:export.csv.delimiter, setting:export.csv.nested, setting:export.xlsx.sheet, error:setting_invalid
+#[test]
+fn the_export_settings_shape_csv_and_name_the_xlsx_sheet() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    crawl(&mut engine, "shaped", 3);
+    finish(&mut engine, "shaped", |page| {
+        if page == 3 { third_book() } else { book(page) }
+    });
+    let csv = export_under(
+        &mut engine,
+        "shaped",
+        "csv",
+        &json!({ "export": { "csv": { "bom": true, "delimiter": ";", "nested": "flatten" } } }),
+    );
+    let xlsx = export_under(
+        &mut engine,
+        "shaped",
+        "xlsx",
+        &json!({ "export": { "xlsx": { "sheet": "Livres 2026" } } }),
+    );
+    let two = export_under(
+        &mut engine,
+        "shaped",
+        "csv",
+        &json!({ "export": { "csv": { "delimiter": ";;" } } }),
+    );
+    let slashed = export_under(
+        &mut engine,
+        "shaped",
+        "xlsx",
+        &json!({ "export": { "xlsx": { "sheet": "a/b" } } }),
+    );
+    let csv_bytes = saved(&mut engine, &env, &csv, "books.csv");
+    let xlsx_bytes = saved(&mut engine, &env, &xlsx, "books.xlsx");
+    assert!(engine.finish());
+
+    let flattened = json!({
+        "author.name": "Zoé",
+        "in_stock": true,
+        "page": 3,
+        "price": 12.5,
+        "tags": ["roman", "poche"],
+        "title": "Café 3",
+    });
+    let refused = |reply: &Value| {
+        (
+            reply["error"]["data"]["code"].clone(),
+            reply["error"]["data"]["key"].clone(),
+        )
+    };
+    assert_eq!(
+        (
+            csv_bytes.starts_with(b"\xEF\xBB\xBF"),
+            csv_rows(&csv_bytes[3..], b';'),
+            xlsx_rows(xlsx_bytes).0,
+            refused(&two),
+            refused(&slashed),
+        ),
+        (
+            true,
+            table_of(
+                &[
+                    "page",
+                    "title",
+                    "author.name",
+                    "in_stock",
+                    "note",
+                    "price",
+                    "tags"
+                ],
+                &[book(1), book(2), flattened],
+            ),
+            vec!["Livres 2026".to_owned()],
+            (json!("setting_invalid"), json!("export.csv.delimiter")),
+            (json!("setting_invalid"), json!("export.xlsx.sheet")),
+        )
+    );
+}

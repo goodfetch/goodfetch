@@ -2297,6 +2297,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-secret-providers"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-engine",
+ "goodfetch-protocol",
+ "goodfetch-test-support",
+ "rstest",
+ "secrecy",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "goodfetch-session-pool"
 version = "0.0.0"
 dependencies = [

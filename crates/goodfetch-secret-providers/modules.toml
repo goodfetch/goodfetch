@@ -1,0 +1,6 @@
+# Which of goodfetch-secret-providers's top-level modules may import which
+# (ADR 0126).
+[modules]
+bitwarden = ["cli"]
+cli = []
+one_password = ["cli"]

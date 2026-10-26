@@ -7039,6 +7039,28 @@
       ]
     },
     {
+      "id": "setting:secret_providers.bw.command",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:secret_providers.op.command",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:secrets.by_reference",
       "kind": "setting",
       "area": 4,

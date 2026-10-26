@@ -11,7 +11,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 
 use goodfetch_protocol::result_document::ResultDocument;
-use goodfetch_test_support::JourneyRun;
+use goodfetch_test_support::{JourneyRun, ReceivedRequests};
 use serde_json::{Map, Value, json};
 
 use crate::crawl::Attached;
@@ -26,13 +26,13 @@ const CHOSEN: [&str; 2] = ["127.0.0.2", "127.0.0.4"];
 /// The pages the Crawl fetches.
 const PAGES: [&str; 3] = ["/consistency/1", "/consistency/2", "/version"];
 
-/// The source address of the connection of each request to `access.test`.
+/// The source address of the connection of each request to `access.test`,
+/// robots.txt's included: the check claims where every request left from,
+/// once the Crawl finished, so after its robots.txt reading.
 fn sources(observations: &Value) -> Vec<IpAddr> {
     let connections = observations["connections"].as_array().unwrap();
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(observations)
+        .every()
         .filter(|request| {
             request["host"]
                 .as_str()

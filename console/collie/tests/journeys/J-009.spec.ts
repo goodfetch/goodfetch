@@ -10,14 +10,13 @@ import type { SettingsExplanation } from "@goodfetch/collie-client/generated";
 import { journey } from "@goodfetch/test-support/journey";
 import { expect } from "@goodfetch/test-support/playwright";
 import type { Page } from "@playwright/test";
+import { settingRow } from "#tests/effective-settings.ts";
 
 /** The text of each cell of the row of `key`: its value, the layer that set it, the layer that locked it and its notes. */
 async function rowOf(page: Page, key: string): Promise<string[]> {
-  const row = page
-    .getByRole("row")
-    .filter({ has: page.getByRole("rowheader", { name: key, exact: true }) });
+  const row = settingRow(page, key);
   await expect(row).toBeVisible();
-  return row.getByRole("cell").allTextContents();
+  return row.getByRole("gridcell").allTextContents();
 }
 
 journey("J-009", "console", async ({ step, check, cli, daemon, page, signIn }) => {
@@ -48,9 +47,9 @@ journey("J-009", "console", async ({ step, check, cli, daemon, page, signIn }) =
     await page.getByRole("link", { name: "Engine & settings" }).click();
     await page.getByLabel("Project configuration").setInputFiles(project);
     await page.getByRole("button", { name: "Explain" }).click();
-    await expect(
-      page.getByRole("row").filter({ hasText: "timeout.first_byte" }).getByRole("cell").first(),
-    ).toHaveText("10000");
+    await expect(settingRow(page, "timeout.first_byte").getByRole("gridcell").first()).toHaveText(
+      "10000",
+    );
   });
 
   await check(

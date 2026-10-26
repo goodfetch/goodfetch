@@ -186,7 +186,7 @@
       }
     },
     {
-      "files": ["console/foxhound-screens/**"],
+      "files": ["console/foxhound/**"],
       "rules": {
         "no-restricted-imports": "off"
       }

@@ -313,6 +313,7 @@ fetch:
     ci/fuzz-check.sh fetch
     pnpm install --frozen-lockfile
     uv sync --frozen --all-extras
+    ci/lightpanda-fetch.sh
 
 # Collie's Console build, which Collie's executable embeds (ADR 0057):
 # brotli files only, in crates/goodfetch-collie/console-build/; nothing runs

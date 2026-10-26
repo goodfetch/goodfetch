@@ -6264,6 +6264,16 @@
       ]
     },
     {
+      "id": "setting:fetch.light_browser",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:fetch.redirect.max",
       "kind": "setting",
       "area": 5,

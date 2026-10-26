@@ -133,3 +133,20 @@ fn the_routes_page_leaves_its_view_to_its_script_on_every_fragment() {
         (200, true, true, true, true, true)
     );
 }
+
+/// `/painted/<n>` holds no text of its own in `p.painted`: only its
+/// script, painting a canvas, writes the alpha it reads there.
+#[test]
+fn a_painted_page_leaves_its_text_to_its_canvas_script() {
+    let proving_ground = ProvingGround::start(SEED);
+    let answer = proving_ground.get(&proving_ground.url("tiers.test", "/painted/1"));
+
+    assert_eq!(
+        (
+            answer.status,
+            answer.body.contains("<p class=\"painted\"></p>"),
+            answer.body.contains("getImageData(0, 0, 1, 1).data[3]"),
+        ),
+        (200, true, true)
+    );
+}

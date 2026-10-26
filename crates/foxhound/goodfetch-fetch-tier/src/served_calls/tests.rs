@@ -24,13 +24,13 @@ use Service::{
 /// `browser_required` when forced; one it serves is served either way.
 #[rstest::rstest]
 #[case::read(Row::Read, Some("page.formats"), [S, S, S, S, S])]
-#[case::question(Row::Question, None, [M, M, M, S, S])]
-#[case::state_wait(Row::StateWait, Some("locator.wait_for"), [W, W, W, S, S])]
-#[case::network_wait(Row::NetworkWait, Some("page.wait_for_response"), [E, R, E, S, S])]
-#[case::script(Row::Script, Some("page.evaluate"), [E, E, E, S, S])]
+#[case::question(Row::Question, None, [M, M, M, M, S])]
+#[case::state_wait(Row::StateWait, Some("locator.wait_for"), [W, W, W, W, S])]
+#[case::network_wait(Row::NetworkWait, Some("page.wait_for_response"), [E, R, E, E, S])]
+#[case::script(Row::Script, Some("page.evaluate"), [E, E, E, E, S])]
 #[case::layout(Row::Layout, None, [E, E, E, E, S])]
 #[case::gesture(Row::Gesture, Some("locator.click"), [E, E, E, E, S])]
-#[case::navigation(Row::Navigation, Some("page.goto"), [O, O, O, S, S])]
+#[case::navigation(Row::Navigation, Some("page.goto"), [O, O, O, E, S])]
 #[case::request(Row::Request, Some("page.request"), [S, S, S, S, S])]
 #[case::lifecycle(Row::Lifecycle, Some("page.close"), [S, S, S, S, S])]
 fn each_row_on_each_tier_is_served_exactly_or_escalates_or_is_refused_when_forced(

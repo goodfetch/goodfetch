@@ -340,3 +340,69 @@ fn fetch_sample_count_sets_how_many_samples_a_label_takes() {
         Some(FetchTier::Http)
     );
 }
+
+/// Where the Run allows the light-browser tier, a Label whose samples
+/// all matched, some only on `light_browser`, is learned onto
+/// `light_browser`; one whose every sample matched over `http` still goes
+/// on `http`, the cheaper; and one with a sample that matched on neither
+/// stays on `browser` (ADR 0020). A split Label's segment follows the same
+/// rule.
+///
+/// Covers: story:5-120
+#[test]
+fn a_label_whose_samples_matched_only_with_the_light_browser_is_learned_onto_it() {
+    let mut choices = TierChoices::default();
+    for page in 1..=SAMPLES {
+        let light = if page == 2 {
+            Weighed::Matched
+        } else {
+            Weighed::MatchedLight
+        };
+        weigh(&mut choices, "scripted", &format!("/blog/{page}"), light);
+        weigh(
+            &mut choices,
+            "static",
+            &format!("/products/{page}"),
+            Weighed::Matched,
+        );
+        let painted = if page == 3 {
+            Weighed::Differed
+        } else {
+            Weighed::MatchedLight
+        };
+        weigh(
+            &mut choices,
+            "painted",
+            &format!("/painted/{page}"),
+            painted,
+        );
+    }
+    let mut split = TierChoices::default();
+    weigh(&mut split, "mixed", "/blog/1", Weighed::MatchedLight);
+    weigh(&mut split, "mixed", "/painted/1", Weighed::Differed);
+    for page in 2..=SAMPLES {
+        weigh(
+            &mut split,
+            "mixed",
+            &format!("/blog/{page}"),
+            Weighed::MatchedLight,
+        );
+    }
+
+    assert_eq!(
+        (
+            tier(&mut choices, "scripted", "/blog/9"),
+            tier(&mut choices, "static", "/products/9"),
+            tier(&mut choices, "painted", "/painted/9"),
+            tier(&mut split, "mixed", "/blog/9"),
+            tier(&mut split, "mixed", "/painted/9"),
+        ),
+        (
+            Some(FetchTier::LightBrowser),
+            Some(FetchTier::Http),
+            Some(FetchTier::Browser),
+            Some(FetchTier::LightBrowser),
+            Some(FetchTier::Browser),
+        )
+    );
+}

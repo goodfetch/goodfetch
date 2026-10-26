@@ -32,7 +32,8 @@ use goodfetch_protocol::run::PointInTime;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use crate::staging::{SoFar, Staging};
+pub(crate) use crate::staging::SoFar;
+use crate::staging::Staging;
 use crate::work_items::{self, Fetched};
 
 /// The `tracing` target of the run fencing model's transitions.

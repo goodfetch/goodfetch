@@ -24,6 +24,7 @@ mod dns;
 mod encodings;
 mod extra_loopback;
 mod extraction;
+mod extraction_content_modes;
 mod extraction_families;
 mod extraction_markdown;
 mod facets;

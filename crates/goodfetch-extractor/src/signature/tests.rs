@@ -4,7 +4,7 @@
 
 use rstest::rstest;
 
-use crate::{Document, page_signature};
+use crate::{Document, Serialization, page_signature};
 
 const URL: &str = "https://kites.test/events/2026/10";
 
@@ -23,6 +23,7 @@ fn signature(html: &str, url: &str) -> [u8; 32] {
         html,
         url,
         base_url: url,
+        serialization: Serialization::Served,
     })
 }
 

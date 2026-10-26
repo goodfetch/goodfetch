@@ -13,9 +13,11 @@
 use std::path::PathBuf;
 
 use goodfetch_dataset::{Committing, Datasets, ExportEncoder, Query, TABLES, commit, read_values};
+use goodfetch_engine::mask::Masks;
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::export::ExportFormat;
+use goodfetch_protocol::foxhound::provenance::RecordProvenance;
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::unicode_record;
 use rusqlite::Connection;
@@ -72,6 +74,17 @@ fn main() {
                 request_id: &id,
                 url: &format!("https://shop.test/{id}"),
                 at: &at,
+                provenance: &RecordProvenance {
+                    request_id: id.clone(),
+                    tier: None,
+                    encoding: None,
+                    origin: None,
+                    clean_up_rules: None,
+                    wall: None,
+                    payment: None,
+                    value_transforms: Vec::new(),
+                },
+                masks: &Masks::new(),
             },
             &checked,
         )

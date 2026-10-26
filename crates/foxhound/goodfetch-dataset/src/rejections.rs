@@ -39,7 +39,8 @@ pub(crate) struct Why {
 
 /// Writes `rejections`, which the attempt of the crawl request `work_item`
 /// staged, in `connection`'s transaction: each takes its Dataset's next
-/// number. Counts each in `counted`, adding a Dataset not yet counted.
+/// number, its Record and why written as `kept` encodes them. Counts each
+/// in `counted`, adding a Dataset not yet counted.
 ///
 /// # Errors
 ///
@@ -48,6 +49,7 @@ pub(crate) fn write(
     connection: &Connection,
     work_item: &str,
     rejections: &[Rejection],
+    kept: &mut impl FnMut(Value) -> String,
     counted: &mut Vec<DatasetRecords>,
 ) -> rusqlite::Result<()> {
     if rejections.is_empty() {
@@ -58,12 +60,12 @@ pub(crate) fn write(
          VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM rejected_records WHERE dataset = ?1), ?2, ?3, ?4)",
     )?;
     for rejection in rejections {
-        let why = serde_json::to_string(&rejection.why).expect("invariant: a rejection encodes");
+        let why = serde_json::to_value(&rejection.why).expect("invariant: a rejection encodes");
         insert.execute((
             &rejection.dataset,
             work_item,
-            rejection.data.to_string(),
-            why,
+            kept(rejection.data.clone()),
+            kept(why),
         ))?;
         match counted
             .iter_mut()

@@ -41,7 +41,7 @@ const IDS: &str = "catalog/1 catalog/2 catalog/3 \
     navigation/1 navigation/2 navigation/3 navigation/4 navigation/5 navigation/6 navigation/7 \
     agent/1 agent/2 agent/3 agent/4 agent/5 agent/6 agent/7 agent/8 agent/9 \
     replay/1 replay/2 \
-    extraction/1 extraction/2 extraction/3 extraction/4 extraction/5 extraction/6 extraction/7 \
+    extraction/1 extraction/2 extraction/3 extraction/4 extraction/5 extraction/6 extraction/7 extraction/8 \
     encodings/1 encodings/2 languages/1 languages/2 files/1 files/2 files/3 \
     adversarial/1 adversarial/2 adversarial/3 adversarial/4 protection/1 protection/2 \
     access/1 access/2 access/3 access/4 access/5 \
@@ -77,7 +77,7 @@ const KINDS: &str = "crawl extract submit \
     act act act act act act download \
     submit extract extract extract extract extract extract extract extract \
     extract extract \
-    crawl extract crawl crawl extract crawl crawl \
+    crawl extract crawl crawl extract crawl crawl crawl \
     crawl crawl crawl extract crawl extract extract \
     extract submit extract extract crawl extract \
     extract extract extract extract crawl \

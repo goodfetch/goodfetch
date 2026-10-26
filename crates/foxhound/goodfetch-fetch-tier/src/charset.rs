@@ -21,6 +21,7 @@
 use std::cell::Cell;
 
 use encoding_rs::{Encoding, UTF_8, UTF_16BE, UTF_16LE, WINDOWS_1252};
+use goodfetch_protocol::foxhound::provenance::EncodingSource;
 use html5ever::tokenizer::states::RawKind;
 use html5ever::tokenizer::{
     BufferQueue, Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
@@ -51,6 +52,17 @@ impl Source {
             Self::Header => "header",
             Self::Meta => "meta",
             Self::Utf8 => "utf8",
+        }
+    }
+
+    /// Its name in a Record's Provenance.
+    pub(crate) fn provenance(self) -> EncodingSource {
+        match self {
+            Self::Bom => EncodingSource::Bom,
+            Self::Setting => EncodingSource::Setting,
+            Self::Header => EncodingSource::Header,
+            Self::Meta => EncodingSource::Meta,
+            Self::Utf8 => EncodingSource::Utf8,
         }
     }
 }

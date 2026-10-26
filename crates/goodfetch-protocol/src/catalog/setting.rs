@@ -297,6 +297,13 @@ pub enum Authority {
     /// boolean setting this names to `true`, as `egress.private_ranges`
     /// (spec #563).
     NotByModelRecipeAllowedBy(&'static str),
+    /// Every layer, but a Recipe and a Client acting for a model only
+    /// narrow the list of hosts the layers below give, each entry a host
+    /// and its subdomains, as the domain policy's `egress.allowed_domains`
+    /// and `egress.blocked_domains` (spec #563, G5); a widening value from
+    /// them is `setting_locked`. The program's own code and configuration
+    /// set any value.
+    HostsNarrowedByRecipeOrModel(HostList),
     /// No layer: an honesty guarantee that stays at its built-in value
     /// whatever the layer (ADR 0028).
     Fixed,
@@ -315,9 +322,22 @@ impl Authority {
             Self::NotByRecipe => "not_by_recipe",
             Self::NotByRecipeOrModel => "not_by_recipe_or_model",
             Self::NotByModelRecipeAllowedBy(_) => "not_by_model_recipe_allowed_by_operator_policy",
+            Self::HostsNarrowedByRecipeOrModel(_) => "hosts_narrowed_by_recipe_or_model",
             Self::Fixed => "fixed",
         }
     }
+}
+
+/// What a list of hosts of [`Authority::HostsNarrowedByRecipeOrModel`]
+/// does with the hosts it lists, which says which way it narrows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostList {
+    /// It allows them: a value narrows by listing no host the value below
+    /// does not cover, as `egress.allowed_domains`.
+    Allows,
+    /// It blocks them: a value narrows by covering every host the value
+    /// below lists, as `egress.blocked_domains`.
+    Blocks,
 }
 
 #[cfg(test)]

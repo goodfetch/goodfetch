@@ -6,9 +6,11 @@
 //! timing.
 
 use goodfetch_dataset::{Committing, Datasets, ExportEncoder, Query, TABLES, commit, read_values};
+use goodfetch_engine::mask::Masks;
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::export::ExportFormat;
+use goodfetch_protocol::foxhound::provenance::RecordProvenance;
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -57,6 +59,7 @@ fn declared() -> (Connection, Datasets) {
 pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
     let (connection, datasets) = declared();
     let at = PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned());
+    let masks = Masks::new();
     for (request, value) in values.into_iter().enumerate() {
         let checked = datasets
             .check(vec![PushedRecord {
@@ -65,12 +68,24 @@ pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
             }])
             .expect("invariant: each Record holds");
         let id = request.to_string();
+        let provenance = RecordProvenance {
+            request_id: id.clone(),
+            tier: None,
+            encoding: None,
+            origin: None,
+            clean_up_rules: None,
+            wall: None,
+            payment: None,
+            value_transforms: Vec::new(),
+        };
         commit(
             &connection,
             Committing {
                 request_id: &id,
                 url: "https://shop.test/books",
                 at: &at,
+                provenance: &provenance,
+                masks: &masks,
             },
             &checked,
         )

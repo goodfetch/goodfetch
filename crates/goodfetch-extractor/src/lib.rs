@@ -7,11 +7,15 @@
 //! needs. Pure over its input: no I/O, no clock, and no Foxhound type, so a
 //! Collie page and a Foxhound handler's page read alike (ADRs 0087, 0088).
 
+mod blocks;
 mod formats;
+mod light;
 mod main_content;
 mod markdown;
 mod shadow;
 mod signature;
 
-pub use formats::{CleanUp, Context, Document, formats, fuzz_formats, main_content_length};
+pub use formats::{
+    CleanUp, Context, Document, Serialization, formats, fuzz_formats, main_content_length,
+};
 pub use signature::page_signature;

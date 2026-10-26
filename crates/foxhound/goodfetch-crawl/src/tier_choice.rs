@@ -305,6 +305,17 @@ pub(crate) fn matches(cheaper: Option<&[PushedRecord]>, browser: &[PushedRecord]
     })
 }
 
+/// Whether a sample's cheaper run, which read its document in `cheaper`,
+/// and its browser run, whose `document.characterSet` is `browser`, read
+/// it alike (ADR 0119): a run that names no encoding leaves the Records to
+/// decide.
+pub(crate) fn same_encoding(cheaper: Option<&str>, browser: Option<&str>) -> bool {
+    match (cheaper, browser) {
+        (Some(cheaper), Some(browser)) => cheaper.eq_ignore_ascii_case(browser),
+        _ => true,
+    }
+}
+
 /// Records what `label` learned on `domain_key`.
 ///
 /// # Errors

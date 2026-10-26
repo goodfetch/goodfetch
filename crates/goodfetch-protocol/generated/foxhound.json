@@ -3480,6 +3480,18 @@
       "additionalProperties": false,
       "description": "The formats a `page.formats` call asks for, each `true` or its options:\none value, which a Record can carry and a Dataset's schema can be\ngenerated from (ADR 0103). A format left out is left out of the result.",
       "properties": {
+        "html": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HtmlFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page's HTML: its main content by default."
+        },
         "markdown": {
           "anyOf": [
             {
@@ -3491,6 +3503,18 @@
           ],
           "arrived_in": "0.1",
           "description": "The page's content as Markdown, with GFM's tables."
+        },
+        "text": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Asked"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The text of the page's main content, a paragraph per block."
         }
       },
       "type": "object"
@@ -3574,6 +3598,54 @@
       },
       "required": [
         "message"
+      ],
+      "type": "object"
+    },
+    "HtmlFormat": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Asked",
+          "description": "With its default options."
+        },
+        {
+          "$ref": "#/$defs/HtmlOptions",
+          "description": "With these options."
+        }
+      ],
+      "description": "The `html` format of a request: `true`, or its options."
+    },
+    "HtmlKind": {
+      "description": "Which of the page's HTML an `html` format holds.",
+      "oneOf": [
+        {
+          "const": "raw",
+          "description": "The document as served, or as the DOM stands on a browser tier,\nbefore the Clean-up rules: what `content()` returns there.",
+          "type": "string"
+        },
+        {
+          "const": "cleaned",
+          "description": "The document after the Clean-up rules' cosmetic rules.",
+          "type": "string"
+        },
+        {
+          "const": "main",
+          "description": "The main content the extractor finds, the default.",
+          "type": "string"
+        }
+      ]
+    },
+    "HtmlOptions": {
+      "additionalProperties": false,
+      "description": "The options of the `html` format.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/HtmlKind",
+          "arrived_in": "0.1",
+          "description": "Which of the page's HTML it holds."
+        }
+      },
+      "required": [
+        "kind"
       ],
       "type": "object"
     },
@@ -4475,6 +4547,16 @@
         {
           "const": "main",
           "description": "The main content the extractor finds, the default.",
+          "type": "string"
+        },
+        {
+          "const": "full",
+          "description": "The whole body, after the Clean-up rules.",
+          "type": "string"
+        },
+        {
+          "const": "fit",
+          "description": "The main content without its link-dense blocks (more than half\ntheir text in links), its image-only blocks and the navigation\nlists the document repeats: the \"fit\" of `Crawl4AI`.",
           "type": "string"
         }
       ]
@@ -5446,6 +5528,11 @@
           "description": "The URL its relative URLs resolve against: its first `<base href>`,\nelse its URL.",
           "type": "string"
         },
+        "html": {
+          "arrived_in": "0.1",
+          "description": "Its HTML of the kind the request named, when it asked for it.",
+          "type": "string"
+        },
         "main_content": {
           "$ref": "#/$defs/MainContent",
           "arrived_in": "0.1",
@@ -5454,6 +5541,11 @@
         "markdown": {
           "arrived_in": "0.1",
           "description": "Its content as Markdown, when the request asked for it.",
+          "type": "string"
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "Its main content's text, when the request asked for it.",
           "type": "string"
         },
         "url": {
@@ -15739,12 +15831,12 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "hosts_narrowed_by_recipe_or_model",
       "clearable": false,
       "default": [
         "*"
       ],
-      "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run. A request to a host it does not list fails with `egress_refused`.",
+      "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run, and only narrowed by a Recipe or a Client acting for a model, whose value listing a host the value below does not cover is `setting_locked`. A request to a host it does not list fails with `egress_refused`.",
       "name": "egress.allowed_domains",
       "product": "collie",
       "products": [
@@ -15761,10 +15853,10 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "hosts_narrowed_by_recipe_or_model",
       "clearable": false,
       "default": [],
-      "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run. A request to a host it lists fails with `egress_refused`.",
+      "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run, and only added to by a Recipe or a Client acting for a model, whose value that leaves a host the value below lists uncovered is `setting_locked`. A request to a host it lists fails with `egress_refused`.",
       "name": "egress.blocked_domains",
       "product": "collie",
       "products": [

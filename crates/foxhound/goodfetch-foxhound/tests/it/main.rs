@@ -13,6 +13,7 @@ mod attached;
 mod audit;
 mod bounds;
 mod browser_fetch;
+mod certificates;
 mod completeness;
 mod content_types;
 mod crawl;

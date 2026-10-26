@@ -215,6 +215,33 @@ class BrowserName(StrEnum):
     """Safari."""
 
 
+class CertificateExceptionKind(StrEnum):
+    """The kind of an invalid-certificate exception (ADR 0042)."""
+
+    trust_on_first_use = "trust_on_first_use"
+    """Its domain was listed without a pin: the key pinned on first use."""
+    any = "any"
+    """Its domain was listed with `any`, and the host has no pin."""
+
+
+class CertificateExceptionMark(BaseModel):
+    """
+    The invalid-certificate exception a Record's document was fetched
+    under (ADR 0042, pitfall H03).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: CertificateExceptionKind
+    """The kind of exception."""
+    spki_sha256: str
+    """
+    The SHA-256 of the public key of the certificate it accepted, as
+    `sha256/<base64>`, the known-certificates store's spelling.
+    """
+
+
 class CertsAcceptParams(BaseModel):
     """
     What `certs.accept` takes: the host, and the changed key the person
@@ -5444,6 +5471,11 @@ class RecordProvenance(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    certificate_exception: CertificateExceptionMark | None = None
+    """
+    The exception of `tls.accept_invalid_certs` its document's host was
+    reached through; none where its certificate verified.
+    """
     clean_up_rules: str | None = None
     """
     The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,

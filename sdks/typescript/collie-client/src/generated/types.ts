@@ -116,6 +116,13 @@ export type Surface =
  */
 export type BrowserName = "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari";
 /**
+ * The kind of an invalid-certificate exception (ADR 0042).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertificateExceptionKind".
+ */
+export type CertificateExceptionKind = "trust_on_first_use" | "any";
+/**
  * Whether a Run's results cover everything in its scope (ADRs 0005 and
  * 0029).
  *
@@ -1307,6 +1314,24 @@ export interface CancelParams {
   id: number | string;
 }
 /**
+ * The invalid-certificate exception a Record's document was fetched
+ * under (ADR 0042, pitfall H03).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CertificateExceptionMark".
+ */
+export interface CertificateExceptionMark {
+  /**
+   * The kind of exception.
+   */
+  kind: "trust_on_first_use" | "any";
+  /**
+   * The SHA-256 of the public key of the certificate it accepted, as
+   * `sha256/<base64>`, the known-certificates store's spelling.
+   */
+  spki_sha256: string;
+}
+/**
  * One pin of the known-certificates store, as `certs.list` answers it and
  * as the store's rows hold it: a host whose certificate was accepted on
  * first use, and the key it must keep presenting.
@@ -1959,6 +1984,11 @@ export interface DatasetRecord {
  * How it was obtained (ADR 0123's Provenance of a Record).
  */
 export interface RecordProvenance {
+  /**
+   * The exception of `tls.accept_invalid_certs` its document's host was
+   * reached through; none where its certificate verified.
+   */
+  certificate_exception?: CertificateExceptionMark | null;
   /**
    * The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
    * whose Run trace names their date and the release that applied them.
@@ -4647,6 +4677,11 @@ export interface LimitScope4 {
  * via the `definition` "RecordProvenance".
  */
 export interface RecordProvenance1 {
+  /**
+   * The exception of `tls.accept_invalid_certs` its document's host was
+   * reached through; none where its certificate verified.
+   */
+  certificate_exception?: CertificateExceptionMark | null;
   /**
    * The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
    * whose Run trace names their date and the release that applied them.

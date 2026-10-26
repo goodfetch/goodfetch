@@ -40,7 +40,9 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
-use goodfetch_engine::tls::{CertificateExceptions, ClientCertificates, PinBook, trusted_cas};
+use goodfetch_engine::tls::{
+    CertificateExceptions, ClientCertificates, ExceptionKind, ExceptionUsed, PinBook, trusted_cas,
+};
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, Reader,
@@ -52,6 +54,9 @@ use goodfetch_protocol::foxhound::fetch::{
     FetchTier, REDIRECT_MAX_LIMIT,
 };
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
+use goodfetch_protocol::foxhound::provenance::{
+    CertificateExceptionKind, CertificateExceptionMark,
+};
 use goodfetch_protocol::foxhound::provenance::{
     EncodingProvenance, EncodingSource, ForcedBy, TierChosen, TierProvenance,
 };
@@ -191,6 +196,9 @@ struct ServedPage {
     /// The response of its crawl request's own document and its body,
     /// stored in the Run's folder only once `response.body` asks for it.
     own: Option<(PageResponse, Bytes)>,
+    /// The invalid-certificate exception its document's host was reached
+    /// through (ADR 0042).
+    certificate_exception: Option<CertificateExceptionMark>,
 }
 
 /// A document a fetch answered, read as a served page holds it: its text,
@@ -604,6 +612,7 @@ impl FetchTiers {
             fetched.headers.clone(),
             Bytes::from(fetched.body.clone()),
         );
+        let certificate_exception = fetched.certificate_exception.as_ref().map(mark);
         let opened = Opened::of(run, fetched, hand_over.encoding);
         // A document only a guess could read is never served: under a
         // forced tier it fails, and under `auto` its page escalates before
@@ -642,6 +651,7 @@ impl FetchTiers {
                 not_document: opened.not_document.clone(),
                 read: opened.read,
                 own: Some((response, body)),
+                certificate_exception,
             },
         );
         pages.opened(&page_id, opened);
@@ -691,6 +701,17 @@ impl FetchTiers {
                 encoding: read.encoding.name().to_owned(),
                 source: Some(read.source.provenance()),
             })
+    }
+
+    /// The invalid-certificate exception the host of the served page
+    /// `page_id`'s document was reached through, as Provenance marks it
+    /// (ADR 0042, pitfall H03); `None` when its certificate verified, or
+    /// once it closed.
+    pub fn certificate_exception(&self, page_id: &PageId) -> Option<CertificateExceptionMark> {
+        lock(&self.served.pages)
+            .open
+            .get(page_id)
+            .and_then(|page| page.certificate_exception.clone())
     }
 
     /// The URL, the page signature and the `rel=canonical` of the served
@@ -1434,6 +1455,17 @@ fn base_href(html: &str) -> Option<String> {
     let document = dom_query::Document::from(html);
     let base = document.select("base[href]");
     base.attr("href").map(|href| href.to_string())
+}
+
+/// The Provenance mark of the exception `used`.
+fn mark(used: &ExceptionUsed) -> CertificateExceptionMark {
+    CertificateExceptionMark {
+        kind: match used.kind {
+            ExceptionKind::Any => CertificateExceptionKind::Any,
+            _ => CertificateExceptionKind::TrustOnFirstUse,
+        },
+        spki_sha256: used.certificate.to_string(),
+    }
 }
 
 /// The invalid-certificate exceptions of `settings`' `tls.accept_invalid_certs`

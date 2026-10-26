@@ -29,6 +29,8 @@ pub(crate) struct Attached {
     process: Process,
     stdin: Option<ChildStdin>,
     stdout: StrictStdout,
+    /// The engine instance its `hello` named.
+    engine_instance: Value,
 }
 
 impl Attached {
@@ -72,12 +74,15 @@ impl Attached {
             process,
             stdin,
             stdout,
+            engine_instance: Value::Null,
         };
         engine.send(&json!({
             "jsonrpc": "2.0", "id": "hello", "method": "hello",
             "params": { "protocol_version": "0.1", "surface": "sdk_python", "needs": "foxhound", "product_version": "0.0.0" },
         }));
-        assert_eq!(engine.next().unwrap()["result"]["product"], "foxhound");
+        let opened = engine.next().unwrap();
+        assert_eq!(opened["result"]["product"], "foxhound");
+        engine.engine_instance = opened["result"]["engine_instance"].clone();
         engine
     }
 
@@ -133,6 +138,16 @@ impl Attached {
     /// message written meanwhile is kept for the next read.
     pub(crate) fn is_quiet_for(&mut self, quiet: Duration) -> bool {
         self.stdout.is_quiet_for(quiet)
+    }
+
+    /// Subscribes to the event stream as the call `id`, from the start of
+    /// the engine instance its `hello` named: it reads every event, even
+    /// those of calls that answered before it was armed.
+    pub(crate) fn subscribe_from_start(&mut self, id: &str) {
+        let after = json!({ "engine_instance": self.engine_instance, "position": 0 });
+        self.send(&json!({
+            "jsonrpc": "2.0", "id": id, "method": "events.subscribe", "params": { "after": after },
+        }));
     }
 
     /// The engine's process ID.
@@ -279,7 +294,11 @@ const HANDLER_CONCURRENCY: usize = 16;
 /// concurrency's requests wait for it, and once it answers, every work
 /// item's Records are committed once. A subscriber that grants no credits
 /// holds back nothing only Foxhound produces, since Records are read from
-/// run state (ADR 0103), and its queue still gets every axis change.
+/// run state (ADR 0103), and its queue still gets every axis change. It
+/// subscribes once `crawl.start` answered, from the start of the engine
+/// instance its `hello` named: the engine runs a Connection's calls
+/// concurrently, so a subscription sent before `crawl.start` may still be
+/// armed after the Run's first axis change.
 ///
 /// Covers: story:3-8, event:run.axes_changed
 #[test]
@@ -288,9 +307,6 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
     let seed_count = i64::try_from(SEEDS).unwrap();
     let env = TestEnv::new();
     let mut engine = Attached::start(&env);
-    engine.send(
-        &json!({ "jsonrpc": "2.0", "id": "events", "method": "events.subscribe", "params": {} }),
-    );
     let seeds: Vec<Value> = (0..SEEDS)
         .map(|index| json!({ "url": format!("https://shop.test/{index}"), "label": "page" }))
         .collect();
@@ -306,6 +322,7 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
             waiting.push(message);
         } else if message["id"] == "start" {
             started = true;
+            engine.subscribe_from_start("events");
         }
     }
     let held = engine.is_quiet_for(Duration::from_millis(500));

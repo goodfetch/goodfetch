@@ -1234,6 +1234,27 @@
       ],
       "type": "object"
     },
+    "CrawlExtraction": {
+      "additionalProperties": false,
+      "description": "What a crawl with no handler reads from each page it fetches (spec\n#582's code-free crawls; ADR 0103): the engine declares the Label\n[`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by\n`url`, whose JSON Schema is generated from `formats`, and commits one\nRecord per page fetched: the page's formats, as `page.formats` answers\nthem (its `url` the document's, after redirects), its response's\n`status` and `fetchedAt`, when the engine read it.",
+      "properties": {
+        "follow": {
+          "$ref": "#/$defs/ExtractionFollow",
+          "arrived_in": "0.1",
+          "default": "scope",
+          "description": "Which pages the crawl fetches beyond its seeds: `scope` by default."
+        },
+        "formats": {
+          "$ref": "#/$defs/FormatsRequest",
+          "arrived_in": "0.1",
+          "description": "The formats each page's Record holds, as `page.formats` takes them."
+        }
+      },
+      "required": [
+        "formats"
+      ],
+      "type": "object"
+    },
     "CrawlRequest": {
       "description": "One work item of a crawl as its handler receives it (ADR 0093).",
       "properties": {
@@ -2128,6 +2149,18 @@
             "$ref": "#/$defs/DatasetDeclaration"
           },
           "type": "array"
+        },
+        "extraction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CrawlExtraction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What a crawl with no handler reads from each page (a code-free\ncrawl, ADR 0103): the engine handles each request itself and\ndeclares the Label and the Dataset it commits into, so such a start\ndeclares no Dataset of its own, else it fails with\n`invalid_params`. None for a crawl whose program handles its\nrequests."
         },
         "labels": {
           "additionalProperties": {
@@ -3445,6 +3478,26 @@
         "hash"
       ],
       "type": "object"
+    },
+    "ExtractionFollow": {
+      "description": "Which pages a code-free crawl fetches beyond its seeds.",
+      "oneOf": [
+        {
+          "const": "scope",
+          "description": "Every link of every page the crawl's scope admits: each `a[href]`\nof the page, admitted as `enqueueLinks` admits it.",
+          "type": "string"
+        },
+        {
+          "const": "sitemap",
+          "description": "The entries of the sitemaps each seed's site names in its\nrobots.txt, read as a sitemap seed of that robots.txt reads them,\nand no page's links.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "The seeds alone.",
+          "type": "string"
+        }
+      ]
     },
     "FailedRequests": {
       "description": "What `run.failed_requests` answers.",

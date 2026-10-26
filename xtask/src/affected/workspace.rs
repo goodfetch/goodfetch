@@ -127,24 +127,28 @@ pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
     })
 }
 
-/// The Console, whose build Collie's executable embeds (ADR 0057), when
-/// both exist: the crate is the one whose folder holds the build's.
-fn embedded(crates: &[Crate], packages: &[Package]) -> Vec<Embedded> {
-    let console = RepoPath::new(console::PACKAGE);
-    let build = RepoPath::new(console::BUILD);
-    let krate = crates
-        .iter()
-        .filter(|krate| build.is_in(krate.folder.as_str()))
-        .max_by_key(|krate| krate.folder.as_str().len());
-    match krate {
-        Some(krate) if packages.iter().any(|package| package.folder == console) => {
-            vec![Embedded {
-                package: console,
+/// Each Product's Console, whose build its executable embeds (ADRs 0057
+/// and 0087), when both exist: the crate is the one whose folder holds the
+/// build's.
+pub(super) fn embedded(crates: &[Crate], packages: &[Package]) -> Vec<Embedded> {
+    let mut embedded = Vec::new();
+    for product_console in console::CONSOLES {
+        let package = RepoPath::new(product_console.package);
+        let build = RepoPath::new(product_console.build);
+        let krate = crates
+            .iter()
+            .filter(|krate| build.is_in(krate.folder.as_str()))
+            .max_by_key(|krate| krate.folder.as_str().len());
+        if let Some(krate) = krate
+            && packages.iter().any(|candidate| candidate.folder == package)
+        {
+            embedded.push(Embedded {
+                package,
                 krate: krate.name.clone(),
-            }]
+            });
         }
-        _ => Vec::new(),
     }
+    embedded
 }
 
 /// The root files whose imports every run of a pnpm runner loads: the

@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Page, WebSocketRoute } from "@playwright/test";
 import { expect, test, type ServedDaemon } from "@goodfetch/test-support/playwright";
+import { effectiveSettings } from "#tests/effective-settings.ts";
 
 const run = promisify(execFile);
 
@@ -275,7 +276,7 @@ test(
     await signIn.withLink(page);
     await page.goto(new URL("/settings", daemon.url).href);
     const explain = page.getByRole("button", { name: "Explain" });
-    await expect(page.getByRole("table").first()).toBeVisible();
+    await expect(effectiveSettings(page)).toBeVisible();
     await expect(explain).toBeEnabled();
     const first = await carrier.through("config.explain");
 
@@ -381,7 +382,7 @@ test(
     await startRun(daemon, "first");
     await expect.poll(() => listed(page)).toEqual(["first: running"]);
     await page.goto(new URL("/settings", daemon.url).href);
-    await expect(page.getByRole("table").first()).toBeVisible();
+    await expect(effectiveSettings(page)).toBeVisible();
 
     expect(posted.length).toBeGreaterThan(0);
     expect(posted.every(({ csrf }) => csrf !== undefined && csrf !== "")).toBe(true);

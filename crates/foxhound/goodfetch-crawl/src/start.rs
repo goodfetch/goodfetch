@@ -46,6 +46,7 @@ use goodfetch_protocol::run::{
 };
 use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 
+use crate::code_free::{self, CodeFree};
 use crate::delivery;
 use crate::enqueue;
 use crate::labels;
@@ -100,6 +101,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_handler(read_failed_requests)
         .with_run_state_tables(work_items::TABLES)
         .with_run_state_tables(labels::TABLES)
+        .with_run_state_tables(code_free::TABLES)
         .with_run_state_tables(tier_choice::TABLES)
         .with_report_part(Arc::new(crate::report::CrawlParts))
         .with_report_part(Arc::new(crate::completeness::StoppedParts))
@@ -145,13 +147,14 @@ async fn serve(
 }
 
 async fn start(
-    params: CrawlStartParams,
+    mut params: CrawlStartParams,
     context: CallContext,
     crawls: Crawls,
     tiers: FetchTiers,
     redeclared: Redeclared,
 ) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
+    code_free::declare(&mut params)?;
     let (settings, _) = context
         .runs()
         .settings()
@@ -189,6 +192,8 @@ async fn start(
     )]);
     let declared = params.labels;
     let redeclaring = datasets.clone();
+    let admitted = code_free::admitted(params.extraction.as_ref(), &seeds);
+    let (recording, extraction) = (params.extraction.clone(), params.extraction);
     let started = context
         .runs()
         .start(Start {
@@ -205,12 +210,13 @@ async fn start(
                 labels::record(connection, &declared)?;
                 fragments.record(connection)?;
                 datasets.record(connection)?;
+                code_free::record(connection, recording.as_ref())?;
                 let answers = work_items::admit_seeds(
                     connection,
                     &mut work_items::Positions::of(connection)?,
                     &scope,
                     &seeding,
-                    &seeds,
+                    &admitted,
                 )?;
                 goodfetch_frontier::seeds::answered(connection, &answers)
             })),
@@ -232,14 +238,14 @@ async fn start(
                 lifecycle: Lifecycle::Running,
                 needs: Product::Foxhound,
             };
-            let opened = crawls.open(&run, egress).await;
+            let code_free = CodeFree::of(extraction, &crawls, &tiers);
             run.spawn(delivery::drive(
                 run.clone(),
                 context.clone(),
-                opened,
+                crawls.open(&run, egress).await,
                 crawls,
                 settings,
-                (tiers, labels, TierChoices::default()),
+                (tiers, labels, TierChoices::default(), code_free),
             ));
             started
         }

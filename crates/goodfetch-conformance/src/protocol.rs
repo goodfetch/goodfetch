@@ -246,8 +246,9 @@ pub enum ProtocolSuiteError {
 
 /// The variable of the target's environment that holds the password of the
 /// Proving ground's proxies, when it serves them: the harness sets it, so a
-/// case's Session names it through the `env:` Secret provider.
-pub const PROXY_PASSWORD_VARIABLE: &str = "GOODFETCH_CONFORMANCE_PROXY_PASSWORD";
+/// case's Session names it through the `env:` Secret provider. It is no
+/// `GOODFETCH_` variable, a name the engine refuses unless it deploys it.
+pub const PROXY_PASSWORD_VARIABLE: &str = "PROVING_GROUND_PROXY_PASSWORD";
 
 /// Runs `suite` against `target` and the running `proving_ground`, and
 /// returns its result document. The target starts with

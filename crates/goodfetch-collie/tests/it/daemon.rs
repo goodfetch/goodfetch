@@ -364,6 +364,70 @@ fn two_starts_at_once_start_one_daemon() {
     );
 }
 
+/// Collie's executable run with a Goodfetch home and a temporary folder of
+/// the test's choosing, which stops that home's Daemon when the test ends,
+/// passing or failing.
+#[cfg(unix)]
+struct Under<'env> {
+    env: &'env TestEnv,
+    home: PathBuf,
+    temporary: PathBuf,
+}
+
+#[cfg(unix)]
+impl Under<'_> {
+    fn run(&self, arguments: &[&str]) -> goodfetch_test_support::CliOutput {
+        cli(self.env, COLLIE)
+            .env("GOODFETCH_HOME", &self.home)
+            .env("TMPDIR", &self.temporary)
+            .args(arguments)
+            .run()
+            .unwrap()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Under<'_> {
+    fn drop(&mut self) {
+        self.run(&["daemon", "stop"]);
+    }
+}
+
+/// A Daemon whose Goodfetch home and temporary folder are both too deep
+/// for the OS's socket paths, as a long user or project name under a
+/// sandbox's or build tool's `TMPDIR` makes them, still serves, on a socket
+/// whose path the OS takes.
+///
+/// Covers: story:3-11, command:daemon.start
+#[cfg(unix)]
+#[test]
+fn a_daemon_under_a_deep_home_and_temporary_folder_serves_on_a_socket_the_os_takes() {
+    let env = TestEnv::new();
+    let deep = env
+        .folder()
+        .join("a folder as deep as a sandbox's or a build tool's temporary folder can be");
+    std::fs::create_dir_all(deep.join("tmp")).unwrap();
+    let under = Under {
+        env: &env,
+        home: deep.join("home"),
+        temporary: deep.join("tmp"),
+    };
+
+    let started = under.run(&["daemon", "start", "--json"]);
+    let found = RuntimeFile::read(&RuntimeFile::path(&under.home, VERSION));
+
+    let socket = found.as_ref().ok().map(|found| match &found.endpoint {
+        DaemonEndpoint::Unix(socket) => socket.as_os_str().len() <= 103,
+        DaemonEndpoint::Tcp(_) => false,
+    });
+    assert_eq!(
+        (started.exit, socket),
+        (Some(0), Some(true)),
+        "{}",
+        started.stderr
+    );
+}
+
 /// Covers: story:3-18, setting:daemon.idle_timeout
 #[test]
 fn the_daemon_stops_once_no_client_was_connected_for_its_idle_timeout() {

@@ -30,7 +30,7 @@ use goodfetch_engine::Contribution;
 use goodfetch_engine::run_state::RunStateTables;
 
 pub use declaration::{Datasets, Refused};
-pub use encoding::ExportEncoder;
+pub use encoding::{Columns, ExportEncoder, ExportOptions, Nested, csv_delimiter, sheet_name};
 pub use records::{Checked, Committing, Query, commit, last_number, read, read_values};
 pub use rejections::{Rejection, fuzz_rejection};
 pub use resume::Began;

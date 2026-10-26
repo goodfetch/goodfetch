@@ -50,7 +50,8 @@ use secrecy::{ExposeSecret as _, SecretString};
 
 use self::limits::ProxyLimits;
 pub(crate) use self::limits::{ProxyPermit, TABLES};
-pub(crate) use self::party::{Answer, PROXY_STATUS, Party, party, proxy_error, refusal};
+pub use self::party::{Answer, Party, party};
+pub(crate) use self::party::{PROXY_STATUS, proxy_error, refusal};
 use self::relay::{Credentials, Mode, Relay, basic};
 use crate::egress_relay::serve::{Met, Upstream};
 use crate::egress_relay::{Chain, Latest};

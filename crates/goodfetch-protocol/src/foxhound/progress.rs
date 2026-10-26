@@ -21,8 +21,9 @@ pub const DOMAIN_CONCURRENCY: &str = "domain_concurrency";
 pub const DOMAIN_DELAY: &str = "domain_delay";
 /// The reason a site's robots.txt `Crawl-delay` holds a domain.
 pub const CRAWL_DELAY: &str = "crawl_delay";
-/// The reason a domain backs off: a 429, 502, 503 or 504, a connection
-/// refused or timed out, or a `Retry-After` (ADR 0118).
+/// The reason a domain backs off: the site's 429, 502, 503 or 504, a
+/// connection refused or timed out, an HTTP/2 `ENHANCE_YOUR_CALM`, or a
+/// `Retry-After` (ADR 0118); never a proxy's own answer (ADR 0053).
 pub const BACKOFF: &str = "backoff";
 /// The reason a domain waits for its robots.txt, not served yet.
 pub const ROBOTS_TXT: &str = "robots_txt";

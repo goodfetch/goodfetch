@@ -2652,6 +2652,28 @@ name = "goodfetch-sink"
 version = "0.0.0"
 
 [[package]]
+name = "goodfetch-stub-gateway"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "futures-util",
+ "goodfetch-engine",
+ "goodfetch-protocol",
+ "goodfetch-test-support",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rstest",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+ "tungstenite",
+ "ureq",
+]
+
+[[package]]
 name = "goodfetch-test-support"
 version = "0.0.0"
 dependencies = [

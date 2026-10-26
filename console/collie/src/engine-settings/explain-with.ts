@@ -4,9 +4,10 @@
 // the Console reads in the browser and sends, as every Client sends the
 // project configuration it read where it runs, and run values the person
 // writes as TOML, one setting per line. The Console never writes either
-// (ADR 0031).
+// (ADR 0031). The run values are a run's own values, which a person edits
+// row by row too (`withRunValue`).
 import type { ConfigExplainParams, ProjectSettings } from "@goodfetch/collie-client/generated";
-import { parse } from "smol-toml";
+import { parse, stringify } from "smol-toml";
 
 /** What `config.explain` takes beside the keys: the project configuration and run values given. */
 export type ExplainWith = Pick<ConfigExplainParams, "project" | "settings">;
@@ -71,4 +72,38 @@ export function explainWith(
     params.settings = read.table;
   }
   return { ok: true, with: params };
+}
+
+/** `runValues` with `key` set to `value`, nested by key as TOML nests it, or removed for `null`; or why `runValues` is no TOML. */
+export function withRunValue(
+  runValues: string,
+  key: string,
+  value: unknown,
+):
+  | { readonly ok: true; readonly runValues: string }
+  | { readonly ok: false; readonly refusal: ExplainRefusal } {
+  const read = runValues.trim() === "" ? { table: {} } : table(runValues);
+  if ("reason" in read) {
+    return { ok: false, refusal: { kind: "run_values", reason: read.reason } };
+  }
+  const root: Table = read.table;
+  const segments = key.split(".");
+  const last = segments.pop() ?? key;
+  let current = root;
+  for (const segment of segments) {
+    const next = current[segment];
+    if (isTable(next)) {
+      current = next;
+    } else {
+      const created: Table = {};
+      current[segment] = created;
+      current = created;
+    }
+  }
+  if (value === null) {
+    delete current[last];
+  } else {
+    current[last] = value;
+  }
+  return { ok: true, runValues: stringify(root) };
 }

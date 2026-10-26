@@ -20,6 +20,7 @@ use crate::catalog::{
     Product, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
 
+pub mod edit;
 pub mod page_check;
 pub mod session_source;
 
@@ -279,6 +280,10 @@ pub struct SettingsFile {
 
 /// One setting as `config explain` shows it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is an independent fact of the key on the wire, not a state of one machine"
+)]
 pub struct ExplainedSetting {
     /// Its key.
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -315,6 +320,18 @@ pub struct ExplainedSetting {
     /// control, which the results it touches are marked with (ADR 0028).
     #[schemars(extend("arrived_in" = "0.1"))]
     pub weakens: bool,
+    /// Whether user configuration may set it: its authority lets user
+    /// configuration hold it and no lower layer locked it, so the Console
+    /// offers its user-level value for editing (ADR 0031).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub user_settable: bool,
+    /// Whether it is fixed for a Run's life: a resume that changes it is
+    /// refused with `setting_not_applicable`, and only a new Run takes
+    /// another value (ADRs 0102 and 0120).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fixed_for_run: bool,
 }
 
 /// What `config.explain` answers and `config explain --json` prints:

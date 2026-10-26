@@ -1100,6 +1100,7 @@ fn an_explanation_lists_each_effective_value_with_its_layers() {
                 "layer": "run",
                 "origin": "settings",
                 "weakens": false,
+                "user_settable": true,
             }],
         })
     );

@@ -903,5 +903,15 @@ pub const ENTRIES: Entries = Entries {
     shared_type_values: &[],
 };
 
+/// The settings fixed for a Run's life (ADRs 0102 and 0120): those that
+/// decide its scope, and whether a request's identity keeps its URL's
+/// fragment, since the requests it already admitted would no longer match.
+pub const FIXED_FOR_A_RUN: [&Setting; 4] = [
+    &CRAWL_SCOPE_STRATEGY,
+    &CRAWL_SCOPE_INCLUDE,
+    &CRAWL_SCOPE_EXCLUDE,
+    &CRAWL_KEEP_URL_FRAGMENT,
+];
+
 #[cfg(test)]
 mod tests;

@@ -113,7 +113,7 @@ pub struct ConfigProblem {
 pub struct PartyText(String);
 
 impl PartyText {
-    pub(crate) fn new(text: impl Into<String>) -> Self {
+    pub fn new(text: impl Into<String>) -> Self {
         Self(text.into())
     }
 }

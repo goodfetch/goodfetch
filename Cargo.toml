@@ -88,11 +88,17 @@ markup5ever_rcdom = { version = "0.38.0", default-features = false }
 lol_html = { version = "3.0.2", default-features = false }
 # The page formats' tables, read from an html5ever tree (spec #580; ADR 0007).
 scraper = { version = "0.27.0", default-features = false }
+# scraper's tree, whose node IDs the microdata reader keys on (#787).
+ego-tree = { version = "0.11.1", default-features = false }
 # The other built-in main-content step, `content.extractor = "trafilatura"`
 # (ADR 0007; #788): rs-trafilatura, pinned to the release the lab reviewed
 # (`rnd/lab/adapters/extract-rust`). Its own dom_query and html-cleaning
 # lines come with it.
 rs-trafilatura = { version = "=0.2.2", default-features = false }
+# The page formats' telephone numbers in E.164 (spec #580; #787):
+# libphonenumber's metadata and parser, so a national number written with
+# its region's trunk prefix converts as the region dials it.
+phonenumber = { version = "0.3.10", default-features = false }
 # The Proving ground's oracle reads a submitted Markdown value as its
 # structure with pulldown-cmark, resolving its links with the url crate
 # below (ADR 0007).
@@ -131,6 +137,8 @@ goodfetch-protocol = { path = "crates/goodfetch-protocol" }
 # The page's recording navigation gate, lease check and response observer, a
 # test adapter: only ever a dev-dependency (ADR 0125).
 goodfetch-recording-gate = { path = "crates/goodfetch-recording-gate" }
+# The built-in external Secret providers, which each Product's composition registers (spec #564).
+goodfetch-secret-providers = { path = "crates/goodfetch-secret-providers" }
 # Foxhound's Session pool; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-session-pool = { path = "crates/foxhound/goodfetch-session-pool" }
 # Only ever a dev-dependency (ADR 0062; `xtask dependency-direction`).

@@ -324,6 +324,32 @@ fn console_build_of_exactly_1_mb_brotli_passes() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
+/// Collie's initial route (what loads before the Runs screen's first
+/// render) has the ceiling the owner approved: 1.25 times the first build's
+/// 111,823 bytes, rounded up (ADR 0071).
+#[rstest]
+#[case::at_its_ceiling(139_779, false)]
+#[case::a_byte_over_it(139_780, true)]
+fn console_initial_route_over_its_ceiling_is_noted(#[case] head: u64, #[case] over: bool) {
+    let workspace = Workspace::from_fixture("empty");
+    let entry = "collie-console-initial-route";
+    write_bundles(&workspace, &[(entry, head)], &[(entry, head)]);
+
+    let outcome = compare(&workspace, &BUNDLES);
+
+    let expected = if over {
+        vec![finding(
+            "over-ceiling",
+            "size-limit/collie-console-initial-route brotli",
+        )]
+    } else {
+        vec![]
+    };
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
+    assert_eq!(outcome.notes(), expected, "{}", outcome.stdout);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
 pub(crate) const HEAD_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 const OTHER_SHA: &str = "fedcba9876543210fedcba9876543210fedcba98";
 const PULL_REQUEST: &str = "/repos/goodfetch/goodfetch/pulls/7";

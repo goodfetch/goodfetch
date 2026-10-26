@@ -575,6 +575,21 @@ class ElementState(StrEnum):
     """No element matches, or the one that does is not visible."""
 
 
+class Email(BaseModel):
+    """An e-mail address the page shows."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    text: str
+    """
+    The text it was read from: its `mailto:` link's text, else the
+    address as the text writes it.
+    """
+    value: str
+    """The address."""
+
+
 class EncodingSource(StrEnum):
     """
     Where a document's encoding came from, in the order the tiers look
@@ -1089,6 +1104,22 @@ class MemoryReading(BaseModel):
     """
 
 
+class MetaTag(BaseModel):
+    """
+    One `<meta>` tag of a vocabulary, Open Graph's or Twitter's, in
+    document order: a property a page writes more than once, such as
+    `og:image`, is listed once per tag.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    """Its `content`."""
+    property: str
+    """Its `property`, else its `name`, as written, such as `og:title`."""
+
+
 class ModelUsage(BaseModel):
     """A Run's model calls (ADR 0101)."""
 
@@ -1480,6 +1511,28 @@ class PeriodLength(StrEnum):
     """From Monday's midnight to the next Monday's."""
     month = "month"
     """From the first day's midnight to the next month's."""
+
+
+class Phone(BaseModel):
+    """A telephone number the page shows."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    e164: str | None = None
+    """
+    The number in E.164, such as `+33123456789`, when it carries its
+    country code or the document's language tag carries a region, and
+    it is a valid number there; `null` otherwise, as no country is
+    guessed.
+    """
+    text: str
+    """
+    The text it was read from: its `tel:` link's text, else the number
+    as the text writes it.
+    """
+    value: str
+    """The number as written: its `tel:` link's number, else the text's."""
 
 
 class PlanStatus(StrEnum):
@@ -2512,6 +2565,41 @@ class SitemapSeed(BaseModel):
     """The URL of the sitemap, or of the site's robots.txt."""
 
 
+class SocialNetwork(StrEnum):
+    """A social network whose profiles the page links to."""
+
+    x = "x"
+    """X, formerly Twitter."""
+    linkedin = "linkedin"
+    """`LinkedIn`."""
+    facebook = "facebook"
+    """Facebook."""
+    instagram = "instagram"
+    """Instagram."""
+    youtube = "youtube"
+    """`YouTube`."""
+    tiktok = "tiktok"
+    """`TikTok`."""
+    github = "github"
+    """`GitHub`."""
+    mastodon = "mastodon"
+    """A Mastodon instance's profile, linked with `rel="me"`."""
+
+
+class SocialProfile(BaseModel):
+    """A social profile the page links to."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    network: SocialNetwork
+    """Its network."""
+    text: str
+    """Its link's text, white space collapsed."""
+    value: str
+    """The profile's URL, resolved against the document's base URL."""
+
+
 class SortOrder(StrEnum):
     """Which way `run.list` sorts."""
 
@@ -3452,6 +3540,23 @@ class ConsoleMessage(BaseModel):
     """
 
 
+class Contacts(BaseModel):
+    """The contacts the page shows, each value once, where it first appears."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    emails: list[Email]
+    """
+    Its e-mail addresses, from `mailto:` links and from text matching
+    the HTML Standard's valid e-mail address syntax.
+    """
+    phones: list[Phone]
+    """Its telephone numbers, from `tel:` links and from text."""
+    social: list[SocialProfile]
+    """Its social profiles, from links to the extractor's list of networks."""
+
+
 class CreditParams(BaseModel):
     """
     What `$/credit` grants: more events, or chunks, for a streaming call;
@@ -4363,41 +4468,6 @@ class PageFired(BaseModel):
     )
     page_id: PageId
     """The page."""
-
-
-class PageFormats(BaseModel):
-    """
-    What `page.formats` answers: the formats the request asked for, and
-    none it did not, with the document's URL, its base URL and whether it
-    has main content. Text is as the document holds it, never repaired.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    base_url: str
-    """
-    The URL its relative URLs resolve against: its first `<base href>`,
-    else its URL.
-    """
-    html: str | None = None
-    """Its HTML of the kind the request named, when it asked for it."""
-    images: list[Image] | None = None
-    """Its images, when the request asked for them."""
-    links: list[Link] | None = None
-    """Its links, when the request asked for them."""
-    main_content: MainContent
-    """Whether it has main content."""
-    markdown: str | None = None
-    """Its content as Markdown, when the request asked for it."""
-    media: list[Media] | None = None
-    """Its media sources, when the request asked for them."""
-    tables: list[Table] | None = None
-    """Its tables, when the request asked for them."""
-    text: str | None = None
-    """Its main content's text, when the request asked for it."""
-    url: str
-    """The document's URL, after redirects."""
 
 
 class PageOpened(BaseModel):
@@ -5379,6 +5449,11 @@ class FormatsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    contacts: Asked | None = None
+    """
+    The e-mail addresses, telephone numbers and social profiles the
+    page shows.
+    """
     html: HtmlFormat | None = None
     """The page's HTML: its main content by default."""
     images: Asked | None = None
@@ -5389,6 +5464,12 @@ class FormatsRequest(BaseModel):
     """The page's content as Markdown, with GFM's tables."""
     media: Asked | None = None
     """The page's video and audio sources, each with its URL resolved."""
+    metadata: Asked | None = None
+    """
+    The page's metadata: its title, description, canonical URL,
+    language, Open Graph and Twitter tags, JSON-LD blocks and microdata
+    items.
+    """
     tables: Asked | None = None
     """The page's tables, as rows of cells."""
     text: Asked | None = None
@@ -5991,3 +6072,112 @@ class RunReport(BaseModel):
     """What the areas warn of, each with a code and a message."""
     weakened: list[WeakenedSetting] | None = None
     """Every setting that weakened a safeguard for it (ADR 0028)."""
+
+
+class Metadata(BaseModel):
+    """The page's metadata, each value as the document writes it."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    canonical: str | None = None
+    """
+    Its `<link rel="canonical">`'s `href` resolved against the base URL;
+    `null` when it has none or it does not parse.
+    """
+    description: str | None = None
+    """Its `<meta name="description">`'s content; `null` when it has none."""
+    json_ld: list[Any]
+    """
+    Each `<script type="application/ld+json">` block that parses, as
+    JSON, in document order.
+    """
+    lang: str | None = None
+    """Its root element's `lang`; `null` when it has none."""
+    meta: dict[str, str]
+    """
+    Its `<meta name>` tags other than Open Graph's and Twitter's, by name
+    in lower case, the first of a name kept.
+    """
+    microdata: list[MicrodataItem]
+    """Its top-level microdata items, in tree order."""
+    open_graph: list[MetaTag]
+    """
+    Its Open Graph tags: every `<meta property>` not named `twitter:`,
+    and every `<meta name>` named `og:`.
+    """
+    title: str | None = None
+    """
+    Its first `<title>`'s text, white space collapsed; `null` when it
+    has none.
+    """
+    twitter: list[MetaTag]
+    """Its Twitter tags, those named `twitter:`."""
+
+
+class MicrodataItem(BaseModel):
+    """
+    A microdata item (the HTML Standard's microdata), as its JSON
+    conversion writes it, with every field given.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str | None = None
+    """
+    Its `itemid`, resolved against the document's base URL; `null` when
+    it has none or it does not parse.
+    """
+    properties: dict[str, list[MicrodataValue]]
+    """Its properties, by name, each name's values in tree order."""
+    type: list[str]
+    """Its `itemtype` tokens; empty when it has none."""
+
+
+class PageFormats(BaseModel):
+    """
+    What `page.formats` answers: the formats the request asked for, and
+    none it did not, with the document's URL, its base URL and whether it
+    has main content. Text is as the document holds it, never repaired.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    base_url: str
+    """
+    The URL its relative URLs resolve against: its first `<base href>`,
+    else its URL.
+    """
+    contacts: Contacts | None = None
+    """Its contacts, when the request asked for them."""
+    html: str | None = None
+    """Its HTML of the kind the request named, when it asked for it."""
+    images: list[Image] | None = None
+    """Its images, when the request asked for them."""
+    links: list[Link] | None = None
+    """Its links, when the request asked for them."""
+    main_content: MainContent
+    """Whether it has main content."""
+    markdown: str | None = None
+    """Its content as Markdown, when the request asked for it."""
+    media: list[Media] | None = None
+    """Its media sources, when the request asked for them."""
+    metadata: Metadata | None = None
+    """Its metadata, when the request asked for it."""
+    tables: list[Table] | None = None
+    """Its tables, when the request asked for them."""
+    text: str | None = None
+    """Its main content's text, when the request asked for it."""
+    url: str
+    """The document's URL, after redirects."""
+
+
+class MicrodataValue(RootModel[str | MicrodataItem]):
+    root: str | MicrodataItem
+    """The value of a microdata property: text, or an item of its own."""
+
+
+Metadata.model_rebuild()
+MicrodataItem.model_rebuild()

@@ -6,11 +6,13 @@
 //! open and closed shadow roots; the Clean-up rules' cosmetic rules applied
 //! to the Markdown only; and each call in the Run trace with the rules'
 //! version and what they removed. How much of the page a call reads is
-//! `content_modes`', and the links, images, media and tables `references`'.
+//! `content_modes`', the links, images, media and tables `references`', and
+//! the metadata and contacts `structured`'.
 
 pub(super) mod content_modes;
 pub(super) mod extractor;
 pub(super) mod references;
+pub(super) mod structured;
 
 use goodfetch_protocol::journey::TaskId;
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;

@@ -216,6 +216,24 @@ fn routes(root: &Path, packages: &[&str]) -> Result<Option<String>> {
     Ok(Some(format!("{text}\n")))
 }
 
+/// Installs the pnpm packages of the workspace at `root`, as its lockfile
+/// names them, so its Console builds from its own.
+pub(crate) fn install(root: &Path) -> Result<()> {
+    let status = Process::new(PNPM)
+        .arg("--dir")
+        .arg(root)
+        .args(["install", "--frozen-lockfile"])
+        .status()
+        .context("running pnpm; is it installed?")?;
+    if !status.success() {
+        bail!(
+            "installing the packages of {} failed ({status})",
+            root.display()
+        );
+    }
+    Ok(())
+}
+
 /// Gives the workspace checked out at `tree` each Console build of the one
 /// at `root` that its executable embeds and it lacks, as the base's tree of
 /// `xtask perf build` lacks them: no benchmark reads their bytes, which

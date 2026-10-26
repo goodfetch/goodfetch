@@ -24,7 +24,8 @@
 //! lock, so a Client replaces it, and a PID the OS reused never passes for
 //! it. The start lock makes two Clients starting it at once start one. A
 //! socket path too long for the OS moves into a folder of its own in the
-//! OS's temporary folder, mode `0700`, which the runtime file names.
+//! OS's temporary folder, or in `/tmp` when that one is too deep as well,
+//! mode `0700`, which the runtime file names.
 //!
 //! A service's socket must stay where its service manager listens, so one
 //! too long for the OS moves instead into `/tmp/goodfetch-daemon-<digest>`,
@@ -56,6 +57,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::endpoint::new_token;
 use crate::home::Home;
+use crate::transport::{self, LONGEST_SOCKET_PATH};
 
 const RUNTIME_FILE: &str = "daemon.json";
 const SOCKET: &str = "daemon.sock";
@@ -67,10 +69,6 @@ const OPS_TOKEN_FILE: &str = "ops.token";
 const HTTP_LISTENER_TOKEN_FILE: &str = "http-listener.token";
 /// The page that opens the Console's sign-in link in a browser.
 const CONSOLE_OPENER: &str = "console.html";
-
-/// The longest socket path every OS takes: macOS's `sun_path` holds 104
-/// bytes, its last a NUL.
-const LONGEST_SOCKET_PATH: usize = 103;
 
 /// The token in the file at `path`, or `None` when there is none.
 fn read_token(path: &Path) -> io::Result<Option<String>> {
@@ -428,7 +426,8 @@ impl DaemonFiles {
 
     /// Where the socket goes: in the per-major folder, or, when that path
     /// is too long for the OS, in a folder of its own in the OS's temporary
-    /// folder, which lives as long as the answered guard.
+    /// folder, or in `/tmp` when that one is too deep as well, which lives
+    /// as long as the answered guard.
     ///
     /// # Errors
     ///
@@ -439,9 +438,7 @@ impl DaemonFiles {
             fs::create_dir_all(&self.folder)?;
             return Ok((socket, None));
         }
-        let folder = tempfile::Builder::new()
-            .prefix("goodfetch-daemon-")
-            .tempdir()?;
+        let folder = transport::socket_folder("goodfetch-daemon-", SOCKET)?;
         Ok((folder.path().join(SOCKET), Some(folder)))
     }
 }

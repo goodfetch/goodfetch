@@ -386,8 +386,10 @@ pub(crate) struct BorrowedBrowser {
     cdp_url: CdpUrl,
     /// The Run trace's CDP log, which every browser of the Run shares.
     log: Arc<OnceCell<CommandLog>>,
-    /// Never set: the engine sees no exit of a browser it did not launch.
-    exits: watch::Sender<Option<BrowserExit>>,
+    /// Closed and empty: the engine sees no exit of a browser it did not
+    /// launch, so a call that lost its connection waits for none to name
+    /// the loss (fix queue 104: each such call waited `timeout.close`).
+    exit: watch::Receiver<Option<BrowserExit>>,
     connected: OnceCell<Browser>,
 }
 
@@ -397,7 +399,7 @@ impl BorrowedBrowser {
             run,
             cdp_url,
             log,
-            exits: watch::Sender::new(None),
+            exit: watch::channel(None).1,
             connected: OnceCell::new(),
         }
     }
@@ -428,7 +430,7 @@ impl Connect for BorrowedBrowser {
                 let browser = Browser {
                     connection,
                     log,
-                    exit: self.exits.subscribe(),
+                    exit: self.exit.clone(),
                     executable: address,
                     identity: None,
                     process: None,

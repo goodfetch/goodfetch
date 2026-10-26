@@ -2446,6 +2446,17 @@
       ]
     },
     {
+      "id": "format:export",
+      "kind": "format",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:installed-executables",
       "kind": "format",
       "area": 3,

@@ -204,7 +204,7 @@ fn names_in(folder: &Path) -> Vec<String> {
 /// count, its last number, its size and its SHA-256, which the file
 /// `export.save_as` writes and the bytes `export.stream` sends match.
 ///
-/// Covers: story:6-277, operation:run.export, operation:export.save_as, operation:export.stream
+/// Covers: story:6-277, operation:run.export, operation:export.save_as, operation:export.stream, format:export
 #[test]
 fn json_and_jsonl_exports_are_utf_8_with_no_bom_and_hold_each_value_as_committed() {
     let env = TestEnv::new();

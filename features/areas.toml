@@ -1291,6 +1291,11 @@ number = 6
 kind = "operation"
 prefix = "export."
 
+[[area]]
+number = 6
+kind = "format"
+prefix = "export"
+
 # Area 6, Collection, Foxhound: the crawl's scope (#840).
 [[area]]
 number = 6

@@ -21900,6 +21900,17 @@
       },
       "storage": "toml",
       "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "export",
+      "rule": "default",
+      "schema": {
+        "items": true,
+        "type": "array"
+      },
+      "storage": "json",
+      "version": "0.1"
     }
   ],
   "outputs": {

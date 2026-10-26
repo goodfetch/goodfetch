@@ -11,7 +11,11 @@ import { createProtocolAdapter, failure } from "@goodfetch/test-support/protocol
 import { expect, test } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
-import { createConsoleClient, type PageVisibility } from "#client/client.ts";
+import {
+  createConsoleClient,
+  type ConsoleOperations,
+  type PageVisibility,
+} from "#client/client.ts";
 import { ConsoleI18n } from "#i18n.tsx";
 import { Shell } from "#shell.tsx";
 
@@ -44,10 +48,17 @@ function limit(
 
 /** Engine & settings, signed in, over the adapter, whose `usage.list` answers `answer`. */
 async function usageOf(answer: UsageListResult | ReturnType<typeof failure>) {
-  const adapter = createProtocolAdapter();
+  // The adapter over every operation the Console calls, the person-only `config.policy_read` included.
+  const adapter = createProtocolAdapter<ConsoleOperations>();
   adapter.answer("needs_you.list", { items: [] });
   adapter.answer("config.explain", { files: [], settings: [] });
   adapter.answer("usage.list", answer);
+  adapter.answer("config.policy_read", {
+    path: "/home/1/operator-policy.toml",
+    found: false,
+    digest: "sha256:e3b0c44298fc1c14",
+    entries: [],
+  });
   const client = createConsoleClient({
     transport: adapter.transport,
     bodyFetcher: adapter.bodyFetcher,

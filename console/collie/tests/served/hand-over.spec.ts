@@ -104,14 +104,16 @@ test(
     const foxhound = await foxhoundExecutable();
     await pinConsolePort(daemon);
     await signIn.withLink(page);
-    await expect(page.getByRole("status")).toHaveText(/^Connected to Collie \d+\.\d+\.\d+\S*\.$/);
+    await expect(page.getByRole("main").getByRole("status")).toHaveText(
+      /^Connected to Collie \d+\.\d+\.\d+\S*\.$/,
+    );
     const [cookie] = await context.cookies(daemon.url);
 
     // Foxhound's `console` records Foxhound as installed; once it leaves,
     // the Collie Daemon is idle but for the open Console and hands over.
     const fromFoxhound = await consoleOf(daemon, foxhound);
 
-    await expect(page.getByRole("status")).toHaveText(
+    await expect(page.getByRole("main").getByRole("status")).toHaveText(
       /^Connected to Foxhound \d+\.\d+\.\d+\S*\.$/,
       { timeout: HANDOVER },
     );
@@ -133,7 +135,9 @@ test(
 
     // A bookmark of the Console opens it signed in, with the cookie it had.
     await page.goto(fromCollie.href);
-    await expect(page.getByRole("status")).toHaveText(/^Connected to Foxhound \d+\.\d+\.\d+\S*\.$/);
+    await expect(page.getByRole("main").getByRole("status")).toHaveText(
+      /^Connected to Foxhound \d+\.\d+\.\d+\S*\.$/,
+    );
     expect(await context.cookies(daemon.url)).toEqual([
       expect.objectContaining({ name: cookie?.name, value: cookie?.value }),
     ]);

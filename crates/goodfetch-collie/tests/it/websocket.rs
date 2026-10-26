@@ -83,6 +83,7 @@ fn listener_name(kind: ListenerKind) -> &'static str {
         ListenerKind::OpsListener => "ops_listener",
         ListenerKind::Console => "console",
         ListenerKind::ContentOrigin => "content_origin",
+        ListenerKind::ProxyRelay => "proxy_relay",
     }
 }
 

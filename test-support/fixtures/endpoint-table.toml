@@ -10,7 +10,10 @@
 # HTTP answer with a status and no body, which is no refusal and has no Audit
 # log entry) or `{ expect = "accepted" }` (an HTTP listener accepts the
 # attempt with a 2xx, as it does the valid request: no refusal, no Audit log
-# entry). The Console's WebSocket (`console`) carries its token as a
+# entry) or `{ expect = "challenge" }` (an HTTP proxy asks a client
+# without credentials for them with a `407`, as it asks every client first,
+# the browser included: no refusal, no Audit log entry, no relayed byte).
+# The Console's WebSocket (`console`) carries its token as a
 # sign-in's cookie, so it refuses every token rule at its handshake, with a
 # status. The content origin (`content_origin`) takes no credential but an
 # address signed for one file: its token is such an address, another
@@ -19,7 +22,10 @@
 # of their own (another listener's, an expired, a revoked and an
 # out-of-scope one) take it from the listener's test, which fails the row
 # when it gives none; a listener whose tokens cannot expire or be revoked
-# has no cell in that row. A row's `advisories` name the bypasses its
+# has no cell in that row. A Session's proxy relay (`proxy_relay`) takes its
+# token as the password of a `CONNECT`'s `Proxy-Authorization: Basic`
+# credentials; another listener's token is another Session's relay's. A
+# row's `advisories` name the bypasses its
 # attempt repeats, whose regression tests run the rows citing them
 # (`EndpointRunner::run_advisory`). Every listener of another area (the HTTP
 # listener, MCP over HTTP, the Live view, raw CDP, the peer link) joins as a
@@ -42,6 +48,7 @@ daemon_websocket = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
 console = { expect = "status", status = 401 }
 content_origin = { expect = "status", status = 401 }
+proxy_relay = { expect = "challenge" }
 
 [rule.token_wrong]
 summary = "The token is one the listener never issued."
@@ -55,6 +62,7 @@ daemon_websocket = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
 console = { expect = "status", status = 401 }
 content_origin = { expect = "status", status = 401 }
+proxy_relay = { expect = "status", status = 407 }
 
 [rule.token_from_another_listener]
 summary = "The token is valid, but for another listener."
@@ -68,6 +76,7 @@ daemon_websocket = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
 console = { expect = "status", status = 401 }
 content_origin = { expect = "status", status = 401 }
+proxy_relay = { expect = "status", status = 407 }
 
 [rule.token_expired]
 summary = "The token's life ended with the launch that issued it: the token of the listener's earlier launch."

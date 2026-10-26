@@ -15,7 +15,7 @@ use serde_json::{Map, Value};
 use super::connection::ListenerAddress;
 use super::sign_in::SignIns;
 use super::table::{EndpointTable, Expected, ListenerKind, Row, Rule, SignInRoutes, Transport};
-use super::{http, json_rpc, websocket};
+use super::{http, http_proxy, json_rpc, websocket};
 
 /// The method of the first message that is not a `hello`.
 const NOT_HELLO: &str = "ping";
@@ -109,6 +109,17 @@ pub enum Endpoint {
         host: String,
         /// Another file's path, which the valid signature does not cover.
         other_file: String,
+    },
+    /// An HTTP proxy on loopback TCP that tunnels to `target` for the
+    /// `Proxy-Authorization: Basic` credentials of `username`, whose
+    /// password is the token.
+    HttpProxy {
+        /// Where it listens.
+        address: SocketAddr,
+        /// The username of its credentials.
+        username: String,
+        /// The `host:port` the valid `CONNECT` tunnels to.
+        target: String,
     },
 }
 
@@ -238,6 +249,7 @@ impl Observed {
             ) => observed == status,
             (Expected::StatusOnly, Self::Answered { body_length, .. }) => body_length == 0,
             (Expected::Accepted, observed) => observed.accepts(),
+            (Expected::Challenge, Self::Answered { status, .. }) => status == 407,
             _ => false,
         }
     }
@@ -405,6 +417,18 @@ impl<A: AuditVerifier> EndpointRunner<A> {
                 host,
                 other_file,
             },
+            (
+                Endpoint::HttpProxy {
+                    address,
+                    username,
+                    target,
+                },
+                Transport::HttpProxy,
+            ) => Reach::HttpProxy(ProxyReach {
+                address: *address,
+                username,
+                target,
+            }),
             _ => {
                 return Err(EndpointRunError::TransportMismatch {
                     listener: listener.kind,
@@ -549,6 +573,15 @@ enum Reach<'a> {
         host: &'a str,
         other_file: &'a str,
     },
+    HttpProxy(ProxyReach<'a>),
+}
+
+/// An HTTP proxy, and the `CONNECT` target and username of its valid
+/// attempt.
+struct ProxyReach<'a> {
+    address: SocketAddr,
+    username: &'a str,
+    target: &'a str,
 }
 
 /// A listener whose WebSocket's handshake carries a sign-in's cookie, and
@@ -624,6 +657,7 @@ impl Reach<'_> {
                 websocket::attempt(*address, &handshake, &message)
             }
             Self::SignedInWebSocket(reach) => reach.attempt(token, attempt),
+            Self::HttpProxy(reach) => reach.attempt(token, attempt),
             Self::Http {
                 address,
                 protected_path,
@@ -681,7 +715,8 @@ impl Reach<'_> {
             Self::JsonRpc { .. }
             | Self::Http { .. }
             | Self::WebSocket { .. }
-            | Self::SignedInWebSocket(_) => wrong_token(token),
+            | Self::SignedInWebSocket(_)
+            | Self::HttpProxy(_) => wrong_token(token),
         }
     }
 }
@@ -725,6 +760,33 @@ fn signed_address(
         Attempt::ForeignOrigin => request.origin = Some(FOREIGN_ORIGIN),
     }
     http::attempt(address, &request)
+}
+
+impl ProxyReach<'_> {
+    /// Tries `attempt` with the valid password `token`.
+    fn attempt(&self, token: &str, attempt: Attempt<'_>) -> Observed {
+        let password = match attempt {
+            Attempt::Token(token) => token,
+            Attempt::Given(token) => Some(token),
+            Attempt::Valid
+            | Attempt::OtherFile
+            | Attempt::TokenInQuery
+            | Attempt::ForeignHost
+            | Attempt::ForeignOrigin
+            | Attempt::NoOrigin
+            | Attempt::TokenInCookie
+            | Attempt::NotHello
+            | Attempt::Probe(_)
+            | Attempt::SignOutWithoutCsrf
+            | Attempt::SignedOut
+            | Attempt::SignInTooOften => Some(token),
+        };
+        http_proxy::attempt(
+            self.address,
+            self.target,
+            password.map(|password| (self.username, password)),
+        )
+    }
 }
 
 impl SignedInReach<'_> {

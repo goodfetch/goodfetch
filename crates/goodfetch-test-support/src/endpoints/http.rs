@@ -86,7 +86,7 @@ pub(super) fn attempt(address: SocketAddr, request: &Request<'_>) -> Observed {
 /// What `answer` shows once it is complete, or `None` while more is to
 /// come. At the connection's end, a partial answer is malformed and none
 /// at all is a closed connection.
-fn parse(answer: &[u8], at_end: bool) -> Option<Observed> {
+pub(super) fn parse(answer: &[u8], at_end: bool) -> Option<Observed> {
     let incomplete = || at_end.then_some(Observed::Malformed);
     if answer.is_empty() && at_end {
         return Some(Observed::Closed);

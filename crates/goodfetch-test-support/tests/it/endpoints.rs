@@ -463,3 +463,52 @@ fn a_strict_ops_listener_passes_the_rows_citing_an_advisory() {
 
     assert_eq!(result, Ok(()));
 }
+
+/// Another listener's token, as a Session's proxy relay gets it: another
+/// Session's relay's password.
+const OTHER_RELAY_TOKEN: &str = "other-relay-token-2Vn8";
+
+fn http_proxy(address: std::net::SocketAddr) -> Listener {
+    Listener::new(
+        ListenerKind::ProxyRelay,
+        Endpoint::HttpProxy {
+            address,
+            username: listeners::PROXY_USERNAME.to_owned(),
+            target: "site.test:443".to_owned(),
+        },
+        TOKEN,
+    )
+    .with_other_listener_token(OTHER_RELAY_TOKEN)
+}
+
+#[test]
+fn a_permissive_http_proxy_fails_every_row_of_its_column() {
+    let (address, log) = listeners::http_proxy(Behaviour::Permissive);
+    let listener = http_proxy(address);
+
+    let result = EndpointRunner::new(verifier(log)).run(&listener);
+
+    let tunnelled = Observed::Answered {
+        status: 200,
+        body_length: 0,
+    };
+    let refused = Expected::Status { status: 407 };
+    assert_eq!(
+        failures(result),
+        vec![
+            unexpected(Rule::TokenMissing, Expected::Challenge, tunnelled),
+            unexpected(Rule::TokenWrong, refused, tunnelled),
+            unexpected(Rule::TokenFromAnotherListener, refused, tunnelled),
+        ]
+    );
+}
+
+#[test]
+fn a_strict_http_proxy_passes() {
+    let (address, log) = listeners::http_proxy(Behaviour::Strict);
+    let listener = http_proxy(address);
+
+    let result = EndpointRunner::new(verifier(log)).run(&listener);
+
+    assert_eq!(result, Ok(()));
+}

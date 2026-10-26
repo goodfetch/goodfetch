@@ -577,6 +577,15 @@ export class ProxyAuthFailedError extends RefusedError {
 }
 
 /**
+ * The Session's Proxy provider answered through its proxy with a failure of its own: its traffic quota or balance is spent (`quota_exhausted`), the Session's sticky exit is gone (`sticky_session_expired`), or a failure Goodfetch does not recognize (`unrecognized`, whose text is logged, never returned). The details name the provider, the proxy and the failure, never the credentials. A provider's refusal of the credentials is `proxy_auth_failed` instead. Retry later, or open a new Session for a new exit.
+ */
+export class ProxyProviderUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "proxy_provider_unavailable", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The Session's proxy could not be reached, its TLS failed, or it refused the tunnel or the request with an error of its own: the details name the proxy, never its credentials, and the browser's network error when it named one. It is the proxy's failure, never the site's and never `navigation_failed`: retry later, or through another proxy.
  */
 export class ProxyUnavailableError extends UnavailableError {
@@ -907,6 +916,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   person_required: PersonRequiredError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
   proxy_auth_failed: ProxyAuthFailedError,
+  proxy_provider_unavailable: ProxyProviderUnavailableError,
   proxy_unavailable: ProxyUnavailableError,
   resources_exhausted: ResourcesExhaustedError,
   response_limit_exceeded: ResponseLimitExceededError,

@@ -7,13 +7,24 @@
 //! and their price that a Session's proxy charges ([`Tally`], [`priced`]).
 //! A provider fills only the two primitives of [`ProxyProvider`],
 //! `username` and `format_lifetime`, beside the [`Offer`] it describes
-//! itself with. [`list`] is the provider of the user's own servers.
+//! itself with. [`list`] is the provider of the user's own servers;
+//! [`bright_data`], [`oxylabs`] and [`apify`] are the built-in adapters of
+//! those providers, each with its translation point (ADR 0127) reading the
+//! provider's failures into a [`failure::ProviderFailure`].
 
+pub(crate) mod apify;
+pub(crate) mod bright_data;
+pub(crate) mod failure;
 pub(crate) mod list;
+pub(crate) mod oxylabs;
 
 use std::time::Duration;
 
 use std::sync::{Arc, OnceLock};
+
+use data_encoding::HEXLOWER;
+use goodfetch_protocol::page::proxy::ProxyProviderConfiguration;
+use sha2::{Digest as _, Sha256};
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::ledger::Refusal as LedgerRefusal;
@@ -38,6 +49,9 @@ pub(crate) struct Endpoint {
     pub(crate) kinds: Vec<ProxyKind>,
     /// The countries its exits are in; none when it serves any.
     pub(crate) countries: Option<Vec<CountryCode>>,
+    /// The longest a Session's exit through it stays the same; none when
+    /// it never changes, as a `list` server's.
+    pub(crate) longest_lifetime: Option<Duration>,
 }
 
 /// What a provider offers.
@@ -45,20 +59,61 @@ pub(crate) struct Endpoint {
 pub(crate) struct Offer {
     /// Its proxies, the first's first kind the provider's default.
     pub(crate) endpoints: Vec<Endpoint>,
-    /// The longest a Session's exit stays the same; none when it never
-    /// changes, as a `list` server's.
-    pub(crate) longest_lifetime: Option<Duration>,
+}
+
+/// The name a provider's sticky session takes for the Session `session`:
+/// the first 16 hex digits of its SHA-256, which every provider's session
+/// syntax takes (letters and digits, no `-`, at most 50 characters) and
+/// which names no Run to the provider.
+pub(crate) fn sticky_session(session: &str) -> String {
+    let digest = Sha256::digest(session.as_bytes());
+    HEXLOWER.encode(&digest[..8])
+}
+
+/// The endpoints of a hosted provider: its one proxy, `configuration`'s
+/// `endpoint` or else `public`, serving each of `kinds` with its longest
+/// sticky lifetime, in any country.
+pub(crate) fn hosted(
+    configuration: &ProxyProviderConfiguration,
+    public: &str,
+    kinds: &[(ProxyKind, Duration)],
+) -> Offer {
+    let server = configuration.endpoint.clone().unwrap_or_else(|| {
+        ProxyServer::parse(public).expect("invariant: a provider's public proxy is a proxy URL")
+    });
+    Offer {
+        endpoints: kinds
+            .iter()
+            .map(|(kind, longest)| Endpoint {
+                server: server.clone(),
+                kinds: vec![*kind],
+                countries: None,
+                longest_lifetime: Some(*longest),
+            })
+            .collect(),
+    }
+}
+
+/// The account `configuration` names, which `name`'s sticky username
+/// builds on.
+///
+/// # Errors
+///
+/// What is missing, for `setting_invalid`.
+pub(crate) fn account(
+    configuration: &ProxyProviderConfiguration,
+    name: &str,
+    what: &str,
+) -> Result<String, String> {
+    configuration.username.clone().ok_or_else(|| {
+        format!(
+            "the Proxy provider `{name}` builds its sticky username on the account: set `proxy.providers.{name}.username` to {what}, and `.password` to the Secret reference of its password"
+        )
+    })
 }
 
 /// What a provider's sticky username names for one Session.
 #[derive(Clone, Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "`list` names no sticky session; the providers whose usernames do (bright_data, oxylabs, apify) read every field"
-    )
-)]
 pub(crate) struct Sticky<'a> {
     /// The Session's ID, which names its sticky session.
     pub(crate) session: &'a str,
@@ -224,7 +279,7 @@ impl ProxyDriver {
         let turn = usize::try_from(ordinal.saturating_sub(1) % count)
             .expect("invariant: a turn is below the endpoints' count");
         let endpoint = serving[turn];
-        let lifetime = offer.longest_lifetime.map(|longest| {
+        let lifetime = endpoint.longest_lifetime.map(|longest| {
             wanted
                 .sticky_lifetime
                 .map_or(longest, |asked| asked.min(longest))

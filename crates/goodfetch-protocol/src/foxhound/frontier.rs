@@ -259,6 +259,9 @@ pub enum NotAddedReason {
     TrapPath,
     /// A sitemap entry no rule of its sitemap seed matches (ADR 0093).
     NoRule,
+    /// On the browser tier, its link is one a person cannot see, a
+    /// `nofollow` one among them: a trap a crawl never enters (ADR 0035).
+    TrapLink,
 }
 
 /// The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a

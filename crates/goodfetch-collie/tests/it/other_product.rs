@@ -19,7 +19,7 @@
 use goodfetch_protocol::catalog::SharedType;
 use goodfetch_protocol::entries::product_of_value;
 use goodfetch_protocol::foxhound_names;
-use goodfetch_test_support::{TestEnv, cli};
+use goodfetch_test_support::{TestEnv, cli, command};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -29,26 +29,70 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 /// asked and its exit code.
 type Refusal = (Value, Value, Option<i32>);
 
-fn refusal(env: &TestEnv, arguments: &[String]) -> Refusal {
-    let output = cli(env, COLLIE)
-        .args(arguments)
-        .arg("--json")
-        .run()
-        .unwrap();
-    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+/// How a row's command line runs: through the CLI helper, which records the
+/// command for the exercise audit (ADR 0072), or, for a command line that
+/// names no command of Collie's executable, which the audit would find
+/// unmatched, as a plain process.
+#[derive(Clone, Copy)]
+enum Through {
+    Helper,
+    Process,
+}
+
+/// Runs Collie's executable on `arguments` in `env` with the extra
+/// variables `variables`, unrecorded: its stdout, stderr and exit code.
+fn unrecorded(
+    env: &TestEnv,
+    arguments: &[&str],
+    variables: &[(&str, &str)],
+) -> (String, String, Option<i32>) {
+    let mut process = command(env, COLLIE);
+    process.args(arguments);
+    for (name, value) in variables {
+        process.env(name, value);
+    }
+    let output = process.output().unwrap();
+    (
+        String::from_utf8(output.stdout).unwrap(),
+        String::from_utf8(output.stderr).unwrap(),
+        output.status.code(),
+    )
+}
+
+fn refusal(env: &TestEnv, arguments: &[String], through: Through) -> Refusal {
+    let (stdout, exit) = match through {
+        Through::Helper => {
+            let output = cli(env, COLLIE)
+                .args(arguments)
+                .arg("--json")
+                .run()
+                .unwrap();
+            (output.stdout, output.exit)
+        }
+        Through::Process => {
+            let arguments: Vec<&str> = arguments
+                .iter()
+                .map(String::as_str)
+                .chain(["--json"])
+                .collect();
+            let (stdout, _, exit) = unrecorded(env, &arguments, &[]);
+            (stdout, exit)
+        }
+    };
+    let printed: Value = serde_json::from_str(&stdout).unwrap_or(Value::Null);
     (
         printed["error"]["code"].clone(),
         printed["error"]["requested"].clone(),
-        output.exit,
+        exit,
     )
 }
 
 /// One row per name: the command line that names it and the refusal
 /// expected, `not_in_product` naming it, exit `10`.
-fn refused_rows(env: &TestEnv, rows: &[(String, Vec<String>)]) {
+fn refused_rows(env: &TestEnv, rows: &[(String, Vec<String>)], through: Through) {
     let answered: Vec<(String, Refusal)> = rows
         .iter()
-        .map(|(name, arguments)| (name.clone(), refusal(env, arguments)))
+        .map(|(name, arguments)| (name.clone(), refusal(env, arguments, through)))
         .collect();
     let expected: Vec<(String, Refusal)> = rows
         .iter()
@@ -68,9 +112,10 @@ fn spelled(word: &str) -> String {
 }
 
 /// The command of each operation only Foxhound carries, and each command
-/// only Foxhound's executable has, through Collie's executable.
+/// only Foxhound's executable has, through Collie's executable, which
+/// refuses them before any engine starts.
 ///
-/// Covers: story:11-216, error:not_in_product, exit:not_in_product
+/// Covers: story:11-216
 #[test]
 fn each_command_only_foxhound_carries_is_not_in_product_and_exits_10() {
     let env = TestEnv::new();
@@ -83,18 +128,26 @@ fn each_command_only_foxhound_carries_is_not_in_product_and_exits_10() {
         ((*path).to_owned(), words)
     });
 
-    refused_rows(&env, &operations.chain(commands).collect::<Vec<_>>());
+    refused_rows(
+        &env,
+        &operations.chain(commands).collect::<Vec<_>>(),
+        Through::Process,
+    );
 }
 
 /// A namespace only Foxhound carries, given alone, names Foxhound too:
 /// `crawl` is not a usage error.
 ///
-/// Covers: story:11-216, error:not_in_product, exit:not_in_product
+/// Covers: story:11-216
 #[test]
 fn a_namespace_only_foxhound_carries_is_not_in_product() {
     let env = TestEnv::new();
 
-    refused_rows(&env, &[("crawl".to_owned(), vec!["crawl".to_owned()])]);
+    refused_rows(
+        &env,
+        &[("crawl".to_owned(), vec!["crawl".to_owned()])],
+        Through::Process,
+    );
 }
 
 /// Each setting key only Foxhound honours, given to a command that takes
@@ -114,7 +167,7 @@ fn each_setting_key_only_foxhound_honours_is_not_in_product_and_exits_10() {
         })
         .collect();
 
-    refused_rows(&env, &rows);
+    refused_rows(&env, &rows, Through::Helper);
 }
 
 /// Each value of a shared type a command takes (a Usage kind, a Limit
@@ -153,33 +206,28 @@ fn each_shared_type_value_only_foxhound_carries_is_not_in_product_and_exits_10()
         .collect();
     assert!(!rows.is_empty(), "the table names a value a command takes");
 
-    refused_rows(&env, &rows);
+    refused_rows(&env, &rows, Through::Helper);
 }
 
 /// The refusal a person reads: its message, then `code`, `retryable` and
 /// `fix` on lines of their own, on stderr only.
 ///
-/// Covers: story:11-216, error:not_in_product
+/// Covers: story:11-216
 #[test]
 fn a_foxhound_command_tells_a_person_to_install_foxhound() {
     let env = TestEnv::new();
 
-    let output = cli(&env, COLLIE).args(["crawl", "start"]).run().unwrap();
+    let (stdout, stderr, exit) = unrecorded(&env, &["crawl", "start"], &[]);
 
-    assert_eq!(
-        (output.exit, output.stdout.as_str()),
-        (Some(10), ""),
-        "{}",
-        output.stderr
-    );
-    insta::assert_snapshot!("foxhound_command_human", output.stderr);
+    assert_eq!((exit, stdout.as_str()), (Some(10), ""), "{stderr}");
+    insta::assert_snapshot!("foxhound_command_human", stderr);
 }
 
 /// The `fix` names the install command of the channel the executable came
 /// from, which its channel's launcher or image says in `GOODFETCH_CHANNEL`;
 /// a build from source came from crates.io.
 ///
-/// Covers: story:11-216, error:not_in_product
+/// Covers: story:11-216
 #[rstest]
 #[case::npm(Some("npm"), "npm install @goodfetch/foxhound")]
 #[case::pypi(Some("pypi"), "pip install goodfetch-foxhound")]
@@ -202,15 +250,14 @@ fn the_fix_names_the_install_command_of_the_executables_channel(
     #[case] install: &str,
 ) {
     let env = TestEnv::new();
-    let command = cli(&env, COLLIE).args(["crawl", "start", "--json"]);
-    let command = match channel {
-        Some(channel) => command.env("GOODFETCH_CHANNEL", channel),
-        None => command,
-    };
+    let variables: Vec<(&str, &str)> = channel
+        .map(|channel| ("GOODFETCH_CHANNEL", channel))
+        .into_iter()
+        .collect();
 
-    let output = command.run().unwrap();
+    let (stdout, _, _) = unrecorded(&env, &["crawl", "start", "--json"], &variables);
 
-    let printed: Value = serde_json::from_str(&output.stdout).unwrap();
+    let printed: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(
         printed["error"]["fix"],
         json!(format!(
@@ -221,27 +268,17 @@ fn the_fix_names_the_install_command_of_the_executables_channel(
 
 /// A channel the executable does not know stops it before its command, as
 /// any other deployment variable's bad value does (ADR 0083).
-///
-/// Covers: error:setting_invalid
 #[test]
 fn an_unknown_channel_stops_the_executable_before_its_command() {
     let env = TestEnv::new();
 
-    let output = cli(&env, COLLIE)
-        .args(["crawl", "start"])
-        .env("GOODFETCH_CHANNEL", "snap")
-        .run()
-        .unwrap();
+    let (stdout, stderr, exit) =
+        unrecorded(&env, &["crawl", "start"], &[("GOODFETCH_CHANNEL", "snap")]);
 
     assert_eq!(
-        (
-            output.exit,
-            output.stdout.as_str(),
-            output.stderr.contains("setting_invalid")
-        ),
+        (exit, stdout.as_str(), stderr.contains("setting_invalid")),
         (Some(3), "", true),
-        "{}",
-        output.stderr
+        "{stderr}"
     );
 }
 

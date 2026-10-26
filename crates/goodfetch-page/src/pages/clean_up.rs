@@ -10,7 +10,7 @@
 use std::cell::RefCell;
 
 use goodfetch_clean_up_rules::removal::{self, Removed, Share};
-use goodfetch_extractor::{CleanUp, Context, Document};
+use goodfetch_extractor::{CleanUp, Context, Document, Serialization};
 use goodfetch_protocol::page::{FormatsRequest, PageFormats, PageId, SessionId};
 use serde_json::{Value, json};
 
@@ -82,11 +82,13 @@ impl CleanUp for Matcher<'_> {
     }
 }
 
-/// The formats `request` names, read from `document`, the cosmetic rules
+/// The formats `request` names, read from `document`, serialized as
+/// `serialization` says, the cosmetic rules
 /// `cosmetic` holds and the runner's rules of the selectors `hidden`
 /// applied before its main content, and what they did.
 pub(super) fn read(
     document: &SerializedDocument,
+    serialization: Serialization,
     request: FormatsRequest,
     cosmetic: Option<&Cosmetic>,
     hidden: &[String],
@@ -95,6 +97,7 @@ pub(super) fn read(
         html,
         url: &document.url,
         base_url: &document.base_url,
+        serialization,
     };
     let matcher = Matcher {
         cosmetic,

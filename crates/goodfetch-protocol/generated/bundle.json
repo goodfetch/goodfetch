@@ -3258,6 +3258,11 @@
           "minimum": 0,
           "type": "integer"
         },
+        "provenance": {
+          "$ref": "#/$defs/RecordProvenance",
+          "arrived_in": "0.1",
+          "description": "How it was obtained (ADR 0123's Provenance of a Record)."
+        },
         "request_id": {
           "arrived_in": "0.1",
           "description": "The ID of the crawl request whose attempt committed it.",
@@ -3278,7 +3283,8 @@
         "value",
         "request_id",
         "url",
-        "committed_at"
+        "committed_at",
+        "provenance"
       ],
       "type": "object"
     },
@@ -3587,6 +3593,67 @@
         {
           "const": "hidden",
           "description": "No element matches, or the one that does is not visible.",
+          "type": "string"
+        }
+      ]
+    },
+    "EncodingProvenance": {
+      "description": "The encoding a Record's document was read in, and where it came from\n(ADR 0119).",
+      "properties": {
+        "encoding": {
+          "arrived_in": "0.1",
+          "description": "Its WHATWG name, such as `Shift_JIS`.",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EncodingSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where it came from; none where the browser read the document by a\nrule the engine did not see."
+        }
+      },
+      "required": [
+        "encoding"
+      ],
+      "type": "object"
+    },
+    "EncodingSource": {
+      "description": "Where a document's encoding came from, in the order the tiers look\n(ADR 0119).",
+      "oneOf": [
+        {
+          "const": "bom",
+          "description": "Its byte order mark.",
+          "type": "string"
+        },
+        {
+          "const": "setting",
+          "description": "`fetch.encoding`.",
+          "type": "string"
+        },
+        {
+          "const": "header",
+          "description": "The `Content-Type` charset.",
+          "type": "string"
+        },
+        {
+          "const": "meta",
+          "description": "A declaration in its own bytes: a `<meta>` or an XML declaration.",
+          "type": "string"
+        },
+        {
+          "const": "utf8",
+          "description": "Nothing declared, and the body is valid UTF-8.",
+          "type": "string"
+        },
+        {
+          "const": "detected",
+          "description": "The browser's guess, after the request escalated to it.",
           "type": "string"
         }
       ]
@@ -4463,6 +4530,21 @@
       ],
       "type": "object"
     },
+    "ForcedBy": {
+      "description": "Which scope's `fetch.tier` forced a tier.",
+      "oneOf": [
+        {
+          "const": "run",
+          "description": "The Run's setting.",
+          "type": "string"
+        },
+        {
+          "const": "label",
+          "description": "The setting of the request's Label.",
+          "type": "string"
+        }
+      ]
+    },
     "Form": {
       "description": "The form a Client's user writes names in (ADR 0099), which the engine\nrenders the names and targets of its messages in.",
       "oneOf": [
@@ -4532,6 +4614,18 @@
       "additionalProperties": false,
       "description": "The formats a `page.formats` call asks for, each `true` or its options:\none value, which a Record can carry and a Dataset's schema can be\ngenerated from (ADR 0103). A format left out is left out of the result.",
       "properties": {
+        "html": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HtmlFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page's HTML: its main content by default."
+        },
         "markdown": {
           "anyOf": [
             {
@@ -4543,6 +4637,18 @@
           ],
           "arrived_in": "0.1",
           "description": "The page's content as Markdown, with GFM's tables."
+        },
+        "text": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Asked"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The text of the page's main content, a paragraph per block."
         }
       },
       "type": "object"
@@ -4760,6 +4866,54 @@
         "product",
         "product_version",
         "engine_instance"
+      ],
+      "type": "object"
+    },
+    "HtmlFormat": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Asked",
+          "description": "With its default options."
+        },
+        {
+          "$ref": "#/$defs/HtmlOptions",
+          "description": "With these options."
+        }
+      ],
+      "description": "The `html` format of a request: `true`, or its options."
+    },
+    "HtmlKind": {
+      "description": "Which of the page's HTML an `html` format holds.",
+      "oneOf": [
+        {
+          "const": "raw",
+          "description": "The document as served, or as the DOM stands on a browser tier,\nbefore the Clean-up rules: what `content()` returns there.",
+          "type": "string"
+        },
+        {
+          "const": "cleaned",
+          "description": "The document after the Clean-up rules' cosmetic rules.",
+          "type": "string"
+        },
+        {
+          "const": "main",
+          "description": "The main content the extractor finds, the default.",
+          "type": "string"
+        }
+      ]
+    },
+    "HtmlOptions": {
+      "additionalProperties": false,
+      "description": "The options of the `html` format.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/HtmlKind",
+          "arrived_in": "0.1",
+          "description": "Which of the page's HTML it holds."
+        }
+      },
+      "required": [
+        "kind"
       ],
       "type": "object"
     },
@@ -6192,6 +6346,16 @@
           "const": "main",
           "description": "The main content the extractor finds, the default.",
           "type": "string"
+        },
+        {
+          "const": "full",
+          "description": "The whole body, after the Clean-up rules.",
+          "type": "string"
+        },
+        {
+          "const": "fit",
+          "description": "The main content without its link-dense blocks (more than half\ntheir text in links), its image-only blocks and the navigation\nlists the document repeats: the \"fit\" of `Crawl4AI`.",
+          "type": "string"
         }
       ]
     },
@@ -7304,6 +7468,11 @@
           "description": "The URL its relative URLs resolve against: its first `<base href>`,\nelse its URL.",
           "type": "string"
         },
+        "html": {
+          "arrived_in": "0.1",
+          "description": "Its HTML of the kind the request named, when it asked for it.",
+          "type": "string"
+        },
         "main_content": {
           "$ref": "#/$defs/MainContent",
           "arrived_in": "0.1",
@@ -7312,6 +7481,11 @@
         "markdown": {
           "arrived_in": "0.1",
           "description": "Its content as Markdown, when the request asked for it.",
+          "type": "string"
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "Its main content's text, when the request asked for it.",
           "type": "string"
         },
         "url": {
@@ -7727,6 +7901,38 @@
           "type": "object"
         }
       ]
+    },
+    "PaymentMark": {
+      "description": "The payment of a Paid fetch, as a Record's Provenance marks it (ADR\n0045).",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "The amount charged, an exact decimal.",
+          "type": "string"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "Its currency, an ISO 4217 code.",
+          "type": "string"
+        },
+        "payee_domain": {
+          "arrived_in": "0.1",
+          "description": "The domain paid.",
+          "type": "string"
+        },
+        "scheme": {
+          "arrived_in": "0.1",
+          "description": "The payment scheme the site asked through.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scheme",
+        "amount",
+        "currency",
+        "payee_domain"
+      ],
+      "type": "object"
     },
     "Period": {
       "description": "The period a Limit counts over, in an explicit IANA time zone, so that\nit never depends on the host's (ADR 0041).",
@@ -8350,6 +8556,97 @@
       ],
       "type": "object"
     },
+    "RecordProvenance": {
+      "description": "How one committed Record was obtained.",
+      "properties": {
+        "clean_up_rules": {
+          "arrived_in": "0.1",
+          "description": "The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,\nwhose Run trace names their date and the release that applied them.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "encoding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EncodingProvenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The encoding the document was read in, and where it came from;\nnone for a request with no document."
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResponseOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Response cache or Response recording that answered in place of\nthe network; none when the network did."
+        },
+        "payment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PaymentMark"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The payment of a Paid fetch of its page; none where nothing was\npaid."
+        },
+        "request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt produced it.",
+          "type": "string"
+        },
+        "tier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TierProvenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The tier that fetched that request's document, and how it was\nchosen; none where the handler was given its request alone."
+        },
+        "value_transforms": {
+          "arrived_in": "0.1",
+          "default": [],
+          "description": "Each field whose value an engine Value transform gave, in the\norder read; empty where the program parsed its own values.",
+          "items": {
+            "$ref": "#/$defs/TransformProvenance"
+          },
+          "type": "array"
+        },
+        "wall": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WallMarker"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Wall its page was read past; none where no Wall was met."
+        }
+      },
+      "required": [
+        "request_id"
+      ],
+      "type": "object"
+    },
     "RecordRead": {
       "additionalProperties": false,
       "description": "What `$/record` carries: the next Record a `run.records` call reads.",
@@ -8916,6 +9213,49 @@
         "request_id"
       ],
       "type": "object"
+    },
+    "ResponseOrigin": {
+      "description": "What answered a Record's request in place of the network.",
+      "oneOf": [
+        {
+          "description": "The Response cache (ADR 0046).",
+          "properties": {
+            "fetched_at": {
+              "$ref": "#/$defs/PointInTime",
+              "arrived_in": "0.1",
+              "description": "When the cached response was fetched."
+            },
+            "kind": {
+              "const": "response_cache",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "fetched_at"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A Response recording (ADR 0105).",
+          "properties": {
+            "kind": {
+              "const": "response_recording",
+              "type": "string"
+            },
+            "recorded_at": {
+              "$ref": "#/$defs/PointInTime",
+              "arrived_in": "0.1",
+              "description": "When the recorded response was received."
+            }
+          },
+          "required": [
+            "kind",
+            "recorded_at"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "ResultDocument": {
       "description": "One result document, of either kind.",
@@ -12952,6 +13292,76 @@
       ],
       "type": "object"
     },
+    "TierChosen": {
+      "description": "How the tier of a Record's document was chosen (ADRs 0023 and 0093).",
+      "oneOf": [
+        {
+          "const": "forced",
+          "description": "`fetch.tier` forced it.",
+          "type": "string"
+        },
+        {
+          "const": "compared",
+          "description": "Under `auto`, the crawl's sample comparison chose it.",
+          "type": "string"
+        },
+        {
+          "const": "sample",
+          "description": "It was the browser run of a sample of that comparison.",
+          "type": "string"
+        },
+        {
+          "const": "escalation",
+          "description": "A cheaper tier could not serve a call, and the request moved here.",
+          "type": "string"
+        },
+        {
+          "const": "race",
+          "description": "It won a race of tiers (`fetch.tier_race`, ADR 0040).",
+          "type": "string"
+        }
+      ]
+    },
+    "TierProvenance": {
+      "description": "The tier that fetched a Record's document and how it was chosen.",
+      "properties": {
+        "call": {
+          "arrived_in": "0.1",
+          "description": "The call a cheaper tier could not serve, which moved the request\nhere, for an escalation or a sample's browser run.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "chosen": {
+          "$ref": "#/$defs/TierChosen",
+          "arrived_in": "0.1",
+          "description": "How it was chosen."
+        },
+        "forced_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ForcedBy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "What forced it, when `chosen` is `forced`."
+        },
+        "tier": {
+          "$ref": "#/$defs/FetchTier",
+          "arrived_in": "0.1",
+          "description": "The tier."
+        }
+      },
+      "required": [
+        "tier",
+        "chosen"
+      ],
+      "type": "object"
+    },
     "TimeRange": {
       "additionalProperties": false,
       "description": "A span of time: from its first point, included, until its last,\nexcluded; an end left out leaves that side open.",
@@ -13004,6 +13414,68 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "TransformProvenance": {
+      "description": "How a Value transform gave one field of a Record (ADR 0123).",
+      "properties": {
+        "anchor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "A relative time's anchor: the fetch time of the page's document."
+        },
+        "field": {
+          "arrived_in": "0.1",
+          "description": "The field, a JSON Pointer into the Record.",
+          "type": "string"
+        },
+        "locale": {
+          "arrived_in": "0.1",
+          "description": "Its resolved locale, a BCP 47 tag, for a locale-dependent one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pattern": {
+          "arrived_in": "0.1",
+          "description": "The stated CLDR pattern, such as `dd/MM/yyyy`, when one was.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The page text exactly as read.",
+          "type": "string"
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "Its resolved time zone, an IANA name, for a date-time or a\nrelative time.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "transform": {
+          "$ref": "#/$defs/ValueTransform",
+          "arrived_in": "0.1",
+          "description": "The transform."
+        }
+      },
+      "required": [
+        "field",
+        "text",
+        "transform"
+      ],
       "type": "object"
     },
     "UncertainEffect": {
@@ -13362,6 +13834,51 @@
       ],
       "type": "object"
     },
+    "ValueTransform": {
+      "description": "One of the engine's closed list of Value transforms (ADR 0123).",
+      "oneOf": [
+        {
+          "const": "text",
+          "description": "The element's text, or one attribute.",
+          "type": "string"
+        },
+        {
+          "const": "match",
+          "description": "A capture group of a regular expression over that text.",
+          "type": "string"
+        },
+        {
+          "const": "number",
+          "description": "A number or an amount under its locale.",
+          "type": "string"
+        },
+        {
+          "const": "currency",
+          "description": "A currency symbol or code under its locale.",
+          "type": "string"
+        },
+        {
+          "const": "date",
+          "description": "A date under its locale or a stated pattern.",
+          "type": "string"
+        },
+        {
+          "const": "date_time",
+          "description": "A date and time with its time zone.",
+          "type": "string"
+        },
+        {
+          "const": "relative_time",
+          "description": "A relative time under its locale, anchored at the fetch time.",
+          "type": "string"
+        },
+        {
+          "const": "map",
+          "description": "An exact text looked up in the transform's table.",
+          "type": "string"
+        }
+      ]
+    },
     "Verdict": {
       "description": "Whether a Run's own checks prove what it committed (ADR 0029).",
       "oneOf": [
@@ -13691,6 +14208,48 @@
         "domain",
         "added",
         "reason"
+      ],
+      "type": "object"
+    },
+    "WallKind": {
+      "description": "A Wall's kind (ADR 0052).",
+      "oneOf": [
+        {
+          "const": "paywall",
+          "description": "A paywall.",
+          "type": "string"
+        },
+        {
+          "const": "consent_wall",
+          "description": "A consent wall.",
+          "type": "string"
+        },
+        {
+          "const": "ad_blocker_wall",
+          "description": "An ad-blocker wall.",
+          "type": "string"
+        }
+      ]
+    },
+    "WallMarker": {
+      "description": "The `wall` marker of a Record whose page was read past a Wall (ADR\n0052), which Dataset queries and every Export format filter on.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/WallKind",
+          "arrived_in": "0.1",
+          "description": "The Wall's kind."
+        },
+        "vendor": {
+          "arrived_in": "0.1",
+          "description": "The vendor detected, when one was.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
       ],
       "type": "object"
     },
@@ -15232,14 +15791,14 @@
                 "additionalProperties": false,
                 "properties": {
                   "allowed_domains": {
-                    "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run. A request to a host it does not list fails with `egress_refused`.",
+                    "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run, and only narrowed by a Recipe or a Client acting for a model, whose value listing a host the value below does not cover is `setting_locked`. A request to a host it does not list fails with `egress_refused`.",
                     "items": {
                       "type": "string"
                     },
                     "type": "array"
                   },
                   "blocked_domains": {
-                    "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run. A request to a host it lists fails with `egress_refused`.",
+                    "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run, and only added to by a Recipe or a Client acting for a model, whose value that leaves a host the value below lists uncovered is `setting_locked`. A request to a host it lists fails with `egress_refused`.",
                     "items": {
                       "type": "string"
                     },
@@ -17529,14 +18088,14 @@
                 "additionalProperties": false,
                 "properties": {
                   "allowed_domains": {
-                    "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run. A request to a host it does not list fails with `egress_refused`.",
+                    "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run, and only narrowed by a Recipe or a Client acting for a model, whose value listing a host the value below does not cover is `setting_locked`. A request to a host it does not list fails with `egress_refused`.",
                     "items": {
                       "type": "string"
                     },
                     "type": "array"
                   },
                   "blocked_domains": {
-                    "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run. A request to a host it lists fails with `egress_refused`.",
+                    "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run, and only added to by a Recipe or a Client acting for a model, whose value that leaves a host the value below lists uncovered is `setting_locked`. A request to a host it lists fails with `egress_refused`.",
                     "items": {
                       "type": "string"
                     },
@@ -19842,14 +20401,14 @@
                 "additionalProperties": false,
                 "properties": {
                   "allowed_domains": {
-                    "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run. A request to a host it does not list fails with `egress_refused`.",
+                    "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run, and only narrowed by a Recipe or a Client acting for a model, whose value listing a host the value below does not cover is `setting_locked`. A request to a host it does not list fails with `egress_refused`.",
                     "items": {
                       "type": "string"
                     },
                     "type": "array"
                   },
                   "blocked_domains": {
-                    "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run. A request to a host it lists fails with `egress_refused`.",
+                    "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run, and only added to by a Recipe or a Client acting for a model, whose value that leaves a host the value below lists uncovered is `setting_locked`. A request to a host it lists fails with `egress_refused`.",
                     "items": {
                       "type": "string"
                     },

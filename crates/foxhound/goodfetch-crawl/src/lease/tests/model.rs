@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::LeaseCheck as _;
+use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{PushedRecord, RequestSeed, Seed};
@@ -444,11 +445,11 @@ impl StateMachineTest for Subject {
                             data: record(attempt, number),
                         })
                         .collect();
-                    let state = subject.state().clone();
+                    let (state, masks) = (subject.state().clone(), Masks::new());
                     let committed =
                         subject
                             .runtime
-                            .block_on(lease.commit(&state, records, ended_at()));
+                            .block_on(lease.commit(&state, &masks, records, ended_at()));
                     let counted = match committed {
                         Ok(_) => true,
                         Err(CommitError::LeaseLost) => false,

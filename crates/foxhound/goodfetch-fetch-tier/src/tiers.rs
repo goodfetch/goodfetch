@@ -43,7 +43,8 @@ use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::Trust;
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_page::page_value::{
-    BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, ServedDocument,
+    BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, Reader,
+    ServedDocument,
 };
 use goodfetch_protocol::foxhound::crawl::{CRAWL_CONTENT_TYPES, CrawlRequest};
 use goodfetch_protocol::foxhound::fetch::{
@@ -51,6 +52,9 @@ use goodfetch_protocol::foxhound::fetch::{
     FetchTier, REDIRECT_MAX_LIMIT,
 };
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
+use goodfetch_protocol::foxhound::provenance::{
+    EncodingProvenance, EncodingSource, ForcedBy, TierChosen, TierProvenance,
+};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{BodyHandle, Navigated, PageId, PageResponse, SessionId};
 use goodfetch_protocol::run::RunId;
@@ -77,6 +81,7 @@ use crate::transports::{AddressCheck, BrowserFetch, Reqwest, TransportConfig};
 use crate::use_signals::UseSignals;
 
 mod calls;
+mod reading;
 mod sitemap;
 
 /// Foxhound's fetch tiers: the pages they serve, which Collie's page
@@ -138,6 +143,9 @@ struct Pages {
     use_signals: BTreeMap<PageId, UseSignals>,
     /// The encoding each open page's document was decoded in.
     encodings: BTreeMap<PageId, &'static Encoding>,
+    /// What the browser tier's document reader learned of each browser
+    /// page a handler holds (ADR 0119).
+    browser: BTreeMap<PageId, reading::BrowserRead>,
 }
 
 /// The elements a locator matched in a served page's document, with what
@@ -656,14 +664,14 @@ impl FetchTiers {
     /// The encoding the served page `page_id`'s document was read in and
     /// where it came from, as Provenance records them (ADR 0119); `None`
     /// for a page holding no document, or once it closed.
-    pub fn encoding(&self, page_id: &PageId) -> Option<DocumentEncoding> {
+    pub fn encoding(&self, page_id: &PageId) -> Option<EncodingProvenance> {
         lock(&self.served.pages)
             .open
             .get(page_id)
             .and_then(|page| page.read)
-            .map(|read| DocumentEncoding {
+            .map(|read| EncodingProvenance {
                 encoding: read.encoding.name().to_owned(),
-                source: Some(read.source.as_str()),
+                source: Some(read.source.provenance()),
             })
     }
 
@@ -694,6 +702,7 @@ impl FetchTiers {
                         html: &served.html,
                         url: &served.url,
                         base_url: &served.base_url,
+                        serialization: goodfetch_extractor::Serialization::Served,
                     });
                 let canonical = match (Url::parse(&served.base_url), Url::parse(&served.url)) {
                     (Ok(base), Ok(url)) => canonical(&served.html, &links, &base, &url),
@@ -873,12 +882,46 @@ impl FetchTiers {
         }
     }
 
+    /// The type of the browser page `page_id`'s crawl request's own
+    /// document, when its Label's `crawl.content_types` does not take it:
+    /// its navigation stopped at the interception, before anything read
+    /// its body, and its request ends `skipped` (ADR 0119).
+    pub fn browser_refused(&self, page_id: &PageId) -> Option<String> {
+        lock(&self.served.pages)
+            .browser
+            .get(page_id)
+            .and_then(|read| read.refused.clone())
+    }
+
+    /// The encoding the browser page `page_id`'s crawl request's own
+    /// document was read in, as `encoding`, its `document.characterSet`,
+    /// names it, and where ADR 0119's order found it; no source where only
+    /// the browser's guess read it.
+    pub fn browser_encoding(
+        &self,
+        page_id: &PageId,
+        encoding: Option<&str>,
+    ) -> Option<EncodingProvenance> {
+        let own = lock(&self.served.pages)
+            .browser
+            .get(page_id)
+            .and_then(|read| read.own);
+        let encoding = encoding
+            .map(str::to_owned)
+            .or_else(|| own.map(|read| read.encoding.name().to_owned()))?;
+        Some(EncodingProvenance {
+            encoding,
+            source: own.map(|read| read.source.provenance()),
+        })
+    }
+
     /// Closes the browser page `page_id` [`FetchTiers::browser`] opened.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave the page open, until its Run ends.
     pub async fn close_browser(&self, page_id: &PageId) {
+        lock(&self.served.pages).browser.remove(page_id);
         if let Some(pages) = self.served.browser.get() {
             pages.close(page_id).await;
         }
@@ -990,6 +1033,25 @@ impl HandlerPages for FetchTiers {
         ProgramPages.observer(run, session)
     }
 
+    /// The browser tier's document reader of the attempt that handed its
+    /// Run's pages over last, while its handler runs; else a program's
+    /// page's, none.
+    fn reader(&self, run: &RunId, session: &SessionId) -> Option<Reader> {
+        let Some(hand_over) = self.handed_over(run) else {
+            return ProgramPages.reader(run, session);
+        };
+        let handled = hand_over
+            .run
+            .settings()
+            .map(|settings| Following::of(settings.resolved()).handled)
+            .unwrap_or_default();
+        Some(Reader::new(reading::BrowserReader {
+            served: Arc::clone(&self.served),
+            hand_over,
+            handled,
+        }))
+    }
+
     fn document(&self, page_id: &PageId) -> Option<ServedDocument> {
         lock(&self.served.pages)
             .open
@@ -1004,7 +1066,8 @@ impl HandlerPages for FetchTiers {
         params: &serde_json::Value,
         _context: &CallContext,
     ) -> Option<GuardAnswer> {
-        calls::answer(self, page_id, operation, params)
+        calls::on_browser(self, page_id, operation, params)
+            .or_else(|| calls::answer(self, page_id, operation, params))
     }
 
     fn opened(&self, pages: Arc<dyn BrowserPages>) {
@@ -1104,18 +1167,6 @@ impl HttpTier {
 /// Provenance's action for the tier a crawl request's attempt ran on.
 const FETCH_TIER_ACTION: &str = "fetch_tier";
 
-/// The encoding a crawl request's document was read in and where it came
-/// from, as Provenance records them (ADR 0119; pitfall H17).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DocumentEncoding {
-    /// Its WHATWG name, such as `Shift_JIS`.
-    pub encoding: String,
-    /// Where it came from: `bom`, `setting`, `header`, `meta`, `utf8` or
-    /// `detected`; `None` where the browser read the document by a rule
-    /// the engine did not see.
-    pub source: Option<&'static str>,
-}
-
 /// How an attempt's run came to be on its tier, for its Provenance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Chosen {
@@ -1132,14 +1183,39 @@ pub enum Chosen {
     Raced,
 }
 
-/// Records in `run`'s Provenance the tier `choice` names for an attempt of
-/// the crawl request `request_id` of `label`, and how it was chosen (ADR
+/// How `choice` came to fetch an attempt's document, as `how` says (ADR
 /// 0023): `forced`, with who forced it, the Run or the Label; `compared`
 /// under `auto`, the sample comparison's choice; `sample`, one run of a
-/// sample; `escalation` to the browser, naming the call the cheaper
-/// tier could not serve; or `race`, the winner of a tier race; and the
-/// `encoding` its document was read in, with where it came from (ADR
-/// 0119), when it read one.
+/// sample; `escalation` to the browser, naming the call the cheaper tier
+/// could not serve; or `race`, the winner of a tier race.
+pub fn tier_provenance(choice: &TierChoice, how: Chosen) -> TierProvenance {
+    let (chosen, call) = match how {
+        Chosen::AsChosen if choice.forced.is_some() => (TierChosen::Forced, None),
+        Chosen::AsChosen => (TierChosen::Compared, None),
+        Chosen::Sample(call) => (TierChosen::Sample, call),
+        Chosen::Escalated(call) => (TierChosen::Escalation, Some(call)),
+        Chosen::Raced => (TierChosen::Race, None),
+    };
+    TierProvenance {
+        tier: choice.tier,
+        chosen,
+        forced_by: choice.forced.as_ref().map(|forced| {
+            if forced.label.is_some() {
+                ForcedBy::Label
+            } else {
+                ForcedBy::Run
+            }
+        }),
+        call: call.map(str::to_owned),
+    }
+}
+
+/// Records in `run`'s Provenance the tier `tier` for an attempt of the
+/// crawl request `request_id` of `label`, as [`tier_provenance`] gives it,
+/// and the `encoding` its document was read in, with where it came from
+/// (ADR 0119), when it read one; a document the browser read only by its
+/// guess, after an escalation at `fetch.encoding`, is recorded as
+/// `detected`. Answers that encoding as recorded.
 ///
 /// # Cancel safety
 ///
@@ -1148,45 +1224,43 @@ pub async fn record_tier(
     run: &Run,
     request_id: &str,
     label: &str,
-    choice: &TierChoice,
-    how: Chosen,
-    encoding: Option<&DocumentEncoding>,
-) {
-    let (chosen, escalated) = match how {
-        Chosen::AsChosen => (choice.chosen(), None),
-        Chosen::Sample(call) => ("sample", call),
-        Chosen::Escalated(call) => ("escalation", Some(call)),
-        Chosen::Raced => ("race", None),
+    tier: &TierProvenance,
+    encoding: Option<EncodingProvenance>,
+) -> Option<EncodingProvenance> {
+    // The browser reads a document only a guess decodes with its own
+    // detector (ADR 0119).
+    let encoding = if tier.call.as_deref() == Some(ENCODING_CALL) {
+        encoding.map(|encoding| EncodingProvenance {
+            source: Some(EncodingSource::Detected),
+            ..encoding
+        })
+    } else {
+        encoding
     };
     let mut entry = serde_json::json!({
         "action": FETCH_TIER_ACTION,
         "crawl_request_id": request_id,
         "label": label,
-        "tier": choice.tier.as_str(),
-        "chosen": chosen,
+        "tier": tier.tier,
+        "chosen": tier.chosen,
     });
-    if let Some(forced) = &choice.forced {
-        entry["forced_by"] = serde_json::json!(if forced.label.is_some() {
-            "label"
-        } else {
-            "run"
-        });
+    if let Some(forced_by) = tier.forced_by {
+        entry["forced_by"] = serde_json::json!(forced_by);
     }
-    if let Some(encoding) = encoding {
+    if let Some(encoding) = &encoding {
         entry["encoding"] = serde_json::json!(encoding.encoding);
         if let Some(source) = encoding.source {
             entry["encoding_source"] = serde_json::json!(source);
         }
     }
-    if let Some(call) = escalated {
+    if let Some(call) = &tier.call {
         entry["call"] = serde_json::json!(call);
-        // The browser reads a document only a guess decodes with its own
-        // detector (ADR 0119).
-        if call == ENCODING_CALL {
-            entry["encoding_source"] = serde_json::json!("detected");
+        if call == ENCODING_CALL && encoding.is_none() {
+            entry["encoding_source"] = serde_json::json!(EncodingSource::Detected);
         }
     }
     goodfetch_page::provenance(run, &entry).await;
+    encoding
 }
 
 /// Provenance's action for a race of a crawl request's tiers.

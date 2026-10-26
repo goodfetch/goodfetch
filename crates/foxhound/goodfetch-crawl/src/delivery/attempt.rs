@@ -71,8 +71,8 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
-    AddressCheck, Chosen, ContentTypes, DocumentEncoding, FetchTiers, HandOver, HttpTier, Judged,
-    PAGE_CHECK_CALL, PooledSession, Requester, RobotsTxtFetch, Stop, TierChoice,
+    AddressCheck, Chosen, ContentTypes, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL,
+    PooledSession, Requester, RobotsTxtFetch, Stop, TierChoice,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -83,6 +83,7 @@ use goodfetch_protocol::foxhound::crawl::{
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
+use goodfetch_protocol::foxhound::provenance::EncodingProvenance;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::foxhound::settings::{
     POLITENESS_DOMAIN_ADAPTIVE_DELAY, POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MAX_CRAWL_DELAY,
@@ -99,7 +100,7 @@ use crate::lease::{CommitError, WorkItemLease};
 use crate::progress::SharedInFlight;
 use crate::tier_choice::{self, AttemptPlan, Sampled};
 use crate::tier_race::Raced;
-use crate::work_items::Leased;
+use crate::work_items::{Fetched, Leased};
 
 mod learning;
 mod race;
@@ -456,12 +457,13 @@ pub(super) async fn attempt(
 }
 
 /// What a run on the `http` tier gave: the handler's answer, the call
-/// that escalated its page, if one did, and whether its page held a
-/// document (ADR 0119).
+/// that escalated its page, if one did, whether its page held a document
+/// and the encoding it was read in (ADR 0119).
 struct HttpRun {
     answer: Answer,
     escalated: Option<&'static str>,
     document: bool,
+    encoding: Option<String>,
 }
 
 /// What one attempt runs its handler with.
@@ -553,10 +555,14 @@ impl On<'_> {
         }
         self.lease.renew(self.lease.length());
         let cheaper_pushed = self.lease.restage();
-        let answer = self
-            .browser(&tiering.tiers, &BROWSER, Chosen::Sample(run.escalated))
+        let (answer, browser_encoding) = self
+            .browser_run(&tiering.tiers, &BROWSER, Chosen::Sample(run.escalated))
             .await;
         let browser_pushed = self.lease.pushed();
+        // A browser that read the document in another encoding never
+        // matches (ADR 0119).
+        let read_alike =
+            tier_choice::same_encoding(run.encoding.as_deref(), browser_encoding.as_deref());
         let matched = match (&answer, &run) {
             (
                 Answer::Handled(CrawlRequestHandled {
@@ -588,6 +594,7 @@ impl On<'_> {
             )),
             _ => None,
         };
+        let matched = matched.map(|matched| matched && read_alike);
         (answer, merged, matched)
     }
 
@@ -632,7 +639,7 @@ impl On<'_> {
         // (ADR 0119).
         if let Some(call) = tiers.escalated(&page_id) {
             tiers.close(&page_id);
-            record_tier(run, leased, choice, how, None).await;
+            record_tier(run, leased, lease, choice, how, None).await;
             let message =
                 "The document declares no encoding and is not UTF-8: only the browser reads it.";
             return Ok((
@@ -641,7 +648,8 @@ impl On<'_> {
             ));
         }
         let merged = learn(run, tiers, &page_id, leased).await;
-        record_tier(run, leased, choice, how, tiers.encoding(&page_id).as_ref()).await;
+        let encoding = tiers.encoding(&page_id);
+        record_tier(run, leased, lease, choice, how, encoding.clone()).await;
         match judged(run, tiering, &page_id).await {
             Some(Judged::Passed) | None => {}
             Some(Judged::Failed(error)) => {
@@ -679,6 +687,7 @@ impl On<'_> {
                 answer,
                 escalated,
                 document,
+                encoding: encoding.map(|encoding| encoding.encoding),
             },
             merged,
         ))
@@ -763,6 +772,17 @@ impl On<'_> {
     /// answered. `how` says how the request came here: as chosen, as a
     /// sample's run, or by an escalation from a cheaper tier.
     async fn browser(&self, tiers: &FetchTiers, choice: &TierChoice, how: Chosen) -> Answer {
+        self.browser_run(tiers, choice, how).await.0
+    }
+
+    /// [`On::browser`], answering also the encoding the browser read the
+    /// request's own document in, its `document.characterSet`.
+    async fn browser_run(
+        &self,
+        tiers: &FetchTiers,
+        choice: &TierChoice,
+        how: Chosen,
+    ) -> (Answer, Option<String>) {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let hand_over = self
             .gating
@@ -778,20 +798,17 @@ impl On<'_> {
         };
         let (page_id, navigated) = match opened {
             Ok(opened) => opened,
-            Err(answer) => return answer,
+            Err(answer) => return (answer, None),
         };
+        if let Some(refused) = refused_type(tiers, &page_id, run, leased).await {
+            return (refused, None);
+        }
         let browser = TierChoice {
             tier: FetchTier::Browser,
             forced: choice.forced.clone().filter(|_| how == Chosen::AsChosen),
         };
-        record_tier(
-            run,
-            leased,
-            &browser,
-            how,
-            read_by_browser(navigated.response.as_ref()).as_ref(),
-        )
-        .await;
+        let encoding = read_by_browser(tiers, &page_id, navigated.response.as_ref());
+        record_tier(run, leased, lease, &browser, how, encoding.clone()).await;
         self.in_flight
             .lock()
             .await
@@ -804,21 +821,41 @@ impl On<'_> {
         let answer = handled(run, self.context.client(), &params, lease).await;
         drop(handed_over);
         tiers.close_browser(&page_id).await;
-        answer
+        (answer, encoding.map(|encoding| encoding.encoding))
     }
 }
 
-/// The encoding the browser read a navigation's document in, as its
-/// `response` names it, `document.characterSet` (ADR 0119): where it came
-/// from is the browser's own, so only its guess, which the escalation's
-/// call names, is recorded as `detected`.
-pub(super) fn read_by_browser(response: Option<&PageResponse>) -> Option<DocumentEncoding> {
-    response
-        .and_then(|response| response.encoding.clone())
-        .map(|encoding| DocumentEncoding {
-            encoding,
-            source: None,
-        })
+/// The skip of the attempt whose browser page `page_id` the interception
+/// stopped at its crawl request's own document, of a type its Label's
+/// `crawl.content_types` does not take, before anything read its body
+/// (ADR 0119): the page is closed and the request ends `skipped` with
+/// `content_type`, as on the document tiers. `None` for any other page.
+pub(super) async fn refused_type(
+    tiers: &FetchTiers,
+    page_id: &PageId,
+    run: &Run,
+    leased: &Leased,
+) -> Option<Answer> {
+    let refused = tiers.browser_refused(page_id)?;
+    tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, content_type = refused, "the browser's interception stopped a document of a type its Label does not take");
+    tiers.close_browser(page_id).await;
+    Some(Answer::Refused(SkipReason::ContentType))
+}
+
+/// The encoding the browser read the request's own document of its page
+/// `page_id` in, as its navigation's `response` names it,
+/// `document.characterSet`, and where ADR 0119's order found it at the
+/// interception; with no source where only the browser's guess read it,
+/// which the escalation's call then names `detected` (ADR 0119).
+pub(super) fn read_by_browser(
+    tiers: &FetchTiers,
+    page_id: &PageId,
+    response: Option<&PageResponse>,
+) -> Option<EncodingProvenance> {
+    tiers.browser_encoding(
+        page_id,
+        response.and_then(|response| response.encoding.as_deref()),
+    )
 }
 
 /// A run on the `http` tier that escalated at `call` before its handler
@@ -834,6 +871,7 @@ fn escalated_unhandled(code: &str, message: &str, call: &'static str) -> HttpRun
         },
         escalated: Some(call),
         document: true,
+        encoding: None,
     }
 }
 
@@ -887,23 +925,29 @@ fn failed(error: &CallError) -> Answer {
 
 /// Records in the Run's Provenance the tier `choice` names for `leased`'s
 /// attempt, how it came there, as `how` says (ADR 0023), and the
-/// `encoding` its document was read in (ADR 0119).
+/// `encoding` its document was read in (ADR 0119), and notes both on
+/// `lease`, for the Provenance of each Record the attempt commits.
 async fn record_tier(
     run: &Run,
     leased: &Leased,
+    lease: &WorkItemLease,
     choice: &TierChoice,
     how: Chosen,
-    encoding: Option<&DocumentEncoding>,
+    encoding: Option<EncodingProvenance>,
 ) {
-    goodfetch_fetch_tier::record_tier(
+    let tier = goodfetch_fetch_tier::tier_provenance(choice, how);
+    let encoding = goodfetch_fetch_tier::record_tier(
         run,
         &leased.crawl_request.id,
         &leased.crawl_request.label,
-        choice,
-        how,
+        &tier,
         encoding,
     )
     .await;
+    lease.fetched(Fetched {
+        tier: Some(tier),
+        encoding,
+    });
 }
 
 /// The handler request of one attempt, bounded by its lease.
@@ -968,7 +1012,7 @@ async fn late(run: Run, lease: WorkItemLease, mut sent: Sent<CrawlRequestHandled
         answer = sent.answer() => {
             if let Ok(handled) = answer
                 && let Err(CommitError::LeaseLost) =
-                    lease.commit(run.state(), handled.records, run.point_in_time()).await
+                    lease.commit(run.state(), run.secrets().mask().masks(), handled.records, run.point_in_time()).await
             {
                 run.record_outcome(LEASE_LOST.name);
             }

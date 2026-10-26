@@ -12,7 +12,7 @@ use goodfetch_protocol::page::FormatsRequest;
 use serde_json::json;
 
 use super::URL;
-use crate::{CleanUp, Context, Document, formats};
+use crate::{CleanUp, Context, Document, Serialization, formats};
 
 /// An article long enough for the main-content step, with `inside` after
 /// its opening paragraphs.
@@ -36,6 +36,7 @@ fn markdown(html: &str, context: &Context<'_>) -> String {
             html,
             url: URL,
             base_url: URL,
+            serialization: Serialization::Dom,
         },
         &request,
         context,

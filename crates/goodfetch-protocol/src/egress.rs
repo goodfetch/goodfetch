@@ -28,7 +28,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::catalog::{
-    Authority, Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion, Setting, ValueKind,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, HostList, ProtocolVersion, Setting,
+    ValueKind,
 };
 use crate::settings::SettingsLayer;
 
@@ -65,11 +66,11 @@ fn no() -> Value {
 /// `egress.allowed_domains` (ADRs 0014 and 0100).
 pub const EGRESS_ALLOWED_DOMAINS: Setting = Setting {
     name: "egress.allowed_domains",
-    description: "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run. A request to a host it does not list fails with `egress_refused`.",
+    description: "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run, and only narrowed by a Recipe or a Client acting for a model, whose value listing a host the value below does not cover is `setting_locked`. A request to a host it does not list fails with `egress_refused`.",
     kind: ValueKind::List(&ValueKind::Text),
     default: every_host,
     clearable: false,
-    authority: Authority::Every,
+    authority: Authority::HostsNarrowedByRecipeOrModel(HostList::Allows),
     weakens: None,
     arrived_in: ARRIVED_IN,
 };
@@ -77,11 +78,11 @@ pub const EGRESS_ALLOWED_DOMAINS: Setting = Setting {
 /// `egress.blocked_domains` (ADRs 0014 and 0100).
 pub const EGRESS_BLOCKED_DOMAINS: Setting = Setting {
     name: "egress.blocked_domains",
-    description: "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run. A request to a host it lists fails with `egress_refused`.",
+    description: "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run, and only added to by a Recipe or a Client acting for a model, whose value that leaves a host the value below lists uncovered is `setting_locked`. A request to a host it lists fails with `egress_refused`.",
     kind: ValueKind::List(&ValueKind::Text),
     default: empty_list,
     clearable: false,
-    authority: Authority::Every,
+    authority: Authority::HostsNarrowedByRecipeOrModel(HostList::Blocks),
     weakens: None,
     arrived_in: ARRIVED_IN,
 };

@@ -1107,6 +1107,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 273
+title = "As a crawl developer, I want every Record's Provenance to name the crawl request that produced it, its tier, its encoding, a cache or recording origin, its Clean-up rules, a Wall marker, a payment and any Value transform with its text, locale and zone, so that each value can be traced to its page (ADRs 0045, 0047, 0052, 0103, 0119, 0123)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 275
+title = "As a crawl developer, I want Secret values masked in Records as `%name%`, so that a secret never lands in a Dataset (ADR 0092)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 309
 title = "As a crawl developer, I want Completeness `incomplete` for a depth, request or path-budget cutoff, a Model allowance skip or a stop, and `unverified` for offset pagination, a learned trap, a URL cap, or pages left at `payment_required` or `consent_required`, each reason named in the report with its count, so that a crawl never reads as complete when it is not (ADRs 0005, 0045, 0048, 0107, 0120; pain 10)."
 milestone = "M1 Core"

@@ -21,7 +21,7 @@ use tokio::sync::oneshot;
 
 use super::{
     Answer, BROWSER, On, PAGE_CHECK_FAILED, RACED, Tiering, failed, judged, learn, read_by_browser,
-    record_tier,
+    record_tier, refused_type,
 };
 use crate::lease::WorkItemLease;
 use crate::tier_race::Raced;
@@ -130,7 +130,7 @@ impl On<'_> {
             Won::BrowserFetch(page_id) => {
                 let merged = learn(run, tiers, &page_id, leased).await;
                 let encoding = tiers.encoding(&page_id);
-                record_tier(run, leased, &RACED, Chosen::Raced, encoding.as_ref()).await;
+                record_tier(run, leased, self.lease, &RACED, Chosen::Raced, encoding).await;
                 let response = tiers.response(&page_id);
                 let answer = self.handle(&page_id, FetchTier::Http, response).await;
                 let escalated = tiers.escalated(&page_id);
@@ -148,8 +148,11 @@ impl On<'_> {
                 (answer, merged)
             }
             Won::Navigation(page_id, response) => {
-                let encoding = read_by_browser(response.as_ref());
-                record_tier(run, leased, &BROWSER, Chosen::Raced, encoding.as_ref()).await;
+                if let Some(refused) = refused_type(tiers, &page_id, run, leased).await {
+                    return (refused, Vec::new());
+                }
+                let encoding = read_by_browser(tiers, &page_id, response.as_ref());
+                record_tier(run, leased, self.lease, &BROWSER, Chosen::Raced, encoding).await;
                 let answer = self.handle(&page_id, FetchTier::Browser, response).await;
                 tiers.close_browser(&page_id).await;
                 (answer, Vec::new())

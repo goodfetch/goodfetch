@@ -55,6 +55,11 @@ fn crawl_of(count: usize) -> Connection {
     {
         connection.execute_batch(statement).unwrap();
     }
+    // The engine's own Run row, whose Clean-up rules a commit's Records name
+    // in their Provenance: none is held here.
+    connection
+        .execute_batch("CREATE TABLE run (clean_up_digest TEXT)")
+        .unwrap();
     let seeds: Vec<_> = (0..count)
         .map(|index| {
             goodfetch_protocol::foxhound::crawl::Seed::Request(

@@ -20,7 +20,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_dataset::{Checked, Datasets};
+use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
@@ -31,7 +31,7 @@ use goodfetch_protocol::run::PointInTime;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use crate::staging::Staging;
+use crate::staging::{SoFar, Staging};
 use crate::work_items::{self, Fetched};
 
 /// The `tracing` target of the run fencing model's transitions.
@@ -229,9 +229,9 @@ impl WorkItemLease {
 
     /// Discards what its attempt staged so far and stages anew, as its
     /// handler runs again on another tier with its first answer discarded:
-    /// an escalation or a sample's browser run (ADR 0093). Answers the
-    /// Records the discarded run had pushed, which a sample compares.
-    pub(crate) fn restage(&self) -> Checked {
+    /// an escalation or a sample's browser run (ADR 0093). Answers what
+    /// the discarded run had staged, which a sample compares.
+    pub(crate) fn restage(&self) -> SoFar {
         let epoch = self.0.state.borrow().lease.epoch();
         let pushed = self.0.leases.staging.discard(&self.0.work_item, epoch);
         if self.check().is_ok() {
@@ -250,8 +250,8 @@ impl WorkItemLease {
             .fetched(&self.0.work_item, epoch, fetched);
     }
 
-    /// The Records its attempt pushed so far, which stay staged.
-    pub(crate) fn pushed(&self) -> Checked {
+    /// What its attempt staged so far, which stays staged.
+    pub(crate) fn pushed(&self) -> SoFar {
         let epoch = self.0.state.borrow().lease.epoch();
         self.0.leases.staging.pushed(&self.0.work_item, epoch)
     }

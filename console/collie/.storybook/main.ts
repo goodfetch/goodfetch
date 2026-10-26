@@ -28,7 +28,10 @@ function hasTailwind(plugins: PluginOption | readonly PluginOption[]): boolean {
 
 const config: StorybookConfig = {
   framework: "@storybook/react-vite",
-  stories: ["../src/**/*.stories.tsx"],
+  // Foxhound's screens' stories render here too, so every Console story
+  // takes one set of `component-stories` projects; Storybook is no build,
+  // so Collie's build still never imports Foxhound's package (ADR 0087).
+  stories: ["../src/**/*.stories.tsx", "../../foxhound/src/**/*.stories.tsx"],
   addons: ["@storybook/addon-a11y", "@storybook/addon-vitest"],
   typescript: { reactDocgen: "react-docgen" },
   core: { disableTelemetry: true },

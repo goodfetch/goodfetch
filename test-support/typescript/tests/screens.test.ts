@@ -297,6 +297,25 @@ describe("testEachScreen", () => {
     expect(errors["screen:/spinning"]).toContain("(animations_running)");
   });
 
+  test("walks a screen once it shows the element its setup names as ready", async ({
+    processes,
+  }) => {
+    const cases = await runScreens(processes, [
+      {
+        feature: "screen:/late",
+        products: ["collie", "foxhound"],
+        setup:
+          'route = "/late"\nsign_in = "signed-out"\nready = "button Late"\nwalk = ["button Early", "button Late"]',
+        served: {
+          route: "/late",
+          screen: { page: "screen-late", product: "collie", signedIn: false },
+        },
+      },
+    ]);
+
+    expect(cases).toEqual([{ title: "screen:/late", status: "passed", error: "" }]);
+  });
+
   test("fails by name a setup whose screen the inventory does not list", async ({ processes }) => {
     const cases = await runScreens(processes, [], ["screen:/gone"]);
 

@@ -19,6 +19,7 @@
 // they check how a screen is built, not the outcome its Feature names.
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import type { Page } from "@playwright/test";
 import { TestSupportError } from "./errors.ts";
 import { readScreens, type Screen } from "./features.ts";
 import { focusChecks, keyboardWalk } from "./focus.ts";
@@ -28,6 +29,7 @@ import { reflow } from "./reflow.ts";
 import { readScreenSetups, SCREEN_SETUPS_FILE, type ScreenSetup } from "./screen-setups.ts";
 
 export {
+  type ReadyElement,
   parseScreenSetups,
   readScreenSetups,
   SCREEN_SETUPS_FILE,
@@ -116,6 +118,17 @@ function caseOf(screen: Screen, setup: ScreenSetup | undefined): void {
         "screen_not_served",
         `${screen.feature}'s route ${route} answered ${answer} on ${daemon.product}'s executable, ${signInState}`,
       );
+    }
+    const ready = setup?.ready;
+    if (ready !== undefined) {
+      await test.step(`ready: ${ready.role} ${ready.name}`, () =>
+        page
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the setup names an ARIA role; a misspelt one finds nothing, and the wait fails naming it.
+          .getByRole(ready.role as Parameters<Page["getByRole"]>[0], {
+            name: ready.name,
+            exact: true,
+          })
+          .waitFor({ state: "visible" }));
     }
     const stops = await test.step("keyboardWalk", () => keyboardWalk(page));
     await testInfo.attach("keyboard-walk", {

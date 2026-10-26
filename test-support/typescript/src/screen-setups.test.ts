@@ -18,8 +18,18 @@ describe("parseScreenSetups", () => {
         route: "/runs/r-1",
         signIn: "signed-in",
         walk: ["link Runs", "button Start a run"],
+        ready: undefined,
       },
     ]);
+  });
+
+  test("reads the element a screen shows once it has read what it shows", () => {
+    const setups = parseScreenSetups(`${ENTRY}ready = "table Effective settings"\n`);
+
+    expect(setups.get("screen:/runs/$run")?.ready).toEqual({
+      role: "table",
+      name: "Effective settings",
+    });
   });
 
   test("reads a file of comments only as no entry", () => {
@@ -36,6 +46,7 @@ describe("parseScreenSetups", () => {
       route: undefined,
       signIn: undefined,
       walk: undefined,
+      ready: undefined,
     });
   });
 
@@ -55,6 +66,7 @@ describe("parseScreenSetups", () => {
       ENTRY.replace('["link Runs", "button Start a run"]', '"link Runs"'),
     ],
     ["a walk with an empty stop", ENTRY.replace('"button Start a run"', '""')],
+    ["a ready element that is no `<role> <name>`", `${ENTRY}ready = "table"\n`],
     ["two entries of one Feature", `${ENTRY}\n${ENTRY}`],
   ])("refuses %s with screen_setups_invalid", ([, text]) => {
     const parsing = () => parseScreenSetups(text);

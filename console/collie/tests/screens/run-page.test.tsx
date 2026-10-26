@@ -494,6 +494,58 @@ test(
 );
 
 test(
+  "on Collie's engine, a run that needs Foxhound keeps its common view, and each Foxhound view shows not_in_product with its fix",
+  { tags: ["story:12-121", "screen:/runs/$run"] },
+  async () => {
+    const adapter = engineOf({
+      row: rowOf({
+        needs: "foxhound",
+        kind: "crawl",
+        lifecycle: "finished",
+        verdict: "verified",
+        completeness: "incomplete",
+      }),
+      progress: progressOf({ lifecycle: "finished", writer: "none", last: true }),
+    });
+    const client = clientOf(adapter);
+
+    await openRunPage(client);
+
+    const tabs = page.getByRole("tablist", { name: "Run views" }).getByRole("tab");
+    await expect
+      .poll(() => tabs.elements().map((tab) => tab.textContent))
+      .toEqual(["Run", "Records", "Outcomes", "Failed requests", "Seeds", "Rejected records"]);
+    await expect.poll(facts).toHaveProperty("Lifecycle", "finished");
+
+    await userEvent.click(page.getByRole("tab", { name: "Records" }));
+
+    const panel = page.getByRole("tabpanel", { name: "Records" });
+    const text = (): string => panel.elements()[0]?.textContent ?? "";
+    await expect.poll(text).toContain("This engine's Product does not carry what was asked.");
+    expect(text()).toContain("Run it with Foxhound, which contains everything Collie does");
+    expect(text()).toContain("not_in_product");
+    expect(called(adapter)).toEqual(expect.arrayContaining(["run.records", "run.seeds"]));
+    client.close();
+  },
+);
+
+test(
+  "a Collie run's page shows no Foxhound view",
+  { tags: ["story:12-121", "screen:/runs/$run"] },
+  async () => {
+    const adapter = engineOf();
+    const client = clientOf(adapter);
+
+    await openRunPage(client);
+
+    await expect.poll(facts).toHaveProperty("Lifecycle", "running");
+    await expect.element(page.getByRole("tablist")).not.toBeInTheDocument();
+    expect(called(adapter)).not.toContain("run.records");
+    client.close();
+  },
+);
+
+test(
   "an ended run's page names the Product it needs and no owning engine",
   { tags: ["story:12-120", "screen:/runs/$run"] },
   async () => {

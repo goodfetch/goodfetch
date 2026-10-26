@@ -4367,6 +4367,187 @@
       ],
       "type": "object"
     },
+    "Export": {
+      "description": "What `run.export` answers once the Export's file is whole (ADR 0103).",
+      "properties": {
+        "compression": {
+          "$ref": "#/$defs/ExportCompression",
+          "arrived_in": "0.1",
+          "description": "Its compression."
+        },
+        "export_id": {
+          "$ref": "#/$defs/ExportId",
+          "arrived_in": "0.1",
+          "description": "The Export, which `export.save_as` and `export.stream` take."
+        },
+        "format": {
+          "$ref": "#/$defs/ExportFormat",
+          "arrived_in": "0.1",
+          "description": "Its format."
+        },
+        "last_number": {
+          "arrived_in": "0.1",
+          "description": "The number of the last Record it holds, 0 when it holds none.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "How many Records it holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "Its size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "export_id",
+        "format",
+        "compression",
+        "records",
+        "last_number",
+        "size",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "ExportCompression": {
+      "description": "How an Export's bytes are compressed.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "Not compressed.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExportFormat": {
+      "description": "An Export's format, named, never inferred from a file name (ADR 0103).",
+      "oneOf": [
+        {
+          "const": "json",
+          "description": "One JSON array of the Records' values.",
+          "type": "string"
+        },
+        {
+          "const": "jsonl",
+          "description": "One Record's value per line, each line ended by a line feed.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExportId": {
+      "description": "An Export of a Run, named by the engine when its file is whole:\n`<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase\nhexadecimal, so two Exports of the same bytes are one file.",
+      "type": "string"
+    },
+    "ExportSaveAsParams": {
+      "additionalProperties": false,
+      "description": "What `export.save_as` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "export_id": {
+          "$ref": "#/$defs/ExportId",
+          "arrived_in": "0.1",
+          "description": "The Export."
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The program's path, absolute, which an Attached engine writes\nitself; any other engine leaves it to the SDK and sends the file's\nbytes instead.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "export_id"
+      ],
+      "type": "object"
+    },
+    "ExportSaved": {
+      "description": "What `export.save_as` answers once the file is whole.",
+      "properties": {
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "Whether the engine wrote the program's path itself; when not, the\n`$/chunk` notifications before this answer carried every byte, and\nthe SDK writes the path.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "size",
+        "sha256",
+        "written"
+      ],
+      "type": "object"
+    },
+    "ExportStreamParams": {
+      "additionalProperties": false,
+      "description": "What `export.stream` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "export_id": {
+          "$ref": "#/$defs/ExportId",
+          "arrived_in": "0.1",
+          "description": "The Export."
+        }
+      },
+      "required": [
+        "export_id"
+      ],
+      "type": "object"
+    },
+    "ExportStreamed": {
+      "description": "What `export.stream` answers once it sent every byte.",
+      "properties": {
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size",
+        "sha256"
+      ],
+      "type": "object"
+    },
     "ExportedAuditEntry": {
       "description": "One entry of an exported Audit log, one line of its JSONL: the entry\nand the hash that chains it to the line before it.",
       "properties": {
@@ -6507,6 +6688,62 @@
           "type": "string"
         }
       ]
+    },
+    "ModelAllowance": {
+      "description": "One kind of a Run's Model allowance (ADR 0107): the most model Usage\nof that kind the Run may spend, past which its model calls are refused\nwhile it goes on.",
+      "properties": {
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency of a `price` allowance, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "Its kind: `price`, `tokens` or `calls`; a kind this reader does not\nknow is kept as it is.",
+          "type": "string"
+        },
+        "reached_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When a model call was first refused under it; none until then."
+        },
+        "remains": {
+          "arrived_in": "0.1",
+          "description": "What remains of it, spent and reserved taken off.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source": {
+          "$ref": "#/$defs/SettingLimit",
+          "arrived_in": "0.1",
+          "description": "The setting that set it, its value and its layer."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "What it allows: a count, or millionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "value",
+        "remains",
+        "source"
+      ],
+      "type": "object"
     },
     "ModelUsage": {
       "description": "A Run's model calls (ADR 0101).",
@@ -9867,6 +10104,49 @@
       ],
       "type": "object"
     },
+    "RunExportParams": {
+      "additionalProperties": false,
+      "description": "What `run.export` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "compression": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExportCompression"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The compression; absent, `none`."
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "format": {
+          "$ref": "#/$defs/ExportFormat",
+          "arrived_in": "0.1",
+          "description": "The format."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset",
+        "format"
+      ],
+      "type": "object"
+    },
     "RunFailedRequestsParams": {
       "additionalProperties": false,
       "description": "What `run.failed_requests` takes.",
@@ -9960,6 +10240,10 @@
             "null"
           ]
         },
+        "replayed": {
+          "description": "Whether it replayed a Response recording (ADR 0105), which marks\nits row so that no one reads it as a live run.",
+          "type": "boolean"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "description": "The Run's ID."
@@ -10003,7 +10287,8 @@
         "tags",
         "lifecycle",
         "started_at",
-        "presence"
+        "presence",
+        "replayed"
       ],
       "type": "object"
     },
@@ -11274,6 +11559,14 @@
           "arrived_in": "0.1",
           "description": "Its model calls."
         },
+        "model_allowance": {
+          "arrived_in": "0.1",
+          "description": "Its Model allowance, one entry per kind set (ADR 0107): not a Limit,\nso apart from `limits`; empty when none is set.",
+          "items": {
+            "$ref": "#/$defs/ModelAllowance"
+          },
+          "type": "array"
+        },
         "other": {
           "arrived_in": "0.1",
           "description": "What it used of a Usage kind this engine does not name, kept as the\nledger holds it.",
@@ -12166,6 +12459,31 @@
       },
       "required": [
         "log_level"
+      ],
+      "type": "object"
+    },
+    "SettingLimit": {
+      "description": "A setting that decided an outcome: its key, its value and the layer that\nset it (ADRs 0028 and 0079).",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The setting's key.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The layer that set it."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its value."
+        }
+      },
+      "required": [
+        "key",
+        "value",
+        "layer"
       ],
       "type": "object"
     },
@@ -22240,6 +22558,17 @@
         "type": "object"
       },
       "storage": "toml",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "export",
+      "rule": "default",
+      "schema": {
+        "items": true,
+        "type": "array"
+      },
+      "storage": "json",
       "version": "0.1"
     }
   ],

@@ -374,6 +374,10 @@
               "null"
             ]
           },
+          "replayed": {
+            "description": "Whether it replayed a Response recording (ADR 0105), which marks\nits row so that no one reads it as a live run.",
+            "type": "boolean"
+          },
           "run_id": {
             "$ref": "#/$defs/RunId",
             "description": "The Run's ID."
@@ -417,7 +421,8 @@
           "tags",
           "lifecycle",
           "started_at",
-          "presence"
+          "presence",
+          "replayed"
         ],
         "type": "object"
       },

@@ -218,6 +218,29 @@ export type EnqueuedLink =
       url: string;
     };
 /**
+ * How an Export's bytes are compressed.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ExportCompression".
+ */
+export type ExportCompression = "none";
+/**
+ * An Export's format, named, never inferred from a file name (ADR 0103).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ExportFormat".
+ */
+export type ExportFormat = "json" | "jsonl";
+/**
+ * An Export of a Run, named by the engine when its file is whole:
+ * `<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase
+ * hexadecimal, so two Exports of the same bytes are one file.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ExportId".
+ */
+export type ExportId = string;
+/**
  * The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -1199,6 +1222,110 @@ export interface EnqueuedLinks {
   links: EnqueuedLink[];
 }
 /**
+ * What `run.export` answers once the Export's file is whole (ADR 0103).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "Export".
+ */
+export interface Export {
+  /**
+   * Its compression.
+   */
+  compression: "none";
+  /**
+   * The Export, which `export.save_as` and `export.stream` take.
+   */
+  export_id: string;
+  /**
+   * Its format.
+   */
+  format: "json" | "jsonl";
+  /**
+   * The number of the last Record it holds, 0 when it holds none.
+   */
+  last_number: number;
+  /**
+   * How many Records it holds.
+   */
+  records: number;
+  /**
+   * The SHA-256 of its bytes, in lowercase hexadecimal.
+   */
+  sha256: string;
+  /**
+   * Its size in bytes.
+   */
+  size: number;
+}
+/**
+ * What `export.save_as` takes.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ExportSaveAsParams".
+ */
+export interface ExportSaveAsParams {
+  /**
+   * The Export.
+   */
+  export_id: string;
+  /**
+   * The program's path, absolute, which an Attached engine writes
+   * itself; any other engine leaves it to the SDK and sends the file's
+   * bytes instead.
+   */
+  path?: string | null;
+}
+/**
+ * What `export.save_as` answers once the file is whole.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ExportSaved".
+ */
+export interface ExportSaved {
+  /**
+   * The SHA-256 of its bytes, in lowercase hexadecimal.
+   */
+  sha256: string;
+  /**
+   * The file's size in bytes.
+   */
+  size: number;
+  /**
+   * Whether the engine wrote the program's path itself; when not, the
+   * `$/chunk` notifications before this answer carried every byte, and
+   * the SDK writes the path.
+   */
+  written: boolean;
+}
+/**
+ * What `export.stream` takes.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ExportStreamParams".
+ */
+export interface ExportStreamParams {
+  /**
+   * The Export.
+   */
+  export_id: string;
+}
+/**
+ * What `export.stream` answers once it sent every byte.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ExportStreamed".
+ */
+export interface ExportStreamed {
+  /**
+   * The SHA-256 of its bytes, in lowercase hexadecimal.
+   */
+  sha256: string;
+  /**
+   * The file's size in bytes.
+   */
+  size: number;
+}
+/**
  * What `run.failed_requests` answers.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -1427,6 +1554,30 @@ export interface SeedAttempt {
  * via the `definition` "RunAddSeedsParams".
  */
 export interface RunAddSeedsParams {
+  /**
+   * The crawl's Run.
+   */
+  run_id: RunId;
+}
+/**
+ * What `run.export` takes.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RunExportParams".
+ */
+export interface RunExportParams {
+  /**
+   * The compression; absent, `none`.
+   */
+  compression?: ExportCompression | null;
+  /**
+   * The Dataset's name.
+   */
+  dataset: string;
+  /**
+   * The format.
+   */
+  format: "json" | "jsonl";
   /**
    * The crawl's Run.
    */

@@ -4648,6 +4648,23 @@ class SessionSource(
     """Where a Session's login comes from (ADR 0056): exactly one kind."""
 
 
+class SettingLimit(BaseModel):
+    """
+    A setting that decided an outcome: its key, its value and the layer that
+    set it (ADRs 0028 and 0079).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """The setting's key."""
+    layer: SettingsLayer
+    """The layer that set it."""
+    value: Any
+    """Its value."""
+
+
 class SettingsFile(BaseModel):
     """A layer's file, as `config explain` names it."""
 
@@ -5110,6 +5127,33 @@ class LimitUsage(BaseModel):
     """What the engine that read it makes of it."""
 
 
+class ModelAllowance(BaseModel):
+    """
+    One kind of a Run's Model allowance (ADR 0107): the most model Usage
+    of that kind the Run may spend, past which its model calls are refused
+    while it goes on.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    currency: str | None = None
+    """The currency of a `price` allowance, an ISO 4217 code."""
+    kind: str
+    """
+    Its kind: `price`, `tokens` or `calls`; a kind this reader does not
+    know is kept as it is.
+    """
+    reached_at: PointInTime | None = None
+    """When a model call was first refused under it; none until then."""
+    remains: Annotated[int, Field(ge=0)]
+    """What remains of it, spent and reserved taken off."""
+    source: SettingLimit
+    """The setting that set it, its value and its layer."""
+    value: Annotated[int, Field(ge=0)]
+    """What it allows: a count, or millionths of the currency."""
+
+
 class NeedsYouChange1(BaseModel):
     """An item appeared, or changed: it as it is now."""
 
@@ -5285,6 +5329,11 @@ class RunIndexRow(BaseModel):
     """Whether its state is at its location."""
     progress_message: str | None = None
     """The program's own status line, once it set one (RT-15)."""
+    replayed: bool
+    """
+    Whether it replayed a Response recording (ADR 0105), which marks
+    its row so that no one reads it as a live run.
+    """
     run_id: RunId
     """The Run's ID."""
     started_at: PointInTime
@@ -5386,6 +5435,11 @@ class RunUsage(BaseModel):
     """Each Limit that applies to it, with what is left of it."""
     model: ModelUsage
     """Its model calls."""
+    model_allowance: list[ModelAllowance] | None = None
+    """
+    Its Model allowance, one entry per kind set (ADR 0107): not a Limit,
+    so apart from `limits`; empty when none is set.
+    """
     other: list[KindUsage] | None = None
     """
     What it used of a Usage kind this engine does not name, kept as the

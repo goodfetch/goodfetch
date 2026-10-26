@@ -10,7 +10,7 @@ from typing import Any, cast
 from goodfetch_collie_client.generated.operations import AsyncCaller, Caller
 
 from goodfetch_collie_client.generated.models import RunParams, RunStarted
-from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, FailedRequests, RecordsRead, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
+from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
 
 
 def _fields(result: object) -> dict[str, Any]:
@@ -67,6 +67,20 @@ class AsyncFoxhoundOperations:
         """
         return CrawlRequestPushed.model_construct(**_fields(await self._caller.call("crawl_request.push", params)))
 
+    async def export_save_as(self, params: ExportSaveAsParams) -> ExportSaved:
+        """Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return ExportSaved.model_construct(**_fields(await self._caller.call("export.save_as", params)))
+
+    async def export_stream(self, params: ExportStreamParams) -> ExportStreamed:
+        """Sends an Export's bytes, which the engine keeps in its Run's folder, in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size and SHA-256 once every byte is sent. Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return ExportStreamed.model_construct(**_fields(await self._caller.call("export.stream", params)))
+
     async def run_add_seed(self, params: RunAddSeedParams) -> Enqueued:
         """Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl fails with `run_not_found`.
 
@@ -80,6 +94,13 @@ class AsyncFoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunSeedsAdded.model_construct(**_fields(await self._caller.call("run.add_seeds", params)))
+
+    async def run_export(self, params: RunExportParams) -> Export:
+        """Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named (`json`, one array of the Records' values; `jsonl`, one value per line), UTF-8 with no BOM, characters written as themselves and each value as it was committed. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Export.model_construct(**_fields(await self._caller.call("run.export", params)))
 
     async def run_failed_requests(self, params: RunFailedRequestsParams) -> FailedRequests:
         """Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.
@@ -170,6 +191,20 @@ class FoxhoundOperations:
         """
         return CrawlRequestPushed.model_construct(**_fields(self._caller.call("crawl_request.push", params)))
 
+    def export_save_as(self, params: ExportSaveAsParams) -> ExportSaved:
+        """Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return ExportSaved.model_construct(**_fields(self._caller.call("export.save_as", params)))
+
+    def export_stream(self, params: ExportStreamParams) -> ExportStreamed:
+        """Sends an Export's bytes, which the engine keeps in its Run's folder, in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size and SHA-256 once every byte is sent. Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return ExportStreamed.model_construct(**_fields(self._caller.call("export.stream", params)))
+
     def run_add_seed(self, params: RunAddSeedParams) -> Enqueued:
         """Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl fails with `run_not_found`.
 
@@ -183,6 +218,13 @@ class FoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RunSeedsAdded.model_construct(**_fields(self._caller.call("run.add_seeds", params)))
+
+    def run_export(self, params: RunExportParams) -> Export:
+        """Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named (`json`, one array of the Records' values; `jsonl`, one value per line), UTF-8 with no BOM, characters written as themselves and each value as it was committed. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return Export.model_construct(**_fields(self._caller.call("run.export", params)))
 
     def run_failed_requests(self, params: RunFailedRequestsParams) -> FailedRequests:
         """Reads from a crawl's committed state the requests whose latest outcome is `failed`, and with `blocked` also `blocked`, each with that outcome: exactly those `run.retry_failed` re-admits with the same option. A skip is a decision and is never listed.

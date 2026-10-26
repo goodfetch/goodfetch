@@ -7,7 +7,7 @@ import type {
   RunProgress,
   RunProgressParams,
 } from "@goodfetch/collie-client/generated";
-import { createProtocolAdapter } from "@goodfetch/test-support/protocol-adapter";
+import { createProtocolAdapter, failure } from "@goodfetch/test-support/protocol-adapter";
 import { expect, test } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
@@ -70,6 +70,9 @@ test.each([
       proxy_bytes: 0,
       requests: 0,
     });
+    // The Run report is kept off these References until they are written again
+    // with it (no pinned image here); its own tests show it.
+    adapter.answer("run.report", failure("run_state_unavailable", { run_id: RUN_ID }));
     adapter.answer("run.list", {
       runs: [
         {
@@ -80,6 +83,7 @@ test.each([
           tags: [],
           started_at: "2026-10-24T08:00:00Z",
           presence: "present",
+          replayed: false,
           ...axes,
         },
       ],

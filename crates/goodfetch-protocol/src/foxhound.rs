@@ -2,7 +2,8 @@
 //! Outside `crates/foxhound/`, only this crate and `xtask` name this module.
 //! Its `sample` entries are samples until the crawl areas define the real
 //! ones; `crawl` holds a crawl's start and the exchange that serves its work
-//! items, `dataset` its Datasets and the Records pushed into them, `frontier` what its Frontier answers each seed and enqueue, and
+//! items, `dataset` its Datasets and the Records pushed into them, `export` a
+//! Dataset's Export, `frontier` what its Frontier answers each seed and enqueue, and
 //! `outcomes` the reads of how its requests ended, `provenance` how each
 //! Record was obtained, `report` what a crawl's
 //! Run report adds, `progress` what its progress adds, and `session_pool` the Session of its Session pool that
@@ -12,6 +13,7 @@
 pub mod block;
 pub mod crawl;
 pub mod dataset;
+pub mod export;
 pub mod fetch;
 pub mod frontier;
 pub mod outcomes;

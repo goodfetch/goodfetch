@@ -197,7 +197,7 @@ fn run_file(env: &TestEnv, run_id: &str) -> Connection {
 /// handler's answer; `run.records` reads it so, and the canary is found
 /// nowhere in the Run's folder.
 ///
-/// Covers: story:6-275, operation:crawl_request.push, operation:run.records, operation:run.rejected_records
+/// Covers: story:6-275, operation:crawl_request.push, operation:run.records
 #[test]
 fn a_record_holding_a_resolved_secret_value_is_kept_with_its_placeholder() {
     let env = TestEnv::new();

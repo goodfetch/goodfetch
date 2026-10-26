@@ -15,6 +15,7 @@ use crate::catalog::{
     Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
     ProtocolVersion, Reach, Stability, schema_of,
 };
+use crate::foxhound::provenance::RecordProvenance;
 use crate::jsonrpc::RequestId;
 use crate::run::{PointInTime, RunId};
 
@@ -122,6 +123,9 @@ pub struct DatasetRecord {
     /// When it was committed.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub committed_at: PointInTime,
+    /// How it was obtained (ADR 0123's Provenance of a Record).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub provenance: RecordProvenance,
 }
 
 /// What `$/record` carries: the next Record a `run.records` call reads.

@@ -37,8 +37,9 @@ pub use resume::Began;
 /// schema's hash (none for a Dataset without one) and its key as a JSON
 /// array; and `records`, each committed Record by its Dataset and its
 /// number, with the crawl request whose attempt committed it, that
-/// request's URL, the time of the commit and the hash of the schema it was
-/// committed under (none for a Dataset without one); and
+/// request's URL, the time of the commit, the hash of the schema it was
+/// committed under (none for a Dataset without one) and its Provenance as
+/// JSON; and
 /// `rejected_records`, each Dataset's rejection table: each rejected Record
 /// by its Dataset and its number there, with the crawl request whose
 /// attempt staged it, the Record as JSON and, as a JSON object, why
@@ -61,6 +62,7 @@ pub const TABLES: RunStateTables = RunStateTables {
             committed_at TEXT NOT NULL,
             data TEXT NOT NULL,
             schema_hash TEXT,
+            provenance TEXT NOT NULL,
             PRIMARY KEY (dataset, number)
         ) STRICT",
         "CREATE TABLE IF NOT EXISTS rejected_records (

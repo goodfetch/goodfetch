@@ -141,7 +141,8 @@ impl Session {
     }
 
     /// The Records the reader `id` read, each with its committed time
-    /// checked as RFC 3339 and left out.
+    /// checked as RFC 3339 and left out, and its Provenance, which
+    /// `provenance.rs`'s cases read, left out.
     fn records_of(&self, id: &str) -> Vec<Value> {
         self.records
             .get(id)
@@ -154,6 +155,7 @@ impl Session {
                     .unwrap()
                     .remove("committed_at")
                     .unwrap();
+                record.as_object_mut().unwrap().remove("provenance");
                 assert!(
                     committed_at.as_str().is_some_and(|at| at.ends_with('Z')),
                     "{committed_at}"
@@ -165,7 +167,8 @@ impl Session {
 }
 
 /// The Record of `pages` the crawl request `n` committed as number
-/// `number`, as a reader reads it, its committed time left out.
+/// `number`, as a reader reads it, its committed time and Provenance left
+/// out.
 fn page(number: u64, n: u64) -> Value {
     let url = format!("https://shop.test/{n}");
     json!({ "number": number, "value": { "url": url }, "request_id": n.to_string(), "url": url })

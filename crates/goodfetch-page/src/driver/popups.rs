@@ -156,6 +156,7 @@ impl PageDriver {
             gesture: Arc::new(tokio::sync::Mutex::new(())),
             value: PageValue::empty(),
             waits: None,
+            reader: None,
         })
     }
 

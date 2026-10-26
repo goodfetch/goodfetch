@@ -24,6 +24,7 @@ use goodfetch_dataset::{Checked, Datasets};
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
+use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{RunState, RunStateError};
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, PushedRecord};
 use goodfetch_protocol::run::PointInTime;
@@ -31,7 +32,7 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 
 use crate::staging::Staging;
-use crate::work_items;
+use crate::work_items::{self, Fetched};
 
 /// The `tracing` target of the run fencing model's transitions.
 pub(crate) const TARGET: &str = "goodfetch::lease";
@@ -239,6 +240,16 @@ impl WorkItemLease {
         pushed
     }
 
+    /// Notes how its attempt's run fetched its document, which the
+    /// Provenance of each Record it commits names.
+    pub(crate) fn fetched(&self, fetched: Fetched) {
+        let epoch = self.0.state.borrow().lease.epoch();
+        self.0
+            .leases
+            .staging
+            .fetched(&self.0.work_item, epoch, fetched);
+    }
+
     /// The Records its attempt pushed so far, which stay staged.
     pub(crate) fn pushed(&self) -> Checked {
         let epoch = self.0.state.borrow().lease.epoch();
@@ -274,8 +285,9 @@ impl WorkItemLease {
     /// Commits `records`, its attempt's answer, once, after the Records the
     /// attempt pushed and with what else it staged and its work item's
     /// outcome ended at `ended_at`, when it still holds, the run file
-    /// holds it too and each of `records` holds for the Dataset it names;
-    /// answers the kept files of the Run's folder the staged Key-value
+    /// holds it too and each of `records` holds for the Dataset it names,
+    /// each Record naming its Provenance and keeping every value `masks`
+    /// holds as its `%name%`; answers the kept files of the Run's folder the staged Key-value
     /// store writes took out, which the caller forgets.
     ///
     /// # Errors
@@ -291,6 +303,7 @@ impl WorkItemLease {
     pub(crate) async fn commit(
         &self,
         state: &RunState,
+        masks: &Masks,
         records: Vec<PushedRecord>,
         ended_at: PointInTime,
     ) -> Result<Vec<String>, CommitError> {
@@ -302,6 +315,7 @@ impl WorkItemLease {
         let work_item = self.0.work_item.to_string();
         let epoch = lease.epoch();
         let staging = self.0.leases.staging.clone();
+        let masks = masks.clone();
         match state
             .write(move |connection| {
                 let staged = staging.take(&work_item, epoch);
@@ -314,10 +328,17 @@ impl WorkItemLease {
                 };
                 let writes = staged.admit(connection)?;
                 let files = goodfetch_engine::key_value_store::apply(connection, writes)?;
+                let fetched = staged.fetched().clone();
                 let mut records = staged.records();
                 records.append(answered);
+                let committed = work_items::Committed {
+                    records: &records,
+                    fetched: &fetched,
+                    masks: &masks,
+                    ended_at: &ended_at,
+                };
                 Ok(
-                    work_items::commit(connection, &work_item, epoch, &records, &ended_at)?
+                    work_items::commit(connection, &work_item, epoch, committed)?
                         .then_some(Ok(files)),
                 )
             })

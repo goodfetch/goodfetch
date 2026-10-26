@@ -369,19 +369,6 @@ pub struct Forced {
     pub label: Option<String>,
 }
 
-impl TierChoice {
-    /// How Provenance names the way it was chosen: `forced`, or
-    /// `compared` under `auto`, the crawl's sample comparison having chosen
-    /// it (ADR 0023).
-    pub fn chosen(&self) -> &'static str {
-        if self.forced.is_some() {
-            "forced"
-        } else {
-            "compared"
-        }
-    }
-}
-
 /// What a call its page's tier cannot serve exactly leads to.
 #[derive(Debug)]
 pub(crate) enum Unserved {

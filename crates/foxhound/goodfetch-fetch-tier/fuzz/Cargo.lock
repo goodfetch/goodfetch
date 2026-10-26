@@ -1694,6 +1694,7 @@ dependencies = [
  "btls-sys",
  "data-encoding",
  "flate2",
+ "foreign-types",
  "futures-util",
  "goodfetch-cdp",
  "goodfetch-clean-up-rules",

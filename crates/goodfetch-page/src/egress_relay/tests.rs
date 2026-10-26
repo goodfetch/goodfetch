@@ -836,6 +836,8 @@ fn terminating_of(host: &str, stores: &super::terminate_tests::Stores) -> Termin
         .unwrap(),
         examiner: Trust::default_roots().examiner(),
         trust: Trust::default_roots(),
+        application_settings: std::sync::Arc::default(),
+        sessions: std::sync::Arc::default(),
     }
 }
 

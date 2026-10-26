@@ -12,7 +12,7 @@ import {
   type ProtocolAdapter,
 } from "@goodfetch/test-support/protocol-adapter";
 import { Profiler } from "react";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { createConsoleClient, type ConsoleClient, type PageVisibility } from "#client/client.ts";
@@ -383,6 +383,43 @@ test(
     );
 
     expect({ eventBatch, filtering, sorting }).toMatchSnapshot();
+    client.close();
+  },
+);
+
+/** The rows of a Run index of `count` finished runs. */
+function runIndex(count: number): RunIndexRow[] {
+  return Array.from({ length: count }, (_, position) =>
+    row(`run-${String(position).padStart(5, "0")}`, { lifecycle: "finished" }),
+  );
+}
+
+test(
+  "a 10,000-row Runs list renders only the rows in view, and the last ones once scrolled to",
+  { tags: ["story:12-136", "screen:/runs"] },
+  async () => {
+    // The next test's page starts at its top, as a page opens: a scroll
+    // left over would commit in its render budget.
+    onTestFinished(() => window.scrollTo({ top: 0 }));
+    const adapter = createProtocolAdapter();
+    adapter.answer("run.list", { runs: runIndex(10_000) });
+    const client = clientOf(adapter);
+
+    await renderRuns(client, new TestAddress(""));
+
+    await expect.poll(listedIds).toContain("run-00000");
+    const rendered = listedIds().length;
+    expect(rendered).toBeLessThan(100);
+    expect(listedIds()).not.toContain("run-09999");
+    expect(page.getByRole("table", { name: "Runs" }).element().getAttribute("aria-rowcount")).toBe(
+      "10001",
+    );
+
+    window.scrollTo({ top: document.documentElement.scrollHeight });
+
+    await expect.poll(listedIds).toContain("run-09999");
+    expect(listedIds().length).toBeLessThan(100);
+    expect({ rendered }).toMatchSnapshot();
     client.close();
   },
 );

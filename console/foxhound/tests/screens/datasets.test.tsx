@@ -190,6 +190,11 @@ test(
   },
 );
 
+/** Two frames, so a commit the grid's measuring makes after its rows show still counts where it belongs. */
+async function twoFrames(): Promise<void> {
+  await new Promise((frame) => requestAnimationFrame(() => requestAnimationFrame(frame)));
+}
+
 /** The number of the grid's first row. */
 function firstRow(): string | undefined {
   return gridRows()[0]?.[0];
@@ -214,12 +219,14 @@ test(
       </ConsoleI18n>,
     );
     await expect.poll(firstRow).toBe("1");
+    await twoFrames();
     const pageRead = commits;
 
     commits = 0;
     await userEvent.selectOptions(page.getByRole("combobox", { name: "Sort by" }), "title");
     await userEvent.click(page.getByRole("button", { name: "Apply" }));
     await expect.poll(firstRow).toBe("3");
+    await twoFrames();
     const sort = commits;
 
     expect({ pageRead, sort }).toMatchSnapshot();

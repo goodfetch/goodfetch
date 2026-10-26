@@ -84,10 +84,10 @@ use goodfetch_protocol::page::session_pages::{
     self, PageCloseParams, PageClosed, SESSION_ON, SESSION_PAGES, SessionEventName, SessionOnParams,
 };
 use goodfetch_protocol::page::{
-    Acted, ClickParams, FillParams, FormatsParams, GotoParams, LOCATOR_CLICK, LOCATOR_FILL,
-    LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_FORMATS, PAGE_GO_BACK, PAGE_GO_FORWARD,
-    PAGE_GOTO, PAGE_RELOAD, PageFormats, PageId, PageParams, PageResponse, PressParams,
-    RUN_NEW_PAGE, SessionId, WaitUntil,
+    Acted, ClickParams, FillParams, FormatsParams, FormatsRequest, GotoParams, LOCATOR_CLICK,
+    LOCATOR_FILL, LOCATOR_PRESS, Locator, Navigated, NewPageParams, PAGE_FORMATS, PAGE_GO_BACK,
+    PAGE_GO_FORWARD, PAGE_GOTO, PAGE_RELOAD, PageFormats, PageId, PageParams, PageResponse,
+    PressParams, RUN_NEW_PAGE, SessionId, WaitUntil,
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
@@ -915,6 +915,17 @@ impl BrowserPages for Opener {
                 )
                 .await
         })
+    }
+
+    fn formats<'a>(
+        &'a self,
+        page_id: &'a PageId,
+        request: FormatsRequest,
+    ) -> Opening<'a, Result<PageFormats, CallError>> {
+        Box::pin(self.pages.formats(FormatsParams {
+            page_id: page_id.clone(),
+            formats: request,
+        }))
     }
 }
 

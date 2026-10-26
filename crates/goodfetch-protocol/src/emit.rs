@@ -37,7 +37,7 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
 use crate::block::BlockCause;
-use crate::browser_cache::{BrowsersCleanOutput, BrowsersInstallOutput};
+use crate::browser_cache::{BrowserCleaned, BrowserInstalled};
 use crate::case_log::CaseLogEntry;
 use crate::catalog::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HandlerRequest, HookStage,
@@ -47,8 +47,7 @@ use crate::cli::{CommandFailed, ExitCodeRow, exit_code_table};
 use crate::connection::{CancelParams, HelloParams, HelloResult};
 use crate::console::ConsoleOpened;
 use crate::daemon::{
-    DaemonHealthOutput, DaemonInstallOutput, DaemonRotateTokenOutput, DaemonStartOutput,
-    DaemonStatusOutput, DaemonStopOutput, DaemonUninstallOutput,
+    DaemonHealthOutput, DaemonStatus, DaemonUninstallOutput, HttpListenerToken, TokenRotated,
 };
 use crate::entries::MODULES;
 use crate::events::{CreditParams, EventBatch};
@@ -64,7 +63,7 @@ use crate::releases::ReleasesFile;
 use crate::result_document::ResultDocument;
 use crate::run::RunsReindexOutput;
 use crate::settings::SettingsExplanation;
-use crate::versions::UpgradeFilesOutput;
+use crate::versions::FilesUpgraded;
 
 /// The bundle's `files` key of every Journey file, `journeys/J-NNN.toml`.
 pub const JOURNEY_FILES: &str = "journeys/J-*.toml";
@@ -117,20 +116,22 @@ pub fn emit() -> Emitted {
         "meta": generator.subschema_for::<TraceContext>(),
     });
     let outputs = json!({
-        "browsers.clean": generator.subschema_for::<BrowsersCleanOutput>(),
-        "browsers.install": generator.subschema_for::<BrowsersInstallOutput>(),
+        "browser.clean": generator.subschema_for::<BrowserCleaned>(),
+        "browser.install": generator.subschema_for::<BrowserInstalled>(),
         "config.explain": generator.subschema_for::<SettingsExplanation>(),
         "console": generator.subschema_for::<ConsoleOpened>(),
         "daemon.health": generator.subschema_for::<DaemonHealthOutput>(),
-        "daemon.install": generator.subschema_for::<DaemonInstallOutput>(),
-        "daemon.restart": generator.subschema_for::<DaemonStartOutput>(),
-        "daemon.rotate-token": generator.subschema_for::<DaemonRotateTokenOutput>(),
-        "daemon.start": generator.subschema_for::<DaemonStartOutput>(),
-        "daemon.status": generator.subschema_for::<DaemonStatusOutput>(),
-        "daemon.stop": generator.subschema_for::<DaemonStopOutput>(),
+        "daemon.http-listener-token": generator.subschema_for::<HttpListenerToken>(),
+        "daemon.install": generator.subschema_for::<DaemonStatus>(),
+        "daemon.restart": generator.subschema_for::<DaemonStatus>(),
+        "daemon.rotate-token": generator.subschema_for::<TokenRotated>(),
+        "daemon.run": generator.subschema_for::<DaemonStatus>(),
+        "daemon.start": generator.subschema_for::<DaemonStatus>(),
+        "daemon.status": generator.subschema_for::<DaemonStatus>(),
+        "daemon.stop": generator.subschema_for::<DaemonStatus>(),
         "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
         "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
-        "upgrade-files": generator.subschema_for::<UpgradeFilesOutput>(),
+        "upgrade-files": generator.subschema_for::<FilesUpgraded>(),
     });
     let command_failed = generator.subschema_for::<CommandFailed>();
     let shared_types = json!({ "block_cause": generator.subschema_for::<BlockCause>() });

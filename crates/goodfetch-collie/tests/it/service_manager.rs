@@ -126,7 +126,7 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
     let uninstalled = json_in_session(&env, COLLIE, &["daemon", "uninstall", "--json"]);
     let after = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
 
-    validate(&installed, "DaemonInstallOutput");
+    validate(&installed, "DaemonStatus");
     validate(&uninstalled, "DaemonUninstallOutput");
     let files: Vec<bool> = service["files"]
         .as_array()
@@ -136,7 +136,7 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
         .collect();
     assert_eq!(
         (
-            before["daemon"].clone(),
+            before["pid"].clone(),
             before["service"] == service,
             status["result"]["product"].clone(),
             status["result"]["kept_alive"].clone(),
@@ -147,7 +147,7 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
             uninstalled["removed"] == service,
             files,
             after["service"].clone(),
-            after["daemon"].clone(),
+            after["pid"].clone(),
             env.home().join("0.0").join("daemon.token").exists(),
         ),
         (
@@ -188,15 +188,14 @@ fn after_a_rotation_only_the_new_token_opens_a_connection() {
     let mut client = RawClient::opened(&new, "collie");
     let status = client.call(1, "daemon.status", &json!({}));
 
-    validate(&rotated, "DaemonRotateTokenOutput");
+    validate(&rotated, "TokenRotated");
     assert_eq!(
         (
-            rotated["stopped"].clone(),
             refused,
             new.token == old.token,
             status["result"]["product"].clone(),
         ),
-        (json!({ "live_runs": 0 }), true, false, json!("collie"))
+        (true, false, json!("collie"))
     );
 }
 
@@ -216,14 +215,14 @@ fn the_installed_logon_task_keeps_the_daemon_running() {
     let uninstalled = json_in_session(&env, COLLIE, &["daemon", "uninstall", "--json"]);
     let after = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
 
-    validate(&installed, "DaemonInstallOutput");
+    validate(&installed, "DaemonStatus");
     assert_eq!(
         (
             installed["service"]["manager"].clone(),
-            started["daemon"]["kept_alive"].clone(),
+            started["pid"].is_u64(),
             uninstalled["removed"] == installed["service"],
-            after["daemon"].clone(),
+            after["pid"].clone(),
         ),
-        (json!("task_scheduler"), json!(true), true, Value::Null)
+        (json!("task_scheduler"), true, true, Value::Null)
     );
 }

@@ -13,6 +13,7 @@ mod audit;
 mod background_traffic;
 #[cfg(unix)]
 mod borrowed_browser;
+mod browser;
 #[cfg(unix)]
 mod browser_pool;
 #[cfg(all(
@@ -20,7 +21,6 @@ mod browser_pool;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod browser_sandbox;
-mod browsers;
 mod certificate_exceptions;
 mod certs;
 #[cfg(target_os = "macos")]
@@ -32,6 +32,7 @@ mod config;
 mod console;
 mod content_origin;
 mod daemon;
+mod daemon_commands;
 mod daemon_log;
 mod daemon_run;
 mod domain_narrowing;

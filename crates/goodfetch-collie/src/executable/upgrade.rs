@@ -10,7 +10,7 @@ use goodfetch_cli::output;
 use goodfetch_engine::Identity;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::upgrade::{UpgradeError, UpgradePaths, upgrade_files};
-use goodfetch_protocol::versions::{UPGRADE_SOURCE_UNSUPPORTED, UpgradeFilesOutput};
+use goodfetch_protocol::versions::{FilesUpgraded, UPGRADE_SOURCE_UNSUPPORTED};
 
 /// Upgrades from `from`, or from the newest older major Goodfetch home
 /// holds.
@@ -46,12 +46,10 @@ pub(super) fn upgrade(
             .collect()
     };
     if json {
-        output::json(&UpgradeFilesOutput {
-            from: upgraded.from.clone(),
-            to: upgraded.to.clone(),
-            copied: shown(&upgraded.copied),
+        output::json(&FilesUpgraded {
+            upgraded: shown(&upgraded.copied),
             unchanged: shown(&upgraded.unchanged),
-            kept: shown(&upgraded.kept),
+            refused: shown(&upgraded.kept),
         });
         return ExitCode::SUCCESS;
     }

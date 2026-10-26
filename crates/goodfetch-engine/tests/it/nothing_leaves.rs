@@ -276,7 +276,7 @@ fn under_egress_offline_a_missing_build_is_refused_before_any_connection() {
     assert!(
         details
             .fix
-            .starts_with("Run `goodfetch-collie browsers install` beforehand"),
+            .starts_with("Run `goodfetch-collie browser install` beforehand"),
         "{}",
         details.fix
     );

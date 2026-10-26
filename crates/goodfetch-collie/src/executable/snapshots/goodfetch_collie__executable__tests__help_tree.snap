@@ -8,7 +8,7 @@ Collie, Goodfetch's Product for browser automation.
 Usage: goodfetch-collie [OPTIONS] <COMMAND>
 
 Commands:
-  browsers         Manages the browser builds this version pins in the Browser cache
+  browser          Manages the browser builds this version pins in the Browser cache
   audit            Exports and verifies the user's Audit log
   certs            Lists, accepts and forgets the certificate pins of the user's known-certificates store
   console          Opens the Console in the browser, signed in: starts the major's Daemon unless one runs
@@ -41,10 +41,10 @@ Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
-$ goodfetch-collie browsers --help
+$ goodfetch-collie browser --help
 Manages the browser builds this version pins in the Browser cache
 
-Usage: goodfetch-collie browsers [OPTIONS] <COMMAND>
+Usage: goodfetch-collie browser [OPTIONS] <COMMAND>
 
 Commands:
   install  Downloads every build this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images
@@ -54,20 +54,20 @@ Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
-$ goodfetch-collie browsers install --help
+$ goodfetch-collie browser install --help
 Downloads every build this version pins into the Browser cache (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images
 
-Usage: goodfetch-collie browsers install [OPTIONS]
+Usage: goodfetch-collie browser install [OPTIONS]
 
 Options:
       --json          Prints the result as JSON
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
-$ goodfetch-collie browsers clean --help
+$ goodfetch-collie browser clean --help
 Deletes the builds nothing installed pins, unused for `browser_cache.max_unused_age` and held by no running browser
 
-Usage: goodfetch-collie browsers clean [OPTIONS]
+Usage: goodfetch-collie browser clean [OPTIONS]
 
 Options:
       --dry-run       Lists what it would delete, and deletes nothing
@@ -208,15 +208,16 @@ Starts, stops and shows the Daemon of this executable's major, which both Produc
 Usage: goodfetch-collie daemon [OPTIONS] <COMMAND>
 
 Commands:
-  start         Starts the Daemon, the major's pick, unless one runs
-  stop          Stops the Daemon; its live Runs stop with it
-  restart       Stops the Daemon, then starts the major's pick
-  status        Shows whether the Daemon runs, as which Product, and its Clients
-  health        Says whether the Daemon of the major, or the foreground Daemon at `daemon.address`, is ready to take a run, as its ops listener's `/readyz` does, for `exec` probes and systemd: exits 0 when it is, 1 when it is not or none answers
-  install       Registers the major's Daemon as a per-user service, which starts the major's pick: a launch agent on macOS and a systemd user unit on Linux, each started by the first connection to its socket, and a logon task on Windows
-  uninstall     Removes the major's per-user service, stopping its Daemon
-  rotate-token  Replaces the persistent token of the service's Daemon, which stops with every Connection that opened with the old one
-  run           Runs the Daemon in the foreground, for Docker, Kubernetes and systemd: as this executable's Product, listening on `daemon.address`, with no runtime file and no idle stop, logging JSON lines to stdout; on `SIGTERM` it takes no run, checkpoints each run as resumable and exits within `daemon.drain_grace`
+  start                Starts the Daemon, the major's pick, unless one runs
+  stop                 Stops the Daemon; its live Runs stop with it
+  restart              Stops the Daemon, then starts the major's pick
+  status               Shows whether the Daemon runs, as which Product, and its Clients
+  health               Says whether the Daemon of the major, or the foreground Daemon at `daemon.address`, is ready to take a run, as its ops listener's `/readyz` does, for `exec` probes and systemd: exits 0 when it is, 1 when it is not or none answers
+  install              Registers the major's Daemon as a per-user service, which starts the major's pick: a launch agent on macOS and a systemd user unit on Linux, each started by the first connection to its socket, and a logon task on Windows
+  uninstall            Removes the major's per-user service, stopping its Daemon
+  rotate-token         Replaces the persistent token of the major's Daemon and the HTTP listener's token: an installed service's Daemon stops with every Connection that opened with the old one, and a Daemon started after it refuses the old one
+  http-listener-token  Prints the token the Daemon's HTTP listener takes, for a workflow tool's configuration: on stdout, and nowhere else
+  run                  Runs the Daemon in the foreground, for Docker, Kubernetes and systemd: as this executable's Product, listening on `daemon.address`, with no runtime file and no idle stop, logging JSON lines to stdout; on `SIGTERM` it takes no run, checkpoints each run as resumable and exits within `daemon.drain_grace`
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -296,9 +297,19 @@ Options:
   -h, --help          Print help
 
 $ goodfetch-collie daemon rotate-token --help
-Replaces the persistent token of the service's Daemon, which stops with every Connection that opened with the old one
+Replaces the persistent token of the major's Daemon and the HTTP listener's token: an installed service's Daemon stops with every Connection that opened with the old one, and a Daemon started after it refuses the old one
 
 Usage: goodfetch-collie daemon rotate-token [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie daemon http-listener-token --help
+Prints the token the Daemon's HTTP listener takes, for a workflow tool's configuration: on stdout, and nowhere else
+
+Usage: goodfetch-collie daemon http-listener-token [OPTIONS]
 
 Options:
       --json          Prints the result as JSON
@@ -311,6 +322,7 @@ Runs the Daemon in the foreground, for Docker, Kubernetes and systemd: as this e
 Usage: goodfetch-collie daemon run [OPTIONS]
 
 Options:
+      --json          Prints the Daemon's status as JSON once it listens, before its logs
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 

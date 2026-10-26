@@ -33,7 +33,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{ProductVersion, Surface};
 use goodfetch_protocol::console::{ConsoleFailure, ConsoleState};
 use goodfetch_protocol::daemon::{
-    DaemonEndpoint, DaemonHealth, DaemonParams, DaemonStatus, DaemonStopping, HEALTH, NOT_A_DAEMON,
+    DaemonEndpoint, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, HEALTH, NOT_A_DAEMON,
     NotADaemonDetails, STATUS, STOP,
 };
 use tokio::sync::{Mutex, mpsc, watch};
@@ -419,11 +419,11 @@ impl DaemonSide for ConnectionSide {
         Box::pin(self.shared.hand_over_if_not_the_pick())
     }
 
-    fn status(&self) -> Answering<'_, DaemonStatus> {
+    fn status(&self) -> Answering<'_, DaemonState> {
         Box::pin(async {
             let shared = &self.shared;
             let presence = *shared.presence.borrow();
-            DaemonStatus {
+            DaemonState {
                 product: shared.identity.product,
                 product_version: shared.identity.product_version.clone(),
                 pid: shared.pid,

@@ -3596,8 +3596,8 @@ class DaemonHealth(BaseModel):
     """Why it is not ready, when it is not; empty when it is."""
 
 
-class DaemonStatus(BaseModel):
-    """What `daemon.status` answers."""
+class DaemonState(BaseModel):
+    """What `daemon.status` answers: the running Daemon's state."""
 
     model_config = ConfigDict(
         extra="allow",

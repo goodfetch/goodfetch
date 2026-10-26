@@ -123,7 +123,7 @@ fn the_command_record_holds_the_matched_command_and_its_exit_code() {
 
 #[rstest]
 #[case::unknown_command(&["frobnicate", "--now"], "frobnicate --now")]
-#[case::command_group_alone(&["browsers"], "browsers")]
+#[case::command_group_alone(&["browser"], "browser")]
 fn arguments_that_match_no_command_feature_are_recorded_as_unmatched(
     #[case] arguments: &[&str],
     #[case] unmatched: &str,
@@ -164,7 +164,7 @@ fn teardown_copies_the_command_record_into_the_tests_exercise_record() {
             json!({ "test": "sample::it installs" }),
             json!({
                 "target": "goodfetch::test::command",
-                "fields": { "command": "browsers.install", "exit_code": 0 },
+                "fields": { "command": "browser.install", "exit_code": 0 },
             }),
         ]
     );

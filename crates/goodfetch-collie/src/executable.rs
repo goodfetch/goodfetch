@@ -2,8 +2,9 @@
 //! line, which Foxhound's executable keeps with its names, flags and exit
 //! codes, and one start, from the composition and Product its `main` passes.
 //! Today the command line holds `--version`, the hidden Attached-engine
-//! entry, which an SDK starts, `browsers install`, `browsers clean`,
-//! `console`, `config explain`, `daemon start|stop|restart|status|install|uninstall|rotate-token|run`,
+//! entry, which an SDK starts, `browser install`, `browser clean`,
+//! `console`, `config explain`,
+//! `daemon start|stop|restart|status|health|install|uninstall|rotate-token|http-listener-token|run`,
 //! with the hidden `daemon launched` a start or the installed service
 //! runs, `runs reindex` and `upgrade-files`, beside the commands `goodfetch-cli` generates
 //! from the catalog for every other namespace, such as `run start` and
@@ -46,6 +47,7 @@ use std::ffi::OsString;
 use std::process::ExitCode;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
+use daemon_command::{DaemonCommand, daemon_command};
 use goodfetch_cli::exit_codes;
 use goodfetch_cli::generated::{Call, Generated, Joined, Joining};
 use goodfetch_cli::output::{self, ColourChoice, ColourFlag, Human};
@@ -77,6 +79,7 @@ mod certs;
 mod config;
 mod console;
 mod daemon;
+mod daemon_command;
 mod identity;
 mod log_file;
 mod logs;
@@ -126,9 +129,9 @@ enum Command {
         _colour: ColourFlag,
     },
     /// Manages the browser builds this version pins in the Browser cache.
-    Browsers {
+    Browser {
         #[command(subcommand)]
-        command: BrowsersCommand,
+        command: BrowserCommand,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -266,104 +269,6 @@ enum RunsCommand {
 }
 
 #[derive(Subcommand)]
-enum DaemonCommand {
-    /// Starts the Daemon, the major's pick, unless one runs.
-    Start {
-        /// Never stops it after `daemon.idle_timeout` with no Client.
-        #[arg(long)]
-        keep_alive: bool,
-        /// Prints the result as JSON.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Stops the Daemon; its live Runs stop with it.
-    Stop {
-        /// Prints the result as JSON.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Stops the Daemon, then starts the major's pick.
-    Restart {
-        /// Never stops it after `daemon.idle_timeout` with no Client.
-        #[arg(long)]
-        keep_alive: bool,
-        /// Prints the result as JSON.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Shows whether the Daemon runs, as which Product, and its Clients.
-    Status {
-        /// Prints the result as JSON.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Says whether the Daemon of the major, or the foreground Daemon at
-    /// `daemon.address`, is ready to take a run, as its ops listener's
-    /// `/readyz` does, for `exec` probes and systemd: exits 0 when it is, 1
-    /// when it is not or none answers.
-    Health {
-        /// Says whether it is live instead, as `/livez` does.
-        #[arg(long)]
-        live: bool,
-        /// Prints the result as JSON.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Registers the major's Daemon as a per-user service, which starts
-    /// the major's pick: a launch agent on macOS and a systemd user unit on
-    /// Linux, each started by the first connection to its socket, and a
-    /// logon task on Windows.
-    Install {
-        /// Prints the result as JSON.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Removes the major's per-user service, stopping its Daemon.
-    Uninstall {
-        /// Prints the result as JSON.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Replaces the persistent token of the service's Daemon, which stops
-    /// with every Connection that opened with the old one.
-    RotateToken {
-        /// Prints the result as JSON.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Runs the Daemon in the foreground, for Docker, Kubernetes and
-    /// systemd: as this executable's Product, listening on
-    /// `daemon.address`, with no runtime file and no idle stop, logging
-    /// JSON lines to stdout; on `SIGTERM` it takes no run, checkpoints each
-    /// run as resumable and exits within `daemon.drain_grace`.
-    Run {
-        /// Runs under the reaper of a `daemon run` on Linux, which started it.
-        #[arg(long, hide = true)]
-        reaped: bool,
-    },
-    /// Runs as the Daemon a start or the installed service launched, from a
-    /// versioned copy.
-    #[command(hide = true)]
-    Launched {
-        /// The build of the versioned copy it runs from.
-        #[arg(long)]
-        copy: Option<String>,
-        /// Never stops it after `daemon.idle_timeout` with no Client.
-        #[arg(long)]
-        keep_alive: bool,
-        /// Started by the major's service: starts the pick in its place
-        /// when it is not the pick, and takes the socket its service
-        /// manager hands over.
-        #[arg(long)]
-        service: bool,
-        /// A deployment variable the service passes, as `NAME=VALUE`;
-        /// repeatable.
-        #[arg(long = "environment", value_name = "NAME=VALUE")]
-        environment: Vec<String>,
-    },
-}
-
-#[derive(Subcommand)]
 enum ConfigCommand {
     /// Shows each effective setting, the layer that set it and the layer
     /// that locked it: the built-in default, the Operator policy, user
@@ -392,7 +297,7 @@ enum ConfigCommand {
 }
 
 #[derive(Subcommand)]
-enum BrowsersCommand {
+enum BrowserCommand {
     /// Downloads every build this version pins into the Browser cache
     /// (`GOODFETCH_BROWSERS_PATH`, else Goodfetch home), for CI and images.
     Install {
@@ -706,12 +611,12 @@ fn run(
     };
     match command {
         Command::AttachedEngine { .. } => run_attached(engine, dependencies, &machine),
-        Command::Browsers {
-            command: BrowsersCommand::Install { json },
+        Command::Browser {
+            command: BrowserCommand::Install { json },
             ..
         } => browsers::install(pinned_by, environment, json),
-        Command::Browsers {
-            command: BrowsersCommand::Clean { dry_run, json },
+        Command::Browser {
+            command: BrowserCommand::Clean { dry_run, json },
             ..
         } => browsers::clean(pinned_by, environment, dry_run, json),
         Command::Console {
@@ -737,32 +642,7 @@ fn run(
             project,
             json,
         ),
-        Command::Daemon { command, .. } => match command {
-            DaemonCommand::Start { keep_alive, json } => daemon::start(&machine, keep_alive, json),
-            DaemonCommand::Stop { json } => daemon::stop(&machine, json),
-            DaemonCommand::Restart { keep_alive, json } => {
-                daemon::restart(&machine, keep_alive, json)
-            }
-            DaemonCommand::Status { json } => daemon::status(&machine, json),
-            DaemonCommand::Health { live, json } => daemon::health(&machine, live, json),
-            DaemonCommand::Install { json } => service::install(&machine, json),
-            DaemonCommand::Uninstall { json } => service::uninstall(&machine, json),
-            DaemonCommand::RotateToken { json } => service::rotate_token(&machine, json),
-            DaemonCommand::Run { reaped } => daemon::run(engine, dependencies, &machine, reaped),
-            DaemonCommand::Launched {
-                copy,
-                keep_alive,
-                service,
-                environment: _,
-            } => daemon::launched(
-                engine,
-                dependencies,
-                &machine,
-                copy.as_deref(),
-                keep_alive,
-                service,
-            ),
-        },
+        Command::Daemon { command, .. } => daemon_command(command, engine, dependencies, &machine),
         Command::Runs {
             command: RunsCommand::Reindex { paths, json },
             ..

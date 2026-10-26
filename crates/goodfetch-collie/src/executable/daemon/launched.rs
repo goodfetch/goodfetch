@@ -89,7 +89,7 @@ pub(super) fn launch(
         }),
         _ => Err(Failure::Unavailable(format!(
             "the Daemon exited before it was ready; its log is in {}",
-            home.root().join("logs").display()
+            home.logs().display()
         ))),
     }
 }

@@ -15,13 +15,17 @@ import type {
   SortOrder,
 } from "@goodfetch/collie-client/generated";
 import { Trans, useLingui } from "@lingui/react/macro";
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useReducer,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
+  type RefObject,
   type SubmitEvent,
 } from "react";
 import type { Address } from "#address.ts";
@@ -479,14 +483,28 @@ function Presence({ row }: { readonly row: RunIndexRow }): ReactNode {
   }
 }
 
-/** One run's row. */
-function RunRow({ row }: { readonly row: RunIndexRow }): ReactNode {
+/** One run's row, the `index`th of the list, which `measure` sizes once rendered. */
+function RunRow({
+  row,
+  index,
+  measure,
+}: {
+  readonly row: RunIndexRow;
+  readonly index: number;
+  readonly measure: (row: HTMLTableRowElement | null) => void;
+}): ReactNode {
   const { i18n } = useLingui();
   const tags = row.tags.filter((tag) => !tag.startsWith(RESERVED));
   const watch = reserved(row, "role") === "watch";
   const occurrence = reserved(row, "occurrence");
   return (
-    <tr className="border-b align-top">
+    <tr
+      ref={measure}
+      data-index={index}
+      // The header row is the table's first.
+      aria-rowindex={index + 2}
+      className="border-b align-top"
+    >
       <th scope="row" className="py-2 pe-4 text-start font-normal">
         <a
           href={`/runs/${encodeURIComponent(row.run_id)}`}
@@ -551,7 +569,6 @@ function RunRow({ row }: { readonly row: RunIndexRow }): ReactNode {
 
 /** The runs the screen read, as a table. */
 function RunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): ReactNode {
-  const { t } = useLingui();
   if (runs.length === 0) {
     return (
       <output className="block text-muted-foreground">
@@ -559,9 +576,71 @@ function RunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): ReactNod
       </output>
     );
   }
+  return <WindowedRunTable runs={runs} />;
+}
+
+/**
+ * The room of the rows not rendered at one end of the table, so the page
+ * keeps its height. Hidden from assistive technology, which counts rows by
+ * the table's `aria-rowcount`.
+ */
+function Spacer({ height }: { readonly height: number }): ReactNode {
+  return <tr aria-hidden="true" style={{ height }} />;
+}
+
+/** A row's height before it is measured, in CSS pixels: one line and its padding. */
+const ROW_ESTIMATE = 41;
+
+/** The rows rendered beyond each edge of the window, so scrolling shows no gap. */
+const OVERSCAN = 8;
+
+/**
+ * The page's offset of `element`'s top, in CSS pixels, kept as what is above
+ * it changes height (a filter group opened, a banner shown).
+ */
+function useDocumentOffset(element: RefObject<HTMLElement | null>): number {
+  const [offset, setOffset] = useState(0);
+  useLayoutEffect(() => {
+    const measured = element.current;
+    if (measured === null) {
+      return undefined;
+    }
+    const measure = (): void => setOffset(measured.getBoundingClientRect().top + window.scrollY);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(document.body);
+    return () => observer.disconnect();
+  }, [element]);
+  return offset;
+}
+
+/**
+ * A non-empty list of runs, rendering only the rows in the window and a few
+ * beyond (ADR 0071: a 10,000-row list stays smooth). The page scrolls, not
+ * the table, and the table names how many rows it has for assistive
+ * technology, each row its place.
+ */
+function WindowedRunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): ReactNode {
+  const { t } = useLingui();
+  const body = useRef<HTMLTableSectionElement>(null);
+  const scrollMargin = useDocumentOffset(body);
+  const rows = useWindowVirtualizer({
+    count: runs.length,
+    estimateSize: () => ROW_ESTIMATE,
+    overscan: OVERSCAN,
+    scrollMargin,
+    getItemKey: (index) => runs[index]?.run_id ?? index,
+  });
+  const shown = rows.getVirtualItems();
+  const before = (shown[0]?.start ?? scrollMargin) - scrollMargin;
+  const after = rows.getTotalSize() - ((shown.at(-1)?.end ?? scrollMargin) - scrollMargin);
   return (
     <ScrollRegion label={t`Runs, scrollable`}>
-      <table aria-label={t`Runs`} className="w-full border-collapse text-start">
+      <table
+        aria-label={t`Runs`}
+        aria-rowcount={runs.length + 1}
+        className="w-full border-collapse text-start"
+      >
         <thead>
           <tr className="border-b">
             <th scope="col" className="py-2 pe-4">
@@ -596,10 +675,15 @@ function RunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): ReactNod
             </th>
           </tr>
         </thead>
-        <tbody>
-          {runs.map((run) => (
-            <RunRow key={run.run_id} row={run} />
-          ))}
+        <tbody ref={body}>
+          {before > 0 ? <Spacer height={before} /> : null}
+          {shown.map((item) => {
+            const run = runs[item.index];
+            return run === undefined ? null : (
+              <RunRow key={item.key} row={run} index={item.index} measure={rows.measureElement} />
+            );
+          })}
+          {after > 0 ? <Spacer height={after} /> : null}
         </tbody>
       </table>
     </ScrollRegion>

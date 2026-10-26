@@ -60,6 +60,7 @@ mod navigation_egress;
 mod needs_you;
 mod offline_key;
 mod ops;
+mod other_product;
 mod page;
 #[cfg(unix)]
 mod page_ends;

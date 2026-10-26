@@ -7,7 +7,8 @@
 //! or Response recording that answered in place of the network, the
 //! Clean-up rules the Run holds to (ADR 0047), a Wall read past (ADR 0052),
 //! a payment (ADR 0045), the invalid-certificate exception its document's
-//! host was reached through (ADR 0042, pitfall H03), and each Value transform with its text, locale and
+//! host was reached through (ADR 0042, pitfall H03), a robots.txt its fetch
+//! ignored (ADR 0086), and each Value transform with its text, locale and
 //! zone (ADR 0123). The Run trace keeps the rest of each page's Provenance,
 //! which the request's ID reaches.
 
@@ -57,6 +58,13 @@ pub struct RecordProvenance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub certificate_exception: Option<CertificateExceptionMark>,
+    /// `ignored` when its page was fetched while
+    /// `site_preferences.respect_robots_txt` was off, from a URL its
+    /// origin's robots.txt disallows, so a result taken against a site's
+    /// stated preferences can be found and removed; none otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub robots_txt: Option<RobotsTxtMark>,
     /// Each field whose value an engine Value transform gave, in the
     /// order read; empty where the program parsed its own values.
     #[serde(default)]
@@ -184,6 +192,16 @@ pub enum WallKind {
     ConsentWall,
     /// An ad-blocker wall.
     AdBlockerWall,
+}
+
+/// What a Record's Provenance says of the robots.txt of its page's origin
+/// (ADR 0086).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RobotsTxtMark {
+    /// It disallowed the page's URL, and the fetch ignored it, since
+    /// `site_preferences.respect_robots_txt` was off.
+    Ignored,
 }
 
 /// The payment of a Paid fetch, as a Record's Provenance marks it (ADR

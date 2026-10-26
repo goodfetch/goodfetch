@@ -77,6 +77,7 @@ pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
             wall: None,
             payment: None,
             certificate_exception: None,
+            robots_txt: None,
             value_transforms: Vec::new(),
         };
         commit(

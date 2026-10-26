@@ -18,7 +18,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
-use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation, Setting};
+use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation, Setting, SharedTypeValue};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::daemon::{DaemonHealth, DaemonStatus, DaemonStopping};
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
@@ -540,7 +540,7 @@ pub struct Contribution {
     progress_parts: Vec<Arc<dyn ProgressPart>>,
     clean_up_versions: Option<Arc<dyn CleanUpVersions>>,
     needs_you_sources: Vec<NeedsYouSource>,
-    controls: Vec<&'static Setting>,
+    controls: Vec<(&'static Setting, Option<&'static SharedTypeValue>)>,
 }
 
 impl Contribution {
@@ -567,7 +567,22 @@ impl Contribution {
     /// it in its report's `weakened`, as the `security.*` keys are.
     #[must_use]
     pub fn with_control(mut self, setting: &'static Setting) -> Self {
-        self.controls.push(setting);
+        self.controls.push((setting, None));
+        self
+    }
+
+    /// The same, recording a Run's value of `setting` that weakens as the
+    /// Audit log kind `kind`, once per Run, with the value, its built-in
+    /// default and the layer that set it, warned of once through the host's
+    /// logging and listed in its report's `weakened`: Foxhound's Politeness
+    /// and Site-preferences values that press a site harder (ADR 0086).
+    #[must_use]
+    pub fn with_recorded_weakening(
+        mut self,
+        setting: &'static Setting,
+        kind: &'static SharedTypeValue,
+    ) -> Self {
+        self.controls.push((setting, Some(kind)));
         self
     }
 
@@ -857,7 +872,13 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.controls.iter().copied())
-            .fold(Controls::default(), Controls::with)
+            .fold(
+                Controls::default(),
+                |controls, (setting, kind)| match kind {
+                    Some(kind) => controls.with_recorded(setting, kind),
+                    None => controls.with(setting),
+                },
+            )
     }
 
     /// Every contribution's sources of "Needs you", in order.

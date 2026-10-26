@@ -65,15 +65,19 @@ use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::Refusal;
+use goodfetch_engine::local_addresses::{
+    BlockSizes, LocalAddresses, Rotation, SessionAddresses, System, Unavailable,
+};
 use goodfetch_engine::mask::Scope;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
-    Choosing, ContentTypes, FetchTiers, HttpTier, PooledSession, RobotsTxtFetch, SetTier,
-    TierChoice,
+    Choosing, ContentTypes, FetchTiers, HttpTier, LocalSource, PooledSession, RobotsTxtFetch,
+    SetTier, TierChoice,
 };
 use goodfetch_frontier::Bounds;
+use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED,
     HANDLER_LOST, LEASE_LOST, WORK_ITEM_RETRIED,
@@ -83,14 +87,16 @@ use goodfetch_protocol::foxhound::fetch::{
     SampleRefresh,
 };
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
+use goodfetch_protocol::foxhound::report::LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::SITE_PREFERENCES_REFUSED;
+use goodfetch_protocol::page::proxy::{PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::run::{
-    EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, StopReason,
+    EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, RunWarning, StopReason,
 };
 use goodfetch_protocol::usage::REQUESTS;
-use goodfetch_session_pool::{PoolSettings, SessionPool};
+use goodfetch_session_pool::{LocalAddressing, PoolSettings, Rotated, SessionPool};
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
 use tokio::task::JoinSet;
@@ -174,8 +180,14 @@ pub(crate) async fn drive(
     let run_tier = FetchTiers::run_tier(settings.resolved());
     let races = settings.resolved().boolean(FETCH_TIER_RACE.name) == Some(true);
     // One HTTP tier for the Run, so its hops share connections (#763); the
-    // navigation gate fetches robots.txt on it too.
-    let http = match FetchTiers::built(&run, settings.resolved()).await {
+    // navigation gate fetches robots.txt on it too, from the first
+    // Session's local addresses under `egress.local_addresses` (ADR 0044).
+    let interface = local_interface(settings.resolved());
+    let built = match run_source(settings.resolved(), interface.as_ref()) {
+        Ok(local) => FetchTiers::built(&run, settings.resolved(), local).await,
+        Err(error) => Err(error),
+    };
+    let http = match built {
         Ok(http) => Some(http),
         // A request may take the `http` tier: the Run cannot go on.
         Err(error) if labels.settings.any() || run_tier != SetTier::Unset || races => {
@@ -192,6 +204,7 @@ pub(crate) async fn drive(
     let fetching = Fetching {
         tiers: &tiers,
         http: http.as_ref(),
+        interface,
         robots: http.as_ref().map(HttpTier::robots_txt_fetch),
         egress: std::sync::Arc::clone(&arrivals.egress),
         labels: &labels,
@@ -206,6 +219,7 @@ pub(crate) async fn drive(
             .unwrap_or_default(),
         choices: tokio::sync::Mutex::new(choices.sampled_as(sampling(settings.resolved()))),
         races,
+        light: FetchTiers::light_allowed(settings.resolved()),
         latencies: tokio::sync::Mutex::new(Latencies::default()),
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
     };
@@ -481,6 +495,9 @@ pub(crate) async fn resume(
 struct Fetching<'a> {
     tiers: &'a FetchTiers,
     http: Option<&'a HttpTier>,
+    /// The interface `egress.local_addresses` names, whose device each
+    /// Session's sockets bind (ADR 0044).
+    interface: Option<String>,
     /// The Labels the crawl declares: their settings and their pools.
     labels: &'a labels::Declared,
     /// The tier the Run's own `fetch.tier` forces.
@@ -493,6 +510,9 @@ struct Fetching<'a> {
     choices: tokio::sync::Mutex<TierChoices>,
     /// Whether the Run races its requests' tiers (`fetch.tier_race`).
     races: bool,
+    /// Whether the Run allows the `light_browser` tier, which its samples
+    /// then also run on (`fetch.light_browser`, ADR 0020).
+    light: bool,
     /// The browser-fetch latencies of each Label on each domain, which
     /// time a race's navigation.
     latencies: tokio::sync::Mutex<Latencies>,
@@ -535,7 +555,7 @@ impl Fetching<'_> {
     async fn served(
         &self,
         leased: &Leased,
-        to_browser: bool,
+        (to_browser, local): (bool, Local),
         (second_copies, now): (&SecondCopies, u64),
     ) -> Tiering {
         let request = &leased.crawl_request;
@@ -592,13 +612,34 @@ impl Fetching<'_> {
                 now,
             ),
         };
+        let http = self.session_tier(local);
         Tiering::of(
             self.tiers,
-            self.http,
-            plan,
+            http.as_ref(),
+            (plan, self.light),
             self.labels.settings.page_check(&request.label).cloned(),
             second_copies,
         )
+    }
+
+    /// The Run's HTTP tier as a Session holding `local` sends on it (ADR
+    /// 0044): `None`, which fails the attempt's fetch, when the Session's
+    /// addresses are no longer held or its transport cannot be built,
+    /// rather than sending from an address the OS chooses.
+    fn session_tier(&self, local: Local) -> Option<HttpTier> {
+        let http = self.http?;
+        let addresses = match local {
+            None => return Some(http.clone()),
+            Some(Ok(addresses)) => addresses,
+            Some(Err(unavailable)) => {
+                tracing::warn!(entry = %unavailable.entry, "a Session's local addresses are no longer held; its HTTP fetches fail");
+                return None;
+            }
+        };
+        let source = LocalSource::new(addresses, self.interface.clone());
+        http.from_session(Some(&source))
+            .inspect_err(|error| tracing::warn!(%error, "a Session's HTTP transport could not be built; its HTTP fetches fail"))
+            .ok()
     }
 
     /// Closes the browser contexts of the retired Sessions of `pool` no
@@ -693,7 +734,7 @@ async fn lease_to_servers(
             return Ok(());
         }
         let labels = &pooled.fetching.labels.pools;
-        let served: Vec<(Leased, ServingSession, PooledSession, bool)> =
+        let served: Vec<(Leased, ServingSession, PooledSession, (bool, Local))> =
             admit(run, admission, permits.len())
                 .await?
                 .into_iter()
@@ -710,9 +751,13 @@ async fn lease_to_servers(
                         source: labels.source(&key),
                     };
                     let to_browser = pooled.pool.browser(&leased.waiting.key);
-                    (leased, session, in_browser, to_browser)
+                    let local = pooled.pool.local_addresses(&session.id);
+                    (leased, session, in_browser, (to_browser, local))
                 })
                 .collect();
+        for rotated in pooled.pool.rotated_within_block() {
+            warn_rotated(run, rotated).await;
+        }
         pooled
             .fetching
             .retire(run, pooled.pool, &server.context)
@@ -723,7 +768,7 @@ async fn lease_to_servers(
                 .write(move |connection| changes.write(connection))
                 .await?;
         }
-        for (leased, session, in_browser, to_browser) in served {
+        for (leased, session, in_browser, (to_browser, local)) in served {
             let lease = run_leases.grant(
                 &leased.crawl_request.id,
                 leased.lease_epoch,
@@ -734,7 +779,7 @@ async fn lease_to_servers(
                 .fetching
                 .served(
                     &leased,
-                    to_browser,
+                    (to_browser, local),
                     (&admission.second_copies(), wall_ms(run)),
                 )
                 .await;
@@ -1000,7 +1045,73 @@ async fn open(run: &Run, settings: &RunSettings) -> Result<(Admission, SessionPo
         .read(move |connection| SessionPool::open(connection, entropy))
         .await
         .map_err(|error| error.to_string())?;
+    let pool = match Rotation::of(&resolved) {
+        Some(rotation) => pool.with_local_addresses(LocalAddressing::new(
+            rotation,
+            BlockSizes::of(&resolved),
+            std::sync::Arc::new(System),
+            proxied(&resolved),
+        )),
+        None => pool,
+    };
     Ok((admission, pool))
+}
+
+/// The local addresses a Session drawn from the pool holds: `None`
+/// without `egress.local_addresses` (ADR 0044).
+type Local = Option<Result<SessionAddresses, Unavailable>>;
+
+/// The interface `egress.local_addresses` names, if it names one.
+fn local_interface(resolved: &Resolved) -> Option<String> {
+    match LocalAddresses::parse(resolved.value(EGRESS_LOCAL_ADDRESSES.name)) {
+        Ok(LocalAddresses::Interface(name)) => Some(name),
+        _ => None,
+    }
+}
+
+/// What the Run's own fetches, robots.txt's and sitemaps', send from under
+/// `egress.local_addresses`: the addresses of the rotation's first
+/// position, which the Run's first Session takes (ADR 0044).
+///
+/// # Errors
+///
+/// A message when the host no longer holds them.
+fn run_source(
+    resolved: &Resolved,
+    interface: Option<&String>,
+) -> Result<Option<LocalSource>, String> {
+    let Some(rotation) = Rotation::of(resolved) else {
+        return Ok(None);
+    };
+    let addresses = rotation
+        .session(&System, 0)
+        .map_err(|unavailable| goodfetch_engine::CallError::from(unavailable).to_string())?;
+    Ok(Some(LocalSource::new(addresses, interface.cloned())))
+}
+
+/// Whether the Run's Sessions send through a proxy, whose exit rotates in
+/// place of their local address (ADRs 0021 and 0044).
+fn proxied(resolved: &Resolved) -> bool {
+    [PROXY_SERVER.name, PROXY_PROVIDER.name]
+        .iter()
+        .any(|key| !resolved.value(key).is_null())
+}
+
+/// Hands the Run's report the warning that `rotated` took an address within
+/// a block blocked on its domain (ADR 0044).
+async fn warn_rotated(run: &Run, rotated: Rotated) {
+    let warning = RunWarning {
+        code: LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK.to_owned(),
+        message: format!(
+            "Every block of `egress.local_addresses` was blocked on {} during the run, so the Session that replaced a blocked one took an address within a blocked block.",
+            rotated.domain_key
+        ),
+        sessions: vec![rotated.session.0],
+        folder: None,
+    };
+    if let Err(error) = run.warn(warning).await {
+        tracing::warn!(%error, run_id = %run.id(), "the warning of a Session rotating within a block was not kept");
+    }
 }
 
 /// How many work items not keyed yet [`key_new`] reads at a time, so a

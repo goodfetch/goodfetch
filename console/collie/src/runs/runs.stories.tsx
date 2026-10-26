@@ -29,6 +29,7 @@ const everyState: RunIndexRow[] = [
     tags: ["team:shop"],
     started_at: "2026-10-05T08:00:00Z",
     progress_message: "Read 12 of 40 pages",
+    owner: { daemon: { unix: "/home/ada/.local/share/goodfetch/0.1/daemon.sock" } },
   }),
   row("nightly.20261004t080000z.target.abcd2345", {
     tags: [

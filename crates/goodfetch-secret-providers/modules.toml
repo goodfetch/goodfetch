@@ -4,3 +4,4 @@
 bitwarden = ["cli"]
 cli = []
 one_password = ["cli"]
+vault = []

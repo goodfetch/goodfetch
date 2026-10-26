@@ -33,6 +33,7 @@ mod expected_page;
 mod gate;
 mod hedging;
 mod http_profile;
+mod light_browser;
 mod redirects;
 mod redundant;
 mod refresh;
@@ -57,6 +58,10 @@ pub use driver::{
 pub use gate::{HandOver, RobotsTxtFetch, crawl_delay, disallowing};
 pub use goodfetch_page::page_value::PooledSession;
 pub use http_profile::HttpProfile;
+pub use light_browser::{
+    LIGHTPANDA, Prepared as LightBrowserBuild, pins as light_browser_pins,
+    prepare as prepare_light_browser,
+};
 pub use redundant::Requester;
 pub use refresh::fuzz_refresh;
 pub use sniffing::sniff;
@@ -64,5 +69,7 @@ pub use tiers::{
     Chosen, FetchTiers, HandedOver, HttpTier, Judged, LinksUnread, PAGE_CHECK_CALL, Race, RaceEnd,
     ServedLinks, Signed, record_race, record_tier, tier_provenance,
 };
-pub use transports::{AddressCheck, Reqwest, TransportConfig, TransportUnavailable, Wreq};
+pub use transports::{
+    AddressCheck, LocalSource, Reqwest, TransportConfig, TransportUnavailable, Wreq,
+};
 pub use use_signals::{Purpose, UseSignals};

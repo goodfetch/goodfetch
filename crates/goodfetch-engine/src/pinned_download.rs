@@ -274,6 +274,12 @@ impl PinnedUrl {
     pub(crate) fn host(&self) -> &str {
         &self.host
     }
+
+    /// The last segment of its path: the name a single executable it
+    /// serves is placed under.
+    pub(crate) fn file_name(&self) -> &str {
+        self.uri.path().rsplit('/').next().unwrap_or_default()
+    }
 }
 
 /// Why a pinned download failed.

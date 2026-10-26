@@ -38,6 +38,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::staging::{AttemptWrites, StagedKey, StagedWrite, Unstaged};
 use goodfetch_protocol::catalog::ErrorCodeDefinition;
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, EFFECT_STAGING_REFUSED};
+use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 
@@ -181,12 +182,25 @@ impl Staging {
     }
 
     /// Notes how the attempt of `work_item` under `lease_epoch` fetched its
-    /// run's document, in place of what an earlier run of it noted; nothing
-    /// once the attempt ended.
+    /// run's document, in place of what an earlier run of it noted, its
+    /// robots.txt mark kept unless `fetched` names one; nothing once the
+    /// attempt ended.
     pub(crate) fn fetched(&self, work_item: &str, lease_epoch: u64, fetched: Fetched) {
         if let Some(entry) = self.entries().get_mut(&(work_item.to_owned(), lease_epoch)) {
-            entry.fetched = fetched;
+            let robots_txt = fetched.robots_txt.or(entry.fetched.robots_txt);
+            entry.fetched = Fetched {
+                robots_txt,
+                ..fetched
+            };
         }
+    }
+
+    /// The robots.txt mark the attempt of `work_item` under `lease_epoch`
+    /// noted, if any.
+    pub(crate) fn robots_txt(&self, work_item: &str, lease_epoch: u64) -> Option<RobotsTxtMark> {
+        self.entries()
+            .get(&(work_item.to_owned(), lease_epoch))
+            .and_then(|entry| entry.fetched.robots_txt)
     }
 
     /// Notes that a declared Effect's body begins in the attempt, which

@@ -76,6 +76,7 @@ pub mod run_state;
 pub mod run_trace;
 pub mod runs;
 pub mod sandbox_probe;
+pub mod secret_endpoint;
 pub mod secrets;
 pub mod settings;
 mod sqlite_wal;
@@ -94,4 +95,4 @@ pub use composition::{
 };
 pub use engine::{Dependencies, Engine};
 pub use info::contribution;
-pub use product::{Channel, Identity};
+pub use product::{CHANNEL_VARIABLE, Channel, Identity, Requested};

@@ -48,6 +48,7 @@ import {
   type ConsoleOperations,
   type EventClass,
 } from "#generated/operations.ts";
+import type { FoxhoundOperation } from "#generated/foxhound.ts";
 
 export type { ConsoleOperations, EventClass, LastRead };
 
@@ -158,6 +159,16 @@ export interface ConsoleClient {
     params: ConsoleOperations[Name]["params"],
     options?: CallOptions,
   ): Promise<ConsoleOperations[Name]["result"]>;
+  /**
+   * Calls `operation`, which only Foxhound carries, as a read, with its
+   * wire params, and answers its wire result: Collie's engine refuses it
+   * with `not_in_product`, whose fix names Foxhound (ADR 0098).
+   */
+  callFoxhound(
+    operation: FoxhoundOperation,
+    params: Readonly<Record<string, unknown>>,
+    options?: CallOptions,
+  ): Promise<unknown>;
   /** Subscribes to `stream`, after `after` when given, else from now. */
   subscribe(stream: StreamName, options?: { readonly after?: LastRead | undefined }): Subscription;
   /** The bytes of the body `handle` names. */
@@ -432,20 +443,41 @@ class Client implements ConsoleClient {
     params: ConsoleOperations[Name]["params"],
     options: CallOptions = {},
   ): Promise<ConsoleOperations[Name]["result"]> {
-    const { signal } = options;
     // A read or an idempotent write waits for a Connection and is sent
     // again on the next one when its own drops; an Effect never is (ADR
     // 0079).
-    const sentAgain = operationClasses[operation] !== "effect";
+    const result = await this.#send(
+      operation,
+      params,
+      operationClasses[operation] !== "effect",
+      options.signal,
+    );
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
+    return result as ConsoleOperations[Name]["result"];
+  }
+
+  async callFoxhound(
+    operation: FoxhoundOperation,
+    params: Readonly<Record<string, unknown>>,
+    options: CallOptions = {},
+  ): Promise<unknown> {
+    return this.#send(operation, params, true, options.signal);
+  }
+
+  /** Sends `operation`, again on the next Connection when `sentAgain` and its own drops. */
+  async #send(
+    operation: string,
+    params: unknown,
+    sentAgain: boolean,
+    signal: AbortSignal | undefined,
+  ): Promise<unknown> {
     for (;;) {
       signal?.throwIfAborted();
       const opened = sentAgain
         ? await this.#connected(operation, signal)
         : this.#current(operation);
       try {
-        const result = await opened.channel.call(operation, params, { signal });
-        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
-        return result as ConsoleOperations[Name]["result"];
+        return await opened.channel.call(operation, params, { signal });
       } catch (error) {
         const dropped = error instanceof ConnectionLostError && this.#opened !== opened;
         if (!sentAgain || !dropped || this.#closed) {

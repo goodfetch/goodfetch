@@ -10,7 +10,10 @@
 //! the run its params name, or to an engine of the Client's Product when it
 //! names none, each over a Connection of the Client's own to that engine's
 //! private endpoint; whatever an engine sends back reaches the Client as it
-//! is.
+//! is. A Collie Client's call of an operation only Foxhound carries is
+//! refused by the gateway with `not_in_product`, as a Collie engine refuses
+//! it, even on a run of Foxhound's engine, and a gateway given no Foxhound
+//! executable refuses a Foxhound Client at `hello` the same way.
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
@@ -23,8 +26,11 @@ use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::transport::ConnectionWriter;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{
-    CANCEL, EngineInstance, Form, HELLO, HelloParams, HelloResult, Surface,
+    CANCEL, EngineInstance, Form, HELLO, HelloParams, HelloResult, NOT_IN_PRODUCT,
+    NotInProductDetails, Surface,
 };
+use goodfetch_protocol::foxhound_names;
+use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject};
 use goodfetch_protocol::log::LogLevel;
 use goodfetch_protocol::routing::{RunStart, Starter, Target, product_for_run};
 use serde_json::{Value, json};
@@ -89,7 +95,8 @@ impl Gateway {
             }
             let _ = sink.close().await;
         });
-        let Some(client) = opened(&mut stream, &outgoing, &self.instance).await else {
+        let Some(client) = opened(&mut stream, &outgoing, &self.instance, &self.engines).await
+        else {
             return;
         };
         let mut links: BTreeMap<u64, ConnectionWriter> = BTreeMap::new();
@@ -125,6 +132,14 @@ impl Gateway {
                     for writer in links.values_mut() {
                         let _ = write_line(writer, &text).await;
                     }
+                }
+                (Some(method), Some(id))
+                    if client.needs == Product::Collie
+                        && foxhound_names::OPERATIONS.contains(&method) =>
+                {
+                    let _ = outgoing
+                        .send(not_in_product(&id, client.needs, Some(method)))
+                        .await;
                 }
                 (_, id) => {
                     let forwarded = self
@@ -265,6 +280,7 @@ async fn opened<S>(
     stream: &mut futures_util::stream::SplitStream<WebSocketStream<S>>,
     outgoing: &mpsc::Sender<String>,
     instance: &EngineInstance,
+    engines: &Engines,
 ) -> Option<Client>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -292,6 +308,12 @@ where
             .await;
         return None;
     };
+    if !engines.runs(needs) {
+        let _ = outgoing
+            .send(not_in_product(&id, Product::Collie, None))
+            .await;
+        return None;
+    }
     let result = HelloResult {
         protocol_version: PROTOCOL_VERSION.min(hello.protocol_version),
         product: needs,
@@ -311,6 +333,46 @@ where
         form: hello.form,
         log_level: hello.log_level,
     })
+}
+
+/// `not_in_product` the gateway answers on a Connection it serves as
+/// `product`'s: to a Foxhound Client's `hello` when it cannot run
+/// Foxhound's engine (`requested` none), and to a Collie Client's call of an
+/// operation only Foxhound carries, as a Collie engine refuses it, whatever
+/// the engine of the run it names (ADR 0096).
+fn not_in_product(id: &Value, product: Product, requested: Option<&str>) -> String {
+    let (message, fix) = match requested {
+        None => (
+            "This gateway runs no Foxhound engine, and this Client needs Foxhound.".to_owned(),
+            "Connect needing Collie, or to a gateway that runs Foxhound's engine.".to_owned(),
+        ),
+        Some(name) => (
+            format!("`{name}` is part of Foxhound, and this Client needs Collie."),
+            format!("Only a Client that needs Foxhound calls `{name}`; connect needing Foxhound."),
+        ),
+    };
+    let details = NotInProductDetails {
+        product,
+        product_version: version(),
+        needs: Product::Foxhound,
+        requested: requested.map(ToOwned::to_owned),
+        fix,
+        handover: false,
+    };
+    let details = match serde_json::to_value(details) {
+        Ok(Value::Object(details)) => details,
+        _ => serde_json::Map::new(),
+    };
+    let error = ErrorObject {
+        code: NOT_IN_PRODUCT.group.json_rpc_class(),
+        message,
+        data: ErrorData {
+            code: NOT_IN_PRODUCT.name.to_owned(),
+            retryable: NOT_IN_PRODUCT.retryable,
+            details,
+        },
+    };
+    json!({"jsonrpc": "2.0", "id": id, "error": error}).to_string()
 }
 
 /// The Run ID a call's params name, as `run_id` or `run`.

@@ -33,10 +33,11 @@ const ATTACHED_ENGINE: &str = "attached-engine";
 /// The variable that names an engine's Goodfetch home.
 const HOME_VARIABLE: &str = "GOODFETCH_HOME";
 
-/// Both Products' executables, of the same commit.
+/// The Products' executables, of the same commit: Collie's always, and
+/// Foxhound's on a gateway that can run Foxhound's engine.
 pub(crate) struct Executables {
     pub(crate) collie: PathBuf,
-    pub(crate) foxhound: PathBuf,
+    pub(crate) foxhound: Option<PathBuf>,
 }
 
 /// The `hello` the gateway sends an engine of `product`: as the gateway,
@@ -98,6 +99,11 @@ impl Engines {
         })
     }
 
+    /// Whether the gateway can run an engine of `product`.
+    pub(crate) fn runs(&self, product: Product) -> bool {
+        product == Product::Collie || self.executables.foxhound.is_some()
+    }
+
     /// A new Attached engine of `product`, once it answered the gateway's
     /// `hello`.
     ///
@@ -112,10 +118,13 @@ impl Engines {
         };
         let home = self.state.join(format!("engine-{number}"));
         tokio::fs::create_dir_all(&home).await?;
-        let executable = match product {
-            Product::Collie => &self.executables.collie,
-            Product::Foxhound => &self.executables.foxhound,
-        };
+        let executable =
+            match product {
+                Product::Collie => &self.executables.collie,
+                Product::Foxhound => self.executables.foxhound.as_ref().ok_or_else(|| {
+                    io::Error::other("the gateway was given no Foxhound executable")
+                })?,
+            };
         let mut command = Command::new(executable);
         command
             .arg(ATTACHED_ENGINE)

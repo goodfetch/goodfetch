@@ -3,7 +3,8 @@
 // run's page shows each in a tab beside the views every run has: the
 // crawl's seeds, as `run.seeds` answers them, the outcome of each crawl
 // request, as `run.outcomes` gives its first page, and the requests whose
-// latest outcome failed, as `run.failed_requests` lists them. Each view
+// latest outcome failed, as `run.failed_requests` lists them, and the SQL
+// tab over the runs a person selects (`#sql-tab/sql-tab.tsx`). Each view
 // reads its operation once it shows, and shows the engine's refusal as the
 // Console shows any. A Collie run shows none of them: its page has only
 // the views every run has.
@@ -16,6 +17,7 @@ import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { useEffect, useState, type ReactNode } from "react";
 import { callFoxhound } from "#call.ts";
 import type { FoxhoundConsoleOperations } from "#generated/operations.ts";
+import { SQL_TAB_VIEW } from "#sql-tab/sql-tab.tsx";
 
 /** What a view read of its operation. */
 type Read<Result> =
@@ -199,4 +201,5 @@ export const FOXHOUND_RUN_VIEWS: readonly RunView[] = [
     name: msg`Failed requests`,
     content: (props) => <FailedRequests {...props} />,
   },
+  SQL_TAB_VIEW,
 ];

@@ -1,5 +1,6 @@
-// Storybook for Collie's Console (ADR 0068; TESTING.md, Components): each
-// state of a component is a story, which the root Vitest configuration's
+// Storybook for the Console (ADR 0068; TESTING.md, Components), Collie's
+// screens and Foxhound's (`console/foxhound`): each state of a component is
+// a story, which the root Vitest configuration's
 // `component-stories` projects render as a test, with the a11y addon's axe
 // pass, in light and dark. Docgen is `react-docgen`, which needs no
 // TypeScript compiler API.
@@ -28,7 +29,7 @@ function hasTailwind(plugins: PluginOption | readonly PluginOption[]): boolean {
 
 const config: StorybookConfig = {
   framework: "@storybook/react-vite",
-  stories: ["../src/**/*.stories.tsx"],
+  stories: ["../src/**/*.stories.tsx", "../../foxhound/src/**/*.stories.tsx"],
   addons: ["@storybook/addon-a11y", "@storybook/addon-vitest"],
   typescript: { reactDocgen: "react-docgen" },
   core: { disableTelemetry: true },

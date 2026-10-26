@@ -26,6 +26,7 @@
     "@lingui/cli": "6.10.0",
     "@lingui/format-json": "6.10.0",
     "@lingui/vite-plugin": "6.10.0",
+    "@storybook/react-vite": "10.6.3",
     "@tailwindcss/vite": "4.3.3",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

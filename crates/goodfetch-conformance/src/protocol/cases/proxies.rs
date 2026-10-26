@@ -16,7 +16,7 @@ use goodfetch_protocol::page::proxy::{PROXY_AUTH_FAILED, PROXY_UNAVAILABLE};
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::{PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
 use goodfetch_protocol::run::RUN_START;
-use goodfetch_protocol::settings::{SETTING_INVALID, SETTING_LOCKED};
+use goodfetch_protocol::settings::{SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE};
 use serde_json::{Value, json};
 
 use super::{Checks, Site, finish_run, new_page, refused_as, start_run};
@@ -231,7 +231,10 @@ fn own_proxies(connection: &mut Connection, site: &Site, checks: &mut Checks) ->
 }
 
 /// A proxy given to a page, to a page's settings or to a request is
-/// refused: a Session's proxy is the only one (SA-22).
+/// refused: a Session's proxy is the only one (SA-22). A page's own
+/// `proxy.server` is a setting no page can use, so it is
+/// `setting_not_applicable` naming the key (ADR 0083); a `proxy` argument
+/// is no parameter of the call, so it is `invalid_params`.
 fn none_per_page(
     connection: &mut Connection,
     site: &Site,
@@ -246,10 +249,6 @@ fn none_per_page(
             json!({ "session_id": format!("{run_id}.session-1"), "proxy": proxy }),
         ),
         (
-            RUN_NEW_PAGE.name,
-            json!({ "run_id": run_id, "settings": { "proxy": proxy } }),
-        ),
-        (
             PAGE_GOTO.name,
             json!({ "page_id": "page-1", "url": "http://scope.test/", "proxy": proxy }),
         ),
@@ -258,6 +257,15 @@ fn none_per_page(
         let answer = connection.answer(id)?.message;
         refused_as(&answer, ProtocolFailure::InvalidParams, checks);
     }
+    let id = connection.request(
+        RUN_NEW_PAGE.name,
+        &json!({ "run_id": run_id, "settings": { "proxy": proxy } }),
+    )?;
+    let data = &connection.answer(id)?.message["error"]["data"];
+    checks.check(
+        "a page's own `proxy.server` is `setting_not_applicable` naming the key",
+        data["code"] == json!(SETTING_NOT_APPLICABLE.name) && data["key"] == json!("proxy.server"),
+    );
     finish_run(connection, run_id)
 }
 

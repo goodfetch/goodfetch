@@ -750,7 +750,7 @@ fn structured_task(port: Option<u16>) -> Task {
                 `lang` (each `null` when absent), the Open Graph and Twitter meta tags as \
                 `{ \"property\", \"content\" }` in document order, each JSON-LD block as JSON, \
                 each top-level microdata item as `{ \"type\", \"id\", \"properties\" }` by the \
-                HTML Standard's JSON conversion, and the other named meta tags by name; and \
+                HTML Standard's JSON conversion, and every named meta tag neither Open Graph's nor Twitter's, by its name in lower case; and \
                 `contacts`, `{ \"emails\", \"phones\", \"social\" }`, each value once with the \
                 text it was read from (its link's text, else the value as written): e-mail \
                 addresses from `mailto:` links and text, telephone numbers from `tel:` links \

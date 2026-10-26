@@ -634,6 +634,14 @@
       "start_url": "http://7.extraction.test/markdown"
     },
     {
+      "description": "Crawl every page the index links and return one Record per page with the fields `id` (the page's path); `markdown`, the page's main content as Markdown; `markdown_full`, the whole body as Markdown; `markdown_fit`, the main content as Markdown without its link-dense blocks (more than half their text in links), its image-only blocks and the navigation lists the page repeats; `html_raw`, the page's HTML as it stands; `html_cleaned`, its HTML with what ad and annoyance filter lists hide taken out; `html_main`, the main content's HTML; and `text`, the main content's text. Markdown is judged by its structure, HTML by the text of its blocks and text white space aside, whatever syntax writes each.",
+      "digest": "1802a0bcbb56232b569cff7db57e4581a14d6b8cd5273ecd8c5e2d87b548ded4",
+      "family": "extraction",
+      "id": "extraction/8",
+      "kind": "crawl",
+      "start_url": "http://8.extraction.test/content-modes"
+    },
+    {
       "description": "Crawl every page the index links and return one Record per page, with the fields `id` (the last segment of its path), `title` and `text`, the text each page shows, in UTF-8.",
       "digest": "120fe06cb50865a9b2b54ad06d89ac5a26de61b3ec8ce324454e38ff5e82f145",
       "family": "encodings",

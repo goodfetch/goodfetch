@@ -18314,6 +18314,23 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": true,
+      "default": null,
+      "description": "The URL of the HashiCorp Vault or OpenBao server that answers `vault:mount/path#field` Secret references, such as `https://vault.example.com:8200`: the engine reads `field` of the KV version 2 secret `path` in the secrets engine mounted at `mount`, with the token in its environment's `VAULT_TOKEN`, or `BAO_TOKEN`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address, as a development server's. Unset, the default, a `vault:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "name": "secret_providers.vault.address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "fixed",
       "clearable": false,
       "default": true,
@@ -19942,6 +19959,13 @@
       "name": "lent_page_attached",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session replacing one a block retired found every block of `egress.local_addresses` blocked on its domain, so it took an address within a blocked block; `sessions` names it.",
+      "name": "local_address_rotated_within_block",
+      "product": "foxhound",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",

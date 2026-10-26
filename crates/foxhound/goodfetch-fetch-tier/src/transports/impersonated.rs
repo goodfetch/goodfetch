@@ -81,7 +81,7 @@ impl Wreq {
         config: TransportConfig,
         profile: HttpProfile,
     ) -> Result<Self, TransportUnavailable> {
-        let resolver = Arc::new(Resolver::new(&config));
+        let resolver = Arc::new(Resolver::new(&config, None));
         let refused = |error: wreq::Error| TransportUnavailable::Client(error.to_string());
         let proxy = config
             .proxy
@@ -111,6 +111,13 @@ impl Wreq {
                     .redirect(wreq::redirect::Policy::none())
                     .retry(wreq::retry::Policy::never())
                     .connector_layer(MarkConnects);
+                let builder = match &config.local {
+                    Some(local) => bind_device(
+                        builder.local_addresses(local.ipv4, local.ipv6),
+                        local.interface.as_deref(),
+                    ),
+                    None => builder,
+                };
                 let builder = if pooled {
                     builder
                 } else {
@@ -177,6 +184,23 @@ impl Wreq {
 )]
 fn build(builder: wreq::ClientBuilder) -> wreq::Result<wreq::Client> {
     builder.build()
+}
+
+/// `builder` binding its sockets to `interface`'s device, where the OS
+/// lets a socket bind one (ADR 0044).
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "illumos"))]
+fn bind_device(builder: wreq::ClientBuilder, interface: Option<&str>) -> wreq::ClientBuilder {
+    match interface {
+        Some(interface) => builder.interface(interface.to_owned()),
+        None => builder,
+    }
+}
+
+/// `builder` as it is: Windows binds the interface's address alone, which
+/// its strong host model sends from that interface (ADR 0044).
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "illumos")))]
+fn bind_device(builder: wreq::ClientBuilder, _interface: Option<&str>) -> wreq::ClientBuilder {
+    builder
 }
 
 impl Transport for Wreq {

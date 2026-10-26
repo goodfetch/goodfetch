@@ -37,13 +37,17 @@ impl Destination {
 
 /// Each module that calls the HTTP client, with the kind of destination it
 /// connects to. A module that starts calling it joins here, with its kind.
-const CALLERS: [(&str, Destination); 3] = [
+const CALLERS: [(&str, Destination); 4] = [
     ("pinned_download", Destination::PinnedDownload),
     (
         "rule_sources",
         Destination::Configured(ConfiguredKind::CleanUpRulesSource),
     ),
     ("otlp", Destination::Configured(ConfiguredKind::Otlp)),
+    (
+        "secret_endpoint",
+        Destination::Configured(ConfiguredKind::SecretProvider),
+    ),
 ];
 
 /// The modules `modules` lets import the HTTP client whose kind of

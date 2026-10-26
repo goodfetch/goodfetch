@@ -7092,6 +7092,17 @@
       ]
     },
     {
+      "id": "setting:secret_providers.vault.address",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:secrets.by_reference",
       "kind": "setting",
       "area": 4,

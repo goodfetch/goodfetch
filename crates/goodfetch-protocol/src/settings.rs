@@ -323,13 +323,13 @@ pub struct ExplainedSetting {
     /// Whether user configuration may set it: its authority lets user
     /// configuration hold it and no lower layer locked it, so the Console
     /// offers its user-level value for editing (ADR 0031).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub user_settable: bool,
     /// Whether it is fixed for a Run's life: a resume that changes it is
     /// refused with `setting_not_applicable`, and only a new Run takes
     /// another value (ADRs 0102 and 0120).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub fixed_for_run: bool,
 }

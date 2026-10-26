@@ -3448,7 +3448,7 @@ class ExplainedSetting(BaseModel):
     """
     cap: Any | None = None
     """An Operator policy's cap on it, if any."""
-    fixed_for_run: bool | None = False
+    fixed_for_run: bool | None = None
     """
     Whether it is fixed for a Run's life: a resume that changes it is
     refused with `setting_not_applicable`, and only a new Run takes
@@ -3468,7 +3468,7 @@ class ExplainedSetting(BaseModel):
     """For the run layer, where the value came from."""
     products: list[Product]
     """The Products that honour it, from its Product mark (ADR 0095)."""
-    user_settable: bool | None = False
+    user_settable: bool | None = None
     """
     Whether user configuration may set it: its authority lets user
     configuration hold it and no lower layer locked it, so the Console

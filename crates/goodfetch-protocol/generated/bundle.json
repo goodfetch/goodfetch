@@ -4240,7 +4240,6 @@
         },
         "fixed_for_run": {
           "arrived_in": "0.1",
-          "default": false,
           "description": "Whether it is fixed for a Run's life: a resume that changes it is\nrefused with `setting_not_applicable`, and only a new Run takes\nanother value (ADRs 0102 and 0120).",
           "type": "boolean"
         },
@@ -4288,7 +4287,6 @@
         },
         "user_settable": {
           "arrived_in": "0.1",
-          "default": false,
           "description": "Whether user configuration may set it: its authority lets user\nconfiguration hold it and no lower layer locked it, so the Console\noffers its user-level value for editing (ADR 0031).",
           "type": "boolean"
         },

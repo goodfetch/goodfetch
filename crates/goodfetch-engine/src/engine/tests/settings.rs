@@ -242,6 +242,7 @@ fn config_explain_shows_each_value_with_the_layer_that_set_it_and_the_layer_that
                 "value": 5000,
                 "layer": "user_configuration",
                 "weakens": false,
+                "user_settable": true,
             },
             {
                 "key": "timeout.navigation",

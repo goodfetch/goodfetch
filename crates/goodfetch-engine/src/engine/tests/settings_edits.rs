@@ -39,6 +39,11 @@ fn write(env: &TestEnv, name: &str, text: &str) {
     std::fs::write(file(env, name), text).unwrap();
 }
 
+/// A flag `config.explain` leaves out when it is off.
+fn flag(value: &Value) -> bool {
+    value.as_bool().unwrap_or(false)
+}
+
 /// Says hello as `surface` on an engine of `product`.
 async fn opened(client: &mut Client, surface: &str, product: &str) {
     client
@@ -221,7 +226,7 @@ fn a_user_level_value_written_takes_effect_and_a_locked_one_is_refused() {
                 setting["key"],
                 setting["value"],
                 setting["layer"],
-                setting["user_settable"]
+                flag(&setting["user_settable"])
             ])
         })
         .collect();
@@ -276,8 +281,8 @@ fn config_explain_marks_the_keys_user_configuration_may_hold_and_those_fixed_for
         .map(|setting| {
             json!([
                 setting["key"],
-                setting["user_settable"],
-                setting["fixed_for_run"]
+                flag(&setting["user_settable"]),
+                flag(&setting["fixed_for_run"])
             ])
         })
         .collect();

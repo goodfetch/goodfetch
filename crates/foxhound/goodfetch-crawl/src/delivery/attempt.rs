@@ -74,8 +74,9 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
-    AddressCheck, Chosen, ContentTypes, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL,
-    PooledSession, Requester, RobotsTxtFetch, Stop, TierChoice,
+    AddressCheck, Capture, Chosen, ContentTypes, FetchTiers, HandOver, HttpTier, Judged,
+    PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, Stop, TierChoice,
+    infer_plan,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -197,6 +198,7 @@ impl Tiering {
         match &self.plan {
             AttemptPlan::Alone => None,
             AttemptPlan::On(choice) => Some(choice.tier),
+            AttemptPlan::Replayed(_) => Some(FetchTier::DiscoveredApi),
             AttemptPlan::Sample(_) | AttemptPlan::Race(_) => Some(FetchTier::Http),
         }
     }
@@ -212,6 +214,13 @@ const SAMPLED: TierChoice = TierChoice {
 /// one.
 const LIGHT_SAMPLED: TierChoice = TierChoice {
     tier: FetchTier::LightBrowser,
+    forced: None,
+};
+
+/// The tier a sample's run replaying its browser's calls takes, and a
+/// learned one's: `discovered_api`, chosen by no one.
+const REPLAYED: TierChoice = TierChoice {
+    tier: FetchTier::DiscoveredApi,
     forced: None,
 };
 
@@ -301,6 +310,7 @@ impl Gating {
             page_check: self.page_check.clone(),
             encoding: self.encoding,
             content_types: self.content_types.clone(),
+            capture: None,
         })
     }
 }
@@ -433,7 +443,12 @@ pub(super) async fn attempt(
             on.browser(&tiering.tiers, choice, Chosen::AsChosen).await
         }
         (AttemptPlan::On(choice), Some(http)) => {
-            let (answer, learned) = on.http(&tiering, http, choice).await;
+            let (answer, learned) = on.http(&tiering, http, choice, None).await;
+            merged = learned;
+            answer
+        }
+        (AttemptPlan::Replayed(plan), Some(http)) => {
+            let (answer, learned) = on.http(&tiering, http, &REPLAYED, Some(plan)).await;
             merged = learned;
             answer
         }
@@ -449,16 +464,19 @@ pub(super) async fn attempt(
             raced = latency.map(|latency| (race.clone(), latency));
             answer
         }
-        (AttemptPlan::On(_) | AttemptPlan::Sample(_) | AttemptPlan::Race(_), None) => {
-            Answer::Failed {
-                code: NAVIGATION_FAILED.name.to_owned(),
-                retryable: true,
-                message:
-                    "The crawl's HTTP tier could not be built, so the request was not fetched."
-                        .to_owned(),
-                details: Map::new(),
-            }
-        }
+        (
+            AttemptPlan::On(_)
+            | AttemptPlan::Replayed(_)
+            | AttemptPlan::Sample(_)
+            | AttemptPlan::Race(_),
+            None,
+        ) => Answer::Failed {
+            code: NAVIGATION_FAILED.name.to_owned(),
+            retryable: true,
+            message: "The crawl's HTTP tier could not be built, so the request was not fetched."
+                .to_owned(),
+            details: Map::new(),
+        },
     };
     Attempt {
         server,
@@ -532,14 +550,18 @@ impl On<'_> {
     /// escalated to the browser at the first call the tier cannot serve
     /// under `auto`, in the same attempt, the first answer discarded.
     /// Answers how it ended and the pending requests the page's rules
-    /// merged.
+    /// merged. On `discovered_api`, its page replays `plan`'s calls.
     async fn http(
         &self,
         tiering: &Tiering,
         http: &HttpTier,
         choice: &TierChoice,
+        plan: Option<&ReplayPlan>,
     ) -> (Answer, Vec<(String, String)>) {
-        let (run, merged) = match self.on_http(tiering, http, choice, Chosen::AsChosen).await {
+        let (run, merged) = match self
+            .on_http(tiering, http, (choice, plan), Chosen::AsChosen)
+            .await
+        {
             Ok(ran) => ran,
             Err(ended) => return ended,
         };
@@ -573,7 +595,7 @@ impl On<'_> {
         http: &HttpTier,
     ) -> (Answer, Vec<(String, String)>, Option<Weighed>) {
         let (run, merged) = match self
-            .on_http(tiering, http, &SAMPLED, Chosen::Sample(None))
+            .on_http(tiering, http, (&SAMPLED, None), Chosen::Sample(None))
             .await
         {
             Ok(ran) => ran,
@@ -590,7 +612,7 @@ impl On<'_> {
         // before the browser, whose run stages what commits.
         let light = if tiering.light {
             match self
-                .on_http(tiering, http, &LIGHT_SAMPLED, Chosen::Sample(None))
+                .on_http(tiering, http, (&LIGHT_SAMPLED, None), Chosen::Sample(None))
                 .await
             {
                 Ok((light, _))
@@ -613,8 +635,14 @@ impl On<'_> {
         } else {
             None
         };
+        let capture = Capture::default();
         let browser = self
-            .browser_run(&tiering.tiers, &BROWSER, Chosen::Sample(run.escalated))
+            .browser_run(
+                &tiering.tiers,
+                &BROWSER,
+                Chosen::Sample(run.escalated),
+                Some(&capture),
+            )
             .await;
         let browser_staged = self.lease.pushed();
         let weighed = match &browser.answer {
@@ -631,20 +659,56 @@ impl On<'_> {
                     ended_at: browser.ended_at.as_deref(),
                     encoding: browser.encoding.as_deref(),
                 };
-                Some(if matches_browser(&run, &cheaper, &browser_run) {
-                    Weighed::Matched
-                } else if light
-                    .as_ref()
-                    .is_some_and(|(light, staged)| matches_browser(light, staged, &browser_run))
-                {
-                    Weighed::MatchedLight
+                if matches_browser(&run, &cheaper, &browser_run) {
+                    Some(Weighed::Matched)
                 } else {
-                    Weighed::Differed
-                })
+                    let light = light.as_ref().is_some_and(|(light, staged)| {
+                        matches_browser(light, staged, &browser_run)
+                    });
+                    Some(
+                        match self.replayed(tiering, http, &capture, &browser_run).await {
+                            Some(plan) => Weighed::MatchedApi { plan, light },
+                            None if light => Weighed::MatchedLight,
+                            None => Weighed::Differed,
+                        },
+                    )
+                }
             }
             _ => None,
         };
         (browser.answer, merged, weighed)
+    }
+
+    /// A sample's run on `discovered_api`, after its browser's, whose
+    /// staging is set aside meanwhile and kept to commit: the calls the
+    /// browser's page made, `capture`, read as a plan and replayed for
+    /// the same request, its staging then discarded (ADRs 0020 and 0103).
+    /// Answers the plan when the run staged what the browser's run
+    /// `browser` did; `None` when the calls follow no plan or the run
+    /// differed, escalated or failed.
+    async fn replayed(
+        &self,
+        tiering: &Tiering,
+        http: &HttpTier,
+        capture: &Capture,
+        browser: &StagedRun<'_>,
+    ) -> Option<ReplayPlan> {
+        let document = goodfetch_frontier::Url::parse(&self.leased.crawl_request.url).ok()?;
+        let plan = infer_plan(&document, &capture.calls())?;
+        let browsers = self.lease.set_aside()?;
+        self.lease.renew(self.lease.length());
+        let ran = self
+            .on_http(
+                tiering,
+                http,
+                (&REPLAYED, Some(&plan)),
+                Chosen::Sample(None),
+            )
+            .await;
+        let staged = self.lease.restage();
+        self.lease.put_back(browsers);
+        let (run, _) = ran.ok()?;
+        matches_browser(&run, &staged, browser).then_some(plan)
     }
 
     /// One run on the `http` tier: its origin's robots.txt read and its
@@ -660,7 +724,7 @@ impl On<'_> {
         &self,
         tiering: &Tiering,
         http: &HttpTier,
-        choice: &TierChoice,
+        (choice, plan): (&TierChoice, Option<&ReplayPlan>),
         how: Chosen,
     ) -> Result<(HttpRun, Vec<(String, String)>), (Answer, Vec<(String, String)>)> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
@@ -683,6 +747,10 @@ impl On<'_> {
             .document(tiering, http, choice, &hand_over)
             .await
             .map_err(|answer| (answer, Vec::new()))?;
+        // A `discovered_api` page replays its Label's calls (ADR 0020).
+        if let Some(plan) = plan {
+            tiers.replay_on(&page_id, plan.clone());
+        }
         // A document only a guess could read escalates at once under
         // `auto`, before the Frontier learns from it or its handler runs
         // (ADR 0119).
@@ -855,16 +923,18 @@ impl On<'_> {
     /// answered. `how` says how the request came here: as chosen, as a
     /// sample's run, or by an escalation from a cheaper tier.
     async fn browser(&self, tiers: &FetchTiers, choice: &TierChoice, how: Chosen) -> Answer {
-        self.browser_run(tiers, choice, how).await.answer
+        self.browser_run(tiers, choice, how, None).await.answer
     }
 
     /// [`On::browser`], answering also the encoding the browser read the
-    /// request's own document in, its `document.characterSet`.
+    /// request's own document in, its `document.characterSet`; its page's
+    /// JSON calls are captured into `capture`, when given.
     async fn browser_run(
         &self,
         tiers: &FetchTiers,
         choice: &TierChoice,
         how: Chosen,
+        capture: Option<&Capture>,
     ) -> BrowserRun {
         let ended = |answer| BrowserRun {
             answer,
@@ -872,10 +942,15 @@ impl On<'_> {
             ended_at: None,
         };
         let (run, leased, lease) = (self.run, self.leased, self.lease);
-        let hand_over = self
+        let mut hand_over = self
             .gating
             .hand_over(run, leased, lease, self.in_flight)
             .await;
+        if let Some(capture) = capture
+            && let Some(owned) = Arc::get_mut(&mut hand_over)
+        {
+            owned.capture = Some(capture.clone());
+        }
         let handed_over = self.gating.tiers.hand_over(hand_over);
         let opened = tokio::select! {
             biased;

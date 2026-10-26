@@ -67,10 +67,22 @@ export type Listed =
   /** The engine refused, with this error. */
   | { readonly kind: "failed"; readonly error: unknown };
 
+/**
+ * What the event stream changed in listed rows since the list was read, by
+ * Run ID: kept apart from the list, so an event costs as much with 10,000
+ * runs listed as with ten (ADR 0071).
+ */
+export type RowChanges = ReadonlyMap<string, Partial<RunIndexRow>>;
+
+/** No row changed. */
+const UNCHANGED: RowChanges = new Map();
+
 /** What the Runs screen shows. */
 export interface RunsViewProps {
   readonly filter: RunListParams;
   readonly listed: Listed;
+  /** What the event stream changed in the listed rows; none by default. */
+  readonly changes?: RowChanges | undefined;
   /** Whether the Console has no Connection now, which disables filtering. */
   readonly readOnly?: boolean | undefined;
   readonly onFilter: (filter: RunListParams) => void;
@@ -568,7 +580,13 @@ function RunRow({
 }
 
 /** The runs the screen read, as a table. */
-function RunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): ReactNode {
+function RunTable({
+  runs,
+  changes,
+}: {
+  readonly runs: readonly RunIndexRow[];
+  readonly changes: RowChanges;
+}): ReactNode {
   if (runs.length === 0) {
     return (
       <output className="block text-muted-foreground">
@@ -576,7 +594,7 @@ function RunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): ReactNod
       </output>
     );
   }
-  return <WindowedRunTable runs={runs} />;
+  return <WindowedRunTable runs={runs} changes={changes} />;
 }
 
 /**
@@ -620,7 +638,13 @@ function useDocumentOffset(element: RefObject<HTMLElement | null>): number {
  * the table, and the table names how many rows it has for assistive
  * technology, each row its place.
  */
-function WindowedRunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): ReactNode {
+function WindowedRunTable({
+  runs,
+  changes,
+}: {
+  readonly runs: readonly RunIndexRow[];
+  readonly changes: RowChanges;
+}): ReactNode {
   const { t } = useLingui();
   const body = useRef<HTMLTableSectionElement>(null);
   const scrollMargin = useDocumentOffset(body);
@@ -679,8 +703,17 @@ function WindowedRunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): 
           {before > 0 ? <Spacer height={before} /> : null}
           {shown.map((item) => {
             const run = runs[item.index];
-            return run === undefined ? null : (
-              <RunRow key={item.key} row={run} index={item.index} measure={rows.measureElement} />
+            if (run === undefined) {
+              return null;
+            }
+            const change = changes.get(run.run_id);
+            return (
+              <RunRow
+                key={item.key}
+                row={change === undefined ? run : { ...run, ...change }}
+                index={item.index}
+                measure={rows.measureElement}
+              />
             );
           })}
           {after > 0 ? <Spacer height={after} /> : null}
@@ -691,7 +724,13 @@ function WindowedRunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): 
 }
 
 /** What the screen read, shown. */
-function ListedRuns({ listed }: { readonly listed: Listed }): ReactNode {
+function ListedRuns({
+  listed,
+  changes,
+}: {
+  readonly listed: Listed;
+  readonly changes: RowChanges;
+}): ReactNode {
   switch (listed.kind) {
     case "reading":
       return (
@@ -709,7 +748,7 @@ function ListedRuns({ listed }: { readonly listed: Listed }): ReactNode {
         </div>
       );
     case "listed":
-      return <RunTable runs={listed.runs} />;
+      return <RunTable runs={listed.runs} changes={changes} />;
     case "cached":
       return (
         <>
@@ -719,7 +758,7 @@ function ListedRuns({ listed }: { readonly listed: Listed }): ReactNode {
               applies, and every run shows, once the Console reconnects.
             </Trans>
           </output>
-          <RunTable runs={listed.runs} />
+          <RunTable runs={listed.runs} changes={UNCHANGED} />
         </>
       );
     default:
@@ -728,14 +767,20 @@ function ListedRuns({ listed }: { readonly listed: Listed }): ReactNode {
 }
 
 /** The Runs screen, as it shows `listed` under `filter`. */
-export function RunsView({ filter, listed, readOnly = false, onFilter }: RunsViewProps): ReactNode {
+export function RunsView({
+  filter,
+  listed,
+  changes = UNCHANGED,
+  readOnly = false,
+  onFilter,
+}: RunsViewProps): ReactNode {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="font-heading text-3xl font-semibold tracking-tight">
         <Trans>Runs</Trans>
       </h1>
       <FilterForm filter={filter} readOnly={readOnly} onFilter={onFilter} />
-      <ListedRuns listed={listed} />
+      <ListedRuns listed={listed} changes={changes} />
     </div>
   );
 }
@@ -744,6 +789,10 @@ export function RunsView({ filter, listed, readOnly = false, onFilter }: RunsVie
 interface RunsState {
   readonly filter: RunListParams;
   readonly listed: Listed;
+  /** The Run IDs of the rows listed. */
+  readonly ids: ReadonlySet<string>;
+  /** What the event stream changed in them since. */
+  readonly changes: RowChanges;
   /** Counts the reads asked for besides a new filter: a change the list cannot follow by itself. */
   readonly reads: number;
 }
@@ -767,21 +816,11 @@ function known<T extends string>(values: readonly T[], value: unknown): T | unde
   return values.find((candidate) => candidate === value);
 }
 
-/** The rows of `runs`, with the row of `runId` changed by `change`; none when they do not hold it. */
-function patched(
-  runs: readonly RunIndexRow[],
-  runId: string,
-  change: (row: RunIndexRow) => RunIndexRow,
-): readonly RunIndexRow[] | undefined {
-  let found = false;
-  const next = runs.map((row) => {
-    if (row.run_id !== runId) {
-      return row;
-    }
-    found = true;
-    return change(row);
-  });
-  return found ? next : undefined;
+/** The state with `change` made to the listed row of `runId`. */
+function withChange(state: RunsState, runId: string, change: Partial<RunIndexRow>): RunsState {
+  const changes = new Map(state.changes);
+  changes.set(runId, { ...changes.get(runId), ...change });
+  return { ...state, changes };
 }
 
 /** The state after an event of the stream. */
@@ -796,14 +835,12 @@ function streamed(state: RunsState, item: StreamItem): RunsState {
   if (typeof runId !== "string") {
     return state;
   }
-  const { runs } = state.listed;
+  const listed = state.ids.has(runId);
   if (item.event === "run.progress") {
     const message = member(item.data, "message");
-    const next = patched(runs, runId, (row) => ({
-      ...row,
-      progress_message: typeof message === "string" ? message : null,
-    }));
-    return next === undefined ? state : { ...state, listed: { kind: "listed", runs: next } };
+    return listed
+      ? withChange(state, runId, { progress_message: typeof message === "string" ? message : null })
+      : state;
   }
   if (item.event !== "run.axes_changed") {
     return state;
@@ -812,23 +849,18 @@ function streamed(state: RunsState, item: StreamItem): RunsState {
   if (lifecycle === undefined) {
     return state;
   }
-  const next = patched(runs, runId, (row) => ({
-    ...row,
+  if (!listed) {
+    return { ...state, reads: state.reads + 1 };
+  }
+  const next = withChange(state, runId, {
     lifecycle,
     verdict: known(VERDICTS, member(item.data, "verdict")) ?? null,
     completeness: known(COMPLETENESSES, member(item.data, "completeness")) ?? null,
-  }));
-  if (next === undefined) {
-    return { ...state, reads: state.reads + 1 };
-  }
+  });
   const { filter } = state;
   const namesAnAxis =
     filter.lifecycle != null || filter.verdict != null || filter.completeness != null;
-  return {
-    ...state,
-    listed: { kind: "listed", runs: next },
-    reads: namesAnAxis ? state.reads + 1 : state.reads,
-  };
+  return namesAnAxis ? { ...next, reads: next.reads + 1 } : next;
 }
 
 function reduce(state: RunsState, action: RunsAction): RunsState {
@@ -836,7 +868,15 @@ function reduce(state: RunsState, action: RunsAction): RunsState {
     case "filtered":
       return { ...state, filter: action.filter };
     case "read":
-      return { ...state, listed: action.listed };
+      return {
+        ...state,
+        listed: action.listed,
+        ids:
+          action.listed.kind === "listed"
+            ? new Set(action.listed.runs.map((row) => row.run_id))
+            : new Set(),
+        changes: UNCHANGED,
+      };
     case "cached":
       return state.listed.kind === "reading"
         ? { ...state, listed: { kind: "cached", runs: action.runs } }
@@ -876,6 +916,8 @@ export function Runs({
   const [state, dispatch] = useReducer(reduce, address, (initial): RunsState => ({
     filter: filterOfSearch(initial.search),
     listed: { kind: "reading" },
+    ids: new Set(),
+    changes: UNCHANGED,
     reads: 0,
   }));
   const { filter, reads } = state;
@@ -938,6 +980,7 @@ export function Runs({
     <RunsView
       filter={filter}
       listed={state.listed}
+      changes={state.changes}
       readOnly={connection !== "connected"}
       onFilter={(next) => {
         address.replace(searchOfFilter(next));

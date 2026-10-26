@@ -136,6 +136,7 @@ service = []
 # Which of `transport`'s own modules may import which.
 [submodules.transport]
 activation = []
+socket_folder = []
 wake = []
 
 # Which of `run_files`'s own modules may import which.

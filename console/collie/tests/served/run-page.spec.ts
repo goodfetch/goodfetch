@@ -124,14 +124,13 @@ test(
 
 /** Kills the test's Daemon, as a crash does, then starts it again on the port its Console had. */
 async function crashedAndRestarted(daemon: ServedDaemon): Promise<void> {
-  const status = fieldOf(await run(daemon, ["daemon", "status", "--json"]), "daemon");
-  const pid = Number(fieldOf(JSON.stringify(status), "pid"));
+  const pid = Number(fieldOf(await run(daemon, ["daemon", "status", "--json"]), "pid"));
   expect(pid).toBeGreaterThan(0);
   process.kill(pid, "SIGKILL");
   // Its process may stay a zombie until its parent reaps it; it answers
   // no Client once it died.
   await expect
-    .poll(async () => fieldOf(await run(daemon, ["daemon", "status", "--json"]), "daemon"))
+    .poll(async () => fieldOf(await run(daemon, ["daemon", "status", "--json"]), "pid"))
     .toBeNull();
   for (const major of await readdir(daemon.home)) {
     const file = join(daemon.home, major, "configuration.toml");

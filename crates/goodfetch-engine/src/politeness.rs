@@ -351,9 +351,7 @@ impl Politeness {
         let (connection, folder) = owner
             .blocking(move || -> Result<_, PolitenessError> {
                 let connection = open_file(&opened, vfs.as_deref(), &tables)?;
-                let folder = tempfile::Builder::new()
-                    .prefix("goodfetch-wake-")
-                    .tempdir()
+                let folder = transport::socket_folder("goodfetch-wake-", WAKE_SOCKET)
                     .map_err(|error| PolitenessError::WakeEndpoint(error.to_string()))?;
                 Ok((connection, folder))
             })

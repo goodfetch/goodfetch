@@ -1746,6 +1746,19 @@ class ResponseOrigin(RootModel[ResponseOrigin1 | ResponseOrigin2]):
     """What answered a Record's request in place of the network."""
 
 
+class RobotsTxtMark(StrEnum):
+    """
+    What a Record's Provenance says of the robots.txt of its page's origin
+    (ADR 0086).
+    """
+
+    ignored = "ignored"
+    """
+    It disallowed the page's URL, and the fetch ignored it, since
+    `site_preferences.respect_robots_txt` was off.
+    """
+
+
 class RouteAnswered(BaseModel):
     """What an answer to a route answers once the engine acted on it."""
 
@@ -5471,6 +5484,13 @@ class RecordProvenance(BaseModel):
     """
     request_id: str
     """The ID of the crawl request whose attempt produced it."""
+    robots_txt: RobotsTxtMark | None = None
+    """
+    `ignored` when its page was fetched while
+    `site_preferences.respect_robots_txt` was off, from a URL its
+    origin's robots.txt disallows, so a result taken against a site's
+    stated preferences can be found and removed; none otherwise.
+    """
     tier: TierProvenance | None = None
     """
     The tier that fetched that request's document, and how it was

@@ -622,6 +622,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "policy_conflict",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.",
       "exit_code": 11,
       "group": "unavailable",
@@ -1953,6 +1963,63 @@
         "$ref": "#/$defs/SettingsExplanation"
       },
       "stability": "stable"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the Operator policy of this engine's major: every entry of its `settings`, `lock` and `cap` tables, and its digest, which `config.policy_write` takes back. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "config.policy_read",
+      "params": {
+        "$ref": "#/$defs/PolicyReadParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/OperatorPolicyRead"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Writes changes to the Operator policy in one atomic write, only if its digest is still the one `config.policy_read` gave, every other byte of the file kept, and records the values before and after in the Audit log; a changed digest answers `policy_conflict` and writes nothing. A tightened cap reaches running Runs at their next admission point; every other change applies to new Runs. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "config.policy_write",
+      "params": {
+        "$ref": "#/$defs/PolicyWriteParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/PolicyWritten"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Writes user-level values to user configuration in one atomic write, every other byte of the file kept, once the resolver accepts them under the Operator policy, and records the values before and after in the Audit log; they apply to new Runs. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "config.user_write",
+      "params": {
+        "$ref": "#/$defs/UserWriteParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/UserConfigurationWritten"
+      },
+      "stability": "experimental"
     },
     {
       "arrived_in": "0.1",
@@ -8080,6 +8147,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A person wrote the Operator policy through `config.policy_write`, with its digest before and after and each key's values before and after.",
+      "name": "operator_policy_written",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Pages of a run that crashed: their renderer, or their browser's process (ADR 0040). A crash racing the page's close does not count.",
       "name": "page_crashes",
       "product": "collie",
@@ -8336,6 +8410,13 @@
       "name": "trap_path",
       "product": "foxhound",
       "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person wrote user-level values through `config.user_write`, with each key's values before and after.",
+      "name": "user_configuration_written",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

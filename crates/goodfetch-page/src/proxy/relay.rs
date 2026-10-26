@@ -23,17 +23,21 @@
 //! proxy is given it ([`ProxyUsage`]); once a Limit refuses a charge, the
 //! connection closes. A connection that closes while a charge is under way,
 //! or with bytes not yet charged, as when its Run ends mid-transfer, still
-//! has them charged in full: the provider bills every byte it carried. The listener binds port 0 of loopback and reports its
+//! has them charged in full: the provider bills every byte it carried. For
+//! a hosted provider's HTTP proxy, the relay also keeps the proxy's own
+//! answer to the latest `CONNECT` it refused ([`ProviderAnswer`]), which
+//! the browser reports only as a network error, so the provider's adapter
+//! can read its failure (ADR 0127). The listener binds port 0 of loopback and reports its
 //! address (ADR 0059), and it closes, with every connection it relays, when
 //! the Session's proxy is dropped or its Run stops.
 #![expect(
     clippy::disallowed_types,
-    reason = "the per-Session SOCKS5 relay opens its own loopback listener and its connections to the proxy, in the proxy module only, and its tasks set one flag, read with no lock order (ADR 0060)"
+    reason = "the per-Session SOCKS5 relay opens its own loopback listener and its connections to the proxy, in the proxy module only, and its tasks set flags and one answer, each read alone with no lock order (ADR 0060)"
 )]
 
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
@@ -46,6 +50,11 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::party::relay_unreachable;
 use crate::proxy_provider::ProxyUsage;
+use crate::proxy_provider::failure::ProviderAnswer;
+
+/// The most bytes of a request's or an answer's head the relay reads to
+/// learn whether the proxy refused a `CONNECT`.
+const HEAD: usize = 16 * 1024;
 
 /// How long the relay waits before it accepts again after an error that is
 /// not one connection's own, such as too many open files.
@@ -102,6 +111,9 @@ struct Upstream {
     /// What the bytes on the connections to the proxy are charged to, for
     /// a Proxy provider's proxy.
     usage: Option<Arc<ProxyUsage>>,
+    /// For a hosted provider's HTTP proxy, its answer to the latest
+    /// `CONNECT`, when it refused it; none when it took it.
+    refusal: Option<Mutex<Option<ProviderAnswer>>>,
 }
 
 impl Upstream {
@@ -124,7 +136,8 @@ pub(crate) struct Relay {
 impl Relay {
     /// Binds the relay on port 0 of loopback for the proxy at `proxy`, and
     /// relays every connection the browser opens to it as a task of `run`,
-    /// as `mode` says, charging its bytes to `usage` when it has one.
+    /// as `mode` says, charging its bytes to `usage` when it has one, and
+    /// keeping an HTTP proxy's refusals of a `CONNECT` when `keeps_refusals`.
     ///
     /// # Errors
     ///
@@ -134,15 +147,18 @@ impl Relay {
         proxy: SocketAddr,
         mode: Mode,
         usage: Option<Arc<ProxyUsage>>,
+        keeps_refusals: bool,
     ) -> std::io::Result<Self> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let address = listener.local_addr()?;
+        let keeps_refusals = keeps_refusals && matches!(mode, Mode::AsItIs { http: true });
         let upstream = Arc::new(Upstream {
             address: proxy,
             mode,
             refused: AtomicBool::new(false),
             unreachable: AtomicBool::new(false),
             usage,
+            refusal: keeps_refusals.then(|| Mutex::new(None)),
         });
         let stop = CancellationToken::new();
         run.spawn(accept(
@@ -171,6 +187,17 @@ impl Relay {
     /// Whether the relay's latest connection to the proxy failed to open.
     pub(crate) fn unreachable(&self) -> bool {
         self.upstream.unreachable.load(Ordering::Relaxed)
+    }
+
+    /// The proxy's answer to the latest `CONNECT`, if it refused it and
+    /// the relay keeps refusals.
+    pub(crate) fn latest_refusal(&self) -> Option<ProviderAnswer> {
+        self.upstream
+            .refusal
+            .as_ref()?
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 }
 
@@ -269,7 +296,90 @@ async fn as_it_is(mut browser: TcpStream, upstream: &Upstream, http: bool) {
         return;
     };
     let mut proxy = Tallied::new(proxy, upstream.usage.clone());
+    if let Some(refusal) = &upstream.refusal
+        && heads(&mut browser, &mut proxy, refusal).await.is_err()
+    {
+        return;
+    }
     let _ = pass(&mut browser, &mut proxy).await;
+}
+
+/// Relays the browser's request heads and, for each `CONNECT`, the
+/// proxy's answer head, keeping the answer in `refusal` when the proxy
+/// refused the tunnel and clearing it when it took it, until the proxy
+/// takes a tunnel, the browser sends another request, or either says
+/// nothing the relay reads as a head; then the rest passes as it is.
+async fn heads(
+    browser: &mut TcpStream,
+    proxy: &mut Tallied,
+    refusal: &Mutex<Option<ProviderAnswer>>,
+) -> std::io::Result<()> {
+    loop {
+        let request = read_head(browser).await?;
+        if request.is_empty() {
+            return Ok(());
+        }
+        proxy.write_all(&request).await?;
+        if !proxy.charged().await {
+            return Err(std::io::Error::other("a Limit refused the proxy's bytes"));
+        }
+        if !request.starts_with(b"CONNECT ") {
+            return Ok(());
+        }
+        let answer = read_head(proxy).await?;
+        if !proxy.charged().await {
+            return Err(std::io::Error::other("a Limit refused the proxy's bytes"));
+        }
+        browser.write_all(&answer).await?;
+        let Some(answer) = provider_answer(&answer) else {
+            return Ok(());
+        };
+        let took = (200..300).contains(&answer.status);
+        *refusal
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = (!took).then_some(answer);
+        if took {
+            return Ok(());
+        }
+    }
+}
+
+/// Reads from `stream` until its bytes hold a head's end, it ends, or
+/// [`HEAD`] bytes: every byte read, which may run past the head.
+async fn read_head(stream: &mut (impl AsyncRead + Unpin)) -> std::io::Result<Vec<u8>> {
+    let mut head = Vec::new();
+    let mut chunk = vec![0; CHUNK];
+    while head.len() < HEAD && !head.windows(4).any(|window| window == b"\r\n\r\n") {
+        let read = stream.read(&mut chunk).await?;
+        if read == 0 {
+            break;
+        }
+        head.extend_from_slice(&chunk[..read]);
+    }
+    Ok(head)
+}
+
+/// The proxy's answer in `bytes`, its status and headers, if they start
+/// with a whole response head.
+fn provider_answer(bytes: &[u8]) -> Option<ProviderAnswer> {
+    let mut headers = [httparse::EMPTY_HEADER; 64];
+    let mut response = httparse::Response::new(&mut headers);
+    if !response.parse(bytes).ok()?.is_complete() {
+        return None;
+    }
+    Some(ProviderAnswer {
+        status: response.code?,
+        headers: response
+            .headers
+            .iter()
+            .map(|header| {
+                (
+                    header.name.to_ascii_lowercase(),
+                    String::from_utf8_lossy(header.value).into_owned(),
+                )
+            })
+            .collect(),
+    })
 }
 
 /// Relays a SOCKS5 connection, authenticating upstream with `username` and

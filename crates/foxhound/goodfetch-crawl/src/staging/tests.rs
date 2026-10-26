@@ -237,3 +237,34 @@ fn an_enqueue_or_a_write_inside_an_effects_body_fails_with_effect_staging_refuse
         )
     );
 }
+
+/// What an attempt staged so far names the Frontier identity of each
+/// request it added, a duplicate not among them, which a sample comparison
+/// weighs (ADR 0103); a discard answers them with the Records, and the
+/// attempt staged anew holds none.
+///
+/// Covers: story:5-116
+#[test]
+fn what_an_attempt_staged_names_the_frontier_identity_of_each_request_it_added() {
+    let connection = leased();
+    let staging = Staging::default();
+    staging.open("1", 1);
+
+    answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/b")));
+    answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/b")));
+    answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/c?x=1")));
+    let so_far = staging.pushed("1", 1).enqueues;
+    let discarded = staging.discard("1", 1).enqueues;
+    staging.open("1", 1);
+
+    assert_eq!(
+        (so_far.clone(), discarded, staging.pushed("1", 1).enqueues),
+        (
+            ["GET https://shop.test/b", "GET https://shop.test/c?x=1"]
+                .map(str::to_owned)
+                .into(),
+            so_far,
+            std::collections::BTreeSet::new(),
+        )
+    );
+}

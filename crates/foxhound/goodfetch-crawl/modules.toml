@@ -26,3 +26,6 @@ links = []
 [submodules.delivery]
 attempt = []
 politeness = ["attempt"]
+
+[submodules.tier_choice]
+weighing = []

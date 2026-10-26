@@ -289,6 +289,48 @@ pub struct ProxyAuthFailedDetails {
     pub username: Option<String>,
 }
 
+/// A Proxy provider that answered a Session's request through its proxy
+/// with a failure of its own (ADR 0127's translation point of each
+/// built-in adapter, spec #599; area 7's code, spec #596).
+pub const PROXY_PROVIDER_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "proxy_provider_unavailable",
+    description: "The Session's Proxy provider answered through its proxy with a failure of its own: its traffic quota or balance is spent (`quota_exhausted`), the Session's sticky exit is gone (`sticky_session_expired`), or a failure Goodfetch does not recognize (`unrecognized`, whose text is logged, never returned). The details name the provider, the proxy and the failure, never the credentials. A provider's refusal of the credentials is `proxy_auth_failed` instead. Retry later, or open a new Session for a new exit.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What a Proxy provider's failure was, as its adapter read it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyProviderFailure {
+    /// The account's traffic quota or balance is spent.
+    QuotaExhausted,
+    /// The Session's sticky exit is gone.
+    StickySessionExpired,
+    /// A failure the adapter does not recognize.
+    Unrecognized,
+}
+
+/// What `proxy_provider_unavailable` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProxyProviderUnavailableDetails {
+    /// The Proxy provider, as `proxy.provider` names it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub provider: String,
+    /// The proxy, `scheme://host:port`, without its credentials.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub proxy: String,
+    /// The URL the request went to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: Option<String>,
+    /// The failure.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub failure: ProxyProviderFailure,
+}
+
 /// A proxy kind, the pool a Session's proxy is drawn from (ADR 0021), in
 /// the order of the proxy tiers, cheapest first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -592,7 +634,7 @@ pub const PROXY_PROVIDER_SHAPE: ValueShape = ValueShape {
 /// `proxy.provider` (ADRs 0021, 0092 and 0129).
 pub const PROXY_PROVIDER: Setting = Setting {
     name: "proxy.provider",
-    description: "The Proxy provider each Session of the Run, or the Session it is set on, draws its one proxy from when it opens, fixed for the Session's life: `list`, the user's own servers in `proxy.providers.list.servers`. None by default. A Session that resolves both `proxy.server` and `proxy.provider` is refused with `setting_invalid`. Set as `proxy.server` is: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`.",
+    description: "The Proxy provider each Session of the Run, or the Session it is set on, draws its one proxy from when it opens, fixed for the Session's life: `bright_data`, `oxylabs` or `apify`, whose adapters build the provider's sticky-session username from the account in `proxy.providers.<name>` and ask for the provider's longest sticky lifetime, or `list`, the user's own servers in `proxy.providers.list.servers`. None by default. A Session that resolves both `proxy.server` and `proxy.provider` is refused with `setting_invalid`. Set as `proxy.server` is: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`.",
     kind: ValueKind::Text,
     default: none,
     clearable: true,
@@ -644,7 +686,7 @@ fn no_providers() -> Value {
 /// `proxy.providers` (ADRs 0021, 0041 and 0101).
 pub const PROXY_PROVIDERS: Setting = Setting {
     name: "proxy.providers",
-    description: "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
+    description: "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`); `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
     kind: ValueKind::Map(&ValueKind::Shape(&PROXY_PROVIDER_SHAPE)),
     default: no_providers,
     clearable: false,
@@ -659,7 +701,11 @@ pub const ENTRIES: Entries = Entries {
     operations: &[],
     events: &[],
     handler_requests: &[],
-    error_codes: &[PROXY_UNAVAILABLE, PROXY_AUTH_FAILED],
+    error_codes: &[
+        PROXY_UNAVAILABLE,
+        PROXY_AUTH_FAILED,
+        PROXY_PROVIDER_UNAVAILABLE,
+    ],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[

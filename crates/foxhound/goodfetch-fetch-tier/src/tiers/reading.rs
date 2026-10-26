@@ -43,6 +43,9 @@ pub(super) struct BrowserRead {
     pub(super) own: Option<Read>,
     /// While the page holds no document: what its response was.
     pub(super) not_document: Option<NotDocument>,
+    /// The URL of the last main-frame document it reached, its own or a
+    /// later one a script or the handler navigated to.
+    pub(super) ended_at: Option<String>,
 }
 
 /// A response a browser page holds instead of a document.
@@ -87,6 +90,9 @@ impl BrowserReader {
 
 impl DocumentReader for BrowserReader {
     fn read(&self, document: &ReadDocument<'_>, body: Option<&[u8]>) -> Reading {
+        self.learn(document, |read| {
+            read.ended_at = Some(document.url.to_owned());
+        });
         let header = document
             .headers
             .iter()

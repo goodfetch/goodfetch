@@ -488,7 +488,7 @@ fn bound() -> Contribution {
                         // Label, one segment on `http`, one still sampled.
                         connection
                             .execute(
-                                r#"INSERT INTO tier_choices (label, domain_key, unit) VALUES ('home', 'shop.test', '{"kind":"split","segments":[{"name":"products","matched":3,"tier":"http"},{"name":"blog","matched":0,"tier":"browser"},{"name":"mixed","matched":1,"tier":null}]}')"#,
+                                r#"INSERT INTO tier_choices (label, domain_key, unit) VALUES ('home', 'shop.test', '{"kind":"split","segments":[{"name":"products","matched":3,"tier":"http"},{"name":"blog","matched":0,"tier":"browser"},{"name":"mixed","matched":1,"tier":null}],"since":1790000000000}')"#,
                                 [],
                             )
                             .map(drop)

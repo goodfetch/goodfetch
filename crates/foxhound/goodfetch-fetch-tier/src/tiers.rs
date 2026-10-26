@@ -43,7 +43,8 @@ use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::Trust;
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_page::page_value::{
-    BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, ServedDocument,
+    BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, Reader,
+    ServedDocument,
 };
 use goodfetch_protocol::foxhound::crawl::{CRAWL_CONTENT_TYPES, CrawlRequest};
 use goodfetch_protocol::foxhound::fetch::{
@@ -80,6 +81,7 @@ use crate::transports::{AddressCheck, BrowserFetch, Reqwest, TransportConfig};
 use crate::use_signals::UseSignals;
 
 mod calls;
+mod reading;
 mod sitemap;
 
 /// Foxhound's fetch tiers: the pages they serve, which Collie's page
@@ -141,6 +143,9 @@ struct Pages {
     use_signals: BTreeMap<PageId, UseSignals>,
     /// The encoding each open page's document was decoded in.
     encodings: BTreeMap<PageId, &'static Encoding>,
+    /// What the browser tier's document reader learned of each browser
+    /// page a handler holds (ADR 0119).
+    browser: BTreeMap<PageId, reading::BrowserRead>,
 }
 
 /// The elements a locator matched in a served page's document, with what
@@ -876,12 +881,46 @@ impl FetchTiers {
         }
     }
 
+    /// The type of the browser page `page_id`'s crawl request's own
+    /// document, when its Label's `crawl.content_types` does not take it:
+    /// its navigation stopped at the interception, before anything read
+    /// its body, and its request ends `skipped` (ADR 0119).
+    pub fn browser_refused(&self, page_id: &PageId) -> Option<String> {
+        lock(&self.served.pages)
+            .browser
+            .get(page_id)
+            .and_then(|read| read.refused.clone())
+    }
+
+    /// The encoding the browser page `page_id`'s crawl request's own
+    /// document was read in, as `encoding`, its `document.characterSet`,
+    /// names it, and where ADR 0119's order found it; no source where only
+    /// the browser's guess read it.
+    pub fn browser_encoding(
+        &self,
+        page_id: &PageId,
+        encoding: Option<&str>,
+    ) -> Option<EncodingProvenance> {
+        let own = lock(&self.served.pages)
+            .browser
+            .get(page_id)
+            .and_then(|read| read.own);
+        let encoding = encoding
+            .map(str::to_owned)
+            .or_else(|| own.map(|read| read.encoding.name().to_owned()))?;
+        Some(EncodingProvenance {
+            encoding,
+            source: own.map(|read| read.source.provenance()),
+        })
+    }
+
     /// Closes the browser page `page_id` [`FetchTiers::browser`] opened.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave the page open, until its Run ends.
     pub async fn close_browser(&self, page_id: &PageId) {
+        lock(&self.served.pages).browser.remove(page_id);
         if let Some(pages) = self.served.browser.get() {
             pages.close(page_id).await;
         }
@@ -993,6 +1032,25 @@ impl HandlerPages for FetchTiers {
         ProgramPages.observer(run, session)
     }
 
+    /// The browser tier's document reader of the attempt that handed its
+    /// Run's pages over last, while its handler runs; else a program's
+    /// page's, none.
+    fn reader(&self, run: &RunId, session: &SessionId) -> Option<Reader> {
+        let Some(hand_over) = self.handed_over(run) else {
+            return ProgramPages.reader(run, session);
+        };
+        let handled = hand_over
+            .run
+            .settings()
+            .map(|settings| Following::of(settings.resolved()).handled)
+            .unwrap_or_default();
+        Some(Reader::new(reading::BrowserReader {
+            served: Arc::clone(&self.served),
+            hand_over,
+            handled,
+        }))
+    }
+
     fn document(&self, page_id: &PageId) -> Option<ServedDocument> {
         lock(&self.served.pages)
             .open
@@ -1007,7 +1065,8 @@ impl HandlerPages for FetchTiers {
         params: &serde_json::Value,
         _context: &CallContext,
     ) -> Option<GuardAnswer> {
-        calls::answer(self, page_id, operation, params)
+        calls::on_browser(self, page_id, operation, params)
+            .or_else(|| calls::answer(self, page_id, operation, params))
     }
 
     fn opened(&self, pages: Arc<dyn BrowserPages>) {

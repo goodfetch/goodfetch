@@ -104,8 +104,8 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/foxhound/goodfetch-session-pool/src/store.rs",
-        2,
-        "holds no value: Session pool entries: identities and counts, settings by reference",
+        3,
+        "holds no value: Session pool entries: identities, counts and local-address positions, and the address blocks blocked on a domain, settings by reference",
     ),
     (
         "crates/goodfetch-cli/src/output.rs",

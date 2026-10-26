@@ -5,13 +5,13 @@
 //! lock; a build with the wrong digest is refused and removed; a missing one
 //! is downloaded on first use through `pinned_download` with its progress
 //! reported, unless `egress.offline` refuses it or the engine cannot write
-//! the cache. `browsers install`
+//! the cache. `browser install`
 //! prepares every pin ahead of time, and the clean-up deletes only what
 //! nothing installed pins, nothing used for `browser_cache.max_unused_age`
 //! and nothing holds.
 //!
 //! Its root is `GOODFETCH_BROWSERS_PATH` when that is set, otherwise
-//! `browsers` in Goodfetch home (ADR 0059).
+//! `browser` in Goodfetch home (ADR 0059).
 
 mod artifact;
 mod clean_up;
@@ -63,7 +63,7 @@ pub struct CacheLocation(PathBuf);
 
 impl CacheLocation {
     /// `browsers_path`, from `GOODFETCH_BROWSERS_PATH`, when it is set;
-    /// otherwise `browsers` in the Goodfetch home `home`.
+    /// otherwise `browser` in the Goodfetch home `home`.
     pub fn new(home: &Path, browsers_path: Option<PathBuf>) -> Self {
         Self(browsers_path.unwrap_or_else(|| home.join(HOME_FOLDER)))
     }
@@ -172,9 +172,9 @@ impl CacheError {
 }
 
 /// The command that installs `pinned_by`'s builds: its executable's
-/// `browsers install` (ADR 0098).
+/// `browser install` (ADR 0098).
 fn install_command(product: Product) -> String {
-    format!("goodfetch-{} browsers install", product.as_str())
+    format!("goodfetch-{} browser install", product.as_str())
 }
 
 fn describe(artifact: &ArtifactId, pinned_by: &PinnedBy) -> String {
@@ -316,7 +316,7 @@ impl BrowserCache {
     }
 
     /// Prepares every artifact `pins` pins for `platform` (`None` for one no
-    /// build is made for), then releases them: what `browsers install` does
+    /// build is made for), then releases them: what `browser install` does
     /// for CI and images.
     ///
     /// # Errors

@@ -30,9 +30,16 @@ fn stderr_snapshot(env: &TestEnv, name: &str, stderr: &str) {
     snapshot_settings(&values).bind(|| insta::assert_snapshot!(name, stderr.trim()));
 }
 
-/// The running Daemon's status, `null` when none runs.
+/// What the running Daemon answers `daemon.status`, `null` when none runs.
 fn daemon(env: &TestEnv) -> Value {
-    json_of(COLLIE.as_ref(), env, &["daemon", "status", "--json"])["daemon"].clone()
+    let status = json_of(COLLIE.as_ref(), env, &["daemon", "status", "--json"]);
+    if status["pid"].is_null() {
+        return Value::Null;
+    }
+    let found = RuntimeFile::read(&runtime_file(env)).unwrap();
+    crate::daemon::RawClient::opened(&found, "collie").call(1, "daemon.status", &json!({}))
+        ["result"]
+        .clone()
 }
 
 /// Whether a Daemon's log file in the home records the engine dispatching

@@ -1,4 +1,4 @@
-//! `browsers install` and `browsers clean` (ADRs 0024 and 0098), commands of
+//! `browser install` and `browser clean` (ADRs 0024 and 0098), commands of
 //! both Products' executables: the first fetches every build the Product
 //! version pins into the Browser cache, for CI and images; the second
 //! deletes what nothing installed pins, nothing used for
@@ -26,8 +26,8 @@ use goodfetch_engine::installed::{InstalledList, Seen, kept_inputs};
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::settings::{Layers, Resolved, SettingsError, SettingsFiles, resolve};
 use goodfetch_protocol::browser_cache::{
-    ArtifactId, BrowsersCleanOutput, BrowsersInstallOutput, InstallOutcome, InstalledArtifact,
-    MAX_UNUSED_AGE, NotCleaned, PinnedBy,
+    ArtifactId, BrowserCleaned, BrowserInstalled, InstallOutcome, InstalledBuild, MAX_UNUSED_AGE,
+    NotCleaned, PinnedBy, RemovedBuild,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -141,7 +141,7 @@ fn no_home() -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// `browsers install`.
+/// `browser install`.
 pub(super) fn install(
     pinned_by: PinnedBy,
     environment: &BTreeMap<OsString, OsString>,
@@ -197,35 +197,37 @@ pub(super) fn install(
         Ok(outcomes) => outcomes,
         Err(error) => return failed(&error),
     };
-    let report = BrowsersInstallOutput {
-        cache: cache.root().display().to_string(),
-        artifacts: outcomes
-            .into_iter()
-            .map(|(artifact, outcome)| InstalledArtifact { artifact, outcome })
-            .collect(),
-    };
     if json {
-        output::json(&report);
-    } else if report.artifacts.is_empty() {
+        output::json(&BrowserInstalled {
+            builds: outcomes
+                .iter()
+                .map(|(artifact, outcome)| InstalledBuild {
+                    name: artifact.name.clone(),
+                    version: artifact.build.clone(),
+                    outcome: *outcome,
+                })
+                .collect(),
+        });
+    } else if outcomes.is_empty() {
         output::line(&format!(
             "{} {} pins no build for this platform; the Browser cache is {}",
             pins.pinned_by.product.name(),
             pins.pinned_by.product_version,
-            report.cache,
+            cache.root().display(),
         ));
     } else {
-        for installed in &report.artifacts {
-            let done = match installed.outcome {
+        for (artifact, outcome) in &outcomes {
+            let done = match outcome {
                 InstallOutcome::Installed => "installed",
                 InstallOutcome::AlreadyInstalled => "already installed",
             };
-            output::line(&format!("{done}: {}", describe(&installed.artifact)));
+            output::line(&format!("{done}: {}", describe(artifact)));
         }
     }
     ExitCode::SUCCESS
 }
 
-/// `browsers clean`.
+/// `browser clean`.
 pub(super) fn clean(
     pinned_by: PinnedBy,
     environment: &BTreeMap<OsString, OsString>,
@@ -249,7 +251,7 @@ pub(super) fn clean(
     let request = CleanUp {
         kept: kept(&pins, &home, cache.root(), now, max_unused_age),
         now,
-        // `browsers clean` uses the default while the setting is `null`.
+        // `browser clean` uses the default while the setting is `null`.
         max_unused_age: max_unused_age.counting(),
         dry_run,
     };
@@ -257,24 +259,38 @@ pub(super) fn clean(
         Ok(report) => report,
         Err(error) => return failed(&error),
     };
-    let report = BrowsersCleanOutput {
-        cache: cache.root().display().to_string(),
+    let cleaned = BrowserCleaned {
         dry_run,
-        deleted: report.deleted,
+        removed: report
+            .deleted
+            .iter()
+            .map(|artifact| RemovedBuild {
+                name: artifact.name.clone(),
+                version: artifact.build.clone(),
+                bytes: report.bytes_of(artifact).unwrap_or(0),
+            })
+            .collect(),
+        bytes_freed: report.bytes.values().sum(),
         not_cleaned: report.not_cleaned,
     };
     if json {
-        output::json(&report);
-    } else if report.not_cleaned == Some(NotCleaned::CacheNotWritable) {
+        output::json(&cleaned);
+    } else if cleaned.not_cleaned == Some(NotCleaned::CacheNotWritable) {
         output::line(&format!(
             "the Browser cache at {} cannot be written: nothing was cleaned",
-            report.cache
+            cache.root().display()
         ));
     } else {
         let done = if dry_run { "would delete" } else { "deleted" };
-        for artifact in &report.deleted {
-            output::line(&format!("{done}: {}", describe(artifact)));
+        for (artifact, removed) in report.deleted.iter().zip(&cleaned.removed) {
+            output::line(&format!(
+                "{done}: {} ({} bytes)",
+                describe(artifact),
+                removed.bytes
+            ));
         }
+        let freed = if dry_run { "would free" } else { "freed" };
+        output::line(&format!("{freed} {} bytes", cleaned.bytes_freed));
     }
     ExitCode::SUCCESS
 }

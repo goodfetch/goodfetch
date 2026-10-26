@@ -3,8 +3,8 @@
 //! asks it about itself with, its idle timeout, the per-user service that
 //! `daemon install` registers, its health as its ops listener's probes and
 //! `daemon health` check it (ADR 0050), and the `--json` outputs of
-//! `daemon start`, `stop`, `restart`, `status`, `install`, `uninstall`,
-//! `rotate-token` and `health`.
+//! `daemon start`, `stop`, `restart`, `status`, `install`, `run`,
+//! `uninstall`, `rotate-token`, `http-listener-token` and `health`.
 //! One Daemon per user and major serves both Products, so everything here
 //! is Collie's.
 //!
@@ -166,9 +166,9 @@ pub struct NotADaemonDetails {
 #[serde(deny_unknown_fields)]
 pub struct DaemonParams {}
 
-/// What `daemon.status` answers.
+/// What `daemon.status` answers: the running Daemon's state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct DaemonStatus {
+pub struct DaemonState {
     /// The Product the Daemon runs as.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub product: Product,
@@ -215,7 +215,7 @@ pub const STATUS: Operation = Operation {
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
     params: schema_of::<DaemonParams>,
-    result: schema_of::<DaemonStatus>,
+    result: schema_of::<DaemonState>,
     events: &[],
     cancellable: false,
     stability: Stability::Stable,
@@ -320,38 +320,36 @@ pub struct DaemonHealthOutput {
     pub daemon: Option<DaemonHealth>,
 }
 
-/// What `daemon status --json` prints.
+/// What `daemon start`, `restart`, `stop`, `status`, `install` and `run`
+/// print under `--json` (spec #608): the Daemon of the executable's major
+/// that runs once the command is done, each field `None` but `major` when
+/// none runs, as after `daemon stop`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct DaemonStatusOutput {
-    /// The runtime file of the executable's major.
+pub struct DaemonStatus {
+    /// Its process ID.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub runtime_file: String,
-    /// The running Daemon, or `None` when none runs.
+    pub pid: Option<u32>,
+    /// The executable's major, whose Daemon it is, such as `1` or `0.4`.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub daemon: Option<DaemonStatus>,
-    /// The per-user service `daemon install` registered for the major, or
-    /// `None` when none is installed.
+    pub major: String,
+    /// The Product it runs as.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product: Option<Product>,
+    /// Its Product version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub version: Option<ProductVersion>,
+    /// Where it listens: its socket's path, or `host:port`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub address: Option<String>,
+    /// Where its Console is served, or `None` when it serves none, as
+    /// `daemon run`'s, or its Console did not start.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub console_url: Option<String>,
+    /// The per-user service `daemon install` registered for the major;
+    /// absent when none is installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub service: Option<InstalledService>,
-}
-
-/// What `daemon start --json` and `daemon restart --json` print.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct DaemonStartOutput {
-    /// Whether this command started it, rather than finding it running.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub started: bool,
-    /// The running Daemon.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub daemon: DaemonStatus,
-}
-
-/// What `daemon stop --json` prints.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct DaemonStopOutput {
-    /// What the stopped Daemon answered, or `None` when none ran.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub stopped: Option<DaemonStopping>,
 }
 
 /// The OS's service manager a Daemon is installed with (ADR 0024).
@@ -396,18 +394,6 @@ pub struct InstalledService {
     pub files: Vec<PathBuf>,
 }
 
-/// What `daemon install --json` prints.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct DaemonInstallOutput {
-    /// The service it registered.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub service: InstalledService,
-    /// What the Daemon running before answered when it was stopped so the
-    /// service could take its place, or `None` when none ran.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub stopped: Option<DaemonStopping>,
-}
-
 /// What `daemon uninstall --json` prints.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct DaemonUninstallOutput {
@@ -416,16 +402,23 @@ pub struct DaemonUninstallOutput {
     pub removed: Option<InstalledService>,
 }
 
-/// What `daemon rotate-token --json` prints.
+/// What `daemon rotate-token --json` prints: when it replaced the
+/// persistent token of the major's Daemon and the HTTP listener's token.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct DaemonRotateTokenOutput {
-    /// The file that holds the new persistent token, mode `0600`.
+pub struct TokenRotated {
+    /// When the tokens were replaced, in RFC 3339, UTC.
+    #[schemars(with = "String", extend("format" = "date-time", "arrived_in" = "0.1"))]
+    pub rotated_at: jiff::Timestamp,
+}
+
+/// What `daemon http-listener-token --json` prints: the token the
+/// Daemon's HTTP listener takes, the one credential a command prints, on
+/// stdout alone (spec #608).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct HttpListenerToken {
+    /// The token.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub token_file: String,
-    /// What the Daemon running with the old token answered when it was
-    /// stopped, or `None` when none ran.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub stopped: Option<DaemonStopping>,
+    pub token: String,
 }
 
 /// Every entry this module defines.

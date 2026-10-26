@@ -734,6 +734,66 @@
       ],
       "type": "object"
     },
+    "BrowserCleaned": {
+      "description": "What `browser clean --json` prints (spec #608): what it deleted, or\nwould delete under `--dry-run`, which is what a `browser clean` right\nafter deletes.",
+      "properties": {
+        "bytes_freed": {
+          "arrived_in": "0.1",
+          "description": "The bytes those take on disk, freed unless `--dry-run`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dry_run": {
+          "arrived_in": "0.1",
+          "description": "Whether it only listed what it would delete.",
+          "type": "boolean"
+        },
+        "not_cleaned": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NotCleaned"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Why it cleaned nothing, when it did not run; absent when it ran."
+        },
+        "removed": {
+          "arrived_in": "0.1",
+          "description": "What it deleted, or would delete under `--dry-run`, in order.",
+          "items": {
+            "$ref": "#/$defs/RemovedBuild"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "dry_run",
+        "removed",
+        "bytes_freed"
+      ],
+      "type": "object"
+    },
+    "BrowserInstalled": {
+      "description": "What `browser install --json` prints (spec #608).",
+      "properties": {
+        "builds": {
+          "arrived_in": "0.1",
+          "description": "Each build the Product version pins for this platform, and what\ninstalling it did.",
+          "items": {
+            "$ref": "#/$defs/InstalledBuild"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "builds"
+      ],
+      "type": "object"
+    },
     "BrowserName": {
       "description": "A browser family, as ADR 0056 names them.",
       "oneOf": [
@@ -768,70 +828,6 @@
           "type": "string"
         }
       ]
-    },
-    "BrowsersCleanOutput": {
-      "description": "What `browsers clean --json` prints.",
-      "properties": {
-        "cache": {
-          "arrived_in": "0.1",
-          "description": "The Browser cache's path.",
-          "type": "string"
-        },
-        "deleted": {
-          "arrived_in": "0.1",
-          "description": "What it deleted, or would delete under `--dry-run`.",
-          "items": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "type": "array"
-        },
-        "dry_run": {
-          "arrived_in": "0.1",
-          "description": "Whether it only listed what it would delete.",
-          "type": "boolean"
-        },
-        "not_cleaned": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/NotCleaned"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "arrived_in": "0.1",
-          "description": "Why it cleaned nothing, when it did not run."
-        }
-      },
-      "required": [
-        "cache",
-        "dry_run",
-        "deleted"
-      ],
-      "type": "object"
-    },
-    "BrowsersInstallOutput": {
-      "description": "What `browsers install --json` prints.",
-      "properties": {
-        "artifacts": {
-          "arrived_in": "0.1",
-          "description": "Each Pinned artifact of the Product version, and what installing it\ndid.",
-          "items": {
-            "$ref": "#/$defs/InstalledArtifact"
-          },
-          "type": "array"
-        },
-        "cache": {
-          "arrived_in": "0.1",
-          "description": "The Browser cache's path.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "cache",
-        "artifacts"
-      ],
-      "type": "object"
     },
     "CancelParams": {
       "additionalProperties": false,
@@ -3044,32 +3040,6 @@
       ],
       "type": "object"
     },
-    "DaemonInstallOutput": {
-      "description": "What `daemon install --json` prints.",
-      "properties": {
-        "service": {
-          "$ref": "#/$defs/InstalledService",
-          "arrived_in": "0.1",
-          "description": "The service it registered."
-        },
-        "stopped": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/DaemonStopping"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "arrived_in": "0.1",
-          "description": "What the Daemon running before answered when it was stopped so the\nservice could take its place, or `None` when none ran."
-        }
-      },
-      "required": [
-        "service"
-      ],
-      "type": "object"
-    },
     "DaemonParams": {
       "additionalProperties": false,
       "description": "What `daemon.status` and `daemon.stop` take: nothing.",
@@ -3081,54 +3051,8 @@
       },
       "type": "object"
     },
-    "DaemonRotateTokenOutput": {
-      "description": "What `daemon rotate-token --json` prints.",
-      "properties": {
-        "stopped": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/DaemonStopping"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "arrived_in": "0.1",
-          "description": "What the Daemon running with the old token answered when it was\nstopped, or `None` when none ran."
-        },
-        "token_file": {
-          "arrived_in": "0.1",
-          "description": "The file that holds the new persistent token, mode `0600`.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "token_file"
-      ],
-      "type": "object"
-    },
-    "DaemonStartOutput": {
-      "description": "What `daemon start --json` and `daemon restart --json` print.",
-      "properties": {
-        "daemon": {
-          "$ref": "#/$defs/DaemonStatus",
-          "arrived_in": "0.1",
-          "description": "The running Daemon."
-        },
-        "started": {
-          "arrived_in": "0.1",
-          "description": "Whether this command started it, rather than finding it running.",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "started",
-        "daemon"
-      ],
-      "type": "object"
-    },
-    "DaemonStatus": {
-      "description": "What `daemon.status` answers.",
+    "DaemonState": {
+      "description": "What `daemon.status` answers: the running Daemon's state.",
       "properties": {
         "clients": {
           "arrived_in": "0.1",
@@ -3197,25 +3121,51 @@
       ],
       "type": "object"
     },
-    "DaemonStatusOutput": {
-      "description": "What `daemon status --json` prints.",
+    "DaemonStatus": {
+      "description": "What `daemon start`, `restart`, `stop`, `status`, `install` and `run`\nprint under `--json` (spec #608): the Daemon of the executable's major\nthat runs once the command is done, each field `None` but `major` when\nnone runs, as after `daemon stop`.",
       "properties": {
-        "daemon": {
+        "address": {
+          "arrived_in": "0.1",
+          "description": "Where it listens: its socket's path, or `host:port`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "console_url": {
+          "arrived_in": "0.1",
+          "description": "Where its Console is served, or `None` when it serves none, as\n`daemon run`'s, or its Console did not start.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "major": {
+          "arrived_in": "0.1",
+          "description": "The executable's major, whose Daemon it is, such as `1` or `0.4`.",
+          "type": "string"
+        },
+        "pid": {
+          "arrived_in": "0.1",
+          "description": "Its process ID.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "product": {
           "anyOf": [
             {
-              "$ref": "#/$defs/DaemonStatus"
+              "$ref": "#/$defs/Product"
             },
             {
               "type": "null"
             }
           ],
           "arrived_in": "0.1",
-          "description": "The running Daemon, or `None` when none runs."
-        },
-        "runtime_file": {
-          "arrived_in": "0.1",
-          "description": "The runtime file of the executable's major.",
-          "type": "string"
+          "description": "The Product it runs as."
         },
         "service": {
           "anyOf": [
@@ -3227,30 +3177,24 @@
             }
           ],
           "arrived_in": "0.1",
-          "description": "The per-user service `daemon install` registered for the major, or\n`None` when none is installed."
-        }
-      },
-      "required": [
-        "runtime_file"
-      ],
-      "type": "object"
-    },
-    "DaemonStopOutput": {
-      "description": "What `daemon stop --json` prints.",
-      "properties": {
-        "stopped": {
+          "description": "The per-user service `daemon install` registered for the major;\nabsent when none is installed."
+        },
+        "version": {
           "anyOf": [
             {
-              "$ref": "#/$defs/DaemonStopping"
+              "$ref": "#/$defs/ProductVersion"
             },
             {
               "type": "null"
             }
           ],
           "arrived_in": "0.1",
-          "description": "What the stopped Daemon answered, or `None` when none ran."
+          "description": "Its Product version."
         }
       },
+      "required": [
+        "major"
+      ],
       "type": "object"
     },
     "DaemonStopping": {
@@ -4788,6 +4732,41 @@
         }
       ]
     },
+    "FilesUpgraded": {
+      "description": "What `upgrade-files --json` prints (spec #608): the files of the new\nmajor's copy, by their path in Goodfetch home; every list empty when\nGoodfetch home holds no older major's files.",
+      "properties": {
+        "refused": {
+          "arrived_in": "0.1",
+          "description": "The files the new major already held otherwise, which it refused\nto overwrite and kept.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unchanged": {
+          "arrived_in": "0.1",
+          "description": "The files the new major already held as the older major has them,\nas after an earlier run.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "upgraded": {
+          "arrived_in": "0.1",
+          "description": "The files it gave the new major from the older major's.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "upgraded",
+        "unchanged",
+        "refused"
+      ],
+      "type": "object"
+    },
     "FillParams": {
       "additionalProperties": false,
       "description": "What `locator.fill` takes: the locator whose field it fills, and the\ntext.",
@@ -5277,6 +5256,20 @@
       "description": "The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).",
       "type": "string"
     },
+    "HttpListenerToken": {
+      "description": "What `daemon http-listener-token --json` prints: the token the\nDaemon's HTTP listener takes, the one credential a command prints, on\nstdout alone (spec #608).",
+      "properties": {
+        "token": {
+          "arrived_in": "0.1",
+          "description": "The token.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token"
+      ],
+      "type": "object"
+    },
     "HttpMethod": {
       "description": "The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.",
       "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
@@ -5397,22 +5390,28 @@
         }
       ]
     },
-    "InstalledArtifact": {
-      "description": "One artifact `browsers install` made sure of.",
+    "InstalledBuild": {
+      "description": "One build `browser install` made sure of.",
       "properties": {
-        "artifact": {
-          "$ref": "#/$defs/ArtifactId",
+        "name": {
           "arrived_in": "0.1",
-          "description": "The artifact."
+          "description": "Its name, such as `chrome-for-testing`.",
+          "type": "string"
         },
         "outcome": {
           "$ref": "#/$defs/InstallOutcome",
           "arrived_in": "0.1",
           "description": "Whether it was downloaded now or already there."
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "Its build ID, such as `141.0.7390.54-linux64`.",
+          "type": "string"
         }
       },
       "required": [
-        "artifact",
+        "name",
+        "version",
         "outcome"
       ],
       "type": "object"
@@ -9936,6 +9935,34 @@
           "type": "array"
         }
       },
+      "type": "object"
+    },
+    "RemovedBuild": {
+      "description": "One build `browser clean` deleted, or would delete.",
+      "properties": {
+        "bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes its files take on disk.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, such as `chrome-for-testing`.",
+          "type": "string"
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "Its build ID.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "bytes"
+      ],
       "type": "object"
     },
     "Request": {
@@ -14620,6 +14647,21 @@
       },
       "type": "object"
     },
+    "TokenRotated": {
+      "description": "What `daemon rotate-token --json` prints: when it replaced the\npersistent token of the major's Daemon and the HTTP listener's token.",
+      "properties": {
+        "rotated_at": {
+          "arrived_in": "0.1",
+          "description": "When the tokens were replaced, in RFC 3339, UTC.",
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rotated_at"
+      ],
+      "type": "object"
+    },
     "TraceContext": {
       "additionalProperties": false,
       "description": "A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`\nand `tracestate`, which its runtime writes and never a program, with no\nBaggage. The schema checks only that each is a string: a receiver drops\na value it cannot use, and never fails the call for it.",
@@ -14792,55 +14834,6 @@
           "type": "string"
         }
       ]
-    },
-    "UpgradeFilesOutput": {
-      "description": "What `upgrade-files --json` prints: the major it upgraded from and to,\nand the files of the new major's copy, by their path in Goodfetch home.",
-      "properties": {
-        "copied": {
-          "arrived_in": "0.1",
-          "description": "The files it gave the new major.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "from": {
-          "arrived_in": "0.1",
-          "description": "The older major whose files it copied, such as `1` or `0.4`; none\nwhen Goodfetch home holds no older major's files.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "kept": {
-          "arrived_in": "0.1",
-          "description": "The files the new major already held otherwise, which it kept.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "to": {
-          "arrived_in": "0.1",
-          "description": "The executable's own major.",
-          "type": "string"
-        },
-        "unchanged": {
-          "arrived_in": "0.1",
-          "description": "The files the new major already held as the older major has them,\nas after an earlier run.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "to",
-        "copied",
-        "unchanged",
-        "kept"
-      ],
-      "type": "object"
     },
     "UrlMatcher": {
       "description": "A URL pattern the engine matches (ADR 0081): a glob as Playwright reads\none, or a regular expression in the `regex` crate's syntax. A predicate\nruns in the program, which routes every URL and falls back for the\nrequests it does not match.",
@@ -23870,11 +23863,11 @@
     }
   ],
   "outputs": {
-    "browsers.clean": {
-      "$ref": "#/$defs/BrowsersCleanOutput"
+    "browser.clean": {
+      "$ref": "#/$defs/BrowserCleaned"
     },
-    "browsers.install": {
-      "$ref": "#/$defs/BrowsersInstallOutput"
+    "browser.install": {
+      "$ref": "#/$defs/BrowserInstalled"
     },
     "config.explain": {
       "$ref": "#/$defs/SettingsExplanation"
@@ -23885,23 +23878,29 @@
     "daemon.health": {
       "$ref": "#/$defs/DaemonHealthOutput"
     },
+    "daemon.http-listener-token": {
+      "$ref": "#/$defs/HttpListenerToken"
+    },
     "daemon.install": {
-      "$ref": "#/$defs/DaemonInstallOutput"
+      "$ref": "#/$defs/DaemonStatus"
     },
     "daemon.restart": {
-      "$ref": "#/$defs/DaemonStartOutput"
+      "$ref": "#/$defs/DaemonStatus"
     },
     "daemon.rotate-token": {
-      "$ref": "#/$defs/DaemonRotateTokenOutput"
+      "$ref": "#/$defs/TokenRotated"
+    },
+    "daemon.run": {
+      "$ref": "#/$defs/DaemonStatus"
     },
     "daemon.start": {
-      "$ref": "#/$defs/DaemonStartOutput"
+      "$ref": "#/$defs/DaemonStatus"
     },
     "daemon.status": {
-      "$ref": "#/$defs/DaemonStatusOutput"
+      "$ref": "#/$defs/DaemonStatus"
     },
     "daemon.stop": {
-      "$ref": "#/$defs/DaemonStopOutput"
+      "$ref": "#/$defs/DaemonStatus"
     },
     "daemon.uninstall": {
       "$ref": "#/$defs/DaemonUninstallOutput"
@@ -23910,7 +23909,7 @@
       "$ref": "#/$defs/RunsReindexOutput"
     },
     "upgrade-files": {
-      "$ref": "#/$defs/UpgradeFilesOutput"
+      "$ref": "#/$defs/FilesUpgraded"
     }
   },
   "protocol_version": "0.1",

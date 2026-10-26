@@ -55,8 +55,8 @@ use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{HelloParams, Surface};
 use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::daemon::{
-    DaemonEndpoint, DaemonHealth, DaemonHealthOutput, DaemonRuntimeFile, DaemonStartOutput,
-    DaemonStatus, DaemonStatusOutput, DaemonStopOutput, DaemonStopping, HealthProbe, Unready,
+    DaemonEndpoint, DaemonHealth, DaemonHealthOutput, DaemonRuntimeFile, DaemonState, DaemonStatus,
+    DaemonStopping, HealthProbe, Unready,
 };
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 use goodfetch_protocol::jsonrpc::{ErrorObject, Message, Request, RequestId, Version};
@@ -86,6 +86,7 @@ pub(super) fn run(
     dependencies: goodfetch_engine::Dependencies,
     machine: &Machine<'_>,
     reaped: bool,
+    json: bool,
 ) -> ExitCode {
     #[cfg(target_os = "linux")]
     if !reaped {
@@ -95,11 +96,11 @@ pub(super) fn run(
             );
             return ExitCode::FAILURE;
         };
-        return reaper::reap_around(executable, machine.environment);
+        return reaper::reap_around(executable, machine.environment, json);
     }
     #[cfg(not(target_os = "linux"))]
     let _ = reaped;
-    foreground::run(engine, dependencies, machine)
+    foreground::run(engine, dependencies, machine, json)
 }
 
 /// Whether the machine's `settings` choose the per-install layout
@@ -559,7 +560,7 @@ impl Machine<'_> {
         let mut connected = self.connect(true, Product::Collie)?.ok_or_else(|| {
             Failure::Unavailable("the Daemon stopped as soon as it started".to_owned())
         })?;
-        let status: DaemonStatus = connected.call("daemon.status", &serde_json::json!({}))?;
+        let status: DaemonState = connected.call("daemon.status", &serde_json::json!({}))?;
         connected.close();
         match status.console {
             ConsoleState::Serving(url) => Ok(format!("{url}#token={}", found.token)),
@@ -605,15 +606,33 @@ impl Machine<'_> {
         health.map(Some)
     }
 
-    /// Starts the Daemon unless it runs, and answers its status.
-    fn start(&self, keep_alive: bool) -> Result<DaemonStartOutput, Failure> {
+    /// Starts the Daemon unless it runs, and answers whether this call
+    /// started it and its state.
+    fn start(&self, keep_alive: bool) -> Result<(bool, DaemonState), Failure> {
         let (_, started) = self.running_or_started(keep_alive)?;
         let mut connected = self.connect(true, Product::Collie)?.ok_or_else(|| {
             Failure::Unavailable("the Daemon stopped as soon as it started".to_owned())
         })?;
-        let daemon: DaemonStatus = connected.call("daemon.status", &serde_json::json!({}))?;
+        let daemon: DaemonState = connected.call("daemon.status", &serde_json::json!({}))?;
         connected.close();
-        Ok(DaemonStartOutput { started, daemon })
+        Ok((started, daemon))
+    }
+
+    /// The major's Daemon as `--json` prints it: `daemon`, or none, and the
+    /// installed service.
+    pub(super) fn status_of(&self, daemon: Option<&DaemonState>) -> DaemonStatus {
+        DaemonStatus {
+            pid: daemon.map(|daemon| daemon.pid),
+            major: self.major(),
+            product: daemon.map(|daemon| daemon.product),
+            version: daemon.map(|daemon| daemon.product_version.clone()),
+            address: daemon.map(|daemon| daemon.endpoint.to_string()),
+            console_url: daemon.and_then(|daemon| match &daemon.console {
+                ConsoleState::Serving(url) => Some(url.clone()),
+                ConsoleState::Failed(_) | ConsoleState::Absent => None,
+            }),
+            service: self.files().service().ok().flatten(),
+        }
     }
 }
 
@@ -754,22 +773,18 @@ impl Opened {
 /// `daemon start`.
 pub(super) fn start(machine: &Machine<'_>, keep_alive: bool, json: bool) -> ExitCode {
     match machine.start(keep_alive) {
-        Ok(started) => {
+        Ok((started, daemon)) => {
             if json {
-                output::json(&started);
+                output::json(&machine.status_of(Some(&daemon)));
             } else {
-                let verb = if started.started {
-                    "started"
-                } else {
-                    "already ran"
-                };
+                let verb = if started { "started" } else { "already ran" };
                 output::line(&format!(
                     "The Daemon of major {} {verb}: {}",
                     machine.major(),
-                    describe(&started.daemon)
+                    describe(&daemon)
                 ));
             }
-            console_exit(&started.daemon.console)
+            console_exit(&daemon.console)
         }
         Err(failure) => failure.report(),
     }
@@ -804,9 +819,7 @@ pub(super) fn stop(machine: &Machine<'_>, json: bool) -> ExitCode {
 
 fn report_stop(machine: &Machine<'_>, json: bool, stopped: Option<&DaemonStopping>) {
     if json {
-        output::json(&DaemonStopOutput {
-            stopped: stopped.cloned(),
-        });
+        output::json(&machine.status_of(None));
         return;
     }
     match stopped {
@@ -831,7 +844,7 @@ pub(super) fn restart(machine: &Machine<'_>, keep_alive: bool, json: bool) -> Ex
 pub(super) fn status(machine: &Machine<'_>, json: bool) -> ExitCode {
     let daemon = match machine.connect(false, Product::Collie) {
         Ok(Some(mut connected)) => {
-            let status = connected.call::<DaemonStatus>("daemon.status", &serde_json::json!({}));
+            let status = connected.call::<DaemonState>("daemon.status", &serde_json::json!({}));
             connected.close();
             match status {
                 Ok(status) => Some(status),
@@ -843,11 +856,7 @@ pub(super) fn status(machine: &Machine<'_>, json: bool) -> ExitCode {
     };
     let service = machine.files().service().ok().flatten();
     if json {
-        output::json(&DaemonStatusOutput {
-            runtime_file: machine.files().runtime_file().display().to_string(),
-            daemon,
-            service,
-        });
+        output::json(&machine.status_of(daemon.as_ref()));
     } else {
         match &daemon {
             Some(status) => output::line(&format!(
@@ -924,7 +933,7 @@ pub(super) fn health(machine: &Machine<'_>, live: bool, json: bool) -> ExitCode 
     }
 }
 
-fn describe(status: &DaemonStatus) -> String {
+fn describe(status: &DaemonState) -> String {
     let idle = if status.kept_alive {
         "kept alive".to_owned()
     } else {

@@ -263,6 +263,40 @@ describe("testEachScreen", () => {
     expect(errors["screen:/empty"]).toContain("(keyboard_walk_empty)");
   });
 
+  test("fails the case of a screen that scrolls sideways at 320 CSS pixels, or keeps an animation running under reduced motion", async ({
+    processes,
+  }) => {
+    const walk = 'walk = ["button Refresh"]';
+    const cases = await runScreens(processes, [
+      {
+        feature: "screen:/wide",
+        products: ["collie", "foxhound"],
+        setup: `route = "/wide"\nsign_in = "signed-out"\n${walk}`,
+        served: {
+          route: "/wide",
+          screen: { page: "screen-wide", product: "collie", signedIn: false },
+        },
+      },
+      {
+        feature: "screen:/spinning",
+        products: ["collie", "foxhound"],
+        setup: `route = "/spinning"\nsign_in = "signed-out"\n${walk}`,
+        served: {
+          route: "/spinning",
+          screen: { page: "screen-spinning", product: "collie", signedIn: false },
+        },
+      },
+    ]);
+
+    const errors = Object.fromEntries(cases.map(({ title, error }) => [title, error]));
+    expect(cases.map(({ title, status }) => ({ title, status }))).toEqual([
+      { title: "screen:/spinning", status: "failed" },
+      { title: "screen:/wide", status: "failed" },
+    ]);
+    expect(errors["screen:/wide"]).toContain("(horizontal_scroll)");
+    expect(errors["screen:/spinning"]).toContain("(animations_running)");
+  });
+
   test("fails by name a setup whose screen the inventory does not list", async ({ processes }) => {
     const cases = await runScreens(processes, [], ["screen:/gone"]);
 

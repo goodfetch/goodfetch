@@ -201,6 +201,7 @@
     {
       "files": [
         "console/**/*.test.{ts,tsx}",
+        "console/*.spec.ts",
         "console/**/*.stories.tsx",
         "console/tests/**",
         "console/*/tests/**"

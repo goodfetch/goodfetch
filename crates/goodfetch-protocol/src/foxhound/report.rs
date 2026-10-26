@@ -24,6 +24,11 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 /// The warning that a crawl ran with its trap-link detection off.
 pub const TRAP_LINKS_OFF: &str = "trap_links_off";
 
+/// The warning that a Session replacing one a block retired found every
+/// block of the Run's local addresses blocked on its domain, so it rotated
+/// within one (ADR 0044).
+pub const LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK: &str = "local_address_rotated_within_block";
+
 /// The Completeness reason of the URLs learned traps refused (ADR 0005).
 pub const TRAP_PATH: &str = "trap_path";
 /// The Completeness reason of listings paged only by an offset (ADR 0005).
@@ -309,6 +314,12 @@ pub const ENTRIES: Entries = Entries {
             shared_type: SharedType::RunWarningCode,
             name: TRAP_LINKS_OFF,
             description: "The crawl ran with its trap-link detection off.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::RunWarningCode,
+            name: LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK,
+            description: "A Session replacing one a block retired found every block of `egress.local_addresses` blocked on its domain, so it took an address within a blocked block; `sessions` names it.",
             arrived_in: ARRIVED_IN,
         },
         reason(

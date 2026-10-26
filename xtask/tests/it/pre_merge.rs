@@ -56,6 +56,10 @@ const HOST_SETUP: &[&str] = if cfg!(target_os = "linux") {
 /// the OS services' variables it was given to `variables`, and fails with
 /// status 3 when they are `failing`'s content. As `just _gate-plan` it
 /// prints `plan`'s content, the incremental gate's plan, when there is one.
+/// When they are `lingering`'s content, it starts a child, as `just perf`'s
+/// recipe starts `xtask perf build` and its `cargo bench`, its output
+/// thrown away, writes the child's process ID to `descendant` and waits for
+/// it; the failing step then fails only once that child has started.
 fn stand_in_just(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -67,7 +71,17 @@ if [ "$1" = _gate-plan ] && [ -f "{plan}" ]; then
   cat "{plan}"
 fi
 if [ -f "{failing}" ] && [ "$*" = "$(cat "{failing}")" ]; then
+  waited=0
+  while [ -f "{lingering}" ] && [ ! -s "{descendant}" ] && [ $waited -lt 300 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
   exit 3
+fi
+if [ -f "{lingering}" ] && [ "$*" = "$(cat "{lingering}")" ]; then
+  sleep 300 >/dev/null 2>&1 &
+  echo $! >"{descendant}"
+  wait
 fi
 if [ -f "{killing}" ] && [ "$*" = "$(cat "{killing}")" ]; then
   kill -KILL "$PPID"
@@ -79,6 +93,8 @@ fi
         plan = folder.join("plan").display(),
         failing = folder.join("failing").display(),
         killing = folder.join("killing").display(),
+        lingering = folder.join("lingering").display(),
+        descendant = folder.join("descendant").display(),
     );
     let just = folder.join("just");
     std::fs::write(&just, script).unwrap();
@@ -124,13 +140,19 @@ fn pre_merge_with_env(
     );
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/pre-merge.sh");
     let path = format!("{}:/usr/bin:/bin", stand_in.display());
-    let output = workspace
+    // Its output goes to files, not pipes, so a process it leaves behind
+    // holding them cannot keep the run from ending.
+    let stdout = stand_in.join("stdout");
+    let stderr = stand_in.join("stderr");
+    let status = workspace
         .command(script)
         .args(args)
         .env("PATH", path)
         .env("RUNNER_TEMP", workspace.path().join("runner-temp"))
         .envs(variables.iter().copied())
-        .output()
+        .stdout(std::fs::File::create(&stdout).unwrap())
+        .stderr(std::fs::File::create(&stderr).unwrap())
+        .status()
         .unwrap();
     let read = |file: &str| -> Vec<String> {
         std::fs::read_to_string(stand_in.join(file))
@@ -142,15 +164,15 @@ fn pre_merge_with_env(
     let is_gate = |call: &String| call.starts_with("_gate-");
     let (gate, calls) = read("calls").into_iter().partition(is_gate);
     Run {
-        code: output.status.code(),
+        code: status.code(),
         calls,
         gate,
         variables: read("variables")
             .into_iter()
             .filter(|call| !is_gate(call))
             .collect(),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        stdout: String::from_utf8_lossy(&std::fs::read(stdout).unwrap()).into_owned(),
+        stderr: String::from_utf8_lossy(&std::fs::read(stderr).unwrap()).into_owned(),
     }
 }
 
@@ -573,5 +595,50 @@ pre-merge\tpart\ttest-support/typescript\tVitest, Playwright and pytest rerun ev
             .contains(&"_gate-record planned pre-merge fail".to_owned()),
         "{:?}",
         run.gate
+    );
+}
+
+/// Whether the process `id` still runs: a zombie, which has ended and waits
+/// only for its parent to reap it, does not.
+fn runs(id: &str) -> bool {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", id])
+        .output()
+        .unwrap();
+    let state = String::from_utf8_lossy(&output.stdout);
+    output.status.success() && !state.trim().is_empty() && !state.trim().starts_with('Z')
+}
+
+/// A host step that fails first stops each step beside it with every
+/// process that step started, so none goes on building in the workspace
+/// a later gate run uses (fix-queue 102: `xtask perf build` and its
+/// `cargo bench` outlived a stopped `just perf` for 19 minutes).
+#[test]
+fn a_failed_host_step_stops_every_process_a_step_beside_it_started() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("lingering"), "perf").unwrap();
+    std::fs::write(stand_in.join("failing"), "lint").unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    let descendant = std::fs::read_to_string(stand_in.join("descendant")).unwrap();
+    let descendant = descendant.trim();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while runs(descendant) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let survived = runs(descendant);
+    if survived {
+        std::process::Command::new("kill")
+            .arg(descendant)
+            .status()
+            .unwrap();
+    }
+    assert_eq!(run.code, Some(3), "{}", run.stderr);
+    assert!(
+        !survived,
+        "the child of the stopped `just perf` still runs: {}",
+        run.stderr
     );
 }

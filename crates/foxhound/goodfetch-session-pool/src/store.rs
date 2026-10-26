@@ -3,11 +3,12 @@
 //! the Run's) and the position it opened at there, with its proxy tier,
 //! when it opened, its uses, its error score and, once retired, why; and of
 //! each domain key a block moved, with its proxy tier and whether it moved
-//! to the browser tier. The pools read them when their crawl starts or
+//! to the browser tier; and of the local-address blocks a block retired a
+//! Session of on each domain key (ADR 0044). The pools read them when their crawl starts or
 //! resumes, and write what changed since their last write inside one of
 //! the run-state writer's commits.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::run_state::RunStateTables;
@@ -28,6 +29,7 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             uses INTEGER NOT NULL,
             error_score REAL NOT NULL,
             retired_because TEXT,
+            address_ordinal INTEGER,
             PRIMARY KEY (pool, position)
         ) STRICT",
         "CREATE INDEX IF NOT EXISTS pool_sessions_open ON pool_sessions (pool, position)
@@ -36,6 +38,11 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             domain_key TEXT NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL,
             browser INTEGER NOT NULL
+        ) STRICT",
+        "CREATE TABLE IF NOT EXISTS pool_blocked_address_blocks (
+            domain_key TEXT NOT NULL,
+            block TEXT NOT NULL,
+            PRIMARY KEY (domain_key, block)
         ) STRICT",
     ],
 };
@@ -50,6 +57,9 @@ pub(crate) struct StoredSession {
     pub(crate) error_score: f64,
     /// Why it was retired; `None` while it is open.
     pub(crate) retired_because: Option<&'static str>,
+    /// The position of the Run's local-address rotation it took its
+    /// addresses from; `None` without `egress.local_addresses`.
+    pub(crate) address_ordinal: Option<u64>,
 }
 
 /// Where a block moved one domain key.
@@ -78,6 +88,10 @@ pub(crate) struct Stored {
     pub(crate) opened: BTreeMap<PoolKey, u64>,
     /// Each domain key a block moved.
     pub(crate) tiers: BTreeMap<String, StoredTier>,
+    /// The local-address rotation's next position.
+    pub(crate) next_ordinal: u64,
+    /// The address blocks blocked on each domain key.
+    pub(crate) blocked: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// Reads the pools of a run file whose tables exist.
@@ -90,7 +104,8 @@ pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Stored> {
         .collect::<rusqlite::Result<_>>()?;
     let open = connection
         .prepare(
-            "SELECT pool, position, proxy_tier, opened_at, uses, error_score FROM pool_sessions
+            "SELECT pool, position, proxy_tier, opened_at, uses, error_score, address_ordinal
+             FROM pool_sessions
              WHERE retired_because IS NULL ORDER BY pool, position",
         )?
         .query_map([], |row| {
@@ -102,6 +117,7 @@ pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Stored> {
                     uses: unsigned(row.get(4)?),
                     error_score: row.get(5)?,
                     retired_because: None,
+                    address_ordinal: row.get::<_, Option<i64>>(6)?.map(unsigned),
                 },
             ))
         })?
@@ -118,10 +134,26 @@ pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Stored> {
             ))
         })?
         .collect::<rusqlite::Result<_>>()?;
+    let next_ordinal = connection.query_row(
+        "SELECT max(address_ordinal) + 1 FROM pool_sessions",
+        [],
+        |row| row.get::<_, Option<i64>>(0),
+    )?;
+    let mut blocked: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut blocks =
+        connection.prepare("SELECT domain_key, block FROM pool_blocked_address_blocks")?;
+    for row in blocks.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })? {
+        let (domain_key, block) = row?;
+        blocked.entry(domain_key).or_default().insert(block);
+    }
     Ok(Stored {
         open,
         opened,
         tiers,
+        next_ordinal: next_ordinal.map_or(0, unsigned),
+        blocked,
     })
 }
 
@@ -131,12 +163,14 @@ pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Stored> {
 pub struct Changes {
     pub(crate) sessions: BTreeMap<(PoolKey, u64), StoredSession>,
     pub(crate) tiers: BTreeMap<String, StoredTier>,
+    /// The address blocks newly blocked, by domain key.
+    pub(crate) blocked: BTreeSet<(String, String)>,
 }
 
 impl Changes {
     /// Whether nothing changed.
     pub fn is_empty(&self) -> bool {
-        self.sessions.is_empty() && self.tiers.is_empty()
+        self.sessions.is_empty() && self.tiers.is_empty() && self.blocked.is_empty()
     }
 
     /// Writes the changes into the run file, inside the caller's commit.
@@ -147,8 +181,9 @@ impl Changes {
     pub fn write(&self, connection: &Connection) -> rusqlite::Result<()> {
         let mut session = connection.prepare(
             "INSERT INTO pool_sessions
-                (pool, position, proxy_tier, opened_at, uses, error_score, retired_because)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                (pool, position, proxy_tier, opened_at, uses, error_score, retired_because,
+                 address_ordinal)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT (pool, position) DO UPDATE SET
                 uses = excluded.uses,
                 error_score = excluded.error_score,
@@ -168,6 +203,7 @@ impl Changes {
                 integer(stored.uses),
                 stored.error_score,
                 stored.retired_because,
+                stored.address_ordinal.map(integer),
             ))?;
         }
         let mut tier = connection.prepare(
@@ -178,6 +214,12 @@ impl Changes {
         )?;
         for (domain_key, stored) in &self.tiers {
             tier.execute((domain_key, stored.proxy_tier.as_str(), stored.browser))?;
+        }
+        let mut block = connection.prepare(
+            "INSERT OR IGNORE INTO pool_blocked_address_blocks (domain_key, block) VALUES (?1, ?2)",
+        )?;
+        for (domain_key, blocked) in &self.blocked {
+            block.execute((domain_key, blocked))?;
         }
         Ok(())
     }

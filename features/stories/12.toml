@@ -70,6 +70,13 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 15
+title = "As a user, I want a run's page to show its Run report: the three axes with the reasons it is not `verified` or not `complete`, its stop reason (a `resources` stop naming memory or storage and its folder), its Usage against its Limits, its Model allowance apart from its Limits with what remains, when it was reached and the setting and layer that set it, its Plan report, its warnings with their codes, its uncertain Effects, the settings that weakened a safeguard, its policy version, settings with their layers and Plugins, its last Checkpoint, its start and end, why nothing was done when nothing was, and, when it replayed a Response recording, that mark on its row and page with the recording's mode, file, responses used, when they were fetched and every miss, so that I understand how it ended and never read a replayed run as a live one (ADRs 0102, 0105, 0106, 0107, 0116, 0122; pain K05)."
+milestone = "M3 Browser automation"
+journey = true
+status = "active"
+
+[[story]]
 id = 16
 title = "As a developer, I want the `consoleUrl` of a Run report to open that run's page, so that a CI log links straight to what happened (ADR 0102)."
 milestone = "M1 Core"

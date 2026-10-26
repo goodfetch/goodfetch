@@ -1166,7 +1166,12 @@ async fn settle(
         }
         Answer::Handled(handled) => {
             match lease
-                .commit(run.state(), handled.records, run.point_in_time())
+                .commit(
+                    run.state(),
+                    run.secrets().mask().masks(),
+                    handled.records,
+                    run.point_in_time(),
+                )
                 .await
             {
                 Ok(files) => {

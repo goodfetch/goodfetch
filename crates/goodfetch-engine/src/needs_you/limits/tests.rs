@@ -87,6 +87,7 @@ fn stopped() -> RunIndexRow {
             }),
             resets_at: Some(PointInTime::from_rfc3339("2026-10-25T00:00:00Z".to_owned())),
         }))),
+        replayed: false,
     }
 }
 

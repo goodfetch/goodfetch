@@ -122,6 +122,7 @@ CREATE TABLE records (
             committed_at TEXT NOT NULL,
             data TEXT NOT NULL,
             schema_hash TEXT,
+            provenance TEXT NOT NULL,
             PRIMARY KEY (dataset, number)
         ) STRICT;
 CREATE TABLE rejected_records (

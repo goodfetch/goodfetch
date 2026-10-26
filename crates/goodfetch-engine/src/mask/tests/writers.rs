@@ -50,7 +50,7 @@ const WRITERS: &[(&str, usize, &str)] = &[
     (
         "crates/foxhound/goodfetch-dataset/src/lib.rs",
         3,
-        "holds no value: the Datasets a crawl declares (names, schemas, keys), the Records its handlers pushed, and the rejection table's rejected Records with the check's reason and issues (paths into the Record and the schema's messages), the program's own data; masking Secret values in Records and rejected Records is #972's",
+        "masked: the Records a crawl commits, their Provenance and the rejection table's rejected Records with the check's reason and issues are written with every value the Run resolved as its `%name%` (`Scope::Kept`, in `records.rs`, #972); the Datasets a crawl declares (names, schemas, keys) are the program's own declarations",
     ),
     (
         "crates/foxhound/goodfetch-frontier/src/bounds.rs",

@@ -65,6 +65,7 @@ fn row(run_id: &str) -> RunIndexRow {
         presence: Presence::Present,
         progress_message: None,
         stop_reason: None,
+        replayed: false,
     }
 }
 

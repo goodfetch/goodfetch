@@ -3099,6 +3099,57 @@ export interface MemoryReading {
   used: number;
 }
 /**
+ * One kind of a Run's Model allowance (ADR 0107): the most model Usage
+ * of that kind the Run may spend, past which its model calls are refused
+ * while it goes on.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ModelAllowance".
+ */
+export interface ModelAllowance {
+  /**
+   * The currency of a `price` allowance, an ISO 4217 code.
+   */
+  currency?: string | null;
+  /**
+   * Its kind: `price`, `tokens` or `calls`; a kind this reader does not
+   * know is kept as it is.
+   */
+  kind: string;
+  /**
+   * When a model call was first refused under it; none until then.
+   */
+  reached_at?: PointInTime | null;
+  /**
+   * What remains of it, spent and reserved taken off.
+   */
+  remains: number;
+  source: SettingLimit;
+  /**
+   * What it allows: a count, or millionths of the currency.
+   */
+  value: number;
+}
+/**
+ * The setting that set it, its value and its layer.
+ */
+export interface SettingLimit {
+  /**
+   * The setting's key.
+   */
+  key: string;
+  /**
+   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   */
+  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * Its value.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
  * A Run's model calls (ADR 0101).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -4666,6 +4717,11 @@ export interface RunIndexRow {
    */
   progress_message?: string | null;
   /**
+   * Whether it replayed a Response recording (ADR 0105), which marks
+   * its row so that no one reads it as a live run.
+   */
+  replayed: boolean;
+  /**
    * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
@@ -5082,6 +5138,11 @@ export interface RunUsage {
   limits?: AppliedLimit[];
   model: ModelUsage1;
   /**
+   * Its Model allowance, one entry per kind set (ADR 0107): not a Limit,
+   * so apart from `limits`; empty when none is set.
+   */
+  model_allowance?: ModelAllowance[];
+  /**
    * What it used of a Usage kind this engine does not name, kept as the
    * ledger holds it.
    */
@@ -5364,6 +5425,11 @@ export interface RunUsage1 {
    */
   limits?: AppliedLimit[];
   model: ModelUsage1;
+  /**
+   * Its Model allowance, one entry per kind set (ADR 0107): not a Limit,
+   * so apart from `limits`; empty when none is set.
+   */
+  model_allowance?: ModelAllowance[];
   /**
    * What it used of a Usage kind this engine does not name, kept as the
    * ledger holds it.
@@ -5696,6 +5762,29 @@ export interface SetLogLevelParams {
    * it and above; `off`, the default, receives none.
    */
   log_level: "off" | "error" | "warn" | "info" | "debug" | "trace";
+}
+/**
+ * A setting that decided an outcome: its key, its value and the layer that
+ * set it (ADRs 0028 and 0079).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingLimit".
+ */
+export interface SettingLimit1 {
+  /**
+   * The setting's key.
+   */
+  key: string;
+  /**
+   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   */
+  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * Its value.
+   */
+  value: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `config.explain` answers and `config explain --json` prints:

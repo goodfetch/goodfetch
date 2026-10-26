@@ -7,11 +7,22 @@
 //! and HTTP/1.1 origins, and none of `wreq`'s redirects, retries or
 //! content decoding.
 //!
-//! **Trust (ADR 0042):** BoringSSL takes one store of authorities per
-//! client, not a decision per host, so the transport keeps one client per
-//! scope of the engine's [`Trust`] and sends each hop to its host's: the
-//! profile is the same in every scope, so a site cannot tell them apart.
-//! Mozilla's roots come whole from `webpki-root-certs`.
+//! **Trust (ADR 0042, spec #565):** BoringSSL takes one store of
+//! authorities per client, so the transport keeps one client per scope of
+//! the engine's [`Trust`] and sends each hop to its host's: the profile is
+//! the same in every scope, so a site cannot tell them apart. Mozilla's
+//! roots come whole from `webpki-root-certs`. Each client verifies every
+//! certificate during the handshake through Goodfetch's fork of `wreq`
+//! (`ClientBuilder::tls_custom_verify`, BoringSSL's
+//! `SSL_CTX_set_custom_verify`) with the engine's per-host decision, as the
+//! egress relay does (ADR 0124): [`Examiner`] for the default roots and
+//! `tls.trusted_cas`, and [`SharedTrust`] for the exceptions of
+//! `tls.accept_invalid_certs` and their pins. A certificate that fails, or
+//! whose host's exception has not decided yet, ends the handshake before
+//! any byte of the request is sent; the verification leaves its verdict
+//! for the transport, which ends the hop with `certificate_invalid`, or
+//! takes the exception's decision and connects again, or ends it with
+//! `certificate_changed`.
 //!
 //! **Translation point (ADR 0127):** [`classify`] is where `wreq`'s,
 //! `wreq-proto`'s, `http2`'s, BoringSSL's and the OS's failures, and a
@@ -29,12 +40,13 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use goodfetch_engine::egress::Refused;
+use goodfetch_engine::tls::{Decision, Examiner, Presented, SharedTrust, Verdict};
 use goodfetch_protocol::tls::CertificateFailure;
 use http_body_util::BodyExt as _;
 use url::Url;
 
 use super::{
-    AddressCheck, CONNECTED, Http1Origins, MarkConnects, Resolver, TransportConfig,
+    AddressCheck, CONNECTED, DECISIONS, Http1Origins, MarkConnects, Resolver, TransportConfig,
     TransportUnavailable,
 };
 use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
@@ -49,6 +61,10 @@ pub struct Wreq {
     http1: Scopes,
     http1_origins: Http1Origins,
     trust: goodfetch_engine::tls::Trust,
+    /// The per-host decision of its clients' custom verification.
+    decision: SharedTrust,
+    /// The verdicts that verification left for the transport.
+    verdicts: Verdicts,
     resolver: Arc<Resolver>,
 }
 
@@ -88,6 +104,13 @@ impl Wreq {
             .as_ref()
             .map(|proxy| wreq::Proxy::all(proxy.as_str()).map_err(refused))
             .transpose()?;
+        let decision = SharedTrust::new(config.trust.clone(), config.exceptions.clone());
+        let verdicts = Verdicts::default();
+        let verify = custom_verify(
+            decision.clone(),
+            Arc::new(config.trust.examiner()),
+            verdicts.clone(),
+        );
         let mut any = Scopes::new();
         let mut http1 = Scopes::new();
         for scope in config.trust.scopes() {
@@ -107,6 +130,7 @@ impl Wreq {
                             .build(),
                     )
                     .tls_cert_store(store)
+                    .tls_custom_verify(verify.clone())
                     .dns_resolver(Arc::clone(&resolver) as Arc<dyn wreq::dns::Resolve>)
                     .redirect(wreq::redirect::Policy::none())
                     .retry(wreq::retry::Policy::never())
@@ -141,6 +165,8 @@ impl Wreq {
             http1,
             http1_origins: Http1Origins::default(),
             trust: config.trust,
+            decision,
+            verdicts,
             resolver,
         })
     }
@@ -183,8 +209,69 @@ impl Transport for Wreq {
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             self.resolver.before_sending(&hop.url).await?;
+            match hop.url.host_str() {
+                Some(host) if hop.url.scheme() == "https" => {
+                    self.send_to(&tls_host(host), hop, reuse).await
+                }
+                _ => self
+                    .send_once(hop, reuse)
+                    .await
+                    .map_err(|(failure, _)| failure),
+            }
+        })
+    }
+}
+
+impl Wreq {
+    /// Sends `hop` over TLS to `host`, its certificate decided per host
+    /// during each handshake: sent again on a new connection each time its
+    /// handshake stopped for the exception's decision, which
+    /// [`SharedTrust::decide_presented`] then took.
+    async fn send_to(&self, host: &str, hop: &Hop, reuse: Reuse) -> Result<Sent, TransportFailure> {
+        self.decision
+            .before(host)
+            .await
+            .map_err(TransportFailure::CertificateChanged)?;
+        for _ in 0..DECISIONS {
+            let presented = match self.send_once(hop, reuse).await {
+                Ok(mut sent) => {
+                    sent.certificate_exception = self.decision.exception(host);
+                    return Ok(sent);
+                }
+                Err((failure, None)) => return Err(failure),
+                Err((_, Some(presented))) => presented,
+            };
+            match self
+                .decision
+                .decide_presented(host, *presented, false)
+                .await
+            {
+                Decision::Again => {}
+                Decision::Changed(changed) => {
+                    return Err(TransportFailure::CertificateChanged(changed));
+                }
+                // Its clients present no client certificate.
+                Decision::Excepted => return Err(TransportFailure::Tls),
+            }
+        }
+        Err(TransportFailure::Tls)
+    }
+
+    /// Sends `hop` once: its answer, or its failure and, when its handshake
+    /// stopped for its host's exception to decide, the certificate the host
+    /// presented.
+    async fn send_once(
+        &self,
+        hop: &Hop,
+        reuse: Reuse,
+    ) -> Result<Sent, (TransportFailure, Option<Box<Presented>>)> {
+        let host = hop.url.host_str().map(tls_host).unwrap_or_default();
+        let undecided = |failure| (failure, None);
+        {
             // Every scope has its clients, so a host always finds one.
-            let client = self.client(hop, reuse).ok_or(TransportFailure::Other)?;
+            let client = self
+                .client(hop, reuse)
+                .ok_or((TransportFailure::Other, None))?;
             let mut request = client.request(hop.method.clone(), hop.url.as_str());
             for (name, value) in &hop.headers {
                 request = request.header(name, value);
@@ -203,13 +290,27 @@ impl Transport for Wreq {
                 TransportFailure::ConnectionClosed | TransportFailure::ConnectionReset
                     if reused =>
                 {
-                    TransportFailure::ClosedAtReuse
+                    undecided(TransportFailure::ClosedAtReuse)
                 }
                 TransportFailure::Http11Required => {
                     self.http1_origins.insert(&hop.url);
-                    TransportFailure::Http11Required
+                    undecided(TransportFailure::Http11Required)
                 }
-                failure => failure,
+                // The custom verification refused the certificate, and
+                // left its verdict.
+                TransportFailure::CertificateInvalid(failure) => match self.verdicts.take(&host) {
+                    Some(Verdict::Rejected(failure)) => {
+                        undecided(TransportFailure::CertificateInvalid(failure))
+                    }
+                    Some(Verdict::Undecided(presented)) => (
+                        TransportFailure::CertificateInvalid(failure),
+                        Some(Box::new(presented)),
+                    ),
+                    Some(Verdict::Passes) | None => {
+                        undecided(TransportFailure::CertificateInvalid(failure))
+                    }
+                },
+                failure => undecided(failure),
             })?;
             let headers = response
                 .headers()
@@ -232,8 +333,78 @@ impl Transport for Wreq {
                 decoded: false,
                 certificate_exception: None,
             })
-        })
+        }
     }
+}
+
+/// `host`, a URL's, as `wreq` names the host of its connections: an IPv6
+/// address without its brackets.
+fn tls_host(host: &str) -> String {
+    host.strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host)
+        .to_owned()
+}
+
+/// The verdicts the custom verification left for the transport, by host:
+/// each refused certificate's, read once its handshake failed. Clones
+/// share them.
+#[derive(Clone, Debug, Default)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "BoringSSL's verification callback is synchronous and cannot await: the map is read or written in one step, never across an `.await` or another lock, so there is no lock order to test under loom (ADR 0060)"
+)]
+struct Verdicts(Arc<std::sync::Mutex<BTreeMap<String, Verdict>>>);
+
+impl Verdicts {
+    fn verdicts(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Verdict>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn leave(&self, host: &str, verdict: Verdict) {
+        self.verdicts().insert(host.to_owned(), verdict);
+    }
+
+    fn take(&self, host: &str) -> Option<Verdict> {
+        self.verdicts().remove(host)
+    }
+}
+
+/// The custom verification of every client of one transport: the engine's
+/// decision on the chain each host presents, during the handshake. A
+/// refused chain ends the handshake, its verdict left in `verdicts`.
+fn custom_verify(
+    decision: SharedTrust,
+    examiner: Arc<Examiner>,
+    verdicts: Verdicts,
+) -> wreq::tls::CustomVerify {
+    wreq::tls::CustomVerify::new(move |host, ssl| {
+        let chain: Vec<Vec<u8>> = ssl
+            .peer_cert_chain()
+            .map(|chain| {
+                chain
+                    .iter()
+                    .filter_map(|certificate| certificate.to_der().ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let verdict = match examiner.examine(host, &chain) {
+            // Its clients present no client certificate.
+            Ok(presented) => decision.verdict(host, presented, false),
+            Err(_) => Verdict::Rejected(CertificateFailure::Unrecognized(
+                "unreadable_certificate".to_owned(),
+            )),
+        };
+        if verdict == Verdict::Passes {
+            return Ok(());
+        }
+        verdicts.leave(host, verdict);
+        Err(wreq::tls::SslVerifyError::Invalid(
+            wreq::tls::SslAlert::BAD_CERTIFICATE,
+        ))
+    })
 }
 
 /// A `wreq` answer's body.

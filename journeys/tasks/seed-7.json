@@ -642,6 +642,14 @@
       "start_url": "http://8.extraction.test/content-modes"
     },
     {
+      "description": "Crawl every page the index links and return one Record per page with the fields `id` (the path the index links, before any redirect) and, as JSON arrays in document order: `links`, each `<a href>` and `<area href>` as `{ \"url\", \"href\", \"text\", \"rel\" }`; `images`, each `<img src>` as `{ \"url\", \"src\", \"alt\" }`; `media`, each `<video>` and `<audio>` source as `{ \"url\", \"src\", \"kind\" (\"video\" or \"audio\"), \"type\" }`; and `tables`, each table as `{ \"caption\", \"header_rows\", \"body_rows\" }`, a row a list of its cells' text, a row's header its first cell. `href` and `src` are as the page writes them, character references decoded; `url` is that value resolved against the document's base URL (its `<base href>`, else its URL after redirects) by the WHATWG URL Standard, `null` when it does not parse; `alt`, `type` and `caption` are `null` when absent; text has its white space collapsed. Each field is judged as a JSON value.",
+      "digest": "48a582c4ee0519e0432cc5bb8455ac36ddc876467f61781eeaaa44356cbd1d55",
+      "family": "extraction",
+      "id": "extraction/9",
+      "kind": "crawl",
+      "start_url": "http://9.extraction.test/references"
+    },
+    {
       "description": "Crawl every page the index links and return one Record per page, with the fields `id` (the last segment of its path), `title` and `text`, the text each page shows, in UTF-8.",
       "digest": "c90e4d77687aa5a788422ad11133166d9a6cc2818170b39e4e24fcf8b8bd9734",
       "family": "encodings",

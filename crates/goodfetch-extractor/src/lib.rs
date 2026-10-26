@@ -9,13 +9,16 @@
 //! Collie page and a Foxhound handler's page read alike (ADRs 0087, 0088).
 
 mod blocks;
+mod character_references;
 mod extractor;
 mod formats;
 mod light;
 mod main_content;
 mod markdown;
+mod references;
 mod shadow;
 mod signature;
+mod tables;
 
 pub use extractor::{BuiltIn, Extractor};
 pub use formats::{

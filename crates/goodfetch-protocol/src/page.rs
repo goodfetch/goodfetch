@@ -30,7 +30,8 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema, schema_for};
+use schemars::generate::SchemaSettings;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -1217,6 +1218,109 @@ pub struct FormatsRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub text: Option<Asked>,
+    /// The page's links, each with its URL resolved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub links: Option<Asked>,
+    /// The page's images, each with its URL resolved and its `alt`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub images: Option<Asked>,
+    /// The page's video and audio sources, each with its URL resolved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub media: Option<Asked>,
+    /// The page's tables, as rows of cells.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub tables: Option<Asked>,
+}
+
+/// A link of the page: an `<a href>` or `<area href>`, in document order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Link {
+    /// Its `href` resolved against the document's base URL by the WHATWG
+    /// URL Standard; `null` when it does not parse.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: Option<String>,
+    /// Its `href` as the document writes it, its character references
+    /// decoded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub href: String,
+    /// Its text, white space collapsed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub text: String,
+    /// The tokens of its `rel`, as written; empty when it has none.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub rel: Vec<String>,
+}
+
+/// An image of the page: an `<img src>`, in document order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Image {
+    /// Its `src` resolved against the document's base URL; `null` when it
+    /// does not parse.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: Option<String>,
+    /// Its `src` as the document writes it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub src: String,
+    /// Its `alt`: empty for an image marked decorative, `null` when it has
+    /// none.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub alt: Option<String>,
+}
+
+/// Whether a media source plays video or audio.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaKind {
+    /// A `<video>`'s, its own `src` or one of its `<source>`s.
+    Video,
+    /// An `<audio>`'s, its own `src` or one of its `<source>`s.
+    Audio,
+}
+
+/// A media source of the page: a `<video src>`, an `<audio src>` or a
+/// `<source src>` of either, in document order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Media {
+    /// Its `src` resolved against the document's base URL; `null` when it
+    /// does not parse.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: Option<String>,
+    /// Its `src` as the document writes it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub src: String,
+    /// Whether it plays video or audio.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub kind: MediaKind,
+    /// Its `type`, the MIME type a `<source>` declares; `null` when it has
+    /// none.
+    #[serde(rename = "type")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub media_type: Option<String>,
+}
+
+/// A table of the page, in document order, a table inside another listed
+/// on its own: each row its cells' text, white space collapsed, a row's
+/// header kept as its first cell.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Table {
+    /// Its `<caption>`'s text; `null` when it has none.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub caption: Option<String>,
+    /// Its header rows: its `<thead>`'s, else the rows it begins with whose
+    /// cells are all `<th>`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub header_rows: Vec<Vec<String>>,
+    /// Its other rows, its `<tfoot>`'s last.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub body_rows: Vec<Vec<String>>,
 }
 
 /// What `page.formats` takes: the page, and the formats it asks for.
@@ -1269,15 +1373,36 @@ pub struct PageFormats {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String", extend("arrived_in" = "0.1"))]
     pub text: Option<String>,
+    /// Its links, when the request asked for them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Vec<Link>", extend("arrived_in" = "0.1"))]
+    pub links: Option<Vec<Link>>,
+    /// Its images, when the request asked for them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Vec<Image>", extend("arrived_in" = "0.1"))]
+    pub images: Option<Vec<Image>>,
+    /// Its media sources, when the request asked for them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Vec<Media>", extend("arrived_in" = "0.1"))]
+    pub media: Option<Vec<Media>>,
+    /// Its tables, when the request asked for them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Vec<Table>", extend("arrived_in" = "0.1"))]
+    pub tables: Option<Vec<Table>>,
 }
 
 /// The JSON Schema of what `page.formats` answers to `request`: the
 /// result's envelope and each format it asks for, all required, and no
 /// other property, so a code-free crawl writes its Dataset's schema from
-/// the request alone (ADR 0103). Derived from [`PageFormats`]' own schema.
+/// the request alone (ADR 0103). Derived from [`PageFormats`]' own schema
+/// as the engine writes it, so a field that may be `null`, such as a
+/// link's URL, is still required.
 pub fn page_formats_schema(request: &FormatsRequest) -> Value {
-    let mut schema =
-        serde_json::to_value(schema_for!(PageFormats)).expect("invariant: a JSON Schema is JSON");
+    let written = SchemaSettings::draft2020_12()
+        .for_serialize()
+        .into_generator()
+        .into_root_schema_for::<PageFormats>();
+    let mut schema = serde_json::to_value(written).expect("invariant: a JSON Schema is JSON");
     let Ok(Value::Object(asked)) = serde_json::to_value(request) else {
         unreachable!("invariant: a formats request serializes as an object");
     };

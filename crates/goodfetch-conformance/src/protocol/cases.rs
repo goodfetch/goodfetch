@@ -95,6 +95,8 @@ pub(crate) enum Case {
     EveryFormMatchesTheOracle,
     RawHtmlIsContentBeforeTheRules,
     FormatsDefaultsAndUnknownOptions,
+    /// A links, images, media and tables case (#786).
+    References(formats::references::Case),
     /// A `content.extractor` case (#788).
     Extractor(formats::extractor::Case),
     HeadlessIdentity,
@@ -434,6 +436,7 @@ impl Case {
                     .or_else(|| page_functions::Case::from_id(id).map(Self::PageFunction))
                     .or_else(|| waits::Case::from_id(id).map(Self::Wait))
                     .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt))
+                    .or_else(|| formats::references::Case::from_id(id).map(Self::References))
                     .or_else(|| formats::extractor::Case::from_id(id).map(Self::Extractor));
             }
         })
@@ -529,6 +532,7 @@ impl Case {
             Self::FormatsDefaultsAndUnknownOptions => {
                 formats::content_modes::defaults_and_unknown_options(connection, site, checks)
             }
+            Self::References(case) => case.run(connection, site, checks),
             Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
             Self::BackgroundTimer => launch::background_timer(connection, site, checks),
             Self::ClickWaitsOutACover => guard::lands(

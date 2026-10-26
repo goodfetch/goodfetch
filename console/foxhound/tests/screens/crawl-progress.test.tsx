@@ -6,8 +6,12 @@
 // setting behind the wait, each sitemap seed's progress, whether a
 // keep-alive crawl is idle, its handlers against their concurrency, the
 // Resource governor's level and the program's status message.
-import type { RunProgress, RunProgressParams } from "@goodfetch/collie-client/generated";
-import type { ConsoleClient, PageVisibility } from "@goodfetch/console/client";
+import type {
+  RunProgress,
+  RunProgressParams,
+  SettingLimit,
+} from "@goodfetch/collie-client/generated";
+import type { ConsoleClient, ConsoleOperations, PageVisibility } from "@goodfetch/console/client";
 import { createConsoleClient } from "@goodfetch/console/client";
 import type { RunView } from "@goodfetch/console/console-build";
 import { ConsoleI18n } from "@goodfetch/console/i18n";
@@ -28,7 +32,10 @@ const visible: PageVisibility = { visible: true, watch: () => () => {} };
 
 const RUN_ID = "crawl-run";
 
-function clientOf(adapter: ProtocolAdapter<FoxhoundConsoleOperations>): ConsoleClient {
+/** The operations a crawl run's page calls: every Run's, with Foxhound's own. */
+type CrawlPageOperations = ConsoleOperations & FoxhoundConsoleOperations;
+
+function clientOf(adapter: ProtocolAdapter<CrawlPageOperations>): ConsoleClient {
   return createConsoleClient({
     transport: adapter.transport,
     bodyFetcher: adapter.bodyFetcher,
@@ -45,8 +52,18 @@ function progressView(): RunView {
   return view;
 }
 
+/** A setting's value as the engine sends it. */
+function settingValue(value: number): SettingLimit["value"] {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a setting's value is any JSON value, which the generated type writes as an object.
+  return value as unknown as SettingLimit["value"];
+}
+
 /** A crawl's progress at `position`, with `parts` beside every Run's. */
-function progressOf(position: number, parts: CrawlParts, last = false): RunProgress {
+function progressOf(
+  position: number,
+  parts: CrawlParts & Pick<RunProgress, "message">,
+  last = false,
+): RunProgress {
   return {
     run_id: RUN_ID,
     position,
@@ -99,7 +116,7 @@ class ProgressFeed {
 }
 
 async function show(feed: ProgressFeed | ReturnType<typeof failure>): Promise<ConsoleClient> {
-  const adapter = createProtocolAdapter<FoxhoundConsoleOperations>({ product: "foxhound" });
+  const adapter = createProtocolAdapter<CrawlPageOperations>({ product: "foxhound" });
   adapter.answer("run.progress", feed instanceof ProgressFeed ? feed.answer : feed);
   const client = clientOf(adapter);
   await render(<ConsoleI18n>{progressView().content({ client, runId: RUN_ID })}</ConsoleI18n>);
@@ -149,14 +166,14 @@ const WAITING: CrawlParts = {
       reason: "domain_delay",
       count: 3,
       domains: [{ domain: "pacing.test", next_admitted_at: "2026-10-24T09:00:02Z" }],
-      setting: { key: "politeness.domain.delay", value: 2000, layer: "run" },
+      setting: { key: "politeness.domain.delay", value: settingValue(2000), layer: "run" },
     },
     {
       reason: "domain_concurrency",
       count: 12,
       domains: [{ domain: "shop.test" }],
       more_domains: 4,
-      setting: { key: "politeness.domain.concurrency", value: 1, layer: "default" },
+      setting: { key: "politeness.domain.concurrency", value: settingValue(1), layer: "default" },
     },
     { reason: "governor", count: 2, domains: [] },
     { reason: "a_newer_reason", count: 1, domains: [] },

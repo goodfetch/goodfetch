@@ -19,6 +19,7 @@
 //! links it (STYLE.md, reason 2).
 
 mod admit;
+pub mod backoff_classes;
 mod bounds;
 mod domain_key;
 mod forms;

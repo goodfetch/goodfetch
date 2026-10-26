@@ -149,6 +149,17 @@ command = "example"
 [settings.secret_providers.vault]
 address = "example"
 
+[settings.secret_providers.aws_sm]
+region = "example"
+endpoint = "example"
+
+[settings.secret_providers.gcp_sm]
+endpoint = "example"
+
+[settings.secret_providers.azure_kv]
+endpoint = "example"
+authority = "example"
+
 [settings.security]
 field_encryption = true
 secure_delete = true

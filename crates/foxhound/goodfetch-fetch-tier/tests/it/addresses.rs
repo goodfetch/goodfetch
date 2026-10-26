@@ -500,7 +500,7 @@ mod linux {
 
     use goodfetch_engine::clock::Clock;
     use goodfetch_engine::dns::ResolverConfiguration;
-    use goodfetch_engine::tls::Trust;
+    use goodfetch_engine::tls::{CertificateExceptions, Trust};
     use goodfetch_fetch_tier::{Hop, Reuse, TransportConfig, TransportFailure};
     use goodfetch_test_support::{DnsNamespace, ProvingGround, TestEnv};
     use rstest::rstest;
@@ -567,6 +567,8 @@ mod linux {
             stack,
             TransportConfig {
                 trust: Trust::default_roots(),
+                exceptions: CertificateExceptions::default(),
+                client_certificates: None,
                 proxy: None,
                 resolve: Vec::new(),
                 egress: policy(&every_host(), &[public.to_string()]),

@@ -52,6 +52,8 @@ import {
   TRIGGER_NAMES,
   VERDICT_NAMES,
 } from "./names.ts";
+import { Form } from "#form.tsx";
+import { ScrollRegion } from "#scroll-region.tsx";
 
 /** What the screen read of the Run index. */
 export type Listed =
@@ -249,201 +251,198 @@ function FilterForm({
     onFilter(filterOfForm(new FormData(event.currentTarget)));
   };
   return (
-    <form
-      role="search"
-      aria-label={t`Filter runs`}
-      onSubmit={submit}
-      className="flex flex-col gap-3 rounded-lg border p-4"
-    >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Field id={`${id}-text`} label={<Trans>Search</Trans>}>
-          <input
-            id={`${id}-text`}
-            name="text"
-            type="search"
-            defaultValue={filter.text ?? ""}
-            className={controlClassName}
-          />
-        </Field>
-        <Field id={`${id}-lifecycle`} label={<Trans>Lifecycle</Trans>}>
-          <Choice
-            id={`${id}-lifecycle`}
-            name="lifecycle"
-            values={LIFECYCLES}
-            nameOf={(value) => i18n._(LIFECYCLE_NAMES[value])}
-            value={filter.lifecycle}
-            any={t`Any`}
-          />
-        </Field>
-        <Field id={`${id}-verdict`} label={<Trans>Verdict</Trans>}>
-          <Choice
-            id={`${id}-verdict`}
-            name="verdict"
-            values={VERDICTS}
-            nameOf={(value) => i18n._(VERDICT_NAMES[value])}
-            value={filter.verdict}
-            any={t`Any`}
-          />
-        </Field>
-        <Field id={`${id}-completeness`} label={<Trans>Completeness</Trans>}>
-          <Choice
-            id={`${id}-completeness`}
-            name="completeness"
-            values={COMPLETENESSES}
-            nameOf={(value) => i18n._(COMPLETENESS_NAMES[value])}
-            value={filter.completeness}
-            any={t`Any`}
-          />
-        </Field>
-        <Field id={`${id}-tags`} label={<Trans>Tags</Trans>}>
-          <input
-            id={`${id}-tags`}
-            name="tags"
-            type="text"
-            defaultValue={(filter.tags ?? []).join(", ")}
-            aria-describedby={`${id}-tags-hint`}
-            className={controlClassName}
-          />
-          <p id={`${id}-tags-hint`} className="text-sm text-muted-foreground">
-            <Trans>Separated by commas; a run carries every one.</Trans>
-          </p>
-        </Field>
-        <Field id={`${id}-sort`} label={<Trans>Sort by</Trans>}>
-          <Choice
-            id={`${id}-sort`}
-            name="sort"
-            values={SORT_KEYS}
-            nameOf={(value) => i18n._(SORT_KEY_NAMES[value])}
-            value={filter.sort}
-          />
-        </Field>
-        <Field id={`${id}-order`} label={<Trans>Order</Trans>}>
-          <Choice
-            id={`${id}-order`}
-            name="order"
-            values={ORDERS}
-            nameOf={(value) => i18n._(ORDER_NAMES[value])}
-            value={filter.order}
-          />
-        </Field>
-      </div>
-      <button
-        type="button"
-        aria-expanded={more}
-        aria-controls={`${id}-more`}
-        onClick={() => setMore((open) => !open)}
-        className="self-start rounded-sm font-medium underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
-      >
-        <Trans>More filters</Trans>
-      </button>
-      {/* Hidden, its fields are still the form's, so a filter they hold is kept. */}
-      <div id={`${id}-more`} hidden={!more}>
+    <search aria-label={t`Filter runs`}>
+      <Form onSubmit={submit} className="flex flex-col gap-3 rounded-lg border p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Field id={`${id}-recipe`} label={<Trans>Recipe</Trans>}>
+          <Field id={`${id}-text`} label={<Trans>Search</Trans>}>
             <input
-              id={`${id}-recipe`}
-              name="recipe"
-              type="text"
-              defaultValue={filter.recipe ?? ""}
+              id={`${id}-text`}
+              name="text"
+              type="search"
+              defaultValue={filter.text ?? ""}
               className={controlClassName}
             />
           </Field>
-          <Field id={`${id}-schedule`} label={<Trans>Schedule</Trans>}>
-            <input
-              id={`${id}-schedule`}
-              name="schedule"
-              type="text"
-              defaultValue={filter.schedule ?? ""}
-              className={controlClassName}
-            />
-          </Field>
-          <Field id={`${id}-occurrence`} label={<Trans>Occurrence</Trans>}>
-            <input
-              id={`${id}-occurrence`}
-              name="occurrence"
-              type="text"
-              defaultValue={filter.occurrence ?? ""}
-              className={controlClassName}
-            />
-          </Field>
-          <Field id={`${id}-trigger`} label={<Trans>Trigger</Trans>}>
+          <Field id={`${id}-lifecycle`} label={<Trans>Lifecycle</Trans>}>
             <Choice
-              id={`${id}-trigger`}
-              name="trigger"
-              values={TRIGGERS}
-              nameOf={(value) => i18n._(TRIGGER_NAMES[value])}
-              value={filter.trigger}
+              id={`${id}-lifecycle`}
+              name="lifecycle"
+              values={LIFECYCLES}
+              nameOf={(value) => i18n._(LIFECYCLE_NAMES[value])}
+              value={filter.lifecycle}
               any={t`Any`}
             />
           </Field>
-          <Field id={`${id}-product`} label={<Trans>Product</Trans>}>
+          <Field id={`${id}-verdict`} label={<Trans>Verdict</Trans>}>
             <Choice
-              id={`${id}-product`}
-              name="product"
-              values={PRODUCTS}
-              nameOf={(value) => PRODUCT_NAMES[value]}
-              value={filter.product}
+              id={`${id}-verdict`}
+              name="verdict"
+              values={VERDICTS}
+              nameOf={(value) => i18n._(VERDICT_NAMES[value])}
+              value={filter.verdict}
               any={t`Any`}
             />
           </Field>
-          <Field id={`${id}-started-from`} label={<Trans>Started from</Trans>}>
-            <input
-              id={`${id}-started-from`}
-              name="started_from"
-              type="datetime-local"
-              defaultValue={localValueOf(filter.started?.from)}
-              className={controlClassName}
+          <Field id={`${id}-completeness`} label={<Trans>Completeness</Trans>}>
+            <Choice
+              id={`${id}-completeness`}
+              name="completeness"
+              values={COMPLETENESSES}
+              nameOf={(value) => i18n._(COMPLETENESS_NAMES[value])}
+              value={filter.completeness}
+              any={t`Any`}
             />
           </Field>
-          <Field id={`${id}-started-until`} label={<Trans>Started before</Trans>}>
+          <Field id={`${id}-tags`} label={<Trans>Tags</Trans>}>
             <input
-              id={`${id}-started-until`}
-              name="started_until"
-              type="datetime-local"
-              defaultValue={localValueOf(filter.started?.until)}
+              id={`${id}-tags`}
+              name="tags"
+              type="text"
+              defaultValue={(filter.tags ?? []).join(", ")}
+              aria-describedby={`${id}-tags-hint`}
               className={controlClassName}
             />
+            <p id={`${id}-tags-hint`} className="text-sm text-muted-foreground">
+              <Trans>Separated by commas; a run carries every one.</Trans>
+            </p>
           </Field>
-          <Field id={`${id}-ended-from`} label={<Trans>Ended from</Trans>}>
-            <input
-              id={`${id}-ended-from`}
-              name="ended_from"
-              type="datetime-local"
-              defaultValue={localValueOf(filter.ended?.from)}
-              className={controlClassName}
+          <Field id={`${id}-sort`} label={<Trans>Sort by</Trans>}>
+            <Choice
+              id={`${id}-sort`}
+              name="sort"
+              values={SORT_KEYS}
+              nameOf={(value) => i18n._(SORT_KEY_NAMES[value])}
+              value={filter.sort}
             />
           </Field>
-          <Field id={`${id}-ended-until`} label={<Trans>Ended before</Trans>}>
-            <input
-              id={`${id}-ended-until`}
-              name="ended_until"
-              type="datetime-local"
-              defaultValue={localValueOf(filter.ended?.until)}
-              className={controlClassName}
+          <Field id={`${id}-order`} label={<Trans>Order</Trans>}>
+            <Choice
+              id={`${id}-order`}
+              name="order"
+              values={ORDERS}
+              nameOf={(value) => i18n._(ORDER_NAMES[value])}
+              value={filter.order}
             />
           </Field>
-          <div className="flex items-center gap-2">
-            <input
-              id={`${id}-watch-runs`}
-              name="watch_runs"
-              type="checkbox"
-              value="true"
-              defaultChecked={filter.watch_runs === true}
-            />
-            <label htmlFor={`${id}-watch-runs`}>
-              <Trans>Show Watch runs</Trans>
-            </label>
+        </div>
+        <button
+          type="button"
+          aria-expanded={more}
+          aria-controls={`${id}-more`}
+          onClick={() => setMore((open) => !open)}
+          className="self-start rounded-sm font-medium underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <Trans>More filters</Trans>
+        </button>
+        {/* Hidden, its fields are still the form's, so a filter they hold is kept. */}
+        <div id={`${id}-more`} hidden={!more}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Field id={`${id}-recipe`} label={<Trans>Recipe</Trans>}>
+              <input
+                id={`${id}-recipe`}
+                name="recipe"
+                type="text"
+                defaultValue={filter.recipe ?? ""}
+                className={controlClassName}
+              />
+            </Field>
+            <Field id={`${id}-schedule`} label={<Trans>Schedule</Trans>}>
+              <input
+                id={`${id}-schedule`}
+                name="schedule"
+                type="text"
+                defaultValue={filter.schedule ?? ""}
+                className={controlClassName}
+              />
+            </Field>
+            <Field id={`${id}-occurrence`} label={<Trans>Occurrence</Trans>}>
+              <input
+                id={`${id}-occurrence`}
+                name="occurrence"
+                type="text"
+                defaultValue={filter.occurrence ?? ""}
+                className={controlClassName}
+              />
+            </Field>
+            <Field id={`${id}-trigger`} label={<Trans>Trigger</Trans>}>
+              <Choice
+                id={`${id}-trigger`}
+                name="trigger"
+                values={TRIGGERS}
+                nameOf={(value) => i18n._(TRIGGER_NAMES[value])}
+                value={filter.trigger}
+                any={t`Any`}
+              />
+            </Field>
+            <Field id={`${id}-product`} label={<Trans>Product</Trans>}>
+              <Choice
+                id={`${id}-product`}
+                name="product"
+                values={PRODUCTS}
+                nameOf={(value) => PRODUCT_NAMES[value]}
+                value={filter.product}
+                any={t`Any`}
+              />
+            </Field>
+            <Field id={`${id}-started-from`} label={<Trans>Started from</Trans>}>
+              <input
+                id={`${id}-started-from`}
+                name="started_from"
+                type="datetime-local"
+                defaultValue={localValueOf(filter.started?.from)}
+                className={controlClassName}
+              />
+            </Field>
+            <Field id={`${id}-started-until`} label={<Trans>Started before</Trans>}>
+              <input
+                id={`${id}-started-until`}
+                name="started_until"
+                type="datetime-local"
+                defaultValue={localValueOf(filter.started?.until)}
+                className={controlClassName}
+              />
+            </Field>
+            <Field id={`${id}-ended-from`} label={<Trans>Ended from</Trans>}>
+              <input
+                id={`${id}-ended-from`}
+                name="ended_from"
+                type="datetime-local"
+                defaultValue={localValueOf(filter.ended?.from)}
+                className={controlClassName}
+              />
+            </Field>
+            <Field id={`${id}-ended-until`} label={<Trans>Ended before</Trans>}>
+              <input
+                id={`${id}-ended-until`}
+                name="ended_until"
+                type="datetime-local"
+                defaultValue={localValueOf(filter.ended?.until)}
+                className={controlClassName}
+              />
+            </Field>
+            <div className="flex items-center gap-2">
+              <input
+                id={`${id}-watch-runs`}
+                name="watch_runs"
+                type="checkbox"
+                value="true"
+                defaultChecked={filter.watch_runs === true}
+              />
+              <label htmlFor={`${id}-watch-runs`}>
+                <Trans>Show Watch runs</Trans>
+              </label>
+            </div>
           </div>
         </div>
-      </div>
-      <button
-        type="submit"
-        disabled={readOnly}
-        className="self-start rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
-      >
-        <Trans>Apply</Trans>
-      </button>
-    </form>
+        <button
+          type="submit"
+          disabled={readOnly}
+          className="self-start rounded-md bg-primary px-3 py-1.5 font-medium text-primary-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
+        >
+          <Trans>Apply</Trans>
+        </button>
+      </Form>
+    </search>
   );
 }
 
@@ -561,19 +560,13 @@ function RunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): ReactNod
   const { t } = useLingui();
   if (runs.length === 0) {
     return (
-      <p role="status" className="text-muted-foreground">
+      <output className="block text-muted-foreground">
         <Trans>No run matches this filter.</Trans>
-      </p>
+      </output>
     );
   }
   return (
-    // A scrolled region a keyboard can reach and scroll (WCAG 2.1.1).
-    <div
-      role="region"
-      aria-label={t`Runs, scrollable`}
-      tabIndex={0}
-      className="overflow-x-auto rounded-sm focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
-    >
+    <ScrollRegion label={t`Runs, scrollable`}>
       <table aria-label={t`Runs`} className="w-full border-collapse text-start">
         <thead>
           <tr className="border-b">
@@ -618,7 +611,7 @@ function RunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): ReactNod
           ))}
         </tbody>
       </table>
-    </div>
+    </ScrollRegion>
   );
 }
 
@@ -627,9 +620,9 @@ function ListedRuns({ listed }: { readonly listed: Listed }): ReactNode {
   switch (listed.kind) {
     case "reading":
       return (
-        <p role="status">
+        <output className="block">
           <Trans>Reading the runs…</Trans>
-        </p>
+        </output>
       );
     case "failed":
       return (
@@ -645,12 +638,12 @@ function ListedRuns({ listed }: { readonly listed: Listed }): ReactNode {
     case "cached":
       return (
         <>
-          <p role="status">
+          <output className="block">
             <Trans>
               This browser's offline copy of the runs it last listed, newest first: the filter
               applies, and every run shows, once the Console reconnects.
             </Trans>
-          </p>
+          </output>
           <RunTable runs={listed.runs} />
         </>
       );

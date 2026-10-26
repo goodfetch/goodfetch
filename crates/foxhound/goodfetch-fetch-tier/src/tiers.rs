@@ -40,7 +40,9 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
-use goodfetch_engine::tls::Trust;
+use goodfetch_engine::tls::{
+    CertificateExceptions, ClientCertificates, ExceptionKind, ExceptionUsed, PinBook, trusted_cas,
+};
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, Reader,
@@ -55,6 +57,9 @@ use goodfetch_protocol::foxhound::fetch::{
 use goodfetch_protocol::foxhound::frontier::CRAWL_REQUEST_LINKS;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::provenance::{
+    CertificateExceptionKind, CertificateExceptionMark,
+};
+use goodfetch_protocol::foxhound::provenance::{
     EncodingProvenance, EncodingSource, ForcedBy, TierChosen, TierProvenance,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -65,6 +70,7 @@ use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, NETWORK_RESOLVE, SETTING_INVALID,
     SettingInvalidDetails, SettingsLayer,
 };
+use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_CLIENT_CERTIFICATES, TLS_TRUSTED_CAS};
 use url::Url;
 
 use crate::canonical::canonical;
@@ -201,6 +207,9 @@ struct ServedPage {
     /// The response of its crawl request's own document and its body,
     /// stored in the Run's folder only once `response.body` asks for it.
     own: Option<(PageResponse, Bytes)>,
+    /// The invalid-certificate exception its document's host was reached
+    /// through (ADR 0042).
+    certificate_exception: Option<CertificateExceptionMark>,
 }
 
 /// A document a fetch answered, read as a served page holds it: its text,
@@ -455,11 +464,28 @@ impl FetchTiers {
     /// # Errors
     ///
     /// A message when the transport cannot be built: the system's resolver
-    /// configuration or the Session's egress policy cannot be read.
-    pub fn built(run: &Run, settings: &Resolved) -> Result<HttpTier, String> {
+    /// configuration, the Session's egress policy or `tls.client_certificates`
+    /// cannot be read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the tier.
+    pub async fn built(run: &Run, settings: &Resolved) -> Result<HttpTier, String> {
         let egress = Policy::of(settings).map_err(|error| error.to_string())?;
+        let trust = trusted_cas(settings.value(TLS_TRUSTED_CAS.name), run.owner()).await;
+        let client_certificates = ClientCertificates::listed(
+            settings.value(TLS_CLIENT_CERTIFICATES.name),
+            run.secrets().clone(),
+            settings
+                .get(TLS_CLIENT_CERTIFICATES.name)
+                .map(|effective| effective.layer),
+            Some(run.id().clone()),
+        )
+        .map_err(|error| error.to_string())?;
         let transport = Reqwest::new(TransportConfig {
-            trust: Trust::default_roots(),
+            trust,
+            exceptions: exceptions_of(run, settings),
+            client_certificates: Some(client_certificates),
             proxy: None,
             resolve: settings.hosts(NETWORK_RESOLVE.name),
             egress: egress.clone(),
@@ -597,6 +623,7 @@ impl FetchTiers {
             fetched.headers.clone(),
             Bytes::from(fetched.body.clone()),
         );
+        let certificate_exception = fetched.certificate_exception.as_ref().map(mark);
         let opened = Opened::of(run, fetched, hand_over.encoding);
         // A document only a guess could read is never served: under a
         // forced tier it fails, and under `auto` its page escalates before
@@ -635,6 +662,7 @@ impl FetchTiers {
                 not_document: opened.not_document.clone(),
                 read: opened.read,
                 own: Some((response, body)),
+                certificate_exception,
             },
         );
         pages.opened(&page_id, opened);
@@ -684,6 +712,17 @@ impl FetchTiers {
                 encoding: read.encoding.name().to_owned(),
                 source: Some(read.source.provenance()),
             })
+    }
+
+    /// The invalid-certificate exception the host of the served page
+    /// `page_id`'s document was reached through, as Provenance marks it
+    /// (ADR 0042, pitfall H03); `None` when its certificate verified, or
+    /// once it closed.
+    pub fn certificate_exception(&self, page_id: &PageId) -> Option<CertificateExceptionMark> {
+        lock(&self.served.pages)
+            .open
+            .get(page_id)
+            .and_then(|page| page.certificate_exception.clone())
     }
 
     /// The URL, the page signature and the `rel=canonical` of the served
@@ -1476,4 +1515,38 @@ fn base_href(html: &str) -> Option<String> {
     let document = dom_query::Document::from(html);
     let base = document.select("base[href]");
     base.attr("href").map(|href| href.to_string())
+}
+
+/// The Provenance mark of the exception `used`.
+fn mark(used: &ExceptionUsed) -> CertificateExceptionMark {
+    CertificateExceptionMark {
+        kind: match used.kind {
+            ExceptionKind::Any => CertificateExceptionKind::Any,
+            _ => CertificateExceptionKind::TrustOnFirstUse,
+        },
+        spki_sha256: used.certificate.to_string(),
+    }
+}
+
+/// The invalid-certificate exceptions of `settings`' `tls.accept_invalid_certs`
+/// for `run`, pinning in the person's known-certificates store; none,
+/// logged, when an entry names no host.
+fn exceptions_of(run: &Run, settings: &Resolved) -> CertificateExceptions {
+    let book = PinBook {
+        store: run.known_certificates(),
+        person: run.person().to_owned(),
+        run_id: Some(run.id().clone()),
+        audit: Arc::new(run.audit_log()),
+        owner: Arc::new(run.owner().child()),
+        clock: run.clock(),
+    };
+    CertificateExceptions::listed(
+        settings.value(TLS_ACCEPT_INVALID_CERTS.name),
+        book,
+        run.secrets().exception_hosts(),
+    )
+    .unwrap_or_else(|error| {
+        tracing::warn!(%error, "`tls.accept_invalid_certs` names no host, so it makes no exception");
+        CertificateExceptions::default()
+    })
 }

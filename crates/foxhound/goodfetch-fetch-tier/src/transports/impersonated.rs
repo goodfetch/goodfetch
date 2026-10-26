@@ -29,6 +29,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use goodfetch_engine::egress::Refused;
+use goodfetch_protocol::tls::CertificateFailure;
 use http_body_util::BodyExt as _;
 use url::Url;
 
@@ -229,6 +230,7 @@ impl Transport for Wreq {
                 }),
                 reused,
                 decoded: false,
+                certificate_exception: None,
             })
         })
     }
@@ -326,7 +328,11 @@ fn stack_failure(stack: &btls::error::ErrorStack) -> TransportFailure {
         .iter()
         .any(|error| error.reason() == Some(CERTIFICATE_VERIFY_FAILED))
     {
-        TransportFailure::CertificateInvalid
+        // BoringSSL names no failure here: the `wreq` transport's own
+        // verification names each (spec #565).
+        TransportFailure::CertificateInvalid(CertificateFailure::Unrecognized(
+            CERTIFICATE_VERIFY_FAILED.to_ascii_lowercase(),
+        ))
     } else {
         TransportFailure::Tls
     }

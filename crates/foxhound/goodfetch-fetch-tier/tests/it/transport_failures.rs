@@ -64,5 +64,8 @@ fn a_certificate_no_trusted_authority_issued_is_refused(
         .block_on(transport.send(&hop, Reuse::Allowed))
         .unwrap_err();
 
-    assert_eq!(failure, TransportFailure::CertificateInvalid);
+    assert!(
+        matches!(failure, TransportFailure::CertificateInvalid(_)),
+        "{failure:?}"
+    );
 }

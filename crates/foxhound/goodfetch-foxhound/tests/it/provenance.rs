@@ -33,7 +33,7 @@ const ENCODINGS: &str = "encodings.test";
 const KEY_VARIABLE: &str = "GF_TEST_RUN_KEY";
 
 /// `ctx.push(dataset, record)` from the attempt `handle` gave: its reply.
-fn push(inside: &mut Inside<'_>, handle: &Value, dataset: &str, data: &Value) -> Value {
+pub(crate) fn push(inside: &mut Inside<'_>, handle: &Value, dataset: &str, data: &Value) -> Value {
     inside.call(
         "crawl_request.push",
         &json!({
@@ -48,7 +48,7 @@ fn push(inside: &mut Inside<'_>, handle: &Value, dataset: &str, data: &Value) ->
 
 /// Every Record of `dataset` of the Run `run_id`, as `run.records` reads
 /// them, granted credit for all at once.
-fn records(engine: &mut Attached, run_id: &str, dataset: &str) -> Vec<Value> {
+pub(crate) fn records(engine: &mut Attached, run_id: &str, dataset: &str) -> Vec<Value> {
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "records", "method": "run.records",
         "params": { "run_id": run_id, "dataset": dataset },

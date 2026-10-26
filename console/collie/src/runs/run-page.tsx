@@ -439,13 +439,13 @@ function Actions({
         </div>
       ) : null}
       {/* Each notice is an element of its own, keyed by its kind, so React replaces the element, never text nodes a page translator moved (react#11538). */}
-      <div role="status">
+      <output className="block">
         {notice === undefined ? null : (
           <div key={notice.kind}>
             <NoticeText notice={notice} />
           </div>
         )}
-      </div>
+      </output>
     </>
   );
 }
@@ -455,9 +455,9 @@ function FoxhoundViewPanel({ read }: { readonly read: FoxhoundViewRead }): React
   switch (read.kind) {
     case "reading":
       return (
-        <p role="status">
+        <output className="block">
           <Trans>Asking the engine…</Trans>
-        </p>
+        </output>
       );
     case "refused":
       return <ErrorMessage error={read.error} />;
@@ -474,6 +474,28 @@ function FoxhoundViewPanel({ read }: { readonly read: FoxhoundViewRead }): React
 
 const tabClassName =
   "rounded-t-md border-b-2 border-transparent px-3 py-1.5 font-medium focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none data-[active]:border-foreground";
+
+/**
+ * The run's Lifecycle, in a live region a screen reader announces when it
+ * changes (ADR 0073), out of sight beside the axes. Keyed by the Lifecycle,
+ * so React replaces the element, never a text node a page translator moved
+ * (react#11538).
+ */
+function Announcement({
+  lifecycle,
+}: {
+  readonly lifecycle: RunAxisValues["lifecycle"];
+}): ReactNode {
+  const { i18n } = useLingui();
+  const name = i18n._(LIFECYCLE_NAMES[lifecycle]);
+  return (
+    <output className="sr-only">
+      <span key={lifecycle}>
+        <Trans>The run is {name}.</Trans>
+      </span>
+    </output>
+  );
+}
 
 /** The run, as the page read it: in tabs when it has views only Foxhound carries. */
 function Shown({
@@ -528,6 +550,7 @@ function CommonViews({
           <Trans>This run can spend money with no Limit capping it.</Trans>
         </p>
       ) : null}
+      <Announcement lifecycle={run.axes.lifecycle} />
       <section aria-labelledby="run-axes" className={sectionClassName}>
         <h2 id="run-axes" className="text-xl font-semibold">
           <Trans>How it stands</Trans>
@@ -556,9 +579,9 @@ function Read({ read, ...props }: RunPageViewProps): ReactNode {
   switch (read.kind) {
     case "reading":
       return (
-        <p role="status">
+        <output className="block">
           <Trans>Reading the run…</Trans>
-        </p>
+        </output>
       );
     case "not_listed":
       return (

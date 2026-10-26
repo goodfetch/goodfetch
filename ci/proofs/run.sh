@@ -210,6 +210,21 @@ else
   fail oxlint-lingui "findings: ${codes:-none}"
 fi
 
+# ADR 0073's "every oxlint `jsx-a11y` rule is an error", on the Console: a
+# component with an image without a text alternative and a clickable `<div>`
+# fails each rule it breaks, as an error, and the localized component passes.
+codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json \
+  ci/proofs/oxlint/console/collie/src/inaccessible.tsx ci/proofs/oxlint/console/collie/src/localized.tsx 2>/dev/null |
+  jq -r '.diagnostics[] | .code + " " + .severity + " " + .filename' | tally)
+expected="1 jsx-a11y(alt-text) error ci/proofs/oxlint/console/collie/src/inaccessible.tsx
+1 jsx-a11y(click-events-have-key-events) error ci/proofs/oxlint/console/collie/src/inaccessible.tsx
+1 jsx-a11y(no-static-element-interactions) error ci/proofs/oxlint/console/collie/src/inaccessible.tsx"
+if [[ "$codes" == "$expected" ]]; then
+  pass "oxlint refuses an inaccessible Console component, each jsx-a11y rule as an error"
+else
+  fail oxlint-jsx-a11y "findings: ${codes:-none}"
+fi
+
 codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json ci/proofs/oxlint/mocking.test.ts 2>/dev/null |
   jq -r '.diagnostics[].code' | grep -c 'no-restricted-vi-methods')
 if [[ "$codes" == 7 ]]; then

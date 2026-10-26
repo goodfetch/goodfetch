@@ -130,7 +130,17 @@ impl On<'_> {
             Won::BrowserFetch(page_id) => {
                 let merged = learn(run, tiers, &page_id, leased).await;
                 let encoding = tiers.encoding(&page_id);
-                record_tier(run, leased, self.lease, &RACED, Chosen::Raced, encoding).await;
+                let certificate_exception = tiers.certificate_exception(&page_id);
+                record_tier(
+                    run,
+                    leased,
+                    self.lease,
+                    &RACED,
+                    Chosen::Raced,
+                    encoding,
+                    certificate_exception,
+                )
+                .await;
                 let response = tiers.response(&page_id);
                 let answer = self.handle(&page_id, FetchTier::Http, response).await;
                 let escalated = tiers.escalated(&page_id);
@@ -152,7 +162,16 @@ impl On<'_> {
                     return (refused, Vec::new());
                 }
                 let encoding = read_by_browser(tiers, &page_id, response.as_ref());
-                record_tier(run, leased, self.lease, &BROWSER, Chosen::Raced, encoding).await;
+                record_tier(
+                    run,
+                    leased,
+                    self.lease,
+                    &BROWSER,
+                    Chosen::Raced,
+                    encoding,
+                    None,
+                )
+                .await;
                 let answer = self.handle(&page_id, FetchTier::Browser, response).await;
                 tiers.close_browser(&page_id).await;
                 (answer, Vec::new())

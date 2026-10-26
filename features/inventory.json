@@ -7070,6 +7070,28 @@
       ]
     },
     {
+      "id": "setting:secret_providers.bw.command",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:secret_providers.op.command",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:secrets.by_reference",
       "kind": "setting",
       "area": 4,
@@ -12320,6 +12342,28 @@
       ]
     },
     {
+      "id": "story:12-130",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-131",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:12-132",
       "kind": "story",
       "area": 12,
@@ -12332,6 +12376,17 @@
     },
     {
       "id": "story:12-133",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-134",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",

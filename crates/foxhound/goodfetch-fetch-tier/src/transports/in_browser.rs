@@ -78,6 +78,7 @@ impl Transport for BrowserFetch {
                 body: Box::new(Handed(Some(fetched.body))),
                 reused: false,
                 decoded: true,
+                certificate_exception: None,
             })
         })
     }

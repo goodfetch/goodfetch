@@ -23,7 +23,9 @@
 //! domain still backs off when `run.finish` ends it, and whose last site
 //! blocks its address, so its Session pool holds a Session retired by the
 //! escalation, its position in the `egress.local_addresses` rotation and
-//! the address block it blocked, and its domain's proxy tier; and a Run its
+//! the address block it blocked, and its domain's proxy tier; a code-free
+//! crawl, whose extraction its run file keeps, of one seed
+//! `crawl.max_segment_repeats` refuses, so it finishes at once; and a Run its
 //! program drives, under an Operator policy and with a setting that
 //! weakens a guarantee, whose Key-value store keeps a cursor, a note in its
 //! row and an archive over 1 MiB as a kept file, and whose run
@@ -39,7 +41,8 @@
 //! message, which `run.checkpoint` checkpoints and
 //! `run.pause` pauses with a Checkpoint.
 //! It writes each Run's file, as SQL text, into the folder given as the
-//! only argument: `crawl.sql`, `aborted.sql` and `paused.sql`; and the
+//! only argument: `crawl.sql`, `code-free.sql`, `aborted.sql` and
+//! `paused.sql`; and the
 //! pause's real Checkpoint file, `checkpoint.sqlite`, as SQL text too,
 //! `checkpoint.sql`, which alone holds the chunks of a kept file, with the
 //! Checkpoint the pause reported, `checkpoint.json`, its location the file's name
@@ -182,6 +185,15 @@ fn scenario() -> Vec<Value> {
         ),
         call(7, "run.checkpoint", json!({ "run_id": "paused" })),
         call(8, "run.pause", json!({ "run_id": "paused" })),
+        call(
+            16,
+            "crawl.start",
+            json!({
+                "run_id": "code-free",
+                "seeds": [{ "url": "https://shop.test/more/more/more/", "label": "page" }],
+                "extraction": { "formats": { "markdown": true }, "follow": "none" },
+            }),
+        ),
     ]
 }
 
@@ -694,7 +706,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         talked
     })?;
     let runs = home.path().join("0.0").join("runs");
-    for run_id in ["crawl", "aborted", "paused"] {
+    for run_id in ["crawl", "code-free", "aborted", "paused"] {
         let connection = rusqlite::Connection::open(runs.join(run_id).join("run.sqlite"))?;
         std::fs::write(
             folder.join(format!("{run_id}.sql")),

@@ -51,6 +51,10 @@ CREATE TABLE bounds_refusals (
             count INTEGER NOT NULL
         ) STRICT, WITHOUT ROWID;
 INSERT INTO "bounds_refusals" VALUES('crawl.max_segment_repeats',1);
+CREATE TABLE code_free_extraction (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            extraction TEXT NOT NULL
+        ) STRICT;
 CREATE TABLE datasets (
             name TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL,

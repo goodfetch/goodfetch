@@ -14,6 +14,7 @@ mod audit;
 mod bounds;
 mod browser_fetch;
 mod certificates;
+mod code_free;
 mod completeness;
 mod content_types;
 mod crawl;

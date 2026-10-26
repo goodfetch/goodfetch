@@ -95,6 +95,9 @@ pub(crate) enum Case {
     EveryFormMatchesTheOracle,
     RawHtmlIsContentBeforeTheRules,
     FormatsDefaultsAndUnknownOptions,
+    ReferencesAndTablesMatchTheOracle,
+    LinksAreUntouchedByTheRules,
+    OneCallsFormatsComeFromOneSerialization,
     HeadlessIdentity,
     BackgroundTimer,
     ClickWaitsOutACover,
@@ -397,6 +400,13 @@ impl Case {
             "markdown-and-html-default-to-the-main-content-and-an-unknown-option-is-invalid-params" => {
                 Self::FormatsDefaultsAndUnknownOptions
             }
+            "links-images-media-and-tables-match-the-oracle-resolved-against-the-base-href-and-the-url-after-a-redirect" => {
+                Self::ReferencesAndTablesMatchTheOracle
+            }
+            "an-ads-link-a-cosmetic-rule-hides-is-in-links" => Self::LinksAreUntouchedByTheRules,
+            "links-and-markdown-of-one-call-agree-on-a-page-that-changes-between-two-reads" => {
+                Self::OneCallsFormatsComeFromOneSerialization
+            }
             "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
             "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
             "a-click-on-a-covered-target-lands-once-the-cover-leaves" => Self::ClickWaitsOutACover,
@@ -521,6 +531,19 @@ impl Case {
             }
             Self::FormatsDefaultsAndUnknownOptions => {
                 formats::content_modes::defaults_and_unknown_options(connection, site, checks)
+            }
+            Self::ReferencesAndTablesMatchTheOracle => {
+                formats::references::references_and_tables_match_the_oracle(
+                    connection, site, checks,
+                )
+            }
+            Self::LinksAreUntouchedByTheRules => {
+                formats::references::links_are_untouched_by_the_rules(connection, site, checks)
+            }
+            Self::OneCallsFormatsComeFromOneSerialization => {
+                formats::references::one_calls_formats_come_from_one_serialization(
+                    connection, site, checks,
+                )
             }
             Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
             Self::BackgroundTimer => launch::background_timer(connection, site, checks),

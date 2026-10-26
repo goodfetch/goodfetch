@@ -18,7 +18,7 @@ mod store;
 use goodfetch_engine::Contribution;
 
 pub use labels::{LabelPools, PoolKey};
-pub use pool::{Effect, SessionPool};
+pub use pool::{Effect, LocalAddressing, Rotated, SessionPool};
 pub use settings::PoolSettings;
 pub use store::Changes;
 

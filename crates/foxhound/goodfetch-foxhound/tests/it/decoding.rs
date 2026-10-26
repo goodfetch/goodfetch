@@ -16,12 +16,10 @@
 //! `net::ERR_CONTENT_DECODING_FAILED`, retried under `crawl.retry.max`, an
 //! unknown coding passes its body through and a cut compressed body is
 //! `response_truncated`.
-//!
-//! The browser tier reading an unlabelled UTF-8 page as UTF-8, which needs
-//! the engine to set its charset at the interception, is #765's: Chrome
-//! alone reads such a page in its locale's default (seen here on the
-//! undeclared UTF-8 page and on the one whose `<meta>` comes after its
-//! body), so the browser lines below leave both out.
+//! The browser tier reads an unlabelled UTF-8 page as UTF-8 too, the
+//! engine setting its charset at the interception, while its handler's
+//! response keeps the site's headers; Chrome alone would read such a page
+//! in its locale's default.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -71,8 +69,7 @@ const LEGACY: &str = "undeclared-legacy";
 
 /// The pages that declare nothing Chrome reads and are valid UTF-8, the
 /// one whose `<meta>` comes after its body included, which Chrome alone
-/// reads in its locale's default until #765 sets their charset at the
-/// interception.
+/// reads in its locale's default.
 const UNLABELLED_UTF_8: [&str; 2] = ["undeclared-utf-8", "meta-after-body"];
 
 /// The settings of a crawl of the Proving ground on `tier`, with `more`.
@@ -199,7 +196,7 @@ fn seeds(
 #[rstest::rstest]
 /// Covers: error:browser_required
 #[case::http("http", &[], json!([LEGACY]))]
-#[case::browser("browser", &UNLABELLED_UTF_8, json!(UNLABELLED_UTF_8))]
+#[case::browser("browser", &[], json!([]))]
 fn every_encodings_page_reads_the_oracles_text_under_a_forced_tier(
     #[case] tier: &str,
     #[case] leaving_out: &[&str],
@@ -287,12 +284,9 @@ fn every_encodings_page_reads_the_same_text_on_browser_fetch_and_in_the_browser(
     assert_eq!(
         (
             judged(&proving_ground, &read, "http", &[]),
-            judged(&proving_ground, &read, "browser", &UNLABELLED_UTF_8),
+            judged(&proving_ground, &read, "browser", &[]),
         ),
-        (
-            (json!([]), json!([LEGACY])),
-            (json!([]), json!(UNLABELLED_UTF_8)),
-        ),
+        ((json!([]), json!([LEGACY])), (json!([]), json!([]))),
         "{read:?}"
     );
     let escalated: Vec<Value> =
@@ -315,6 +309,98 @@ fn every_encodings_page_reads_the_same_text_on_browser_fetch_and_in_the_browser(
             json!(["browser", "sample", "fetch.encoding", "detected"]),
         ]
     );
+}
+
+/// On a forced `browser` tier every page a document tier reads is read as
+/// that tier reads it: the same text, the same encoding from the same
+/// source in Provenance, and the handler's response's `Content-Type` the
+/// site's own, whatever charset the engine set at the interception. The
+/// two pages that declare nothing Chrome reads and are valid UTF-8 are read
+/// as UTF-8, from `utf8`.
+///
+/// Covers: story:5-129, setting:fetch.tier, operation:page.formats
+#[test]
+fn the_browser_reads_every_page_as_the_http_tier_does_and_keeps_the_sites_headers() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let labels: serde_json::Map<String, Value> = PAGES
+        .iter()
+        .map(|id| ((*id).to_owned(), json!({})))
+        .collect();
+
+    let mut seen: BTreeMap<(String, String), Value> = BTreeMap::new();
+    for tier in ["http", "browser"] {
+        let finished = crawl_declaring(
+            &mut engine,
+            &format!("same-{tier}"),
+            &seeds(&proving_ground, &[LEGACY], ToOwned::to_owned),
+            &Value::Object(labels.clone()),
+            &on(&proving_ground, tier, &json!({})),
+            &mut |inside: &mut Inside<'_>, handle: &Value| {
+                let formats = inside.call(
+                    "page.formats",
+                    &json!({ "page_id": handle["page_id"], "formats": { "markdown": true } }),
+                );
+                let url = handle["crawl_request"]["url"].as_str().unwrap_or_default();
+                let id = url.rsplit('/').next().unwrap_or_default().to_owned();
+                seen.insert(
+                    (tier.to_owned(), id.clone()),
+                    json!({
+                        "record": record(&id, &formats["result"]["markdown"]),
+                        "content_type": handle["response"]["headers"]["content-type"],
+                    }),
+                );
+                json!({ "result": { "records": [] } })
+            },
+        );
+        assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    }
+    assert!(engine.finish());
+
+    let read = |tier: &str| -> BTreeMap<String, Value> {
+        let entries = crate::fetch_tiers::provenance(&env, &format!("same-{tier}"), "fetch_tier");
+        PAGES
+            .iter()
+            .filter(|id| **id != LEGACY)
+            .map(|id| {
+                let entry = entries.iter().find(|entry| entry["label"] == *id);
+                let mut read = seen
+                    .get(&(tier.to_owned(), (*id).to_owned()))
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                read["encoding"] = entry.map_or(Value::Null, |entry| entry["encoding"].clone());
+                read["encoding_source"] =
+                    entry.map_or(Value::Null, |entry| entry["encoding_source"].clone());
+                ((*id).to_owned(), read)
+            })
+            .collect()
+    };
+    let (http, browser) = (read("http"), read("browser"));
+    assert_eq!(browser, http);
+    for id in UNLABELLED_UTF_8 {
+        assert_eq!(
+            (&browser[id]["encoding"], &browser[id]["encoding_source"]),
+            (&json!("UTF-8"), &json!("utf8")),
+            "{id}"
+        );
+    }
+    for (id, read) in &browser {
+        let head = served(
+            &proving_ground,
+            &proving_ground.url(ENCODINGS, &format!("/pages/{id}")),
+        )
+        .0;
+        let site = head
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-type")
+                    .then(|| json!(value.trim()))
+            })
+            .unwrap_or(Value::Null);
+        assert_eq!(read["content_type"], site, "{id}");
+    }
 }
 
 /// `fetch.encoding` on a Label reads its page on a forced `http`, where it
@@ -405,12 +491,13 @@ fn an_xhtml_page_declared_by_its_xml_declaration_reads_on_every_tier(#[case] tie
     }
 }
 
-/// The bytes of the page at `url`, as the Proving ground serves them.
+/// The head and the bytes of the page at `url`, as the Proving ground
+/// serves them.
 #[expect(
     clippy::disallowed_types,
     reason = "the test reads the Proving ground's bytes from outside the engine (ADR 0060)"
 )]
-fn bytes(proving_ground: &ProvingGround, url: &str) -> Vec<u8> {
+fn served(proving_ground: &ProvingGround, url: &str) -> (String, Vec<u8>) {
     let rest = url.strip_prefix("http://").unwrap();
     let (authority, path) = rest.split_at(rest.find('/').unwrap());
     let mut stream = std::net::TcpStream::connect(proving_ground.address()).unwrap();
@@ -425,14 +512,23 @@ fn bytes(proving_ground: &ProvingGround, url: &str) -> Vec<u8> {
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
         .unwrap();
-    response.split_off(at + 4)
+    let body = response.split_off(at + 4);
+    (String::from_utf8_lossy(&response).into_owned(), body)
+}
+
+/// The bytes of the page at `url`, as the Proving ground serves them.
+fn bytes(proving_ground: &ProvingGround, url: &str) -> Vec<u8> {
+    served(proving_ground, url).1
 }
 
 /// A response with no `Content-Type` is typed as the pinned Chromium's own
 /// sniffer types it, over at most its first 1,024 bytes: the browser
 /// renders HTML, XML and plain text as the type the non-browser tiers'
 /// sniffer gives their bytes, and renders no document for the binary
-/// bytes and the PDF, which the sniffer types as no text.
+/// bytes and the PDF, which the sniffer types as no text. The browser's
+/// own sniffer is read on a program's page, which no document reader
+/// judges: on a crawl handler's page the engine types such a response
+/// with the same sniffer at its interception.
 ///
 /// Covers: story:5-129
 #[test]
@@ -446,32 +542,42 @@ fn a_response_with_no_content_type_is_typed_as_the_pinned_chromium_sniffs_it() {
         .map(|case| proving_ground.url("fetch-edge.test", &format!("/sniffed/{case}")))
         .collect();
 
-    let mut seen = BTreeMap::new();
-    let finished = crawl_declaring(
-        &mut engine,
-        "sniffed",
-        &urls
-            .iter()
-            .map(|url| json!({ "url": url, "label": "page" }))
-            .collect::<Vec<_>>(),
-        &json!({ "page": {} }),
-        &on(&proving_ground, "browser", &json!({})),
-        &mut |inside: &mut Inside<'_>, handle: &Value| {
-            let typed = inside.call(
-                "page.evaluate",
-                &json!({
-                    "page_id": handle["page_id"],
-                    "function": "() => [document.contentType, location.href]",
-                }),
-            );
-            let url = handle["crawl_request"]["url"].as_str().unwrap().to_owned();
-            seen.insert(url, typed["result"]["value"].clone());
-            json!({ "result": { "records": [] } })
-        },
+    let mut none = |_: &Value| None;
+    let started = engine.call(
+        "start",
+        "run.start",
+        &json!({ "run_id": "sniffed", "settings": settings(&proving_ground, &json!({})) }),
+        &mut none,
     );
+    assert!(started.get("result").is_some(), "{started}");
+    let mut seen = BTreeMap::new();
+    for (n, url) in urls.iter().enumerate() {
+        let opened = engine.call(
+            &format!("page-{n}"),
+            "run.new_page",
+            &json!({ "run_id": "sniffed" }),
+            &mut none,
+        );
+        let page_id = opened["result"]["page_id"].clone();
+        engine.call(
+            &format!("goto-{n}"),
+            "page.goto",
+            &json!({ "page_id": page_id, "url": url }),
+            &mut none,
+        );
+        let typed = engine.call(
+            &format!("typed-{n}"),
+            "page.evaluate",
+            &json!({
+                "page_id": page_id,
+                "function": "() => [document.contentType, location.href]",
+            }),
+            &mut none,
+        );
+        seen.insert(url.clone(), typed["result"]["value"].clone());
+    }
     assert!(engine.finish());
 
-    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     for url in &urls {
         let body = bytes(&proving_ground, url);
         let path = url

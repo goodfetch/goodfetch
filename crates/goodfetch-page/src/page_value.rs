@@ -15,6 +15,13 @@
 //!   service worker answered included, whose URLs its patterns match, each
 //!   body up to its byte cap (ADR 0110). A page that registers none keeps
 //!   nothing.
+//! - **The document reader** ([`DocumentReader`]), no part of the value
+//!   either: the interception settings of ADR 0119. It reads each
+//!   main-frame document's response before the browser renders it, and
+//!   has it read as it came, in a charset it names, or not at all, the
+//!   page then left on a blank document so nothing downloads; the
+//!   navigation's response keeps the site's headers. A page with none, as
+//!   every page a program opens, is read as the browser reads it.
 //!
 //! [`HandlerPages`] is the seam that gives a page both when it opens; a
 //! Collie engine's gives every page none. The pages opened in a page's
@@ -422,6 +429,149 @@ impl Observer {
     }
 }
 
+/// A main-frame document's response on a handler's page, as its document
+/// reader reads it at the interception, before the browser renders any of
+/// it (ADR 0119).
+#[derive(Clone, Copy, Debug)]
+pub struct ReadDocument<'a> {
+    /// The page.
+    pub page_id: &'a PageId,
+    /// The browser's ID of its request, as its `PageResponse` names it.
+    pub request_id: &'a str,
+    /// Whether it is the document of the crawl request the page was opened
+    /// for, the first its navigation reached, rather than one of the
+    /// handler's own navigations.
+    pub own: bool,
+    /// The URL that answered.
+    pub url: &'a str,
+    /// Its status.
+    pub status: u16,
+    /// Its headers, their names lower-cased, as the site sent them.
+    pub headers: &'a [(String, String)],
+}
+
+/// How a document reader has the browser read a response.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Reading {
+    /// As it came.
+    AsItCame,
+    /// The reader needs its body, after any content coding, to say.
+    Body,
+    /// In the encoding this WHATWG name names: its `Content-Type`'s
+    /// charset is set to it for the browser alone, the handler's response
+    /// keeping the site's headers.
+    Charset(String),
+    /// Not at all: its navigation stops at the interception, the page left
+    /// on a blank document, so nothing renders or downloads it; the
+    /// handler's response keeps the site's status and headers.
+    Stop,
+}
+
+/// Foxhound's document reader (ADR 0119), which Foxhound registers through
+/// [`HandlerPages`]; no part of the page's value. It reads each main-frame
+/// document's response of a page it was registered on, a redirect's
+/// excepted.
+pub trait DocumentReader: Debug + Send + Sync {
+    /// How the browser reads `document`: asked first with no `body`, and
+    /// once more with it when the first answer was [`Reading::Body`].
+    fn read(&self, document: &ReadDocument<'_>, body: Option<&[u8]>) -> Reading;
+}
+
+/// The most responses whose site's headers a page keeps for the navigation
+/// answering them (STYLE.md: every buffer is bounded).
+const SITES_KEPT: usize = 8;
+
+/// The site's own status and headers of a response a document reader had
+/// read otherwise, kept for the navigation it answers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SiteResponse {
+    /// Its headers, their names lower-cased.
+    pub(crate) headers: std::collections::BTreeMap<String, String>,
+    /// Whether its navigation was stopped, the page holding no document.
+    pub(crate) stopped: bool,
+}
+
+/// A registered [`DocumentReader`], as one page holds it: whether its next
+/// document is its crawl request's own, and the site's responses its
+/// navigations answer with.
+#[derive(Clone, Debug)]
+pub struct Reader {
+    inner: Arc<dyn DocumentReader>,
+    #[expect(
+        clippy::disallowed_types,
+        reason = "one value read or written in one step, never held across another lock or an `.await` (ADR 0060)"
+    )]
+    held: Arc<std::sync::Mutex<Held>>,
+}
+
+/// What a page's [`Reader`] holds between its documents.
+#[derive(Debug, Default)]
+struct Held {
+    /// Whether the page's next document is its crawl request's own.
+    own: bool,
+    /// The site's own responses the reader had read otherwise, latest last.
+    sites: std::collections::VecDeque<(String, SiteResponse)>,
+}
+
+impl Reader {
+    /// `reader`, registered on one page.
+    pub fn new(reader: impl DocumentReader + 'static) -> Self {
+        Self {
+            inner: Arc::new(reader),
+            held: Arc::default(),
+        }
+    }
+
+    /// The same reader, registered on another page, a popup of this one's.
+    pub(crate) fn for_page(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            held: Arc::default(),
+        }
+    }
+
+    /// What it holds, for one step.
+    fn held(&self) -> std::sync::MutexGuard<'_, Held> {
+        self.held
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Marks the page's next document as its crawl request's own.
+    pub(crate) fn expect_own(&self) {
+        self.held().own = true;
+    }
+
+    /// Whether the page's document now read is its crawl request's own,
+    /// which only its first is.
+    pub(crate) fn take_own(&self) -> bool {
+        std::mem::take(&mut self.held().own)
+    }
+
+    /// Asks the reader how the browser reads `document`.
+    pub(crate) fn read(&self, document: &ReadDocument<'_>, body: Option<&[u8]>) -> Reading {
+        self.inner.read(document, body)
+    }
+
+    /// Keeps `site`, the site's own response to the request `request_id`,
+    /// for the navigation it answers.
+    pub(crate) fn keep(&self, request_id: &str, site: SiteResponse) {
+        let mut held = self.held();
+        if held.sites.len() == SITES_KEPT {
+            held.sites.pop_front();
+        }
+        held.sites.push_back((request_id.to_owned(), site));
+    }
+
+    /// Takes the site's own response to the request `request_id`, when the
+    /// reader had it read otherwise.
+    pub(crate) fn site(&self, request_id: &str) -> Option<SiteResponse> {
+        let mut held = self.held();
+        let at = held.sites.iter().position(|(id, _)| id == request_id)?;
+        held.sites.remove(at).map(|(_, site)| site)
+    }
+}
+
 /// A document a Product's fetch tier fetched without the browser, served
 /// to a handler as a page (spec #579; ADR 0093): `page.formats` reads it,
 /// and the Product answers every other call on it through
@@ -458,6 +608,14 @@ pub trait HandlerPages: Send + Sync {
 
     /// The page's response observer, when one is registered.
     fn observer(&self, run: &RunId, session: &SessionId) -> Option<Observer>;
+
+    /// The page's document reader, when one is registered: the
+    /// interception settings ADR 0119 sets on a handler's page, no part of
+    /// its value. None by default, as on every page a program opens.
+    fn reader(&self, run: &RunId, session: &SessionId) -> Option<Reader> {
+        let _ = (run, session);
+        None
+    }
 
     /// The document the page `page_id` serves, when a fetch tier opened it
     /// from a document rather than in a browser; none by default.

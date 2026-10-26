@@ -143,6 +143,14 @@ impl ClientCertificates {
         found.get()
     }
 
+    /// The listed domain whose certificate `host` presents, its most
+    /// specific: none when no listed domain covers it. A TLS library that
+    /// picks a client certificate without the server name keeps one client
+    /// per listed domain, and sends each host to its domain's.
+    pub fn scope_of(&self, host: &str) -> Option<String> {
+        self.entry_of(host).map(|(domain, _)| domain.to_owned())
+    }
+
     /// The client certificate a handshake with `host` presents, loaded now
     /// if no handshake has: none when no listed domain covers the host.
     ///
@@ -157,7 +165,7 @@ impl ClientCertificates {
     ///
     /// Dropping the future abandons the load; a key the driver already
     /// resolved stays held for the Run.
-    pub(crate) async fn for_host(
+    pub async fn for_host(
         &self,
         host: &str,
     ) -> Result<Option<Arc<CertifiedKey>>, ClientCertificateFailure> {
@@ -215,7 +223,7 @@ impl ClientCertificates {
     /// The refusal of the client certificate listed for `host`, which was
     /// reached through an invalid-certificate exception: none when no listed
     /// domain covers it.
-    pub(crate) fn refused(&self, host: &str) -> Option<SecretError> {
+    pub fn refused(&self, host: &str) -> Option<SecretError> {
         let (_, entry) = self.entry_of(host)?;
         Some(SecretError::InputRefused {
             placeholder: TLS_CLIENT_CERTIFICATES.name.to_owned(),

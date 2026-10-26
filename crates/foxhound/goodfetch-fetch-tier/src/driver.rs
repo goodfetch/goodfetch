@@ -35,10 +35,12 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::tls::{CertificateChanged, CertificateInvalid, ExceptionUsed};
 use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NavigationFailedDetails, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
 };
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
+use goodfetch_protocol::tls::CertificateFailure;
 use url::{Host, Url};
 
 use crate::content_types::{Accepts, typed};
@@ -113,6 +115,10 @@ pub struct Sent {
     /// as the browser hands a body over on the browser-fetch tier, which
     /// the driver then only checks (ADR 0119).
     pub decoded: bool,
+    /// The invalid-certificate exception of `tls.accept_invalid_certs` its
+    /// host was reached through (ADR 0042); none when its certificate
+    /// verified, or it came over plain HTTP.
+    pub certificate_exception: Option<ExceptionUsed>,
 }
 
 impl std::fmt::Debug for Sent {
@@ -123,6 +129,7 @@ impl std::fmt::Debug for Sent {
             .field("headers", &self.headers)
             .field("reused", &self.reused)
             .field("decoded", &self.decoded)
+            .field("certificate_exception", &self.certificate_exception)
             .finish_non_exhaustive()
     }
 }
@@ -180,9 +187,20 @@ pub enum TransportFailure {
     /// The site asked over HTTP/2 for HTTP/1.1 (`HTTP_1_1_REQUIRED`), having
     /// processed nothing (`net::ERR_HTTP_1_1_REQUIRED`).
     Http11Required,
-    /// The host's certificate failed verification
-    /// (`net::ERR_CERT_AUTHORITY_INVALID`).
-    CertificateInvalid,
+    /// The host's certificate failed verification so, and no exception
+    /// covers its domain (`net::ERR_CERT_AUTHORITY_INVALID`): nothing was
+    /// sent to it, and the attempt ends with `certificate_invalid` (ADR
+    /// 0042).
+    CertificateInvalid(CertificateFailure),
+    /// The host's pinned key changed, now or earlier in the Run, and
+    /// nothing was sent to it (`net::ERR_SSL_PINNED_KEY_NOT_IN_CERT_CHAIN`):
+    /// `certificate_changed` (ADR 0042).
+    CertificateChanged(CertificateChanged),
+    /// The client certificate `tls.client_certificates` lists for the host
+    /// could not be presented, its key's reference unresolved, the host
+    /// reached through an exception or the certificate unusable
+    /// (`net::ERR_BAD_SSL_CLIENT_AUTH_CERT`): the error it ends with.
+    ClientCertificate(CallFailure),
     /// The TLS handshake failed otherwise (`net::ERR_SSL_PROTOCOL_ERROR`).
     Tls,
     /// The answer's head is no valid HTTP: a line without a colon, a bare
@@ -209,6 +227,29 @@ pub enum TransportFailure {
     Browser(BrowserFailure),
     /// Any other failure: the generic case (ADR 0118; `net::ERR_FAILED`).
     Other,
+}
+
+/// An error a transport ended a hop with, two of them equal when their
+/// codes and messages are.
+#[derive(Clone)]
+pub struct CallFailure(pub CallError);
+
+impl PartialEq for CallFailure {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.code() == other.0.code() && self.0.message() == other.0.message()
+    }
+}
+
+impl Eq for CallFailure {}
+
+impl std::fmt::Debug for CallFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CallFailure")
+            .field("code", &self.0.code())
+            .field("message", &self.0.message())
+            .finish()
+    }
 }
 
 /// The error the browser of the browser-fetch tier ended a hop with, two
@@ -247,7 +288,9 @@ impl TransportFailure {
             Self::ClosedAtReuse => "net::ERR_EMPTY_RESPONSE",
             Self::RefusedStream => "net::ERR_HTTP2_SERVER_REFUSED_STREAM",
             Self::Http11Required => "net::ERR_HTTP_1_1_REQUIRED",
-            Self::CertificateInvalid => "net::ERR_CERT_AUTHORITY_INVALID",
+            Self::CertificateInvalid(_) => "net::ERR_CERT_AUTHORITY_INVALID",
+            Self::CertificateChanged(_) => "net::ERR_SSL_PINNED_KEY_NOT_IN_CERT_CHAIN",
+            Self::ClientCertificate(_) => "net::ERR_BAD_SSL_CLIENT_AUTH_CERT",
             Self::Tls => "net::ERR_SSL_PROTOCOL_ERROR",
             Self::InvalidResponse => "net::ERR_INVALID_HTTP_RESPONSE",
             Self::TunnelRefused => "net::ERR_TUNNEL_CONNECTION_FAILED",
@@ -260,12 +303,27 @@ impl TransportFailure {
 
     /// What it ends the attempt fetching `url` with: `egress_refused` for
     /// the egress policy's refusal, the browser's own error on the
-    /// browser-fetch tier, and `navigation_failed` with its network error
-    /// for every other failure, retryable (ADR 0118).
+    /// browser-fetch tier, `certificate_invalid` and `certificate_changed`
+    /// for a certificate (ADR 0042), neither retryable, the client
+    /// certificate's own error, and `navigation_failed` with its network
+    /// error for every other failure, retryable (ADR 0118).
     pub fn error(&self, url: &str) -> CallError {
         match self {
             Self::Egress(refused) => return refused.error(),
             Self::Browser(failure) => return failure.0.clone(),
+            Self::ClientCertificate(failure) => return failure.0.clone(),
+            Self::CertificateChanged(changed) => return changed.error(),
+            Self::CertificateInvalid(failure) => {
+                let host = Url::parse(url)
+                    .ok()
+                    .and_then(|url| url.host_str().map(str::to_owned))
+                    .unwrap_or_default();
+                return CertificateInvalid {
+                    host,
+                    failure: failure.clone(),
+                }
+                .error();
+            }
             _ => {}
         }
         let error = self.network_error();
@@ -329,6 +387,9 @@ pub struct Fetched {
     /// ADR 0119), its body then dropped: unread when its head named the
     /// type, read and sniffed when it named none.
     pub unaccepted: Option<String>,
+    /// The invalid-certificate exception its host was reached through (ADR
+    /// 0042, pitfall H03), which the Provenance of its Records marks.
+    pub certificate_exception: Option<ExceptionUsed>,
 }
 
 /// The engine's timeouts a fetch waits under.
@@ -469,6 +530,7 @@ async fn fetch_on(
                 headers: sent.headers,
                 body: Vec::new(),
                 unaccepted: Some(refused),
+                certificate_exception: sent.certificate_exception,
             });
         }
         let expected = content_length(&sent.headers);
@@ -513,6 +575,7 @@ async fn fetch_on(
                 body
             },
             unaccepted,
+            certificate_exception: sent.certificate_exception,
         })
     };
     deadlines

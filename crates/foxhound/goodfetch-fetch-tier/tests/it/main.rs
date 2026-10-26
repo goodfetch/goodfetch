@@ -8,6 +8,7 @@
 )]
 
 mod addresses;
+mod certificates;
 mod chain;
 mod conformance_gate;
 mod fetch_edge;
@@ -17,7 +18,7 @@ mod transport_failures;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::ResolverConfiguration;
 use goodfetch_engine::egress::Policy;
-use goodfetch_engine::tls::{Trust, read_certificates};
+use goodfetch_engine::tls::{CertificateExceptions, Trust, read_certificates};
 use goodfetch_fetch_tier::{HttpProfile, Reqwest, Transport, TransportConfig, Wreq};
 use goodfetch_test_support::ProvingGround;
 use url::Url;
@@ -74,6 +75,8 @@ fn config(proving_ground: &ProvingGround, proxy: Option<Url>, trusted: &[&str]) 
             });
     TransportConfig {
         trust,
+        exceptions: CertificateExceptions::default(),
+        client_certificates: None,
         proxy,
         egress: Policy::new(&["*"], &[] as &[&str])
             .unwrap()

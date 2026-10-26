@@ -1,0 +1,142 @@
+# The `extraction` family's reference pages (spec #580, ticket #786;
+# pitfall U08): pages whose links, images, media and tables a program reads
+# with `page.formats`, each with what each format holds, written by hand.
+# `links`, `images`, `media` and `tables` are JSON, judged as JSON values;
+# `{origin}` stands for the task's origin (`http://9.extraction.test:<port>`).
+# A page with `moves_to` answers `302` to that path under `/references/`,
+# where its `html` is served, so its relative URLs resolve against the URL
+# after the redirect. Served at `/references/<path>` on `extraction.test`,
+# and listed by `/references`, task `extraction/9`'s start page. Append a
+# page, never reorder or remove one (ADR 0063).
+
+[[pages]]
+path = "base"
+html = '''
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Reels | Northwind</title><base href="https://cdn.northwind.example/assets/"></head>
+<body>
+<main>
+<h1>Reels and winders</h1>
+<p>Our <a href="reels/geared">geared reel</a> and the <a href="/shop/winders" rel="nofollow  noopener">plain winder</a> both hold 100 m of line; <a href="https://kites.example/compare?a=1&amp;b=2#table">compare them</a>, or read <a href="#care">how to care for a reel</a>.</p>
+<p>Write to <a href="mailto:shop@northwind.example">the shop</a>. A <a href="http://[::1/">broken link</a> and <a href="https://exa mple.example/">another</a> stay as written. <a name="care">No address</a>.</p>
+<img src="images/geared.jpg" alt="A geared reel">
+<img src="/images/spacer.gif" alt="">
+<img src="//img.northwind.example/winder.png">
+<video src="clips/winding.webm"></video>
+<video><source src="clips/launch.mp4" type="video/mp4"><source src="clips/launch.webm" type="video/webm"></video>
+<audio><source src="/sounds/wind.mp3" type="audio/mpeg"></audio>
+</main>
+</body>
+</html>
+'''
+links = '''
+[
+  { "url": "https://cdn.northwind.example/assets/reels/geared", "href": "reels/geared", "text": "geared reel", "rel": [] },
+  { "url": "https://cdn.northwind.example/shop/winders", "href": "/shop/winders", "text": "plain winder", "rel": ["nofollow", "noopener"] },
+  { "url": "https://kites.example/compare?a=1&b=2#table", "href": "https://kites.example/compare?a=1&b=2#table", "text": "compare them", "rel": [] },
+  { "url": "https://cdn.northwind.example/assets/#care", "href": "#care", "text": "how to care for a reel", "rel": [] },
+  { "url": "mailto:shop@northwind.example", "href": "mailto:shop@northwind.example", "text": "the shop", "rel": [] },
+  { "url": null, "href": "http://[::1/", "text": "broken link", "rel": [] },
+  { "url": null, "href": "https://exa mple.example/", "text": "another", "rel": [] }
+]
+'''
+images = '''
+[
+  { "url": "https://cdn.northwind.example/assets/images/geared.jpg", "src": "images/geared.jpg", "alt": "A geared reel" },
+  { "url": "https://cdn.northwind.example/images/spacer.gif", "src": "/images/spacer.gif", "alt": "" },
+  { "url": "https://img.northwind.example/winder.png", "src": "//img.northwind.example/winder.png", "alt": null }
+]
+'''
+media = '''
+[
+  { "url": "https://cdn.northwind.example/assets/clips/winding.webm", "src": "clips/winding.webm", "kind": "video", "type": null },
+  { "url": "https://cdn.northwind.example/assets/clips/launch.mp4", "src": "clips/launch.mp4", "kind": "video", "type": "video/mp4" },
+  { "url": "https://cdn.northwind.example/assets/clips/launch.webm", "src": "clips/launch.webm", "kind": "video", "type": "video/webm" },
+  { "url": "https://cdn.northwind.example/sounds/wind.mp3", "src": "/sounds/wind.mp3", "kind": "audio", "type": "audio/mpeg" }
+]
+'''
+tables = '[]'
+
+[[pages]]
+path = "moved"
+moves_to = "landed/shelf/"
+html = '''
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>The shelf | Northwind</title></head>
+<body>
+<main>
+<h1>The shelf</h1>
+<p>This page moved here from <code>/references/moved</code>, so its links resolve against its new address: <a href="book/1">the first book</a>, <a href="../2">the second</a>, <a href="?page=2">the next page</a> and <a href="/references">every page</a>.</p>
+<img src="cover.jpg" alt="The shelf's cover">
+</main>
+</body>
+</html>
+'''
+links = '''
+[
+  { "url": "{origin}/references/landed/shelf/book/1", "href": "book/1", "text": "the first book", "rel": [] },
+  { "url": "{origin}/references/landed/2", "href": "../2", "text": "the second", "rel": [] },
+  { "url": "{origin}/references/landed/shelf/?page=2", "href": "?page=2", "text": "the next page", "rel": [] },
+  { "url": "{origin}/references", "href": "/references", "text": "every page", "rel": [] }
+]
+'''
+images = '''
+[
+  { "url": "{origin}/references/landed/shelf/cover.jpg", "src": "cover.jpg", "alt": "The shelf's cover" }
+]
+'''
+media = '[]'
+tables = '[]'
+
+[[pages]]
+path = "tables"
+html = '''
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Line strength | Northwind</title></head>
+<body>
+<main>
+<h1>Line strength</h1>
+<p>Each line's breaking strain, measured dry, and the knots we tie with it.</p>
+<table>
+<caption>Breaking strain <small>by material</small></caption>
+<thead>
+<tr><th></th><th colspan="2">Breaking strain</th></tr>
+<tr><th>Material</th><th>kg</th><th>lb</th></tr>
+</thead>
+<tbody>
+<tr><th scope="row">Polyester</th><td>45</td><td>100</td></tr>
+<tr><th scope="row">Dyneema</th><td>90</td><td>200</td></tr>
+</tbody>
+<tfoot>
+<tr><td>Measured</td><td colspan="2">dry, at 20 &deg;C</td></tr>
+</tfoot>
+</table>
+<table>
+<tr><th>Knot</th><th>Use</th></tr>
+<tr><th scope="row">Bowline</th><td>A loop<br>that holds</td></tr>
+<tr><th scope="row">Clove hitch</th><td>To a post</td></tr>
+</table>
+</main>
+</body>
+</html>
+'''
+links = '[]'
+images = '[]'
+media = '[]'
+tables = '''
+[
+  {
+    "caption": "Breaking strain by material",
+    "header_rows": [["", "Breaking strain"], ["Material", "kg", "lb"]],
+    "body_rows": [["Polyester", "45", "100"], ["Dyneema", "90", "200"], ["Measured", "dry, at 20 °C"]]
+  },
+  {
+    "caption": null,
+    "header_rows": [["Knot", "Use"]],
+    "body_rows": [["Bowline", "A loop that holds"], ["Clove hitch", "To a post"]]
+  }
+]
+'''

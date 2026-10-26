@@ -463,6 +463,7 @@ impl BrowserCache {
             platform: None,
             url: String::new(),
             archive_digest: None,
+            application_settings: std::collections::BTreeMap::new(),
             digest,
         };
         Ok(match self.present(&artifact, now)? {

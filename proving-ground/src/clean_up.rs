@@ -22,7 +22,7 @@
 //!   `pSUPERFLY.virtualPage` it defines; then, before its `load`, shows
 //!   the image `/stand-in/worked.gif`, or `/stand-in/broken.gif` when the
 //!   call threw.
-//! - `/hiding`: an article whose ad (EasyList's `##.ad-slot`) holds a
+//! - `/hiding`: an article whose ad (EasyList's `##.ad-slot`) holds a link and a
 //!   button, with its own style sheet and a frame, `/hiding/frame`, with an
 //!   ad of its own; each page's script reports, once its ad is hidden or
 //!   2 s after `load`, what the site sees: `/hiding/seen` (the frame's
@@ -149,7 +149,7 @@ addEventListener(\"load\", () => {
 });
 </script>";
 
-/// `/hiding`: an article whose ad (EasyList's `##.ad-slot`) holds a button,
+/// `/hiding`: an article whose ad (EasyList's `##.ad-slot`) holds a link and a button,
 /// in a page with one style sheet of its own and a frame with an ad of its
 /// own.
 const HIDING: &str = "<!DOCTYPE html>
@@ -163,7 +163,7 @@ const HIDING: &str = "<!DOCTYPE html>
 <main>
 <h1>An article with an ad a blocker hides</h1>
 <p>The article's text begins here, long enough to be the page's main content: a person reads it for these paragraphs, which say what the article has to say about blockers, hidden elements and the pages they leave behind.</p>
-<div class=\"ad-slot\" id=\"ad\">An ad's text no extraction keeps. <button id=\"inside\" type=\"button\" onclick=\"fetch('/hiding/clicked')\">Continue to the offer</button></div>
+<div class=\"ad-slot\" id=\"ad\">An ad's text no extraction keeps, for <a href=\"/hiding/offer\">the offer</a>. <button id=\"inside\" type=\"button\" onclick=\"fetch('/hiding/clicked')\">Continue to the offer</button></div>
 <p>The article goes on after the ad, with more of its own text: a blocker hides what a filter list matches, and a program that clicks inside it still reaches what it clicked.</p>
 <iframe src=\"/hiding/frame\" title=\"A frame with an ad\" width=\"300\" height=\"100\"></iframe>
 </main>

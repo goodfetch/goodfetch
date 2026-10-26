@@ -73,9 +73,9 @@ pub(crate) fn references(html: &str, base_url: &str) -> References {
         images: Vec::new(),
         media: Vec::new(),
     }));
-    let handler = |read: fn(&Shared, &mut Element<'_, '_>) -> HandlerResult| {
+    let handler = |read: fn(&Shared, &str, &mut Element<'_, '_>) -> HandlerResult| {
         let state = Rc::clone(&state);
-        move |element: &mut Element<'_, '_>| read(&state, element)
+        move |element: &mut Element<'_, '_>| read(&state, html, element)
     };
     let link_text = {
         let state = Rc::clone(&state);
@@ -94,22 +94,22 @@ pub(crate) fn references(html: &str, base_url: &str) -> References {
         .append_element_content_handler(text!("a[href]", link_text))
         .append_element_content_handler(element!(
             "img[src]",
-            handler(|state, element| {
-                read_image(state, element);
+            handler(|state, html, element| {
+                read_image(state, html, element);
                 Ok(())
             })
         ))
         .append_element_content_handler(element!(
             "video[src], video source[src]",
-            handler(|state, element| {
-                read_media(state, element, MediaKind::Video);
+            handler(|state, html, element| {
+                read_media(state, html, element, MediaKind::Video);
                 Ok(())
             })
         ))
         .append_element_content_handler(element!(
             "audio[src], audio source[src]",
-            handler(|state, element| {
-                read_media(state, element, MediaKind::Audio);
+            handler(|state, html, element| {
+                read_media(state, html, element, MediaKind::Audio);
                 Ok(())
             })
         ));
@@ -131,9 +131,9 @@ pub(crate) fn references(html: &str, base_url: &str) -> References {
 }
 
 /// Starts reading the link `element` is.
-fn read_link(state: &Shared, element: &mut Element<'_, '_>) -> HandlerResult {
-    let href = attribute(element, "href").unwrap_or_default();
-    let rel = attribute(element, "rel")
+fn read_link(state: &Shared, html: &str, element: &mut Element<'_, '_>) -> HandlerResult {
+    let href = attribute(html, element, "href").unwrap_or_default();
+    let rel = attribute(html, element, "rel")
         .map(|rel| {
             rel.split_ascii_whitespace()
                 .map(ToOwned::to_owned)
@@ -191,27 +191,27 @@ fn read_link_text(state: &Shared, chunk: &TextChunk<'_>) {
 }
 
 /// Reads the image `element` is.
-fn read_image(state: &Shared, element: &Element<'_, '_>) {
-    let src = attribute(element, "src").unwrap_or_default();
+fn read_image(state: &Shared, html: &str, element: &Element<'_, '_>) {
+    let src = attribute(html, element, "src").unwrap_or_default();
     let mut state = state.borrow_mut();
     let url = state.resolve(&src);
     state.images.push(Image {
         url,
         src,
-        alt: attribute(element, "alt"),
+        alt: attribute(html, element, "alt"),
     });
 }
 
 /// Reads the media source `element` is, of `kind`.
-fn read_media(state: &Shared, element: &Element<'_, '_>, kind: MediaKind) {
-    let src = attribute(element, "src").unwrap_or_default();
+fn read_media(state: &Shared, html: &str, element: &Element<'_, '_>, kind: MediaKind) {
+    let src = attribute(html, element, "src").unwrap_or_default();
     let mut state = state.borrow_mut();
     let url = state.resolve(&src);
     state.media.push(Media {
         url,
         src,
         kind,
-        media_type: attribute(element, "type"),
+        media_type: attribute(html, element, "type"),
     });
 }
 
@@ -230,9 +230,18 @@ fn finished(mut reading: Reading) -> Link {
     }
 }
 
-/// The value of `element`'s attribute `name`, decoded.
-fn attribute(element: &Element<'_, '_>, name: &str) -> Option<String> {
-    element
-        .get_attribute(name)
-        .map(|value| decode(&value, Place::Attribute))
+/// The value of `element`'s attribute `name` in `html`, decoded. It is
+/// read from the document's own text where lol-html locates it: lol-html's
+/// own value is decoded alone, which drops a byte order mark it begins
+/// with.
+fn attribute(html: &str, element: &Element<'_, '_>, name: &str) -> Option<String> {
+    let attribute = element
+        .attributes()
+        .iter()
+        .find(|attribute| attribute.name() == name)?;
+    let value = attribute
+        .value_source_location()
+        .and_then(|location| html.get(location.bytes()))
+        .map_or_else(|| attribute.value(), ToOwned::to_owned);
+    Some(decode(&value, Place::Attribute))
 }

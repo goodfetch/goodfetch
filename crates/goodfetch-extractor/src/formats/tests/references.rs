@@ -340,6 +340,7 @@ fn references() -> impl Strategy<Value = String> {
         Just("&lt;".to_owned()),
         Just("&quot;".to_owned()),
         Just("\u{e9}\u{1f600}".to_owned()),
+        Just("\u{feff}".to_owned()),
     ];
     proptest::collection::vec(piece, 0..8).prop_map(|pieces| pieces.concat())
 }

@@ -103,6 +103,9 @@ service_workers = "allow"
 [settings.live_view]
 hiding = "auto"
 
+[settings.content]
+extractor = "dom_smoothie"
+
 [settings.proxy]
 server = "http://proxy.example:3128"
 bypass = "example"
@@ -260,6 +263,10 @@ tier_race = true
 encoding = "example"
 coalesce = true
 
+[settings.fetch.sample]
+count = 4
+refresh_after = { after = 86400000, requests = 500 }
+
 [settings.fetch.hedge]
 enabled = true
 max_percent = 4
@@ -384,6 +391,9 @@ service_workers = "allow"
 
 [lock.live_view]
 hiding = "auto"
+
+[lock.content]
+extractor = "dom_smoothie"
 
 [lock.proxy]
 server = "http://proxy.example:3128"
@@ -542,6 +552,10 @@ tier_race = true
 encoding = "example"
 coalesce = true
 
+[lock.fetch.sample]
+count = 4
+refresh_after = { after = 86400000, requests = 500 }
+
 [lock.fetch.hedge]
 enabled = true
 max_percent = 4
@@ -681,6 +695,9 @@ concurrency = 4
 
 [cap.crawl.payload]
 max_size = 4
+
+[cap.fetch.sample]
+count = 4
 
 [cap.fetch.hedge]
 max_percent = 4

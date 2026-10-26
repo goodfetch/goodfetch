@@ -103,6 +103,9 @@ service_workers = "allow"
 [settings.live_view]
 hiding = "auto"
 
+[settings.content]
+extractor = "dom_smoothie"
+
 [settings.proxy]
 server = "http://proxy.example:3128"
 bypass = "example"
@@ -259,6 +262,10 @@ tier = "auto"
 tier_race = true
 encoding = "example"
 coalesce = true
+
+[settings.fetch.sample]
+count = 4
+refresh_after = { after = 86400000, requests = 500 }
 
 [settings.fetch.hedge]
 enabled = true

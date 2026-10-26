@@ -17,6 +17,16 @@
 //!   and again on each `hashchange`, with links to `#/a` and `#/b`; its
 //!   markup holds no view, so only a browser sees one, and every fragment
 //!   is the same document to the server.
+//! - `/linked/<n>`: a listing whose three links, to `/products/<3n-2>`
+//!   to `/products/<3n>`, only its script adds (from its `data-targets`),
+//!   so a document tier finds none (the sample comparison's cases, spec
+//!   #579).
+//! - `/moving/<n>`: a page whose script moves the browser to
+//!   `/products/<n>` at once (`location.replace`), a redirect only a
+//!   browser follows (ADR 0118).
+//! - `/pictured/<n>`: a static page that loads an image,
+//!   `/images/<n>.gif`, and a font, `/fonts/tiers-<n>.woff2`, both `404`,
+//!   so a test sees whether a browser asked for them.
 //!
 //! `n` runs from 1 to 99, written without leading zeros; each listing holds
 //! three entries named from the seed and `n`. A query `hold=<ms>`, from 1
@@ -78,6 +88,45 @@ addEventListener("hashchange", show);
 </script>
 "##;
 
+/// The script that adds a script-linked listing's links, from the paths
+/// its `data-targets` holds, so its markup holds none.
+const LINKS_SCRIPT: &str = r#"const list = document.querySelector(".links");
+for (const target of list.dataset.targets.split("|")) {
+  const entry = document.createElement("li");
+  const link = document.createElement("a");
+  link.setAttribute("href", target);
+  link.textContent = target;
+  entry.append(link);
+  list.append(entry);
+}
+"#;
+
+/// The pages of the sample comparison's cases (spec #579): a listing whose
+/// links only its script adds, one that a script moves to a static
+/// listing at once, and a static listing that loads an image and a font.
+fn sample_case(kind: &str, number: u64) -> Option<Page> {
+    let title = format!("{kind} {number}");
+    let body = match kind {
+        "linked" => {
+            let targets: Vec<String> = (1..=ENTRIES)
+                .map(|entry| format!("/products/{}", (number - 1) * ENTRIES + entry))
+                .collect();
+            format!(
+                "<h1>{title}</h1>\n<ul class=\"links\" data-targets=\"{}\"></ul>\n<script>\n{LINKS_SCRIPT}</script>\n",
+                targets.join("|")
+            )
+        }
+        "moving" => format!(
+            "<script>location.replace(\"/products/{number}\");</script>\n<h1>{title}</h1>\n"
+        ),
+        "pictured" => format!(
+            "<style>@font-face {{ font-family: \"tiers\"; src: url(\"/fonts/tiers-{number}.woff2\"); }} h1 {{ font-family: \"tiers\"; }}</style>\n<h1>{title}</h1>\n<img src=\"/images/{number}.gif\" alt=\"{title}\">\n"
+        ),
+        _ => return None,
+    };
+    Some(Page::ok(document(&title, &body)))
+}
+
 pub(super) fn respond(visit: &Visit<'_>) -> Page {
     let path = visit.request.path;
     if path == "/states" {
@@ -100,6 +149,9 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
     else {
         return Page::not_found();
     };
+    if let Some(page) = sample_case(kind, number) {
+        return page;
+    }
     let Some(scripted) = scripted(kind, number) else {
         return Page::not_found();
     };

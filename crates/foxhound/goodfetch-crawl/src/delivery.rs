@@ -78,7 +78,10 @@ use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED,
     HANDLER_LOST, LEASE_LOST, WORK_ITEM_RETRIED,
 };
-use goodfetch_protocol::foxhound::fetch::{FETCH_ENCODING, FETCH_TIER_RACE, FetchTier};
+use goodfetch_protocol::foxhound::fetch::{
+    FETCH_ENCODING, FETCH_SAMPLE_COUNT, FETCH_SAMPLE_REFRESH_AFTER, FETCH_TIER_RACE, FetchTier,
+    SampleRefresh,
+};
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::governor::WorkKind;
@@ -99,7 +102,7 @@ use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::serving::{Crawls, Opened, Server};
-use crate::tier_choice::{self, AttemptPlan, TierChoices};
+use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices};
 use crate::tier_race::{Latencies, Raced};
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
 use goodfetch_protocol::foxhound::progress::{InFlightPhase, InFlightRequest};
@@ -201,13 +204,40 @@ pub(crate) async fn drive(
         // Its shape was checked when the crawl started.
         run_content_types: ContentTypes::of(settings.resolved().value(CRAWL_CONTENT_TYPES.name))
             .unwrap_or_default(),
-        choices: tokio::sync::Mutex::new(choices),
+        choices: tokio::sync::Mutex::new(choices.sampled_as(sampling(settings.resolved()))),
         races,
         latencies: tokio::sync::Mutex::new(Latencies::default()),
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
     };
     deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
     crawls.close(run.id()).await;
+}
+
+/// How the Run samples its tier choices: `fetch.sample.count` and
+/// `fetch.sample.refresh_after`, the built-in where a value no longer
+/// reads (the settings checked both at the start).
+fn sampling(resolved: &Resolved) -> Sampling {
+    let built_in = Sampling::default();
+    let refresh = SampleRefresh::read(resolved.value(FETCH_SAMPLE_REFRESH_AFTER.name)).ok();
+    Sampling {
+        count: resolved
+            .value(FETCH_SAMPLE_COUNT.name)
+            .as_u64()
+            .and_then(|count| usize::try_from(count).ok())
+            .unwrap_or(built_in.count),
+        requests: refresh.map_or(built_in.requests, |refresh| refresh.requests),
+        after_ms: refresh.map_or(built_in.after_ms, |refresh| refresh.after),
+    }
+}
+
+/// Milliseconds since the Unix epoch at `run`'s wall clock.
+fn wall_ms(run: &Run) -> u64 {
+    run.clock()
+        .wall()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| {
+            u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+        })
 }
 
 /// Where `run`'s leases are granted, each attempt staging in the crawl's
@@ -506,7 +536,7 @@ impl Fetching<'_> {
         &self,
         leased: &Leased,
         to_browser: bool,
-        second_copies: &SecondCopies,
+        (second_copies, now): (&SecondCopies, u64),
     ) -> Tiering {
         let request = &leased.crawl_request;
         // A sitemap's fetch runs no handler and takes no tier choice: its
@@ -530,6 +560,7 @@ impl Fetching<'_> {
                     &request.label,
                     &leased.waiting.key,
                     &request.url,
+                    now,
                 );
                 AttemptPlan::Race(Raced {
                     label: request.label.clone(),
@@ -558,6 +589,7 @@ impl Fetching<'_> {
                 &request.label,
                 &leased.waiting.key,
                 &request.url,
+                now,
             ),
         };
         Tiering::of(
@@ -593,14 +625,14 @@ impl Fetching<'_> {
     /// Classifies the sample `attempt` was, if it was one, and writes what
     /// its Label on its domain now learned into the run file.
     async fn classify(&self, run: &Run, attempt: &mut Attempt) {
-        let Some((sampled, matched)) = attempt.sampled.take() else {
+        let Some((sampled, weighed)) = attempt.sampled.take() else {
             return;
         };
         let unit = self
             .choices
             .lock()
             .await
-            .classify(&sampled, matched)
+            .classify(&sampled, weighed, wall_ms(run))
             .clone();
         if let Err(error) = run
             .state()
@@ -700,7 +732,11 @@ async fn lease_to_servers(
             server.in_flight += 1;
             let tiering = pooled
                 .fetching
-                .served(&leased, to_browser, &admission.second_copies())
+                .served(
+                    &leased,
+                    to_browser,
+                    (&admission.second_copies(), wall_ms(run)),
+                )
                 .await;
             let gating = pooled
                 .fetching

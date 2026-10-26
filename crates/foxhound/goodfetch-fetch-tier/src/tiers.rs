@@ -975,6 +975,16 @@ impl FetchTiers {
         })
     }
 
+    /// The URL of the last main-frame document the browser page `page_id`
+    /// reached, which a script's redirect moves past its navigation's
+    /// answer (ADR 0118); `None` before it reached one.
+    pub fn browser_ended_at(&self, page_id: &PageId) -> Option<String> {
+        lock(&self.served.pages)
+            .browser
+            .get(page_id)
+            .and_then(|read| read.ended_at.clone())
+    }
+
     /// Closes the browser page `page_id` [`FetchTiers::browser`] opened.
     ///
     /// # Cancel safety

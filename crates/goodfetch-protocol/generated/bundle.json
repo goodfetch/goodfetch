@@ -7092,7 +7092,7 @@
     },
     "NewPageParams": {
       "additionalProperties": false,
-      "description": "What `run.new_page` takes: the Run whose default Session opens the page.",
+      "description": "What `run.new_page` takes: the Run whose default Session opens the page,\nand the page's own settings.",
       "properties": {
         "_meta": {
           "$ref": "#/$defs/TraceContext",
@@ -7102,10 +7102,41 @@
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
           "description": "The Run."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The page's own settings, nested by key (ADR 0083), which it takes\nover its Session's and its Run's: `content.extractor`, the\nmain-content step its formats read with. Any other key is refused\nwith `setting_not_applicable`, as only its Session or its Run sets\nit.",
+          "type": "object"
         }
       },
       "required": [
         "run_id"
+      ],
+      "type": "object"
+    },
+    "NewSessionPageParams": {
+      "additionalProperties": false,
+      "description": "What `session.new_page` takes: the Session, and the page's own\nsettings.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "session_id": {
+          "$ref": "#/$defs/SessionId",
+          "arrived_in": "0.1",
+          "description": "The Session."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The page's own settings, nested by key (ADR 0083), which it takes\nover its Session's and its Run's: `content.extractor`, the\nmain-content step its formats read with. Any other key is refused\nwith `setting_not_applicable`, as only its Session or its Run sets\nit.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "session_id"
       ],
       "type": "object"
     },
@@ -7125,7 +7156,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts`,\n`browser.block_resources` and `live_view.hiding` choose its pages'\nClean-up rules over the Run's, and `browser.service_workers` whether\na site's service workers run in them, and `session.page_check` the\nPage check its pages are judged against. `session.source` is refused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
+          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts`,\n`browser.block_resources` and `live_view.hiding` choose its pages'\nClean-up rules over the Run's, and `browser.service_workers` whether\na site's service workers run in them, and `session.page_check` the\nPage check its pages are judged against, and `content.extractor`\nthe main-content step their formats read with. `session.source` is\nrefused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
           "type": "object"
         },
         "source": {
@@ -12323,7 +12354,7 @@
     },
     "SessionParams": {
       "additionalProperties": false,
-      "description": "What `session.new_page` and `session.close` take: the Session.",
+      "description": "What `session.close` takes: the Session.",
       "properties": {
         "_meta": {
           "$ref": "#/$defs/TraceContext",
@@ -15466,6 +15497,17 @@
                       }
                     },
                     "type": "object"
+                  },
+                  "sample": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "count": {
+                        "description": "How many of a Label's first requests on a domain are samples under `fetch.tier: auto`, each fetched on `http` and then on `browser`, whose run commits: the Label moves to `http` once all of them gave the same Records and enqueues. 3 by default; set for the Run only. Fewer than 3 is a weakened control, named in the Run report's `weakened`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -16159,6 +16201,19 @@
                 },
                 "type": "object"
               },
+              "content": {
+                "additionalProperties": false,
+                "properties": {
+                  "extractor": {
+                    "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+                    "enum": [
+                      "dom_smoothie",
+                      "trafilatura"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
               "crawl": {
                 "additionalProperties": false,
                 "properties": {
@@ -16542,8 +16597,40 @@
                     },
                     "type": "object"
                   },
+                  "sample": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "count": {
+                        "description": "How many of a Label's first requests on a domain are samples under `fetch.tier: auto`, each fetched on `http` and then on `browser`, whose run commits: the Label moves to `http` once all of them gave the same Records and enqueues. 3 by default; set for the Run only. Fewer than 3 is a weakened control, named in the Run report's `weakened`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "refresh_after": {
+                        "additionalProperties": false,
+                        "description": "When a Label's tier choice on a domain under `fetch.tier: auto` is sampled again: after it served `requests` crawl requests, or `after` milliseconds after it was made, whichever comes first; 500 requests or 24 hours (86,400,000 ms) by default. Set for the Run only. A Label whose browser sample showed a consent wall stays on `browser` and is not sampled again.",
+                        "properties": {
+                          "after": {
+                            "description": "The milliseconds a Label's tier choice on a domain stands before it is sampled again.",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "requests": {
+                            "description": "The requests a Label's tier choice on a domain serves before it is sampled again.",
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "requests",
+                          "after"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "tier": {
-                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first 3 requests of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all 3 gave the same Records, split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                     "enum": [
                       "auto",
                       "http",
@@ -18456,6 +18543,19 @@
                 },
                 "type": "object"
               },
+              "content": {
+                "additionalProperties": false,
+                "properties": {
+                  "extractor": {
+                    "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+                    "enum": [
+                      "dom_smoothie",
+                      "trafilatura"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
               "crawl": {
                 "additionalProperties": false,
                 "properties": {
@@ -18839,8 +18939,40 @@
                     },
                     "type": "object"
                   },
+                  "sample": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "count": {
+                        "description": "How many of a Label's first requests on a domain are samples under `fetch.tier: auto`, each fetched on `http` and then on `browser`, whose run commits: the Label moves to `http` once all of them gave the same Records and enqueues. 3 by default; set for the Run only. Fewer than 3 is a weakened control, named in the Run report's `weakened`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "refresh_after": {
+                        "additionalProperties": false,
+                        "description": "When a Label's tier choice on a domain under `fetch.tier: auto` is sampled again: after it served `requests` crawl requests, or `after` milliseconds after it was made, whichever comes first; 500 requests or 24 hours (86,400,000 ms) by default. Set for the Run only. A Label whose browser sample showed a consent wall stays on `browser` and is not sampled again.",
+                        "properties": {
+                          "after": {
+                            "description": "The milliseconds a Label's tier choice on a domain stands before it is sampled again.",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "requests": {
+                            "description": "The requests a Label's tier choice on a domain serves before it is sampled again.",
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "requests",
+                          "after"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "tier": {
-                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first 3 requests of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all 3 gave the same Records, split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                     "enum": [
                       "auto",
                       "http",
@@ -20769,6 +20901,19 @@
                 },
                 "type": "object"
               },
+              "content": {
+                "additionalProperties": false,
+                "properties": {
+                  "extractor": {
+                    "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+                    "enum": [
+                      "dom_smoothie",
+                      "trafilatura"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
               "crawl": {
                 "additionalProperties": false,
                 "properties": {
@@ -21152,8 +21297,40 @@
                     },
                     "type": "object"
                   },
+                  "sample": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "count": {
+                        "description": "How many of a Label's first requests on a domain are samples under `fetch.tier: auto`, each fetched on `http` and then on `browser`, whose run commits: the Label moves to `http` once all of them gave the same Records and enqueues. 3 by default; set for the Run only. Fewer than 3 is a weakened control, named in the Run report's `weakened`.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "refresh_after": {
+                        "additionalProperties": false,
+                        "description": "When a Label's tier choice on a domain under `fetch.tier: auto` is sampled again: after it served `requests` crawl requests, or `after` milliseconds after it was made, whichever comes first; 500 requests or 24 hours (86,400,000 ms) by default. Set for the Run only. A Label whose browser sample showed a consent wall stays on `browser` and is not sampled again.",
+                        "properties": {
+                          "after": {
+                            "description": "The milliseconds a Label's tier choice on a domain stands before it is sampled again.",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "requests": {
+                            "description": "The requests a Label's tier choice on a domain serves before it is sampled again.",
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "requests",
+                          "after"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "tier": {
-                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first 3 requests of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all 3 gave the same Records, split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+                    "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                     "enum": [
                       "auto",
                       "http",

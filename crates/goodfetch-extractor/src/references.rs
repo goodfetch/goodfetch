@@ -1,4 +1,5 @@
-//! A document's links, images and media, read in one streaming pass with
+//! A document's links, images, media and head metadata (its title, meta
+//! tags, canonical link and language), read in one streaming pass with
 //! lol-html, no tree built (ADR 0007): each `href` or `src` decoded and
 //! resolved against the document's base URL by the WHATWG URL Standard
 //! (the `url` crate, ADR 0120's parser), a value that does not parse kept
@@ -7,9 +8,10 @@
 //! read with its host's page, and no Clean-up rule reaches it.
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use goodfetch_protocol::page::{Image, Link, Media, MediaKind};
+use goodfetch_protocol::page::{Image, Link, Media, MediaKind, MetaTag};
 use lol_html::html_content::{Element, TextChunk, TextType};
 use lol_html::{AsciiCompatibleEncoding, HandlerResult, HtmlRewriter, Settings, element, text};
 use url::Url;
@@ -22,6 +24,25 @@ pub(crate) struct References {
     pub(crate) links: Vec<Link>,
     pub(crate) images: Vec<Image>,
     pub(crate) media: Vec<Media>,
+    pub(crate) head: Head,
+}
+
+/// The document's meta tags and the head's other metadata, each value
+/// decoded and as written.
+#[derive(Debug, Default)]
+pub(crate) struct Head {
+    /// The first `<title>`'s text, white space collapsed.
+    pub(crate) title: Option<String>,
+    /// The first `<meta name="description">`'s content.
+    pub(crate) description: Option<String>,
+    /// The first `<link rel="canonical">`'s `href`, not resolved.
+    pub(crate) canonical: Option<String>,
+    /// The root element's `lang`.
+    pub(crate) lang: Option<String>,
+    pub(crate) open_graph: Vec<MetaTag>,
+    pub(crate) twitter: Vec<MetaTag>,
+    /// The other `<meta name>`s, by name in lower case, the first kept.
+    pub(crate) meta: BTreeMap<String, String>,
 }
 
 /// A link being read: its text so far, and the raw text not decoded yet.
@@ -48,6 +69,21 @@ struct State {
     open: Vec<usize>,
     images: Vec<Image>,
     media: Vec<Media>,
+    head: Head,
+    /// The first `<title>`'s raw text while it is read.
+    title: Title,
+    /// Whether the root element was read.
+    root_read: bool,
+}
+
+/// Where the reading of the first `<title>` stands.
+enum Title {
+    /// No `<title>` came yet.
+    Ahead,
+    /// The first is being read: its raw text so far.
+    Reading(String),
+    /// The first was read.
+    Read,
 }
 
 impl State {
@@ -72,10 +108,22 @@ pub(crate) fn references(html: &str, base_url: &str) -> References {
         open: Vec::new(),
         images: Vec::new(),
         media: Vec::new(),
+        head: Head::default(),
+        title: Title::Ahead,
+        root_read: false,
     }));
     let handler = |read: fn(&Shared, &str, &mut Element<'_, '_>) -> HandlerResult| {
         let state = Rc::clone(&state);
         move |element: &mut Element<'_, '_>| read(&state, html, element)
+    };
+    let title_text = {
+        let state = Rc::clone(&state);
+        move |chunk: &mut TextChunk<'_>| {
+            if let Title::Reading(raw) = &mut state.borrow_mut().title {
+                raw.push_str(chunk.as_str());
+            }
+            Ok(())
+        }
     };
     let link_text = {
         let state = Rc::clone(&state);
@@ -90,6 +138,29 @@ pub(crate) fn references(html: &str, base_url: &str) -> References {
         // The document is decoded already: a `<meta charset>` changes nothing.
         .with_adjust_charset_on_meta_tag(false)
         .with_encoding(AsciiCompatibleEncoding::utf_8())
+        .append_element_content_handler(element!(
+            "html",
+            handler(|state, html, element| {
+                read_root(state, html, element);
+                Ok(())
+            })
+        ))
+        .append_element_content_handler(element!("title", handler(read_title)))
+        .append_element_content_handler(text!("title", title_text))
+        .append_element_content_handler(element!(
+            "meta[content]",
+            handler(|state, html, element| {
+                read_meta(state, html, element);
+                Ok(())
+            })
+        ))
+        .append_element_content_handler(element!(
+            "link[rel][href]",
+            handler(|state, html, element| {
+                read_canonical(state, html, element);
+                Ok(())
+            })
+        ))
         .append_element_content_handler(element!("a[href], area[href]", handler(read_link)))
         .append_element_content_handler(text!("a[href]", link_text))
         .append_element_content_handler(element!(
@@ -127,7 +198,92 @@ pub(crate) fn references(html: &str, base_url: &str) -> References {
         links: state.links.into_iter().map(finished).collect(),
         images: state.images,
         media: state.media,
+        head: state.head,
     }
+}
+
+/// Reads the root element's `lang`, the first `<html>` being the root.
+fn read_root(state: &Shared, html: &str, element: &Element<'_, '_>) {
+    let mut state = state.borrow_mut();
+    if !state.root_read {
+        state.root_read = true;
+        state.head.lang = attribute(html, element, "lang");
+    }
+}
+
+/// Starts reading the `<title>` `element` is, when it is the first.
+fn read_title(state: &Shared, _html: &str, element: &mut Element<'_, '_>) -> HandlerResult {
+    {
+        let mut state = state.borrow_mut();
+        if !matches!(state.title, Title::Ahead) {
+            return Ok(());
+        }
+        state.title = Title::Reading(String::new());
+    }
+    let state = Rc::clone(state);
+    element.on_end_tag(Box::new(move |_| {
+        let mut state = state.borrow_mut();
+        if let Title::Reading(raw) = std::mem::replace(&mut state.title, Title::Read) {
+            state.head.title = Some(collapsed(&decode(&raw, Place::Text)));
+        }
+        Ok(())
+    }))?;
+    Ok(())
+}
+
+/// Reads the `<meta>` `element` is: an Open Graph or Twitter tag, or a
+/// named one.
+fn read_meta(state: &Shared, html: &str, element: &Element<'_, '_>) {
+    let Some(content) = attribute(html, element, "content") else {
+        return;
+    };
+    let property = attribute(html, element, "property");
+    let name = attribute(html, element, "name");
+    let mut state = state.borrow_mut();
+    let head = &mut state.head;
+    let Some(key) = property.clone().or_else(|| name.clone()) else {
+        return;
+    };
+    if starts_with_ignoring_case(&key, "twitter:") {
+        head.twitter.push(MetaTag {
+            property: key,
+            content,
+        });
+    } else if property.is_some() || starts_with_ignoring_case(&key, "og:") {
+        head.open_graph.push(MetaTag {
+            property: key,
+            content,
+        });
+    } else {
+        let name = key.to_ascii_lowercase();
+        if name == "description" && head.description.is_none() {
+            head.description = Some(content.clone());
+        }
+        head.meta.entry(name).or_insert(content);
+    }
+}
+
+/// Reads the `<link>` `element` is, when it is the first canonical one.
+fn read_canonical(state: &Shared, html: &str, element: &Element<'_, '_>) {
+    let canonical = attribute(html, element, "rel").is_some_and(|rel| {
+        rel.split_ascii_whitespace()
+            .any(|token| token.eq_ignore_ascii_case("canonical"))
+    });
+    let mut state = state.borrow_mut();
+    if canonical && state.head.canonical.is_none() {
+        state.head.canonical = attribute(html, element, "href");
+    }
+}
+
+/// Whether `text` starts with `prefix`, ASCII case aside.
+fn starts_with_ignoring_case(text: &str, prefix: &str) -> bool {
+    text.get(..prefix.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+}
+
+/// `text` with its white space collapsed.
+fn collapsed(text: &str) -> String {
+    text.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Starts reading the link `element` is.
@@ -218,12 +374,7 @@ fn read_media(state: &Shared, html: &str, element: &Element<'_, '_>, kind: Media
 /// The link `reading` read, its text decoded and its white space collapsed.
 fn finished(mut reading: Reading) -> Link {
     reading.flush();
-    let text = reading
-        .link
-        .text
-        .split_ascii_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let text = collapsed(&reading.link.text);
     Link {
         text,
         ..reading.link

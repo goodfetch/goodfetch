@@ -45,7 +45,7 @@ impl Case {
             "two-sessions-of-a-run-reach-the-site-each-through-its-own-proxy" => Self::OwnProxies,
             "a-proxy-per-page-or-per-request-is-refused" => Self::NonePerPage,
             "socks4-and-credentials-in-the-proxy-url-are-setting-invalid" => Self::ServerUrl,
-            "a-socks5-proxys-credentials-reach-it-through-the-sessions-relay" => Self::Socks5Relay,
+            "the-socks5-proxy-credentials-reach-it-through-the-sessions-relay" => Self::Socks5Relay,
             "a-client-acting-for-a-model-sets-no-proxy" => Self::NoneByAModel,
             _ => return None,
         })

@@ -105,7 +105,7 @@ id = "socks4-and-credentials-in-the-proxy-url-are-setting-invalid"
 covers = ["story:5-88", "setting:proxy.server", "error:setting_invalid"]
 
 [[capability.case]]
-id = "a-socks5-proxys-credentials-reach-it-through-the-sessions-relay"
+id = "the-socks5-proxy-credentials-reach-it-through-the-sessions-relay"
 covers = ["story:5-88", "setting:proxy.server", "setting:proxy.username", "setting:proxy.password", "operation:page.goto"]
 
 [[capability.case]]

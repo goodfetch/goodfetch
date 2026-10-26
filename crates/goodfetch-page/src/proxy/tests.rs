@@ -118,7 +118,7 @@ fn credentials_longer_than_socks5_carries_name_their_setting(
 
 /// Covers: story:5-88, error:proxy_relay_unavailable
 #[test]
-fn a_relay_that_cannot_open_raises_the_engines_own_code_never_the_proxys() {
+fn a_relay_that_cannot_open_raises_the_engines_own_code_never_the_proxy_code() {
     let server = ProxyServer::parse("socks5://exit.example:1080").unwrap();
     // Too many open files: the machine's failure, before any proxy.
     let error = std::io::Error::from_raw_os_error(24);

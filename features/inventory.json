@@ -2955,6 +2955,17 @@
       ]
     },
     {
+      "id": "operation:locator.evaluate_all",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:locator.fill",
       "kind": "operation",
       "area": 5,
@@ -2989,6 +3000,17 @@
     },
     {
       "id": "operation:locator.wait_for_count",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:locator.wait_for_function",
       "kind": "operation",
       "area": 5,
       "milestone": null,

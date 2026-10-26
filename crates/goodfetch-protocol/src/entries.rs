@@ -100,7 +100,7 @@ mod tests {
     use crate::catalog::Product;
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 87] = [
+    const COLLIE: [&str; 89] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -146,12 +146,14 @@ mod tests {
         "session.pages",
         "page.close",
         "page.evaluate",
+        "locator.evaluate_all",
         "page.add_init_script",
         "page.wait_for_url",
         "page.wait_for_request",
         "page.wait_for_response",
         "page.wait_for_load_state",
         "page.wait_for_function",
+        "locator.wait_for_function",
         "locator.wait_for",
         "locator.wait_for_count",
         "run.start",

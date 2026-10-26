@@ -4706,6 +4706,108 @@
       ],
       "type": "object"
     },
+    "LocatorEvaluateAllParams": {
+      "additionalProperties": false,
+      "description": "What `locator.evaluate_all` takes: the locator, the function's source,\nits argument and its world.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "arg": {
+          "arrived_in": "0.1",
+          "description": "Its one argument, JSON; absent for none."
+        },
+        "function": {
+          "arrived_in": "0.1",
+          "description": "The page function's JavaScript source: a function, called with the\narray of matches and `arg`, or an expression, which takes neither.",
+          "type": "string"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator, whose every match the function takes first."
+        },
+        "world": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/World"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where it runs; the main world when absent."
+        }
+      },
+      "required": [
+        "locator",
+        "function"
+      ],
+      "type": "object"
+    },
+    "LocatorWaitForFunctionParams": {
+      "additionalProperties": false,
+      "description": "What `locator.wait_for_function` takes: the locator, the function's\nsource, its argument, its world, and how often it is checked.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "arg": {
+          "arrived_in": "0.1",
+          "description": "Its one argument, JSON; absent for none."
+        },
+        "function": {
+          "arrived_in": "0.1",
+          "description": "The page function's JavaScript source: a function, called with the\nelement and `arg`, or an expression, which takes neither.",
+          "type": "string"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator, whose one match the function takes first, resolved\nagain at each check."
+        },
+        "polling_interval": {
+          "arrived_in": "0.1",
+          "description": "The milliseconds between two checks, at least 1; absent, about one\nframe's, 16.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "world": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/World"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where it runs; the main world when absent."
+        }
+      },
+      "required": [
+        "locator",
+        "function"
+      ],
+      "type": "object"
+    },
     "LocatorWaitForParams": {
       "additionalProperties": false,
       "description": "What `locator.wait_for` takes: the locator and the state of its element.",
@@ -14679,6 +14781,25 @@
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
+      "description": "Runs a page function, as `page.evaluate` does, with the array of every element the locator matches first, none included, and its one JSON argument second, and answers its result, awaited, as JSON; the elements stay in the page, so a result holding one raises `page_value_invalid`. A selector the page does not parse raises `invalid_params`, and an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "locator.evaluate_all",
+      "params": {
+        "$ref": "#/$defs/LocatorEvaluateAllParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/Evaluated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
       "description": "Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`.",
       "events": [],
       "kind": "round_trip",
@@ -14747,6 +14868,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Counted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Waits, checking from when the call arrives, until a page function called with the one element the locator matches first and its one JSON argument second answers a truthy result, and answers that result as JSON, as `page.wait_for_function` does. The locator is resolved again at each check, so a re-render that replaces its element changes nothing, and a check while none or several elements match counts as falsy. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`, and a selector the page does not parse `invalid_params`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
+      "events": [],
+      "kind": "waiter",
+      "name": "locator.wait_for_function",
+      "params": {
+        "$ref": "#/$defs/LocatorWaitForFunctionParams"
+      },
+      "product": "collie",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/Evaluated"
       },
       "stability": "experimental"
     },

@@ -8,6 +8,8 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 mpl-crate = "2.1.0"
 permissive-crate = "1.0.0"
+# A fork Goodfetch carries, patched in place of its registry release.
+patched-crate = { path = "../forks/patched-crate" }
 
 [dev-dependencies]
 dev-only-crate = "3.0.0"

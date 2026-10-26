@@ -21,11 +21,9 @@ const PINNED: &[(&str, &str, &str)] = &[
         "0.5.20",
         "92d3114be2f413b2e491e686b93a28cda30c355cffc8d091a57f8be4b1342896",
     ),
-    (
-        "wreq",
-        "0.16.1",
-        "16454175c8cb23d4a7285bab53b72460686195f5aef655d1abad70ab97ef46d4",
-    ),
+    // Goodfetch's fork, carried in `vendor/wreq` (the workspace's
+    // `[patch.crates-io]`), which the lock file holds with no checksum.
+    ("wreq", "0.16.1+goodfetch.1", ""),
     (
         "wreq-proto",
         "0.2.6",

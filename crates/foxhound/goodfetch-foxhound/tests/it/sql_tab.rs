@@ -18,9 +18,11 @@ use serde_json::{Value, json};
 
 use crate::crawl::Attached;
 
-/// A query that holds far more memory than 16 MiB at once, and runs for
-/// longer than 200 ms.
-const HEAVY: &str = "SELECT list(range) FROM range(200000000) GROUP BY range % 3";
+/// A query that runs for far longer than 200 ms.
+const LONG: &str = "SELECT count(*) FROM range(1000000000000) a WHERE a.range % 7 = 3";
+
+/// A query that holds far more memory than 16 MiB at once.
+const HEAVY: &str = "SELECT list(range) FROM range(10000000)";
 
 /// The `books` Record of page `page`.
 fn book(page: u64) -> Value {
@@ -131,14 +133,7 @@ fn a_query_reads_the_records_run_records_reads_only_from_the_runs_it_selected() 
         .as_array()
         .unwrap_or_else(|| panic!("{read}"))
         .iter()
-        .map(|row| {
-            json!([
-                row[0],
-                serde_json::from_str::<Value>(row[1].as_str().unwrap()).unwrap(),
-                row[2],
-                row[3]
-            ])
-        })
+        .map(|row| json!([row[0], row[1].clone(), row[2], row[3]]))
         .collect();
     assert_eq!(rows, expected);
     assert_eq!(
@@ -243,16 +238,19 @@ fn a_write_attach_install_or_outside_read_is_refused_beside_an_allowed_select(#[
 #[rstest]
 #[case::timeout(
     "timeout.dataset_query = 200\n",
+    LONG,
     "deadline_exceeded",
     "timeout.dataset_query"
 )]
 #[case::memory(
     "dataset.query.memory_limit = 16777216\n",
+    HEAVY,
     "query_memory_exceeded",
     "dataset.query.memory_limit"
 )]
 fn a_heavy_query_ends_at_its_limit_with_its_code(
     #[case] settings: &str,
+    #[case] heavy: &str,
     #[case] code: &str,
     #[case] key: &str,
 ) {
@@ -261,7 +259,7 @@ fn a_heavy_query_ends_at_its_limit_with_its_code(
     let mut engine = Attached::start(&env);
     crawled(&mut engine, "shop", 1);
 
-    let ended = query(&mut engine, HEAVY, &["shop"]);
+    let ended = query(&mut engine, heavy, &["shop"]);
     let allowed = query(
         &mut engine,
         "SELECT count(*) FROM records('shop')",

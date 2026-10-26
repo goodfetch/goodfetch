@@ -6220,7 +6220,7 @@
     {
       "id": "setting:fetch.sample.count",
       "kind": "setting",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -6230,7 +6230,7 @@
     {
       "id": "setting:fetch.sample.refresh_after",
       "kind": "setting",
-      "area": null,
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [

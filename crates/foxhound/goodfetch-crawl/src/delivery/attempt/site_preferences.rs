@@ -147,6 +147,19 @@ fn waits_out(settings: &Resolved, asked: Duration) -> bool {
             .is_some_and(|max| asked <= max)
 }
 
+/// The `site_preferences.purpose` a crawl under `settings` judges the
+/// AI-use signals against: none while `site_preferences.respect_use_signals`
+/// is off (ADR 0086).
+pub(super) fn honoured_purpose(settings: &Resolved) -> Option<Purpose> {
+    if settings.boolean(SITE_PREFERENCES_RESPECT_USE_SIGNALS.name) != Some(true) {
+        return None;
+    }
+    settings
+        .value(SITE_PREFERENCES_PURPOSE.name)
+        .as_str()
+        .and_then(Purpose::named)
+}
+
 /// What the AI-use signals the response of the served page `page_id`
 /// carried say of its request while `site_preferences.respect_use_signals`
 /// is on (ADRs 0086 and 0093): nothing when none refuses the Run's
@@ -157,14 +170,7 @@ pub(super) fn use_signals_refusal(
     tiers: &FetchTiers,
     page_id: &PageId,
 ) -> Option<Answer> {
-    let settings = run.settings()?.resolved();
-    if settings.boolean(SITE_PREFERENCES_RESPECT_USE_SIGNALS.name) != Some(true) {
-        return None;
-    }
-    let purpose = settings
-        .value(SITE_PREFERENCES_PURPOSE.name)
-        .as_str()
-        .and_then(Purpose::named)?;
+    let purpose = honoured_purpose(run.settings()?.resolved())?;
     tiers
         .use_signals(page_id)
         .refusing(purpose)

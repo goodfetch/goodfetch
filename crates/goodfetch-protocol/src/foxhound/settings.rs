@@ -7,7 +7,9 @@
 
 use serde_json::{Value, json};
 
-use crate::catalog::{Authority, Entries, ProtocolVersion, Setting, ValueKind};
+use crate::catalog::{
+    Authority, Entries, ProtocolVersion, Setting, SharedType, SharedTypeValue, ValueKind,
+};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -62,6 +64,40 @@ fn initial_shortened(value: &Value) -> bool {
 fn max_shortened(value: &Value) -> bool {
     shorter_than(value, 60_000)
 }
+
+/// More than one request in flight on a domain key, ADR 0086's built-in
+/// limit.
+fn more_than_one(value: &Value) -> bool {
+    value.as_u64().is_some_and(|concurrency| concurrency > 1)
+}
+
+/// Less than a second between two starts on a domain key, ADR 0086's
+/// built-in delay.
+fn under_a_second(value: &Value) -> bool {
+    shorter_than(value, 1_000)
+}
+
+/// The Audit log kind of a Politeness or Site-preferences value that
+/// presses a site harder than its built-in default (ADR 0086), which
+/// Foxhound's composition records once per run per key.
+pub const POLITENESS_WEAKENED: SharedTypeValue = SharedTypeValue {
+    shared_type: SharedType::AuditKind,
+    name: "politeness_weakened",
+    description: "A run set a Politeness or Site-preferences value that presses a site harder than its built-in default, or a `site_preferences.robots_txt_user_agent`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0086).",
+    arrived_in: ARRIVED_IN,
+};
+
+/// The Politeness and Site-preferences keys whose pressing-harder values
+/// Foxhound's composition records as [`POLITENESS_WEAKENED`] (ADR 0086).
+pub const PRESSING_HARDER: [&Setting; 7] = [
+    &POLITENESS_DOMAIN_CONCURRENCY,
+    &POLITENESS_DOMAIN_DELAY,
+    &POLITENESS_BACKOFF_ENABLED,
+    &POLITENESS_BACKOFF_INITIAL,
+    &POLITENESS_BACKOFF_MAX,
+    &SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
+    &SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
+];
 
 /// `paid_fetch.domains` (ADR 0045).
 pub const PAID_FETCH_DOMAINS: Setting = Setting {
@@ -138,24 +174,24 @@ pub const DELIVERY_REPORT_GUARANTEE_CLASS: Setting = Setting {
 /// `politeness.domain.concurrency` (ADRs 0053 and 0086).
 pub const POLITENESS_DOMAIN_CONCURRENCY: Setting = Setting {
     name: "politeness.domain.concurrency",
-    description: "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1.",
+    description: "How many requests may be in flight at once on one domain key, counted across every run of the user that shares Politeness: a run admits one only while that combined count is below its own value. None by default until the fetch tiers set ADR 0086's default of 1. A value above 1 is listed in the run's result as one that presses a site harder.",
     kind: ValueKind::Count,
     default: null,
     clearable: true,
     authority: Authority::Every,
-    weakens: None,
+    weakens: Some(more_than_one),
     arrived_in: ARRIVED_IN,
 };
 
 /// `politeness.domain.delay` (ADRs 0053 and 0086).
 pub const POLITENESS_DOMAIN_DELAY: Setting = Setting {
     name: "politeness.domain.delay",
-    description: "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s.",
+    description: "How long a run waits after the last request start on a domain key, by any run of the user that shares Politeness, before it starts another there. None by default until the fetch tiers set ADR 0086's default of 1 s. A value below 1 s is listed in the run's result as one that presses a site harder.",
     kind: ValueKind::Duration,
     default: null,
     clearable: true,
     authority: Authority::Every,
-    weakens: None,
+    weakens: Some(under_a_second),
     arrived_in: ARRIVED_IN,
 };
 
@@ -323,5 +359,5 @@ pub const ENTRIES: Entries = Entries {
         SITE_PREFERENCES_MAX_CRAWL_DELAY,
     ],
     hook_stages: &[],
-    shared_type_values: &[],
+    shared_type_values: &[POLITENESS_WEAKENED],
 };

@@ -206,6 +206,14 @@ export type ResponseOrigin =
       recorded_at: string;
     };
 /**
+ * What a Record's Provenance says of the robots.txt of its page's origin
+ * (ADR 0086).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RobotsTxtMark".
+ */
+export type RobotsTxtMark = "ignored";
+/**
  * Which scope's `fetch.tier` forced a tier.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2022,6 +2030,13 @@ export interface RecordProvenance {
    * The ID of the crawl request whose attempt produced it.
    */
   request_id: string;
+  /**
+   * `ignored` when its page was fetched while
+   * `site_preferences.respect_robots_txt` was off, from a URL its
+   * origin's robots.txt disallows, so a result taken against a site's
+   * stated preferences can be found and removed; none otherwise.
+   */
+  robots_txt?: RobotsTxtMark | null;
   /**
    * The tier that fetched that request's document, and how it was
    * chosen; none where the handler was given its request alone.
@@ -4861,6 +4876,13 @@ export interface RecordProvenance1 {
    * The ID of the crawl request whose attempt produced it.
    */
   request_id: string;
+  /**
+   * `ignored` when its page was fetched while
+   * `site_preferences.respect_robots_txt` was off, from a URL its
+   * origin's robots.txt disallows, so a result taken against a site's
+   * stated preferences can be found and removed; none otherwise.
+   */
+  robots_txt?: RobotsTxtMark | null;
   /**
    * The tier that fetched that request's document, and how it was
    * chosen; none where the handler was given its request alone.

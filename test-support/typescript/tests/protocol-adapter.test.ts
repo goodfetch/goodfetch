@@ -242,6 +242,24 @@ describe("createProtocolAdapter", () => {
     expect(setting).toThrow(expect.objectContaining({ code: "answer_invalid" }));
   });
 
+  test("refuses a call of Foxhound's operation on Collie's engine with not_in_product, as the engine does", async () => {
+    const adapter = createProtocolAdapter();
+    const client = new TinyClient(adapter.transport);
+
+    const reply = await client.call(1, "run.records", { run_id: "crawl", dataset: "pages" });
+
+    expect(reply["error"]).toMatchObject({
+      data: {
+        code: "not_in_product",
+        retryable: false,
+        product: "collie",
+        needs: "foxhound",
+        requested: "run.records",
+        fix: expect.stringContaining("Run it with Foxhound"),
+      },
+    });
+  });
+
   test("answers an operation of Foxhound's on Foxhound's engine", async () => {
     // Foxhound's tests pass its generated `FoxhoundOperationTypes`; this one names the entry it needs.
     const adapter = createProtocolAdapter<{

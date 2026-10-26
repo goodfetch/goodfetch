@@ -9,6 +9,9 @@
 //! `--daemon` asks the major's Daemon's `config.explain`, starting the
 //! Daemon if none runs, with the project configuration and flags it read.
 //!
+//! A setting it cannot take, such as a key no Product knows in a file,
+//! exits with its Error code's row of the exit-code table (ADR 0069).
+//!
 //! The human output is one line per key, as `git config --show-origin`
 //! shows each value's origin: `key = value  (layer, locked by layer)`, a
 //! run value's layer with its origin, `run from flag`.
@@ -31,7 +34,7 @@ use goodfetch_protocol::settings::{
 use serde_json::{Map, Value};
 
 use super::daemon::{Failure, Machine};
-use goodfetch_cli::output;
+use goodfetch_cli::{exit_codes, output};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::secrets::Keychain;
 
@@ -64,7 +67,7 @@ pub(super) fn explain(
         }
         Err(error) => {
             tracing::error!(code = error.code(), "{error}");
-            ExitCode::FAILURE
+            ExitCode::from(exit_codes::of_code(error.code()))
         }
     }
 }
@@ -75,7 +78,7 @@ pub(super) fn explain_through(machine: &Machine<'_>, request: &Explain) -> ExitC
         Ok(params) => params,
         Err(error) => {
             tracing::error!(code = error.code(), "{error}");
-            return ExitCode::FAILURE;
+            return ExitCode::from(exit_codes::of_code(error.code()));
         }
     };
     let explained = machine

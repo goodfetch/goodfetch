@@ -1,233 +1,122 @@
-//! J-031, "Crawl a site whose certificate is invalid by listing its domain
-//! for trust on first use, and see the crawl stop when the key changes
-//! until I accept it", on the `cli` surface (ADRs 0042, 0063 and 0075;
-//! spec #565, ticket #680): a program of the person's, a Client speaking
-//! the protocol to Foxhound's shipped executable as an Attached engine,
-//! crawls the Proving ground's expired host on the `http` tier, listing
-//! `certificates.test` for trust on first use in the crawl's settings. A
-//! second Proving ground, on another seed, then serves the same host with
-//! another key; the person accepts it with `certs accept` in a
-//! pseudo-terminal, and the next crawl fetches the host again. The result
-//! document is read back as every reader reads it.
+//! J-031, "Crawl with robots.txt turned off and find it in the Run report,
+//! the Audit log and the Records' Provenance", on the `cli` surface (ADRs
+//! 0063, 0075 and 0086): a person runs a crawl from a program, the test's
+//! own client of Foxhound's Attached engine over stdio, with
+//! `site_preferences.respect_robots_txt` off over a page the Proving
+//! ground's robots.txt allows and one it disallows, reads the Run report,
+//! exports the Audit log with Foxhound's shipped executable and reads the
+//! crawl's Records.
 
 use std::path::Path;
 
-use goodfetch_protocol::journey::Journey;
-use goodfetch_protocol::result_document::{
-    LoadedDocument, ResultDocument, read, read_journey_document,
-};
-use goodfetch_test_support::{JourneyRun, ProvingGround, ReceivedRequests, pty};
+use goodfetch_protocol::result_document::ResultDocument;
+use goodfetch_test_support::JourneyRun;
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
-use crate::fetch_tiers::settings;
-use crate::frontier::crawl_from;
-use crate::provenance::{push, records};
+use crate::politeness_records::{crawl, marks, records, settings};
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
-/// The site: the Proving ground's host whose certificate expired.
-const HOST: &str = "expired.certificates.test";
+/// The person's crawl.
+const RUN_ID: &str = "robots-txt-off";
 
-/// The seed of the Proving ground that serves the site under another key,
-/// which no Journey uses.
-const CHANGED_SEED: u64 = 1031;
-
-/// The site's root on `proving_ground`.
-fn site(proving_ground: &ProvingGround) -> String {
-    format!("https://{HOST}:{}/", proving_ground.address().port())
-}
-
-/// What one crawl of the site left: its request's outcome, as its kind and
-/// error codes, and its Records' Provenance marks.
-#[derive(Debug, Default)]
-struct Crawled {
-    outcome: Value,
-    marks: Vec<Value>,
-}
-
-/// Crawls the site on `proving_ground` as the Run `run_id` from a program
-/// driving `engine`, on the `http` tier, listing `certificates.test` for
-/// trust on first use; its handler pushes one Record naming the URL.
-fn crawl(engine: &mut Attached, proving_ground: &ProvingGround, run_id: &str) -> Crawled {
-    let finished = crawl_from(
-        engine,
-        &json!({
-            "run_id": run_id,
-            "seeds": [{ "url": site(proving_ground), "label": "page" }],
-            "settings": settings(proving_ground, &json!({
-                "fetch": { "tier": "http" },
-                "politeness": { "domain": { "delay": 0 } },
-                "site_preferences": { "respect_robots_txt": false },
-                "tls": { "accept_invalid_certs": { "certificates.test": null } },
-            })),
-            "datasets": [{ "name": "pages" }],
-        }),
-        &mut |inside, handle| {
-            let url = handle["crawl_request"]["url"].clone();
-            let pushed = push(inside, handle, "pages", &json!({ "url": url }));
-            assert!(pushed.get("result").is_some(), "{pushed}");
-            json!({ "result": { "records": [] } })
-        },
-    );
-    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
-    let read = engine.call(
-        "outcomes",
-        "run.outcomes",
-        &json!({ "run_id": run_id }),
-        &mut |_| None,
-    );
-    let Some(outcome) = read["result"]["outcomes"]
-        .as_array()
-        .and_then(|outcomes| outcomes.first())
-    else {
-        panic!("the crawl's one outcome: {read}");
-    };
-    let outcome = json!({
-        "kind": outcome["kind"],
-        "errors": outcome["errors"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|error| error["code"].clone())
-            .collect::<Vec<_>>(),
-    });
-    let marks = records(engine, run_id, "pages")
-        .iter()
-        .map(|record| record["provenance"]["certificate_exception"].clone())
-        .collect();
-    Crawled { outcome, marks }
-}
-
-/// The requests `proving_ground` received for the site.
-fn requests_to_the_site(proving_ground: &ProvingGround) -> usize {
-    ReceivedRequests::of(&proving_ground.observations().unwrap())
-        .every()
-        .filter(|request| request["host"].as_str() == Some(HOST))
-        .count()
-}
-
-/// A Record's mark of trust on first use, with the key it carries.
-fn pinned_key(crawled: &Crawled) -> Option<String> {
-    match crawled.marks.as_slice() {
-        [mark] if mark["kind"] == "trust_on_first_use" => {
-            mark["spki_sha256"].as_str().map(str::to_owned)
-        }
-        _ => None,
-    }
-}
-
-/// Covers: story:4-35, story:4-36, story:4-104, row:SC-06, command:certs.accept
+/// Covers: story:4-117, story:4-118, row:SC-01, row:compliance-site-owner-politeness
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "a Journey variant is one test of its every step and check, in its file's order (TESTING.md, Journeys)"
-)]
 fn cli() {
     let mut run = JourneyRun::start("J-031", "cli", Path::new(FOXHOUND), ResultDocument::journey)
         .expect("J-031's cli variant starts");
-    let mut engine = {
-        let mut command = run.env().process_command(run.engine());
-        command.arg("attached-engine");
-        Attached::spawned(run.env(), None, &mut command)
-    };
-    let mut changed_server: Option<ProvingGround> = None;
-    let mut first = Crawled::default();
-    let mut changed = Crawled::default();
-    let mut changed_requests = usize::MAX;
-    let mut accepted = Crawled::default();
+    let mut engine: Option<Attached> = None;
+    let mut report = Value::Null;
+    let mut exported: Vec<Value> = Vec::new();
+    let mut read: Vec<Value> = Vec::new();
 
     run.step(
-        "Crawl the site from a program, listing its domain for trust on first use in the crawl's settings",
+        "Run a crawl from a program over a page the site's robots.txt allows and one it disallows, with `site_preferences.respect_robots_txt` turned off for the run, each page's handler pushing a Record",
         |run| {
             let proving_ground = run.proving_ground().expect("J-031 has a Proving ground");
-            first = crawl(&mut engine, proving_ground, "first-use");
+            let mut command = run.env().process_command(run.engine());
+            command.arg("attached-engine");
+            let mut program = Attached::spawned(run.env(), None, &mut command);
+            report = crawl(
+                &mut program,
+                proving_ground,
+                RUN_ID,
+                &["/catalog/1", "/private/catalog/1"],
+                &settings(
+                    proving_ground,
+                    &json!({ "site_preferences": { "respect_robots_txt": false } }),
+                ),
+            )["result"]
+                .clone();
+            engine = Some(program);
         },
     );
-    run.step(
-        "Crawl the site the same way once its server presents another key",
-        |run| {
-            let server = ProvingGround::start(run.env(), CHANGED_SEED)
-                .expect("the server with another key starts");
-            changed = crawl(&mut engine, &server, "changed-key");
-            changed_requests = requests_to_the_site(&server);
-            changed_server = Some(server);
-        },
-    );
-    run.step(
-        "Accept the site's new key in a terminal (`certs accept`)",
-        |run| {
-            let mut accept = pty(run.env(), run.engine())
-                .args(["certs", "accept", HOST])
-                .spawn()
-                .unwrap();
-            accept.expect("[y/N]").unwrap();
-            accept.send_line("y").unwrap();
-            let answered = accept.finish().unwrap();
-            assert_eq!(answered.exit, Some(0), "{}", answered.stripped());
-        },
-    );
-    run.step("Crawl the site the same way again", |_| {
-        let server = changed_server
-            .as_ref()
-            .expect("the server with another key runs");
-        accepted = crawl(&mut engine, server, "accepted");
+    run.step("Read the run's report", |_| {
+        assert!(!report.is_null(), "the run's report was read");
+    });
+    run.step("Export the Audit log", |run| {
+        let output = run.command().args(["audit", "export"]).output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        exported = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+    });
+    run.step("Read the crawl's Records", |_| {
+        let mut program = engine.take().expect("the program is connected");
+        read = records(&mut program, RUN_ID);
+        assert!(program.finish());
     });
 
     run.check(
-        "The first crawl fetched the site through its exception, and its Record's Provenance carries the exception and the key it pinned",
+        "The Run report lists `site_preferences.respect_robots_txt` in `weakened`, set by the run",
         |_| {
+            let listed: Vec<Value> = report["weakened"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|weakened| weakened["key"] == "site_preferences.respect_robots_txt")
+                .map(|weakened| json!([weakened["value"], weakened["layer"]]))
+                .collect();
+            assert_eq!(listed, vec![json!([false, "run"])], "{report}");
+        },
+    );
+    run.check(
+        "The Audit log holds one `politeness_weakened` entry for the run, naming `site_preferences.respect_robots_txt`, its value `false`, its built-in default `true` and the run's layer",
+        |_| {
+            let entries: Vec<Value> = exported
+                .iter()
+                .filter(|entry| entry["kind"] == "politeness_weakened")
+                .map(|entry| json!([entry["run_id"], entry["layer"], entry["details"]]))
+                .collect();
             assert_eq!(
-                (&first.outcome, pinned_key(&first).is_some()),
-                (&json!({ "kind": "succeeded", "errors": [] }), true),
-                "{first:?}"
+                entries,
+                vec![json!([
+                    RUN_ID,
+                    "run",
+                    {
+                        "setting": "site_preferences.respect_robots_txt",
+                        "value": false,
+                        "default": true,
+                    },
+                ])]
             );
         },
     );
     run.check(
-        "The crawl after the key changed failed the site's request with `certificate_changed`, and no request reached the site",
+        "The Record of the disallowed page carries `robots_txt: \"ignored\"` in its Provenance, and the Record of the allowed page carries no mark",
         |_| {
             assert_eq!(
-                (&changed.outcome, changed.marks.len(), changed_requests),
-                (
-                    &json!({ "kind": "failed", "errors": ["certificate_changed"] }),
-                    0,
-                    0
-                ),
-                "{changed:?}"
+                marks(&read),
+                vec![
+                    ("/catalog/1".to_owned(), Value::Null),
+                    ("/private/catalog/1".to_owned(), json!("ignored")),
+                ]
             );
         },
     );
-    run.check(
-        "Once the new key was accepted, the crawl fetched the site under the new key",
-        |_| {
-            let (old, new) = (pinned_key(&first), pinned_key(&accepted));
-            assert_eq!(
-                (&accepted.outcome, new.is_some(), new != old),
-                (&json!({ "kind": "succeeded", "errors": [] }), true, true),
-                "{accepted:?}"
-            );
-        },
-    );
-    assert!(engine.finish(), "the Attached engine ends cleanly");
-    drop(changed_server);
-
-    let finished = run.finish().expect("J-031's document is written");
-    finished.assert_proved();
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test reads the written document and the Journey's file as every reader does"
-    )]
-    let (bytes, journey) = (
-        std::fs::read(finished.path()).unwrap(),
-        std::fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../journeys/J-031.toml"),
-        )
-        .unwrap(),
-    );
-    let journey: Journey = toml::from_str(&journey).unwrap();
-    let LoadedDocument::Journey(loaded) = read(&bytes).unwrap() else {
-        panic!("J-031's document is a journey document");
-    };
-    read_journey_document(loaded, &journey).expect("the reader accepts J-031's document");
+    run.finish()
+        .expect("J-031's document is written")
+        .assert_proved();
 }

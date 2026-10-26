@@ -813,19 +813,7 @@ impl Call {
                 details: error.data.details,
             },
         };
-        if self.json {
-            output::json(&failed);
-        } else {
-            let error = &failed.error;
-            let mut details = vec![
-                ("code", error.code.clone()),
-                ("retryable", error.retryable.to_string()),
-            ];
-            if let Some(fix) = error.details.get("fix").and_then(Value::as_str) {
-                details.push(("fix", fix.to_owned()));
-            }
-            human.failure(&error.message, &details);
-        }
+        output::failed(&failed, self.json, human);
         ExitCode::from(exit)
     }
 }

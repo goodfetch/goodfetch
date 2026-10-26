@@ -115,6 +115,9 @@ export type PushedEvent<Events> = {
 /** The Product version the adapter answers `hello` with. */
 const PRODUCT_VERSION = "0.1.0";
 
+/** The command that installs Foxhound, which `not_in_product`'s fix names: npm's, the channel of the TypeScript SDK (ADR 0090). */
+const FOXHOUND_INSTALL = "npm install @goodfetch/foxhound";
+
 /** One event of a `$/events` batch. */
 interface EventEnvelope {
   readonly position: number;
@@ -177,6 +180,8 @@ export class ProtocolAdapter<
   readonly requests: readonly ClientMessage[];
   readonly #requests: ClientMessage[] = [];
   readonly #contract: ProductContract;
+  /** Foxhound's contract, read once a call names what Collie's lacks. */
+  #foxhound: ProductContract | undefined;
   readonly #answers = new Map<string, Answer<OperationTypes>>();
   readonly #violations: TestSupportError[] = [];
   readonly #connections = new Set<OpenConnection>();
@@ -576,6 +581,22 @@ export class ProtocolAdapter<
       return;
     }
     const operation = this.#contract.operations.get(message.method);
+    if (operation === undefined && this.#onlyFoxhoundCarries(message.method)) {
+      this.#deliver(connection, {
+        id,
+        error: this.#wireError(
+          new Failure("not_in_product", {
+            product: this.#contract.product,
+            product_version: PRODUCT_VERSION,
+            needs: "foxhound",
+            requested: message.method,
+            fix: `Run it with Foxhound, which contains everything Collie does (\`${FOXHOUND_INSTALL}\`), or connect to a Foxhound engine.`,
+          }),
+          `\`${message.method}\` is part of Foxhound, and this engine is Collie ${PRODUCT_VERSION}.`,
+        ),
+      });
+      return;
+    }
     if (operation === undefined) {
       this.#violation(
         "request_invalid",
@@ -603,6 +624,19 @@ export class ProtocolAdapter<
       return;
     }
     void this.#settle(connection, id, message.method, answer, params);
+  }
+
+  /**
+   * Whether `method` is an operation only Foxhound carries while the
+   * adapter stands for Collie's engine, which refuses it with
+   * `not_in_product` before reading its params, as the engine does.
+   */
+  #onlyFoxhoundCarries(method: string): boolean {
+    if (this.#contract.product === "foxhound") {
+      return false;
+    }
+    this.#foxhound ??= productContract("foxhound");
+    return this.#foxhound.operations.has(method);
   }
 
   #paramsInvalid(method: string, problems: Problems): boolean {

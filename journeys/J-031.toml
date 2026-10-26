@@ -1,18 +1,27 @@
 #:schema ./journey.schema.json
 id = "J-031"
-title = "Crawl a site whose certificate is invalid by listing its domain for trust on first use, and see the crawl stop when the key changes until I accept it"
+title = "Crawl with robots.txt turned off and find it in the Run report, the Audit log and the Records' Provenance"
 goal = """
-A person crawls a site whose certificate fails verification, listing its \
-domain for trust on first use. The first crawl MUST fetch the site and pin \
-its key, marking each Record fetched under the exception in its Provenance. \
-Once the site presents another key, the crawl MUST stop the site with \
-`certificate_changed` before any request reaches it, until the person \
-accepts the new key in a terminal; the next crawl MUST then fetch the site \
-again (ADR 0042, SC-06)."""
+A person runs a crawl from a program with `site_preferences.respect_robots_txt` \
+turned off, over a site whose robots.txt disallows part of it, then reads the \
+Run report, exports the Audit log and reads the crawl's Records. Turning \
+robots.txt off MUST be explicit and recorded: the Run report MUST list it in \
+`weakened` with the layer that set it, the Audit log MUST hold one \
+`politeness_weakened` entry for the run naming the key, its value, its \
+built-in default and that layer, and each Record fetched from a URL the \
+site's robots.txt disallows MUST carry `robots_txt: "ignored"` in its \
+Provenance while a Record from an allowed URL carries no mark, so that who \
+pressed a site, and which results were taken against its stated \
+preferences, can be shown and removed (ADR 0086)."""
 area = 4
 product = "foxhound"
 status = "active"
-covers = ["story:4-35", "story:4-36", "story:4-104", "row:SC-06"]
+covers = [
+  "row:SC-01",
+  "row:compliance-site-owner-politeness",
+  "story:4-117",
+  "story:4-118",
+]
 
 [proving_ground]
 seed = 31
@@ -24,23 +33,22 @@ sdk-typescript = "M2"
 sdk-python = "M2"
 
 [[steps]]
-text = "Crawl the site from a program, listing its domain for trust on first use in the crawl's settings"
+text = "Run a crawl from a program over a page the site's robots.txt allows and one it disallows, with `site_preferences.respect_robots_txt` turned off for the run, each page's handler pushing a Record"
 
 [[steps]]
-text = "Crawl the site the same way once its server presents another key"
+text = "Read the run's report"
 
 [[steps]]
-text = "Accept the site's new key in a terminal (`certs accept`)"
-on = "cli"
+text = "Export the Audit log"
 
 [[steps]]
-text = "Crawl the site the same way again"
+text = "Read the crawl's Records"
 
 [[expect]]
-text = "The first crawl fetched the site through its exception, and its Record's Provenance carries the exception and the key it pinned"
+text = "The Run report lists `site_preferences.respect_robots_txt` in `weakened`, set by the run"
 
 [[expect]]
-text = "The crawl after the key changed failed the site's request with `certificate_changed`, and no request reached the site"
+text = "The Audit log holds one `politeness_weakened` entry for the run, naming `site_preferences.respect_robots_txt`, its value `false`, its built-in default `true` and the run's layer"
 
 [[expect]]
-text = "Once the new key was accepted, the crawl fetched the site under the new key"
+text = "The Record of the disallowed page carries `robots_txt: \"ignored\"` in its Provenance, and the Record of the allowed page carries no mark"

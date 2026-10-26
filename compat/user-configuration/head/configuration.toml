@@ -269,6 +269,7 @@ max_size = 4
 [settings.fetch]
 tier = "auto"
 tier_race = true
+light_browser = true
 encoding = "example"
 coalesce = true
 

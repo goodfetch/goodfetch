@@ -42,6 +42,12 @@ pub enum BrowserCacheError {
     /// This platform has no Chrome for Testing build.
     #[error("Chrome for Testing has no build for this platform")]
     NoBuild,
+    /// The tests' copy of Foxhound's pinned Lightpanda build is missing:
+    /// run `ci/lightpanda-fetch.sh` (part of `just fetch`).
+    #[error(
+        "Lightpanda {LIGHTPANDA_BUILD} is not at {0}: run `ci/lightpanda-fetch.sh` (part of `just fetch`)"
+    )]
+    LightpandaNotFetched(PathBuf),
     /// The cache's files could not be written.
     #[error("the Browser cache cannot be laid out: {0}")]
     Io(#[from] io::Error),
@@ -112,6 +118,106 @@ pub fn browser_cache(env: &TestEnv) -> Result<PathBuf, BrowserCacheError> {
             "kind": "browser",
             "name": "chrome-for-testing",
             "build": CHROME_FOR_TESTING_BUILD,
+        },
+        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "installed_at": START_TIME,
+        "used_at": START_TIME,
+    });
+    fs::write(entry.join("entry.json"), installed.to_string())?;
+    Ok(root)
+}
+
+/// The Lightpanda build Foxhound pins (`goodfetch-fetch-tier`'s
+/// `light_browser/pins.json`): a launch's digest check catches a drift.
+pub const LIGHTPANDA_BUILD: &str = "1.0.2";
+
+/// The variable naming the folder `ci/lightpanda-fetch.sh` downloads the
+/// tests' copy of Lightpanda into, `~/.cache/goodfetch/lightpanda` by
+/// default.
+pub const LIGHTPANDA_DOWNLOADS_VARIABLE: &str = "GOODFETCH_LIGHTPANDA_DOWNLOADS";
+
+/// The name of Lightpanda's release executable for this platform.
+fn lightpanda_asset() -> Option<&'static str> {
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Some("lightpanda-aarch64-macos")
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        Some("lightpanda-x86_64-macos")
+    } else if cfg!(all(
+        target_os = "linux",
+        target_env = "gnu",
+        target_arch = "x86_64"
+    )) {
+        Some("lightpanda-x86_64-linux")
+    } else if cfg!(all(
+        target_os = "linux",
+        target_env = "gnu",
+        target_arch = "aarch64"
+    )) {
+        Some("lightpanda-aarch64-linux")
+    } else {
+        None
+    }
+}
+
+/// The tests' copy of the Lightpanda build Foxhound pins for this
+/// platform, which `ci/lightpanda-fetch.sh` downloads: its release
+/// executable, named as the release names it.
+///
+/// # Errors
+///
+/// [`BrowserCacheError::NoBuild`] on a platform Lightpanda builds nothing
+/// for, [`BrowserCacheError::LightpandaNotFetched`] when the copy is
+/// missing.
+pub fn lightpanda_copy() -> Result<PathBuf, BrowserCacheError> {
+    let asset = lightpanda_asset().ok_or(BrowserCacheError::NoBuild)?;
+    let variables = Variables::from_process();
+    let downloads = variables
+        .get(LIGHTPANDA_DOWNLOADS_VARIABLE)
+        .map(PathBuf::from)
+        .or_else(|| {
+            variables
+                .get("HOME")
+                .map(|home| Path::new(home).join(".cache/goodfetch/lightpanda"))
+        })
+        .unwrap_or_default();
+    let source = downloads.join(LIGHTPANDA_BUILD).join(asset);
+    if source.is_file() {
+        Ok(source)
+    } else {
+        Err(BrowserCacheError::LightpandaNotFetched(source))
+    }
+}
+
+/// [`browser_cache`], holding also the Lightpanda build Foxhound pins for
+/// the light-browser tier (ADR 0020), laid out as a prepared copy holds
+/// it from the tests' own copy, which `ci/lightpanda-fetch.sh` downloads,
+/// so no test downloads it either.
+///
+/// # Errors
+///
+/// [`browser_cache`]'s, and [`BrowserCacheError::LightpandaNotFetched`]
+/// when the tests' copy is missing.
+pub fn browser_cache_with_lightpanda(env: &TestEnv) -> Result<PathBuf, BrowserCacheError> {
+    let source = lightpanda_copy()?;
+    let asset = lightpanda_asset().ok_or(BrowserCacheError::NoBuild)?;
+    let root = browser_cache(env)?;
+    let entry = root
+        .join("browser")
+        .join("lightpanda")
+        .join(LIGHTPANDA_BUILD);
+    let files = entry.join("files");
+    fs::create_dir_all(&files)?;
+    let target = files.join(asset);
+    if fs::hard_link(&source, &target).is_err() {
+        fs::copy(&source, &target)?;
+    }
+    fs::write(entry.join("lock"), "")?;
+    let installed = serde_json::json!({
+        "format_version": "0.1",
+        "artifact": {
+            "kind": "browser",
+            "name": "lightpanda",
+            "build": LIGHTPANDA_BUILD,
         },
         "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
         "installed_at": START_TIME,

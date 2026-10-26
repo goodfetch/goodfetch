@@ -1,6 +1,8 @@
 //! Foxhound's executable, `goodfetch-foxhound` (ADR 0090): Collie's
 //! executable entry, given Foxhound's composition, a list that starts from
-//! Collie's (ADR 0087).
+//! Collie's (ADR 0087), with its Console build (ADR 0057).
+
+mod console_build;
 
 use std::process::ExitCode;
 
@@ -17,7 +19,7 @@ fn main() -> ExitCode {
         // A release build records its release date; any other build has
         // none, and never prints the age notice (ADR 0030).
         release_date: option_env!("GOODFETCH_RELEASE_DATE"),
-        composition: goodfetch_foxhound::composition,
+        composition: console_build::composition,
         arguments: std::env::args_os().collect(),
         environment: std::env::vars_os().collect(),
     })

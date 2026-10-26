@@ -3050,6 +3050,11 @@
           "arrived_in": "0.1",
           "description": "An Operator policy's cap on it, if any."
         },
+        "fixed_for_run": {
+          "arrived_in": "0.1",
+          "description": "Whether it is fixed for a Run's life: a resume that changes it is\nrefused with `setting_not_applicable`, and only a new Run takes\nanother value (ADRs 0102 and 0120).",
+          "type": "boolean"
+        },
         "key": {
           "arrived_in": "0.1",
           "description": "Its key.",
@@ -3092,6 +3097,11 @@
           },
           "type": "array"
         },
+        "user_settable": {
+          "arrived_in": "0.1",
+          "description": "Whether user configuration may set it: its authority lets user\nconfiguration hold it and no lower layer locked it, so the Console\noffers its user-level value for editing (ADR 0031).",
+          "type": "boolean"
+        },
         "value": {
           "arrived_in": "0.1",
           "description": "The effective value, or for a key this engine does not apply, the\nvalue its highest layer wrote."
@@ -3109,6 +3119,187 @@
         "value",
         "layer",
         "weakens"
+      ],
+      "type": "object"
+    },
+    "Export": {
+      "description": "What `run.export` answers once the Export's file is whole (ADR 0103).",
+      "properties": {
+        "compression": {
+          "$ref": "#/$defs/ExportCompression",
+          "arrived_in": "0.1",
+          "description": "Its compression."
+        },
+        "export_id": {
+          "$ref": "#/$defs/ExportId",
+          "arrived_in": "0.1",
+          "description": "The Export, which `export.save_as` and `export.stream` take."
+        },
+        "format": {
+          "$ref": "#/$defs/ExportFormat",
+          "arrived_in": "0.1",
+          "description": "Its format."
+        },
+        "last_number": {
+          "arrived_in": "0.1",
+          "description": "The number of the last Record it holds, 0 when it holds none.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "How many Records it holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "Its size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "export_id",
+        "format",
+        "compression",
+        "records",
+        "last_number",
+        "size",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "ExportCompression": {
+      "description": "How an Export's bytes are compressed.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "Not compressed.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExportFormat": {
+      "description": "An Export's format, named, never inferred from a file name (ADR 0103).",
+      "oneOf": [
+        {
+          "const": "json",
+          "description": "One JSON array of the Records' values.",
+          "type": "string"
+        },
+        {
+          "const": "jsonl",
+          "description": "One Record's value per line, each line ended by a line feed.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExportId": {
+      "description": "An Export of a Run, named by the engine when its file is whole:\n`<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase\nhexadecimal, so two Exports of the same bytes are one file.",
+      "type": "string"
+    },
+    "ExportSaveAsParams": {
+      "additionalProperties": false,
+      "description": "What `export.save_as` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "export_id": {
+          "$ref": "#/$defs/ExportId",
+          "arrived_in": "0.1",
+          "description": "The Export."
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The program's path, absolute, which an Attached engine writes\nitself; any other engine leaves it to the SDK and sends the file's\nbytes instead.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "export_id"
+      ],
+      "type": "object"
+    },
+    "ExportSaved": {
+      "description": "What `export.save_as` answers once the file is whole.",
+      "properties": {
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "Whether the engine wrote the program's path itself; when not, the\n`$/chunk` notifications before this answer carried every byte, and\nthe SDK writes the path.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "size",
+        "sha256",
+        "written"
+      ],
+      "type": "object"
+    },
+    "ExportStreamParams": {
+      "additionalProperties": false,
+      "description": "What `export.stream` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "export_id": {
+          "$ref": "#/$defs/ExportId",
+          "arrived_in": "0.1",
+          "description": "The Export."
+        }
+      },
+      "required": [
+        "export_id"
+      ],
+      "type": "object"
+    },
+    "ExportStreamed": {
+      "description": "What `export.stream` answers once it sent every byte.",
+      "properties": {
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size",
+        "sha256"
       ],
       "type": "object"
     },
@@ -4483,6 +4674,62 @@
       ],
       "type": "object"
     },
+    "ModelAllowance": {
+      "description": "One kind of a Run's Model allowance (ADR 0107): the most model Usage\nof that kind the Run may spend, past which its model calls are refused\nwhile it goes on.",
+      "properties": {
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency of a `price` allowance, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "Its kind: `price`, `tokens` or `calls`; a kind this reader does not\nknow is kept as it is.",
+          "type": "string"
+        },
+        "reached_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When a model call was first refused under it; none until then."
+        },
+        "remains": {
+          "arrived_in": "0.1",
+          "description": "What remains of it, spent and reserved taken off.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source": {
+          "$ref": "#/$defs/SettingLimit",
+          "arrived_in": "0.1",
+          "description": "The setting that set it, its value and its layer."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "What it allows: a count, or millionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "value",
+        "remains",
+        "source"
+      ],
+      "type": "object"
+    },
     "ModelUsage": {
       "description": "A Run's model calls (ADR 0101).",
       "properties": {
@@ -5066,6 +5313,41 @@
           "type": "string"
         }
       ]
+    },
+    "OperatorPolicyRead": {
+      "description": "The Operator policy as `config.policy_read` reads it.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The digest of the file as read, which `config.policy_write` takes\nback. It is the policy version a Run report names, `sha256:` and 16\nhex digits, of the file's text, or of no text when there is none.",
+          "type": "string"
+        },
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "Every entry of its three tables, by table, then key, the other\nProduct's keys included.",
+          "items": {
+            "$ref": "#/$defs/PolicyEntry"
+          },
+          "type": "array"
+        },
+        "found": {
+          "arrived_in": "0.1",
+          "description": "Whether the file exists; a policy that does not sets nothing.",
+          "type": "boolean"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Its file's path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "found",
+        "digest",
+        "entries"
+      ],
+      "type": "object"
     },
     "OutcomeKind": {
       "description": "How a crawl request ended (ADR 0079).",
@@ -5918,6 +6200,139 @@
       "description": "A point in time in UTC, as RFC 3339.",
       "format": "date-time",
       "type": "string"
+    },
+    "PolicyChange": {
+      "additionalProperties": false,
+      "description": "One change `config.policy_write` makes.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key it changes.",
+          "type": "string"
+        },
+        "table": {
+          "$ref": "#/$defs/PolicyTable",
+          "arrived_in": "0.1",
+          "description": "The table it changes."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The key's new value; `null` removes it from the table."
+        }
+      },
+      "required": [
+        "table",
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PolicyEntry": {
+      "description": "One entry of the Operator policy: a key of one of its tables, and its\nvalue.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "Its key.",
+          "type": "string"
+        },
+        "table": {
+          "$ref": "#/$defs/PolicyTable",
+          "arrived_in": "0.1",
+          "description": "Its table."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its value."
+        }
+      },
+      "required": [
+        "table",
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PolicyReadParams": {
+      "additionalProperties": false,
+      "description": "What `config.policy_read` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
+    "PolicyTable": {
+      "description": "A table of the Operator policy: what it sets, what it sets and locks, and\nits caps.",
+      "oneOf": [
+        {
+          "const": "settings",
+          "description": "`[settings]`: values it sets, which a higher layer may change.",
+          "type": "string"
+        },
+        {
+          "const": "lock",
+          "description": "`[lock]`: values it sets and locks.",
+          "type": "string"
+        },
+        {
+          "const": "cap",
+          "description": "`[cap]`: the most a count or a duration may be.",
+          "type": "string"
+        }
+      ]
+    },
+    "PolicyWriteParams": {
+      "additionalProperties": false,
+      "description": "What `config.policy_write` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "changes": {
+          "arrived_in": "0.1",
+          "description": "The changes, made in order, in one write.",
+          "items": {
+            "$ref": "#/$defs/PolicyChange"
+          },
+          "type": "array"
+        },
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The digest `config.policy_read` answered: the write is made only if\nthe file still has it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "digest",
+        "changes"
+      ],
+      "type": "object"
+    },
+    "PolicyWritten": {
+      "description": "What `config.policy_write` answers.",
+      "properties": {
+        "diff": {
+          "arrived_in": "0.1",
+          "description": "Each key the write changed, with its values before and after, as the\nAudit log records them.",
+          "items": {
+            "$ref": "#/$defs/SettingDiff"
+          },
+          "type": "array"
+        },
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The file's digest after the write, the version new Runs name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "digest",
+        "diff"
+      ],
+      "type": "object"
     },
     "Position": {
       "description": "An event's position among every event of one engine, which only goes up.",
@@ -7168,6 +7583,49 @@
       ],
       "type": "object"
     },
+    "RunExportParams": {
+      "additionalProperties": false,
+      "description": "What `run.export` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "compression": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExportCompression"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The compression; absent, `none`."
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "format": {
+          "$ref": "#/$defs/ExportFormat",
+          "arrived_in": "0.1",
+          "description": "The format."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset",
+        "format"
+      ],
+      "type": "object"
+    },
     "RunFailedRequestsParams": {
       "additionalProperties": false,
       "description": "What `run.failed_requests` takes.",
@@ -7261,6 +7719,10 @@
             "null"
           ]
         },
+        "replayed": {
+          "description": "Whether it replayed a Response recording (ADR 0105), which marks\nits row so that no one reads it as a live run.",
+          "type": "boolean"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "description": "The Run's ID."
@@ -7304,7 +7766,8 @@
         "tags",
         "lifecycle",
         "started_at",
-        "presence"
+        "presence",
+        "replayed"
       ],
       "type": "object"
     },
@@ -8422,6 +8885,14 @@
           "arrived_in": "0.1",
           "description": "Its model calls."
         },
+        "model_allowance": {
+          "arrived_in": "0.1",
+          "description": "Its Model allowance, one entry per kind set (ADR 0107): not a Limit,\nso apart from `limits`; empty when none is set.",
+          "items": {
+            "$ref": "#/$defs/ModelAllowance"
+          },
+          "type": "array"
+        },
         "other": {
           "arrived_in": "0.1",
           "description": "What it used of a Usage kind this engine does not name, kept as the\nledger holds it.",
@@ -9227,6 +9698,67 @@
       },
       "required": [
         "log_level"
+      ],
+      "type": "object"
+    },
+    "SettingDiff": {
+      "description": "One key's values before and after a write.",
+      "properties": {
+        "after": {
+          "arrived_in": "0.1",
+          "description": "Its value after; `null` when the write removed it."
+        },
+        "before": {
+          "arrived_in": "0.1",
+          "description": "Its value before; `null` when the file did not hold it."
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "table": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PolicyTable"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Operator policy's table, for a change to it; none for user\nconfiguration."
+        }
+      },
+      "required": [
+        "key",
+        "before",
+        "after"
+      ],
+      "type": "object"
+    },
+    "SettingLimit": {
+      "description": "A setting that decided an outcome: its key, its value and the layer that\nset it (ADRs 0028 and 0079).",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The setting's key.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The layer that set it."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its value."
+        }
+      },
+      "required": [
+        "key",
+        "value",
+        "layer"
       ],
       "type": "object"
     },
@@ -10421,6 +10953,65 @@
       ],
       "type": "object"
     },
+    "UserChange": {
+      "additionalProperties": false,
+      "description": "One user-level value `config.user_write` writes.",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key.",
+          "type": "string"
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its new value; `null` removes it from user configuration."
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "UserConfigurationWritten": {
+      "description": "What `config.user_write` answers.",
+      "properties": {
+        "diff": {
+          "arrived_in": "0.1",
+          "description": "Each key the write changed, with its values before and after.",
+          "items": {
+            "$ref": "#/$defs/SettingDiff"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "diff"
+      ],
+      "type": "object"
+    },
+    "UserWriteParams": {
+      "additionalProperties": false,
+      "description": "What `config.user_write` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "changes": {
+          "arrived_in": "0.1",
+          "description": "The changes, made in order, in one write.",
+          "items": {
+            "$ref": "#/$defs/UserChange"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "changes"
+      ],
+      "type": "object"
+    },
     "Verdict": {
       "description": "Whether a Run's own checks prove what it committed (ADR 0029).",
       "oneOf": [
@@ -11510,6 +12101,16 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "person_required",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "policy_conflict",
       "product": "collie",
       "retryable": false
     },
@@ -12850,6 +13451,63 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the Operator policy of this engine's major: every entry of its `settings`, `lock` and `cap` tables, and its digest, which `config.policy_write` takes back. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "config.policy_read",
+      "params": {
+        "$ref": "#/$defs/PolicyReadParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/OperatorPolicyRead"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Writes changes to the Operator policy in one atomic write, only if its digest is still the one `config.policy_read` gave, every other byte of the file kept, and records the values before and after in the Audit log; a changed digest answers `policy_conflict` and writes nothing. A tightened cap reaches running Runs at their next admission point; every other change applies to new Runs. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "config.policy_write",
+      "params": {
+        "$ref": "#/$defs/PolicyWriteParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/PolicyWritten"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Writes user-level values to user configuration in one atomic write, every other byte of the file kept, once the resolver accepts them under the Operator policy, and records the values before and after in the Audit log; they apply to new Runs. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "config.user_write",
+      "params": {
+        "$ref": "#/$defs/UserWriteParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/UserConfigurationWritten"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
       "description": "Sets the level of the engine's log events this Connection receives as `$/log` notifications, from the next one on: `off`, `error`, `warn`, `info`, `debug` or `trace`, as `hello`'s `log_level` set it first. Each Connection has its own. Log events are telemetry: one the Connection is too slow to receive is dropped, and the next counts it in `dropped`.",
@@ -13153,6 +13811,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SubscriptionEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "export.save_as",
+      "params": {
+        "$ref": "#/$defs/ExportSaveAsParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/ExportSaved"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Sends an Export's bytes, which the engine keeps in its Run's folder, in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size and SHA-256 once every byte is sent. Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.",
+      "events": [],
+      "kind": "sequence",
+      "name": "export.stream",
+      "params": {
+        "$ref": "#/$defs/ExportStreamParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/ExportStreamed"
       },
       "stability": "experimental"
     },
@@ -14056,6 +14752,25 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RunDiscarded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named (`json`, one array of the Records' values; `jsonl`, one value per line), UTF-8 with no BOM, characters written as themselves and each value as it was committed. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.export",
+      "params": {
+        "$ref": "#/$defs/RunExportParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Export"
       },
       "stability": "experimental"
     },
@@ -18863,6 +19578,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A person wrote the Operator policy through `config.policy_write`, with its digest before and after and each key's values before and after.",
+      "name": "operator_policy_written",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Pages of a run that crashed: their renderer, or their browser's process (ADR 0040). A crash racing the page's close does not count.",
       "name": "page_crashes",
       "product": "collie",
@@ -19119,6 +19841,13 @@
       "name": "trap_path",
       "product": "foxhound",
       "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person wrote user-level values through `config.user_write`, with each key's values before and after.",
+      "name": "user_configuration_written",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

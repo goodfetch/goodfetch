@@ -681,6 +681,14 @@ export type PeriodLength = "day" | "week" | "month";
  */
 export type PlanStatus = "unchanged" | "promoted" | "pending_review" | "frozen";
 /**
+ * A table of the Operator policy: what it sets, what it sets and locks, and
+ * its caps.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyTable".
+ */
+export type PolicyTable = "settings" | "lock" | "cap";
+/**
  * An event's position among every event of one engine, which only goes up.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2531,6 +2539,12 @@ export interface ExplainedSetting {
     [k: string]: unknown;
   };
   /**
+   * Whether it is fixed for a Run's life: a resume that changes it is
+   * refused with `setting_not_applicable`, and only a new Run takes
+   * another value (ADRs 0102 and 0120).
+   */
+  fixed_for_run?: boolean;
+  /**
    * Its key.
    */
   key: string;
@@ -2552,6 +2566,12 @@ export interface ExplainedSetting {
    * The Products that honour it, from its Product mark (ADR 0095).
    */
   products: Product[];
+  /**
+   * Whether user configuration may set it: its authority lets user
+   * configuration hold it and no lower layer locked it, so the Console
+   * offers its user-level value for editing (ADR 0031).
+   */
+  user_settable?: boolean;
   /**
    * The effective value, or for a key this engine does not apply, the
    * value its highest layer wrote.
@@ -3381,6 +3401,57 @@ export interface MemoryReading {
   used: number;
 }
 /**
+ * One kind of a Run's Model allowance (ADR 0107): the most model Usage
+ * of that kind the Run may spend, past which its model calls are refused
+ * while it goes on.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ModelAllowance".
+ */
+export interface ModelAllowance {
+  /**
+   * The currency of a `price` allowance, an ISO 4217 code.
+   */
+  currency?: string | null;
+  /**
+   * Its kind: `price`, `tokens` or `calls`; a kind this reader does not
+   * know is kept as it is.
+   */
+  kind: string;
+  /**
+   * When a model call was first refused under it; none until then.
+   */
+  reached_at?: PointInTime | null;
+  /**
+   * What remains of it, spent and reserved taken off.
+   */
+  remains: number;
+  source: SettingLimit;
+  /**
+   * What it allows: a count, or millionths of the currency.
+   */
+  value: number;
+}
+/**
+ * The setting that set it, its value and its layer.
+ */
+export interface SettingLimit {
+  /**
+   * The setting's key.
+   */
+  key: string;
+  /**
+   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   */
+  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * Its value.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
  * A Run's model calls (ADR 0101).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -3764,6 +3835,56 @@ export interface SeedsKept {
    * code or a Block cause.
    */
   reason: string;
+}
+/**
+ * The Operator policy as `config.policy_read` reads it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "OperatorPolicyRead".
+ */
+export interface OperatorPolicyRead {
+  /**
+   * The digest of the file as read, which `config.policy_write` takes
+   * back. It is the policy version a Run report names, `sha256:` and 16
+   * hex digits, of the file's text, or of no text when there is none.
+   */
+  digest: string;
+  /**
+   * Every entry of its three tables, by table, then key, the other
+   * Product's keys included.
+   */
+  entries: PolicyEntry[];
+  /**
+   * Whether the file exists; a policy that does not sets nothing.
+   */
+  found: boolean;
+  /**
+   * Its file's path.
+   */
+  path: string;
+}
+/**
+ * One entry of the Operator policy: a key of one of its tables, and its
+ * value.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyEntry".
+ */
+export interface PolicyEntry {
+  /**
+   * Its key.
+   */
+  key: string;
+  /**
+   * Its table.
+   */
+  table: "settings" | "lock" | "cap";
+  /**
+   * Its value.
+   */
+  value: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `page.body` takes: the body to read.
@@ -4297,6 +4418,98 @@ export interface PluginRun {
    * The network level it ran at.
    */
   network_level: string;
+}
+/**
+ * One change `config.policy_write` makes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyChange".
+ */
+export interface PolicyChange {
+  /**
+   * The key it changes.
+   */
+  key: string;
+  /**
+   * The table it changes.
+   */
+  table: "settings" | "lock" | "cap";
+  /**
+   * The key's new value; `null` removes it from the table.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * What `config.policy_read` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyReadParams".
+ */
+export interface PolicyReadParams {}
+/**
+ * What `config.policy_write` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyWriteParams".
+ */
+export interface PolicyWriteParams {
+  /**
+   * The changes, made in order, in one write.
+   */
+  changes: PolicyChange[];
+  /**
+   * The digest `config.policy_read` answered: the write is made only if
+   * the file still has it.
+   */
+  digest: string;
+}
+/**
+ * What `config.policy_write` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyWritten".
+ */
+export interface PolicyWritten {
+  /**
+   * Each key the write changed, with its values before and after, as the
+   * Audit log records them.
+   */
+  diff: SettingDiff[];
+  /**
+   * The file's digest after the write, the version new Runs name.
+   */
+  digest: string;
+}
+/**
+ * One key's values before and after a write.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingDiff".
+ */
+export interface SettingDiff {
+  /**
+   * Its value after; `null` when the write removed it.
+   */
+  after: {
+    [k: string]: unknown;
+  };
+  /**
+   * Its value before; `null` when the file did not hold it.
+   */
+  before: {
+    [k: string]: unknown;
+  };
+  /**
+   * The key.
+   */
+  key: string;
+  /**
+   * The Operator policy's table, for a change to it; none for user
+   * configuration.
+   */
+  table?: PolicyTable | null;
 }
 /**
  * What `locator.press` takes: the locator whose element gets the key, and
@@ -5003,6 +5216,11 @@ export interface RunIndexRow {
    */
   progress_message?: string | null;
   /**
+   * Whether it replayed a Response recording (ADR 0105), which marks
+   * its row so that no one reads it as a live run.
+   */
+  replayed: boolean;
+  /**
    * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
@@ -5419,6 +5637,11 @@ export interface RunUsage {
   limits?: AppliedLimit[];
   model: ModelUsage1;
   /**
+   * Its Model allowance, one entry per kind set (ADR 0107): not a Limit,
+   * so apart from `limits`; empty when none is set.
+   */
+  model_allowance?: ModelAllowance[];
+  /**
    * What it used of a Usage kind this engine does not name, kept as the
    * ledger holds it.
    */
@@ -5701,6 +5924,11 @@ export interface RunUsage1 {
    */
   limits?: AppliedLimit[];
   model: ModelUsage1;
+  /**
+   * Its Model allowance, one entry per kind set (ADR 0107): not a Limit,
+   * so apart from `limits`; empty when none is set.
+   */
+  model_allowance?: ModelAllowance[];
   /**
    * What it used of a Usage kind this engine does not name, kept as the
    * ledger holds it.
@@ -6033,6 +6261,29 @@ export interface SetLogLevelParams {
    * it and above; `off`, the default, receives none.
    */
   log_level: "off" | "error" | "warn" | "info" | "debug" | "trace";
+}
+/**
+ * A setting that decided an outcome: its key, its value and the layer that
+ * set it (ADRs 0028 and 0079).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingLimit".
+ */
+export interface SettingLimit1 {
+  /**
+   * The setting's key.
+   */
+  key: string;
+  /**
+   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   */
+  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * Its value.
+   */
+  value: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `config.explain` answers and `config explain --json` prints:
@@ -6368,6 +6619,48 @@ export interface UsageSetParams {
    * The Usage kind it caps.
    */
   usage_kind: string;
+}
+/**
+ * One user-level value `config.user_write` writes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UserChange".
+ */
+export interface UserChange {
+  /**
+   * The key.
+   */
+  key: string;
+  /**
+   * Its new value; `null` removes it from user configuration.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * What `config.user_write` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UserConfigurationWritten".
+ */
+export interface UserConfigurationWritten {
+  /**
+   * Each key the write changed, with its values before and after.
+   */
+  diff: SettingDiff[];
+}
+/**
+ * What `config.user_write` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UserWriteParams".
+ */
+export interface UserWriteParams {
+  /**
+   * The changes, made in order, in one write.
+   */
+  changes: UserChange[];
 }
 /**
  * What `locator.wait_for_count` takes: the locator and the count its

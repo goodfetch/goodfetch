@@ -11,7 +11,7 @@
 // engine's message, which names it, is kept instead.
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import { GoodfetchError } from "@goodfetch/collie-client/generated";
+import { GoodfetchError, type EndingError } from "@goodfetch/collie-client/generated";
 import { isSettingsLayer, LAYERS } from "#settings-layers.ts";
 
 /** What the catalog says failed, for each Error code it knows. */
@@ -69,6 +69,7 @@ const SUMMARIES: Readonly<Record<string, MessageDescriptor>> = {
   path_unsafe: msg`A name or path would leave its folder or is no safe file name on every system.`,
   pattern_unsupported: msg`The engine cannot match this URL pattern.`,
   person_required: msg`Only a person can give this answer.`,
+  policy_conflict: msg`The Operator policy changed since it was read, so nothing was written.`,
   protocol_version_unsupported: msg`The engine does not speak the protocol version the Client asked for.`,
   proxy_auth_failed: msg`The proxy refused the Session's credentials.`,
   proxy_unavailable: msg`The Session's proxy could not be reached.`,
@@ -229,20 +230,26 @@ function exceptionOf(details: Readonly<Record<string, unknown>>): ProgramExcepti
   return type === undefined || message === undefined ? undefined : { type, message };
 }
 
-/** How the Console shows `failure`, with the catalog of `i18n`. */
-export function describeError(failure: unknown, i18n: I18n): ErrorDescription {
-  if (!(failure instanceof GoodfetchError)) {
-    return {
-      kind: "engine",
-      code: undefined,
-      message: failure instanceof Error ? failure.message : String(failure),
-    };
-  }
-  const { code, details } = failure;
+/** What the catalog says failed for `code`, in its words; none when it does not know the code. */
+export function catalogSummary(code: string, i18n: I18n): string | undefined {
+  const summary = summaryOf(code);
+  return summary === undefined ? undefined : i18n._(summary);
+}
+
+/** An Error code as it came: the code, its English message, its details and its fix. */
+interface Coded {
+  readonly code: string;
+  readonly message: string;
+  readonly details: Readonly<Record<string, unknown>>;
+  readonly fix: string | undefined;
+}
+
+/** How the Console shows the coded failure `coded`, with the catalog of `i18n`. */
+function describeCoded({ code, message, details, fix }: Coded, i18n: I18n): ErrorDescription {
   const summary = summaryOf(code);
   const exception = exceptionOf(details);
   if (summary === undefined || (namesProgramException(code) && exception === undefined)) {
-    return { kind: "engine", code, message: failure.message };
+    return { kind: "engine", code, message };
   }
   return {
     kind: "catalog",
@@ -253,8 +260,29 @@ export function describeError(failure: unknown, i18n: I18n): ErrorDescription {
     url: text(details, "url"),
     observed: shown(details, "observed"),
     limit: limitOf(details, i18n),
-    fix: failure.fix,
+    fix,
     callLog: callLogOf(details),
     exception: namesProgramException(code) ? exception : undefined,
   };
+}
+
+/** How the Console shows `failure`, with the catalog of `i18n`. */
+export function describeError(failure: unknown, i18n: I18n): ErrorDescription {
+  if (!(failure instanceof GoodfetchError)) {
+    return {
+      kind: "engine",
+      code: undefined,
+      message: failure instanceof Error ? failure.message : String(failure),
+    };
+  }
+  const { code, message, details, fix } = failure;
+  return describeCoded({ code, message, details, fix }, i18n);
+}
+
+/** How the Console shows the error a Run report's ending raised (ADR 0116), which carries no fix. */
+export function describeEnding(ending: EndingError, i18n: I18n): ErrorDescription {
+  return describeCoded(
+    { code: ending.code, message: ending.message, details: ending.details ?? {}, fix: undefined },
+    i18n,
+  );
 }

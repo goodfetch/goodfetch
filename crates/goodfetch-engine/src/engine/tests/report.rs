@@ -582,6 +582,37 @@ fn a_seeded_runs_report_holds_every_part() {
     );
 }
 
+/// A Run that replayed a Response recording is marked so in its Run index
+/// row once it ended, and a Run that did not is not (ADR 0105).
+///
+/// Covers: story:12-15, operation:run.list
+#[test]
+fn the_row_of_a_run_that_replayed_a_response_recording_is_marked_replayed() {
+    let env = TestEnv::new();
+
+    let replies = replies(
+        &env,
+        &[
+            ("run.start", json!({ "run_id": "seeded-replay" })),
+            ("run.finish", json!({ "run_id": "seeded-replay" })),
+            ("run.start", json!({ "run_id": "live" })),
+            ("run.finish", json!({ "run_id": "live" })),
+            ("run.list", json!({})),
+        ],
+    );
+
+    let marks: BTreeMap<&str, &Value> = replies[4]["result"]["runs"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{}", replies[4]))
+        .iter()
+        .map(|row| (row["run_id"].as_str().unwrap(), &row["replayed"]))
+        .collect();
+    assert_eq!(
+        marks,
+        BTreeMap::from([("live", &json!(false)), ("seeded-replay", &json!(true))])
+    );
+}
+
 /// Covers: story:3-154
 #[test]
 fn a_part_no_area_supplied_is_absent_never_zero() {

@@ -31,6 +31,9 @@ mimalloc = { workspace = true, optional = true }
 # (CARGO_BIN_EXE_goodfetch-foxhound, ADRs 0059 and 0062).
 goodfetch-foxhound = { path = ".", features = ["executable"] }
 goodfetch-test-support.workspace = true
+# The Exports' bytes the tests decode and digest (tests/it/exports.rs).
+data-encoding.workspace = true
+sha2.workspace = true
 gungraun.workspace = true
 # The refusals' messages through the executables (tests/it/daemon.rs).
 insta.workspace = true

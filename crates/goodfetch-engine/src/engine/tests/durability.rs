@@ -165,6 +165,7 @@ fn config_explain_labels_fast_durability_as_weakening() {
             "value": "fast",
             "layer": "user_configuration",
             "weakens": true,
+            "user_settable": true,
         }])
     );
 }

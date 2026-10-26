@@ -293,10 +293,12 @@ impl Opened {
         };
         let base_url = goodfetch_frontier::document_base(&url, base_href(&html).as_deref())
             .map_or_else(|| url.clone(), |base| base.to_string());
-        let mut use_signals = UseSignals::of(&fetched.headers);
-        if not_document.is_none() {
-            use_signals = use_signals.with_markup(&html, &fetched.url);
-        }
+        let markup = if not_document.is_none() {
+            html.as_str()
+        } else {
+            ""
+        };
+        let use_signals = UseSignals::of(&fetched.headers).with_markup(markup, &fetched.url);
         let links = fetched
             .headers
             .into_iter()

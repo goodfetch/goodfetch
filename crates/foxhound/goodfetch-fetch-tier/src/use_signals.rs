@@ -100,8 +100,9 @@ pub struct UseSignals {
     usage: Vec<(String, bool)>,
     /// The RSL license its `Link` header names, as written.
     license_header: Option<String>,
-    /// The RSL license its document's `<link>` names, resolved.
-    license_element: Option<Url>,
+    /// The RSL license its `Link` header, else its document's `<link>`,
+    /// names, resolved by [`UseSignals::with_markup`].
+    license: Option<Url>,
 }
 
 impl UseSignals {
@@ -132,9 +133,15 @@ impl UseSignals {
 
     /// These signals with those `html`, the document fetched at `url`,
     /// carries: `TDMRep`'s `<meta name="tdm-reservation" content="1">` and
-    /// an RSL `<link>`, resolved against the document's base URL.
+    /// an RSL `<link>`, resolved against the document's base URL; the
+    /// `Link` header's license is resolved against `url`. A response that
+    /// holds no document is read with an empty `html`.
     #[must_use]
     pub fn with_markup(mut self, html: &str, url: &Url) -> Self {
+        self.license = self
+            .license_header
+            .as_deref()
+            .and_then(|target| url.join(target.trim()).ok());
         // Most documents name neither; they are not parsed again.
         let names = |needle: &str| {
             html.as_bytes()
@@ -164,7 +171,10 @@ impl UseSignals {
             .attr("href")
             .and_then(|href| url.join(href.trim()).ok())
             .unwrap_or_else(|| url.clone());
-        self.license_element = document
+        if self.license.is_some() {
+            return self;
+        }
+        self.license = document
             .select("link[rel][type][href]")
             .nodes()
             .iter()
@@ -197,13 +207,16 @@ impl UseSignals {
         (stated == Some(false)).then_some("aipref's `Content-Usage` header")
     }
 
-    /// The RSL license the document fetched at `url` names: its `Link`
-    /// header's, else its `<link>` element's.
-    pub fn license(&self, url: &Url) -> Option<Url> {
-        self.license_header
-            .as_deref()
-            .and_then(|target| url.join(target.trim()).ok())
-            .or_else(|| self.license_element.clone())
+    /// The RSL license the response names: its `Link` header's, else its
+    /// document's `<link>` element's, once read with
+    /// [`UseSignals::with_markup`]; before, its `Link` header's when that
+    /// is an absolute URL.
+    pub fn license(&self) -> Option<Url> {
+        self.license.clone().or_else(|| {
+            self.license_header
+                .as_deref()
+                .and_then(|target| Url::parse(target.trim()).ok())
+        })
     }
 }
 

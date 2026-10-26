@@ -1674,6 +1674,7 @@ dependencies = [
  "http2",
  "hyper",
  "jiff",
+ "quick-xml 0.41.0",
  "reqwest",
  "rustls",
  "serde",

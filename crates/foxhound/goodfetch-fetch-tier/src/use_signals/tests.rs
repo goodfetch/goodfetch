@@ -267,7 +267,7 @@ fn a_document_names_its_rsl_license(
     let signals = UseSignals::of(&headers).with_markup(html, &at);
 
     assert_eq!(
-        signals.license(&at).map(String::from),
+        signals.license().map(String::from),
         expected.map(str::to_owned)
     );
 }

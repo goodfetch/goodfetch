@@ -31,6 +31,7 @@ import { cachedRow } from "#offline/summaries.ts";
 import { formatInstant, formatList } from "#format.ts";
 import { ErrorMessage } from "#errors/error-message.tsx";
 import { ReplayedMark } from "./run-report.tsx";
+import { Owner } from "./owner.tsx";
 import {
   COMPLETENESSES,
   LIFECYCLES,
@@ -527,6 +528,11 @@ function RunRow({ row }: { readonly row: RunIndexRow }): ReactNode {
       <td className="py-2 pe-4" translate="no">
         {PRODUCT_NAMES[row.needs]}
       </td>
+      <td className="py-2 pe-4">
+        {row.lifecycle === "running" && row.owner !== undefined && row.owner !== null ? (
+          <Owner owner={row.owner} />
+        ) : null}
+      </td>
       <td className="py-2 pe-4" translate="no">
         {reserved(row, "recipe")}
       </td>
@@ -578,6 +584,9 @@ function RunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): ReactNod
             </th>
             <th scope="col" className="py-2 pe-4">
               <Trans>Product</Trans>
+            </th>
+            <th scope="col" className="py-2 pe-4">
+              <Trans>Owning engine</Trans>
             </th>
             <th scope="col" className="py-2 pe-4">
               <Trans>Recipe</Trans>

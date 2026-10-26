@@ -942,6 +942,40 @@ impl AddressCheck {
             Err(ResolveFailure::Egress(refused)) => Err(refused),
         }
     }
+
+    /// The addresses a connection to `url`'s host may use, each judged as
+    /// the transport's own connections are: the address the URL names in
+    /// place of a host, or those its name resolves to. The light-browser
+    /// bridge connects to these alone (ADR 0017).
+    ///
+    /// # Errors
+    ///
+    /// `Some` refusal by the domain policy or the address check; `None`
+    /// for a name that resolves to no address.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future drops its lookup.
+    pub(crate) async fn connectable(&self, url: &Url) -> Result<Vec<IpAddr>, Option<Refused>> {
+        judged(url, &self.0.egress).map_err(Some)?;
+        match url.host() {
+            Some(url::Host::Ipv4(address)) => Ok(vec![IpAddr::V4(address)]),
+            Some(url::Host::Ipv6(address)) => Ok(vec![IpAddr::V6(address)]),
+            Some(url::Host::Domain(name)) => lookup(
+                self.0.dns.clone(),
+                Some(self.0.egress.clone()),
+                None,
+                name.to_owned(),
+            )
+            .await
+            .map(|addresses| addresses.iter().map(SocketAddr::ip).collect())
+            .map_err(|failure| match failure {
+                ResolveFailure::Egress(refused) => Some(refused),
+                ResolveFailure::NotResolved | ResolveFailure::Family { .. } => None,
+            }),
+            None => Err(None),
+        }
+    }
 }
 
 impl reqwest::dns::Resolve for Resolver {

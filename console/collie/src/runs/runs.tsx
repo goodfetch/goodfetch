@@ -52,6 +52,7 @@ import {
   VERDICT_NAMES,
 } from "./names.ts";
 import { Form } from "#form.tsx";
+import { ScrollRegion } from "#scroll-region.tsx";
 
 /** What the screen read of the Run index. */
 export type Listed =
@@ -559,12 +560,7 @@ function RunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): ReactNod
     );
   }
   return (
-    // A scrolled region a keyboard can reach and scroll (WCAG 2.1.1).
-    <section
-      aria-label={t`Runs, scrollable`}
-      tabIndex={0}
-      className="overflow-x-auto rounded-sm focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
-    >
+    <ScrollRegion label={t`Runs, scrollable`}>
       <table aria-label={t`Runs`} className="w-full border-collapse text-start">
         <thead>
           <tr className="border-b">
@@ -606,7 +602,7 @@ function RunTable({ runs }: { readonly runs: readonly RunIndexRow[] }): ReactNod
           ))}
         </tbody>
       </table>
-    </section>
+    </ScrollRegion>
   );
 }
 

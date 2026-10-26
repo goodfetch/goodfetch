@@ -12,6 +12,7 @@ import { useId, useState, type ReactNode, type SubmitEvent } from "react";
 import type { ExplainedSetting, Product } from "@goodfetch/collie-client/generated";
 import { LAYERS, RUN_ORIGINS } from "#settings-layers.ts";
 import { Form } from "#form.tsx";
+import { ScrollRegion } from "#scroll-region.tsx";
 
 /** Each Product's name, which no language translates (ADR 0090). */
 const PRODUCTS: Readonly<Record<Product, string>> = {
@@ -259,70 +260,72 @@ export function EffectiveSettings({
   /** Where a person's edit goes; without it, as on a Run report, the table has no Edit column. */
   readonly onEdit?: ((edit: SettingEdit) => void) | undefined;
 }): ReactNode {
-  const { i18n } = useLingui();
+  const { i18n, t } = useLingui();
   return (
-    <table className="w-full border-collapse text-start text-sm">
-      <caption className="sr-only">
-        <Trans>Effective settings</Trans>
-      </caption>
-      <thead className="border-b">
-        <tr>
-          <th scope="col" className="py-2 pe-4 font-medium">
-            <Trans>Setting</Trans>
-          </th>
-          <th scope="col" className="py-2 pe-4 font-medium">
-            <Trans>Value</Trans>
-          </th>
-          <th scope="col" className="py-2 pe-4 font-medium">
-            <Trans>Set by</Trans>
-          </th>
-          <th scope="col" className="py-2 pe-4 font-medium">
-            <Trans>Locked by</Trans>
-          </th>
-          <th scope="col" className="py-2 pe-4 font-medium">
-            <Trans>Notes</Trans>
-          </th>
-          {onEdit === undefined ? null : (
-            <th scope="col" className="py-2 font-medium">
-              <Trans>Edit</Trans>
+    <ScrollRegion label={t`Effective settings, scrollable`}>
+      <table className="w-full border-collapse text-start text-sm">
+        <caption className="sr-only">
+          <Trans>Effective settings</Trans>
+        </caption>
+        <thead className="border-b">
+          <tr>
+            <th scope="col" className="py-2 pe-4 font-medium">
+              <Trans>Setting</Trans>
             </th>
-          )}
-        </tr>
-      </thead>
-      <tbody>
-        {settings.map((setting) => (
-          <tr key={setting.key} className="border-b align-top">
-            <th scope="row" className="py-2 pe-4 font-mono font-normal" translate="no">
-              {setting.key}
+            <th scope="col" className="py-2 pe-4 font-medium">
+              <Trans>Value</Trans>
             </th>
-            <td className="py-2 pe-4 font-mono break-all" translate="no">
-              {json(setting.value)}
-            </td>
-            <td className="py-2 pe-4">
-              {i18n._(
-                setting.layer === "run" && setting.origin !== undefined && setting.origin !== null
-                  ? RUN_ORIGINS[setting.origin]
-                  : LAYERS[setting.layer],
-              )}
-            </td>
-            <td className="py-2 pe-4">
-              {setting.locked_by === undefined || setting.locked_by === null ? (
-                <Trans>Not locked</Trans>
-              ) : (
-                i18n._(LAYERS[setting.locked_by])
-              )}
-            </td>
-            <td className="py-2 pe-4">
-              <Notes setting={setting} />
-            </td>
+            <th scope="col" className="py-2 pe-4 font-medium">
+              <Trans>Set by</Trans>
+            </th>
+            <th scope="col" className="py-2 pe-4 font-medium">
+              <Trans>Locked by</Trans>
+            </th>
+            <th scope="col" className="py-2 pe-4 font-medium">
+              <Trans>Notes</Trans>
+            </th>
             {onEdit === undefined ? null : (
-              <td className="py-2">
-                <Edit setting={setting} disabled={readOnly} onEdit={onEdit} />
-              </td>
+              <th scope="col" className="py-2 font-medium">
+                <Trans>Edit</Trans>
+              </th>
             )}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {settings.map((setting) => (
+            <tr key={setting.key} className="border-b align-top">
+              <th scope="row" className="py-2 pe-4 font-mono font-normal" translate="no">
+                {setting.key}
+              </th>
+              <td className="py-2 pe-4 font-mono break-all" translate="no">
+                {json(setting.value)}
+              </td>
+              <td className="py-2 pe-4">
+                {i18n._(
+                  setting.layer === "run" && setting.origin !== undefined && setting.origin !== null
+                    ? RUN_ORIGINS[setting.origin]
+                    : LAYERS[setting.layer],
+                )}
+              </td>
+              <td className="py-2 pe-4">
+                {setting.locked_by === undefined || setting.locked_by === null ? (
+                  <Trans>Not locked</Trans>
+                ) : (
+                  i18n._(LAYERS[setting.locked_by])
+                )}
+              </td>
+              <td className="py-2 pe-4">
+                <Notes setting={setting} />
+              </td>
+              {onEdit === undefined ? null : (
+                <td className="py-2">
+                  <Edit setting={setting} disabled={readOnly} onEdit={onEdit} />
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </ScrollRegion>
   );
 }

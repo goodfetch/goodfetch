@@ -279,7 +279,10 @@ export function Shell({
     <div className="min-h-svh">
       {readOnly ? <ReadOnlyBanner /> : null}
       <header className="border-b">
-        <nav aria-label={t`Console`} className="mx-auto flex max-w-5xl gap-4 px-6 py-3">
+        <nav
+          aria-label={t`Console`}
+          className="mx-auto flex max-w-5xl flex-wrap gap-x-4 gap-y-2 px-6 py-3"
+        >
           <MenuLink route="/" current={screen === undefined}>
             <Trans>Overview</Trans>
           </MenuLink>

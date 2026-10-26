@@ -98,8 +98,8 @@ pub use browsers::{
     LIGHTPANDA_DOWNLOADS_VARIABLE, browser_cache, browser_cache_with_lightpanda, lightpanda_copy,
 };
 pub use canaries::{
-    Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SecretKind,
-    Sighting, gitleaks_rule,
+    Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SHORT_VALUE,
+    SecretKind, Sighting, gitleaks_rule,
 };
 pub use cli::{
     Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command, record_command_in,

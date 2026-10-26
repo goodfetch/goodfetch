@@ -667,6 +667,12 @@ number = 6
 kind = "setting"
 prefix = "crawl.content_types"
 
+# The main-content step `page.formats` reads with (ADR 0007, #788).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "content."
+
 # Area 6, Collection, Foxhound: a Label that keeps its URLs' fragments
 # (ADR 0120, #939).
 [[area]]
@@ -1130,6 +1136,12 @@ number = 12
 kind = "operation"
 prefix = "sign_in."
 
+# Its Operator policy editor (#874): the Error code of a stale digest.
+[[area]]
+number = 12
+kind = "error"
+prefix = "policy_conflict"
+
 # Area 12's "Needs you" (#852): its operations, its event and its commands.
 [[area]]
 number = 12
@@ -1279,6 +1291,22 @@ prefix = "record_invalid"
 number = 6
 kind = "operation"
 prefix = "run.rejected_records"
+
+# A Dataset's Export and the engine side of an `Export` (#980, ADR 0103).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "run.export"
+
+[[area]]
+number = 6
+kind = "operation"
+prefix = "export."
+
+[[area]]
+number = 6
+kind = "format"
+prefix = "export"
 
 # Area 6, Collection, Foxhound: the crawl's scope (#840).
 [[area]]

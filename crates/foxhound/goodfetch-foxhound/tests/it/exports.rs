@@ -1,0 +1,582 @@
+//! The Export cases of the Response decoding, Dataset and Record, and File
+//! saving conformance cases on Foxhound's executable over stdio (spec
+//! #582's seam: the protocol; ADRs 0073, 0103, 0116, 0119 and 0122):
+//! `run.export` writes a Dataset's Records committed when the call is made,
+//! in number order, as JSON or JSONL in UTF-8 with no BOM, characters as
+//! themselves and each value as committed, so the Unicode record
+//! round-trips byte for byte; it answers an Export only once its file is
+//! whole, which `export.save_as` writes at the program's path and
+//! `export.stream` sends, and which outlives the engine killed during the
+//! next call. On a tmpfs of its own, a write the full filesystem refuses
+//! fails with `file_write_failed`, side `engine`, leaving no unfinished
+//! file, and one at the `critical` storage level fails before writing.
+//! Exports and Records read under `TZ=Pacific/Chatham` and
+//! `LANG=tr_TR.UTF-8` are byte-identical to those read under the host's.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test reads the files the engine wrote, outside any async worker"
+)]
+
+use std::path::{Path, PathBuf};
+
+use goodfetch_test_support::{TestEnv, unicode_record};
+use serde_json::{Map, Value, json};
+use sha2::{Digest as _, Sha256};
+
+use crate::crawl::Attached;
+use crate::tmpfs::{fill, free, inside, mounted_home};
+
+const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
+
+/// The shared Unicode record as one Record's value: each field's text
+/// under its name.
+fn unicode_value() -> Value {
+    Value::Object(
+        unicode_record()
+            .fields
+            .into_iter()
+            .map(|field| (field.name, Value::String(field.text)))
+            .collect::<Map<_, _>>(),
+    )
+}
+
+/// The Record of `books` that the crawl request of `page` commits.
+fn book(page: u64) -> Value {
+    json!({ "page": page, "title": format!("Café {page}") })
+}
+
+/// Starts a crawl `run_id` of `pages` seeds, one request at a time,
+/// declaring `books`.
+fn crawl(engine: &mut Attached, run_id: &str, pages: u64) {
+    let seeds: Vec<Value> = (1..=pages)
+        .map(|page| json!({ "url": format!("https://shop.test/{page}"), "label": "page" }))
+        .collect();
+    let started = engine.call(
+        "start",
+        "crawl.start",
+        &json!({
+            "run_id": run_id,
+            "seeds": seeds,
+            "datasets": [{ "name": "books" }],
+            "settings": { "crawl": { "handler": { "concurrency": 1 } } },
+        }),
+        &mut |_| None,
+    );
+    assert_eq!(started["result"]["run_id"], json!(run_id), "{started}");
+}
+
+/// The page number of the crawl request `params` hands the handler.
+fn page_of(params: &Value) -> u64 {
+    let url = params["crawl_request"]["url"].as_str().unwrap();
+    url.rsplit('/').next().unwrap().parse().unwrap()
+}
+
+/// The answer of a handler that pushes `value` into `books`.
+fn pushing(value: &Value) -> Value {
+    json!({ "result": { "records": [{ "dataset": "books", "data": value }] } })
+}
+
+/// Finishes `run_id`, each request answered by pushing `record(page)`.
+fn finish(engine: &mut Attached, run_id: &str, record: impl Fn(u64) -> Value) {
+    let finished = engine.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": run_id }),
+        &mut |params| Some(pushing(&record(page_of(params)))),
+    );
+    assert_eq!(
+        finished["result"]["lifecycle"],
+        json!("finished"),
+        "{finished}"
+    );
+}
+
+/// `run.export`'s reply for `books` of `run_id` in `format`.
+fn export(engine: &mut Attached, run_id: &str, format: &str) -> Value {
+    engine.call(
+        "export",
+        "run.export",
+        &json!({ "run_id": run_id, "dataset": "books", "format": format }),
+        &mut |_| None,
+    )
+}
+
+/// Saves the Export `export_id` at `path` and answers the reply.
+fn save_as(engine: &mut Attached, export_id: &Value, path: &Path) -> Value {
+    engine.call(
+        "save",
+        "export.save_as",
+        &json!({ "export_id": export_id, "path": path }),
+        &mut |_| None,
+    )
+}
+
+/// The bytes of the Export `export_id` as `export.stream` sends them, and
+/// its reply.
+fn streamed(engine: &mut Attached, export_id: &Value) -> (Vec<u8>, Value) {
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "stream", "method": "export.stream",
+        "params": { "export_id": export_id },
+    }));
+    engine.send(&json!({
+        "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "stream", "credits": 1000 },
+    }));
+    let mut bytes = Vec::new();
+    loop {
+        let message = engine.next().expect("the engine closed");
+        if message["method"] == "$/chunk" {
+            assert_eq!(
+                message["params"]["offset"].as_u64().unwrap(),
+                u64::try_from(bytes.len()).unwrap()
+            );
+            bytes.extend(
+                data_encoding::BASE64
+                    .decode(message["params"]["data"].as_str().unwrap().as_bytes())
+                    .unwrap(),
+            );
+        } else if message["id"] == "stream" {
+            return (bytes, message);
+        }
+    }
+}
+
+/// The Records of `books` of `run_id` as `run.records` reads them, each
+/// committed time checked as UTC and left out.
+fn records(engine: &mut Attached, run_id: &str) -> Vec<Value> {
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "records", "method": "run.records",
+        "params": { "run_id": run_id, "dataset": "books" },
+    }));
+    engine.send(&json!({
+        "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "records", "credits": 1000 },
+    }));
+    let mut read = Vec::new();
+    loop {
+        let message = engine.next().expect("the engine closed");
+        if message["method"] == "$/record" {
+            let mut record = message["params"]["record"].clone();
+            let committed_at = record
+                .as_object_mut()
+                .unwrap()
+                .remove("committed_at")
+                .unwrap();
+            assert!(
+                committed_at.as_str().is_some_and(|at| at.ends_with('Z')),
+                "{committed_at}"
+            );
+            read.push(record);
+        } else if message["id"] == "records" {
+            return read;
+        }
+    }
+}
+
+fn sha256(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+/// The Run folder of `run_id` in the test's home.
+fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
+    env.home().join("0.0").join("runs").join(run_id)
+}
+
+/// The names in `folder`, sorted, none when it does not exist.
+fn names_in(folder: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(folder)
+        .map(|entries| {
+            entries
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    names
+}
+
+/// A JSON and a JSONL Export of a Dataset holding the Unicode record are
+/// UTF-8 with no BOM, write `é` as itself rather than `é`, and hold
+/// each Record's value as committed, in number order: the Unicode record's
+/// every field round-trips byte for byte. Each Export answers its Record
+/// count, its last number, its size and its SHA-256, which the file
+/// `export.save_as` writes and the bytes `export.stream` sends match.
+///
+/// Covers: story:6-277, operation:run.export, operation:export.save_as, operation:export.stream, format:export
+#[test]
+fn json_and_jsonl_exports_are_utf_8_with_no_bom_and_hold_each_value_as_committed() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    crawl(&mut engine, "unicode", 3);
+    finish(&mut engine, "unicode", |page| {
+        if page == 2 {
+            unicode_value()
+        } else {
+            book(page)
+        }
+    });
+    let json = export(&mut engine, "unicode", "json");
+    let jsonl = export(&mut engine, "unicode", "jsonl");
+    let saved_to = env.home().join("saved").join("books.json");
+    let saved = save_as(&mut engine, &json["result"]["export_id"], &saved_to);
+    let (sent, stream_reply) = streamed(&mut engine, &jsonl["result"]["export_id"]);
+    assert!(engine.finish());
+
+    let file = std::fs::read(&saved_to).unwrap();
+    let text = String::from_utf8(file.clone()).unwrap();
+    let lines = String::from_utf8(sent.clone()).unwrap();
+    let parsed: Vec<Value> = serde_json::from_str(&text).unwrap();
+    let parsed_lines: Vec<Value> = lines
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let described = |reply: &Value, bytes: &[u8]| {
+        (
+            reply["result"]["records"].clone(),
+            reply["result"]["last_number"].clone(),
+            reply["result"]["size"].as_u64() == Some(u64::try_from(bytes.len()).unwrap()),
+            reply["result"]["sha256"].as_str() == Some(sha256(bytes).as_str()),
+        )
+    };
+    let expected = vec![book(1), unicode_value(), book(3)];
+    assert_eq!(
+        (
+            (
+                file.starts_with(b"\xEF\xBB\xBF"),
+                sent.starts_with(b"\xEF\xBB\xBF")
+            ),
+            (text.contains("Café 1"), text.contains("\\u00e9")),
+            text.starts_with(r#"[{"page":1,"title":"Café 1"},"#),
+            lines.ends_with("{\"page\":3,\"title\":\"Café 3\"}\n"),
+            (&parsed, &parsed_lines),
+            (described(&json, &file), described(&jsonl, &sent)),
+            (&saved["result"]["written"], &saved["result"]["sha256"]),
+            &stream_reply["result"]["sha256"],
+        ),
+        (
+            (false, false),
+            (true, false),
+            true,
+            true,
+            (&expected, &expected),
+            (
+                (json!(3), json!(3), true, true),
+                (json!(3), json!(3), true, true)
+            ),
+            (&json!(true), &json["result"]["sha256"]),
+            &jsonl["result"]["sha256"],
+        )
+    );
+}
+
+/// The next crawl request the engine hands the handler, other messages
+/// dropped.
+fn next_request(engine: &mut Attached) -> Value {
+    loop {
+        let message = engine.next().expect("the engine closed");
+        if message["method"] == "crawl_request.handle" {
+            return message;
+        }
+    }
+}
+
+/// Answers the crawl request `request` by pushing its page's book.
+fn answer(engine: &mut Attached, request: &Value) {
+    let mut reply = pushing(&book(page_of(&request["params"])));
+    reply["jsonrpc"] = json!("2.0");
+    reply["id"] = request["id"].clone();
+    engine.send(&reply);
+}
+
+/// The values of a JSONL Export's `bytes`, in order.
+fn lines_of(bytes: &[u8]) -> Vec<Value> {
+    String::from_utf8(bytes.to_vec())
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+/// An Export holds the Records committed when the call is made, in number
+/// order: one made while the Run is live, two Records committed and the
+/// third request held by its handler, holds those two; the third,
+/// committed after it, is in the Export made once the Run finished.
+///
+/// Covers: story:6-277, operation:run.export
+#[test]
+fn an_export_holds_the_records_committed_when_the_call_is_made_in_number_order() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    crawl(&mut engine, "live", 3);
+    for _ in 0..2 {
+        let request = next_request(&mut engine);
+        answer(&mut engine, &request);
+    }
+    let held = next_request(&mut engine);
+    let while_live = export(&mut engine, "live", "jsonl");
+    answer(&mut engine, &held);
+    finish(&mut engine, "live", book);
+    let after = export(&mut engine, "live", "jsonl");
+    let live_bytes = streamed(&mut engine, &while_live["result"]["export_id"]).0;
+    let after_bytes = streamed(&mut engine, &after["result"]["export_id"]).0;
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            (
+                &while_live["result"]["records"],
+                &while_live["result"]["last_number"]
+            ),
+            lines_of(&live_bytes),
+            (&after["result"]["records"], &after["result"]["last_number"]),
+            lines_of(&after_bytes),
+        ),
+        (
+            (&json!(2), &json!(2)),
+            vec![book(1), book(2)],
+            (&json!(3), &json!(3)),
+            vec![book(1), book(2), book(3)],
+        )
+    );
+}
+
+/// An Export the engine answered is whole even when the engine is killed
+/// during the next call, another Export: a new engine on the same home
+/// saves it with the bytes its SHA-256 names, and every file the Run's
+/// Exports folder shows is whole, named by its own bytes' SHA-256, a killed
+/// write leaving at most a hidden temporary file.
+///
+/// Covers: story:6-280, operation:run.export, operation:export.save_as
+#[test]
+fn an_export_answered_is_whole_after_the_engine_is_killed_during_the_next_call() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    crawl(&mut engine, "killed", 200);
+    finish(&mut engine, "killed", book);
+    let held = export(&mut engine, "killed", "json");
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "next", "method": "run.export",
+        "params": { "run_id": "killed", "dataset": "books", "format": "jsonl" },
+    }));
+    engine.kill();
+
+    let mut later = Attached::start(&env);
+    let saved_to = env.home().join("books.json");
+    let saved = save_as(&mut later, &held["result"]["export_id"], &saved_to);
+    assert!(later.finish());
+
+    let exports = run_folder(&env, "killed").join("exports");
+    let visible_whole: Vec<bool> = names_in(&exports)
+        .into_iter()
+        .filter(|name| !name.starts_with('.'))
+        .map(|name| sha256(&std::fs::read(exports.join(&name)).unwrap()) == name)
+        .collect();
+    let file = std::fs::read(&saved_to).unwrap();
+    let values: Vec<Value> = serde_json::from_slice(&file).unwrap();
+    assert_eq!(
+        (
+            &saved["result"]["sha256"],
+            sha256(&file).as_str() == held["result"]["sha256"],
+            values.len(),
+            !visible_whole.is_empty() && visible_whole.iter().all(|whole| *whole),
+        ),
+        (&held["result"]["sha256"], true, 200, true)
+    );
+}
+
+/// An Export of a Dataset the crawl does not declare fails with
+/// `dataset_unknown`, and a save of an Export ID no engine answered with
+/// `invalid_params`.
+///
+/// Covers: operation:run.export, operation:export.save_as, error:dataset_unknown
+#[test]
+fn an_export_of_a_dataset_the_crawl_does_not_declare_fails_with_dataset_unknown() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    crawl(&mut engine, "declared", 1);
+    finish(&mut engine, "declared", book);
+    let unknown = engine.call(
+        "unknown",
+        "run.export",
+        &json!({ "run_id": "declared", "dataset": "pages", "format": "json" }),
+        &mut |_| None,
+    );
+    let named = format!("declared.export-{}", "0".repeat(64));
+    let no_export = save_as(&mut engine, &json!(named), &env.home().join("x.json"));
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            &unknown["error"]["data"]["code"],
+            &unknown["error"]["data"]["declared"],
+            &no_export["error"]["code"],
+        ),
+        (&json!("dataset_unknown"), &json!(["books"]), &json!(-32602))
+    );
+}
+
+/// What one host's crawl gives: its JSON and JSONL Exports' bytes and its
+/// Records as `run.records` reads them.
+fn crawled_on(env: &TestEnv) -> (Vec<u8>, Vec<u8>, Vec<Value>) {
+    let mut engine = Attached::start(env);
+    crawl(&mut engine, "hosted", 3);
+    finish(&mut engine, "hosted", |page| {
+        if page == 2 {
+            unicode_value()
+        } else {
+            book(page)
+        }
+    });
+    let json = export(&mut engine, "hosted", "json");
+    let jsonl = export(&mut engine, "hosted", "jsonl");
+    assert_eq!(
+        (&json["result"]["records"], &jsonl["result"]["records"]),
+        (&json!(3), &json!(3)),
+        "{json} {jsonl}"
+    );
+    let json = streamed(&mut engine, &json["result"]["export_id"]).0;
+    let jsonl = streamed(&mut engine, &jsonl["result"]["export_id"]).0;
+    let read = records(&mut engine, "hosted");
+    assert!(engine.finish());
+    (json, jsonl, read)
+}
+
+/// Exports and Records never depend on the host's time zone or locale
+/// (ADR 0073): a crawl run under `TZ=Pacific/Chatham` and
+/// `LANG=tr_TR.UTF-8` gives the same Export bytes and the same Records,
+/// each committed time in UTC, as the same crawl under the host's own.
+///
+/// Covers: story:6-277, operation:run.export, operation:run.records
+#[test]
+fn exports_and_records_under_another_time_zone_and_locale_are_byte_identical() {
+    let host = TestEnv::new();
+    let elsewhere = TestEnv::new()
+        .with_time_zone("Pacific/Chatham")
+        .unwrap()
+        .with_locale("tr-TR")
+        .unwrap();
+
+    let on_host = crawled_on(&host);
+    let on_elsewhere = crawled_on(&elsewhere);
+
+    assert_eq!(on_elsewhere, on_host);
+}
+
+const MIB: u64 = 1 << 20;
+
+/// The tmpfs's size over the home.
+const SIZE: u64 = 64 * MIB;
+
+/// An Attached engine on a tmpfs of its own over the test's home, whose
+/// user configuration holds `settings`, with a finished crawl `run_id` of
+/// 40 Records of about 50 kB each in `books`.
+fn crawled_on_a_tmpfs(env: &TestEnv, settings: &str, run_id: &str) -> Attached {
+    env.user_configuration(settings);
+    let mut command = mounted_home(env, SIZE, FOXHOUND);
+    command.arg("attached-engine");
+    let mut engine = Attached::spawned(env, None, &mut command);
+    crawl(&mut engine, run_id, 40);
+    finish(
+        &mut engine,
+        run_id,
+        |page| json!({ "page": page, "text": "é".repeat(25_000) }),
+    );
+    engine
+}
+
+/// A write the engine's storage refuses mid-file fails `run.export` with
+/// `file_write_failed`, side `engine`, reason `storage_full`, naming the
+/// Run's folder, and leaves no unfinished file there, hidden or not; once
+/// space is freed the same call writes the Export.
+///
+/// Covers: story:6-280, operation:run.export, error:file_write_failed
+#[test]
+fn a_write_the_full_filesystem_refuses_fails_with_file_write_failed_and_leaves_no_file() {
+    let env = TestEnv::new();
+    let mut engine = crawled_on_a_tmpfs(
+        &env,
+        "storage.low_free = 0\nstorage.critical_free = 0\n",
+        "full",
+    );
+    let pid = engine.pid();
+    let folder = run_folder(&env, "full");
+    let filler = fill(pid, env.home(), 512 * 1024);
+    let failed = export(&mut engine, "full", "json");
+    let left = names_in(&inside(pid, &folder.join("exports")));
+    free(&filler);
+    let written = export(&mut engine, "full", "json");
+    let kept = names_in(&inside(pid, &folder.join("exports")));
+    assert!(engine.finish());
+
+    let data = &failed["error"]["data"];
+    assert_eq!(
+        (
+            (
+                &data["code"],
+                &data["side"],
+                &data["reason"],
+                &data["os_code"]
+            ),
+            &data["path"],
+            left,
+            (&written["result"]["records"], kept),
+        ),
+        (
+            (
+                &json!("file_write_failed"),
+                &json!("engine"),
+                &json!("storage_full"),
+                &json!("ENOSPC")
+            ),
+            &json!(folder.display().to_string()),
+            Vec::<String>::new(),
+            (
+                &json!(40),
+                vec![written["result"]["sha256"].as_str().unwrap().to_owned()]
+            ),
+        )
+    );
+}
+
+/// While the Run folder's filesystem is at the `critical` storage level,
+/// `run.export` fails at once with `file_write_failed`, side `engine`,
+/// reason `storage_full`, before writing a byte: the Run's folder holds no
+/// Exports folder at all (ADR 0122).
+///
+/// Covers: story:6-280, operation:run.export, error:file_write_failed, setting:storage.critical_free
+#[test]
+fn an_export_at_the_critical_storage_level_fails_before_writing() {
+    let env = TestEnv::new();
+    let mut engine = crawled_on_a_tmpfs(
+        &env,
+        "storage.low_free = 41943040\nstorage.critical_free = 20971520\n",
+        "critical",
+    );
+    let pid = engine.pid();
+    let folder = run_folder(&env, "critical");
+    let filler = fill(pid, env.home(), 10 * MIB);
+    let failed = export(&mut engine, "critical", "json");
+    let exports = inside(pid, &folder.join("exports")).exists();
+    free(&filler);
+    assert!(engine.finish());
+
+    let data = &failed["error"]["data"];
+    assert_eq!(
+        (
+            (&data["code"], &data["side"], &data["reason"]),
+            &data["path"],
+            exports,
+        ),
+        (
+            (
+                &json!("file_write_failed"),
+                &json!("engine"),
+                &json!("storage_full")
+            ),
+            &json!(folder.display().to_string()),
+            false,
+        )
+    );
+}

@@ -128,7 +128,7 @@ use crate::metrics::Metrics;
 use crate::needs_you::NeedsYou;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::robots_txt::{Copies, RunCopies};
-use crate::run_files::{self, FileKind, KeepError, Kept};
+use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport};
 use crate::run_index;
 use crate::run_key::{self, KeyError, RunKey, StoredKey};
 use crate::run_state::install::InstallDatabase;
@@ -913,6 +913,7 @@ enum Command {
     LiveCount(oneshot::Sender<usize>),
     Health(oneshot::Sender<RegistryHealth>),
     Folder(RunId, oneshot::Sender<PathBuf>),
+    Governor(oneshot::Sender<Governor>),
     Live(RunId, oneshot::Sender<Result<Run, RunError>>),
     Checkpoint(
         RunId,
@@ -2740,13 +2741,69 @@ impl Runs {
     /// # Cancel safety
     ///
     /// Dropping the future loses only the answer.
-    pub(crate) async fn folder(&self, run_id: RunId) -> Result<PathBuf, RunError> {
+    pub async fn folder(&self, run_id: RunId) -> Result<PathBuf, RunError> {
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::Folder(run_id, answer))
             .await
             .map_err(|_| RunError::Stopped)?;
         answered.await.map_err(|_| RunError::Stopped)
+    }
+
+    /// Keeps what `source` reads as an Export of the Run `run_id` (ADRs
+    /// 0103, 0116 and 0122): written whole into its folder's `exports/`,
+    /// named by its SHA-256, through a hidden temporary file, synced, then
+    /// renamed, so a failed write leaves no unfinished file. No run state
+    /// records it, so a Run that ended keeps one too. While the Run
+    /// folder's filesystem is at the `critical` storage level, as read now,
+    /// it fails at once, writing nothing.
+    ///
+    /// # Errors
+    ///
+    /// `Storage` when the folder cannot take the file or is at `critical`,
+    /// or when `source` fails; `State` never.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave a hidden temporary file beside the
+    /// Exports, never a partial one.
+    pub async fn keep_export<R>(&self, run_id: RunId, source: R) -> Result<KeptExport, KeepError>
+    where
+        R: std::io::Read + Send + 'static,
+    {
+        let stopped = || KeepError::Storage {
+            reason: "other",
+            os_code: None,
+            message: "the engine's Runs have stopped".to_owned(),
+        };
+        let folder = self.folder(run_id).await.map_err(|_| stopped())?;
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Governor(answer))
+            .await
+            .map_err(|_| stopped())?;
+        let governor = answered.await.map_err(|_| stopped())?;
+        let (sampled, owner) = (folder.clone(), Arc::clone(&self.limits.owner));
+        let critical = owner
+            .blocking(move || governor.storage_at(&sampled))
+            .await
+            .is_some_and(|filesystem| filesystem.level == StorageLevel::Critical);
+        if critical {
+            return Err(KeepError::Storage {
+                reason: "storage_full",
+                os_code: None,
+                message: format!(
+                    "the filesystem of `{}` is at the critical storage level",
+                    folder.display()
+                ),
+            });
+        }
+        let mut source = source;
+        let (sha256, size) = owner
+            .blocking(move || run_files::store_export(&folder, &mut source))
+            .await
+            .map_err(|error| KeepError::io(&error, "write the Export in the Run's folder"))?;
+        Ok(KeptExport { sha256, size })
     }
 
     /// A reader of the committed state of the Run `run_id`, which never
@@ -3303,6 +3360,7 @@ impl Registry {
                     let _ = answer.send(self.health());
                 }
                 Command::Folder(run_id, answer) => _ = answer.send(self.folder(&run_id)),
+                Command::Governor(answer) => _ = answer.send(self.setup.governor.clone()),
                 Command::Live(run_id, answer) => _ = answer.send(self.live_run(run_id)),
                 Command::Checkpoint(run_id, location, answer) => {
                     self.checkpoint(run_id, location, answer).await;
@@ -4153,6 +4211,7 @@ impl Registry {
                 .as_ref()
                 .map(|message| message.as_str().to_owned()),
             stop_reason: report.and_then(|report| report.stop_reason.clone()),
+            replayed: report.is_some_and(RunReport::replayed),
         }
     }
 
@@ -5245,6 +5304,7 @@ impl Recording {
             ended_at: Some(report.ended_at.clone()),
             owner: None,
             stop_reason: report.stop_reason.clone(),
+            replayed: report.replayed(),
             ..self.row
         };
         if let Err(error) = run_index::write(&self.index, &self.version, &ended) {

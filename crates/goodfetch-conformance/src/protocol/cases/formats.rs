@@ -9,6 +9,7 @@
 //! `content_modes`', and the links, images, media and tables `references`'.
 
 pub(super) mod content_modes;
+pub(super) mod extractor;
 pub(super) mod references;
 
 use goodfetch_protocol::journey::TaskId;
@@ -93,20 +94,32 @@ fn origin_of(url: &str) -> &str {
     url[host..].find('/').map_or(url, |at| &url[..host + at])
 }
 
-/// Each Markdown page's main content, read through `page.formats`, is the
-/// Markdown the oracle holds for it, judged by structure: the lab's 30
-/// hand-written fixtures and a page with no main content (ADR 0007).
+/// Each Markdown page's main content, read through `page.formats` with the
+/// main-content step `extractor` names (`content.extractor`, the default
+/// when none), is the Markdown the oracle holds for it, judged by
+/// structure: the lab's 30 hand-written fixtures and a page with no main
+/// content (ADR 0007).
 pub(super) fn markdown_matches_the_oracle(
     connection: &mut Connection,
     site: &Site,
+    extractor: Option<&str>,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let Some((index, paths)) = markdown_pages(site, checks) else {
         return Ok(());
     };
     let origin = origin_of(&index).to_owned();
-    let run_id = "conformance-formats-markdown";
-    start_run(connection, site, run_id, &json!({}), checks)?;
+    let run_id = &format!(
+        "conformance-formats-markdown{}",
+        extractor.map(|name| format!("-{name}")).unwrap_or_default()
+    );
+    start_run(
+        connection,
+        site,
+        run_id,
+        &extractor::run_settings(extractor),
+        checks,
+    )?;
     if let Some(page) = new_page(connection, run_id, checks)? {
         let mut records = Vec::new();
         for path in &paths {
@@ -134,7 +147,10 @@ pub(super) fn markdown_matches_the_oracle(
             records: &records,
         });
         checks.check(
-            "the oracle verifies the Markdown of every page",
+            format!(
+                "the oracle verifies the Markdown of every page ({:?})",
+                answer.as_ref().map(|answer| &answer.outcome)
+            ),
             answer
                 .as_ref()
                 .is_ok_and(|answer| answer.outcome == OracleOutcome::Verified),

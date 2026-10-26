@@ -8,7 +8,11 @@ import { createProtocolAdapter } from "@goodfetch/test-support/protocol-adapter"
 import { expect, test } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
-import { createConsoleClient, type PageVisibility } from "#client/client.ts";
+import {
+  createConsoleClient,
+  type ConsoleOperations,
+  type PageVisibility,
+} from "#client/client.ts";
 import { ConsoleI18n } from "#i18n.tsx";
 import { Shell } from "#shell.tsx";
 
@@ -39,10 +43,17 @@ test(
   "while disconnected the page is read-only under a banner, and acts again once reconnected",
   { tags: ["story:12-125", "screen:/settings"] },
   async () => {
-    const adapter = createProtocolAdapter();
+    // The adapter over every operation the Console calls, the person-only `config.policy_read` included.
+    const adapter = createProtocolAdapter<ConsoleOperations>();
     adapter.answer("needs_you.list", { items: [] });
     adapter.answer("config.explain", EXPLANATION);
     adapter.answer("usage.list", { limits: [] });
+    adapter.answer("config.policy_read", {
+      path: "/home/1/operator-policy.toml",
+      found: false,
+      digest: "sha256:e3b0c44298fc1c14",
+      entries: [],
+    });
     const visibility = new Visibility();
     const client = createConsoleClient({
       transport: adapter.transport,

@@ -50,6 +50,7 @@ const NAVIGATION: Part = (
     ],
 );
 const FORMATS: Part = ("formats", &["formats"]);
+const FORMATS_EXTRACTOR: Part = ("formats-extractor", &["formats.extractor"]);
 const LAUNCH: Part = ("launch", &["launch"]);
 const LOCATORS: Part = ("locators", &["locators.guard", "locators.input"]);
 const ROUTES: Part = ("routes", &["routes", "routes.interception_order"]);
@@ -81,11 +82,12 @@ const WAITS: Part = ("waits", &["waits"]);
 const ROBOTS_TXT: Part = ("robots-txt", &["robots_txt"]);
 
 /// Every part.
-const PARTS: [Part; 19] = [
+const PARTS: [Part; 20] = [
     SESSIONS,
     PROXY_LIMITS,
     NAVIGATION,
     FORMATS,
+    FORMATS_EXTRACTOR,
     LAUNCH,
     LOCATORS,
     ROUTES,
@@ -204,6 +206,12 @@ fn the_page_suite_proves_navigation_against_collies_attached_engine() {
 #[test]
 fn the_page_suite_proves_formats_against_collies_attached_engine() {
     prove(FORMATS);
+}
+
+/// Covers: story:6-11, story:6-1, story:6-2, story:6-3, setting:content.extractor, operation:page.formats, operation:run.new_page, operation:run.new_session, operation:session.new_page, error:setting_invalid, error:setting_not_applicable
+#[test]
+fn the_page_suite_proves_the_extractor_against_collies_attached_engine() {
+    prove(FORMATS_EXTRACTOR);
 }
 
 /// Covers: story:5-56, story:5-11, operation:run.new_page, operation:page.goto

@@ -193,6 +193,79 @@ fn config_explain_shows_the_happy_eyeballs_delays() {
     );
 }
 
+/// `content.extractor` is `dom_smoothie` by default, and `config explain`
+/// names the layer that chose another: the project configuration's, then
+/// a flag's over it (#788).
+///
+/// Covers: story:6-11, command:config.explain, setting:content.extractor
+#[test]
+fn config_explain_names_the_layer_that_chose_the_extractor() {
+    let extractor = |env: &TestEnv, arguments: &[&str]| {
+        let (stdout, stderr, succeeded) = explain(
+            env,
+            Mode::Attached,
+            &[&["content.extractor", "--json"], arguments].concat(),
+        );
+        assert!(succeeded, "{stderr}");
+        let output: Value = serde_json::from_str(&stdout).unwrap();
+        output["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|setting| json!([setting["key"], setting["value"], setting["layer"]]))
+            .collect::<Vec<_>>()
+    };
+    let by_default = TestEnv::new();
+    let projected = TestEnv::new();
+    fs::write(
+        projected.folder().join("goodfetch.toml"),
+        "version = \"0.1\"\n\n[settings.content]\nextractor = \"trafilatura\"\n",
+    )
+    .unwrap();
+
+    assert_eq!(
+        (
+            extractor(&by_default, &[]),
+            extractor(&projected, &[]),
+            extractor(&projected, &["--set", "content.extractor=dom_smoothie"]),
+        ),
+        (
+            vec![json!(["content.extractor", "dom_smoothie", "default"])],
+            vec![json!([
+                "content.extractor",
+                "trafilatura",
+                "project_configuration"
+            ])],
+            vec![json!(["content.extractor", "dom_smoothie", "run"])],
+        )
+    );
+}
+
+/// An extractor no built-in has is refused as any invalid setting value
+/// is, naming the setting (#788).
+///
+/// Covers: story:6-11, setting:content.extractor, error:setting_invalid
+#[test]
+fn an_unknown_extractor_is_an_invalid_setting_value() {
+    let env = TestEnv::new();
+
+    let (stdout, stderr, succeeded) = explain(
+        &env,
+        Mode::Attached,
+        &["--set", "content.extractor=readability"],
+    );
+
+    assert_eq!(
+        (
+            stdout.as_str(),
+            stderr.contains("setting_invalid") && stderr.contains("content.extractor"),
+            succeeded
+        ),
+        ("", true, false),
+        "{stderr}"
+    );
+}
+
 /// `browser.headless` is Collie's, `true` by default, and `config explain`
 /// names the layer that set it: the default, then user configuration's
 /// `false` (spec #577).

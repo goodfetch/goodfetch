@@ -283,6 +283,7 @@ fn links_read_the_document_as_it_stands_its_shadow_roots_included_and_no_rule_to
         &serde_json::from_value(json!({ "links": true, "markdown": true })).unwrap(),
         &Context {
             clean_up: Some(&AdSlots),
+            ..Context::default()
         },
     );
 

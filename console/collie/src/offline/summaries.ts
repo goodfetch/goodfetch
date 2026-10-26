@@ -29,6 +29,7 @@ export function cachedRow(row: RunIndexRow): RunIndexRow {
     presence: row.presence,
     progress_message: null,
     stop_reason: row.stop_reason ?? null,
+    replayed: row.replayed,
   };
 }
 

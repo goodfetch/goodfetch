@@ -622,6 +622,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "policy_conflict",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.",
       "exit_code": 11,
       "group": "unavailable",
@@ -1957,6 +1967,63 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the Operator policy of this engine's major: every entry of its `settings`, `lock` and `cap` tables, and its digest, which `config.policy_write` takes back. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "config.policy_read",
+      "params": {
+        "$ref": "#/$defs/PolicyReadParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/OperatorPolicyRead"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Writes changes to the Operator policy in one atomic write, only if its digest is still the one `config.policy_read` gave, every other byte of the file kept, and records the values before and after in the Audit log; a changed digest answers `policy_conflict` and writes nothing. A tightened cap reaches running Runs at their next admission point; every other change applies to new Runs. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "config.policy_write",
+      "params": {
+        "$ref": "#/$defs/PolicyWriteParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/PolicyWritten"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Writes user-level values to user configuration in one atomic write, every other byte of the file kept, once the resolver accepts them under the Operator policy, and records the values before and after in the Audit log; they apply to new Runs. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "config.user_write",
+      "params": {
+        "$ref": "#/$defs/UserWriteParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/UserConfigurationWritten"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
       "description": "Sets the level of the engine's log events this Connection receives as `$/log` notifications, from the next one on: `off`, `error`, `warn`, `info`, `debug` or `trace`, as `hello`'s `log_level` set it first. Each Connection has its own. Log events are telemetry: one the Connection is too slow to receive is dropped, and the next counts it in `dropped`.",
@@ -2260,6 +2327,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SubscriptionEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "export.save_as",
+      "params": {
+        "$ref": "#/$defs/ExportSaveAsParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/ExportSaved"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Sends an Export's bytes, which the engine keeps in its Run's folder, in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size and SHA-256 once every byte is sent. Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.",
+      "events": [],
+      "kind": "sequence",
+      "name": "export.stream",
+      "params": {
+        "$ref": "#/$defs/ExportStreamParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/ExportStreamed"
       },
       "stability": "experimental"
     },
@@ -3168,6 +3273,25 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named (`json`, one array of the Records' values; `jsonl`, one value per line), UTF-8 with no BOM, characters written as themselves and each value as it was committed. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.export",
+      "params": {
+        "$ref": "#/$defs/RunExportParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Export"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": false,
       "class": "read",
       "deprecated": null,
@@ -3586,12 +3710,12 @@
       "cancellable": false,
       "class": "effect",
       "deprecated": null,
-      "description": "Opens a page in the Session, with its cookies and storage. Once the Session is closed, it raises `closed`.",
+      "description": "Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`.",
       "events": [],
       "kind": "round_trip",
       "name": "session.new_page",
       "params": {
-        "$ref": "#/$defs/SessionParams"
+        "$ref": "#/$defs/NewSessionPageParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -4209,6 +4333,26 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "dom_smoothie",
+      "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+      "name": "content.extractor",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "dom_smoothie",
+          "trafilatura"
+        ]
       },
       "weakens": false
     },
@@ -7970,6 +8114,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A person wrote the Operator policy through `config.policy_write`, with its digest before and after and each key's values before and after.",
+      "name": "operator_policy_written",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Pages of a run that crashed: their renderer, or their browser's process (ADR 0040). A crash racing the page's close does not count.",
       "name": "page_crashes",
       "product": "collie",
@@ -8226,6 +8377,13 @@
       "name": "trap_path",
       "product": "foxhound",
       "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person wrote user-level values through `config.user_write`, with each key's values before and after.",
+      "name": "user_configuration_written",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

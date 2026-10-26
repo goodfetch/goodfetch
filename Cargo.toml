@@ -85,6 +85,11 @@ markup5ever_rcdom = { version = "0.38.0", default-features = false }
 lol_html = { version = "3.0.2", default-features = false }
 # The page formats' tables, read from an html5ever tree (spec #580; ADR 0007).
 scraper = { version = "0.27.0", default-features = false }
+# The other built-in main-content step, `content.extractor = "trafilatura"`
+# (ADR 0007; #788): rs-trafilatura, pinned to the release the lab reviewed
+# (`rnd/lab/adapters/extract-rust`). Its own dom_query and html-cleaning
+# lines come with it.
+rs-trafilatura = { version = "=0.2.2", default-features = false }
 # The Proving ground's oracle reads a submitted Markdown value as its
 # structure with pulldown-cmark, resolving its links with the url crate
 # below (ADR 0007).
@@ -369,6 +374,12 @@ undocumented_unsafe_blocks = "deny"
 # one (#695).
 [profile.dev.package.sha2]
 opt-level = 3
+
+# rs-trafilatura writes its debug notes to stderr whenever debug assertions
+# are on: off for it, so a debug engine's stderr stays the `tracing`
+# subscriber's alone (STYLE.md; #788). The other profiles have them off.
+[profile.dev.package.rs-trafilatura]
+debug-assertions = false
 
 #
 # Release: fat LTO, one codegen unit, unwinding on panic, debug information

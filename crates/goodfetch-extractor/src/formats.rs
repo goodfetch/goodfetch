@@ -5,6 +5,7 @@
 use std::fmt::{self, Debug, Formatter};
 
 use crate::blocks::{body, fit, text};
+use crate::extractor::{BuiltIn, Extractor};
 use crate::light::light;
 use crate::main_content::{main_content, main_text_length};
 use crate::markdown::markdown;
@@ -54,14 +55,26 @@ pub trait CleanUp {
 }
 
 /// What a call reads with beside its document: the Clean-up rules'
-/// cosmetic matcher, when the page's rules are on. The `content.extractor`
-/// setting's choice joins it (#788).
-#[derive(Clone, Copy, Default)]
+/// cosmetic matcher, when the page's rules are on, and the main-content
+/// step `content.extractor` chose.
+#[derive(Clone, Copy)]
 pub struct Context<'a> {
     /// The cosmetic matcher applied before the main-content step and the
     /// Markdown converter, never to what reads the document as it stands;
     /// none applies no rule.
     pub clean_up: Option<&'a dyn CleanUp>,
+    /// The main-content step.
+    pub extractor: &'a dyn Extractor,
+}
+
+impl Default for Context<'_> {
+    /// No Clean-up rule, and the default step, dom-smoothie.
+    fn default() -> Self {
+        Self {
+            clean_up: None,
+            extractor: BuiltIn::default().extractor(),
+        }
+    }
 }
 
 impl Debug for Context<'_> {
@@ -69,7 +82,7 @@ impl Debug for Context<'_> {
         formatter
             .debug_struct("Context")
             .field("clean_up", &self.clean_up.is_some())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -89,7 +102,7 @@ pub fn formats(
         .map(|clean_up| clean_up.remove(document.html, document.url));
     let cleaned = cleaned.as_deref().unwrap_or(document.html);
     let seen = composed(cleaned);
-    let main = main_content(&seen, document.url);
+    let main = main_content(&seen, document.url, context.extractor);
     let of_main = |read: fn(&str) -> String| main.as_deref().map(read).unwrap_or_default();
     // One streaming pass over the document as it stands, its shadow roots'
     // templates included, for whichever of them the request names.
@@ -141,12 +154,12 @@ impl Serialization {
     }
 }
 
-/// The length of the text of `document`'s main content, white space
-/// aside, in characters, its shadow roots' text included; 0 when it has
-/// none: how a caller measures what extraction-side removal took of it
-/// (ADR 0047).
-pub fn main_content_length(document: &Document<'_>) -> usize {
-    main_text_length(&composed(document.html), document.url)
+/// The length of the text of the main content `extractor` finds in
+/// `document`, white space aside, in characters, its shadow roots' text
+/// included; 0 when it has none: how a caller measures what
+/// extraction-side removal took of it (ADR 0047).
+pub fn main_content_length(document: &Document<'_>, extractor: &dyn Extractor) -> usize {
+    main_text_length(&composed(document.html), document.url, extractor)
 }
 
 /// The fuzz target of the HTML entry point (ADR 0067): reads `data` as a

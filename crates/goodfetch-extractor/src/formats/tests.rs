@@ -3,6 +3,7 @@
 
 mod content_modes;
 mod envelope;
+mod extractors;
 mod live_document;
 mod markdown;
 mod properties;

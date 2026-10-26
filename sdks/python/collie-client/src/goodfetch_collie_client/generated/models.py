@@ -1485,6 +1485,28 @@ class PointInTime(RootModel[AwareDatetime]):
     """A point in time in UTC, as RFC 3339."""
 
 
+class PolicyReadParams(BaseModel):
+    """What `config.policy_read` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class PolicyTable(StrEnum):
+    """
+    A table of the Operator policy: what it sets, what it sets and locks, and
+    its caps.
+    """
+
+    settings = "settings"
+    """`[settings]`: values it sets, which a higher layer may change."""
+    lock = "lock"
+    """`[lock]`: values it sets and locks."""
+    cap = "cap"
+    """`[cap]`: the most a count or a duration may be."""
+
+
 class Position(RootModel[int]):
     root: Annotated[int, Field(ge=0)]
     """An event's position among every event of one engine, which only goes up."""
@@ -2208,7 +2230,7 @@ class SessionPages(BaseModel):
 
 
 class SessionParams(BaseModel):
-    """What `session.new_page` and `session.close` take: the Session."""
+    """What `session.close` takes: the Session."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -2311,6 +2333,25 @@ class SetLogLevelParams(BaseModel):
     )
     log_level: LogLevel
     """The Connection's new level."""
+
+
+class SettingDiff(BaseModel):
+    """One key's values before and after a write."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    after: Any
+    """Its value after; `null` when the write removed it."""
+    before: Any
+    """Its value before; `null` when the file did not hold it."""
+    key: str
+    """The key."""
+    table: PolicyTable | None = None
+    """
+    The Operator policy's table, for a change to it; none for user
+    configuration.
+    """
 
 
 class SettingsLayer(StrEnum):
@@ -2813,6 +2854,38 @@ class UsageListParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+
+
+class UserChange(BaseModel):
+    """One user-level value `config.user_write` writes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The key."""
+    value: Any
+    """Its new value; `null` removes it from user configuration."""
+
+
+class UserConfigurationWritten(BaseModel):
+    """What `config.user_write` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    diff: list[SettingDiff]
+    """Each key the write changed, with its values before and after."""
+
+
+class UserWriteParams(BaseModel):
+    """What `config.user_write` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changes: list[UserChange]
+    """The changes, made in order, in one write."""
 
 
 class ValueTransform(StrEnum):
@@ -3597,6 +3670,12 @@ class ExplainedSetting(BaseModel):
     """
     cap: Any | None = None
     """An Operator policy's cap on it, if any."""
+    fixed_for_run: bool | None = None
+    """
+    Whether it is fixed for a Run's life: a resume that changes it is
+    refused with `setting_not_applicable`, and only a new Run takes
+    another value (ADRs 0102 and 0120).
+    """
     key: str
     """Its key."""
     layer: SettingsLayer
@@ -3611,6 +3690,12 @@ class ExplainedSetting(BaseModel):
     """For the run layer, where the value came from."""
     products: list[Product]
     """The Products that honour it, from its Product mark (ADR 0095)."""
+    user_settable: bool | None = None
+    """
+    Whether user configuration may set it: its authority lets user
+    configuration hold it and no lower layer locked it, so the Console
+    offers its user-level value for editing (ADR 0031).
+    """
     value: Any
     """
     The effective value, or for a key this engine does not apply, the
@@ -4099,13 +4184,45 @@ class NeedsYouList(BaseModel):
 
 
 class NewPageParams(BaseModel):
-    """What `run.new_page` takes: the Run whose default Session opens the page."""
+    """
+    What `run.new_page` takes: the Run whose default Session opens the page,
+    and the page's own settings.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
     )
     run_id: RunId
     """The Run."""
+    settings: dict[str, Any] | None = None
+    """
+    The page's own settings, nested by key (ADR 0083), which it takes
+    over its Session's and its Run's: `content.extractor`, the
+    main-content step its formats read with. Any other key is refused
+    with `setting_not_applicable`, as only its Session or its Run sets
+    it.
+    """
+
+
+class NewSessionPageParams(BaseModel):
+    """
+    What `session.new_page` takes: the Session, and the page's own
+    settings.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    session_id: SessionId
+    """The Session."""
+    settings: dict[str, Any] | None = None
+    """
+    The page's own settings, nested by key (ADR 0083), which it takes
+    over its Session's and its Run's: `content.extractor`, the
+    main-content step its formats read with. Any other key is refused
+    with `setting_not_applicable`, as only its Session or its Run sets
+    it.
+    """
 
 
 class NothingDone1(BaseModel):
@@ -4349,6 +4466,67 @@ class PlanReport(BaseModel):
     """The steps that changed, each Agent task one entry (ADR 0100)."""
     version: Annotated[int | None, Field(ge=0)] = None
     """The version it used."""
+
+
+class PolicyChange(BaseModel):
+    """One change `config.policy_write` makes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The key it changes."""
+    table: PolicyTable
+    """The table it changes."""
+    value: Any
+    """The key's new value; `null` removes it from the table."""
+
+
+class PolicyEntry(BaseModel):
+    """
+    One entry of the Operator policy: a key of one of its tables, and its
+    value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """Its key."""
+    table: PolicyTable
+    """Its table."""
+    value: Any
+    """Its value."""
+
+
+class PolicyWriteParams(BaseModel):
+    """What `config.policy_write` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changes: list[PolicyChange]
+    """The changes, made in order, in one write."""
+    digest: str
+    """
+    The digest `config.policy_read` answered: the write is made only if
+    the file still has it.
+    """
+
+
+class PolicyWritten(BaseModel):
+    """What `config.policy_write` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    diff: list[SettingDiff]
+    """
+    Each key the write changed, with its values before and after, as the
+    Audit log records them.
+    """
+    digest: str
+    """The file's digest after the write, the version new Runs name."""
 
 
 class PressParams(BaseModel):
@@ -4751,6 +4929,23 @@ class SessionSource(
         | SessionSource7
     )
     """Where a Session's login comes from (ADR 0056): exactly one kind."""
+
+
+class SettingLimit(BaseModel):
+    """
+    A setting that decided an outcome: its key, its value and the layer that
+    set it (ADRs 0028 and 0079).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """The setting's key."""
+    layer: SettingsLayer
+    """The layer that set it."""
+    value: Any
+    """Its value."""
 
 
 class SettingsFile(BaseModel):
@@ -5223,6 +5418,33 @@ class LimitUsage(BaseModel):
     """What the engine that read it makes of it."""
 
 
+class ModelAllowance(BaseModel):
+    """
+    One kind of a Run's Model allowance (ADR 0107): the most model Usage
+    of that kind the Run may spend, past which its model calls are refused
+    while it goes on.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    currency: str | None = None
+    """The currency of a `price` allowance, an ISO 4217 code."""
+    kind: str
+    """
+    Its kind: `price`, `tokens` or `calls`; a kind this reader does not
+    know is kept as it is.
+    """
+    reached_at: PointInTime | None = None
+    """When a model call was first refused under it; none until then."""
+    remains: Annotated[int, Field(ge=0)]
+    """What remains of it, spent and reserved taken off."""
+    source: SettingLimit
+    """The setting that set it, its value and its layer."""
+    value: Annotated[int, Field(ge=0)]
+    """What it allows: a count, or millionths of the currency."""
+
+
 class NeedsYouChange1(BaseModel):
     """An item appeared, or changed: it as it is now."""
 
@@ -5257,7 +5479,9 @@ class NewSessionParams(BaseModel):
     `browser.block_resources` and `live_view.hiding` choose its pages'
     Clean-up rules over the Run's, and `browser.service_workers` whether
     a site's service workers run in them, and `session.page_check` the
-    Page check its pages are judged against. `session.source` is refused here with `setting_not_applicable`,
+    Page check its pages are judged against, and `content.extractor`
+    the main-content step their formats read with. `session.source` is
+    refused here with `setting_not_applicable`,
     as the call's own `source` sets it, and so is any other key, which
     only the Run sets.
     """
@@ -5287,6 +5511,29 @@ class NotUnderstoodLimit(BaseModel):
     """The Limit's scope."""
     usage_kind: str
     """The Usage kind it caps."""
+
+
+class OperatorPolicyRead(BaseModel):
+    """The Operator policy as `config.policy_read` reads it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """
+    The digest of the file as read, which `config.policy_write` takes
+    back. It is the policy version a Run report names, `sha256:` and 16
+    hex digits, of the file's text, or of no text when there is none.
+    """
+    entries: list[PolicyEntry]
+    """
+    Every entry of its three tables, by table, then key, the other
+    Product's keys included.
+    """
+    found: bool
+    """Whether the file exists; a policy that does not sets nothing."""
+    path: str
+    """Its file's path."""
 
 
 class PageExchange(BaseModel):
@@ -5398,6 +5645,11 @@ class RunIndexRow(BaseModel):
     """Whether its state is at its location."""
     progress_message: str | None = None
     """The program's own status line, once it set one (RT-15)."""
+    replayed: bool
+    """
+    Whether it replayed a Response recording (ADR 0105), which marks
+    its row so that no one reads it as a live run.
+    """
     run_id: RunId
     """The Run's ID."""
     started_at: PointInTime
@@ -5499,6 +5751,11 @@ class RunUsage(BaseModel):
     """Each Limit that applies to it, with what is left of it."""
     model: ModelUsage
     """Its model calls."""
+    model_allowance: list[ModelAllowance] | None = None
+    """
+    Its Model allowance, one entry per kind set (ADR 0107): not a Limit,
+    so apart from `limits`; empty when none is set.
+    """
     other: list[KindUsage] | None = None
     """
     What it used of a Usage kind this engine does not name, kept as the

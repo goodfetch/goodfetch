@@ -27,6 +27,50 @@ const CHANGING: &str = "/references/changing";
 /// What every call of the oracle's cases asks for.
 const REQUEST: &str = r#"{ "links": true, "images": true, "media": true, "tables": true }"#;
 
+/// One links, images, media and tables case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Case {
+    ReferencesAndTablesMatchTheOracle,
+    LinksAreUntouchedByTheRules,
+    OneCallsFormatsComeFromOneSerialization,
+}
+
+impl Case {
+    /// The case `id` names, if it is one of these lines.
+    pub(in crate::protocol) fn from_id(id: &str) -> Option<Self> {
+        Some(match id {
+            "links-images-media-and-tables-match-the-oracle-resolved-against-the-base-href-and-the-url-after-a-redirect" => {
+                Self::ReferencesAndTablesMatchTheOracle
+            }
+            "an-ads-link-a-cosmetic-rule-hides-is-in-links" => Self::LinksAreUntouchedByTheRules,
+            "links-and-markdown-of-one-call-agree-on-a-page-that-changes-between-two-reads" => {
+                Self::OneCallsFormatsComeFromOneSerialization
+            }
+            _ => return None,
+        })
+    }
+
+    /// Runs the case on the open Connection against `site`.
+    pub(in crate::protocol) fn run(
+        self,
+        connection: &mut Connection,
+        site: &Site,
+        checks: &mut Checks,
+    ) -> Result<(), Gone> {
+        match self {
+            Self::ReferencesAndTablesMatchTheOracle => {
+                references_and_tables_match_the_oracle(connection, site, checks)
+            }
+            Self::LinksAreUntouchedByTheRules => {
+                links_are_untouched_by_the_rules(connection, site, checks)
+            }
+            Self::OneCallsFormatsComeFromOneSerialization => {
+                one_calls_formats_come_from_one_serialization(connection, site, checks)
+            }
+        }
+    }
+}
+
 /// The formats `request` answers on `page`, as the protocol's type.
 fn read(
     connection: &mut Connection,
@@ -41,7 +85,7 @@ fn read(
 /// `page.formats` gives are what the oracle holds for them; on `/base`,
 /// links resolve against its `<base href>` and one that does not parse has
 /// a null URL, and on `/moved`, against the URL after its redirect.
-pub(in crate::protocol::cases) fn references_and_tables_match_the_oracle(
+fn references_and_tables_match_the_oracle(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
@@ -134,7 +178,7 @@ pub(in crate::protocol::cases) fn references_and_tables_match_the_oracle(
 
 /// On `/hiding`, the ad a cosmetic rule takes out of the Markdown keeps
 /// its link in `links`: no Clean-up rule touches links (ADR 0047).
-pub(in crate::protocol::cases) fn links_are_untouched_by_the_rules(
+fn links_are_untouched_by_the_rules(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
@@ -191,7 +235,7 @@ fn kite_read(read: &PageFormats) -> Option<u64> {
 /// On a page whose script rewrites its link every millisecond, each call's
 /// `links` and `markdown` name the same kite, read from one serialization,
 /// and a second call, once the page moved on, names a later one.
-pub(in crate::protocol::cases) fn one_calls_formats_come_from_one_serialization(
+fn one_calls_formats_come_from_one_serialization(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,

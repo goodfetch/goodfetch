@@ -95,9 +95,10 @@ pub(crate) enum Case {
     EveryFormMatchesTheOracle,
     RawHtmlIsContentBeforeTheRules,
     FormatsDefaultsAndUnknownOptions,
-    ReferencesAndTablesMatchTheOracle,
-    LinksAreUntouchedByTheRules,
-    OneCallsFormatsComeFromOneSerialization,
+    /// A links, images, media and tables case (#786).
+    References(formats::references::Case),
+    /// A `content.extractor` case (#788).
+    Extractor(formats::extractor::Case),
     HeadlessIdentity,
     BackgroundTimer,
     ClickWaitsOutACover,
@@ -400,13 +401,6 @@ impl Case {
             "markdown-and-html-default-to-the-main-content-and-an-unknown-option-is-invalid-params" => {
                 Self::FormatsDefaultsAndUnknownOptions
             }
-            "links-images-media-and-tables-match-the-oracle-resolved-against-the-base-href-and-the-url-after-a-redirect" => {
-                Self::ReferencesAndTablesMatchTheOracle
-            }
-            "an-ads-link-a-cosmetic-rule-hides-is-in-links" => Self::LinksAreUntouchedByTheRules,
-            "links-and-markdown-of-one-call-agree-on-a-page-that-changes-between-two-reads" => {
-                Self::OneCallsFormatsComeFromOneSerialization
-            }
             "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
             "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
             "a-click-on-a-covered-target-lands-once-the-cover-leaves" => Self::ClickWaitsOutACover,
@@ -441,7 +435,9 @@ impl Case {
                     .or_else(|| popups::Case::from_id(id).map(Self::Popup))
                     .or_else(|| page_functions::Case::from_id(id).map(Self::PageFunction))
                     .or_else(|| waits::Case::from_id(id).map(Self::Wait))
-                    .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt));
+                    .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt))
+                    .or_else(|| formats::references::Case::from_id(id).map(Self::References))
+                    .or_else(|| formats::extractor::Case::from_id(id).map(Self::Extractor));
             }
         })
     }
@@ -503,8 +499,9 @@ impl Case {
             Self::Wait(case) => case.run(connection, site, checks),
             Self::RobotsTxt(case) => case.run(connection, target, site, checks),
             Self::MarkdownMatchesTheOracle => {
-                formats::markdown_matches_the_oracle(connection, site, checks)
+                formats::markdown_matches_the_oracle(connection, site, None, checks)
             }
+
             Self::FormatNotNamedIsLeftOut => {
                 formats::a_format_not_named_is_left_out(connection, site, checks)
             }
@@ -522,8 +519,11 @@ impl Case {
                 formats::each_call_is_in_the_run_trace(connection, target, site, checks)
             }
             Self::EveryFormMatchesTheOracle => {
-                formats::content_modes::every_form_matches_the_oracle(connection, site, checks)
+                formats::content_modes::every_form_matches_the_oracle(
+                    connection, site, None, checks,
+                )
             }
+            Self::Extractor(case) => case.run(connection, site, checks),
             Self::RawHtmlIsContentBeforeTheRules => {
                 formats::content_modes::raw_html_is_content_before_the_rules(
                     connection, site, checks,
@@ -532,19 +532,7 @@ impl Case {
             Self::FormatsDefaultsAndUnknownOptions => {
                 formats::content_modes::defaults_and_unknown_options(connection, site, checks)
             }
-            Self::ReferencesAndTablesMatchTheOracle => {
-                formats::references::references_and_tables_match_the_oracle(
-                    connection, site, checks,
-                )
-            }
-            Self::LinksAreUntouchedByTheRules => {
-                formats::references::links_are_untouched_by_the_rules(connection, site, checks)
-            }
-            Self::OneCallsFormatsComeFromOneSerialization => {
-                formats::references::one_calls_formats_come_from_one_serialization(
-                    connection, site, checks,
-                )
-            }
+            Self::References(case) => case.run(connection, site, checks),
             Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
             Self::BackgroundTimer => launch::background_timer(connection, site, checks),
             Self::ClickWaitsOutACover => guard::lands(

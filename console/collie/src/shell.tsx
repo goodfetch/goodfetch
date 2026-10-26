@@ -204,7 +204,9 @@ function Overview({ client }: { readonly client: ConsoleClient | undefined }): R
       <p className="text-muted-foreground">
         <Trans>Collie's Console. The runs you start with Collie show under Runs.</Trans>
       </p>
-      <p role="status">{client === undefined ? <NotSignedIn /> : <Engine client={client} />}</p>
+      <output className="block">
+        {client === undefined ? <NotSignedIn /> : <Engine client={client} />}
+      </output>
     </>
   );
 }
@@ -290,9 +292,9 @@ export function Shell({
       ) : (
         <main className="mx-auto flex max-w-5xl flex-col gap-3 px-6 py-8">
           {client === undefined ? (
-            <p role="status">
+            <output className="block">
               <NotSignedIn />
-            </p>
+            </output>
           ) : (
             at.screen.content({ client, address, needsYou, readOnly, offline }, at.params)
           )}

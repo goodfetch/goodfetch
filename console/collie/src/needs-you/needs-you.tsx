@@ -842,12 +842,12 @@ function RaisedNotice({
   switch (raised.kind) {
     case "resumed":
       return (
-        <p role="status">
+        <output className="block">
           <Trans>
             You raised the Limit, and the run <code translate="no">{run}</code> resumes in the
             Daemon.
           </Trans>
-        </p>
+        </output>
       );
     case "not_resumed":
       return (
@@ -865,12 +865,12 @@ function RaisedNotice({
       const command = raised.command;
       return (
         <div className="flex flex-col gap-2">
-          <p role="status">
+          <output className="block">
             <Trans>
               You raised the Limit. The run <code translate="no">{run}</code> waits for its script:
               start the program again with its Run ID to resume it.
             </Trans>
-          </p>
+          </output>
           <code translate="no" className="self-start rounded-md bg-muted px-2 py-1 font-mono">
             {command}
           </code>
@@ -888,13 +888,13 @@ function RaisedNotice({
 /** What became of the last copy. */
 function CopiedNotice({ copied }: { readonly copied: Copied | undefined }): ReactNode {
   return (
-    <p role="status">
+    <output className="block">
       {copied === "copied" ? (
         <Trans>Copied the resume command.</Trans>
       ) : copied === "copy_refused" ? (
         <Trans>The browser refused to copy the resume command: select it and copy it.</Trans>
       ) : null}
-    </p>
+    </output>
   );
 }
 
@@ -937,9 +937,9 @@ export function NeedsYouView({
         </section>
       )}
       {state.kind === "reading" ? (
-        <p role="status">
+        <output className="block">
           <Trans>Reading what needs you…</Trans>
-        </p>
+        </output>
       ) : state.kind === "failed" ? (
         <FailedList error={state.error} />
       ) : state.items.length === 0 ? (

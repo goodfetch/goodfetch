@@ -130,12 +130,12 @@ function Notice({
   if (notice.kind === "written") {
     const digest = notice.written.digest;
     return (
-      <p role="status">
+      <output className="block">
         <Trans>
           Written. New runs name the policy version <code translate="no">{digest}</code>; a
           tightened cap reaches running runs at their next admission point.
         </Trans>
-      </p>
+      </output>
     );
   }
   if (notice.kind === "invalid_value") {
@@ -193,9 +193,9 @@ export function OperatorPolicyView({
         <Trans>Operator policy</Trans>
       </h2>
       {read.kind === "reading" ? (
-        <p role="status">
+        <output className="block">
           <Trans>Reading the Operator policy…</Trans>
-        </p>
+        </output>
       ) : null}
       {read.kind === "failed" ? (
         <div role="alert">

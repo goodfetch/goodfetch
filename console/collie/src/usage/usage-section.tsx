@@ -52,9 +52,9 @@ function Read({ read }: { readonly read: UsageRead }): ReactNode {
   }
   if (read.kind === "reading") {
     return (
-      <p role="status">
+      <output className="block">
         <Trans>Reading the Usage ledger…</Trans>
-      </p>
+      </output>
     );
   }
   if (read.usage.limits.length === 0) {

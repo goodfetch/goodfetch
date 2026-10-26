@@ -400,13 +400,13 @@ function Actions({
         </div>
       ) : null}
       {/* Each notice is an element of its own, keyed by its kind, so React replaces the element, never text nodes a page translator moved (react#11538). */}
-      <div role="status">
+      <output className="block">
         {notice === undefined ? null : (
           <div key={notice.kind}>
             <NoticeText notice={notice} />
           </div>
         )}
-      </div>
+      </output>
     </>
   );
 }
@@ -459,9 +459,9 @@ function Read({ read, ...props }: RunPageViewProps): ReactNode {
   switch (read.kind) {
     case "reading":
       return (
-        <p role="status">
+        <output className="block">
           <Trans>Reading the run…</Trans>
-        </p>
+        </output>
       );
     case "not_listed":
       return (

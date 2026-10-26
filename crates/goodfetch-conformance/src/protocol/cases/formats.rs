@@ -5,7 +5,10 @@
 //! value; the document read as it stands, after its scripts ran, with its
 //! open and closed shadow roots; the Clean-up rules' cosmetic rules applied
 //! to the Markdown only; and each call in the Run trace with the rules'
-//! version and what they removed.
+//! version and what they removed. How much of the page a call reads is
+//! `content_modes`'.
+
+pub(super) mod content_modes;
 
 use goodfetch_protocol::journey::TaskId;
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
@@ -59,11 +62,16 @@ fn formats(
         .cloned())
 }
 
-/// The task's start page and the paths of the pages it lists.
+/// The Markdown task's start page and the paths of the pages it lists.
 fn markdown_pages(site: &Site, checks: &mut Checks) -> Option<(String, Vec<String>)> {
-    let index = site.start_url(MARKDOWN_TASK).map(ToOwned::to_owned);
+    task_pages(site, MARKDOWN_TASK, checks)
+}
+
+/// The start page of the task `task` and the paths of the pages it lists.
+fn task_pages(site: &Site, task: &str, checks: &mut Checks) -> Option<(String, Vec<String>)> {
+    let index = site.start_url(task).map(ToOwned::to_owned);
     checks.check(
-        format!("the Proving ground serves task `{MARKDOWN_TASK}`"),
+        format!("the Proving ground serves task `{task}`"),
         index.is_some(),
     );
     let index = index?;

@@ -92,6 +92,9 @@ pub(crate) enum Case {
     ClosedShadowRootTextIsRead,
     RulesTouchOnlyTheMainContent,
     EachFormatsCallIsInTheRunTrace,
+    EveryFormMatchesTheOracle,
+    RawHtmlIsContentBeforeTheRules,
+    FormatsDefaultsAndUnknownOptions,
     HeadlessIdentity,
     BackgroundTimer,
     ClickWaitsOutACover,
@@ -385,6 +388,15 @@ impl Case {
             "the-run-trace-holds-each-formats-call-with-the-rules-version-and-what-they-removed" => {
                 Self::EachFormatsCallIsInTheRunTrace
             }
+            "each-markdown-content-html-kind-and-the-text-match-the-oracle-and-fit-is-shorter-than-main" => {
+                Self::EveryFormMatchesTheOracle
+            }
+            "raw-html-is-what-content-returns-and-a-hidden-ad-is-in-it-but-not-in-cleaned-html-or-markdown" => {
+                Self::RawHtmlIsContentBeforeTheRules
+            }
+            "markdown-and-html-default-to-the-main-content-and-an-unknown-option-is-invalid-params" => {
+                Self::FormatsDefaultsAndUnknownOptions
+            }
             "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
             "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
             "a-click-on-a-covered-target-lands-once-the-cover-leaves" => Self::ClickWaitsOutACover,
@@ -498,6 +510,17 @@ impl Case {
             }
             Self::EachFormatsCallIsInTheRunTrace => {
                 formats::each_call_is_in_the_run_trace(connection, target, site, checks)
+            }
+            Self::EveryFormMatchesTheOracle => {
+                formats::content_modes::every_form_matches_the_oracle(connection, site, checks)
+            }
+            Self::RawHtmlIsContentBeforeTheRules => {
+                formats::content_modes::raw_html_is_content_before_the_rules(
+                    connection, site, checks,
+                )
+            }
+            Self::FormatsDefaultsAndUnknownOptions => {
+                formats::content_modes::defaults_and_unknown_options(connection, site, checks)
             }
             Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
             Self::BackgroundTimer => launch::background_timer(connection, site, checks),

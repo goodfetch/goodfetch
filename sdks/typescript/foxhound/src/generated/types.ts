@@ -159,7 +159,8 @@ export type Enqueued =
         | "max_segment_repeats"
         | "path_budget"
         | "trap_path"
-        | "no_rule";
+        | "no_rule"
+        | "trap_link";
       /**
        * Its URL as it was given.
        */
@@ -201,7 +202,8 @@ export type EnqueuedLink =
         | "max_segment_repeats"
         | "path_budget"
         | "trap_path"
-        | "no_rule";
+        | "no_rule"
+        | "trap_link";
       /**
        * Its `href`, as written.
        */
@@ -273,7 +275,8 @@ export type NotAddedReason =
   | "max_segment_repeats"
   | "path_budget"
   | "trap_path"
-  | "no_rule";
+  | "no_rule"
+  | "trap_link";
 /**
  * The word `now`: from the next commit on.
  *

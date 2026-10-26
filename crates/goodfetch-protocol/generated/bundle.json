@@ -7244,6 +7244,11 @@
           "const": "no_rule",
           "description": "A sitemap entry no rule of its sitemap seed matches (ADR 0093).",
           "type": "string"
+        },
+        {
+          "const": "trap_link",
+          "description": "On the browser tier, its link is one a person cannot see, a\n`nofollow` one among them: a trap a crawl never enters (ADR 0035).",
+          "type": "string"
         }
       ]
     },

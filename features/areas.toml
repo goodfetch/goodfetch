@@ -1156,6 +1156,13 @@ number = 12
 kind = "operation"
 prefix = "sign_in."
 
+# Foxhound's Datasets screen (#1211, spec #593): `dataset.list` and
+# `dataset.page`, which the Records grid reads.
+[[area]]
+number = 12
+kind = "operation"
+prefix = "dataset."
+
 # Its Operator policy editor (#874): the Error code of a stale digest.
 [[area]]
 number = 12

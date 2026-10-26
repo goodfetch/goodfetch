@@ -21,6 +21,7 @@ mod completeness;
 mod content_types;
 mod crawl;
 mod daemon;
+mod dataset_pages;
 mod datasets;
 mod decoding;
 mod discovered_api;

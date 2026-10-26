@@ -16,6 +16,7 @@ import { msg } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { useEffect, useState, type ReactNode } from "react";
 import { callFoxhound } from "#call.ts";
+import { Datasets } from "#datasets/datasets.tsx";
 import { CrawlProgress } from "#runs/crawl-progress.tsx";
 import type { FoxhoundConsoleOperations } from "#generated/operations.ts";
 
@@ -202,4 +203,5 @@ export const FOXHOUND_RUN_VIEWS: readonly RunView[] = [
     name: msg`Failed requests`,
     content: (props) => <FailedRequests {...props} />,
   },
+  { id: "datasets", name: msg`Datasets`, content: (props) => <Datasets {...props} /> },
 ];

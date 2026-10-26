@@ -10,7 +10,7 @@ from typing import Any, cast
 from goodfetch_collie_client.generated.operations import AsyncCaller, Caller
 
 from goodfetch_collie_client.generated.models import RunParams, RunStarted
-from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
+from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
 
 
 def _fields(result: object) -> dict[str, Any]:
@@ -66,6 +66,20 @@ class AsyncFoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return CrawlRequestPushed.model_construct(**_fields(await self._caller.call("crawl_request.push", params)))
+
+    async def dataset_list(self, params: DatasetListParams) -> DatasetList:
+        """Lists the Datasets a crawl's Run declares, in the order declared, each with its JSON Schema, its key and how many Records the crawl committed into it, a Hook dropped and were rejected into its rejection table, read from the Run's committed state. A Run no crawl wrote declares none.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DatasetList.model_construct(**_fields(await self._caller.call("dataset.list", params)))
+
+    async def dataset_page(self, params: DatasetPageParams) -> DatasetPage:
+        """Reads one page of a Dataset's committed Records, paged by key: the Records that meet `filter` (conditions on top-level fields, and the `wall` marker a Record's Provenance carries or not), in the order of `sort` (one top-level field, Records that lack it last, then by number), each value keeping only the fields `columns` names, at most `limit`. Filtering, sorting and column selection run in the engine. A page starts after the Record `after` names, the previous page's `next`, and reads only the Records committed through `through`, the number the first page answered, so Records committed meanwhile never make a page repeat or skip one. A Dataset the crawl does not declare fails with `dataset_unknown`; a field name holding `"`, or a `limit` outside 1 to 1000, with `invalid_params`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DatasetPage.model_construct(**_fields(await self._caller.call("dataset.page", params)))
 
     async def export_save_as(self, params: ExportSaveAsParams) -> ExportSaved:
         """Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
@@ -190,6 +204,20 @@ class FoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return CrawlRequestPushed.model_construct(**_fields(self._caller.call("crawl_request.push", params)))
+
+    def dataset_list(self, params: DatasetListParams) -> DatasetList:
+        """Lists the Datasets a crawl's Run declares, in the order declared, each with its JSON Schema, its key and how many Records the crawl committed into it, a Hook dropped and were rejected into its rejection table, read from the Run's committed state. A Run no crawl wrote declares none.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DatasetList.model_construct(**_fields(self._caller.call("dataset.list", params)))
+
+    def dataset_page(self, params: DatasetPageParams) -> DatasetPage:
+        """Reads one page of a Dataset's committed Records, paged by key: the Records that meet `filter` (conditions on top-level fields, and the `wall` marker a Record's Provenance carries or not), in the order of `sort` (one top-level field, Records that lack it last, then by number), each value keeping only the fields `columns` names, at most `limit`. Filtering, sorting and column selection run in the engine. A page starts after the Record `after` names, the previous page's `next`, and reads only the Records committed through `through`, the number the first page answered, so Records committed meanwhile never make a page repeat or skip one. A Dataset the crawl does not declare fails with `dataset_unknown`; a field name holding `"`, or a `limit` outside 1 to 1000, with `invalid_params`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DatasetPage.model_construct(**_fields(self._caller.call("dataset.page", params)))
 
     def export_save_as(self, params: ExportSaveAsParams) -> ExportSaved:
         """Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.

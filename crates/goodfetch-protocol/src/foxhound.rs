@@ -13,6 +13,7 @@
 pub mod block;
 pub mod crawl;
 pub mod dataset;
+pub mod dataset_view;
 pub mod export;
 pub mod fetch;
 pub mod frontier;

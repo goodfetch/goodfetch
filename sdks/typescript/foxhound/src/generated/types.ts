@@ -11,6 +11,13 @@ import type { AxisReason, Checkpoint, Completeness, EndingError, ExplainedSettin
 export type BlockCause =
   "challenge" | "captcha" | "rate_limit" | "ip_block" | "decoy" | "payment_required" | "consent_required";
 /**
+ * The kind of an invalid-certificate exception (ADR 0042).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "CertificateExceptionKind".
+ */
+export type CertificateExceptionKind = "trust_on_first_use" | "any";
+/**
  * The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -121,6 +128,86 @@ export type Seeds = [Seed, ...Seed[]];
  * via the `definition` "Seed".
  */
 export type Seed = RequestSeed | SitemapSeed;
+/**
+ * Where a document's encoding came from, in the order the tiers look
+ * (ADR 0119).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "EncodingSource".
+ */
+export type EncodingSource = "bom" | "setting" | "header" | "meta" | "utf8" | "detected";
+/**
+ * What answered a Record's request in place of the network.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ResponseOrigin".
+ */
+export type ResponseOrigin =
+  | {
+      /**
+       * When the cached response was fetched.
+       */
+      fetched_at: PointInTime;
+      kind: "response_cache";
+    }
+  | {
+      kind: "response_recording";
+      /**
+       * When the recorded response was received.
+       */
+      recorded_at: PointInTime;
+    };
+/**
+ * What a Record's Provenance says of the robots.txt of its page's origin
+ * (ADR 0086).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RobotsTxtMark".
+ */
+export type RobotsTxtMark = "ignored";
+/**
+ * Which scope's `fetch.tier` forced a tier.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ForcedBy".
+ */
+export type ForcedBy = "run" | "label";
+/**
+ * A condition on one top-level field of a Record.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "FieldFilter".
+ */
+export type FieldFilter = {
+  /**
+   * The field's name.
+   */
+  field: string;
+} & FieldFilter1;
+export type FieldFilter1 =
+  | {
+      op: "equals";
+      /**
+       * The value.
+       */
+      value: {
+        [k: string]: unknown;
+      };
+    }
+  | {
+      op: "contains";
+      /**
+       * The text.
+       */
+      text: string;
+    };
+/**
+ * Which Records a page takes by a Wall read past (ADR 0052).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "WallFilter".
+ */
+export type WallFilter = "with" | "without";
 /**
  * The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a
  * value, never an error, since a request is one among many.
@@ -250,6 +337,14 @@ export type ExportId = string;
  */
 export type ExtractionFollow = "scope" | "sitemap" | "none";
 /**
+ * A tier that fetches a crawl request's document (ADR 0020), from the
+ * cheapest up.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "FetchTier".
+ */
+export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
+/**
  * The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -338,6 +433,34 @@ export type SkipReason =
   | "handler"
   | "model_allowance"
   | "content_type";
+/**
+ * A sort's direction.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SortDirection".
+ */
+export type SortDirection = "ascending" | "descending";
+/**
+ * How the tier of a Record's document was chosen (ADRs 0023 and 0093).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "TierChosen".
+ */
+export type TierChosen = "forced" | "compared" | "sample" | "escalation" | "race";
+/**
+ * One of the engine's closed list of Value transforms (ADR 0123).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ValueTransform".
+ */
+export type ValueTransform = "text" | "match" | "number" | "currency" | "date" | "date_time" | "relative_time" | "map";
+/**
+ * A Wall's kind (ADR 0052).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "WallKind".
+ */
+export type WallKind = "paywall" | "consent_wall" | "ad_blocker_wall";
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -372,6 +495,24 @@ export interface AttemptError {
    * What it said.
    */
   message: string;
+}
+/**
+ * The invalid-certificate exception a Record's document was fetched
+ * under (ADR 0042, pitfall H03).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "CertificateExceptionMark".
+ */
+export interface CertificateExceptionMark {
+  /**
+   * The kind of exception.
+   */
+  kind: "trust_on_first_use" | "any";
+  /**
+   * The SHA-256 of the public key of the certificate it accepted, as
+   * `sha256/<base64>`, the known-certificates store's spelling.
+   */
+  spki_sha256: string;
 }
 /**
  * How many requests ended for one reason, code or cause.
@@ -1250,6 +1391,371 @@ export interface SitemapRule {
   pattern: string;
 }
 /**
+ * What `dataset.list` answers.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetList".
+ */
+export interface DatasetList {
+  /**
+   * Each Dataset the crawl declares, in the order declared.
+   */
+  datasets: DatasetSummary[];
+}
+/**
+ * One Dataset a crawl declares, with what its crawl kept of it.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetSummary".
+ */
+export interface DatasetSummary {
+  /**
+   * How many Records the crawl committed into it.
+   */
+  committed: number;
+  /**
+   * How many a Hook dropped before their commit.
+   */
+  dropped: number;
+  /**
+   * The top-level fields that identify one Record; empty when none do.
+   */
+  key: string[];
+  /**
+   * Its name.
+   */
+  name: string;
+  /**
+   * How many were rejected into its rejection table.
+   */
+  rejected: number;
+  /**
+   * The JSON Schema its Records are checked against; none takes any
+   * JSON object.
+   */
+  schema?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * What `dataset.list` takes.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetListParams".
+ */
+export interface DatasetListParams {
+  /**
+   * The crawl's Run.
+   */
+  run_id: RunId;
+}
+/**
+ * One page of `dataset.page`.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetPage".
+ */
+export interface DatasetPage {
+  /**
+   * The next page's `after`; absent once no Record follows.
+   */
+  next?: number | null;
+  /**
+   * The Records, in the page's order.
+   */
+  records: DatasetRecord[];
+  /**
+   * The number of the last Record committed when the first page was
+   * read: the next page's `through`.
+   */
+  through: number;
+}
+/**
+ * One committed Record of a Dataset, as a reader reads it (ADR 0103).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetRecord".
+ */
+export interface DatasetRecord {
+  /**
+   * When it was committed.
+   */
+  committed_at: PointInTime;
+  /**
+   * Its number in its Dataset, from 1, in commit order, with no gaps.
+   */
+  number: number;
+  provenance: RecordProvenance;
+  /**
+   * The ID of the crawl request whose attempt committed it.
+   */
+  request_id: string;
+  /**
+   * That crawl request's URL.
+   */
+  url: string;
+  /**
+   * The Record, as JSON; the program's schema parses it.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * How it was obtained (ADR 0123's Provenance of a Record).
+ */
+export interface RecordProvenance {
+  /**
+   * The exception of `tls.accept_invalid_certs` its document's host was
+   * reached through; none where its certificate verified.
+   */
+  certificate_exception?: CertificateExceptionMark | null;
+  /**
+   * The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
+   * whose Run trace names their date and the release that applied them.
+   */
+  clean_up_rules?: string | null;
+  /**
+   * The encoding the document was read in, and where it came from;
+   * none for a request with no document.
+   */
+  encoding?: EncodingProvenance | null;
+  /**
+   * The Response cache or Response recording that answered in place of
+   * the network; none when the network did.
+   */
+  origin?: ResponseOrigin | null;
+  /**
+   * The payment of a Paid fetch of its page; none where nothing was
+   * paid.
+   */
+  payment?: PaymentMark | null;
+  /**
+   * The ID of the crawl request whose attempt produced it.
+   */
+  request_id: string;
+  /**
+   * `ignored` when its page was fetched while
+   * `site_preferences.respect_robots_txt` was off, from a URL its
+   * origin's robots.txt disallows, so a result taken against a site's
+   * stated preferences can be found and removed; none otherwise.
+   */
+  robots_txt?: RobotsTxtMark | null;
+  /**
+   * The tier that fetched that request's document, and how it was
+   * chosen; none where the handler was given its request alone.
+   */
+  tier?: TierProvenance | null;
+  /**
+   * Each field whose value an engine Value transform gave, in the
+   * order read; empty where the program parsed its own values.
+   */
+  value_transforms?: TransformProvenance[];
+  /**
+   * The Wall its page was read past; none where no Wall was met.
+   */
+  wall?: WallMarker | null;
+}
+/**
+ * The encoding a Record's document was read in, and where it came from
+ * (ADR 0119).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "EncodingProvenance".
+ */
+export interface EncodingProvenance {
+  /**
+   * Its WHATWG name, such as `Shift_JIS`.
+   */
+  encoding: string;
+  /**
+   * Where it came from; none where the browser read the document by a
+   * rule the engine did not see.
+   */
+  source?: EncodingSource | null;
+}
+/**
+ * The payment of a Paid fetch, as a Record's Provenance marks it (ADR
+ * 0045).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "PaymentMark".
+ */
+export interface PaymentMark {
+  /**
+   * The amount charged, an exact decimal.
+   */
+  amount: string;
+  /**
+   * Its currency, an ISO 4217 code.
+   */
+  currency: string;
+  /**
+   * The domain paid.
+   */
+  payee_domain: string;
+  /**
+   * The payment scheme the site asked through.
+   */
+  scheme: string;
+}
+/**
+ * The tier that fetched a Record's document and how it was chosen.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "TierProvenance".
+ */
+export interface TierProvenance {
+  /**
+   * The call a cheaper tier could not serve, which moved the request
+   * here, for an escalation or a sample's browser run.
+   */
+  call?: string | null;
+  /**
+   * How it was chosen.
+   */
+  chosen: "forced" | "compared" | "sample" | "escalation" | "race";
+  /**
+   * What forced it, when `chosen` is `forced`.
+   */
+  forced_by?: ForcedBy | null;
+  /**
+   * The tier.
+   */
+  tier: "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
+}
+/**
+ * How a Value transform gave one field of a Record (ADR 0123).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "TransformProvenance".
+ */
+export interface TransformProvenance {
+  /**
+   * A relative time's anchor: the fetch time of the page's document.
+   */
+  anchor?: PointInTime | null;
+  /**
+   * The field, a JSON Pointer into the Record.
+   */
+  field: string;
+  /**
+   * Its resolved locale, a BCP 47 tag, for a locale-dependent one.
+   */
+  locale?: string | null;
+  /**
+   * The stated CLDR pattern, such as `dd/MM/yyyy`, when one was.
+   */
+  pattern?: string | null;
+  /**
+   * The page text exactly as read.
+   */
+  text: string;
+  /**
+   * Its resolved time zone, an IANA name, for a date-time or a
+   * relative time.
+   */
+  time_zone?: string | null;
+  /**
+   * The transform.
+   */
+  transform: "text" | "match" | "number" | "currency" | "date" | "date_time" | "relative_time" | "map";
+}
+/**
+ * The `wall` marker of a Record whose page was read past a Wall (ADR
+ * 0052), which Dataset queries and every Export format filter on.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "WallMarker".
+ */
+export interface WallMarker {
+  /**
+   * The Wall's kind.
+   */
+  kind: "paywall" | "consent_wall" | "ad_blocker_wall";
+  /**
+   * The vendor detected, when one was.
+   */
+  vendor?: string | null;
+}
+/**
+ * What `dataset.page` takes.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetPageParams".
+ */
+export interface DatasetPageParams {
+  /**
+   * The number of the last Record of the previous page, its `next`: the
+   * page starts after that Record in the page's order. Absent, at the
+   * first.
+   */
+  after?: number | null;
+  /**
+   * The top-level fields each Record's value keeps; absent, every one.
+   */
+  columns?: string[] | null;
+  /**
+   * The Dataset's name.
+   */
+  dataset: string;
+  /**
+   * Which Records to take; absent, every one.
+   */
+  filter?: RecordFilter | null;
+  /**
+   * The most Records the page carries, from 1 to 1000; absent, 100.
+   */
+  limit?: number | null;
+  /**
+   * The crawl's Run.
+   */
+  run_id: RunId;
+  /**
+   * Their order; absent, by number.
+   */
+  sort?: RecordSort | null;
+  /**
+   * The previous page's `through`, so every page reads the Records
+   * committed when the first was read. Absent, the last number
+   * committed now.
+   */
+  through?: number | null;
+}
+/**
+ * Which Records a page takes: those that meet every condition.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RecordFilter".
+ */
+export interface RecordFilter {
+  /**
+   * Conditions on the Records' fields, every one met.
+   */
+  fields?: FieldFilter[];
+  /**
+   * The Wall marker a Record carries or not; absent takes both.
+   */
+  wall?: WallFilter | null;
+}
+/**
+ * The order of a page's Records: by one top-level field, Records that
+ * lack it last, then by number.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RecordSort".
+ */
+export interface RecordSort {
+  /**
+   * Its direction.
+   */
+  direction: "ascending" | "descending";
+  /**
+   * The field's name.
+   */
+  field: string;
+}
+/**
  * What `crawl_request.enqueue_links` answers: what became of each element
  * its locator matched, in document order.
  *
@@ -1417,6 +1923,64 @@ export interface RecordIssue {
    * Where in the Record, a JSON Pointer: empty for the Record itself.
    */
   path: string;
+}
+/**
+ * How one committed Record was obtained.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RecordProvenance".
+ */
+export interface RecordProvenance1 {
+  /**
+   * The exception of `tls.accept_invalid_certs` its document's host was
+   * reached through; none where its certificate verified.
+   */
+  certificate_exception?: CertificateExceptionMark | null;
+  /**
+   * The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
+   * whose Run trace names their date and the release that applied them.
+   */
+  clean_up_rules?: string | null;
+  /**
+   * The encoding the document was read in, and where it came from;
+   * none for a request with no document.
+   */
+  encoding?: EncodingProvenance | null;
+  /**
+   * The Response cache or Response recording that answered in place of
+   * the network; none when the network did.
+   */
+  origin?: ResponseOrigin | null;
+  /**
+   * The payment of a Paid fetch of its page; none where nothing was
+   * paid.
+   */
+  payment?: PaymentMark | null;
+  /**
+   * The ID of the crawl request whose attempt produced it.
+   */
+  request_id: string;
+  /**
+   * `ignored` when its page was fetched while
+   * `site_preferences.respect_robots_txt` was off, from a URL its
+   * origin's robots.txt disallows, so a result taken against a site's
+   * stated preferences can be found and removed; none otherwise.
+   */
+  robots_txt?: RobotsTxtMark | null;
+  /**
+   * The tier that fetched that request's document, and how it was
+   * chosen; none where the handler was given its request alone.
+   */
+  tier?: TierProvenance | null;
+  /**
+   * Each field whose value an engine Value transform gave, in the
+   * order read; empty where the program parsed its own values.
+   */
+  value_transforms?: TransformProvenance[];
+  /**
+   * The Wall its page was read past; none where no Wall was met.
+   */
+  wall?: WallMarker | null;
 }
 /**
  * What `run.records` answers once it sent the last Record: how many it

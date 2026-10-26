@@ -202,8 +202,10 @@ const coverageFolder = process.env["GOODFETCH_COVERAGE"];
 // and a test that imports the design system's style sheet, as a screen's
 // visual test does, gets it through Tailwind's plugin, as the build does.
 // A copy of this config in a folder without the Console, as test support's
-// own runs of it make, takes no plugin.
-const consoleMessages = join(import.meta.dirname, "console", "collie", "lingui.config.ts");
+// own runs of it make, takes no plugin. Foxhound's configuration holds
+// Collie's catalog, extracted alike, and its own, so Foxhound's screens'
+// stories load Foxhound's catalog too.
+const consoleMessages = join(import.meta.dirname, "console", "foxhound", "lingui.config.ts");
 
 const config: ViteUserConfig = defineConfig({
   plugins: existsSync(consoleMessages)

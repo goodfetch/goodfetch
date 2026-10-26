@@ -3,6 +3,7 @@
 declaration = ["records", "rejections"]
 encoding = []
 export = ["declaration", "encoding", "records"]
+page = ["declaration", "records"]
 reader = ["declaration", "records"]
 records = ["rejections"]
 rejected_records = ["declaration", "rejections"]

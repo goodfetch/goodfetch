@@ -74,6 +74,7 @@ function row(run_id: string, overrides: Partial<RunIndexRow> = {}): RunIndexRow 
     lifecycle: "running",
     started_at: "2026-10-01T08:00:00Z",
     presence: "present",
+    replayed: false,
     ...overrides,
   };
 }
@@ -126,6 +127,7 @@ test(
         presence: "present",
         progress_message: null,
         stop_reason: null,
+        replayed: false,
       });
     client.close();
   },

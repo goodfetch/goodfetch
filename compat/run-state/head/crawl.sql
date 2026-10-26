@@ -187,16 +187,17 @@ CREATE TABLE records (
             committed_at TEXT NOT NULL,
             data TEXT NOT NULL,
             schema_hash TEXT,
+            provenance TEXT NOT NULL,
             PRIMARY KEY (dataset, number)
         ) STRICT;
-INSERT INTO "records" VALUES('pages',1,'3','https://api.test/search','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4');
-INSERT INTO "records" VALUES('links',1,'3','https://api.test/search','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL);
-INSERT INTO "records" VALUES('pages',2,'14','https://shop.test/pages/1','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4');
-INSERT INTO "records" VALUES('links',2,'14','https://shop.test/pages/1','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL);
-INSERT INTO "records" VALUES('pages',3,'1','https://shop.test/','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4');
-INSERT INTO "records" VALUES('links',3,'1','https://shop.test/','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL);
-INSERT INTO "records" VALUES('pages',4,'19','https://outlet.test/sale','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4');
-INSERT INTO "records" VALUES('links',4,'19','https://outlet.test/sale','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL);
+INSERT INTO "records" VALUES('pages',1,'3','https://api.test/search','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4','{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"3","value_transforms":[]}');
+INSERT INTO "records" VALUES('links',1,'3','https://api.test/search','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL,'{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"3","value_transforms":[]}');
+INSERT INTO "records" VALUES('pages',2,'14','https://shop.test/pages/1','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4','{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"14","value_transforms":[]}');
+INSERT INTO "records" VALUES('links',2,'14','https://shop.test/pages/1','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL,'{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"14","value_transforms":[]}');
+INSERT INTO "records" VALUES('pages',3,'1','https://shop.test/','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4','{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"1","value_transforms":[]}');
+INSERT INTO "records" VALUES('links',3,'1','https://shop.test/','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL,'{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"1","value_transforms":[]}');
+INSERT INTO "records" VALUES('pages',4,'19','https://outlet.test/sale','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4','{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"19","value_transforms":[]}');
+INSERT INTO "records" VALUES('links',4,'19','https://outlet.test/sale','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL,'{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"19","value_transforms":[]}');
 CREATE TABLE rejected_records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
@@ -205,7 +206,7 @@ CREATE TABLE rejected_records (
             rejection TEXT NOT NULL,
             PRIMARY KEY (dataset, number)
         ) STRICT;
-INSERT INTO "rejected_records" VALUES('pages',1,'1','{"title":"No address"}','{"reason":"A Record of the Dataset `pages` does not hold, so it was not staged: \"url\" is a required property","issues":[{"path":"","message":"\"url\" is a required property"}]}');
+INSERT INTO "rejected_records" VALUES('pages',1,'1','{"title":"No address"}','{"issues":[{"message":"\"url\" is a required property","path":""}],"reason":"A Record of the Dataset `pages` does not hold, so it was not staged: \"url\" is a required property"}');
 CREATE TABLE rules_canonicals (
             host TEXT NOT NULL,
             form TEXT NOT NULL,

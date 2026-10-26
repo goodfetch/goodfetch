@@ -22,7 +22,8 @@
 //! fails on the second, whose first byte never came, so its
 //! domain still backs off when `run.finish` ends it, and whose last site
 //! blocks its address, so its Session pool holds a Session retired by the
-//! escalation and its domain's proxy tier; and a Run its
+//! escalation, its position in the `egress.local_addresses` rotation and
+//! the address block it blocked, and its domain's proxy tier; and a Run its
 //! program drives, under an Operator policy and with a setting that
 //! weakens a guarantee, whose Key-value store keeps a cursor, a note in its
 //! row and an archive over 1 MiB as a kept file, and whose run
@@ -132,12 +133,15 @@ fn scenario() -> Vec<Value> {
                     { "url": "https://list.test/guide", "label": "listed" },
                     { "url": "https://list.test/guide/", "label": "listed" },
                 ],
-                "settings": { "crawl": {
-                    "scope": { "strategy": "all", "include": ["**/sale"], "exclude": ["**/admin/**"] },
-                    "max_depth": 3,
-                    "max_requests": 100,
-                    "path_budgets": [{ "pattern": "/pages/*", "max_requests": 1 }],
-                } },
+                "settings": {
+                    "crawl": {
+                        "scope": { "strategy": "all", "include": ["**/sale"], "exclude": ["**/admin/**"] },
+                        "max_depth": 3,
+                        "max_requests": 100,
+                        "path_budgets": [{ "pattern": "/pages/*", "max_requests": 1 }],
+                    },
+                    "egress": { "local_addresses": ["127.0.0.1"] },
+                },
             }),
         ),
         call(15, "compat.learned", json!({ "run_id": "crawl" })),

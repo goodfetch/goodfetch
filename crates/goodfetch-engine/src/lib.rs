@@ -76,6 +76,7 @@ pub mod run_state;
 pub mod run_trace;
 pub mod runs;
 pub mod sandbox_probe;
+pub mod secret_endpoint;
 pub mod secrets;
 pub mod settings;
 mod sqlite_wal;

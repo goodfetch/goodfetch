@@ -231,6 +231,7 @@ pub const TIMEOUT_SECRET: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// No command, or no address: the provider is not configured.
 fn no_command() -> Value {
     Value::Null
 }
@@ -261,6 +262,20 @@ pub const SECRET_PROVIDERS_BW_COMMAND: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `secret_providers.vault.address` (spec #564): the Vault or `OpenBao`
+/// server that answers `vault:` references, an Operator-configured
+/// endpoint.
+pub const SECRET_PROVIDERS_VAULT_ADDRESS: Setting = Setting {
+    name: "secret_providers.vault.address",
+    description: "The URL of the HashiCorp Vault or OpenBao server that answers `vault:mount/path#field` Secret references, such as `https://vault.example.com:8200`: the engine reads `field` of the KV version 2 secret `path` in the secrets engine mounted at `mount`, with the token in its environment's `VAULT_TOKEN`, or `BAO_TOKEN`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address, as a development server's. Unset, the default, a `vault:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+    kind: ValueKind::Text,
+    default: no_command,
+    clearable: true,
+    authority: Authority::Configuration,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -281,6 +296,7 @@ pub const ENTRIES: Entries = Entries {
         TIMEOUT_SECRET,
         SECRET_PROVIDERS_OP_COMMAND,
         SECRET_PROVIDERS_BW_COMMAND,
+        SECRET_PROVIDERS_VAULT_ADDRESS,
     ],
     hook_stages: &[],
     shared_type_values: &[],

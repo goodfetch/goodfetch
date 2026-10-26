@@ -376,7 +376,7 @@ test(
     });
 
     await signIn.withLink(page);
-    await expect(page.getByRole("status")).toHaveText(/^Connected to Collie /);
+    await expect(page.getByRole("main").getByRole("status")).toHaveText(/^Connected to Collie /);
     await page.goto(new URL("/runs", daemon.url).href);
     await startRun(daemon, "first");
     await expect.poll(() => listed(page)).toEqual(["first: running"]);

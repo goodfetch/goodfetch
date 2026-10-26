@@ -31,6 +31,7 @@ import {
   type ProjectFile,
 } from "./explain-with.ts";
 import { OperatorPolicy } from "./operator-policy.tsx";
+import { Form } from "#form.tsx";
 
 /** Where the explanation stands. */
 export type Explained =
@@ -89,11 +90,11 @@ function EditResult({ notice }: { readonly notice: EditNotice }): ReactNode {
   if (notice.kind === "user_written") {
     const key = notice.key;
     return (
-      <p role="status">
+      <output className="block">
         <Trans>
           <code translate="no">{key}</code> is written to user configuration, for new runs.
         </Trans>
-      </p>
+      </output>
     );
   }
   return (
@@ -136,9 +137,9 @@ function Explanation({
     );
   }
   return (
-    <p role="status">
+    <output className="block">
       <Trans>Reading the effective settings…</Trans>
-    </p>
+    </output>
   );
 }
 
@@ -184,7 +185,7 @@ export function EngineSettingsView({
             manifest are files under version control, edited there.
           </Trans>
         </p>
-        <form
+        <Form
           onSubmit={submit}
           aria-label={t`Explain with`}
           className="flex flex-col gap-3 rounded-lg border p-4"
@@ -233,7 +234,7 @@ export function EngineSettingsView({
               <Refusal refusal={refusal} />
             </p>
           )}
-        </form>
+        </Form>
         {editNotice === undefined ? null : <EditResult notice={editNotice} />}
         <Explanation explained={explained} readOnly={readOnly} onEdit={onEdit} />
       </section>

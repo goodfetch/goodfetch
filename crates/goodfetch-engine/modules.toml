@@ -85,6 +85,7 @@ upgrade = ["home", "ledger"]
 [submodules.tls]
 client_certificates = []
 exceptions = []
+shared = ["client_certificates", "exceptions"]
 
 # Which of `settings`'s own modules may import which.
 [submodules.settings]

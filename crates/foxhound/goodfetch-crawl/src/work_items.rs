@@ -33,7 +33,7 @@ use goodfetch_protocol::foxhound::outcomes::{
     AttemptError, CrawlRequestOutcome, Ending, NothingCommitted, OutcomeRequest, SkipReason,
 };
 use goodfetch_protocol::foxhound::provenance::{
-    EncodingProvenance, RecordProvenance, TierProvenance,
+    CertificateExceptionMark, EncodingProvenance, RecordProvenance, TierProvenance,
 };
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension as _};
@@ -601,6 +601,9 @@ pub(crate) struct Fetched {
     pub(crate) tier: Option<TierProvenance>,
     /// The encoding its document was read in, and where it came from.
     pub(crate) encoding: Option<EncodingProvenance>,
+    /// The invalid-certificate exception its document's host was reached
+    /// through (ADR 0042).
+    pub(crate) certificate_exception: Option<CertificateExceptionMark>,
 }
 
 /// What an attempt commits: its Records, how its run fetched its
@@ -650,6 +653,7 @@ pub(crate) fn commit(
         clean_up_rules,
         wall: None,
         payment: None,
+        certificate_exception: fetched.certificate_exception.clone(),
         value_transforms: Vec::new(),
     };
     let committing = Committing {

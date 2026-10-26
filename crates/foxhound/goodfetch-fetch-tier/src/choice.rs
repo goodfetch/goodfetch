@@ -34,6 +34,9 @@ use crate::content_types::ContentTypes;
 /// shape is spelled out key by key.
 const SESSION_SOURCE_KEYS: &str = "session.source.";
 
+/// What every `proxy.*` key starts with: the Run's own, never a Label's.
+const PROXY_KEYS: &str = "proxy.";
+
 /// The Labels a crawl declares, each with what it sets of its own: its
 /// `fetch.tier`, the `fetch.encoding`, `crawl.content_types` (ADR 0119) and
 /// `session.page_check` it sets, if any (ADR 0093), whether it keeps its URLs' fragments
@@ -83,7 +86,8 @@ impl LabelSettings {
     /// key but `fetch.tier`, `fetch.encoding`, `crawl.content_types`,
     /// `session.page_check`, `crawl.keep_url_fragment`,
     /// `fetch.kept_responses.urls` and `session.source`, which the Session
-    /// pool reads; `fetch.tier_race` is the Run's only), and
+    /// pool reads; `fetch.tier_race` and every `proxy.*` key, the pools'
+    /// identity policy, are the Run's only), and
     /// `setting_invalid` for a `fetch.tier` that names no tier, a
     /// `fetch.encoding` that is no WHATWG Encoding label, a
     /// `crawl.content_types` that is no list of media ranges, a
@@ -142,22 +146,7 @@ impl LabelSettings {
                     continue;
                 }
                 if key != FETCH_TIER.name {
-                    let only = if key == FETCH_TIER_RACE.name {
-                        " is set for the Run only"
-                    } else {
-                        ""
-                    };
-                    return Err(CallError::new(
-                        &SETTING_NOT_APPLICABLE,
-                        format!(
-                            "The Label `{name}` sets `{key}`, which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.encoding`, `fetch.kept_responses.urls`, `crawl.content_types`, `crawl.keep_url_fragment`, `session.page_check` and `session.source` are set per Label; set `{key}` for the Run instead."
-                        ),
-                        &SettingNotApplicableDetails {
-                            key,
-                            layer: SettingsLayer::Run,
-                            fix: "the Run's settings".to_owned(),
-                        },
-                    ));
+                    return Err(not_taken(name, key));
                 }
                 let text = value.as_str();
                 tier = match (text, text.and_then(FetchTier::named)) {
@@ -272,6 +261,35 @@ impl LabelSettings {
             (SetTier::Unset, SetTier::Unset) => Choosing::Alone,
         }
     }
+}
+
+/// `setting_not_applicable` for the Label `name`'s `key`, which a Label
+/// does not take: a `proxy.*` key never, since a Run's proxy settings apply
+/// to every Session of its pools, so one crawl presents one identity policy
+/// (ADRs 0093 and 0117); `fetch.tier_race` is the Run's only; the others
+/// not in this engine.
+fn not_taken(name: &str, key: String) -> CallError {
+    let why = if key.starts_with(PROXY_KEYS) {
+        "which a Label never takes: a Run's proxy settings apply to every Session of its Session pools, so one crawl presents one identity policy".to_owned()
+    } else {
+        let only = if key == FETCH_TIER_RACE.name {
+            " is set for the Run only"
+        } else {
+            ""
+        };
+        format!(
+            "which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.encoding`, `fetch.kept_responses.urls`, `crawl.content_types`, `crawl.keep_url_fragment`, `session.page_check` and `session.source` are set per Label"
+        )
+    };
+    CallError::new(
+        &SETTING_NOT_APPLICABLE,
+        format!("The Label `{name}` sets `{key}`, {why}; set `{key}` for the Run instead."),
+        &SettingNotApplicableDetails {
+            key,
+            layer: SettingsLayer::Run,
+            fix: "the Run's settings".to_owned(),
+        },
+    )
 }
 
 /// `setting_invalid` for the Label `name`'s `key`, set to `value`, which

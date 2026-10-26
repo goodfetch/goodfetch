@@ -82,6 +82,7 @@ fn main() {
                     clean_up_rules: None,
                     wall: None,
                     payment: None,
+                    certificate_exception: None,
                     value_transforms: Vec::new(),
                 },
                 masks: &Masks::new(),

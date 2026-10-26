@@ -13920,6 +13920,40 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": true,
+      "default": null,
+      "description": "The absolute path of the Bitwarden CLI, `bw`, that answers `bw:item/field` Secret references from Bitwarden or, once `bw config server` points it there, a Vaultwarden server: the engine runs `bw get` without interaction and with its own environment, so `BW_SESSION` unlocks the vault. `field` is `password`, `username`, `totp` (the current code, never the seed), `notes`, `uri` or the name of a custom field. Unset, the default, a `bw:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "name": "secret_providers.bw.command",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": true,
+      "default": null,
+      "description": "The absolute path of the 1Password CLI, `op`, that answers `op://vault/item/field` Secret references: the engine runs `op read` with its own environment, so `OP_SERVICE_ACCOUNT_TOKEN` or the desktop app's integration signs it in. Unset, the default, an `op://` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "name": "secret_providers.op.command",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "fixed",
       "clearable": false,
       "default": true,

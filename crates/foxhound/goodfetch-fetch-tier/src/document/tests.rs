@@ -8,6 +8,7 @@ fn element(href: Option<&str>, text: &str, attributes: &[(&str, &str)]) -> Match
             .iter()
             .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
             .collect(),
+        seen: None,
     }
 }
 

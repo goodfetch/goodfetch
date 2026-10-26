@@ -1,5 +1,8 @@
 {
   "chrome_for_testing": {
+    "application_settings": {
+      "h2": ""
+    },
     "build": "156.0.8078.4",
     "platforms": {
       "linux64": {

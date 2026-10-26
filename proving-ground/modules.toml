@@ -55,6 +55,7 @@ version = []
 [submodules.extraction]
 content_pages = []
 markdown_pages = []
+reference_pages = []
 
 [submodules.network]
 calibration = []

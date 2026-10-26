@@ -815,13 +815,17 @@ fn same_markdown_on(site: &str, id: &str, expected: &str, submitted: &str) -> bo
         .is_ok_and(|page| markdown::same_markdown(expected, submitted, &page, site))
 }
 
-/// Whether a submitted value is the expected one: the same text, or a number
-/// of the same decimal value (`12.3` for `"12.30"`).
+/// Whether a submitted value is the expected one: the same text, a number
+/// of the same decimal value (`12.3` for `"12.30"`), or an array or object
+/// equal to the JSON the expected value is written as.
 fn same_value(expected: &str, submitted: Option<&Value>) -> bool {
     match submitted {
         Some(Value::String(text)) => text == expected,
         Some(Value::Number(number)) => {
             decimal(expected).is_some_and(|value| decimal(&number.to_string()) == Some(value))
+        }
+        Some(value @ (Value::Array(_) | Value::Object(_))) => {
+            serde_json::from_str::<Value>(expected).is_ok_and(|expected| &expected == value)
         }
         _ => false,
     }

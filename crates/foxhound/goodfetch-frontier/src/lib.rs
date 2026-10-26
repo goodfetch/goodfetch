@@ -13,7 +13,9 @@
 //! 0120), trap paths and cursor pagination preferred to offset; and each
 //! crawl request's Payload, kept apart from the engine's fields, checked
 //! against its Label's JSON Schema and `crawl.payload.max_size`, with the
-//! schema hashes a resume compares (ADR 0082). Its own crate under `crates/foxhound/`, since only Foxhound
+//! schema hashes a resume compares (ADR 0082); and on the browser tier,
+//! which links a person cannot see, traps not added (`trap_links`, ADR
+//! 0035). Its own crate under `crates/foxhound/`, since only Foxhound
 //! links it (STYLE.md, reason 2).
 
 mod admit;
@@ -30,6 +32,7 @@ mod rules;
 mod scope;
 pub mod seeds;
 pub mod sitemap;
+pub mod trap_links;
 mod url;
 
 use std::sync::Arc;

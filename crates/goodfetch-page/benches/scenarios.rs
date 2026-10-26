@@ -23,6 +23,12 @@
 //! certificates made in each benchmark's setup; no network, no sleep, no
 //! work whose amount depends on timing.
 
+#[path = "../src/egress_relay/application_settings.rs"]
+#[expect(
+    dead_code,
+    reason = "the scenario's relay sends a payload, never captures or reads one"
+)]
+mod application_settings;
 #[path = "../src/egress_relay/authority.rs"]
 #[expect(
     dead_code,
@@ -566,6 +572,8 @@ pub(crate) fn terminated() -> Terminated {
             .expect("invariant: the domain is a domain")
             .examiner(),
         trust: goodfetch_engine::tls::Trust::default_roots(),
+        application_settings: Arc::default(),
+        sessions: Arc::default(),
     };
     Terminated {
         relaying: serve::Relaying {

@@ -811,6 +811,7 @@ impl<B: Connect> SessionDriver<B> {
             gesture: Arc::new(Mutex::new(())),
             value: PageValue::empty(),
             waits: None,
+            reader: None,
         })
     }
 }
@@ -902,6 +903,9 @@ pub(crate) struct PageDriver {
     value: PageValue,
     /// Its waits for its gate's permits, when it has a gate.
     waits: Option<Arc<PermitWaits>>,
+    /// The document reader Foxhound registered on it, no part of its
+    /// value: none on a program's page (ADR 0119).
+    reader: Option<page_value::Reader>,
 }
 
 /// A navigation call waiting on its page, counted until dropped.
@@ -1135,6 +1139,18 @@ impl PageDriver {
     /// What the page carries for Foxhound.
     pub(crate) fn value(&self) -> &PageValue {
         &self.value
+    }
+
+    /// The page reading its documents through `reader`, when one is
+    /// registered.
+    pub(crate) fn with_reader(mut self, reader: Option<page_value::Reader>) -> Self {
+        self.reader = reader;
+        self
+    }
+
+    /// The document reader registered on the page, if any.
+    pub(crate) fn reader(&self) -> Option<&page_value::Reader> {
+        self.reader.as_ref()
     }
 
     /// Asks the page's navigation gate to admit `navigation`, answering its
@@ -1569,13 +1585,16 @@ impl PageDriver {
             .await;
         // No later command waits on a subscription nobody reads.
         drop((waiting, events));
-        match followed? {
+        let (followed, stopped) = self.as_the_site_sent(followed?);
+        match followed {
             Ok(Ok(Arrived::Document(Some(response))))
                 if let Some(failed) = self.answered_by_proxy(&url, &response) =>
             {
                 Err(failed)
             }
-            Ok(Ok(Arrived::Document(Some(response)))) if wait_until != WaitUntil::Commit => {
+            Ok(Ok(Arrived::Document(Some(response))))
+                if wait_until != WaitUntil::Commit && !stopped =>
+            {
                 Ok(Arrived::Document(Some(PageResponse {
                     encoding: self.document_encoding(&call).await?,
                     ..response
@@ -1590,6 +1609,31 @@ impl PageDriver {
             }
             Ok(Err(Ended::Crashed)) => Err(renderer_crashed()),
             Err(failed) => Err(failed),
+        }
+    }
+
+    /// `followed`, a navigation's end, its response holding the site's own
+    /// headers where the page's document reader had the browser read it
+    /// otherwise (ADR 0119); and whether the reader stopped that navigation
+    /// at the interception, the page then holding no document whose
+    /// encoding could be read.
+    fn as_the_site_sent(
+        &self,
+        followed: Result<Result<Arrived, Ended>, CallError>,
+    ) -> (Result<Result<Arrived, Ended>, CallError>, bool) {
+        match followed {
+            Ok(Ok(Arrived::Document(Some(mut response)))) => {
+                let site = self
+                    .reader
+                    .as_ref()
+                    .and_then(|reader| reader.site(&response.request_id));
+                let stopped = site.as_ref().is_some_and(|site| site.stopped);
+                if let Some(site) = site {
+                    response.headers = site.headers;
+                }
+                (Ok(Ok(Arrived::Document(Some(response)))), stopped)
+            }
+            other => (other, false),
         }
     }
 

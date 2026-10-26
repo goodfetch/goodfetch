@@ -38,7 +38,7 @@ use crate::driver::{OnChild, OnPopup, PageDriver, PopupHandler, SessionEgress};
 use crate::hiding::{PageHiding, Sheets};
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_functions::FrameScripts;
-use crate::page_value::Observer;
+use crate::page_value::{Observer, Reader};
 use crate::pool::InBrowser;
 use crate::recovery::{Checking, Declared};
 
@@ -382,7 +382,8 @@ impl Sessions {
                 proxy: open.proxy.clone(),
                 relay: open.relay.clone(),
             })
-            .with_value(opener.driver.value().clone(), run.clock());
+            .with_value(opener.driver.value().clone(), run.clock())
+            .with_reader(opener.driver.reader().map(Reader::for_page));
         let adopted = self
             .adopt(Adopting {
                 open,

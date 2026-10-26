@@ -372,7 +372,11 @@ pub(super) fn redirect_methods(
 /// A 300, a redirect with no `Location` and one to `ftp:`, `file:`,
 /// `gopher:` or `data:` fail at once with `response_not_ok`, so no crawl
 /// fetches another scheme, while a 301 `crawl.handle_statuses` lists
-/// reaches the handler unfollowed.
+/// reaches the handler unfollowed. A listed response is judged by
+/// `crawl.content_types` too (ADR 0119): the listed 301 with neither a
+/// type nor a body reaches the handler, and the one typed `text/plain`,
+/// which the built-in list does not take, ends `skipped` with
+/// `content_type` at once, its handler never asked.
 pub(super) fn not_followed(
     connection: &mut Connection,
     site: &Site,
@@ -388,7 +392,7 @@ pub(super) fn not_followed(
     ];
     let seeds = failing
         .iter()
-        .chain(&["/redirect/301"])
+        .chain(&["/redirect/301/untyped", "/redirect/301"])
         .map(|path| seed(site, HOST, path, None))
         .collect();
     let settings = json!({ "crawl": { "handle_statuses": [301] } });
@@ -414,10 +418,19 @@ pub(super) fn not_followed(
                 && outcome.is_some_and(|outcome| outcome["attempts"] == json!(1)),
         );
     }
-    let listed = site.named_url(HOST, "/redirect/301").unwrap_or_default();
+    let listed = site
+        .named_url(HOST, "/redirect/301/untyped")
+        .unwrap_or_default();
     checks.check(
-        "the listed 301 reaches its handler unfollowed",
+        "the listed 301 with neither a type nor a body reaches its handler unfollowed",
         crawled.page_of(&listed) == Some(listed.as_str()),
+    );
+    let typed = site.named_url(HOST, "/redirect/301").unwrap_or_default();
+    let outcome = crawled.of(&typed);
+    checks.check(
+        "the listed 301 typed `text/plain` ends `skipped` with `content_type` at once",
+        ended(outcome, "skipped", "content_type")
+            && outcome.is_some_and(|outcome| outcome["attempts"] == json!(1)),
     );
     checks.check(
         "no redirect's target is requested",

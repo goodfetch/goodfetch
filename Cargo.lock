@@ -1900,6 +1900,7 @@ dependencies = [
  "goodfetch-engine",
  "goodfetch-page",
  "goodfetch-protocol",
+ "goodfetch-secret-providers",
  "goodfetch-test-support",
  "gungraun",
  "http",

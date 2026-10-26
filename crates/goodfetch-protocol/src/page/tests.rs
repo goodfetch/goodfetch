@@ -3,7 +3,9 @@
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{FormatsRequest, MarkdownContent, page_formats_schema};
+use super::{
+    FormatsRequest, HtmlFormat, HtmlKind, MarkdownContent, MarkdownFormat, page_formats_schema,
+};
 
 fn valid(schema: &Value, instance: &Value) -> bool {
     jsonschema::validator_for(schema)
@@ -52,8 +54,55 @@ fn markdown_is_asked_for_as_true_or_its_options_and_holds_the_main_content(#[cas
     let request = request(value);
 
     assert_eq!(
-        request.markdown.map(super::MarkdownFormat::content),
+        request.markdown.map(MarkdownFormat::content),
         Some(MarkdownContent::Main)
+    );
+}
+
+/// Covers: story:6-2
+#[rstest]
+#[case::main(json!({ "content": "main" }), MarkdownContent::Main)]
+#[case::full(json!({ "content": "full" }), MarkdownContent::Full)]
+#[case::fit(json!({ "content": "fit" }), MarkdownContent::Fit)]
+fn markdown_holds_the_content_its_options_name(
+    #[case] options: Value,
+    #[case] content: MarkdownContent,
+) {
+    let request = request(json!({ "markdown": options }));
+
+    assert_eq!(request.markdown.map(MarkdownFormat::content), Some(content));
+}
+
+/// Covers: story:6-3
+#[rstest]
+#[case::true_(json!(true), HtmlKind::Main)]
+#[case::raw(json!({ "kind": "raw" }), HtmlKind::Raw)]
+#[case::cleaned(json!({ "kind": "cleaned" }), HtmlKind::Cleaned)]
+#[case::main(json!({ "kind": "main" }), HtmlKind::Main)]
+fn html_holds_the_kind_its_options_name_and_the_main_content_by_default(
+    #[case] options: Value,
+    #[case] kind: HtmlKind,
+) {
+    let request = request(json!({ "html": options }));
+
+    assert_eq!(request.html.map(HtmlFormat::kind), Some(kind));
+}
+
+/// Covers: story:6-3
+#[test]
+fn the_schema_of_an_html_and_text_requests_result_holds_both() {
+    let schema = page_formats_schema(&request(json!({ "html": true, "text": true })));
+    let envelope =
+        json!({ "url": "https://a.test/", "base_url": "https://a.test/", "main_content": "found" });
+    let mut both = envelope.clone();
+    both["html"] = json!("<p>A</p>");
+    both["text"] = json!("A");
+    let mut html_only = envelope;
+    html_only["html"] = json!("<p>A</p>");
+
+    assert_eq!(
+        (valid(&schema, &both), valid(&schema, &html_only)),
+        (true, false)
     );
 }
 
@@ -62,6 +111,9 @@ fn markdown_is_asked_for_as_true_or_its_options_and_holds_the_main_content(#[cas
 #[case::options_without_content(json!({ "markdown": {} }))]
 #[case::an_unknown_content(json!({ "markdown": { "content": "everything" } }))]
 #[case::an_unknown_format(json!({ "screenshot": true }))]
+#[case::an_unknown_kind(json!({ "html": { "kind": "pretty" } }))]
+#[case::an_unknown_option(json!({ "html": { "kind": "raw", "pretty": true } }))]
+#[case::text_with_options(json!({ "text": { "content": "full" } }))]
 fn a_request_naming_no_format_the_protocol_has_is_refused(#[case] value: Value) {
     let parsed = serde_json::from_value::<FormatsRequest>(value);
 

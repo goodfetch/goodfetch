@@ -4,10 +4,15 @@
 
 use std::fmt::{self, Debug, Formatter};
 
+use crate::blocks::{body, fit, text};
+use crate::light::light;
 use crate::main_content::{main_content, main_text_length};
 use crate::markdown::markdown;
 use crate::shadow::composed;
-use goodfetch_protocol::page::{Asked, FormatsRequest, MainContent, MarkdownFormat, PageFormats};
+use goodfetch_protocol::page::{
+    Asked, FormatsRequest, HtmlFormat, HtmlKind, MainContent, MarkdownContent, MarkdownFormat,
+    MarkdownOptions, PageFormats,
+};
 
 /// A page's document as a tier serialized it: its HTML as text, decoded
 /// already, its URL after redirects and its base URL (its first
@@ -20,6 +25,20 @@ pub struct Document<'a> {
     pub url: &'a str,
     /// Its base URL.
     pub base_url: &'a str,
+    /// How it was serialized: as served, or from a browser's DOM.
+    pub serialization: Serialization,
+}
+
+/// How a [`Document`]'s HTML was serialized.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Serialization {
+    /// As a site served it: a `<template shadowrootmode>` in it is the
+    /// site's own markup.
+    Served,
+    /// From a browser's DOM as it stands, each shadow root, open or
+    /// closed, serialized as a `<template shadowrootmode>` first in its
+    /// host, beside the light tree `content()` serializes.
+    Dom,
 }
 
 /// The Clean-up rules' cosmetic matcher (ADR 0047), area 5's, which a
@@ -60,14 +79,16 @@ pub fn formats(
     request: &FormatsRequest,
     context: &Context<'_>,
 ) -> PageFormats {
-    // Formats of the document as it stands (`html.raw`, links) read
-    // `document.html`; the main content and its Markdown read it once the
-    // cosmetic rules took their elements out, then as a person sees it.
+    // `html.raw` (and links) read `document.html` as it stands; every
+    // other format reads it once the cosmetic rules took their elements
+    // out, and the Markdown and text then as a person sees it.
     let cleaned = context
         .clean_up
         .map(|clean_up| clean_up.remove(document.html, document.url));
-    let seen = composed(cleaned.as_deref().unwrap_or(document.html));
+    let cleaned = cleaned.as_deref().unwrap_or(document.html);
+    let seen = composed(cleaned);
     let main = main_content(&seen, document.url);
+    let of_main = |read: fn(&str) -> String| main.as_deref().map(read).unwrap_or_default();
     PageFormats {
         url: document.url.to_owned(),
         base_url: document.base_url.to_owned(),
@@ -76,9 +97,30 @@ pub fn formats(
         } else {
             MainContent::None
         },
-        markdown: request
-            .markdown
-            .map(|_| main.as_deref().map(markdown).unwrap_or_default()),
+        markdown: request.markdown.map(|format| match format.content() {
+            MarkdownContent::Main => of_main(markdown),
+            MarkdownContent::Full => markdown(&body(&seen)),
+            MarkdownContent::Fit => main
+                .as_deref()
+                .map(|main| markdown(&fit(main, &seen)))
+                .unwrap_or_default(),
+        }),
+        html: request.html.map(|format| match format.kind() {
+            HtmlKind::Raw => document.serialization.as_content(document.html),
+            HtmlKind::Cleaned => document.serialization.as_content(cleaned),
+            HtmlKind::Main => main.clone().unwrap_or_default(),
+        }),
+        text: request.text.map(|Asked| of_main(text)),
+    }
+}
+
+impl Serialization {
+    /// `html`, serialized this way, as `content()` returns it.
+    fn as_content(self, html: &str) -> String {
+        match self {
+            Self::Served => html.to_owned(),
+            Self::Dom => light(html),
+        }
     }
 }
 
@@ -99,11 +141,17 @@ pub fn fuzz_formats(data: &[u8]) {
         html: &html,
         url: "https://fuzz.test/page",
         base_url: "https://fuzz.test/page",
+        serialization: Serialization::Dom,
     };
     let request = FormatsRequest {
-        markdown: Some(MarkdownFormat::Asked(Asked)),
+        markdown: Some(MarkdownFormat::Options(MarkdownOptions {
+            content: MarkdownContent::Fit,
+        })),
+        html: Some(HtmlFormat::Asked(Asked)),
+        text: Some(Asked),
     };
     let _ = formats(&document, &request, &Context::default());
+    let _ = light(&html);
 }
 
 #[cfg(test)]

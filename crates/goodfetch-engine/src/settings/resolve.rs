@@ -20,6 +20,7 @@ use goodfetch_protocol::settings::{
 use serde_json::Value;
 
 use super::error::SettingsError;
+use super::hosts;
 use super::keys::{self, Key};
 use super::values::{Given, Values};
 
@@ -775,7 +776,19 @@ fn authority(
                 ),
             ))
         }
+        Authority::HostsNarrowedByRecipeOrModel(list)
+            if (layer == SettingsLayer::Recipe || for_model)
+                && !hosts::narrows(list, value, &current.value) =>
+        {
+            Err(refused(
+                current.clone(),
+                format!(
+                    "a Recipe or a Client acting for a model only narrows `{name}`: list no host the layers below do not cover in `egress.allowed_domains`, and leave none they list uncovered in `egress.blocked_domains`; widen it in the program's own code, in configuration or in an Operator policy"
+                ),
+            ))
+        }
         Authority::Every
+        | Authority::HostsNarrowedByRecipeOrModel(_)
         | Authority::OperatorPolicy
         | Authority::Configuration
         | Authority::ConfigurationExcept(_)

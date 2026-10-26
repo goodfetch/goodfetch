@@ -16,6 +16,7 @@
 mod environment;
 mod error;
 mod files;
+mod hosts;
 mod keys;
 mod resolve;
 #[cfg(test)]
@@ -36,6 +37,7 @@ pub use files::{
     load_project, operator_policy, policy_version, project_settings, rewrite, set,
     user_configuration,
 };
+pub use hosts::{HostEntry, without_root};
 pub use resolve::{Effective, HostDefaults, Layers, Policy, Recipe, Resolved, Unapplied, resolve};
 pub use values::Values;
 

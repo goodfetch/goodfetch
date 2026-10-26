@@ -7,10 +7,12 @@
 //! listing `application/pdf` gets the PDF's bytes in its handler's
 //! response and a page holding no document, whose document calls fail at
 //! once with `response_not_document` and never escalate; and Provenance
-//! names each encodings page's encoding and where it came from.
-//!
-//! The browser tier's own lines (the check at its interception, no
-//! Download) are #765's.
+//! names each encodings page's encoding and where it came from. On the
+//! `browser` tier the check runs at the interception, before Chrome
+//! renders the response, so no file starts a download; a handler's own
+//! `goto` to a PDF is not checked and gives its `Response` with its body,
+//! its page holding no document, on every tier; and a program's own page
+//! is untouched by any of it.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -105,14 +107,18 @@ fn body(handle: &Value) -> Vec<u8> {
 /// Under the built-in `crawl.content_types`, every file the `files` family
 /// links ends `skipped` with `content_type` on its first attempt and its
 /// handler never runs, a 404 `crawl.handle_statuses` hands over included,
-/// while its HTML index is handled. On a forced `http` tier an endless PDF
-/// is skipped too, its body unread: reading it would never end, and the
-/// crawl would outlast the engine's deadline.
+/// while its HTML index is handled. On a forced `http` tier, and on a
+/// forced `browser` tier, whose interception judges the response's head
+/// before Chrome renders it, an endless PDF is skipped too, its body
+/// unread: reading it would never end, and the crawl would outlast the
+/// engine's deadline.
 ///
 /// Covers: story:6-264, setting:crawl.content_types, setting:crawl.handle_statuses
 #[rstest::rstest]
 #[case::http("http")]
 #[case::auto("auto")]
+/// Covers: story:5-130
+#[case::browser("browser")]
 fn the_built_in_content_types_skip_every_file_before_its_handler(#[case] tier: &str) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
@@ -132,7 +138,7 @@ fn the_built_in_content_types_skip_every_file_before_its_handler(#[case] tier: &
         .collect();
     // Browser-fetch, which a Session that may move sends through, reads a
     // body whole before it hands its head over.
-    if tier == "http" {
+    if tier != "auto" {
         paths.push("/endless/pdf");
         seeds.push(
             json!({ "url": proving_ground.url("fetch-edge.test", "/endless/pdf"), "label": "page" }),
@@ -181,12 +187,16 @@ fn the_built_in_content_types_skip_every_file_before_its_handler(#[case] tier: &
 /// holds its status, its type and its bytes, readable through
 /// `response.body`, and its page holds no document, so `page.formats` and
 /// a locator's wait fail at once with `response_not_document` naming the
-/// type and the call, and under `auto` nothing escalates.
+/// type and the call, and under `auto` nothing escalates. On a forced
+/// `browser` tier the PDF is read at the interception and its navigation
+/// stopped, so the same holds and no download starts.
 ///
 /// Covers: story:6-264, setting:crawl.content_types, error:response_not_document, operation:response.body
 #[rstest::rstest]
 #[case::http("http")]
 #[case::auto("auto")]
+/// Covers: story:5-130
+#[case::browser("browser")]
 fn an_accepted_pdf_reaches_its_handler_with_its_bytes_and_no_document(#[case] tier: &str) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
@@ -231,7 +241,8 @@ fn an_accepted_pdf_reaches_its_handler_with_its_bytes_and_no_document(#[case] ti
     let [(tier_seen, response, read, formats, waited)] = seen.as_slice() else {
         panic!("one handler run: {seen:?}");
     };
-    assert_eq!(tier_seen, "http");
+    let expected_tier = if tier == "browser" { "browser" } else { "http" };
+    assert_eq!(tier_seen, expected_tier);
     assert_eq!(
         (&response["status"], &response["headers"]["content-type"]),
         (&json!(200), &json!("application/pdf")),
@@ -256,9 +267,135 @@ fn an_accepted_pdf_reaches_its_handler_with_its_bytes_and_no_document(#[case] ti
     }
     let escalated: Vec<Value> = provenance(&env, &run_id, "fetch_tier")
         .into_iter()
-        .filter(|entry| entry["tier"] == "browser")
+        .filter(|entry| entry["tier"] == "browser" && entry["chosen"] != "forced")
         .collect();
     assert_eq!(escalated, Vec::<Value>::new());
+}
+
+/// A handler's own `goto` to a PDF is not judged by `crawl.content_types`:
+/// it answers the PDF's `Response`, its status, its type and its bytes
+/// readable through `response.body`, and no download starts; its page then
+/// holds no document, so `page.formats` fails with `response_not_document`;
+/// a `goto` back to an HTML page reads its document again.
+///
+/// Covers: story:5-130, error:response_not_document, operation:page.goto, operation:response.body
+#[rstest::rstest]
+#[case::http("http")]
+#[case::browser("browser")]
+fn a_handlers_own_goto_to_a_pdf_answers_its_response_and_body_and_no_document(#[case] tier: &str) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let run_id = format!("goto-pdf-{tier}");
+    let index = proving_ground.url(FILES, "/files");
+    let pdf = proving_ground.url(FILES, "/files/report.pdf");
+
+    let mut seen = Vec::new();
+    let finished = crawl_declaring(
+        &mut engine,
+        &run_id,
+        &[json!({ "url": index, "label": "page" })],
+        &json!({ "page": {} }),
+        &on(&proving_ground, tier, &json!({})),
+        &mut |inside: &mut Inside<'_>, handle: &Value| {
+            let page_id = &handle["page_id"];
+            let went = inside.call("page.goto", &json!({ "page_id": page_id, "url": pdf }));
+            let response = went["result"]["response"].clone();
+            let read = inside.call(
+                "response.body",
+                &json!({ "page_id": page_id, "request_id": response["request_id"] }),
+            );
+            let formats = inside.call(
+                "page.formats",
+                &json!({ "page_id": page_id, "formats": { "markdown": true } }),
+            );
+            let back = inside.call("page.goto", &json!({ "page_id": page_id, "url": index }));
+            let again = inside.call(
+                "page.formats",
+                &json!({ "page_id": page_id, "formats": { "markdown": true } }),
+            );
+            seen.push((went, read, formats, back, again));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    let [(went, read, formats, back, again)] = seen.as_slice() else {
+        panic!("one handler run: {seen:?}");
+    };
+    let response = &went["result"]["response"];
+    assert_eq!(
+        (&response["status"], &response["headers"]["content-type"]),
+        (&json!(200), &json!("application/pdf")),
+        "{went}"
+    );
+    assert_eq!(
+        body(&read["result"]),
+        bytes(&proving_ground, &pdf),
+        "{read}"
+    );
+    let data = &formats["error"]["data"];
+    assert_eq!(
+        (&data["code"], &data["content_type"], &data["call"]),
+        (
+            &json!("response_not_document"),
+            &json!("application/pdf"),
+            &json!("page.formats")
+        ),
+        "{formats}"
+    );
+    assert_eq!(back["result"]["response"]["status"], 200, "{back}");
+    assert!(again["result"]["markdown"].is_string(), "{again}");
+}
+
+/// A program's own page, outside any crawl handler, is Collie's as it is:
+/// its `goto` to a PDF downloads the file and answers no response, and an
+/// unlabelled UTF-8 page is read in Chrome's own default, the engine
+/// setting no charset at its interception.
+///
+/// Covers: story:5-130
+#[test]
+fn a_programs_own_page_downloads_a_pdf_and_reads_an_unlabelled_page_as_chrome_does() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let settings = settings(&proving_ground, &json!({}));
+    let mut none = |_: &Value| None;
+    let started = engine.call(
+        "start",
+        "run.start",
+        &json!({ "run_id": "program", "settings": settings }),
+        &mut none,
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    let opened = engine.call(
+        "page",
+        "run.new_page",
+        &json!({ "run_id": "program" }),
+        &mut none,
+    );
+    let page_id = opened["result"]["page_id"].clone();
+    let pdf = engine.call(
+        "pdf",
+        "page.goto",
+        &json!({ "page_id": page_id, "url": proving_ground.url(FILES, "/files/report.pdf") }),
+        &mut none,
+    );
+    let unlabelled = engine.call(
+        "unlabelled",
+        "page.goto",
+        &json!({
+            "page_id": page_id,
+            "url": proving_ground.url("encodings.test", "/pages/undeclared-utf-8"),
+        }),
+        &mut none,
+    );
+    assert!(engine.finish());
+
+    assert_eq!(pdf["result"], json!({ "response": null }), "{pdf}");
+    let encoding = &unlabelled["result"]["response"]["encoding"];
+    assert!(encoding.is_string() && encoding != "UTF-8", "{unlabelled}");
 }
 
 /// Provenance's `fetch_tier` entry of each encodings page names the

@@ -49,7 +49,10 @@ use super::{PageState, lock};
 use crate::driver::PageDriver;
 use crate::errors::{site_preferences_failure, site_preferences_refused};
 use crate::page_events::{Refusals, post_data};
-use crate::page_value::{DocumentResponse, Navigation, NavigationKind, Permit, Refusal};
+use crate::page_value::{
+    DocumentResponse, Navigation, NavigationKind, Permit, ReadDocument, Reader, Reading, Refusal,
+    SiteResponse,
+};
 use crate::proxy::{self, PROXY_STATUS, ProxyPermit};
 
 /// Whose requests a pipeline holds.
@@ -607,7 +610,7 @@ impl PageContext {
                             .unwrap_or_default();
                         if held.navigation
                             && let Some(refused) =
-                                self.refused_document(&paused, status, None).await
+                                self.refused_document(&paused, status, None, None).await
                         {
                             return (Err(refused), Some(Routed::Ended));
                         }
@@ -1266,18 +1269,135 @@ impl PageContext {
             self.refuse_redirect(paused, &refused).await;
             return;
         }
+        // A handler's page reads its main frame's documents through its
+        // document reader (ADR 0119), a redirect's excepted.
+        if document
+            && paused.response_status_code.is_some()
+            && !(300..400).contains(&status)
+            && let Some(reader) = self.driver.reader()
+        {
+            self.read_document(reader, paused, status).await;
+            return;
+        }
         // A response that never came (an error-stage pause) has no document
         // to judge.
         if (document || carried.is_some())
             && paused.response_status_code.is_some()
             && self
-                .refused_document(paused, status, carried.as_deref())
+                .refused_document(paused, status, carried.as_deref(), None)
                 .await
                 .is_some()
         {
             return;
         }
         self.continue_response(&paused.request_id).await;
+    }
+
+    /// Reads the main frame's document whose response is paused at
+    /// `paused` with `status` through the page's document `reader`, before
+    /// anything renders it (ADR 0119): its body is read only when the
+    /// reader asks for it, then the navigation gate judges it, and it goes
+    /// on as it came, in the charset the reader names, or not at all, the
+    /// page then left on a blank document and no download started. The
+    /// navigation it answers keeps the site's own headers.
+    async fn read_document(
+        &self,
+        reader: &Reader,
+        paused: &fetch::RequestPausedEvent,
+        status: u16,
+    ) {
+        let Some(page_id) = self.sender.page_id() else {
+            return;
+        };
+        let headers: Vec<(String, String)> = paused
+            .response_headers
+            .iter()
+            .flatten()
+            .map(|header| (header.name.to_ascii_lowercase(), header.value.clone()))
+            .collect();
+        let request_id = paused.network_id.clone().unwrap_or_default();
+        let document = ReadDocument {
+            page_id,
+            request_id: &request_id,
+            own: reader.take_own(),
+            url: &paused.request.url,
+            status,
+            headers: &headers,
+        };
+        let mut body = None;
+        let mut reading = reader.read(&document, None);
+        if reading == Reading::Body {
+            let read = self.body(&paused.request_id).await;
+            reading = reader.read(&document, Some(&read));
+            body = Some(read);
+        }
+        // A response read no further is judged by its headers alone.
+        let judged = body.as_deref().unwrap_or_default();
+        if self
+            .refused_document(paused, status, None, Some(judged))
+            .await
+            .is_some()
+        {
+            return;
+        }
+        let site = |stopped| SiteResponse {
+            headers: headers.iter().cloned().collect(),
+            stopped,
+        };
+        match reading {
+            Reading::Stop => {
+                reader.keep(&request_id, site(true));
+                tracing::debug!(
+                    url.origin = goodfetch_engine::log::origin(&paused.request.url),
+                    "a handler's page's response is no document it reads: its navigation stopped at the interception"
+                );
+                self.fulfill(
+                    &paused.request_id,
+                    Fulfillment {
+                        status,
+                        headers: BTreeMap::from([(
+                            "content-type".to_owned(),
+                            "text/html".to_owned(),
+                        )]),
+                        body: String::new(),
+                    },
+                )
+                .await;
+            }
+            Reading::Charset(charset) => {
+                reader.keep(&request_id, site(false));
+                let essence = headers
+                    .iter()
+                    .find(|(name, _)| name == "content-type")
+                    .and_then(|(_, value)| value.split(';').next())
+                    .map(str::trim)
+                    .filter(|essence| !essence.is_empty())
+                    .unwrap_or("text/html");
+                // The body was read, after its content codings, so it is
+                // answered whole: the browser takes a charset only from
+                // the response it decodes.
+                let mut entries: Vec<fetch::HeaderEntry> = paused
+                    .response_headers
+                    .iter()
+                    .flatten()
+                    .filter(|header| {
+                        !["content-type", "content-encoding", "content-length"]
+                            .iter()
+                            .any(|name| header.name.eq_ignore_ascii_case(name))
+                    })
+                    .cloned()
+                    .collect();
+                entries.push(fetch::HeaderEntry {
+                    name: "Content-Type".to_owned(),
+                    value: format!("{essence}; charset={charset}"),
+                });
+                self.fulfill_whole(&paused.request_id, status, entries, judged)
+                    .await;
+            }
+            Reading::AsItCame | Reading::Body => {
+                self.continue_response(&paused.request_id).await;
+            }
+        }
     }
 
     /// Judges the main-frame document whose response is paused at `paused`
@@ -1287,19 +1407,27 @@ impl PageContext {
     /// On a refusal the request is answered with a blank document, and the
     /// refusal raises from the page's navigation call, or else from the
     /// waiters armed for it; the refusal is answered. A redirect, and a page
-    /// with no gate, are never judged.
+    /// with no gate, are never judged; `body` is the response's when it was
+    /// read already.
     async fn refused_document(
         &self,
         paused: &fetch::RequestPausedEvent,
         status: u16,
         carried: Option<&PageState>,
+        body: Option<&[u8]>,
     ) -> Option<CallError> {
         let gate = self
             .driver
             .value()
             .gate()
             .filter(|_| !(300..400).contains(&status))?;
-        let body = self.body(&paused.request_id).await;
+        let read;
+        let body = if let Some(body) = body {
+            body
+        } else {
+            read = self.body(&paused.request_id).await;
+            &read
+        };
         let headers: Vec<(String, String)> = paused
             .response_headers
             .iter()
@@ -1310,7 +1438,7 @@ impl PageContext {
             url: &paused.request.url,
             status,
             headers: &headers,
-            body: &body,
+            body,
         };
         let refusal = gate.judge_document(&response).err()?;
         let error = site_preferences_refused(&paused.request.url, &refusal);
@@ -1524,6 +1652,31 @@ impl PageContext {
             .await;
         if let Err(failure) = failed {
             tracing::debug!(?failure, "a paused request went before it was failed");
+        }
+    }
+
+    /// Answers the request `id` with `status`, `headers`, each as given,
+    /// and `body`.
+    async fn fulfill_whole(
+        &self,
+        id: &fetch::RequestId,
+        status: u16,
+        headers: Vec<fetch::HeaderEntry>,
+        body: &[u8],
+    ) {
+        let fulfilled = self
+            .driver
+            .command(&fetch::FulfillRequestParams {
+                request_id: id.clone(),
+                response_code: i64::from(status),
+                response_headers: Some(headers),
+                binary_response_headers: None,
+                body: Some(BASE64.encode(body)),
+                response_phrase: None,
+            })
+            .await;
+        if let Err(failure) = fulfilled {
+            tracing::debug!(?failure, "a paused request went before it was fulfilled");
         }
     }
 

@@ -591,7 +591,9 @@ impl Sessions {
         lease_holds(&value)?;
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
         let (driver, in_browser) = open.seat.new_page(Visibility::Visible).await?;
-        let driver = driver.with_value(value, run.clock());
+        let driver = driver
+            .with_value(value, run.clock())
+            .with_reader(self.handler_pages.reader(run.id(), session));
         let open_session = Arc::clone(&open);
         let page = self
             .adopt(session_pages::Adopting {

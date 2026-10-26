@@ -8,7 +8,7 @@ use serde_json::json;
 
 use super::{
     AttemptPlan, MAX_SEGMENTS, SAMPLES, Sampled, TABLES, TierChoices, matches, read, record,
-    segment,
+    same_encoding, segment,
 };
 
 const KEY: &str = "tiers.test";
@@ -241,5 +241,25 @@ fn two_runs_match_when_they_pushed_the_same_records_in_any_order() {
             matches(Some(&[]), &[]),
         ],
         [true, false, false, false, false, true]
+    );
+}
+
+/// A sample whose browser run read its document in another encoding than
+/// its cheaper run, its `document.characterSet` naming another, never
+/// matches, whatever Records each pushed (ADR 0119); names compare without
+/// regard to case, and a run that names none leaves the Records to decide.
+///
+/// Covers: story:5-117
+#[test]
+fn a_sample_whose_browser_read_another_encoding_never_matches() {
+    assert_eq!(
+        [
+            same_encoding(Some("Shift_JIS"), Some("Shift_JIS")),
+            same_encoding(Some("UTF-8"), Some("utf-8")),
+            same_encoding(Some("UTF-8"), Some("windows-1252")),
+            same_encoding(Some("EUC-KR"), None),
+            same_encoding(None, Some("UTF-8")),
+        ],
+        [true, true, false, true, true]
     );
 }

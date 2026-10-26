@@ -31,6 +31,7 @@ mod forward_proxy;
 mod generator;
 mod handmade;
 mod hostile;
+mod html;
 mod languages;
 mod login;
 mod markdown;

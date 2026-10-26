@@ -10,7 +10,9 @@
 //! domain policy, Politeness and robots.txt and run no handler; and gzip
 //! and plain sitemaps seed alike, while one past sitemaps.org's limits, a
 //! decompression bomb, broken XML, a 500 and a 404 are each reported with
-//! its URL and why and never stop the rest (pitfall U19).
+//! its URL and why and never stop the rest (pitfall U19); and an entry
+//! robots.txt disallows ends `skipped` with `robots_txt`, unsent and
+//! unhandled (ADR 0086).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -61,13 +63,15 @@ fn settings(proving_ground: &ProvingGround, more: &Value) -> Value {
 
 /// What a crawl of the sitemap seed `seed` under `more` settings gave: the
 /// Run's report and its last progress, each seed's answer, each crawl
-/// request its handler was given (its Label and URL, sorted) and the
-/// Proving ground's observations.
+/// request its handler was given (its Label and URL, sorted), each
+/// outcome's URL, kind and skip reason (sorted) and the Proving ground's
+/// observations.
 struct Crawled {
     report: Value,
     progress: Value,
     seeds: Value,
     handled: Vec<(String, String)>,
+    outcomes: Vec<(String, Value, Value)>,
     observations: Value,
 }
 
@@ -101,6 +105,25 @@ fn crawl_sitemap(proving_ground: &ProvingGround, seed: &Value, more: &Value) -> 
         &json!({ "run_id": "sitemap" }),
         &mut |_| None,
     );
+    let read = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "sitemap" }),
+        &mut |_| None,
+    );
+    let mut outcomes: Vec<(String, Value, Value)> = read["result"]["outcomes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{read}"))
+        .iter()
+        .map(|outcome| {
+            (
+                outcome["request"]["url"].as_str().unwrap().to_owned(),
+                outcome["kind"].clone(),
+                outcome["reason"].clone(),
+            )
+        })
+        .collect();
+    outcomes.sort_by(|a, b| a.0.cmp(&b.0));
     let observations = proving_ground.observations().unwrap();
     assert!(engine.finish());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
@@ -110,6 +133,7 @@ fn crawl_sitemap(proving_ground: &ProvingGround, seed: &Value, more: &Value) -> 
         progress: progress["result"].clone(),
         seeds: seeds["result"]["seeds"].clone(),
         handled,
+        outcomes,
         observations,
     }
 }
@@ -444,6 +468,47 @@ fn a_gzip_and_a_plain_sitemap_seed_and_a_bad_one_never_stops_the_rest() {
             ]),
             expected.clone(),
             expected,
+        )
+    );
+}
+
+/// A sitemap entry robots.txt disallows to `goodfetch-foxhound` ends
+/// `skipped` with `robots_txt`: it is never sent and no handler is run for
+/// it, while its sitemap's other entry is fetched and handled.
+///
+/// Covers: story:6-239, setting:fetch.tier
+#[test]
+fn a_sitemap_entry_robots_txt_disallows_ends_skipped_unsent() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let url = |host: &str, path: &str| proving_ground.url(host, path);
+    let seed = json!({
+        "sitemap": url(SITE, "/sitemaps/private.xml"),
+        "rules": [{ "pattern": "**/books/*", "label": "book" }],
+    });
+    let more = json!({ "fetch": { "tier": "http" } });
+
+    let crawled = crawl_sitemap(&proving_ground, &seed, &more);
+
+    assert_eq!(
+        (
+            crawled.handled,
+            crawled.outcomes,
+            targets(&crawled.observations, SITE),
+        ),
+        (
+            handled(&[("book", &url(SITE, "/books/20"))]),
+            vec![
+                (url(SITE, "/books/20"), json!("succeeded"), Value::Null),
+                (
+                    url(SITE, "/private/books/21"),
+                    json!("skipped"),
+                    json!("robots_txt"),
+                ),
+            ],
+            ["/books/20", "/robots.txt", "/sitemaps/private.xml"]
+                .map(str::to_owned)
+                .to_vec(),
         )
     );
 }

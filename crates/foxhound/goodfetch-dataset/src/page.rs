@@ -8,6 +8,8 @@
 //! Record by its sort key, which never changes once committed, so Records
 //! committed meanwhile never make a page repeat or skip one.
 
+use std::fmt::Write as _;
+
 use goodfetch_engine::run::{run_error, through_owner};
 use goodfetch_engine::runs::RunError;
 use goodfetch_engine::{CallContext, CallError, Handler};
@@ -153,16 +155,16 @@ fn read_page(connection: &Connection, paging: Paging<'_>) -> rusqlite::Result<Ve
             FieldCondition::Equals { value } => {
                 bound.push(Sql::Text(value.to_string()));
                 let value = bound.len();
-                sql.push_str(&format!(
+                write!(
+                    sql,
                     " AND json_extract(data, ?{field}) = json_extract(?{value}, '$')"
-                ));
+                )
+                .expect("invariant: a String takes any text");
             }
             FieldCondition::Contains { text } => {
                 bound.push(Sql::Text(text.clone()));
                 let text = bound.len();
-                sql.push_str(&format!(
-                    " AND json_type(data, ?{field}) = 'text' AND instr(json_extract(data, ?{field}), ?{text}) > 0"
-                ));
+                write!(sql, " AND json_type(data, ?{field}) = 'text' AND instr(json_extract(data, ?{field}), ?{text}) > 0").expect("invariant: a String takes any text");
             }
         }
     }
@@ -170,7 +172,8 @@ fn read_page(connection: &Connection, paging: Paging<'_>) -> rusqlite::Result<Ve
         None => {
             if let Some(after) = paging.after {
                 bound.push(number(after));
-                sql.push_str(&format!(" AND number > ?{}", bound.len()));
+                write!(sql, " AND number > ?{}", bound.len())
+                    .expect("invariant: a String takes any text");
             }
             "number".to_owned()
         }
@@ -186,16 +189,15 @@ fn read_page(connection: &Connection, paging: Paging<'_>) -> rusqlite::Result<Ve
                 let after = bound.len();
                 let last =
                     format!("(SELECT {key} FROM records WHERE dataset = ?1 AND number = ?{after})");
-                sql.push_str(&format!(
-                    " AND CASE WHEN {last} IS NULL THEN ({key} IS NULL AND number > ?{after}) \
-                     ELSE ({key} IS NULL OR {key} {beyond} {last} OR ({key} = {last} AND number > ?{after})) END"
-                ));
+                write!(sql, " AND CASE WHEN {last} IS NULL THEN ({key} IS NULL AND number > ?{after}) \
+                     ELSE ({key} IS NULL OR {key} {beyond} {last} OR ({key} = {last} AND number > ?{after})) END").expect("invariant: a String takes any text");
             }
             format!("({key} IS NULL), {key} {direction}, number")
         }
     };
     bound.push(Sql::Integer(i64::from(paging.limit)));
-    sql.push_str(&format!(" ORDER BY {order} LIMIT ?{}", bound.len()));
+    write!(sql, " ORDER BY {order} LIMIT ?{}", bound.len())
+        .expect("invariant: a String takes any text");
     connection
         .prepare(&sql)?
         .query_map(rusqlite::params_from_iter(bound), dataset_record)?

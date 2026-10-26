@@ -302,6 +302,14 @@ max_delay = 30000
 [settings.fetch.kept_responses]
 urls = ["example"]
 
+[settings.export.csv]
+bom = true
+delimiter = "example"
+nested = "json"
+
+[settings.export.xlsx]
+sheet = "example"
+
 [settings.paid_fetch]
 domains = ["example"]
 max_price_per_page = "0.05 USD"

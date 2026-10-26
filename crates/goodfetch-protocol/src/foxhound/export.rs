@@ -8,16 +8,22 @@
 //! `download.save_as` puts a Download's, and `export.stream` sends its
 //! bytes. Every text Export is UTF-8: JSON and JSONL carry no BOM, write
 //! characters as themselves and write each Record's value as it was
-//! committed. Foxhound's own; the two Error codes of a failed write are
-//! Collie's (ADR 0095).
+//! committed. CSV, XLSX, HTML table and Markdown carry one column per field
+//! seen in any Record, in first-seen order, so a later Record's field is
+//! never dropped (pitfall D07), shaped by the `export.*` settings.
+//! Foxhound's own; the two Error codes of a failed write are Collie's (ADR
+//! 0095).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::catalog::{
-    Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Stability, schema_of,
+    Authority, Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting,
+    Stability, ValueKind, schema_of,
 };
 use crate::run::RunId;
+use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -64,6 +70,29 @@ pub enum ExportFormat {
     Json,
     /// One Record's value per line, each line ended by a line feed.
     Jsonl,
+    /// RFC 4180 CSV: a header row of the fields seen, then one row per
+    /// Record, each line ended by CR LF.
+    Csv,
+    /// One XLSX workbook of one sheet: a header row of the fields seen,
+    /// then one row per Record.
+    Xlsx,
+    /// One HTML document holding one table: a header row of the fields
+    /// seen, then one row per Record.
+    HtmlTable,
+    /// One GitHub Flavored Markdown table: a header row of the fields seen,
+    /// then one row per Record.
+    Markdown,
+}
+
+impl ExportFormat {
+    /// Whether it is a table of one column per field seen, which needs
+    /// every field before its first row.
+    pub fn is_table(self) -> bool {
+        matches!(
+            self,
+            Self::Csv | Self::Xlsx | Self::HtmlTable | Self::Markdown
+        )
+    }
 }
 
 /// How an Export's bytes are compressed.
@@ -92,6 +121,15 @@ pub struct RunExportParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub compression: Option<ExportCompression>,
+    /// The Export's settings, nested by key: the run layer (ADR 0083),
+    /// whose `export.*` keys shape its format.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: Map<String, Value>,
+    /// The project configuration the Client found, layer 3 (ADR 0083).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub project: Option<ProjectSettings>,
 }
 
 /// What `run.export` answers once the Export's file is whole (ADR 0103).
@@ -123,7 +161,7 @@ pub struct Export {
 /// `run.export`.
 pub const RUN_EXPORT: Operation = Operation {
     name: "run.export",
-    description: "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named (`json`, one array of the Records' values; `jsonl`, one value per line), UTF-8 with no BOM, characters written as themselves and each value as it was committed. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+    description: "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named (`json`, one array of the Records' values; `jsonl`, one value per line; `csv`, `xlsx`, `html_table` and `markdown`, a table of one column per field seen in any of its Records, in first-seen order, and one row per Record), UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -219,6 +257,73 @@ pub const EXPORT_STREAM: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// `export.csv.bom` (ADR 0119).
+pub const EXPORT_CSV_BOM: Setting = Setting {
+    name: "export.csv.bom",
+    description: "Whether a CSV Export starts with a UTF-8 byte order mark, which some spreadsheet programs need to read it as UTF-8 and which Python's `csv` module, Node's csv-parse and Unix tools read as part of the first column's name: off by default. Set for the connection or the Run.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `export.csv.delimiter` (spec #582, shape).
+pub const EXPORT_CSV_DELIMITER: Setting = Setting {
+    name: "export.csv.delimiter",
+    description: "The one character between a CSV Export's fields: `,` by default, or such as `;` or a tab. A double quote, a carriage return, a line feed, or a text of more or less than one character fails the Export with `setting_invalid`. Set for the connection or the Run.",
+    kind: ValueKind::Text,
+    default: comma,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The values of `export.csv.nested`.
+pub const CSV_NESTED_VALUES: &[&str] = &["json", "flatten"];
+
+/// `export.csv.nested` (spec #582, shape).
+pub const EXPORT_CSV_NESTED: Setting = Setting {
+    name: "export.csv.nested",
+    description: "How a CSV Export writes a field whose value is an object: `json`, the default, its JSON text in the field's column; `flatten`, each of its fields in a column of its own named by its dotted path, such as `author.name`, at any depth. An array, and an empty object, is its JSON text either way. Set for the connection or the Run.",
+    kind: ValueKind::Choice(CSV_NESTED_VALUES),
+    default: json_text,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `export.xlsx.sheet` (spec #582, shape).
+pub const EXPORT_XLSX_SHEET: Setting = Setting {
+    name: "export.xlsx.sheet",
+    description: "The name of an XLSX Export's one sheet: none by default, which names it after the Dataset, each character a sheet name cannot hold (`:`, `\\`, `/`, `?`, `*`, `[` and `]`) written as `_` and cut to 31 characters. A name that is empty, longer than 31 characters, holds one of those characters, or starts or ends with `'` fails the Export with `setting_invalid`. Set for the connection or the Run.",
+    kind: ValueKind::Text,
+    default: none,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn no() -> Value {
+    Value::Bool(false)
+}
+
+fn comma() -> Value {
+    Value::from(",")
+}
+
+fn json_text() -> Value {
+    Value::from("json")
+}
+
+fn none() -> Value {
+    Value::Null
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -228,7 +333,12 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[],
+    settings: &[
+        EXPORT_CSV_BOM,
+        EXPORT_CSV_DELIMITER,
+        EXPORT_CSV_NESTED,
+        EXPORT_XLSX_SHEET,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

@@ -29,8 +29,12 @@ use tokio::sync::mpsc;
 
 #[cfg(unix)]
 mod activation;
+mod socket_folder;
 mod wake;
 
+pub use socket_folder::{
+    LONGEST_SOCKET_PATH, socket_folder, socket_folder_in, temporary_folder_for_sockets,
+};
 pub use wake::{WakeListener, is_gone, listen_wakes, wake};
 
 /// The name of the socket a launch agent's `Sockets` defines for the
@@ -496,7 +500,7 @@ impl ConsoleListener {
     /// # Cancel safety
     ///
     /// Dropping the future loses no connection.
-    pub(crate) async fn accept(&self) -> io::Result<ConsoleStream> {
+    pub async fn accept(&self) -> io::Result<ConsoleStream> {
         let (stream, _) = self.0.accept().await?;
         stream.set_nodelay(true)?;
         Ok(ConsoleStream(stream))

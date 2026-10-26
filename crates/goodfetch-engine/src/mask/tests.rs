@@ -407,3 +407,112 @@ proptest! {
         prop_assert_eq!(leaks(&value, read.to_string().as_bytes()), Vec::<String>::new());
     }
 }
+
+/// A value hard to redact (TESTING.md, Secrets): quotes, backslashes,
+/// newlines and `%`, any Unicode, a common word, or very long.
+fn hard_value() -> impl Strategy<Value = String> {
+    prop_oneof![
+        "[\"\\\\%\n a-z0-9]{8,24}",
+        "\\PC{8,16}",
+        prop::sample::select(vec![
+            "password", "settings", "document", "function", "username", "customer",
+        ])
+        .prop_map(str::to_owned),
+        "[ -~]{100,400}",
+    ]
+}
+
+/// Every formatter and serializer the Mask writes through, each with the
+/// output it makes of `text`: `apply` in each scope, `apply_bytes`,
+/// `apply_value` over a JSON value holding the text, `apply_json_line` over
+/// a message holding it, a writer given it in two writes, and
+/// `apply_typed` for a read of a field the values were typed in.
+fn through_every_formatter(masks: &Masks, text: &str, typed: &[&str]) -> Vec<(String, Vec<u8>)> {
+    let mut outputs: Vec<(String, Vec<u8>)> = EVERY_SCOPE
+        .iter()
+        .map(|scope| {
+            (
+                format!("apply {scope:?}"),
+                masks.apply(text, *scope).into_owned().into_bytes(),
+            )
+        })
+        .collect();
+    outputs.push((
+        "apply_bytes".to_owned(),
+        masks.apply_bytes(text.as_bytes(), Scope::Kept).into_owned(),
+    ));
+    let mut value = json!({ text: [text, { "text": text }] });
+    masks.apply_value(&mut value, Scope::Returned);
+    outputs.push(("apply_value".to_owned(), value.to_string().into_bytes()));
+    let mut line =
+        serde_json::to_vec(&json!({ "result": { "text": text } })).expect("a message encodes");
+    line.push(b'\n');
+    outputs.push((
+        "apply_json_line".to_owned(),
+        masks.apply_json_line(line, Scope::Returned),
+    ));
+    let mut writer = masks.writer(Vec::new(), Scope::KeptOutput);
+    let half = text.len() / 2;
+    writer
+        .write_all(&text.as_bytes()[..half])
+        .expect("a Vec takes every write");
+    writer
+        .write_all(&text.as_bytes()[half..])
+        .expect("a Vec takes every write");
+    outputs.push((
+        "writer".to_owned(),
+        writer.finish().expect("a Vec takes every write"),
+    ));
+    outputs.push((
+        "apply_typed".to_owned(),
+        masks.apply_typed(text, typed).into_owned().into_bytes(),
+    ));
+    outputs
+}
+
+proptest! {
+    #![proptest_config(goodfetch_test_support::proptest_config())]
+
+    /// Covers: story:4-91
+    #[test]
+    fn no_form_of_two_values_one_inside_the_other_passes_any_formatter(
+        inner in hard_value(),
+        before in "[ -~]{0,3}",
+        after in "[ -~]{0,3}",
+        forms in prop::collection::vec(form(), 1..4),
+        around in around(),
+    ) {
+        let outer = format!("{before}{inner}{after}");
+        let masks = Masks::new();
+        let mask = masks.for_run(Redaction::On);
+        mask.join("i", &SecretString::from(inner.as_str()), Reach::Value);
+        mask.join("o", &SecretString::from(outer.as_str()), Reach::Value);
+        let text = forms
+            .iter()
+            .flat_map(|form| [encoded(&inner, *form), encoded(&outer, *form)])
+            .collect::<Vec<_>>()
+            .join(&around);
+
+        for (formatter, output) in through_every_formatter(&masks, &text, &["i", "o"]) {
+            for value in [&inner, &outer] {
+                prop_assert_eq!(leaks(value, &output), Vec::<String>::new(), "{}", formatter);
+            }
+        }
+    }
+
+    /// An empty value masks nothing, through every formatter: no text is
+    /// rewritten around it.
+    /// Covers: story:4-91
+    #[test]
+    fn an_empty_value_leaves_every_formatters_output_as_it_was(text in "[ -~]{0,40}") {
+        let masks = Masks::new();
+        let mask = masks.for_run(Redaction::On);
+        mask.join("e", &SecretString::from(""), Reach::Value);
+        let unmasked = Masks::new();
+
+        prop_assert_eq!(
+            through_every_formatter(&masks, &text, &["e"]),
+            through_every_formatter(&unmasked, &text, &[])
+        );
+    }
+}

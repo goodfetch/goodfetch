@@ -496,6 +496,7 @@ fn named(error: &(dyn Error + 'static)) -> Option<TransportFailure> {
         return match h2.reason() {
             Some(http2::Reason::REFUSED_STREAM) => Some(TransportFailure::RefusedStream),
             Some(http2::Reason::HTTP_1_1_REQUIRED) => Some(TransportFailure::Http11Required),
+            Some(http2::Reason::ENHANCE_YOUR_CALM) => Some(TransportFailure::EnhanceYourCalm),
             // A graceful `GOAWAY` fails only the streams above its last
             // one, which the site never processed (RFC 9113, section 6.8).
             Some(http2::Reason::NO_ERROR) if h2.is_go_away() && h2.is_remote() => {

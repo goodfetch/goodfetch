@@ -302,6 +302,14 @@ max_delay = 30000
 [settings.fetch.kept_responses]
 urls = ["example"]
 
+[settings.export.csv]
+bom = true
+delimiter = "example"
+nested = "json"
+
+[settings.export.xlsx]
+sheet = "example"
+
 [settings.paid_fetch]
 domains = ["example"]
 max_price_per_page = "0.05 USD"
@@ -616,6 +624,14 @@ max_delay = 30000
 
 [lock.fetch.kept_responses]
 urls = ["example"]
+
+[lock.export.csv]
+bom = true
+delimiter = "example"
+nested = "json"
+
+[lock.export.xlsx]
+sheet = "example"
 
 [lock.paid_fetch]
 domains = ["example"]

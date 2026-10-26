@@ -1328,6 +1328,12 @@ number = 6
 kind = "format"
 prefix = "export"
 
+# The `export.*` settings that shape an Export's format (#984, ADR 0119).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "export."
+
 # Area 6, Collection, Foxhound: the crawl's scope (#840).
 [[area]]
 number = 6

@@ -295,6 +295,63 @@ impl std::io::Write for Writes {
     }
 }
 
+/// The log formats' redaction with values hard to redact (TESTING.md,
+/// Secrets): a value and a longer one holding it, each logged in the
+/// message and as a field, Display and Debug, through the text and the
+/// JSON format, leave no form a Secret canary search finds.
+///
+/// Covers: story:4-91
+#[rstest]
+#[case::quotes_backslashes_and_percent(r#"a"b\c%d%2"#)]
+#[case::a_newline("first\nsecond")]
+#[case::unicode("pässwört-日本語-🔑")]
+#[case::a_common_word("password")]
+#[case::very_long(&"x\"y\\z%".repeat(40))]
+fn no_form_of_a_hard_value_passes_either_log_format(
+    #[case] value: &str,
+    #[values(false, true)] json: bool,
+) {
+    let outer = format!("<{value}>");
+    let masks = Masks::new();
+    let mask = masks.for_run(Redaction::On);
+    mask.join("inner", &SecretString::from(value), Reach::Value);
+    mask.join("outer", &SecretString::from(outer.as_str()), Reach::Value);
+    let written = Written::default();
+    let writer = written.clone();
+    let layer = tracing_subscriber::fmt::layer()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(Masked::new(masks, move || writer.clone()));
+    let log = || {
+        tracing::info!(inner = value, outer = %outer, "said {value} and {outer:?}");
+    };
+    if json {
+        tracing::subscriber::with_default(tracing_subscriber::registry().with(layer.json()), log);
+    } else {
+        tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), log);
+    }
+
+    let mut canaries = goodfetch_test_support::Canaries::new(0);
+    canaries.add(goodfetch_test_support::Canary::known(
+        "inner",
+        goodfetch_test_support::SecretKind::TypedPassword,
+        value,
+    ));
+    canaries.add(goodfetch_test_support::Canary::known(
+        "outer",
+        goodfetch_test_support::SecretKind::TypedPassword,
+        &outer,
+    ));
+    let written = written.0.lock().unwrap().clone();
+    let leaks = canaries
+        .leaks(&[goodfetch_test_support::Output::Bytes {
+            name: "log",
+            bytes: &written,
+        }])
+        .unwrap();
+    assert_eq!(leaks, Vec::new(), "{}", String::from_utf8_lossy(&written));
+}
+
 /// A log line the Mask rewrites reaches the writer below as one write, the
 /// whole masked line: the log file takes each write as a line of its own,
 /// so a line split into several writes would tear.

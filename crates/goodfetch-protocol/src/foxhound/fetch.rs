@@ -353,7 +353,12 @@ pub const SAMPLE_REFRESH_SHAPE: ValueShape = ValueShape {
             },
         })
     },
-    examples: || vec![serde_json::json!({ "requests": 500, "after": 86_400_000 })],
+    examples: || {
+        vec![
+            serde_json::json!({ "requests": 500, "after": 86_400_000 }),
+            serde_json::json!({ "requests": 100, "after": 3_600_000 }),
+        ]
+    },
 };
 
 fn refresh_after() -> Value {

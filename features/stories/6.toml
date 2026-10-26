@@ -1008,6 +1008,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 261
+title = "As a crawl developer, I want the cheaper tiers to serve what they can exactly, `discovered_api` answering network waits and kept responses from the JSON calls it replays and `light_browser` serving a script-rendered page's content without layout, the rest escalating by the served-call table, so that my handler pays for the browser only where it needs it (ADRs 0093, 0110)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 262
 title = "As a crawl developer, I want a Label that keeps responses while forcing `http` or `browser_fetch`, or that keeps fragments while forcing a document tier, to fail the Run's start with `setting_not_applicable`, so that a setting that can never serve is refused (ADRs 0110, 0120)."
 milestone = "M1 Core"

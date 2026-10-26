@@ -140,6 +140,12 @@ wait = 30000
 first_byte = 30000
 handler = 30000
 
+[settings.secret_providers.op]
+command = "example"
+
+[settings.secret_providers.bw]
+command = "example"
+
 [settings.security]
 field_encryption = true
 secure_delete = true

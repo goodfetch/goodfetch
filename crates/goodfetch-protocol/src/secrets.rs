@@ -231,6 +231,36 @@ pub const TIMEOUT_SECRET: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn no_command() -> Value {
+    Value::Null
+}
+
+/// `secret_providers.op.command` (spec #564): the 1Password CLI that
+/// answers `op://` references.
+pub const SECRET_PROVIDERS_OP_COMMAND: Setting = Setting {
+    name: "secret_providers.op.command",
+    description: "The absolute path of the 1Password CLI, `op`, that answers `op://vault/item/field` Secret references: the engine runs `op read` with its own environment, so `OP_SERVICE_ACCOUNT_TOKEN` or the desktop app's integration signs it in. Unset, the default, an `op://` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+    kind: ValueKind::Text,
+    default: no_command,
+    clearable: true,
+    authority: Authority::Configuration,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `secret_providers.bw.command` (spec #564): the Bitwarden CLI that
+/// answers `bw:` references, from Bitwarden or a Vaultwarden server.
+pub const SECRET_PROVIDERS_BW_COMMAND: Setting = Setting {
+    name: "secret_providers.bw.command",
+    description: "The absolute path of the Bitwarden CLI, `bw`, that answers `bw:item/field` Secret references from Bitwarden or, once `bw config server` points it there, a Vaultwarden server: the engine runs `bw get` without interaction and with its own environment, so `BW_SESSION` unlocks the vault. `field` is `password`, `username`, `totp` (the current code, never the seed), `notes`, `uri` or the name of a custom field. Unset, the default, a `bw:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+    kind: ValueKind::Text,
+    default: no_command,
+    clearable: true,
+    authority: Authority::Configuration,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -246,7 +276,12 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[RUN_STATE_KEY_REFERENCE, TIMEOUT_SECRET],
+    settings: &[
+        RUN_STATE_KEY_REFERENCE,
+        TIMEOUT_SECRET,
+        SECRET_PROVIDERS_OP_COMMAND,
+        SECRET_PROVIDERS_BW_COMMAND,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

@@ -40,7 +40,7 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
-use goodfetch_engine::tls::Trust;
+use goodfetch_engine::tls::{CertificateExceptions, ClientCertificates, PinBook, trusted_cas};
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, Reader,
@@ -63,6 +63,7 @@ use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, NETWORK_RESOLVE, SETTING_INVALID,
     SettingInvalidDetails, SettingsLayer,
 };
+use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_CLIENT_CERTIFICATES, TLS_TRUSTED_CAS};
 use url::Url;
 
 use crate::canonical::canonical;
@@ -444,11 +445,28 @@ impl FetchTiers {
     /// # Errors
     ///
     /// A message when the transport cannot be built: the system's resolver
-    /// configuration or the Session's egress policy cannot be read.
-    pub fn built(run: &Run, settings: &Resolved) -> Result<HttpTier, String> {
+    /// configuration, the Session's egress policy or `tls.client_certificates`
+    /// cannot be read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the tier.
+    pub async fn built(run: &Run, settings: &Resolved) -> Result<HttpTier, String> {
         let egress = Policy::of(settings).map_err(|error| error.to_string())?;
+        let trust = trusted_cas(settings.value(TLS_TRUSTED_CAS.name), run.owner()).await;
+        let client_certificates = ClientCertificates::listed(
+            settings.value(TLS_CLIENT_CERTIFICATES.name),
+            run.secrets().clone(),
+            settings
+                .get(TLS_CLIENT_CERTIFICATES.name)
+                .map(|effective| effective.layer),
+            Some(run.id().clone()),
+        )
+        .map_err(|error| error.to_string())?;
         let transport = Reqwest::new(TransportConfig {
-            trust: Trust::default_roots(),
+            trust,
+            exceptions: exceptions_of(run, settings),
+            client_certificates: Some(client_certificates),
             proxy: None,
             resolve: settings.hosts(NETWORK_RESOLVE.name),
             egress: egress.clone(),
@@ -1416,4 +1434,27 @@ fn base_href(html: &str) -> Option<String> {
     let document = dom_query::Document::from(html);
     let base = document.select("base[href]");
     base.attr("href").map(|href| href.to_string())
+}
+
+/// The invalid-certificate exceptions of `settings`' `tls.accept_invalid_certs`
+/// for `run`, pinning in the person's known-certificates store; none,
+/// logged, when an entry names no host.
+fn exceptions_of(run: &Run, settings: &Resolved) -> CertificateExceptions {
+    let book = PinBook {
+        store: run.known_certificates(),
+        person: run.person().to_owned(),
+        run_id: Some(run.id().clone()),
+        audit: Arc::new(run.audit_log()),
+        owner: Arc::new(run.owner().child()),
+        clock: run.clock(),
+    };
+    CertificateExceptions::listed(
+        settings.value(TLS_ACCEPT_INVALID_CERTS.name),
+        book,
+        run.secrets().exception_hosts(),
+    )
+    .unwrap_or_else(|error| {
+        tracing::warn!(%error, "`tls.accept_invalid_certs` names no host, so it makes no exception");
+        CertificateExceptions::default()
+    })
 }

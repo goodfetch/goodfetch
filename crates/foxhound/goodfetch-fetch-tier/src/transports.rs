@@ -26,6 +26,19 @@
 //! is private, by its text: reqwest keeps no status of the proxy's answer,
 //! so ADR 0053's ceiling learning cannot tell a 429 from a 502 there.
 //!
+//! **Certificates (ADR 0042):** reqwest runs the engine's rustls verifier
+//! through [`SharedTrust`], deciding per host between Mozilla's roots, the
+//! domain's `tls.trusted_cas` and, for a domain `tls.accept_invalid_certs`
+//! lists, its pin; a certificate that fails verification ends the hop with
+//! `certificate_invalid` and a pinned host's changed key with
+//! `certificate_changed`, before any byte of the request is sent, and every
+//! later hop to that host in the Run too. A handshake that stops for the
+//! exception's decision is sent again once it is taken, on a new
+//! connection, nothing having gone to the host. Since rustls picks a
+//! client certificate without the server name, reqwest keeps one set of
+//! clients per listed domain of `tls.client_certificates`, built when a
+//! host of the domain is first reached, and sends each hop to its host's.
+//!
 //! **The resolved-address check (ADR 0017):** a URL the egress policy
 //! refuses opens no connection, nor does the address a URL names in place
 //! of a host, in any spelling, which no resolver answers (the driver's
@@ -41,7 +54,7 @@
 //! a private address lists it in `egress.private_ranges`.
 
 use std::cell::Cell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
@@ -52,10 +65,17 @@ use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::{Dns, HostMapping, Resolution, ResolverConfiguration, Route};
 use goodfetch_engine::egress::{self, Policy, Refused};
-use goodfetch_engine::tls::Trust;
+use goodfetch_engine::run::secret_error;
+use goodfetch_engine::tls::{
+    CertificateExceptions, ClientCertificateFailure, ClientCertificates, Decision, SharedTrust,
+    Trust, certificate_failure,
+};
+use rustls::sign::CertifiedKey;
 use url::Url;
 
-use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure, judged};
+use crate::driver::{
+    Body, CallFailure, Hop, Reuse, Sending, Sent, Transport, TransportFailure, judged,
+};
 
 mod impersonated;
 mod in_browser;
@@ -68,6 +88,11 @@ pub(crate) use in_browser::BrowserFetch;
 pub struct TransportConfig {
     /// What each host's certificate may chain to beside Mozilla's roots.
     pub trust: Trust,
+    /// The exceptions of `tls.accept_invalid_certs`, and where they pin.
+    pub exceptions: CertificateExceptions,
+    /// The client certificates of `tls.client_certificates`; none for a
+    /// transport that presents none.
+    pub client_certificates: Option<ClientCertificates>,
     /// The Session's proxy, whose connections reach it in place of the
     /// site, `None` to connect directly.
     pub proxy: Option<Url>,
@@ -94,12 +119,40 @@ pub enum TransportUnavailable {
 /// reqwest, the transport of `standard` and `identified` Sessions.
 #[derive(Clone, Debug)]
 pub struct Reqwest {
-    /// Its clients offering HTTP/2 and HTTP/1.1.
-    any: Clients,
-    /// Its clients offering HTTP/1.1 alone, for the origins that asked.
-    http1: Clients,
+    /// The clients of each listed domain of `tls.client_certificates`,
+    /// the domain's certificate presented, and under `None` those of every
+    /// other host, presenting none. Clones share them.
+    scopes: Scopes,
     http1_origins: Http1Origins,
     resolver: Arc<Resolver>,
+    trust: SharedTrust,
+    client_certificates: Option<ClientCertificates>,
+    proxy: Option<Url>,
+}
+
+/// The clients of one client-certificate scope: those offering HTTP/2 and
+/// HTTP/1.1, and those offering HTTP/1.1 alone, for the origins that
+/// asked.
+#[derive(Debug)]
+struct ScopeClients {
+    any: Clients,
+    http1: Clients,
+}
+
+/// The clients of each client-certificate scope, by its listed domain.
+#[derive(Clone, Debug, Default)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the map is read or written in one step, never across an `.await` or another lock, so there is no lock order to test under loom (ADR 0060)"
+)]
+struct Scopes(Arc<std::sync::Mutex<BTreeMap<Option<String>, Arc<ScopeClients>>>>);
+
+impl Scopes {
+    fn scopes(&self) -> std::sync::MutexGuard<'_, BTreeMap<Option<String>, Arc<ScopeClients>>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 /// A pooled client and one that opens a new connection for each request.
@@ -109,8 +162,12 @@ struct Clients {
     new: reqwest::Client,
 }
 
+/// How many times a hop's handshake may stop for an exception's decision:
+/// a first use pins, then the next handshake passes.
+const DECISIONS: usize = 3;
+
 impl Reqwest {
-    /// A transport under `config`, holding its own connection pool, so
+    /// A transport under `config`, holding its own connection pools, so
     /// hops of one Run reuse connections.
     ///
     /// # Errors
@@ -122,13 +179,32 @@ impl Reqwest {
     )]
     pub fn new(config: TransportConfig) -> Result<Self, TransportUnavailable> {
         let resolver = Arc::new(Resolver::new(&config));
+        let trust = SharedTrust::new(config.trust.clone(), config.exceptions.clone());
+        let transport = Self {
+            scopes: Scopes::default(),
+            http1_origins: Http1Origins::default(),
+            resolver,
+            trust,
+            client_certificates: config.client_certificates.clone(),
+            proxy: config.proxy.clone(),
+        };
+        let unscoped = transport.scope_clients(None)?;
+        transport.scopes.scopes().insert(None, Arc::new(unscoped));
+        Ok(transport)
+    }
+
+    /// The clients of a scope presenting `client`.
+    fn scope_clients(
+        &self,
+        client: Option<Arc<CertifiedKey>>,
+    ) -> Result<ScopeClients, TransportUnavailable> {
         let clients = |alpn: &[&[u8]]| -> Result<Clients, TransportUnavailable> {
-            let mut tls = config.trust.client_config();
+            let mut tls = self.trust.client_config(client.clone());
             tls.alpn_protocols = alpn.iter().map(|protocol| protocol.to_vec()).collect();
             let client = |pooled: bool| {
                 let builder = reqwest::Client::builder()
                     .tls_backend_preconfigured(tls.clone())
-                    .dns_resolver(Arc::clone(&resolver))
+                    .dns_resolver(Arc::clone(&self.resolver))
                     // A folded header line is read as a space, as Chrome
                     // reads it.
                     .http1_allow_obsolete_multiline_headers_in_responses(true)
@@ -145,7 +221,7 @@ impl Reqwest {
                 } else {
                     builder.http1_only()
                 };
-                let builder = match &config.proxy {
+                let builder = match &self.proxy {
                     Some(proxy) => builder.proxy(
                         reqwest::Proxy::all(proxy.as_str())
                             .map_err(|error| TransportUnavailable::Client(error.to_string()))?,
@@ -159,12 +235,37 @@ impl Reqwest {
                 new: client(false)?,
             })
         };
-        Ok(Self {
+        Ok(ScopeClients {
             any: clients(&[b"h2", b"http/1.1"])?,
             http1: clients(&[b"http/1.1"])?,
-            http1_origins: Http1Origins::default(),
-            resolver,
         })
+    }
+
+    /// The clients of `host`'s client-certificate scope, built when a host
+    /// of a listed domain is first reached, and whether they present a
+    /// client certificate.
+    async fn scope_of(&self, host: &str) -> Result<(Arc<ScopeClients>, bool), TransportFailure> {
+        let scope = self
+            .client_certificates
+            .as_ref()
+            .and_then(|certificates| certificates.scope_of(host));
+        let client = match (&scope, &self.client_certificates) {
+            (Some(_), Some(certificates)) => certificates
+                .for_host(host)
+                .await
+                .map_err(client_certificate_failure)?,
+            _ => None,
+        };
+        let presents = client.is_some();
+        if let Some(clients) = self.scopes.scopes().get(&scope) {
+            return Ok((Arc::clone(clients), presents));
+        }
+        let built = Arc::new(
+            self.scope_clients(client)
+                .map_err(|_| TransportFailure::Other)?,
+        );
+        let clients = Arc::clone(self.scopes.scopes().entry(scope).or_insert(built));
+        Ok((clients, presents))
     }
 
     /// The address check of its connections, run ahead of a request.
@@ -172,18 +273,154 @@ impl Reqwest {
         AddressCheck(Arc::clone(&self.resolver))
     }
 
-    /// The client `hop` goes out on, as `reuse` allows.
-    fn client(&self, hop: &Hop, reuse: Reuse) -> &reqwest::Client {
+    /// The client of `clients` `hop` goes out on, as `reuse` allows.
+    fn client<'c>(
+        &self,
+        clients: &'c ScopeClients,
+        hop: &Hop,
+        reuse: Reuse,
+    ) -> &'c reqwest::Client {
         let clients = if self.http1_origins.contains(&hop.url) {
-            &self.http1
+            &clients.http1
         } else {
-            &self.any
+            &clients.any
         };
         match reuse {
             Reuse::Allowed => &clients.pooled,
             Reuse::Never => &clients.new,
         }
     }
+
+    /// Sends `hop` once on `clients`: its answer, or its failure with the
+    /// TLS error its handshake ended with, if one did.
+    async fn send_on(
+        &self,
+        clients: &ScopeClients,
+        hop: &Hop,
+        reuse: Reuse,
+    ) -> Result<Sent, (TransportFailure, Option<rustls::Error>)> {
+        let mut request = self
+            .client(clients, hop, reuse)
+            .request(hop.method.clone(), hop.url.clone());
+        for (name, value) in &hop.headers {
+            request = request.header(name, value);
+        }
+        if let Some(body) = &hop.body {
+            request = request.body(body.clone());
+        }
+        let (response, connected) = CONNECTED
+            .scope(Cell::new(false), async {
+                let response = request.send().await;
+                (response, CONNECTED.with(Cell::get))
+            })
+            .await;
+        let reused = reuse == Reuse::Allowed && !connected;
+        let response = response.map_err(|error| {
+            let failure = match failure_of(&error, &hop.url) {
+                TransportFailure::ConnectionClosed | TransportFailure::ConnectionReset
+                    if reused =>
+                {
+                    TransportFailure::ClosedAtReuse
+                }
+                TransportFailure::Http11Required => {
+                    self.http1_origins.insert(&hop.url);
+                    TransportFailure::Http11Required
+                }
+                failure => failure,
+            };
+            (failure, tls_error(&error))
+        })?;
+        let headers = response
+            .headers()
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.as_str().to_owned(),
+                    String::from_utf8_lossy(value.as_bytes()).into_owned(),
+                )
+            })
+            .collect();
+        Ok(Sent {
+            status: response.status().as_u16(),
+            headers,
+            body: Box::new(ReqwestBody {
+                response,
+                url: hop.url.clone(),
+            }),
+            reused,
+            decoded: false,
+            certificate_exception: None,
+        })
+    }
+
+    /// Sends `hop` over TLS to `host`, its certificate decided per host:
+    /// sent again on a new connection each time its handshake stopped for
+    /// the exception's decision, which [`SharedTrust::decide`] then took.
+    async fn send_to(&self, host: &str, hop: &Hop, reuse: Reuse) -> Result<Sent, TransportFailure> {
+        self.trust
+            .before(host)
+            .await
+            .map_err(TransportFailure::CertificateChanged)?;
+        let (clients, presents) = self.scope_of(host).await?;
+        for _ in 0..DECISIONS {
+            let decision = match self.send_on(&clients, hop, reuse).await {
+                Ok(mut sent) => {
+                    sent.certificate_exception = self.trust.exception(host);
+                    return Ok(sent);
+                }
+                Err((failure, None)) => return Err(failure),
+                Err((failure, Some(tls))) => match self.trust.decide(host, &tls, presents).await {
+                    None => return Err(failure),
+                    Some(decision) => decision,
+                },
+            };
+            match decision {
+                Decision::Again => {}
+                Decision::Changed(changed) => {
+                    return Err(TransportFailure::CertificateChanged(changed));
+                }
+                Decision::Excepted => {
+                    return Err(self
+                        .client_certificates
+                        .as_ref()
+                        .and_then(|certificates| certificates.refused(host))
+                        .map_or(TransportFailure::Tls, |refused| {
+                            TransportFailure::ClientCertificate(CallFailure(secret_error(&refused)))
+                        }));
+                }
+            }
+        }
+        Err(TransportFailure::Tls)
+    }
+}
+
+/// The failure a client certificate that cannot be presented ends a hop
+/// with: the Secret-provider driver's own error, or `setting_invalid`.
+fn client_certificate_failure(failure: ClientCertificateFailure) -> TransportFailure {
+    let error = match &failure {
+        ClientCertificateFailure::Secret(secret) => Some(secret_error(secret)),
+        _ => failure.setting_invalid(),
+    };
+    error.map_or(TransportFailure::Tls, |error| {
+        TransportFailure::ClientCertificate(CallFailure(error))
+    })
+}
+
+/// The TLS error down `error`'s chain of sources, if its handshake ended
+/// with one.
+fn tls_error(error: &(dyn Error + 'static)) -> Option<rustls::Error> {
+    let mut next = Some(error);
+    while let Some(error) = next {
+        if let Some(tls) = error.downcast_ref::<rustls::Error>() {
+            return Some(tls.clone());
+        }
+        next = match error.downcast_ref::<std::io::Error>() {
+            // An `io::Error`'s `source` skips the error it wraps.
+            Some(io) => io.get_ref().map(|inner| inner as &(dyn Error + 'static)),
+            None => error.source(),
+        };
+    }
+    None
 }
 
 #[expect(
@@ -198,54 +435,20 @@ impl Transport for Reqwest {
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             self.resolver.before_sending(&hop.url).await?;
-            let mut request = self
-                .client(hop, reuse)
-                .request(hop.method.clone(), hop.url.clone());
-            for (name, value) in &hop.headers {
-                request = request.header(name, value);
-            }
-            if let Some(body) = &hop.body {
-                request = request.body(body.clone());
-            }
-            let (response, connected) = CONNECTED
-                .scope(Cell::new(false), async {
-                    let response = request.send().await;
-                    (response, CONNECTED.with(Cell::get))
-                })
-                .await;
-            let reused = reuse == Reuse::Allowed && !connected;
-            let response = response.map_err(|error| match failure_of(&error, &hop.url) {
-                TransportFailure::ConnectionClosed | TransportFailure::ConnectionReset
-                    if reused =>
-                {
-                    TransportFailure::ClosedAtReuse
+            match hop.url.host_str() {
+                Some(host) if hop.url.scheme() == "https" => self.send_to(host, hop, reuse).await,
+                _ => {
+                    let unscoped = self
+                        .scopes
+                        .scopes()
+                        .get(&None)
+                        .cloned()
+                        .expect("invariant: the transport builds its unscoped clients");
+                    self.send_on(&unscoped, hop, reuse)
+                        .await
+                        .map_err(|(failure, _)| failure)
                 }
-                TransportFailure::Http11Required => {
-                    self.http1_origins.insert(&hop.url);
-                    TransportFailure::Http11Required
-                }
-                failure => failure,
-            })?;
-            let headers = response
-                .headers()
-                .iter()
-                .map(|(name, value)| {
-                    (
-                        name.as_str().to_owned(),
-                        String::from_utf8_lossy(value.as_bytes()).into_owned(),
-                    )
-                })
-                .collect();
-            Ok(Sent {
-                status: response.status().as_u16(),
-                headers,
-                body: Box::new(ReqwestBody {
-                    response,
-                    url: hop.url.clone(),
-                }),
-                reused,
-                decoded: false,
-            })
+            }
         })
     }
 }
@@ -561,7 +764,8 @@ fn shared(error: &(dyn Error + 'static)) -> Option<TransportFailure> {
 fn named(error: &(dyn Error + 'static)) -> Option<TransportFailure> {
     if let Some(tls) = error.downcast_ref::<rustls::Error>() {
         return Some(match tls {
-            rustls::Error::InvalidCertificate(_) => TransportFailure::CertificateInvalid,
+            rustls::Error::InvalidCertificate(_) => certificate_failure(tls)
+                .map_or(TransportFailure::Tls, TransportFailure::CertificateInvalid),
             _ => TransportFailure::Tls,
         });
     }

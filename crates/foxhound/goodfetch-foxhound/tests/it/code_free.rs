@@ -118,7 +118,7 @@ fn paths(records: &[Value]) -> Vec<String> {
 /// from the request as it committed, and the oracle verifies each page's
 /// Markdown.
 ///
-/// Covers: story:6-304, operation:crawl.start, operation:run.records, operation:page.formats
+/// Covers: story:6-304, operation:crawl.start, operation:run.records
 #[test]
 fn a_crawl_with_no_code_fills_pages_keyed_by_url_with_each_pages_markdown() {
     let env = TestEnv::new();

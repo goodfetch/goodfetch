@@ -15458,12 +15458,12 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "hosts_narrowed_by_recipe_or_model",
       "clearable": false,
       "default": [
         "*"
       ],
-      "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run. A request to a host it does not list fails with `egress_refused`.",
+      "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run, and only narrowed by a Recipe or a Client acting for a model, whose value listing a host the value below does not cover is `setting_locked`. A request to a host it does not list fails with `egress_refused`.",
       "name": "egress.allowed_domains",
       "product": "collie",
       "products": [
@@ -15480,10 +15480,10 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "hosts_narrowed_by_recipe_or_model",
       "clearable": false,
       "default": [],
-      "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run. A request to a host it lists fails with `egress_refused`.",
+      "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run, and only added to by a Recipe or a Client acting for a model, whose value that leaves a host the value below lists uncovered is `setting_locked`. A request to a host it lists fails with `egress_refused`.",
       "name": "egress.blocked_domains",
       "product": "collie",
       "products": [

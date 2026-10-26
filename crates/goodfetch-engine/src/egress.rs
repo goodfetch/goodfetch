@@ -46,7 +46,7 @@ use serde_json::{Map, Value};
 use url::{Host, Url};
 
 use crate::composition::CallError;
-use crate::settings::Resolved;
+use crate::settings::{HostEntry, Resolved, without_root};
 
 mod address;
 mod cdp_url;
@@ -164,27 +164,16 @@ impl Entries {
         let mut read = Self::default();
         for entry in entries {
             let entry = entry.as_ref();
-            if entry == EVERY_HOST {
-                read.every_host = true;
-                continue;
-            }
-            let invalid = || InvalidEntry {
+            match HostEntry::read(entry).ok_or_else(|| InvalidEntry {
                 setting,
                 entry: entry.to_owned(),
-            };
-            match entry_host(entry).ok_or_else(invalid)? {
-                Host::Domain(domain) => {
-                    let domain = without_root(&domain);
-                    if domain.is_empty() || domain.contains('*') {
-                        return Err(invalid());
-                    }
+            })? {
+                HostEntry::Every => read.every_host = true,
+                HostEntry::Domain(domain) => {
                     read.domains.insert(domain.into());
                 }
-                Host::Ipv4(address) => {
-                    read.addresses.insert(IpAddr::V4(address));
-                }
-                Host::Ipv6(address) => {
-                    read.addresses.insert(IpAddr::V6(address));
+                HostEntry::Address(address) => {
+                    read.addresses.insert(address);
                 }
             }
         }
@@ -214,22 +203,6 @@ impl Entries {
             Host::Ipv6(address) => self.addresses.contains(&IpAddr::V6(*address)),
         }
     }
-}
-
-/// An entry read as the URL parser reads a host: a name in punycode and
-/// lower case, or an address in any spelling it accepts; an IPv6 address
-/// with or without its brackets.
-fn entry_host(entry: &str) -> Option<Host<String>> {
-    if entry.contains(':') && !entry.starts_with('[') {
-        return Host::parse(&format!("[{entry}]")).ok();
-    }
-    Host::parse(entry).ok()
-}
-
-/// A name without the one trailing dot that makes it fully qualified: the
-/// same host either way.
-fn without_root(name: &str) -> &str {
-    name.strip_suffix('.').unwrap_or(name)
 }
 
 /// The kind of a request, as the code that sends it sees it.

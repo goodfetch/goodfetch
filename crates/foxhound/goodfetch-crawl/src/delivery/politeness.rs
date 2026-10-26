@@ -6,12 +6,14 @@
 use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::admission::{Admission, Admitted, Ended};
-use goodfetch_engine::retry_after;
+use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::Run;
+use goodfetch_frontier::backoff_classes::{Class, Met, class};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::foxhound::crawl::RESPONSE_UNAVAILABLE;
+use goodfetch_protocol::page::{NAVIGATION_FAILED, PageResponse};
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use serde_json::{Map, Value};
 use tokio::time::Instant;
@@ -30,16 +32,49 @@ const RETRY_AFTER: &str = "retry_after";
 /// The statuses whose response backs a domain off (ADR 0086).
 const BACKS_OFF: [u64; 3] = [502, 503, 504];
 
-/// What an attempt's answer says of its domain: a handler's failure that
-/// says the site did not answer in time (a `deadline_exceeded` whose
-/// `limit` is the response's first byte or the navigation) backs the domain
-/// off like a refused or timed-out connection (ADR 0086); one that says the
-/// site refused for too many requests (`blocked` for a `rate_limit`, a 429)
-/// halves its concurrency (ADR 0021); one that says the site was failing
-/// for now (`response_unavailable` for a 502, 503 or 504) backs it off
-/// (ADR 0086). The time a failure's `retry_after` names, read at `wall` when
-/// the monotonic clock read `now`, holds the domain until then (ADR 0118).
-pub(super) fn domain_ending(answer: &Answer, now: Instant, wall: SystemTime) -> Ended {
+/// The header a proxy names its own errors in (RFC 9209), lower-cased as a
+/// response's headers are.
+const PROXY_STATUS: &str = "proxy-status";
+
+/// What an attempt's ending says of its domain (ADRs 0021, 0053, 0086 and
+/// 0118; the `backoff_classes` rule): what its handler's failure says
+/// ([`failure_ending`]), else what the site's answer to the request's own
+/// document, `document`, says, the engine having fetched it on any tier,
+/// whatever the handler made of the page: a 429 halves the domain's
+/// concurrency and backs it off, a 502, 503 or 504 backs it off, each
+/// until the time its `Retry-After` names when that is later, and a 500 or
+/// any other status says nothing. An answer the Run's proxy gave itself
+/// (`proxied`: its Sessions send through one, which forwards an `http:`
+/// URL itself) backs no domain off: its limits are the proxy's (ADR
+/// 0053). Times are read at `wall` when the monotonic clock read `now`.
+pub(super) fn domain_ending(
+    answer: &Answer,
+    document: Option<&PageResponse>,
+    proxied: bool,
+    now: Instant,
+    wall: SystemTime,
+) -> Ended {
+    match failure_ending(answer, now, wall) {
+        Ended::Done => document.map_or(Ended::Done, |response| {
+            document_ending(response, proxied, now, wall)
+        }),
+        ended => ended,
+    }
+}
+
+/// What an attempt's failure says of its domain: a fetch that failed
+/// because the site refused or timed out the connection, or reset it with
+/// HTTP/2's `ENHANCE_YOUR_CALM` (`navigation_failed` naming that network
+/// error), and a handler's failure that says the site did not answer in
+/// time (a `deadline_exceeded` whose `limit` is the response's first byte
+/// or the navigation), back the domain off (ADRs 0086 and 0118); one that
+/// says the site refused for too many requests (`blocked` for a
+/// `rate_limit`, a 429) halves its concurrency (ADR 0021); one that says
+/// the site was failing for now (`response_unavailable` for a 502, 503 or
+/// 504) backs it off (ADR 0086). The time a failure's `retry_after` names
+/// holds the domain until then (ADR 0118). A proxy's own refusal backs no
+/// domain off.
+fn failure_ending(answer: &Answer, now: Instant, wall: SystemTime) -> Ended {
     let (code, details) = match answer {
         Answer::Failed { code, details, .. } => (code, details),
         // robots.txt is the whole origin's file: one that answers 429 or
@@ -50,7 +85,7 @@ pub(super) fn domain_ending(answer: &Answer, now: Instant, wall: SystemTime) -> 
     let asked = details
         .get(RETRY_AFTER)
         .and_then(retry_after::of_detail)
-        .map(|asked| now + asked.duration_since(wall).unwrap_or_default());
+        .map(|asked| at(asked, now, wall));
     if block_cause(code, details) == Some(BlockCause::RateLimit) {
         return Ended::TooManyRequests(asked);
     }
@@ -62,17 +97,54 @@ pub(super) fn domain_ending(answer: &Answer, now: Instant, wall: SystemTime) -> 
     if unavailable {
         return Ended::BackOff(asked);
     }
+    let unreachable = code == NAVIGATION_FAILED.name
+        && details
+            .get("error")
+            .and_then(Value::as_str)
+            .is_some_and(|error| class(Met::Failure { error }) == Class::BackOff);
     let timed_out = code == DEADLINE_EXCEEDED.name
         && details
             .get("limit")
             .and_then(|limit| limit.get("key"))
             .and_then(Value::as_str)
             .is_some_and(|key| [TIMEOUT_FIRST_BYTE.name, TIMEOUT_NAVIGATION.name].contains(&key));
-    if timed_out {
+    if unreachable || timed_out {
         Ended::BackOff(None)
     } else {
         Ended::Done
     }
+}
+
+/// What the answer `response` to a request's own document says of its
+/// domain, by the backoff classes, with the time its `Retry-After` names,
+/// measured against its own `Date` when it has one (ADR 0118).
+fn document_ending(
+    response: &PageResponse,
+    proxied: bool,
+    now: Instant,
+    wall: SystemTime,
+) -> Ended {
+    let header = |name: &str| response.headers.get(name).map(String::as_str);
+    let met = Met::Response {
+        status: response.status,
+        proxy_status: header(PROXY_STATUS),
+        forwarded: proxied && response.url.starts_with("http:"),
+    };
+    let asked = || match retry_after::read(header("retry-after")?, header("date"), wall) {
+        RetryAfter::Until(until) => Some(at(until, now, wall)),
+        RetryAfter::NoWait | RetryAfter::Unparsable => None,
+    };
+    match class(met) {
+        Class::TooManyRequests => Ended::TooManyRequests(asked()),
+        Class::BackOff => Ended::BackOff(asked()),
+        Class::Done | Class::ProxyRefusal => Ended::Done,
+    }
+}
+
+/// The monotonic moment of the wall time `until`, the monotonic clock
+/// reading `now` at the wall time `wall`.
+fn at(until: SystemTime, now: Instant, wall: SystemTime) -> Instant {
+    now + until.duration_since(wall).unwrap_or_default()
 }
 
 /// The time a failure's `retry_after` names when it is further away from

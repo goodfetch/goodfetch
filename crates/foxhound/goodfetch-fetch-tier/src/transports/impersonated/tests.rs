@@ -97,6 +97,11 @@ fn the_forks_the_translation_point_reads_are_those_it_was_written_against() {
     &http2::Error::from(http2::Reason::HTTP_1_1_REQUIRED),
     TransportFailure::Http11Required
 )]
+/// Covers: story:5-132
+#[case::enhance_your_calm(
+    &http2::Error::from(http2::Reason::ENHANCE_YOUR_CALM),
+    TransportFailure::EnhanceYourCalm
+)]
 #[case::another_http2_error(
     &http2::Error::from(http2::Reason::INTERNAL_ERROR),
     TransportFailure::Other

@@ -20,6 +20,7 @@ import type {
   HumanPause,
   Product,
   RunIndexRow,
+  RunOwner,
   RunProgress,
   RunReport,
   StorageLevel,
@@ -36,7 +37,8 @@ import { ErrorMessage } from "#errors/error-message.tsx";
 import type { OfflineCache } from "#offline/offline.ts";
 import { cachedRun } from "#offline/summaries.ts";
 import { RUNS } from "#routes.ts";
-import { COMPLETENESS_NAMES, LIFECYCLE_NAMES, VERDICT_NAMES } from "./names.ts";
+import { COMPLETENESS_NAMES, LIFECYCLE_NAMES, PRODUCT_NAMES, VERDICT_NAMES } from "./names.ts";
+import { Owner } from "./owner.tsx";
 import { ReplayedMark, RunReportView } from "./run-report.tsx";
 
 /** A run's three axes (ADR 0029): its Verdict and Completeness once it ended. */
@@ -52,6 +54,8 @@ export interface ShownRun {
   readonly axes: RunAxisValues;
   /** The Product the run needs, whose executable resumes it. */
   readonly needs: Product;
+  /** While it is live, the engine that owns it, as its Run index row names it (ADR 0031). */
+  readonly owner?: RunOwner | null | undefined;
   /** Whether it spent, or reserved, money no Limit caps (ADR 0041). */
   readonly uncapped: boolean;
   /** Its Run report, once it ended and the engine answered it (ADR 0102). */
@@ -270,17 +274,28 @@ function Pauses({ pauses }: { readonly pauses: readonly HumanPause[] }): ReactNo
   );
 }
 
-/** Where the run is: its writer, run epoch, last Checkpoint, status line and storage level. */
-function Progress({ progress }: { readonly progress: RunProgress }): ReactNode {
+/** Where the run is: the Product it needs, its owning engine, writer, run epoch, last Checkpoint, status line and storage level. */
+function Progress({ run }: { readonly run: ShownRun }): ReactNode {
+  const { progress, owner } = run;
   const epoch = formatCount(progress.epoch);
+  const noEngine = <Trans>none: no engine works this run</Trans>;
   return (
     <dl className={listClassName}>
-      <Fact term={<Trans>Writer</Trans>}>
-        {progress.writer === "live" ? (
-          <Trans>live: an engine works this run</Trans>
+      <Fact term={<Trans>Product it needs</Trans>}>
+        <span translate="no">{PRODUCT_NAMES[run.needs]}</span>
+      </Fact>
+      <Fact term={<Trans>Owning engine</Trans>}>
+        {/* Keyed, so React replaces the element, never text nodes a page translator moved (react#11538). */}
+        {live(run) && owner !== undefined && owner !== null ? (
+          <span key="owner">
+            <Owner owner={owner} />
+          </span>
         ) : (
-          <Trans>none: no engine works this run</Trans>
+          <span key="none">{noEngine}</span>
         )}
+      </Fact>
+      <Fact term={<Trans>Writer</Trans>}>
+        {progress.writer === "live" ? <Trans>live: an engine works this run</Trans> : noEngine}
       </Fact>
       <Fact term={<Trans>Run epoch</Trans>}>
         <data value={String(progress.epoch)} translate="no">
@@ -441,7 +456,7 @@ function Shown({
         <h2 id="run-progress" className="text-xl font-semibold">
           <Trans>Progress</Trans>
         </h2>
-        <Progress progress={run.progress} />
+        <Progress run={run} />
         <h3 className="font-semibold">
           <Trans>Human pauses</Trans>
         </h3>
@@ -620,6 +635,7 @@ function shownOf(
     progress,
     axes,
     needs: row?.needs ?? before?.needs ?? "collie",
+    owner: row === undefined ? before?.owner : row.owner,
     uncapped: uncapped ?? before?.uncapped ?? false,
     report: progress.lifecycle === "running" ? undefined : (report ?? before?.report),
   };

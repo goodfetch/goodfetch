@@ -475,3 +475,41 @@ test(
     client.close();
   },
 );
+
+test(
+  "a live run's page names the Product the run needs and the engine that owns it",
+  { tags: ["story:12-120", "screen:/runs/$run"] },
+  async () => {
+    const owner = { daemon: { unix: "/home/ada/.local/share/goodfetch/0.1/daemon.sock" } };
+    const client = clientOf(engineOf({ row: rowOf({ needs: "foxhound", owner }) }));
+
+    await openRunPage(client);
+
+    await expect.poll(facts).toMatchObject({
+      "Product it needs": "Foxhound",
+      "Owning engine": "the Daemon at /home/ada/.local/share/goodfetch/0.1/daemon.sock",
+    });
+    client.close();
+  },
+);
+
+test(
+  "an ended run's page names the Product it needs and no owning engine",
+  { tags: ["story:12-120", "screen:/runs/$run"] },
+  async () => {
+    const client = clientOf(
+      engineOf({
+        row: rowOf({ lifecycle: "finished", verdict: "verified", completeness: "complete" }),
+        progress: progressOf({ lifecycle: "finished", writer: "none", last: true }),
+      }),
+    );
+
+    await openRunPage(client);
+
+    await expect.poll(facts).toMatchObject({
+      "Product it needs": "Collie",
+      "Owning engine": "none: no engine works this run",
+    });
+    client.close();
+  },
+);

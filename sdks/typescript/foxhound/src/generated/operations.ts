@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated";
-import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, FailedRequests, RecordsRead, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
 
 /** The params and result of each of Foxhound's operations. */
 export interface FoxhoundOperationTypes {
@@ -12,8 +12,11 @@ export interface FoxhoundOperationTypes {
   "crawl_request.enqueue_links": { params: CrawlRequestEnqueueLinksParams; result: EnqueuedLinks };
   "crawl_request.links": { params: CrawlRequestLinksParams; result: CrawlRequestLinks };
   "crawl_request.push": { params: CrawlRequestPushParams; result: CrawlRequestPushed };
+  "export.save_as": { params: ExportSaveAsParams; result: ExportSaved };
+  "export.stream": { params: ExportStreamParams; result: ExportStreamed };
   "run.add_seed": { params: RunAddSeedParams; result: Enqueued };
   "run.add_seeds": { params: RunAddSeedsParams; result: RunSeedsAdded };
+  "run.export": { params: RunExportParams; result: Export };
   "run.failed_requests": { params: RunFailedRequestsParams; result: FailedRequests };
   "run.outcomes": { params: RunOutcomesParams; result: CrawlRequestOutcomes };
   "run.records": { params: RunRecordsParams; result: RecordsRead };
@@ -85,6 +88,24 @@ export class FoxhoundOperations {
   }
 
   /**
+   * Saves an Export's file, which the engine keeps in its Run's folder, whole or not at all. An Attached engine given the program's path writes it through a hidden temporary file beside it, synced and renamed over it, creating missing folders and replacing a file there; any other engine writes nothing on its own machine and sends the file in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, for the SDK to write. Answers the file's size and SHA-256. A path that cannot be written raises `path_not_writable`, and full or failing storage `file_write_failed`, leaving the path as it was.
+   *
+   * @experimental
+   */
+  exportSaveAs(params: ExportSaveAsParams, options: CallOptions = {}): Promise<ExportSaved> {
+    return this.#caller.call("export.save_as", params, options);
+  }
+
+  /**
+   * Sends an Export's bytes, which the engine keeps in its Run's folder, in order, in `$/chunk` notifications of at most 64 KiB, one per credit granted with `$/credit`, and answers its size and SHA-256 once every byte is sent. Nothing is written on either machine: a program that writes the bytes itself meets its own language's file errors.
+   *
+   * @experimental
+   */
+  exportStream(params: ExportStreamParams, options: CallOptions = {}): Promise<ExportStreamed> {
+    return this.#caller.call("export.stream", params, options);
+  }
+
+  /**
    * Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl fails with `run_not_found`.
    *
    * @experimental
@@ -100,6 +121,15 @@ export class FoxhoundOperations {
    */
   runAddSeeds(params: RunAddSeedsParams, options: CallOptions = {}): Promise<RunSeedsAdded> {
     return this.#caller.call("run.add_seeds", params, options);
+  }
+
+  /**
+   * Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named (`json`, one array of the Records' values; `jsonl`, one value per line), UTF-8 with no BOM, characters written as themselves and each value as it was committed. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.
+   *
+   * @experimental
+   */
+  runExport(params: RunExportParams, options: CallOptions = {}): Promise<Export> {
+    return this.#caller.call("run.export", params, options);
   }
 
   /**

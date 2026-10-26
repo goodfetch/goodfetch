@@ -4300,6 +4300,187 @@
       ],
       "type": "object"
     },
+    "Export": {
+      "description": "What `run.export` answers once the Export's file is whole (ADR 0103).",
+      "properties": {
+        "compression": {
+          "$ref": "#/$defs/ExportCompression",
+          "arrived_in": "0.1",
+          "description": "Its compression."
+        },
+        "export_id": {
+          "$ref": "#/$defs/ExportId",
+          "arrived_in": "0.1",
+          "description": "The Export, which `export.save_as` and `export.stream` take."
+        },
+        "format": {
+          "$ref": "#/$defs/ExportFormat",
+          "arrived_in": "0.1",
+          "description": "Its format."
+        },
+        "last_number": {
+          "arrived_in": "0.1",
+          "description": "The number of the last Record it holds, 0 when it holds none.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "How many Records it holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "Its size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "export_id",
+        "format",
+        "compression",
+        "records",
+        "last_number",
+        "size",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "ExportCompression": {
+      "description": "How an Export's bytes are compressed.",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "Not compressed.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExportFormat": {
+      "description": "An Export's format, named, never inferred from a file name (ADR 0103).",
+      "oneOf": [
+        {
+          "const": "json",
+          "description": "One JSON array of the Records' values.",
+          "type": "string"
+        },
+        {
+          "const": "jsonl",
+          "description": "One Record's value per line, each line ended by a line feed.",
+          "type": "string"
+        }
+      ]
+    },
+    "ExportId": {
+      "description": "An Export of a Run, named by the engine when its file is whole:\n`<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase\nhexadecimal, so two Exports of the same bytes are one file.",
+      "type": "string"
+    },
+    "ExportSaveAsParams": {
+      "additionalProperties": false,
+      "description": "What `export.save_as` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "export_id": {
+          "$ref": "#/$defs/ExportId",
+          "arrived_in": "0.1",
+          "description": "The Export."
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "The program's path, absolute, which an Attached engine writes\nitself; any other engine leaves it to the SDK and sends the file's\nbytes instead.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "export_id"
+      ],
+      "type": "object"
+    },
+    "ExportSaved": {
+      "description": "What `export.save_as` answers once the file is whole.",
+      "properties": {
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "Whether the engine wrote the program's path itself; when not, the\n`$/chunk` notifications before this answer carried every byte, and\nthe SDK writes the path.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "size",
+        "sha256",
+        "written"
+      ],
+      "type": "object"
+    },
+    "ExportStreamParams": {
+      "additionalProperties": false,
+      "description": "What `export.stream` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "export_id": {
+          "$ref": "#/$defs/ExportId",
+          "arrived_in": "0.1",
+          "description": "The Export."
+        }
+      },
+      "required": [
+        "export_id"
+      ],
+      "type": "object"
+    },
+    "ExportStreamed": {
+      "description": "What `export.stream` answers once it sent every byte.",
+      "properties": {
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its bytes, in lowercase hexadecimal.",
+          "type": "string"
+        },
+        "size": {
+          "arrived_in": "0.1",
+          "description": "The file's size in bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size",
+        "sha256"
+      ],
+      "type": "object"
+    },
     "ExportedAuditEntry": {
       "description": "One entry of an exported Audit log, one line of its JSONL: the entry\nand the hash that chains it to the line before it.",
       "properties": {
@@ -9524,6 +9705,43 @@
       },
       "required": [
         "run_id"
+      ],
+      "type": "object"
+    },
+    "RunExportParams": {
+      "additionalProperties": false,
+      "description": "What `run.export` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "compression": {
+          "$ref": "#/$defs/ExportCompression",
+          "arrived_in": "0.1",
+          "default": "none",
+          "description": "The compression, none when absent."
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "format": {
+          "$ref": "#/$defs/ExportFormat",
+          "arrived_in": "0.1",
+          "description": "The format."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset",
+        "format"
       ],
       "type": "object"
     },

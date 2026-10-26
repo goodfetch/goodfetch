@@ -5,17 +5,21 @@
 use std::fmt::{self, Debug, Formatter};
 
 use crate::blocks::{body, fit, text};
+use crate::contacts::contacts;
 use crate::extractor::{BuiltIn, Extractor};
 use crate::light::light;
 use crate::main_content::{main_content, main_text_length};
 use crate::markdown::markdown;
-use crate::references::{References, references};
+use crate::references::{Head, References, references};
 use crate::shadow::composed;
+use crate::structured_data::{json_ld, microdata};
 use crate::tables::tables;
 use goodfetch_protocol::page::{
     Asked, FormatsRequest, HtmlFormat, HtmlKind, MainContent, MarkdownContent, MarkdownFormat,
-    MarkdownOptions, PageFormats,
+    MarkdownOptions, Metadata, PageFormats,
 };
+use scraper::Html;
+use url::Url;
 
 /// A page's document as a tier serialized it: its HTML as text, decoded
 /// already, its URL after redirects and its base URL (its first
@@ -110,11 +114,22 @@ pub fn formats(
         links,
         images,
         media,
-    } = if request.links.is_some() || request.images.is_some() || request.media.is_some() {
+        head,
+    } = if request.links.is_some()
+        || request.images.is_some()
+        || request.media.is_some()
+        || request.metadata.is_some()
+    {
         references(document.html, document.base_url)
     } else {
         References::default()
     };
+    // One tree of the document as a person sees it, for the formats a
+    // tree reads.
+    let tree =
+        (request.tables.is_some() || request.metadata.is_some() || request.contacts.is_some())
+            .then(|| Html::parse_document(&seen));
+    let tree = tree.as_ref();
     PageFormats {
         url: document.url.to_owned(),
         base_url: document.base_url.to_owned(),
@@ -140,7 +155,47 @@ pub fn formats(
         links: request.links.map(|Asked| links),
         images: request.images.map(|Asked| images),
         media: request.media.map(|Asked| media),
-        tables: request.tables.map(|Asked| tables(&seen)),
+        tables: request.tables.and(tree).map(tables),
+        metadata: request
+            .metadata
+            .and(tree)
+            .map(|tree| metadata(head, tree, document.base_url)),
+        contacts: request
+            .contacts
+            .and(tree)
+            .map(|tree| contacts(tree, document.base_url)),
+    }
+}
+
+/// The document's metadata: its head's, read by the streaming pass, and
+/// its structured data, read from `tree`, its canonical URL and microdata
+/// URLs resolved against `base_url`.
+fn metadata(head: Head, tree: &Html, base_url: &str) -> Metadata {
+    let Head {
+        title,
+        description,
+        canonical,
+        lang,
+        open_graph,
+        twitter,
+        meta,
+    } = head;
+    let canonical = canonical.and_then(|href| {
+        Url::parse(base_url)
+            .and_then(|base| base.join(&href))
+            .ok()
+            .map(String::from)
+    });
+    Metadata {
+        title,
+        description,
+        canonical,
+        lang,
+        open_graph,
+        twitter,
+        json_ld: json_ld(tree),
+        microdata: microdata(tree, base_url),
+        meta,
     }
 }
 
@@ -183,6 +238,8 @@ pub fn fuzz_formats(data: &[u8]) {
         images: Some(Asked),
         media: Some(Asked),
         tables: Some(Asked),
+        metadata: Some(Asked),
+        contacts: Some(Asked),
     };
     let _ = formats(&document, &request, &Context::default());
     let _ = light(&html);

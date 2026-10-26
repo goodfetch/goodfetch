@@ -1234,6 +1234,17 @@ pub struct FormatsRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub tables: Option<Asked>,
+    /// The page's metadata: its title, description, canonical URL,
+    /// language, Open Graph and Twitter tags, JSON-LD blocks and microdata
+    /// items.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub metadata: Option<Asked>,
+    /// The e-mail addresses, telephone numbers and social profiles the
+    /// page shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub contacts: Option<Asked>,
 }
 
 /// A link of the page: an `<a href>` or `<area href>`, in document order.
@@ -1323,6 +1334,172 @@ pub struct Table {
     pub body_rows: Vec<Vec<String>>,
 }
 
+/// One `<meta>` tag of a vocabulary, Open Graph's or Twitter's, in
+/// document order: a property a page writes more than once, such as
+/// `og:image`, is listed once per tag.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MetaTag {
+    /// Its `property`, else its `name`, as written, such as `og:title`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub property: String,
+    /// Its `content`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub content: String,
+}
+
+/// A microdata item (the HTML Standard's microdata), as its JSON
+/// conversion writes it, with every field given.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MicrodataItem {
+    /// Its `itemtype` tokens; empty when it has none.
+    #[serde(rename = "type")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub types: Vec<String>,
+    /// Its `itemid`, resolved against the document's base URL; `null` when
+    /// it has none or it does not parse.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub id: Option<String>,
+    /// Its properties, by name, each name's values in tree order.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub properties: BTreeMap<String, Vec<MicrodataValue>>,
+}
+
+/// The value of a microdata property: text, or an item of its own.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum MicrodataValue {
+    /// Text: the element's content, value or resolved URL, as the HTML
+    /// Standard reads each element.
+    Text(String),
+    /// An item, the element having `itemscope`.
+    Item(MicrodataItem),
+}
+
+/// The page's metadata, each value as the document writes it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Metadata {
+    /// Its first `<title>`'s text, white space collapsed; `null` when it
+    /// has none.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub title: Option<String>,
+    /// Its `<meta name="description">`'s content; `null` when it has none.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub description: Option<String>,
+    /// Its `<link rel="canonical">`'s `href` resolved against the base URL;
+    /// `null` when it has none or it does not parse.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub canonical: Option<String>,
+    /// Its root element's `lang`; `null` when it has none.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lang: Option<String>,
+    /// Its Open Graph tags: every `<meta property>` not named `twitter:`,
+    /// and every `<meta name>` named `og:`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub open_graph: Vec<MetaTag>,
+    /// Its Twitter tags, those named `twitter:`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub twitter: Vec<MetaTag>,
+    /// Each `<script type="application/ld+json">` block that parses, as
+    /// JSON, in document order.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub json_ld: Vec<Value>,
+    /// Its top-level microdata items, in tree order.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub microdata: Vec<MicrodataItem>,
+    /// Its `<meta name>` tags other than Open Graph's and Twitter's, by name
+    /// in lower case, the first of a name kept.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub meta: BTreeMap<String, String>,
+}
+
+/// An e-mail address the page shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Email {
+    /// The address.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub value: String,
+    /// The text it was read from: its `mailto:` link's text, else the
+    /// address as the text writes it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub text: String,
+}
+
+/// A telephone number the page shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Phone {
+    /// The number as written: its `tel:` link's number, else the text's.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub value: String,
+    /// The text it was read from: its `tel:` link's text, else the number
+    /// as the text writes it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub text: String,
+    /// The number in E.164, such as `+33123456789`, when it carries its
+    /// country code or the document's language tag carries a region, and
+    /// it is a valid number there; `null` otherwise, as no country is
+    /// guessed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub e164: Option<String>,
+}
+
+/// A social network whose profiles the page links to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SocialNetwork {
+    /// X, formerly Twitter.
+    X,
+    /// `LinkedIn`.
+    Linkedin,
+    /// Facebook.
+    Facebook,
+    /// Instagram.
+    Instagram,
+    /// `YouTube`.
+    Youtube,
+    /// `TikTok`.
+    Tiktok,
+    /// `GitHub`.
+    Github,
+    /// A Mastodon instance's profile, linked with `rel="me"`.
+    Mastodon,
+}
+
+/// A social profile the page links to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SocialProfile {
+    /// The profile's URL, resolved against the document's base URL.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub value: String,
+    /// Its link's text, white space collapsed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub text: String,
+    /// Its network.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub network: SocialNetwork,
+}
+
+/// The contacts the page shows, each value once, where it first appears.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Contacts {
+    /// Its e-mail addresses, from `mailto:` links and from text matching
+    /// the HTML Standard's valid e-mail address syntax.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub emails: Vec<Email>,
+    /// Its telephone numbers, from `tel:` links and from text.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub phones: Vec<Phone>,
+    /// Its social profiles, from links to the extractor's list of networks.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub social: Vec<SocialProfile>,
+}
+
 /// What `page.formats` takes: the page, and the formats it asks for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1389,6 +1566,14 @@ pub struct PageFormats {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Vec<Table>", extend("arrived_in" = "0.1"))]
     pub tables: Option<Vec<Table>>,
+    /// Its metadata, when the request asked for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Metadata", extend("arrived_in" = "0.1"))]
+    pub metadata: Option<Metadata>,
+    /// Its contacts, when the request asked for them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Contacts", extend("arrived_in" = "0.1"))]
+    pub contacts: Option<Contacts>,
 }
 
 /// The JSON Schema of what `page.formats` answers to `request`: the

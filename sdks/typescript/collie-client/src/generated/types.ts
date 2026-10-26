@@ -454,6 +454,13 @@ export type MarkdownContent = "main" | "full" | "fit";
  */
 export type MediaKind = "video" | "audio";
 /**
+ * The value of a microdata property: text, or an item of its own.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MicrodataValue".
+ */
+export type MicrodataValue = string | MicrodataItem1;
+/**
  * What `needs_you.changed` carries: one change of the list.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -928,6 +935,13 @@ export type SessionEventName = "page";
  * via the `definition` "SessionId".
  */
 export type SessionId = string;
+/**
+ * A social network whose profiles the page links to.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SocialNetwork".
+ */
+export type SocialNetwork = "x" | "linkedin" | "facebook" | "instagram" | "youtube" | "tiktok" | "github" | "mastodon";
 /**
  * Whether a start began its Run or found it.
  *
@@ -1796,6 +1810,88 @@ export interface ConsoleFailure1 {
    * What happened.
    */
   message: string;
+}
+/**
+ * The contacts the page shows, each value once, where it first appears.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Contacts".
+ */
+export interface Contacts {
+  /**
+   * Its e-mail addresses, from `mailto:` links and from text matching
+   * the HTML Standard's valid e-mail address syntax.
+   */
+  emails: Email[];
+  /**
+   * Its telephone numbers, from `tel:` links and from text.
+   */
+  phones: Phone[];
+  /**
+   * Its social profiles, from links to the extractor's list of networks.
+   */
+  social: SocialProfile[];
+}
+/**
+ * An e-mail address the page shows.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Email".
+ */
+export interface Email {
+  /**
+   * The text it was read from: its `mailto:` link's text, else the
+   * address as the text writes it.
+   */
+  text: string;
+  /**
+   * The address.
+   */
+  value: string;
+}
+/**
+ * A telephone number the page shows.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Phone".
+ */
+export interface Phone {
+  /**
+   * The number in E.164, such as `+33123456789`, when it carries its
+   * country code or the document's language tag carries a region, and
+   * it is a valid number there; `null` otherwise, as no country is
+   * guessed.
+   */
+  e164?: string | null;
+  /**
+   * The text it was read from: its `tel:` link's text, else the number
+   * as the text writes it.
+   */
+  text: string;
+  /**
+   * The number as written: its `tel:` link's number, else the text's.
+   */
+  value: string;
+}
+/**
+ * A social profile the page links to.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SocialProfile".
+ */
+export interface SocialProfile {
+  /**
+   * Its network.
+   */
+  network: "x" | "linkedin" | "facebook" | "instagram" | "youtube" | "tiktok" | "github" | "mastodon";
+  /**
+   * Its link's text, white space collapsed.
+   */
+  text: string;
+  /**
+   * The profile's URL, resolved against the document's base URL.
+   */
+  value: string;
 }
 /**
  * A count of matches, bounded on either side or both: an exact count is
@@ -2684,6 +2780,11 @@ export interface FormatsParams {
  */
 export interface FormatsRequest {
   /**
+   * The e-mail addresses, telephone numbers and social profiles the
+   * page shows.
+   */
+  contacts?: Asked | null;
+  /**
    * The page's HTML: its main content by default.
    */
   html?: HtmlFormat | null;
@@ -2703,6 +2804,12 @@ export interface FormatsRequest {
    * The page's video and audio sources, each with its URL resolved.
    */
   media?: Asked | null;
+  /**
+   * The page's metadata: its title, description, canonical URL,
+   * language, Open Graph and Twitter tags, JSON-LD blocks and microdata
+   * items.
+   */
+  metadata?: Asked | null;
   /**
    * The page's tables, as rows of cells.
    */
@@ -2740,6 +2847,11 @@ export interface MarkdownOptions {
  */
 export interface FormatsRequest1 {
   /**
+   * The e-mail addresses, telephone numbers and social profiles the
+   * page shows.
+   */
+  contacts?: Asked | null;
+  /**
    * The page's HTML: its main content by default.
    */
   html?: HtmlFormat | null;
@@ -2759,6 +2871,12 @@ export interface FormatsRequest1 {
    * The page's video and audio sources, each with its URL resolved.
    */
   media?: Asked | null;
+  /**
+   * The page's metadata: its title, description, canonical URL,
+   * language, Open Graph and Twitter tags, JSON-LD blocks and microdata
+   * items.
+   */
+  metadata?: Asked | null;
   /**
    * The page's tables, as rows of cells.
    */
@@ -3562,6 +3680,119 @@ export interface MemoryReading {
   used: number;
 }
 /**
+ * One `<meta>` tag of a vocabulary, Open Graph's or Twitter's, in
+ * document order: a property a page writes more than once, such as
+ * `og:image`, is listed once per tag.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MetaTag".
+ */
+export interface MetaTag {
+  /**
+   * Its `content`.
+   */
+  content: string;
+  /**
+   * Its `property`, else its `name`, as written, such as `og:title`.
+   */
+  property: string;
+}
+/**
+ * The page's metadata, each value as the document writes it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Metadata".
+ */
+export interface Metadata {
+  /**
+   * Its `<link rel="canonical">`'s `href` resolved against the base URL;
+   * `null` when it has none or it does not parse.
+   */
+  canonical?: string | null;
+  /**
+   * Its `<meta name="description">`'s content; `null` when it has none.
+   */
+  description?: string | null;
+  /**
+   * Each `<script type="application/ld+json">` block that parses, as
+   * JSON, in document order.
+   */
+  json_ld: unknown[];
+  /**
+   * Its root element's `lang`; `null` when it has none.
+   */
+  lang?: string | null;
+  /**
+   * Its `<meta name>` tags other than Open Graph's and Twitter's, by name
+   * in lower case, the first of a name kept.
+   */
+  meta: {
+    [k: string]: string;
+  };
+  /**
+   * Its top-level microdata items, in tree order.
+   */
+  microdata: MicrodataItem[];
+  /**
+   * Its Open Graph tags: every `<meta property>` not named `twitter:`,
+   * and every `<meta name>` named `og:`.
+   */
+  open_graph: MetaTag[];
+  /**
+   * Its first `<title>`'s text, white space collapsed; `null` when it
+   * has none.
+   */
+  title?: string | null;
+  /**
+   * Its Twitter tags, those named `twitter:`.
+   */
+  twitter: MetaTag[];
+}
+/**
+ * A microdata item (the HTML Standard's microdata), as its JSON
+ * conversion writes it, with every field given.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MicrodataItem".
+ */
+export interface MicrodataItem {
+  /**
+   * Its `itemid`, resolved against the document's base URL; `null` when
+   * it has none or it does not parse.
+   */
+  id?: string | null;
+  /**
+   * Its properties, by name, each name's values in tree order.
+   */
+  properties: {
+    [k: string]: MicrodataValue[];
+  };
+  /**
+   * Its `itemtype` tokens; empty when it has none.
+   */
+  type: string[];
+}
+/**
+ * An item, the element having `itemscope`.
+ */
+export interface MicrodataItem1 {
+  /**
+   * Its `itemid`, resolved against the document's base URL; `null` when
+   * it has none or it does not parse.
+   */
+  id?: string | null;
+  /**
+   * Its properties, by name, each name's values in tree order.
+   */
+  properties: {
+    [k: string]: MicrodataValue[];
+  };
+  /**
+   * Its `itemtype` tokens; empty when it has none.
+   */
+  type: string[];
+}
+/**
  * One kind of a Run's Model allowance (ADR 0107): the most model Usage
  * of that kind the Run may spend, past which its model calls are refused
  * while it goes on.
@@ -4303,6 +4534,7 @@ export interface PageFormats {
    * else its URL.
    */
   base_url: string;
+  contacts?: Contacts1;
   /**
    * Its HTML of the kind the request named, when it asked for it.
    */
@@ -4327,6 +4559,7 @@ export interface PageFormats {
    * Its media sources, when the request asked for them.
    */
   media?: Media[];
+  metadata?: Metadata1;
   /**
    * Its tables, when the request asked for them.
    */
@@ -4339,6 +4572,72 @@ export interface PageFormats {
    * The document's URL, after redirects.
    */
   url: string;
+}
+/**
+ * Its contacts, when the request asked for them.
+ */
+export interface Contacts1 {
+  /**
+   * Its e-mail addresses, from `mailto:` links and from text matching
+   * the HTML Standard's valid e-mail address syntax.
+   */
+  emails: Email[];
+  /**
+   * Its telephone numbers, from `tel:` links and from text.
+   */
+  phones: Phone[];
+  /**
+   * Its social profiles, from links to the extractor's list of networks.
+   */
+  social: SocialProfile[];
+}
+/**
+ * Its metadata, when the request asked for it.
+ */
+export interface Metadata1 {
+  /**
+   * Its `<link rel="canonical">`'s `href` resolved against the base URL;
+   * `null` when it has none or it does not parse.
+   */
+  canonical?: string | null;
+  /**
+   * Its `<meta name="description">`'s content; `null` when it has none.
+   */
+  description?: string | null;
+  /**
+   * Each `<script type="application/ld+json">` block that parses, as
+   * JSON, in document order.
+   */
+  json_ld: unknown[];
+  /**
+   * Its root element's `lang`; `null` when it has none.
+   */
+  lang?: string | null;
+  /**
+   * Its `<meta name>` tags other than Open Graph's and Twitter's, by name
+   * in lower case, the first of a name kept.
+   */
+  meta: {
+    [k: string]: string;
+  };
+  /**
+   * Its top-level microdata items, in tree order.
+   */
+  microdata: MicrodataItem[];
+  /**
+   * Its Open Graph tags: every `<meta property>` not named `twitter:`,
+   * and every `<meta name>` named `og:`.
+   */
+  open_graph: MetaTag[];
+  /**
+   * Its first `<title>`'s text, white space collapsed; `null` when it
+   * has none.
+   */
+  title?: string | null;
+  /**
+   * Its Twitter tags, those named `twitter:`.
+   */
+  twitter: MetaTag[];
 }
 /**
  * A table of the page, in document order, a table inside another listed

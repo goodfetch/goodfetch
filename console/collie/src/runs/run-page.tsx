@@ -8,11 +8,13 @@
 // that folder and its free space. A live run offers stop and checkpoint; an
 // interrupted or stopped run shows the command that resumes it, with
 // **Copy resume command**. It names the Product the run needs and, while
-// it is live, the engine that owns it (ADR 0098). On Collie's engine, a run
-// that needs Foxhound keeps these views in a tab of their own beside one
-// tab per Foxhound view, each showing the `not_in_product` its operation
-// answers, whose fix names Foxhound: Collie's build holds no Foxhound
-// screen.
+// it is live, the engine that owns it (ADR 0098). A run that needs
+// Foxhound keeps these views in a tab of their own beside one tab per
+// Foxhound view: in Foxhound's build, the views its build entry passes
+// (ADR 0087); in Collie's, on Collie's engine, each showing the
+// `not_in_product` its operation answers, whose fix names Foxhound, since
+// Collie's build holds no Foxhound screen. A Collie run shows only the
+// views every run has.
 //
 // The page follows the run through `run.progress`, each read after the
 // position it last read, reading the run's Usage with each value and its
@@ -38,6 +40,7 @@ import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useEffect, useReducer, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ConsoleClient } from "#client/client.ts";
+import type { RunView } from "#console-build.ts";
 import { formatBytes, formatCount, formatInstant } from "#format.ts";
 import { ErrorMessage } from "#errors/error-message.tsx";
 import type { FoxhoundOperation } from "#generated/foxhound.ts";
@@ -97,6 +100,13 @@ export type FoxhoundViewRead =
 /** What each view only Foxhound carries shows, by its operation; one not yet answered is being read. */
 export type FoxhoundViewReads = Readonly<Partial<Record<FoxhoundOperation, FoxhoundViewRead>>>;
 
+/** A view of a run that needs Foxhound, which the page's build carries, as the page shows it. */
+export interface BuildView {
+  readonly id: string;
+  readonly name: MessageDescriptor;
+  readonly content: ReactNode;
+}
+
 /** What a run's page shows. */
 export interface RunPageViewProps {
   readonly runId: string;
@@ -115,6 +125,12 @@ export interface RunPageViewProps {
    * none puts the page in no tabs.
    */
   readonly foxhoundViews?: FoxhoundViewReads | undefined;
+  /**
+   * For a run that needs Foxhound in Foxhound's build, the views the build
+   * carries, each in a tab beside the views every run has; none puts the
+   * page in no tabs.
+   */
+  readonly buildViews?: readonly BuildView[] | undefined;
 }
 
 /** Each Product's executable, whose `run resume` resumes a run that needs it (ADR 0090). */
@@ -500,9 +516,34 @@ function Announcement({
 /** The run, as the page read it: in tabs when it has views only Foxhound carries. */
 function Shown({
   foxhoundViews,
+  buildViews,
   ...props
 }: Omit<RunPageViewProps, "read"> & { readonly run: ShownRun }): ReactNode {
   const { t, i18n } = useLingui();
+  if (buildViews !== undefined) {
+    return (
+      <Tabs.Root defaultValue="run" className="flex flex-col gap-4">
+        <Tabs.List aria-label={t`Run views`} className="flex flex-wrap gap-1 border-b">
+          <Tabs.Tab value="run" className={tabClassName}>
+            <Trans>Run</Trans>
+          </Tabs.Tab>
+          {buildViews.map((view) => (
+            <Tabs.Tab key={view.id} value={view.id} className={tabClassName}>
+              {i18n._(view.name)}
+            </Tabs.Tab>
+          ))}
+        </Tabs.List>
+        <Tabs.Panel value="run" className="flex flex-col gap-6">
+          <CommonViews {...props} />
+        </Tabs.Panel>
+        {buildViews.map((view) => (
+          <Tabs.Panel key={view.id} value={view.id} className={sectionClassName}>
+            {view.content}
+          </Tabs.Panel>
+        ))}
+      </Tabs.Root>
+    );
+  }
   if (foxhoundViews === undefined) {
     return <CommonViews {...props} />;
   }
@@ -534,7 +575,9 @@ function Shown({
 function CommonViews({
   run,
   ...props
-}: Omit<RunPageViewProps, "read" | "foxhoundViews"> & { readonly run: ShownRun }): ReactNode {
+}: Omit<RunPageViewProps, "read" | "foxhoundViews" | "buildViews"> & {
+  readonly run: ShownRun;
+}): ReactNode {
   return (
     <>
       {run.report?.recording?.mode === "replay" ? (
@@ -755,17 +798,19 @@ function isShown(value: unknown): value is ShownRun {
   );
 }
 
-/** A run's page over `client`, what it shows kept in `offline`. */
+/** A run's page over `client`, what it shows kept in `offline`, with the views of a run that needs Foxhound `runViews` gives. */
 export function RunPage({
   client,
   runId,
   readOnly,
   offline,
+  runViews = [],
 }: {
   readonly client: ConsoleClient;
   readonly runId: string;
   readonly readOnly: boolean;
   readonly offline?: OfflineCache | undefined;
+  readonly runViews?: readonly RunView[] | undefined;
 }): ReactNode {
   const connection = useSyncExternalStore(
     (changed) => client.watch(changed),
@@ -776,10 +821,21 @@ export function RunPage({
     wakes: 0,
   });
   const [foxhoundViews, setFoxhoundViews] = useState<FoxhoundViewReads>({});
-  // A run that needs Foxhound, on Collie's engine: its Foxhound views ask
-  // the engine, which refuses each with `not_in_product` (ADR 0098).
-  const foxhoundRun =
-    read.kind === "shown" && read.run.needs === "foxhound" && client.engine?.product === "collie";
+  const needsFoxhound = read.kind === "shown" && read.run.needs === "foxhound";
+  // A run that needs Foxhound, in a build that carries its views: the
+  // build's views, each in its tab (ADR 0087).
+  const buildViews =
+    needsFoxhound && runViews.length > 0
+      ? runViews.map((view) => ({
+          id: view.id,
+          name: view.name,
+          content: view.content({ client, runId }),
+        }))
+      : undefined;
+  // A run that needs Foxhound, in Collie's build on Collie's engine: its
+  // Foxhound views ask the engine, which refuses each with
+  // `not_in_product` (ADR 0098).
+  const foxhoundRun = needsFoxhound && runViews.length === 0 && client.engine?.product === "collie";
   const asksFoxhound = connection === "connected" && foxhoundRun;
   const [{ busy, notice }, setAction] = useState<{
     readonly busy: boolean;
@@ -901,6 +957,7 @@ export function RunPage({
       runId={runId}
       read={read}
       foxhoundViews={foxhoundRun ? foxhoundViews : undefined}
+      buildViews={buildViews}
       readOnly={readOnly}
       busy={busy}
       notice={notice}

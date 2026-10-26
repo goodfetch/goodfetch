@@ -68,7 +68,7 @@ use std::time::Duration;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::SecondCopies;
-use goodfetch_engine::client::{Client, ClientRequestError, Sent};
+use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
@@ -101,6 +101,7 @@ use goodfetch_session_pool::Effect;
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
 
+use crate::code_free::CodeFree;
 use crate::lease::{CommitError, SoFar, WorkItemLease};
 use crate::progress::SharedInFlight;
 use crate::tier_choice::weighing::{self, StagedRun};
@@ -253,6 +254,9 @@ pub(super) struct Gating {
     /// The types `crawl.content_types` lets the request's own document
     /// be: its Label's, else the Run's (ADR 0119).
     pub(super) content_types: ContentTypes,
+    /// What a code-free crawl handles its requests with, in place of the
+    /// program's handler; none when the program handles them.
+    pub(super) code_free: Option<Arc<CodeFree>>,
 }
 
 impl Gating {
@@ -435,7 +439,8 @@ pub(super) async fn attempt(
             let params = on.params(None, None, None);
             let hand_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
             let handed_over = gating.tiers.hand_over(hand_over);
-            let answer = handled(&run, context.client(), &params, &lease).await;
+            let answer =
+                handled(&run, &context, gating.code_free.as_deref(), &params, &lease).await;
             drop(handed_over);
             answer
         }
@@ -819,7 +824,14 @@ impl On<'_> {
             tiers.response(&page_id),
         );
         let handed_over = self.gating.tiers.hand_over(hand_over);
-        let answer = handled(run, self.context.client(), &params, lease).await;
+        let answer = handled(
+            run,
+            self.context,
+            self.gating.code_free.as_deref(),
+            &params,
+            lease,
+        )
+        .await;
         drop(handed_over);
         let escalated = tiers.escalated(&page_id);
         tiers.close(&page_id);
@@ -927,7 +939,14 @@ impl On<'_> {
             InFlightPhase::Handling,
         );
         let params = self.params(Some(tier), Some(page_id.clone()), response);
-        handled(self.run, self.context.client(), &params, self.lease).await
+        handled(
+            self.run,
+            self.context,
+            self.gating.code_free.as_deref(),
+            &params,
+            self.lease,
+        )
+        .await
     }
 
     /// The attempt on the `browser` tier: the Run's pages handed over,
@@ -994,7 +1013,14 @@ impl On<'_> {
             Some(page_id.clone()),
             navigated.response,
         );
-        let answer = handled(run, self.context.client(), &params, lease).await;
+        let answer = handled(
+            run,
+            self.context,
+            self.gating.code_free.as_deref(),
+            &params,
+            lease,
+        )
+        .await;
         drop(handed_over);
         let ended_at = tiers.browser_ended_at(&page_id);
         tiers.close_browser(&page_id).await;
@@ -1179,14 +1205,28 @@ async fn record_tier(
     });
 }
 
-/// The handler request of one attempt, bounded by its lease.
+/// The handler request of one attempt, bounded by its lease: sent to the
+/// program's handler through `context`'s Client, or, for a code-free crawl,
+/// handled by the engine itself with `code_free` (ADR 0103).
 async fn handled(
     run: &Run,
-    client: &Client,
+    context: &CallContext,
+    code_free: Option<&CodeFree>,
     params: &CrawlRequestHandleParams,
     lease: &WorkItemLease,
 ) -> Answer {
-    match client
+    if let Some(code_free) = code_free {
+        return tokio::select! {
+            biased;
+            handled = code_free.handled(params, context, run.point_in_time()) => match handled {
+                Ok(handled) => Answer::Handled(handled),
+                Err(error) => failed(&error),
+            },
+            _ = lease.ended() => Answer::LeaseEnded,
+        };
+    }
+    match context
+        .client()
         .send::<CrawlRequestHandled>(&CRAWL_REQUEST_HANDLE, params)
         .await
     {

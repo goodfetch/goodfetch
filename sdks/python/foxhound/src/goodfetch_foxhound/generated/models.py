@@ -14,6 +14,7 @@ from goodfetch_collie_client.generated.models import (
     Completeness,
     EndingError,
     ExplainedSetting,
+    FormatsRequest,
     Lifecycle,
     Locator,
     NothingDone,
@@ -394,6 +395,24 @@ class ExportStreamed(BaseModel):
     """The SHA-256 of its bytes, in lowercase hexadecimal."""
     size: Annotated[int, Field(ge=0)]
     """The file's size in bytes."""
+
+
+class ExtractionFollow(StrEnum):
+    """Which pages a code-free crawl fetches beyond its seeds."""
+
+    scope = "scope"
+    """
+    Every link of every page the crawl's scope admits: each `a[href]`
+    of the page, admitted as `enqueueLinks` admits it.
+    """
+    sitemap = "sitemap"
+    """
+    The entries of the sitemaps each seed's site names in its
+    robots.txt, read as a sitemap seed of that robots.txt reads them,
+    and no page's links.
+    """
+    none = "none"
+    """The seeds alone."""
 
 
 class HttpBody(RootModel[str]):
@@ -1075,6 +1094,27 @@ class SkipReason(StrEnum):
     """Its response's content type is not one its Label takes."""
 
 
+class CrawlExtraction(BaseModel):
+    """
+    What a crawl with no handler reads from each page it fetches (spec
+    #582's code-free crawls; ADR 0103): the engine declares the Label
+    [`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by
+    `url`, whose JSON Schema is generated from `formats`, and commits one
+    Record per page fetched: the page's formats, as `page.formats` answers
+    them (its `url` the document's, after redirects), its response's
+    `status` and `fetchedAt`, when the engine read it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    follow: ExtractionFollow | None = "scope"
+    """Which pages the crawl fetches beyond its seeds: `scope` by default."""
+    formats: FormatsRequest
+    """The formats each page's Record holds, as `page.formats` takes them."""
+
+
 class CrawlRequestEnqueueParams(BaseModel):
     """
     What `crawl_request.enqueue` takes: one request to add, from one attempt
@@ -1569,6 +1609,15 @@ class CrawlStartParams(BaseModel):
     `dataset_duplicate`, and a key on a field the schema does not
     require with `dataset_key_invalid`. Its handlers push Records only
     into these.
+    """
+    extraction: CrawlExtraction | None = None
+    """
+    What a crawl with no handler reads from each page (a code-free
+    crawl, ADR 0103): the engine handles each request itself and
+    declares the Label and the Dataset it commits into, so such a start
+    declares no Dataset of its own, else it fails with
+    `invalid_params`. None for a crawl whose program handles its
+    requests.
     """
     labels: dict[str, LabelDeclaration] | None = None
     """

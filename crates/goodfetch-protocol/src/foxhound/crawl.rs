@@ -23,7 +23,7 @@ use crate::foxhound::fetch::FetchTier;
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
 use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
-use crate::page::{PageId, PageResponse};
+use crate::page::{FormatsRequest, PageId, PageResponse};
 use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunStarted, Tags};
 use crate::settings::ProjectSettings;
 
@@ -196,6 +196,48 @@ pub struct LabelDeclaration {
     pub settings: serde_json::Map<String, Value>,
 }
 
+/// The one Label a code-free crawl declares, which every request it
+/// enqueues takes (ADR 0103).
+pub const CODE_FREE_LABEL: &str = "page";
+
+/// The one Dataset a code-free crawl declares, keyed by `url` (ADR 0103).
+pub const CODE_FREE_DATASET: &str = "pages";
+
+/// What a crawl with no handler reads from each page it fetches (spec
+/// #582's code-free crawls; ADR 0103): the engine declares the Label
+/// [`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by
+/// `url`, whose JSON Schema is generated from `formats`, and commits one
+/// Record per page fetched: the page's formats, as `page.formats` answers
+/// them (its `url` the document's, after redirects), its response's
+/// `status` and `fetchedAt`, when the engine read it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CrawlExtraction {
+    /// The formats each page's Record holds, as `page.formats` takes them.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub formats: FormatsRequest,
+    /// Which pages the crawl fetches beyond its seeds: `scope` by default.
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub follow: ExtractionFollow,
+}
+
+/// Which pages a code-free crawl fetches beyond its seeds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtractionFollow {
+    /// Every link of every page the crawl's scope admits: each `a[href]`
+    /// of the page, admitted as `enqueueLinks` admits it.
+    #[default]
+    Scope,
+    /// The entries of the sitemaps each seed's site names in its
+    /// robots.txt, read as a sitemap seed of that robots.txt reads them,
+    /// and no page's links.
+    Sitemap,
+    /// The seeds alone.
+    None,
+}
+
 /// What `crawl.start` takes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -227,6 +269,15 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub datasets: Vec<DatasetDeclaration>,
+    /// What a crawl with no handler reads from each page (a code-free
+    /// crawl, ADR 0103): the engine handles each request itself and
+    /// declares the Label and the Dataset it commits into, so such a start
+    /// declares no Dataset of its own, else it fails with
+    /// `invalid_params`. None for a crawl whose program handles its
+    /// requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub extraction: Option<CrawlExtraction>,
     /// The Run's settings, nested by key: the run layer (ADR 0083).
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]

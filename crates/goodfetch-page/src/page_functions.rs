@@ -11,7 +11,11 @@
 //! script's call waits until the script is registered, or removed once its
 //! call was cancelled (`InitScripts`). `page.wait_for_function` runs the
 //! same expression again at each interval until its result is truthy
-//! ([`until_truthy`]).
+//! ([`until_truthy`]). A locator's page function, `locator.evaluate_all`'s
+//! and `locator.wait_for_function`'s, takes the locator's matches first,
+//! found in its world by `targets.js` ([`on_locator`]): every match, or
+//! the one match, a check while there are none or several answering no
+//! value, which is falsy.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -23,11 +27,13 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::page::functions::LOCATOR_EVALUATE_ALL;
 use goodfetch_protocol::page::functions::{
     Evaluated, PAGE_FUNCTION_FAILED, PAGE_VALUE_INVALID, PageFunctionFailedDetails,
     PageValueDirection, PageValueInvalidDetails, PageValueKind, World,
 };
-use goodfetch_protocol::page::waits::PAGE_WAIT_FOR_FUNCTION;
+use goodfetch_protocol::page::waits::{LOCATOR_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_FUNCTION};
 use goodfetch_protocol::page::{PageId, SessionId};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
@@ -41,6 +47,11 @@ use crate::trace;
 /// the program's source, its argument and whether one was given.
 const WALK: &str = include_str!("page_functions/walk.js");
 
+/// The finder of a locator's matches, a function the engine calls with the
+/// selector and whether the page function takes one match, which answers
+/// the thunk the walker calls.
+const TARGETS: &str = include_str!("page_functions/targets.js");
+
 /// The Provenance action that marks a main-world injection.
 const MAIN_WORLD_INJECTION: &str = "main_world_injection";
 
@@ -49,10 +60,40 @@ const MAIN_WORLD_INJECTION: &str = "main_world_injection";
 /// the walker's scope, and the argument parsed from its JSON text, so that
 /// a key such as `__proto__` stays a key.
 pub(crate) fn expression(function: &str, arg: Option<&Value>) -> String {
+    called(function, arg, "undefined")
+}
+
+/// Which matches of its locator a page function takes first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Matches {
+    /// The array of every match, none included (`locator.evaluate_all`).
+    All,
+    /// The one match (`locator.wait_for_function`); none or several make
+    /// the check answer no value.
+    One,
+}
+
+/// The expression `Runtime.evaluate` runs for the page function `function`
+/// of a locator whose CSS selector is `selector`, with `arg`: as
+/// [`expression`]'s, the locator's `matches` found in the same world and
+/// handed to the function before its argument.
+pub(crate) fn on_locator(
+    function: &str,
+    arg: Option<&Value>,
+    (selector, matches): (&str, Matches),
+) -> String {
+    let selector = Value::String(selector.to_owned()).to_string();
+    let one = matches == Matches::One;
+    called(function, arg, &format!("({TARGETS})({selector}, {one})"))
+}
+
+/// The walker's call for `function` with `arg`, `targets` the expression
+/// of the thunk that finds a locator's matches, or `undefined`.
+fn called(function: &str, arg: Option<&Value>, targets: &str) -> String {
     let text = arg.map_or_else(|| "null".to_owned(), Value::to_string);
     let literal = Value::String(text).to_string();
     let given = arg.is_some();
-    format!("({WALK})(() => (\n{function}\n), JSON.parse({literal}), {given})")
+    format!("({WALK})(() => (\n{function}\n), JSON.parse({literal}), {given}, {targets})")
 }
 
 /// What the walker answers.
@@ -67,6 +108,20 @@ struct Walked {
     thrown: Option<Thrown>,
     #[serde(default)]
     expression: bool,
+    /// A locator's selector the page does not parse.
+    #[serde(default)]
+    unparsed: Option<Unparsed>,
+    /// How many elements a locator matched where its page function takes
+    /// one, when they were not one.
+    #[serde(default)]
+    missing: Option<u64>,
+}
+
+/// A locator's selector the page does not parse, and what it said.
+#[derive(Deserialize)]
+struct Unparsed {
+    selector: String,
+    message: String,
 }
 
 /// A value that is there, `null` included, which `Option<Value>` alone
@@ -106,15 +161,13 @@ struct Thrown {
 /// Dropping the future runs the function no more.
 pub(crate) async fn until_truthy(
     driver: &PageDriver,
-    expression: &str,
+    (expression, operation): (&str, &'static str),
     world: World,
     (interval, clock): (Duration, &Clock),
     surface: Surface,
 ) -> Result<Evaluated, CallError> {
     loop {
-        let returns = driver
-            .evaluate(expression, world, PAGE_WAIT_FOR_FUNCTION.name)
-            .await?;
+        let returns = driver.evaluate(expression, world, operation).await?;
         let evaluated = answered(returns, surface)?;
         if truthy(evaluated.value.as_ref()) {
             return Ok(evaluated);
@@ -156,6 +209,15 @@ pub(crate) fn answered(
                 surface,
             )
         })?;
+    if let Some(Unparsed { selector, message }) = walked.unparsed {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("`{selector}` is no CSS selector the page parses: {message}"),
+        ));
+    }
+    if walked.missing.is_some() {
+        return Ok(Evaluated { value: None });
+    }
     if let Some(invalid) = walked.invalid {
         return Err(value_invalid(invalid));
     }
@@ -469,6 +531,10 @@ pub(crate) enum Injection {
     InitScript,
     /// A main-world `page.wait_for_function`.
     WaitForFunction,
+    /// A main-world `locator.evaluate_all`.
+    EvaluateAll,
+    /// A main-world `locator.wait_for_function`.
+    LocatorWaitForFunction,
 }
 
 impl Injection {
@@ -478,6 +544,8 @@ impl Injection {
             Self::Evaluate => goodfetch_protocol::page::functions::PAGE_EVALUATE.name,
             Self::InitScript => goodfetch_protocol::page::functions::PAGE_ADD_INIT_SCRIPT.name,
             Self::WaitForFunction => PAGE_WAIT_FOR_FUNCTION.name,
+            Self::EvaluateAll => LOCATOR_EVALUATE_ALL.name,
+            Self::LocatorWaitForFunction => LOCATOR_WAIT_FOR_FUNCTION.name,
         }
     }
 }

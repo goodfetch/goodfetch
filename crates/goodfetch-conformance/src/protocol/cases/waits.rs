@@ -19,8 +19,8 @@ use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::route::PAGE_ROUTE;
 use goodfetch_protocol::page::session_pages::PAGE_CLOSE;
 use goodfetch_protocol::page::waits::{
-    LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_LOAD_STATE,
-    PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,
+    LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, LOCATOR_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_FUNCTION,
+    PAGE_WAIT_FOR_LOAD_STATE, PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,
 };
 use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO, PATTERN_UNSUPPORTED};
 use goodfetch_protocol::settings::TIMEOUT_WAIT;
@@ -363,7 +363,8 @@ fn response_before_awaited(
 /// `locator.wait_for` and `locator.wait_for_count` resolve on the
 /// actionability pages that show, replace and de-duplicate their target
 /// after they load, each waited for from the document's commit, and
-/// `page.wait_for_function` answers the first truthy value.
+/// `page.wait_for_function` and `locator.wait_for_function` answer the
+/// first truthy value.
 fn re_rendering_pages(
     exchange: &mut Exchange<'_>,
     site: &Site,
@@ -434,7 +435,64 @@ fn re_rendering_pages(
         "`wait_for_count` answers 1 once the transient duplicate left",
         counted["result"]["count"] == 1,
     );
+    locator_function_waits(exchange, &page, (&hidden, &rerender, &ambiguous), checks)?;
     exchange.finish(run_id)
+}
+
+/// `locator.wait_for_function` hands its function the one element its
+/// locator matches, resolved again at each check: it passes once the hidden
+/// target shows, on the element a re-render put in place of the disabled
+/// one, and once a transient duplicate left, never calling the function
+/// while several match.
+fn locator_function_waits(
+    exchange: &mut Exchange<'_>,
+    page: &Value,
+    (hidden, rerender, ambiguous): (&str, &str, &str),
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let locator = |selector: &str| json!({ "page_id": page, "selector": selector });
+    exchange.go(page, hidden, true, checks)?;
+    let element = exchange.call(
+        LOCATOR_WAIT_FOR_FUNCTION.name,
+        &json!({
+            "locator": locator("#target"),
+            "function": "(target, display) => getComputedStyle(target).display !== display && target.textContent",
+            "arg": "none",
+            "polling_interval": 20,
+        }),
+    )?;
+    checks.check(
+        "`locator.wait_for_function` hands the element first and answers its first truthy value",
+        element["result"]["value"] == "Target",
+    );
+
+    exchange.go(page, rerender, true, checks)?;
+    let enabled = exchange.call(
+        LOCATOR_WAIT_FOR_FUNCTION.name,
+        &json!({
+            "locator": locator("#target"),
+            "function": "(target) => !target.disabled && target.isConnected",
+            "polling_interval": 20,
+        }),
+    )?;
+    checks.check(
+        "`locator.wait_for_function` resolves its locator again at each check, so it passes on the element a re-render put in place of the disabled one",
+        enabled["result"]["value"] == true,
+    );
+    exchange.go(page, ambiguous, true, checks)?;
+    let unique = exchange.call(
+        LOCATOR_WAIT_FOR_FUNCTION.name,
+        &json!({
+            "locator": locator("#target"),
+            "function": "(target) => document.querySelectorAll('#target').length === 1 && target.id",
+            "polling_interval": 20,
+        }),
+    )?;
+    checks.check(
+        "`locator.wait_for_function` checks nothing while several elements match, and passes once one does",
+        unique["result"]["value"] == "target",
+    );
+    Ok(())
 }
 
 /// Each wait ends at `timeout.wait`, on the board whose network never
@@ -474,7 +532,7 @@ fn deadlines(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> R
 /// Each wait, with what it waits for on `page`, the live board, where none
 /// passes: its operation, its params and the `waited_for` its deadline
 /// names.
-fn never_passing(page: &Value) -> [(&'static str, Value, &'static str); 7] {
+fn never_passing(page: &Value) -> [(&'static str, Value, &'static str); 8] {
     let never = json!({ "kind": "glob", "pattern": "**/never" });
     let locator = |selector: &str| json!({ "page_id": page, "selector": selector });
     [
@@ -501,6 +559,11 @@ fn never_passing(page: &Value) -> [(&'static str, Value, &'static str); 7] {
         (
             PAGE_WAIT_FOR_FUNCTION.name,
             json!({ "page_id": page, "function": "() => false" }),
+            "function",
+        ),
+        (
+            LOCATOR_WAIT_FOR_FUNCTION.name,
+            json!({ "locator": locator("[data-id=board]"), "function": "(board) => board.id === 'never'" }),
             "function",
         ),
         (

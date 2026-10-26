@@ -24,7 +24,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{ARRIVED_IN, PageId};
+use super::{ARRIVED_IN, Locator, PageId};
 use crate::catalog::{
     ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind, Reach, Stability,
     schema_of,
@@ -73,6 +73,28 @@ pub struct Evaluated {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub value: Option<Value>,
+}
+
+/// What `locator.evaluate_all` takes: the locator, the function's source,
+/// its argument and its world.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LocatorEvaluateAllParams {
+    /// The locator, whose every match the function takes first.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub locator: Locator,
+    /// The page function's JavaScript source: a function, called with the
+    /// array of matches and `arg`, or an expression, which takes neither.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub function: String,
+    /// Its one argument, JSON; absent for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub arg: Option<Value>,
+    /// Where it runs; the main world when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub world: Option<World>,
 }
 
 /// What `page.add_init_script` takes: the page, and the script's source and
@@ -218,6 +240,22 @@ pub const PAGE_EVALUATE: Operation = Operation {
     kind: OperationKind::RoundTrip,
     reach: Reach::SdkOnly,
     params: schema_of::<EvaluateParams>,
+    result: schema_of::<Evaluated>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `locator.evaluate_all`.
+pub const LOCATOR_EVALUATE_ALL: Operation = Operation {
+    name: "locator.evaluate_all",
+    description: "Runs a page function, as `page.evaluate` does, with the array of every element the locator matches first, none included, and its one JSON argument second, and answers its result, awaited, as JSON; the elements stay in the page, so a result holding one raises `page_value_invalid`. A selector the page does not parse raises `invalid_params`, and an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::SdkOnly,
+    params: schema_of::<LocatorEvaluateAllParams>,
     result: schema_of::<Evaluated>,
     events: &[],
     cancellable: true,

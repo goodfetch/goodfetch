@@ -6906,6 +6906,108 @@
       ],
       "type": "object"
     },
+    "LocatorEvaluateAllParams": {
+      "additionalProperties": false,
+      "description": "What `locator.evaluate_all` takes: the locator, the function's source,\nits argument and its world.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "arg": {
+          "arrived_in": "0.1",
+          "description": "Its one argument, JSON; absent for none."
+        },
+        "function": {
+          "arrived_in": "0.1",
+          "description": "The page function's JavaScript source: a function, called with the\narray of matches and `arg`, or an expression, which takes neither.",
+          "type": "string"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator, whose every match the function takes first."
+        },
+        "world": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/World"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where it runs; the main world when absent."
+        }
+      },
+      "required": [
+        "locator",
+        "function"
+      ],
+      "type": "object"
+    },
+    "LocatorWaitForFunctionParams": {
+      "additionalProperties": false,
+      "description": "What `locator.wait_for_function` takes: the locator, the function's\nsource, its argument, its world, and how often it is checked.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "arg": {
+          "arrived_in": "0.1",
+          "description": "Its one argument, JSON; absent for none."
+        },
+        "function": {
+          "arrived_in": "0.1",
+          "description": "The page function's JavaScript source: a function, called with the\nelement and `arg`, or an expression, which takes neither.",
+          "type": "string"
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator, whose one match the function takes first, resolved\nagain at each check."
+        },
+        "polling_interval": {
+          "arrived_in": "0.1",
+          "description": "The milliseconds between two checks, at least 1; absent, about one\nframe's, 16.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "world": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/World"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where it runs; the main world when absent."
+        }
+      },
+      "required": [
+        "locator",
+        "function"
+      ],
+      "type": "object"
+    },
     "LocatorWaitForParams": {
       "additionalProperties": false,
       "description": "What `locator.wait_for` takes: the locator and the state of its element.",

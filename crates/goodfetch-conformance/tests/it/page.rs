@@ -315,13 +315,13 @@ fn the_page_suite_proves_popups_against_collies_attached_engine() {
     prove(POPUPS);
 }
 
-/// Covers: operation:page.reload, story:5-34, story:5-35, operation:page.evaluate, operation:page.add_init_script, error:page_value_invalid, error:page_function_failed
+/// Covers: operation:page.reload, story:5-34, story:5-35, operation:page.evaluate, operation:page.add_init_script, error:page_value_invalid, error:page_function_failed, operation:locator.evaluate_all
 #[test]
 fn the_page_suite_proves_page_functions_against_collies_attached_engine() {
     prove(PAGE_FUNCTIONS);
 }
 
-/// Covers: story:5-19, story:5-20, story:5-21, story:5-22, operation:page.wait_for_url, operation:page.wait_for_request, operation:page.wait_for_response, operation:page.wait_for_load_state, operation:page.wait_for_function, operation:locator.wait_for, operation:locator.wait_for_count, operation:page.evaluate, operation:locator.click, error:deadline_exceeded, setting:timeout.wait, story:5-43, error:pattern_unsupported, operation:page.route
+/// Covers: story:5-19, story:5-20, story:5-21, story:5-22, operation:page.wait_for_url, operation:page.wait_for_request, operation:page.wait_for_response, operation:page.wait_for_load_state, operation:page.wait_for_function, operation:locator.wait_for_function, operation:locator.wait_for, operation:locator.wait_for_count, operation:page.evaluate, operation:locator.click, error:deadline_exceeded, setting:timeout.wait, story:5-43, error:pattern_unsupported, operation:page.route
 #[test]
 fn the_page_suite_proves_waits_against_collies_attached_engine() {
     prove(WAITS);

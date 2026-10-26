@@ -9,12 +9,15 @@
 //! registered by `page.add_init_script` runs before the page's own script
 //! on the next navigation and in a frame added afterwards, until its call
 //! is cancelled, and the Session's Provenance marks the main-world
-//! injection, while a page with none records none.
+//! injection, while a page with none records none. `locator.evaluate_all`
+//! hands a function every element its locator matches, inside open shadow
+//! roots too, with the argument after them, and refuses what
+//! `page.evaluate` refuses (#1597).
 
 use goodfetch_protocol::connection::{CALL_CANCELLED, CANCEL};
 use goodfetch_protocol::page::functions::{
-    PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE, PAGE_FUNCTION_FAILED, PAGE_VALUE_INVALID,
-    PageFunctionFailedDetails, PageValueInvalidDetails,
+    LOCATOR_EVALUATE_ALL, PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE, PAGE_FUNCTION_FAILED,
+    PAGE_VALUE_INVALID, PageFunctionFailedDetails, PageValueInvalidDetails,
 };
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::waits::PAGE_WAIT_FOR_FUNCTION;
@@ -42,6 +45,7 @@ pub(crate) enum Case {
     OutsideJson,
     Thrown,
     InitScript,
+    EvaluateAll,
 }
 
 impl Case {
@@ -60,6 +64,9 @@ impl Case {
             "an-init-script-runs-before-the-pages-scripts-on-the-next-navigation-and-in-new-frames-and-provenance-marks-it" => {
                 Self::InitScript
             }
+            "evaluate-all-hands-every-match-and-one-json-argument-and-refuses-what-evaluate-refuses" => {
+                Self::EvaluateAll
+            }
             _ => return None,
         })
     }
@@ -77,6 +84,7 @@ impl Case {
             Self::OutsideJson => outside_json(connection, site, checks),
             Self::Thrown => thrown(connection, site, checks),
             Self::InitScript => init_script(connection, target, site, checks),
+            Self::EvaluateAll => evaluate_all(connection, target, site, checks),
         }
     }
 }
@@ -129,6 +137,27 @@ fn evaluate(
         params["arg"] = arg;
     }
     let id = connection.request(PAGE_EVALUATE.name, &params)?;
+    Ok(connection.browser_answer(id)?.message)
+}
+
+/// The answer to `locator.evaluate_all` of `function` with `arg` in
+/// `world` on the matches of `selector` on `page`.
+fn evaluated_all(
+    connection: &mut Connection,
+    (page, selector): (&Value, &str),
+    function: &str,
+    arg: Option<Value>,
+    world: &str,
+) -> Result<Value, Gone> {
+    let mut params = json!({
+        "locator": { "page_id": page, "selector": selector },
+        "function": function,
+        "world": world,
+    });
+    if let Some(arg) = arg {
+        params["arg"] = arg;
+    }
+    let id = connection.request(LOCATOR_EVALUATE_ALL.name, &params)?;
     Ok(connection.browser_answer(id)?.message)
 }
 
@@ -528,4 +557,132 @@ fn plain_session(
         answer["result"] == json!({ "value": "page-functions" }),
     );
     Ok(session.is_string().then_some(session))
+}
+
+/// Rows the page lists, one of them inside an open shadow root, which
+/// `locator.evaluate_all` reaches as the guard's CSS does.
+const ROWS: &str = "() => {
+  const list = document.createElement('ul');
+  for (const [index, name] of ['a', 'b', 'c'].entries()) {
+    const row = document.createElement('li');
+    row.dataset.price = String(index + 1);
+    row.textContent = name;
+    list.append(row);
+  }
+  const host = document.createElement('div');
+  host.attachShadow({ mode: 'open' }).innerHTML = '<li data-price=\"4\">d</li>';
+  document.body.append(list, host);
+}";
+
+/// `locator.evaluate_all` hands its function every match, an open shadow
+/// root's included, and its JSON argument after them, in the main world,
+/// where the page's global is, and in an isolated world; no match is an
+/// empty array; a match in the result raises `page_value_invalid`, a
+/// program variable `page_function_failed` whose fix names the argument,
+/// and a selector the page does not parse `invalid_params`; and the
+/// Session's Provenance marks the main-world call.
+fn evaluate_all(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-page-function-evaluate-all";
+    let Some((page, _)) = on_the_page(connection, site, run_id, checks, |_, _| Ok(None))? else {
+        return Ok(());
+    };
+    evaluate(connection, &page, ROWS, None, "main")?;
+    let answer = evaluated_all(
+        connection,
+        (&page, "li"),
+        "(rows, { factor }) => ({ global: window.pageGlobal, rows: rows.map((row) => [row.textContent, Number(row.dataset.price) * factor]) })",
+        Some(json!({ "factor": 10 })),
+        "main",
+    )?;
+    checks.check(
+        "a main-world function takes every match, an open shadow root's included, then its argument, and answers JSON",
+        answer["result"]
+            == json!({ "value": { "global": "from the page", "rows": [["a", 10], ["b", 20], ["c", 30], ["d", 40]] } }),
+    );
+    let answer = evaluated_all(
+        connection,
+        (&page, "li"),
+        "(rows) => [typeof window.pageGlobal, rows.length]",
+        None,
+        "isolated",
+    )?;
+    checks.check(
+        "an isolated-world function takes the matches but sees no page global",
+        answer["result"] == json!({ "value": ["undefined", 4] }),
+    );
+    let answer = evaluated_all(
+        connection,
+        (&page, "#none"),
+        "(rows) => rows.length",
+        None,
+        "main",
+    )?;
+    checks.check(
+        "a locator that matches nothing hands an empty array",
+        answer["result"] == json!({ "value": 0 }),
+    );
+    let answer = evaluated_all(
+        connection,
+        (&page, "li"),
+        "(rows) => ({ first: rows[0] })",
+        None,
+        "isolated",
+    )?;
+    checks.check(
+        format!(
+            "a match in the result raises `{}` naming `$.first` and `node`",
+            PAGE_VALUE_INVALID.name
+        ),
+        details::<PageValueInvalidDetails>(&answer, PAGE_VALUE_INVALID.name).is_some_and(
+            |details| {
+                details.path == "$.first"
+                    && serde_json::to_value(details.kind).ok() == Some(json!("node"))
+            },
+        ),
+    );
+    let answer = evaluated_all(
+        connection,
+        (&page, "li"),
+        "(rows) => rows.map(() => programVariable)",
+        None,
+        "main",
+    )?;
+    checks.check(
+        format!(
+            "reading a variable of the program raises `{}` whose fix names the argument",
+            PAGE_FUNCTION_FAILED.name
+        ),
+        details::<PageFunctionFailedDetails>(&answer, PAGE_FUNCTION_FAILED.name).is_some_and(
+            |details| {
+                details.name.as_deref() == Some("ReferenceError")
+                    && details
+                        .fix
+                        .is_some_and(|fix| fix.contains("programVariable"))
+            },
+        ),
+    );
+    let answer = evaluated_all(
+        connection,
+        (&page, "li["),
+        "(rows) => rows.length",
+        None,
+        "main",
+    )?;
+    checks.check(
+        "a selector the page does not parse raises `invalid_params`",
+        answer["error"]["code"] == json!(-32602),
+    );
+    finish_run(connection, run_id)?;
+    checks.check(
+        "the Session's Provenance marks the main-world `locator.evaluate_all`",
+        injections(target, run_id)
+            .iter()
+            .any(|(by, _)| *by == json!(LOCATOR_EVALUATE_ALL.name)),
+    );
+    Ok(())
 }

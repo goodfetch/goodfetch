@@ -7,11 +7,14 @@
 // argument, and any other value is an expression's, which takes none. The
 // result, awaited, is copied as JSON: `undefined` is dropped from objects and
 // `null` in arrays, `-0` is `0`, and the first value outside JSON stops the
-// walk, answered by its path from `$` and its kind. CDP sends this one
-// function, so its helpers live inside it.
+// walk, answered by its path from `$` and its kind. A locator's page function
+// also gets `targets` (`targets.js`), which answers its matches, handed to the
+// function before the argument, or why there is none to hand (`unparsed`,
+// `missing`), answered as it is. CDP sends this one function, so its helpers
+// live inside it.
 /* eslint-disable unicorn/consistent-function-scoping -- CDP sends the function alone */
 // eslint-disable-next-line no-unused-vars -- the engine's expression calls it
-async function walk(thunk, argument, given) {
+async function walk(thunk, argument, given, targets) {
   // What a thrown value says: an error of any realm by its name, message
   // and stack, any other value as its text.
   const thrownOf = (error) => {
@@ -24,11 +27,19 @@ async function walk(thunk, argument, given) {
       },
     };
   };
+  let target;
+  if (targets !== undefined) {
+    const found = targets();
+    if (!("target" in found)) {
+      return found;
+    }
+    target = found.target;
+  }
   let value;
   try {
     value = thunk();
     if (typeof value === "function") {
-      value = await value(argument);
+      value = await (targets === undefined ? value(argument) : value(target, argument));
     } else if (given) {
       return { expression: true };
     } else {

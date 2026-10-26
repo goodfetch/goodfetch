@@ -67,20 +67,31 @@ fn form(
         .and_then(|result| result[key].as_str().map(ToOwned::to_owned)))
 }
 
-/// On each content-mode page, every form `page.formats` gives is what the
-/// oracle holds for it; "fit" is shorter than "main" on the page with a
-/// navigation list and a link-dense block.
+/// On each content-mode page, every form `page.formats` gives, with the
+/// main-content step `extractor` names (`content.extractor`, the default
+/// when none), is what the oracle holds for it; "fit" is shorter than
+/// "main" on the page with a navigation list and a link-dense block.
 pub(in crate::protocol::cases) fn every_form_matches_the_oracle(
     connection: &mut Connection,
     site: &Site,
+    extractor: Option<&str>,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let Some((index, paths)) = task_pages(site, TASK, checks) else {
         return Ok(());
     };
     let origin = origin_of(&index).to_owned();
-    let run_id = "conformance-formats-content-modes";
-    start_run(connection, site, run_id, &json!({}), checks)?;
+    let run_id = &format!(
+        "conformance-formats-content-modes{}",
+        extractor.map(|name| format!("-{name}")).unwrap_or_default()
+    );
+    start_run(
+        connection,
+        site,
+        run_id,
+        &super::extractor::run_settings(extractor),
+        checks,
+    )?;
     if let Some(page) = new_page(connection, run_id, checks)? {
         let mut records = Vec::new();
         for path in &paths {

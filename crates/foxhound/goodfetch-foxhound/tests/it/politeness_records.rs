@@ -276,7 +276,8 @@ pub(crate) fn marks(records: &[Value]) -> Vec<(String, Value)> {
         .iter()
         .map(|record| {
             let url = record["value"]["url"].as_str().unwrap();
-            let path = url.split_once(HOST).unwrap().1.to_owned();
+            let rest = url.split_once(HOST).unwrap().1;
+            let path = rest[rest.find('/').unwrap()..].to_owned();
             let mark = record["provenance"]
                 .get("robots_txt")
                 .cloned()

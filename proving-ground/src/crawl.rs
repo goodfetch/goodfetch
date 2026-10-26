@@ -219,6 +219,7 @@ pub(crate) struct Families {
     traps: traps::State,
     limits: limits::State,
     facets: facets::State,
+    tiers: tiers::State,
 }
 
 impl Families {
@@ -229,6 +230,7 @@ impl Families {
             traps: traps::State::default(),
             limits: limits::State::default(),
             facets: facets::State::default(),
+            tiers: tiers::State::default(),
         }
     }
 
@@ -263,7 +265,7 @@ impl Families {
             scope::FAMILY => scope::respond(&visit),
             sitemap_seed::FAMILY => sitemap_seed::respond(&visit),
             learning::FAMILY => learning::respond(&visit),
-            tiers::FAMILY => tiers::respond(&visit),
+            tiers::FAMILY => tiers::respond(&visit, &self.tiers),
             _ => scale::respond(&visit),
         })
     }

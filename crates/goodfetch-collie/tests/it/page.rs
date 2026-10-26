@@ -192,6 +192,52 @@ fn a_program_opens_pages_in_the_runs_default_session_and_gets_a_documents_respon
     );
 }
 
+/// An engine whose temporary folder is too deep for the OS's socket paths,
+/// as a sandbox's or a build tool's `TMPDIR` can be, still starts its
+/// browser and goes to a page: Chromium puts its own socket in its
+/// temporary folder and stops when that path is too long.
+///
+/// Covers: operation:run.new_page, operation:page.goto
+#[cfg(unix)]
+#[test]
+fn an_engine_under_a_deep_temporary_folder_starts_its_browser_and_goes_to_a_page() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let temporary = env
+        .folder()
+        .join("a folder as deep as a sandbox's or a build tool's temporary folder can be");
+    std::fs::create_dir_all(&temporary).unwrap();
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "deep",
+        &Map::new(),
+        |command| {
+            command.env("TMPDIR", &temporary);
+        },
+    );
+    let url = proving_ground.url("catalog.test", "/catalog/1");
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "deep" }),
+    ));
+    let went = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": url }),
+    );
+    let _ = call(&mut engine, 4, "run.finish", &json!({ "run_id": "deep" }));
+    let _ = engine.finish();
+
+    assert_eq!(went["result"]["response"]["status"], json!(200), "{went}");
+}
+
 /// `page.formats` reads the main content of the page a program is on as
 /// Markdown, answers only the formats asked, and answers a page with no
 /// main content with empty Markdown and `none`, a value.

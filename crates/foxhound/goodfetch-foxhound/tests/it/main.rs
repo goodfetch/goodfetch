@@ -23,6 +23,7 @@ mod daemon;
 mod dataset_pages;
 mod datasets;
 mod decoding;
+mod discovered_api;
 mod enqueue_links;
 mod exports;
 mod extra_loopback;

@@ -84,6 +84,7 @@ use crate::choice::{
     ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
 };
 use crate::content_types::{Accepts, ContentTypes, is_document, typed};
+use crate::discovered_api::Plan;
 use crate::document::{self, Matched, SelectorInvalid, matched};
 use crate::driver::{Deadlines, Hop, Transport, fetch, fetch_accepting};
 use crate::expected_page::{self, Verdict};
@@ -162,6 +163,23 @@ struct Pages {
     /// What the browser tier's document reader learned of each browser
     /// page a handler holds (ADR 0119).
     browser: BTreeMap<PageId, reading::BrowserRead>,
+    /// The plan each `discovered_api` page replays its calls by, and the
+    /// waits armed on it (ADR 0020).
+    replays: BTreeMap<PageId, Replaying>,
+}
+
+/// The calls a `discovered_api` page replays, and the waits armed for
+/// them.
+struct Replaying {
+    plan: Plan,
+    waiters: Vec<Waiter>,
+}
+
+/// A `page.wait_for_response` armed on a `discovered_api` page: answered
+/// with the first replayed call its pattern matches, or told none came.
+struct Waiter {
+    pattern: goodfetch_page::url_pattern::UrlPattern,
+    answer: tokio::sync::oneshot::Sender<Option<goodfetch_protocol::page::events::PageExchange>>,
 }
 
 /// Why a page's links could not be read.
@@ -1115,6 +1133,23 @@ impl FetchTiers {
         pages.links.remove(page_id);
         pages.encodings.remove(page_id);
         pages.use_signals.remove(page_id);
+        pages.replays.remove(page_id);
+    }
+
+    /// Has the served page `page_id`, on `discovered_api`, replay the
+    /// calls of `plan`, its Label's, for the documents its navigations
+    /// reach (ADR 0020).
+    pub fn replay_on(&self, page_id: &PageId, plan: Plan) {
+        let mut pages = lock(&self.served.pages);
+        if pages.open.contains_key(page_id) {
+            pages.replays.insert(
+                page_id.clone(),
+                Replaying {
+                    plan,
+                    waiters: Vec::new(),
+                },
+            );
+        }
     }
 
     /// The call that escalated the served page `page_id` to the browser,
@@ -1342,8 +1377,17 @@ impl HandlerPages for FetchTiers {
         }
     }
 
+    /// The capture of the attempt that handed its Run's pages over last,
+    /// while its handler runs, when it is a sample's browser run (the
+    /// `discovered_api` module); else a program's page's, none.
     fn observer(&self, run: &RunId, session: &SessionId) -> Option<Observer> {
-        ProgramPages.observer(run, session)
+        match self
+            .handed_over(run)
+            .and_then(|hand_over| hand_over.capture.clone())
+        {
+            Some(capture) => Some(Observer::new(capture)),
+            None => ProgramPages.observer(run, session),
+        }
     }
 
     /// The browser tier's document reader of the attempt that handed its

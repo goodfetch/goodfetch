@@ -406,3 +406,63 @@ fn a_label_whose_samples_matched_only_with_the_light_browser_is_learned_onto_it(
         )
     );
 }
+
+/// The plan a `discovered_api` sample run replayed on `/scroll/<n>`: a
+/// page-number listing.
+fn replay_plan(n: u32) -> goodfetch_fetch_tier::ReplayPlan {
+    let document =
+        goodfetch_frontier::Url::parse(&format!("http://tiers.test/scroll/{n}")).unwrap();
+    let calls: Vec<goodfetch_fetch_tier::CapturedCall> = (1..=2)
+        .map(|page| goodfetch_fetch_tier::CapturedCall {
+            url: goodfetch_frontier::Url::parse(&format!(
+                "http://tiers.test/api/scroll/{n}?page={page}"
+            ))
+            .unwrap(),
+            json: serde_json::json!({ "items": [page] }),
+        })
+        .collect();
+    goodfetch_fetch_tier::infer_plan(&document, &calls).unwrap()
+}
+
+/// A Label whose samples all matched, those that differed over `http`
+/// matching on `discovered_api`, is learned onto `discovered_api`, its
+/// later requests replaying the last such sample's plan; one with a
+/// sample that matched only on `light_browser` and others only on
+/// `discovered_api` goes on `browser`, neither tier having served every
+/// one (ADR 0020).
+///
+/// Covers: story:5-119
+#[test]
+fn a_label_whose_samples_matched_on_discovered_api_is_learned_onto_it_with_its_plan() {
+    let mut choices = TierChoices::default();
+    for page in 1..=SAMPLES {
+        let number = u32::try_from(page).unwrap();
+        let weighed = if page == 2 {
+            Weighed::Matched
+        } else {
+            Weighed::MatchedApi {
+                plan: replay_plan(number),
+                light: false,
+            }
+        };
+        weigh(&mut choices, "scroll", &format!("/scroll/{page}"), weighed);
+        let mixed = if page == 1 {
+            Weighed::MatchedLight
+        } else {
+            Weighed::MatchedApi {
+                plan: replay_plan(number),
+                light: false,
+            }
+        };
+        weigh(&mut choices, "mixed", &format!("/mixed/{page}"), mixed);
+    }
+
+    assert_eq!(
+        plan(&mut choices, "scroll", "/scroll/9"),
+        AttemptPlan::Replayed(replay_plan(3))
+    );
+    assert_eq!(
+        tier(&mut choices, "mixed", "/mixed/9"),
+        Some(FetchTier::Browser)
+    );
+}

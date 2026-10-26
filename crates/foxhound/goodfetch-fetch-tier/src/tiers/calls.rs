@@ -49,8 +49,8 @@ use goodfetch_protocol::page::route::UrlMatcher;
 use goodfetch_protocol::page::session_pages::PAGE_CLOSE;
 use goodfetch_protocol::page::waits::{
     Count, Counted, ElementState, LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, LocatorWaitForParams,
-    PAGE_WAIT_FOR_LOAD_STATE, PAGE_WAIT_FOR_URL, Reached, WaitForCountParams,
-    WaitForLoadStateParams, WaitForUrlParams,
+    PAGE_WAIT_FOR_LOAD_STATE, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL, Reached,
+    WaitForCountParams, WaitForExchangeParams, WaitForLoadStateParams, WaitForUrlParams,
 };
 use goodfetch_protocol::page::{
     GotoParams, NAVIGATION_FAILED, NavigationFailedDetails, PAGE_FORMATS, PAGE_GO_BACK,
@@ -73,6 +73,7 @@ use navigation::{Step, navigate};
 
 mod markup;
 mod navigation;
+mod replayed;
 
 /// The answer to the call `operation`, its params `params`, on the served
 /// page `page_id`; `None` for a page no tier serves, a call the page crate
@@ -167,6 +168,10 @@ pub(super) fn answer(
             let params: ResponseBodyParams = read(params)?;
             Some(body(tiers, page_id, page, operation, &params.request_id))
         }
+        name if name == PAGE_WAIT_FOR_RESPONSE.name => {
+            let params: WaitForExchangeParams = read(params)?;
+            Some(replayed::arm(tiers, page_id, &page, operation, &params))
+        }
         _ => Some(ready(Err(tiers.unserved(page_id, operation, false)))),
     }
 }
@@ -210,7 +215,16 @@ fn navigated(
     let tiers = tiers.clone();
     let page_id = page_id.clone();
     Some(Box::pin(async move {
-        let navigated = navigate(&tiers, &page_id, page, step, operation).await?;
+        let navigated = navigate(&tiers, &page_id, page.clone(), step, operation).await?;
+        // A `discovered_api` page replays its document's calls for the
+        // waits armed before it (the `replayed` module).
+        if let Some(document) = navigated
+            .response
+            .as_ref()
+            .and_then(|response| Url::parse(&response.url).ok())
+        {
+            replayed::replay(&tiers, &page_id, &page, &document).await;
+        }
         Ok(encoded(&navigated))
     }))
 }
@@ -393,6 +407,24 @@ async fn request(
     page: ServedPage,
     params: PageRequestParams,
 ) -> Result<PageResponse, CallError> {
+    let run = page.document.run.clone();
+    let fetched = sent(tiers, page_id, &page, &params).await?;
+    answered(tiers, page_id, &run, fetched).await
+}
+
+/// What a request `params` of the served page `page_id`, `page`, was
+/// answered, its redirects followed as `page.request` follows them,
+/// each hop through the navigation gate.
+///
+/// # Errors
+///
+/// As [`request`]'s.
+async fn sent(
+    tiers: &FetchTiers,
+    page_id: &PageId,
+    page: &ServedPage,
+    params: &PageRequestParams,
+) -> Result<Fetched, CallError> {
     let max_redirects = params.max_redirects.unwrap_or(MAX_REDIRECTS);
     if max_redirects > MAX_REDIRECTS {
         return Err(CallError::new(
@@ -417,7 +449,7 @@ async fn request(
         mut method,
         headers,
         mut body,
-    } = asked(&params)?;
+    } = asked(params)?;
     let mut chain = vec![url.to_string()];
     loop {
         let permit = gate
@@ -462,7 +494,7 @@ async fn request(
             }
             None => {}
         }
-        return answered(tiers, page_id, &run, fetched).await;
+        return Ok(fetched);
     }
 }
 

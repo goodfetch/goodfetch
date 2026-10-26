@@ -27,6 +27,7 @@ mod charset_tests;
 mod choice;
 mod content_types;
 mod decoding;
+mod discovered_api;
 mod document;
 mod driver;
 mod expected_page;
@@ -51,6 +52,7 @@ pub use chain::{Following, Gating, HopGate, Skip, Stop, follow};
 pub use charset::fuzz_prescan;
 pub use choice::{Choosing, Forced, LabelSettings, SetTier, TierChoice};
 pub use content_types::ContentTypes;
+pub use discovered_api::{Call as CapturedCall, Capture, Plan as ReplayPlan, infer as infer_plan};
 pub use document::{Matched, SelectorInvalid};
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,

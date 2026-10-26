@@ -65,7 +65,9 @@ use goodfetch_protocol::foxhound::provenance::{
     EncodingProvenance, EncodingSource, ForcedBy, TierChosen, TierProvenance,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::{BodyHandle, Navigated, PageId, PageResponse, SessionId};
+use goodfetch_protocol::page::{
+    BodyHandle, FormatsRequest, Navigated, PageFormats, PageId, PageResponse, SessionId,
+};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
@@ -1082,6 +1084,27 @@ impl FetchTiers {
                 Unserved::Refused(error) => Judged::Failed(error),
             },
         })
+    }
+
+    /// The formats `request` names of the page `page_id`, served or a
+    /// browser's, as `page.formats` answers them: what a code-free crawl
+    /// reads of each page (ADR 0103). `None` before the engine's pages were
+    /// handed over.
+    ///
+    /// # Errors
+    ///
+    /// Those of `page.formats`, such as `closed` for a page closed.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only what it reads; the page stays open.
+    pub async fn formats(
+        &self,
+        page_id: &PageId,
+        request: FormatsRequest,
+    ) -> Option<Result<PageFormats, CallError>> {
+        let pages = Arc::clone(self.served.browser.get()?);
+        Some(pages.formats(page_id, request).await)
     }
 
     /// Closes the served page `page_id`: later calls on it answer

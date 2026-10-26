@@ -66,6 +66,21 @@ const releaseProjects: ServedProject[] =
 
 const visual = visualConfig.playwright(process.env, { ignore: ignored });
 
+// The Console conformance suite (ADRs 0031 and 0068): its cases run only in
+// the projects that name a target, each writing that target's `conformance`
+// document, never in the others, which would write none. Collie's Daemon
+// serving Collie's build is a target here, on a Proving ground; the Stub
+// gateway's project is Foxhound's (spec #593).
+const CONFORMANCE_CASES = "conformance/console/**/*.spec.ts";
+const conformanceProjects: ServedProject[] = [
+  {
+    name: "collie-daemon",
+    testMatch: CONFORMANCE_CASES,
+    metadata: { conformanceTarget: "collie-daemon" },
+    use: { product: "collie", provingGroundSeed: 944 },
+  },
+];
+
 const config: PlaywrightTestConfig<ServedOptions> = defineConfig<ServedOptions>({
   testMatch: "**/*.spec.ts",
   testIgnore: ignored,
@@ -91,7 +106,8 @@ const config: PlaywrightTestConfig<ServedOptions> = defineConfig<ServedOptions>(
   metadata: { features: readFeatureIds(import.meta.dirname) },
   use: { trace: "retain-on-failure" },
   projects: [
-    { name: "default", testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS] },
+    { name: "default", testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS, CONFORMANCE_CASES] },
+    ...conformanceProjects,
     ...releaseProjects,
     ...visual.projects,
   ],

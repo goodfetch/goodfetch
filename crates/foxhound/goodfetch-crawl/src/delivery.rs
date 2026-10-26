@@ -107,6 +107,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
+use crate::code_free::{self, CodeFree};
 use crate::completeness;
 use crate::labels;
 use crate::lease::{CommitError, Leases, WorkItemLease};
@@ -174,7 +175,12 @@ pub(crate) async fn drive(
     mut arrivals: Opened,
     crawls: Crawls,
     settings: RunSettings,
-    (tiers, labels, choices): (FetchTiers, labels::Declared, TierChoices),
+    (tiers, labels, choices, code_free): (
+        FetchTiers,
+        labels::Declared,
+        TierChoices,
+        Option<CodeFree>,
+    ),
 ) {
     let mut servers = vec![Serving {
         context,
@@ -182,7 +188,12 @@ pub(crate) async fn drive(
         in_flight: 0,
         gone: false,
     }];
-    let run_tier = FetchTiers::run_tier(settings.resolved());
+    // A code-free crawl fetches every request: with no tier set, the
+    // engine chooses each, as under `auto` (ADR 0103).
+    let run_tier = match FetchTiers::run_tier(settings.resolved()) {
+        SetTier::Unset if code_free.is_some() => SetTier::Auto,
+        set => set,
+    };
     let races = settings.resolved().boolean(FETCH_TIER_RACE.name) == Some(true);
     // One HTTP tier for the Run, so its hops share connections (#763); the
     // navigation gate fetches robots.txt on it too, from the first
@@ -227,6 +238,7 @@ pub(crate) async fn drive(
         light: FetchTiers::light_allowed(settings.resolved()),
         latencies: tokio::sync::Mutex::new(Latencies::default()),
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
+        code_free: code_free.map(std::sync::Arc::new),
     };
     deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
     crawls.close(run.id()).await;
@@ -457,17 +469,18 @@ pub(crate) async fn resume(
                 labels::read(connection)?,
                 labels::Fragments::read(connection)?,
                 tier_choice::read(connection)?,
+                code_free::read(connection)?,
             ))
         })
         .await;
-    let left = left.map(|(left, declared, fragments, choices)| {
+    let left = left.map(|(left, declared, fragments, choices, extraction)| {
         let labels = labels::Declared::of(&declared, fragments).unwrap_or_else(|error| {
             tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier and pool");
             labels::Declared::default()
         });
-        (left, (labels, choices))
+        (left, (labels, choices, extraction))
     });
-    let (labels, choices) = match left {
+    let (labels, choices, extraction) = match left {
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
             run.end(failed(&run, &error)).await;
@@ -483,13 +496,14 @@ pub(crate) async fn resume(
     };
     let egress = resumed_domain_policy(settings.resolved(), run.id());
     let opened = crawls.open(&run, egress).await;
+    let code_free = CodeFree::of(extraction, &crawls, &tiers);
     drive(
         run,
         context,
         opened,
         crawls,
         settings,
-        (tiers, labels, choices),
+        (tiers, labels, choices, code_free),
     )
     .await;
 }
@@ -523,6 +537,9 @@ struct Fetching<'a> {
     latencies: tokio::sync::Mutex<Latencies>,
     /// How the navigation gate fetches robots.txt.
     robots: Option<RobotsTxtFetch>,
+    /// What a code-free crawl handles its requests with; none when its
+    /// program does.
+    code_free: Option<std::sync::Arc<CodeFree>>,
     /// The Run's domain policy, which judges each redirect hop.
     egress: std::sync::Arc<goodfetch_engine::egress::Policy>,
     /// The requests in flight, as the Run's progress shows them.
@@ -548,6 +565,7 @@ impl Fetching<'_> {
                 .labels
                 .settings
                 .content_types(label, &self.run_content_types),
+            code_free: self.code_free.clone(),
         }
     }
 

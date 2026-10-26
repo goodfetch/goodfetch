@@ -1152,6 +1152,14 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 304
+title = "As a CLI user, I want `goodfetch-foxhound crawl start <url> --format markdown` and `--field name=selector` to crawl in scope with no code and fill one Dataset, `pages`, keyed by URL, so that a site becomes Markdown and fields from one command (J-002, J-011, ADR 0103)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 309
 title = "As a crawl developer, I want Completeness `incomplete` for a depth, request or path-budget cutoff, a Model allowance skip or a stop, and `unverified` for offset pagination, a learned trap, a URL cap, or pages left at `payment_required` or `consent_required`, each reason named in the report with its count, so that a crawl never reads as complete when it is not (ADRs 0005, 0045, 0048, 0107, 0120; pain 10)."
 milestone = "M1 Core"

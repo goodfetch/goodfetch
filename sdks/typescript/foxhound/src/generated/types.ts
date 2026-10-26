@@ -232,7 +232,7 @@ export type ExportCompression = "none";
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "ExportFormat".
  */
-export type ExportFormat = "json" | "jsonl";
+export type ExportFormat = "json" | "jsonl" | "csv" | "xlsx" | "html_table" | "markdown";
 /**
  * An Export of a Run, named by the engine when its file is whole:
  * `<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase
@@ -1447,7 +1447,7 @@ export interface Export {
   /**
    * Its format.
    */
-  format: "json" | "jsonl";
+  format: "json" | "jsonl" | "csv" | "xlsx" | "html_table" | "markdown";
   /**
    * The number of the last Record it holds, 0 when it holds none.
    */
@@ -1785,11 +1785,22 @@ export interface RunExportParams {
   /**
    * The format.
    */
-  format: "json" | "jsonl";
+  format: "json" | "jsonl" | "csv" | "xlsx" | "html_table" | "markdown";
+  /**
+   * The project configuration the Client found, layer 3 (ADR 0083).
+   */
+  project?: ProjectSettings | null;
   /**
    * The crawl's Run.
    */
   run_id: RunId;
+  /**
+   * The Export's settings, nested by key: the run layer (ADR 0083),
+   * whose `export.*` keys shape its format.
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `run.failed_requests` takes.

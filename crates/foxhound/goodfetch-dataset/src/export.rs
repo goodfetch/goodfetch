@@ -4,27 +4,37 @@
 //! time on the Run reader's read-only connection, through the encoder into
 //! the engine's keeping of an Export, which writes them whole into the
 //! Run's folder or not at all; so it serves a live Run and one that ended,
-//! and Records committed meanwhile are not in it. `export.save_as` and
-//! `export.stream` read that file back through the engine's saving and
-//! sending of a kept file.
+//! and Records committed meanwhile are not in it. A table format reads the
+//! same Records twice: once for the columns, the fields every Record holds
+//! in first-seen order, then for the rows. Its `export.*` settings resolve
+//! in the call's own scope: the machine's layers, the call's project
+//! configuration and its run layer. `export.save_as` and `export.stream`
+//! read that file back through the engine's saving and sending of a kept
+//! file.
 
 use std::io::{self, Read};
 
-use goodfetch_engine::run::run_error;
+use goodfetch_engine::run::{run_error, settings_error};
 use goodfetch_engine::run_files::export_file;
 use goodfetch_engine::run_files_operations::{keep_error, save_kept, send_kept};
 use goodfetch_engine::runs::{RunError, RunReader};
+use goodfetch_engine::settings::{Opening, Resolved};
 use goodfetch_engine::{CallContext, CallError, Handler};
+use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::export::{
-    EXPORT_SAVE_AS, EXPORT_STREAM, Export, ExportId, ExportSaveAsParams, ExportSaved,
+    EXPORT_CSV_BOM, EXPORT_CSV_DELIMITER, EXPORT_CSV_NESTED, EXPORT_SAVE_AS, EXPORT_STREAM,
+    EXPORT_XLSX_SHEET, Export, ExportFormat, ExportId, ExportSaveAsParams, ExportSaved,
     ExportStreamParams, ExportStreamed, RUN_EXPORT, RunExportParams,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::settings::{
+    RunOrigin, SETTING_INVALID, SettingInvalidDetails, SettingsLayer,
+};
 use tokio::sync::mpsc;
 
 use crate::declaration::Datasets;
-use crate::encoding::ExportEncoder;
+use crate::encoding::{Columns, ExportEncoder, ExportOptions, Nested, csv_delimiter, sheet_name};
 use crate::records::{self, Query};
 
 /// The most Records one read of the run file takes.
@@ -88,6 +98,7 @@ impl Read for Parts {
 }
 
 async fn export(params: RunExportParams, context: CallContext) -> Result<Export, CallError> {
+    let options = options(&params, &context).await?;
     let failed = |error: RunError| run_error(error, context.identity());
     let mut reader = context
         .runs()
@@ -111,7 +122,24 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
         read: 0,
         ended: false,
     };
-    let encoder = ExportEncoder::new(params.format);
+    let mut columns = Columns::new(options.nested(params.format));
+    if params.format.is_table() {
+        let mut last = 0;
+        loop {
+            let page = page(&mut reader, &params.dataset, last, through)
+                .await
+                .map_err(failed)?;
+            let full = page.len() == PAGE;
+            for (number, value) in page {
+                columns.see(&value);
+                last = number;
+            }
+            if !full {
+                break;
+            }
+        }
+    }
+    let encoder = ExportEncoder::new(params.format, &options, columns);
     let (kept, written) = tokio::join!(
         context.runs().keep_export(params.run_id.clone(), source),
         encode(&mut reader, &params.dataset, through, encoder, send),
@@ -154,20 +182,7 @@ async fn encode(
     encoder.begin(&mut bytes);
     let mut last = 0;
     loop {
-        let dataset = dataset.to_owned();
-        let page = reader
-            .read(move |connection| {
-                records::read_values(
-                    connection,
-                    Query {
-                        dataset: &dataset,
-                        after: last,
-                        through: Some(through),
-                    },
-                    PAGE,
-                )
-            })
-            .await?;
+        let page = page(reader, dataset, last, through).await?;
         let full = page.len() == PAGE;
         for (number, value) in page {
             encoder.value(&value, &mut bytes);
@@ -189,6 +204,103 @@ async fn encode(
         let _ = send.send(Part::End).await;
     }
     Ok((encoder.values(), last))
+}
+
+/// The next page of `dataset`'s Records after the number `after`, through
+/// the number `through`, as committed.
+async fn page(
+    reader: &mut RunReader,
+    dataset: &str,
+    after: u64,
+    through: u64,
+) -> Result<Vec<(u64, String)>, RunError> {
+    let dataset = dataset.to_owned();
+    reader
+        .read(move |connection| {
+            records::read_values(
+                connection,
+                Query {
+                    dataset: &dataset,
+                    after,
+                    through: Some(through),
+                },
+                PAGE,
+            )
+        })
+        .await
+}
+
+/// What the `export.*` settings of the call make of its format, resolved
+/// in its own scope; refused before any Record is read.
+async fn options(
+    params: &RunExportParams,
+    context: &CallContext,
+) -> Result<ExportOptions, CallError> {
+    let (settings, _) = context
+        .runs()
+        .settings()
+        .open(Opening {
+            run: None,
+            project: params.project.clone(),
+            recipe: None,
+            settings: params.settings.clone(),
+            origin: Some(RunOrigin::Settings),
+            acting_for_model: context.surface().acts_for_model(),
+        })
+        .await
+        .map_err(|error| settings_error(&error, context.identity()))?;
+    let resolved = settings.resolved();
+    let mut options = ExportOptions::of(&params.dataset);
+    match params.format {
+        ExportFormat::Csv => {
+            options.csv_bom = resolved.boolean(EXPORT_CSV_BOM.name).unwrap_or(false);
+            if let Some(text) = resolved.value(EXPORT_CSV_DELIMITER.name).as_str() {
+                options.csv_delimiter =
+                    checked(resolved, &EXPORT_CSV_DELIMITER, csv_delimiter(text))?;
+            }
+            if resolved.value(EXPORT_CSV_NESTED.name).as_str() == Some("flatten") {
+                options.csv_nested = Nested::Flatten;
+            }
+        }
+        ExportFormat::Xlsx => {
+            if let Some(text) = resolved.value(EXPORT_XLSX_SHEET.name).as_str() {
+                options.xlsx_sheet = checked(resolved, &EXPORT_XLSX_SHEET, sheet_name(text))?;
+            }
+        }
+        ExportFormat::Json
+        | ExportFormat::Jsonl
+        | ExportFormat::HtmlTable
+        | ExportFormat::Markdown => {}
+    }
+    Ok(options)
+}
+
+/// `value`, or `setting_invalid` naming `setting`, its value, the layer
+/// that set it and what is wrong with it.
+fn checked<T>(
+    resolved: &Resolved,
+    setting: &Setting,
+    value: Result<T, &str>,
+) -> Result<T, CallError> {
+    value.map_err(|reason| {
+        let given = resolved.value(setting.name);
+        let layer = resolved
+            .get(setting.name)
+            .map_or(SettingsLayer::Run, |effective| effective.layer);
+        CallError::new(
+            &SETTING_INVALID,
+            format!(
+                "`{}` is {given} in {}, which {reason}.",
+                setting.name,
+                layer.as_str()
+            ),
+            &SettingInvalidDetails {
+                key: setting.name.to_owned(),
+                layer: Some(layer),
+                reason: format!("{given} {reason}"),
+            },
+        )
+    })
 }
 
 /// An Export ID no Run's folder holds.

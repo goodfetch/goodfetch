@@ -2,7 +2,8 @@
 //! declares `books`, commits three Records through the Datasets' own
 //! commit at ADR 0059's test `Clock` start, the shared Unicode record the
 //! second, in a run file in memory, then writes their Export in each format
-//! through the encoder `run.export` uses, `books.json` and `books.jsonl`,
+//! through the encoder `run.export` uses, `books.json`, `books.jsonl`,
+//! `books.csv`, `books.xlsx`, `books.html` and `books.md`,
 //! into the folder given as the only argument. `xtask compat write` runs
 //! it.
 #![expect(
@@ -12,7 +13,9 @@
 
 use std::path::PathBuf;
 
-use goodfetch_dataset::{Committing, Datasets, ExportEncoder, Query, TABLES, commit, read_values};
+use goodfetch_dataset::{
+    Columns, Committing, Datasets, ExportEncoder, ExportOptions, Query, TABLES, commit, read_values,
+};
 use goodfetch_engine::mask::Masks;
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
@@ -103,11 +106,22 @@ fn main() {
         usize::MAX,
     )
     .expect("invariant: the Records read back");
+    let options = ExportOptions::of("books");
     for (format, name) in [
         (ExportFormat::Json, "books.json"),
         (ExportFormat::Jsonl, "books.jsonl"),
+        (ExportFormat::Csv, "books.csv"),
+        (ExportFormat::Xlsx, "books.xlsx"),
+        (ExportFormat::HtmlTable, "books.html"),
+        (ExportFormat::Markdown, "books.md"),
     ] {
-        let mut encoder = ExportEncoder::new(format);
+        let mut columns = Columns::new(options.nested(format));
+        if format.is_table() {
+            for (_, value) in &committed {
+                columns.see(value);
+            }
+        }
+        let mut encoder = ExportEncoder::new(format, &options, columns);
         let mut bytes = Vec::new();
         encoder.begin(&mut bytes);
         for (_, value) in &committed {

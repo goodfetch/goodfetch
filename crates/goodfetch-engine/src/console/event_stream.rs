@@ -18,7 +18,7 @@ use hyper::header::{self, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
 use tokio::sync::Mutex;
 
-use super::{Answered, Site, secured};
+use super::{Answered, Site, production_headers};
 use crate::people::{SignInRefused, sign_in_id};
 use crate::rpc::ConsoleConnection;
 use crate::rpc::event_stream::{self, Posting};
@@ -109,7 +109,7 @@ impl Site {
             HeaderValue::from_static("text/event-stream"),
         );
         headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-        secured(response, &self.policy)
+        production_headers(response, &self.policy)
     }
 
     /// `POST /protocol/messages/<stream>`: hands the body's messages to the

@@ -5,7 +5,9 @@
 //! read and encoder, from a literal pattern, with no I/O, no sleep and no
 //! timing.
 
-use goodfetch_dataset::{Committing, Datasets, ExportEncoder, Query, TABLES, commit, read_values};
+use goodfetch_dataset::{
+    Columns, Committing, Datasets, ExportEncoder, ExportOptions, Query, TABLES, commit, read_values,
+};
 use goodfetch_engine::mask::Masks;
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
@@ -100,7 +102,7 @@ pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
 /// Writes the Export of `books` in `connection` in `format`, a page at a
 /// time, and answers its size in bytes.
 pub(crate) fn export(connection: &Connection, format: ExportFormat) -> usize {
-    let mut encoder = ExportEncoder::new(format);
+    let mut encoder = ExportEncoder::new(format, &ExportOptions::of("books"), Columns::default());
     let mut bytes = Vec::new();
     encoder.begin(&mut bytes);
     let mut after = 0;

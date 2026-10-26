@@ -330,6 +330,26 @@ class ExportFormat(StrEnum):
     """One JSON array of the Records' values."""
     jsonl = "jsonl"
     """One Record's value per line, each line ended by a line feed."""
+    csv = "csv"
+    """
+    RFC 4180 CSV: a header row of the fields seen, then one row per
+    Record, each line ended by CR LF.
+    """
+    xlsx = "xlsx"
+    """
+    One XLSX workbook of one sheet: a header row of the fields seen,
+    then one row per Record.
+    """
+    html_table = "html_table"
+    """
+    One HTML document holding one table: a header row of the fields
+    seen, then one row per Record.
+    """
+    markdown = "markdown"
+    """
+    One GitHub Flavored Markdown table: a header row of the fields seen,
+    then one row per Record.
+    """
 
 
 class ExportId(RootModel[str]):
@@ -895,8 +915,15 @@ class RunExportParams(BaseModel):
     """The Dataset's name."""
     format: ExportFormat
     """The format."""
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
     run_id: RunId
     """The crawl's Run."""
+    settings: dict[str, Any] | None = None
+    """
+    The Export's settings, nested by key: the run layer (ADR 0083),
+    whose `export.*` keys shape its format.
+    """
 
 
 class RunFailedRequestsParams(BaseModel):

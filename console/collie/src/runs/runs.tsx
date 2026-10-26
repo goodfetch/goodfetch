@@ -51,6 +51,7 @@ import {
   TRIGGER_NAMES,
   VERDICT_NAMES,
 } from "./names.ts";
+import { Form } from "#form.tsx";
 
 /** What the screen read of the Run index. */
 export type Listed =
@@ -249,7 +250,7 @@ function FilterForm({
   };
   return (
     <search aria-label={t`Filter runs`}>
-      <form onSubmit={submit} className="flex flex-col gap-3 rounded-lg border p-4">
+      <Form onSubmit={submit} className="flex flex-col gap-3 rounded-lg border p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field id={`${id}-text`} label={<Trans>Search</Trans>}>
             <input
@@ -438,7 +439,7 @@ function FilterForm({
         >
           <Trans>Apply</Trans>
         </button>
-      </form>
+      </Form>
     </search>
   );
 }

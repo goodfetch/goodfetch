@@ -31,6 +31,7 @@ import {
   type ProjectFile,
 } from "./explain-with.ts";
 import { OperatorPolicy } from "./operator-policy.tsx";
+import { Form } from "#form.tsx";
 
 /** Where the explanation stands. */
 export type Explained =
@@ -184,7 +185,7 @@ export function EngineSettingsView({
             manifest are files under version control, edited there.
           </Trans>
         </p>
-        <form
+        <Form
           onSubmit={submit}
           aria-label={t`Explain with`}
           className="flex flex-col gap-3 rounded-lg border p-4"
@@ -233,7 +234,7 @@ export function EngineSettingsView({
               <Refusal refusal={refusal} />
             </p>
           )}
-        </form>
+        </Form>
         {editNotice === undefined ? null : <EditResult notice={editNotice} />}
         <Explanation explained={explained} readOnly={readOnly} onEdit={onEdit} />
       </section>

@@ -25,6 +25,7 @@ import {
 } from "react";
 import type { ConsoleClient } from "#client/client.ts";
 import { ErrorMessage } from "#errors/error-message.tsx";
+import { Form } from "#form.tsx";
 
 /** Each table's name. */
 const TABLES: Readonly<Record<PolicyTable, MessageDescriptor>> = {
@@ -215,7 +216,7 @@ export function OperatorPolicyView({
             </Trans>
           </p>
           <Entries policy={read.policy} />
-          <form
+          <Form
             onSubmit={submit}
             aria-label={t`Change the Operator policy`}
             className="flex flex-col gap-3 rounded-lg border p-4"
@@ -269,7 +270,7 @@ export function OperatorPolicyView({
             >
               <Trans>Write</Trans>
             </button>
-          </form>
+          </Form>
         </>
       ) : null}
       {notice === undefined ? null : <Notice notice={notice} onReadAgain={onReadAgain} />}

@@ -11,6 +11,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState, type ReactNode, type SubmitEvent } from "react";
 import type { ExplainedSetting, Product } from "@goodfetch/collie-client/generated";
 import { LAYERS, RUN_ORIGINS } from "#settings-layers.ts";
+import { Form } from "#form.tsx";
 
 /** Each Product's name, which no language translates (ADR 0090). */
 const PRODUCTS: Readonly<Record<Product, string>> = {
@@ -124,7 +125,7 @@ function ValueEditor({
     onEdit({ layer, key, value: value.value });
   };
   return (
-    <form onSubmit={submit} className="flex flex-col gap-1">
+    <Form onSubmit={submit} className="flex flex-col gap-1">
       <label htmlFor={field} className="text-sm">
         {layer === "run" ? (
           <Trans>
@@ -167,7 +168,7 @@ function ValueEditor({
           <Trans>Cancel</Trans>
         </button>
       </div>
-    </form>
+    </Form>
   );
 }
 

@@ -1107,6 +1107,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 277
+title = "As a crawl developer, I want every text Export UTF-8, JSON and JSONL with no BOM and characters as themselves, CSV with a BOM only under `export.csv.bom`, and values written as decoded, so that consumers read what the page said (ADR 0119; pitfall D04)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 280
+title = "As a crawl developer, I want the engine's failed write to raise `file_write_failed`, side `engine`, and leave no unfinished file, and an Export at the `critical` storage level to fail before writing, so that an Export I hold is always whole (ADRs 0116, 0122)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 309
 title = "As a crawl developer, I want Completeness `incomplete` for a depth, request or path-budget cutoff, a Model allowance skip or a stop, and `unverified` for offset pagination, a learned trap, a URL cap, or pages left at `payment_required` or `consent_required`, each reason named in the report with its count, so that a crawl never reads as complete when it is not (ADRs 0005, 0045, 0048, 0107, 0120; pain 10)."
 milestone = "M1 Core"

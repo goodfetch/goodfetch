@@ -10,10 +10,6 @@
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the test writes the Goodfetch home's user configuration itself"
-)]
 
 use std::path::Path;
 
@@ -29,7 +25,9 @@ const SEED: u64 = 624;
 
 /// Writes user configuration that maps the Proving ground's hosts to its
 /// address, lists them in `egress.private_ranges` (a model may not), allows
-/// `catalog.test` and `shop.test` and blocks `elsewhere.test`.
+/// `catalog.test` and `shop.test` and blocks `elsewhere.test`, after the
+/// settings every test's home starts with, which keep the engine's JSON log
+/// and so the test's exercise record.
 fn configure(env: &TestEnv, proving_ground: &ProvingGround) {
     let resolve = &proving_ground.description().resolve;
     let hosts: Vec<String> = resolve.keys().map(|host| format!("{host:?}")).collect();
@@ -37,17 +35,11 @@ fn configure(env: &TestEnv, proving_ground: &ProvingGround) {
         .iter()
         .map(|(host, address)| format!("{host:?} = [{address:?}]"))
         .collect();
-    let major = env.home().join("0.0");
-    std::fs::create_dir_all(&major).unwrap();
-    std::fs::write(
-        major.join("configuration.toml"),
-        format!(
-            "version = \"0.1\"\n\n[settings.egress]\nallowed_domains = [\"catalog.test\", \"shop.test\"]\nblocked_domains = [\"elsewhere.test\"]\nprivate_ranges = [{}]\n\n[settings.network.resolve]\n{}\n",
-            hosts.join(", "),
-            mapping.join("\n")
-        ),
-    )
-    .unwrap();
+    env.user_configuration(&format!(
+        "egress.allowed_domains = [\"catalog.test\", \"shop.test\"]\negress.blocked_domains = [\"elsewhere.test\"]\negress.private_ranges = [{}]\nnetwork.resolve = {{ {} }}\n",
+        hosts.join(", "),
+        mapping.join(", ")
+    ));
 }
 
 /// An Attached engine whose Browser cache is `cache`, greeted by a Client

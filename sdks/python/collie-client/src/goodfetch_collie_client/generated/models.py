@@ -4167,6 +4167,64 @@ class Locator(BaseModel):
     """A CSS selector, which also matches inside open shadow roots."""
 
 
+class LocatorEvaluateAllParams(BaseModel):
+    """
+    What `locator.evaluate_all` takes: the locator, the function's source,
+    its argument and its world.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """Its one argument, JSON; absent for none."""
+    function: str
+    """
+    The page function's JavaScript source: a function, called with the
+    array of matches and `arg`, or an expression, which takes neither.
+    """
+    locator: Locator
+    """The locator, whose every match the function takes first."""
+    world: World | None = None
+    """Where it runs; the main world when absent."""
+
+
+class LocatorWaitForFunctionParams(BaseModel):
+    """
+    What `locator.wait_for_function` takes: the locator, the function's
+    source, its argument, its world, and how often it is checked.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """Its one argument, JSON; absent for none."""
+    function: str
+    """
+    The page function's JavaScript source: a function, called with the
+    element and `arg`, or an expression, which takes neither.
+    """
+    locator: Locator
+    """
+    The locator, whose one match the function takes first, resolved
+    again at each check.
+    """
+    polling_interval: Annotated[int | None, Field(ge=0)] = None
+    """
+    The milliseconds between two checks, at least 1; absent, about one
+    frame's, 16.
+    """
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the wait may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none, though an enclosing timeout still
+    applies (ADR 0080).
+    """
+    world: World | None = None
+    """Where it runs; the main world when absent."""
+
+
 class LocatorWaitForParams(BaseModel):
     """What `locator.wait_for` takes: the locator and the state of its element."""
 

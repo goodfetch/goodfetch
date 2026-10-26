@@ -36,7 +36,7 @@ type Run = (Value, Vec<(&'static str, Value)>);
 
 /// What a call answered, as a case compares it: its error's code, else the
 /// part of its result it reads.
-fn read(reply: &Value, part: impl Fn(&Value) -> Value) -> Value {
+pub(crate) fn read(reply: &Value, part: impl Fn(&Value) -> Value) -> Value {
     reply.get("error").map_or_else(
         || part(&reply["result"]),
         |error| error["data"]["code"].clone(),
@@ -218,7 +218,7 @@ fn served_then(script: Value) -> Vec<(&'static str, Value)> {
 
 /// Each request's URL path, how it ended, its error's code and how many
 /// attempts it took.
-fn ended(engine: &mut Attached, run_id: &str) -> Vec<Value> {
+pub(crate) fn ended(engine: &mut Attached, run_id: &str) -> Vec<Value> {
     let answer = engine.call(
         "outcomes",
         "run.outcomes",

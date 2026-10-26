@@ -50,6 +50,12 @@ pub(crate) const BUNDLE_INCREASE_BYTES: u64 = 5_000;
 /// under 1 MB brotli, whatever the pull request says.
 const CONSOLE_CEILING_BYTES: u64 = 1_000_000;
 
+/// ADR 0071: Collie's Console's initial route (what loads before the Runs
+/// screen's first render: the page, its entry script and its stylesheet)
+/// stays under 1.25 times the first build's 111,823 bytes brotli, rounded
+/// up, the ceiling the owner approved (#937).
+const COLLIE_INITIAL_ROUTE_CEILING_BYTES: u64 = 139_779;
+
 /// ADR 0134: at most 8 heap bytes per URL in the Frontier.
 const FRONTIER_BYTES_PER_URL: u64 = 8;
 
@@ -98,13 +104,18 @@ impl Ceiling {
     }
 }
 
-/// The fixed ceilings of ADRs 0087 and 0134. Each starts when its benchmark
+/// The fixed ceilings of ADRs 0071, 0087 and 0134. Each starts when its benchmark
 /// or entry first runs.
-pub(crate) const FIXED_CEILINGS: [Ceiling; 4] = [
+pub(crate) const FIXED_CEILINGS: [Ceiling; 5] = [
     Ceiling::Figure {
         subject: "size-limit/collie-console",
         figure: Figure::Brotli,
         max: CONSOLE_CEILING_BYTES,
+    },
+    Ceiling::Figure {
+        subject: "size-limit/collie-console-initial-route",
+        figure: Figure::Brotli,
+        max: COLLIE_INITIAL_ROUTE_CEILING_BYTES,
     },
     Ceiling::Figure {
         subject: "size-limit/foxhound-console",

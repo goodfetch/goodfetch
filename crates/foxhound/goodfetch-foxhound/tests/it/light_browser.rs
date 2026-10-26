@@ -7,7 +7,8 @@
 //! own process through the engine's bridge; a Label whose pages need
 //! pixels stays on the browser; and a call the tier cannot serve
 //! escalates under `auto` and fails with `browser_required` under a
-//! forced tier.
+//! forced tier. The tier table cases on this tier (spec #582) take each
+//! row's call in turn, forced and under `auto`.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -314,5 +315,256 @@ fn a_call_the_light_browser_cannot_serve_escalates_under_auto_and_fails_when_for
                 json!("locator.click")
             )],
         )
+    );
+}
+
+/// The rows of spec #582's served-call table a handler's call reaches on
+/// the light-browser tier, in the order of the requests that make them.
+/// The question and layout rows (`boundingBox`, `screenshot`) have no call
+/// in the catalog yet (#1091), so only the table's own cases hold them.
+const ROWS: [&str; 9] = [
+    "formats", "rendered", "absent", "response", "script", "click", "goto", "request", "close",
+];
+
+/// What a case reads of a call's result.
+type Part = fn(&Value) -> Value;
+
+/// The call of the row `row` on the handler's page `page_id`, whose
+/// static listing is at `products`: its method, its params and what a
+/// case reads of its result. The waits give up after 100 ms, so in the
+/// browser, which serves them, they answer `deadline_exceeded`.
+fn row_call(row: &str, page_id: &Value, products: &str) -> (&'static str, Value, Part) {
+    let locator = |selector: &str| json!({ "page_id": page_id, "selector": selector });
+    let served: Part = |_| json!("served");
+    match row {
+        "formats" => (
+            "page.formats",
+            json!({ "page_id": page_id, "formats": { "markdown": true } }),
+            |result| result["main_content"].clone(),
+        ),
+        "rendered" => (
+            "locator.wait_for_count",
+            json!({ "locator": locator("li.item"), "count": { "min": 1 } }),
+            |result| result["count"].clone(),
+        ),
+        "absent" => (
+            "locator.wait_for",
+            json!({ "locator": locator("#absent"), "state": "attached", "timeout": 100 }),
+            served,
+        ),
+        "response" => (
+            "page.wait_for_response",
+            json!({
+                "page_id": page_id,
+                "url": { "kind": "glob", "pattern": "**/never" },
+                "timeout": 100,
+            }),
+            served,
+        ),
+        "script" => (
+            "page.evaluate",
+            json!({
+                "page_id": page_id,
+                "function": "() => document.querySelectorAll('li.item').length",
+            }),
+            |result| result["value"].clone(),
+        ),
+        "click" => ("locator.click", json!({ "locator": locator("h1") }), served),
+        "goto" => (
+            "page.goto",
+            json!({ "page_id": page_id, "url": products }),
+            |result| result["response"]["status"].clone(),
+        ),
+        "request" => (
+            "page.request",
+            json!({ "page_id": page_id, "url": products }),
+            |result| result["status"].clone(),
+        ),
+        _ => ("page.close", json!({ "page_id": page_id }), served),
+    }
+}
+
+/// What each row's request saw, by row: each tier its handler ran on, with
+/// its call's answer.
+type ByRow = std::collections::BTreeMap<String, Vec<(Value, Value)>>;
+
+/// A handler that makes, on the page `/blog/<n>` whose `n` is `first` or
+/// more, the call of row `n - first` of [`ROWS`], and records its answer
+/// in `seen`: a call its tier does not serve ends the run with its error,
+/// as an SDK's handler raising it would; any other answer, a served wait's
+/// `deadline_exceeded` included, ends it with no Record. Earlier pages,
+/// the samples, make no row's call and answer the listing's entries as a
+/// Record, which only a tier that ran its script reads.
+fn rows_handler(
+    first: usize,
+    seen: &mut ByRow,
+) -> impl FnMut(&mut Inside<'_>, &Value) -> Value + '_ {
+    move |inside, handle| {
+        let url = handle["crawl_request"]["url"].as_str().unwrap().to_owned();
+        let number: usize = url.rsplit('/').next().unwrap().parse().unwrap();
+        let Some(row) = number.checked_sub(first).and_then(|index| ROWS.get(index)) else {
+            let items = texts(&raw_html(inside, handle), "<li class=\"item\">");
+            return json!({ "result": { "records": [{ "dataset": "pages", "data": { "items": items } }] } });
+        };
+        let products = url.replace(&format!("/blog/{number}"), "/products/1");
+        let (method, params, part) = row_call(row, &handle["page_id"], &products);
+        let reply = inside.call(method, &params);
+        let answer = crate::served_calls::read(&reply, part);
+        seen.entry((*row).to_owned())
+            .or_default()
+            .push((handle["tier"].clone(), answer.clone()));
+        if answer == "browser_required" || answer == "attempt_ended" {
+            json!({ "error": reply["error"] })
+        } else {
+            json!({ "result": { "records": [] } })
+        }
+    }
+}
+
+/// The rows, each with what the light-browser tier answers when it serves
+/// the call: the script-rendered listing's Markdown and its three entries,
+/// read from the document Lightpanda's run of its script left with no
+/// layout; a request; closing the page. `None` for a row it cannot serve
+/// exactly: a wait its document does not meet, a network wait, a script, a
+/// gesture and a navigation, which need a live page (#1653).
+fn on_the_light_browser() -> Vec<(&'static str, Option<Value>)> {
+    vec![
+        ("formats", Some(json!("found"))),
+        ("rendered", Some(json!(3))),
+        ("absent", None),
+        ("response", None),
+        ("script", None),
+        ("click", None),
+        ("goto", None),
+        ("request", Some(json!(200))),
+        ("close", Some(json!("served"))),
+    ]
+}
+
+/// What the browser answers for a row the light-browser tier escalated.
+fn in_the_browser(row: &str) -> Value {
+    match row {
+        "absent" | "response" => json!("deadline_exceeded"),
+        "script" => json!(3),
+        "goto" => json!(200),
+        _ => json!("served"),
+    }
+}
+
+/// Seeds `/blog/<n>` of the Label `listing` for each `n` of `numbers`, with
+/// their paths.
+fn listing(
+    proving_ground: &ProvingGround,
+    numbers: std::ops::Range<usize>,
+) -> (Vec<Value>, Vec<String>) {
+    let paths: Vec<String> = numbers.map(|number| format!("/blog/{number}")).collect();
+    let pages: Vec<(&str, &str)> = paths
+        .iter()
+        .map(|path| (path.as_str(), "listing"))
+        .collect();
+    (seeds(proving_ground, &pages), paths)
+}
+
+/// Tier table cases on a forced light-browser tier: each row's call on a
+/// script-rendered page is served exactly where the table says, its
+/// content read without layout, and any other fails with
+/// `browser_required`, the request ending `failed` in one attempt, nothing
+/// escalating.
+///
+/// Covers: story:6-261, story:6-259, story:5-120, setting:fetch.light_browser, error:browser_required, operation:page.formats, operation:locator.wait_for_count, operation:locator.wait_for, operation:page.wait_for_response, operation:page.evaluate, operation:locator.click, operation:page.goto, operation:page.request, operation:page.close
+#[test]
+fn under_a_forced_light_browser_each_row_is_served_as_the_table_says_or_refused() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let first = 11;
+    let (seeds, paths) = listing(&proving_ground, first..first + ROWS.len());
+
+    let mut seen = ByRow::new();
+    crawl_declaring(
+        &mut engine,
+        "light-table-forced",
+        &seeds,
+        &json!({ "listing": {} }),
+        &settings(
+            &proving_ground,
+            &json!({ "fetch": { "tier": "light_browser", "light_browser": true } }),
+        ),
+        &mut rows_handler(first, &mut seen),
+    );
+    let mut ended = crate::served_calls::ended(&mut engine, "light-table-forced");
+    assert!(engine.finish());
+
+    let mut expected_seen = ByRow::new();
+    let mut expected_ended = Vec::new();
+    for ((row, served), path) in on_the_light_browser().into_iter().zip(&paths) {
+        expected_ended.push(if served.is_some() {
+            json!([path, "succeeded", null, 1])
+        } else {
+            json!([path, "failed", "browser_required", 1])
+        });
+        let answer = served.unwrap_or_else(|| json!("browser_required"));
+        expected_seen.insert(row.to_owned(), vec![(json!("light_browser"), answer)]);
+    }
+    ended.sort_by_key(ToString::to_string);
+    expected_ended.sort_by_key(ToString::to_string);
+    assert_eq!((seen, ended), (expected_seen, expected_ended));
+}
+
+/// The same rows under `auto`, on a Label its samples moved onto the
+/// light-browser tier: a call the tier serves is answered there, and one
+/// it cannot serve exactly ends that run and runs the same handler again
+/// in the browser in the same attempt, where it is served; every request
+/// ends `succeeded` in one attempt, and Provenance names each call that
+/// escalated.
+///
+/// Covers: story:6-261, story:6-259, story:5-120, story:5-115, setting:fetch.light_browser, error:attempt_ended, operation:page.formats, operation:locator.wait_for_count, operation:locator.wait_for, operation:page.wait_for_response, operation:page.evaluate, operation:locator.click, operation:page.goto, operation:page.request, operation:page.close
+#[test]
+fn under_auto_a_call_the_light_browser_cannot_serve_escalates_its_request_once() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let first = 4;
+    let (seeds, _) = listing(&proving_ground, 1..first + ROWS.len());
+
+    let mut seen = ByRow::new();
+    crawl_declaring(
+        &mut engine,
+        "light-table-auto",
+        &seeds,
+        &json!({ "listing": {} }),
+        &settings(
+            &proving_ground,
+            &json!({ "fetch": { "tier": "auto", "light_browser": true } }),
+        ),
+        &mut rows_handler(first, &mut seen),
+    );
+    let ended = crate::served_calls::ended(&mut engine, "light-table-auto");
+    assert!(engine.finish());
+
+    let mut expected_seen = ByRow::new();
+    let mut expected_lines = Vec::new();
+    for (row, served) in on_the_light_browser() {
+        expected_lines.push("listing light_browser compared".to_owned());
+        let runs = if let Some(answer) = served {
+            vec![(json!("light_browser"), answer)]
+        } else {
+            let (call, _, _) = row_call(row, &Value::Null, "");
+            expected_lines.push(format!("listing browser escalation {call}"));
+            vec![
+                (json!("light_browser"), json!("attempt_ended")),
+                (json!("browser"), in_the_browser(row)),
+            ]
+        };
+        expected_seen.insert(row.to_owned(), runs);
+    }
+    let lines = chosen(&env, "light-table-auto", &["listing"]);
+    let not_once: Vec<&Value> = ended
+        .iter()
+        .filter(|outcome| outcome[1] != "succeeded" || outcome[3] != 1)
+        .collect();
+    assert_eq!(
+        (seen, not_once, lines.get(9..).map(<[String]>::to_vec)),
+        (expected_seen, Vec::<&Value>::new(), Some(expected_lines))
     );
 }

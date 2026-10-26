@@ -361,6 +361,22 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 135
+title = "As a user, I want the Console to load fast and stay under 1 MB brotli, its first screen within its own ceiling, so that it opens quickly on a slow link (ADRs 0057, 0071)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 136
+title = "As a user, I want the Runs screen to stay smooth with 10,000 runs and a stream of events, without its memory growing, so that a busy Daemon stays usable (ADR 0071)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 137
 title = "As Goodfetch Cloud, I want the Console to call only catalog operations and take its endpoint and authentication as configuration, so that the same build runs behind the Cloud gateway (ADR 0031; ADR 0037 / CL-06)."
 milestone = "M1 Core"

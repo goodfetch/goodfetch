@@ -22,6 +22,10 @@ overrides:
   # plugin run, takes picomatch the same way: its patch calls picomatch's
   # `isMatch` and `makeRe` where it called micromatch's `any` and `capture`.
   "@lingui/cli>micromatch": "npm:picomatch@2.3.2"
+  # Lighthouse (the Console's lab metrics, ADR 0071) takes fast-uri through
+  # ajv; 3.1.8 and before have open advisories (GHSA-w74x-v6f9-j3xg and
+  # three more) that 3.1.9 fixes. Remove once ajv's own range resolves it.
+  "fast-uri@<3.1.9": 3.1.9
 
 # One version of each shared tool for every package. Playwright's entry is
 # shared by Playwright Test and Vitest's browser provider (ADR 0068).

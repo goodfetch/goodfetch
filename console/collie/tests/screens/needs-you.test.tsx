@@ -14,13 +14,16 @@
 // replaces `*` with a list, dismisses the item or denies the domain with a
 // reason, and a domain from project configuration offers no removal. A
 // certificate whose key changed (ADR 0042) shows both keys, and its person
-// accepts the new key or forgets the pin.
+// accepts the new key or forgets the pin. Its render budget (ADR 0071) is
+// the commits an item added and one resolved take, snapshotted under
+// `<Profiler>`.
 import type { LimitUsage, NeedsYouItem } from "@goodfetch/collie-client/generated";
 import {
   createProtocolAdapter,
   failure,
   type ProtocolAdapter,
 } from "@goodfetch/test-support/protocol-adapter";
+import { Profiler } from "react";
 import { expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
@@ -717,6 +720,65 @@ test(
 
     await expect.poll(() => items().elements().length).toBe(0);
     expect(calls(adapter, "certs.forget")).toEqual([{ host: "self-signed.test" }]);
+    client.close();
+  },
+);
+
+test(
+  "the render budget of Needs you: commits for an item added and for one resolved",
+  { tags: ["screen:/needs-you"] },
+  async () => {
+    const adapter = consoleAdapter();
+    adapter.answer("needs_you.list", { items: [LOW] });
+    const client = clientOf(adapter);
+    let commits = 0;
+    await render(
+      <ConsoleI18n>
+        <Profiler id="needs-you" onRender={() => (commits += 1)}>
+          <Shell client={client} route="/needs-you" />
+        </Profiler>
+      </ConsoleI18n>,
+    );
+    await expect.element(items().nth(0)).toMatchTextContent(FOLDER);
+    await subscribed(adapter);
+    /**
+     * The commits `action` takes until `settled` holds and two frames more,
+     * so a commit the action schedules after it shows is counted too.
+     */
+    const committed = async (action: () => void, settled: () => Promise<void>) => {
+      commits = 0;
+      action();
+      await settled();
+      await new Promise((frame) => requestAnimationFrame(() => requestAnimationFrame(frame)));
+      return commits;
+    };
+
+    const added = await committed(
+      () => {
+        adapter.push({ event: "needs_you.changed", data: { change: "listed", item: STOPPED } }, 1);
+      },
+      async () => {
+        await expect.element(menuLink()).toHaveTextContent("Needs you2");
+        await expect.poll(() => items().elements().length).toBe(2);
+      },
+    );
+    const resolved = await committed(
+      () => {
+        adapter.push(
+          {
+            event: "needs_you.changed",
+            data: { change: "removed", id: LOW.id, reason: "resolved" },
+          },
+          2,
+        );
+      },
+      async () => {
+        await expect.element(menuLink()).toHaveTextContent("Needs you1");
+        await expect.poll(() => items().elements().length).toBe(1);
+      },
+    );
+
+    expect({ added, resolved }).toMatchSnapshot();
     client.close();
   },
 );

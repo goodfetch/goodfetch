@@ -581,7 +581,10 @@ impl BrowserCache {
         }
         let files = store::files(partial.path());
         let unpacked = blocking(|| {
-            if file_name.ends_with(".zip") {
+            if Path::new(&file_name)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+            {
                 extract::unpack(&archive, &files)?;
             } else {
                 extract::place(&archive, &files, &file_name)?;

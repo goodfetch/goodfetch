@@ -206,6 +206,7 @@ pub(crate) async fn drive(
             .unwrap_or_default(),
         choices: tokio::sync::Mutex::new(choices.sampled_as(sampling(settings.resolved()))),
         races,
+        light: FetchTiers::light_allowed(settings.resolved()),
         latencies: tokio::sync::Mutex::new(Latencies::default()),
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
     };
@@ -493,6 +494,9 @@ struct Fetching<'a> {
     choices: tokio::sync::Mutex<TierChoices>,
     /// Whether the Run races its requests' tiers (`fetch.tier_race`).
     races: bool,
+    /// Whether the Run allows the `light_browser` tier, which its samples
+    /// then also run on (`fetch.light_browser`, ADR 0020).
+    light: bool,
     /// The browser-fetch latencies of each Label on each domain, which
     /// time a race's navigation.
     latencies: tokio::sync::Mutex<Latencies>,
@@ -595,7 +599,7 @@ impl Fetching<'_> {
         Tiering::of(
             self.tiers,
             self.http,
-            plan,
+            (plan, self.light),
             self.labels.settings.page_check(&request.label).cloned(),
             second_copies,
         )

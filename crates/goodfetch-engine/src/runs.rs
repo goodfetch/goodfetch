@@ -3358,11 +3358,11 @@ impl Registry {
             .setup
             .location
             .folder(&self.setup.home, &self.setup.version);
-        self.sampled = vec![
-            governor.sample(location),
-            governor.sample(self.setup.home.root().to_owned()),
-            governor.sample(std::env::temp_dir()),
-        ];
+        self.sampled = governor.sample_together([
+            location,
+            self.setup.home.root().to_owned(),
+            std::env::temp_dir(),
+        ]);
         let mut samples = governor.storage();
         let registry = self.runs.clone();
         let token = self.owner.token().clone();

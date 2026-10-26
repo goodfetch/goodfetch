@@ -742,6 +742,35 @@ fn python_docstring_keeps_every_line_of_a_marked_entry_description() {
     );
 }
 
+/// A field whose type is an enum and whose default is one of its values
+/// defaults to that enum's member, which a type checker accepts and which
+/// dumps as the value, never to the value's bare string (fix-queue 115).
+/// Covers: story:1-57
+#[test]
+fn python_enum_field_defaults_to_its_member() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(
+        FOXHOUND,
+        "    /// How many pages to visit.\n    pub pages: u32,\n}",
+        "    /// How many pages to visit.\n    pub pages: u32,\n    \
+         /// Which pages to visit.\n    #[serde(default)]\n    pub follow: SampleFollow,\n}\n\n\
+         /// Which pages a sample crawl visits.\n\
+         #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]\n\
+         #[serde(rename_all = \"snake_case\")]\n\
+         pub enum SampleFollow {\n    /// Every page.\n    #[default]\n    Scope,\n    \
+         /// The seeds alone.\n    None,\n}",
+    );
+
+    codegen(&workspace);
+
+    let models =
+        workspace.read_text("sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py");
+    assert!(
+        models.contains("    follow: SampleFollow | None = SampleFollow.scope\n"),
+        "{models}"
+    );
+}
+
 const POLITENESS_MANIFEST: &str = "crates/foxhound/goodfetch-politeness/Cargo.toml";
 const POLITENESS_LIB: &str = "crates/foxhound/goodfetch-politeness/src/lib.rs";
 

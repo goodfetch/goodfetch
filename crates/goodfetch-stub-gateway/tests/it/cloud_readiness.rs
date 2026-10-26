@@ -10,8 +10,8 @@
     reason = "a synchronous test reads TESTING.md and keeps its result document"
 )]
 #![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+    clippy::disallowed_types,
+    reason = "a test opens its own WebSocket to the gateway, outside the engine (ADR 0060)"
 )]
 
 use std::path::{Path, PathBuf};

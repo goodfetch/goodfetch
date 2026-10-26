@@ -14,7 +14,7 @@
 // 0031).
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import { Trans, useLingui } from "@lingui/react/macro";
+import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { NO_ADDRESS, type Address } from "#address.ts";
 import type { ConsoleClient } from "#client/client.ts";
@@ -194,6 +194,29 @@ function NotSignedIn(): ReactNode {
   return <Trans>Not signed in: run goodfetch-collie console to open the Console signed in.</Trans>;
 }
 
+/**
+ * How many items wait in "Needs you", in a live region a screen reader
+ * announces as the count changes (ADR 0073), out of sight beside the side
+ * menu's count. Each form is an element of its own, keyed, so React replaces
+ * the element, never a text node a page translator moved (react#11538).
+ */
+function NeedsYouAnnouncement({ state }: { readonly state: NeedsYouState }): ReactNode {
+  const waiting = countOf(state);
+  return (
+    <output className="sr-only">
+      {state.kind !== "listed" ? null : waiting === 0 ? (
+        <span key="none">
+          <Trans>Nothing needs you</Trans>
+        </span>
+      ) : (
+        <span key="some">
+          <Plural value={waiting} one="# item needs you" other="# items need you" />
+        </span>
+      )}
+    </output>
+  );
+}
+
 /** The first screen. */
 function Overview({ client }: { readonly client: ConsoleClient | undefined }): ReactNode {
   return (
@@ -204,7 +227,9 @@ function Overview({ client }: { readonly client: ConsoleClient | undefined }): R
       <p className="text-muted-foreground">
         <Trans>Collie's Console. The runs you start with Collie show under Runs.</Trans>
       </p>
-      <p role="status">{client === undefined ? <NotSignedIn /> : <Engine client={client} />}</p>
+      <output className="block">
+        {client === undefined ? <NotSignedIn /> : <Engine client={client} />}
+      </output>
     </>
   );
 }
@@ -254,7 +279,10 @@ export function Shell({
     <div className="min-h-svh">
       {readOnly ? <ReadOnlyBanner /> : null}
       <header className="border-b">
-        <nav aria-label={t`Console`} className="mx-auto flex max-w-5xl gap-4 px-6 py-3">
+        <nav
+          aria-label={t`Console`}
+          className="mx-auto flex max-w-5xl flex-wrap gap-x-4 gap-y-2 px-6 py-3"
+        >
           <MenuLink route="/" current={screen === undefined}>
             <Trans>Overview</Trans>
           </MenuLink>
@@ -283,6 +311,7 @@ export function Shell({
           )}
         </nav>
       </header>
+      {client === undefined ? null : <NeedsYouAnnouncement state={needsYou.state} />}
       {at === undefined ? (
         <main className="mx-auto flex max-w-2xl flex-col justify-center gap-3 px-6 py-16">
           <Overview client={client} />
@@ -290,9 +319,9 @@ export function Shell({
       ) : (
         <main className="mx-auto flex max-w-5xl flex-col gap-3 px-6 py-8">
           {client === undefined ? (
-            <p role="status">
+            <output className="block">
               <NotSignedIn />
-            </p>
+            </output>
           ) : (
             at.screen.content({ client, address, needsYou, readOnly, offline }, at.params)
           )}

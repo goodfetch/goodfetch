@@ -2,7 +2,9 @@
 // Console screen's generated keyboard walk opens it, one `[[screen]]` entry
 // each, naming the screen's Feature, the route it opens at with every
 // parameter filled, whether a person is signed in, and its keyboard walk:
-// each stop's role and accessible name, in Tab order. Area 12 fills it;
+// each stop's role and accessible name, in Tab order, and, for a screen
+// that shows what it reads from the engine, the element it shows once it
+// has, which the walk waits for. Area 12 fills it;
 // `testEachScreen` reads it. A field not given yet is `undefined` here, so
 // that screen's case fails by name rather than the whole file.
 import { readFileSync } from "node:fs";
@@ -28,9 +30,17 @@ export interface ScreenSetup {
   readonly signIn: SignInState | undefined;
   /** Its keyboard walk, each stop as `<role> <accessible name>`, in Tab order: `link Runs`. */
   readonly walk: readonly string[] | undefined;
+  /** The element the screen shows once it has read what it shows, which the case waits for before its walk; none for a screen that reads nothing. */
+  readonly ready: ReadyElement | undefined;
 }
 
-const FIELDS: readonly string[] = ["feature", "route", "sign_in", "walk"];
+/** An element by its role and accessible name, written `<role> <accessible name>` as a walk's stop is. */
+export interface ReadyElement {
+  readonly role: string;
+  readonly name: string;
+}
+
+const FIELDS: readonly string[] = ["feature", "route", "sign_in", "walk", "ready"];
 
 /**
  * The entries of a screen setup file's text, by Feature; fails with
@@ -86,7 +96,7 @@ function setupAt(entry: unknown, position: number): ScreenSetup {
   if (unknownFields.length > 0) {
     throw invalid(`has fields it does not define: ${unknownFields.join(", ")}`);
   }
-  const { feature, route, sign_in: signIn, walk } = fields;
+  const { feature, route, sign_in: signIn, walk, ready } = fields;
   if (typeof feature !== "string" || !feature.startsWith("screen:")) {
     throw invalid("names no `screen:` Feature");
   }
@@ -103,7 +113,23 @@ function setupAt(entry: unknown, position: number): ScreenSetup {
   ) {
     throw invalid(`gives ${feature} a walk that is no list of \`<role> <name>\` stops`);
   }
-  return { feature, route, signIn: state, walk };
+  const space = typeof ready === "string" ? ready.indexOf(" ") : -1;
+  if (
+    ready !== undefined &&
+    (typeof ready !== "string" || space <= 0 || space === ready.length - 1)
+  ) {
+    throw invalid(`gives ${feature} a ready element that is no \`<role> <name>\``);
+  }
+  return {
+    feature,
+    route,
+    signIn: state,
+    walk,
+    ready:
+      typeof ready === "string"
+        ? { role: ready.slice(0, space), name: ready.slice(space + 1) }
+        : undefined,
+  };
 }
 
 /** The entries of the screen setup file of the workspace at `root`; `screen_setups_invalid` when it cannot be read. */

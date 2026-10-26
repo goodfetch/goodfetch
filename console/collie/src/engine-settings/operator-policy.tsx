@@ -25,6 +25,7 @@ import {
 } from "react";
 import type { ConsoleClient } from "#client/client.ts";
 import { ErrorMessage } from "#errors/error-message.tsx";
+import { Form } from "#form.tsx";
 
 /** Each table's name. */
 const TABLES: Readonly<Record<PolicyTable, MessageDescriptor>> = {
@@ -130,12 +131,12 @@ function Notice({
   if (notice.kind === "written") {
     const digest = notice.written.digest;
     return (
-      <p role="status">
+      <output className="block">
         <Trans>
           Written. New runs name the policy version <code translate="no">{digest}</code>; a
           tightened cap reaches running runs at their next admission point.
         </Trans>
-      </p>
+      </output>
     );
   }
   if (notice.kind === "invalid_value") {
@@ -193,9 +194,9 @@ export function OperatorPolicyView({
         <Trans>Operator policy</Trans>
       </h2>
       {read.kind === "reading" ? (
-        <p role="status">
+        <output className="block">
           <Trans>Reading the Operator policy…</Trans>
-        </p>
+        </output>
       ) : null}
       {read.kind === "failed" ? (
         <div role="alert">
@@ -215,7 +216,7 @@ export function OperatorPolicyView({
             </Trans>
           </p>
           <Entries policy={read.policy} />
-          <form
+          <Form
             onSubmit={submit}
             aria-label={t`Change the Operator policy`}
             className="flex flex-col gap-3 rounded-lg border p-4"
@@ -269,7 +270,7 @@ export function OperatorPolicyView({
             >
               <Trans>Write</Trans>
             </button>
-          </form>
+          </Form>
         </>
       ) : null}
       {notice === undefined ? null : <Notice notice={notice} onReadAgain={onReadAgain} />}

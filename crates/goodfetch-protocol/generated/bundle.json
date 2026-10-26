@@ -1021,6 +1021,41 @@
       ],
       "type": "object"
     },
+    "CertificateExceptionKind": {
+      "description": "The kind of an invalid-certificate exception (ADR 0042).",
+      "oneOf": [
+        {
+          "const": "trust_on_first_use",
+          "description": "Its domain was listed without a pin: the key pinned on first use.",
+          "type": "string"
+        },
+        {
+          "const": "any",
+          "description": "Its domain was listed with `any`, and the host has no pin.",
+          "type": "string"
+        }
+      ]
+    },
+    "CertificateExceptionMark": {
+      "description": "The invalid-certificate exception a Record's document was fetched\nunder (ADR 0042, pitfall H03).",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/CertificateExceptionKind",
+          "arrived_in": "0.1",
+          "description": "The kind of exception."
+        },
+        "spki_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the public key of the certificate it accepted, as\n`sha256/<base64>`, the known-certificates store's spelling.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "spki_sha256"
+      ],
+      "type": "object"
+    },
     "CertificatePin": {
       "description": "One pin of the known-certificates store, as `certs.list` answers it and\nas the store's rows hold it: a host whose certificate was accepted on\nfirst use, and the key it must keep presenting.",
       "properties": {
@@ -9487,6 +9522,18 @@
     "RecordProvenance": {
       "description": "How one committed Record was obtained.",
       "properties": {
+        "certificate_exception": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CertificateExceptionMark"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The exception of `tls.accept_invalid_certs` its document's host was\nreached through; none where its certificate verified."
+        },
         "clean_up_rules": {
           "arrived_in": "0.1",
           "description": "The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,\nwhose Run trace names their date and the release that applied them.",

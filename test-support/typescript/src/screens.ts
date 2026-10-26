@@ -6,8 +6,10 @@
 // Foxhound's screens, ADR 0094), at the route and in the sign-in state area
 // 12 gives it in `console/screens.toml`, runs `keyboardWalk`, whose stops
 // must be the walk recorded there (`keyboard_walk_changed`), and never none
-// (`keyboard_walk_empty`), then `focusChecks`, and ends with the axe
-// fixture's pass.
+// (`keyboard_walk_empty`), then `focusChecks`, then `reflow` (no sideways
+// scroll at 320 × 256 CSS pixels) and, since every case prefers reduced
+// motion, `noRunningAnimations` after the walk's actions, and ends with the
+// axe fixture's pass, whose `wcag22aa` tag checks target size.
 //
 // A screen without a route, a sign-in state or a walk fails its case by name
 // with `screen_setup_missing`; it is never skipped. A setup whose screen the
@@ -17,13 +19,17 @@
 // they check how a screen is built, not the outcome its Feature names.
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import type { Page } from "@playwright/test";
 import { TestSupportError } from "./errors.ts";
 import { readScreens, type Screen } from "./features.ts";
 import { focusChecks, keyboardWalk } from "./focus.ts";
 import { test } from "./playwright.ts";
+import { noRunningAnimations } from "./reduced-motion.ts";
+import { reflow } from "./reflow.ts";
 import { readScreenSetups, SCREEN_SETUPS_FILE, type ScreenSetup } from "./screen-setups.ts";
 
 export {
+  type ReadyElement,
   parseScreenSetups,
   readScreenSetups,
   SCREEN_SETUPS_FILE,
@@ -41,7 +47,7 @@ export function testEachScreen(root: string): void {
   const screens = readScreens(root);
   for (const screen of screens) {
     test.describe(() => {
-      test.use({ product: screen.product });
+      test.use({ product: screen.product, reducedMotion: "reduce" });
       caseOf(screen, setups.get(screen.feature));
     });
   }
@@ -113,6 +119,17 @@ function caseOf(screen: Screen, setup: ScreenSetup | undefined): void {
         `${screen.feature}'s route ${route} answered ${answer} on ${daemon.product}'s executable, ${signInState}`,
       );
     }
+    const ready = setup?.ready;
+    if (ready !== undefined) {
+      await test.step(`ready: ${ready.role} ${ready.name}`, () =>
+        page
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the setup names an ARIA role; a misspelt one finds nothing, and the wait fails naming it.
+          .getByRole(ready.role as Parameters<Page["getByRole"]>[0], {
+            name: ready.name,
+            exact: true,
+          })
+          .waitFor({ state: "visible" }));
+    }
     const stops = await test.step("keyboardWalk", () => keyboardWalk(page));
     await testInfo.attach("keyboard-walk", {
       body: JSON.stringify(stops, null, 2),
@@ -132,6 +149,8 @@ function caseOf(screen: Screen, setup: ScreenSetup | undefined): void {
       );
     }
     await test.step("focusChecks", () => focusChecks(page));
+    await test.step("reflow", () => reflow(page));
+    await test.step("noRunningAnimations", () => noRunningAnimations(page));
     // The axe fixture's pass ends the case, once it has passed.
   });
 }

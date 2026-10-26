@@ -62,7 +62,9 @@ test(
     const url = await restarted(daemon);
     await page.goto(url);
 
-    await expect(page.getByRole("status")).toHaveText(/^Connected to Collie \d+\.\d+\.\d+\S*\.$/);
+    await expect(page.getByRole("main").getByRole("status")).toHaveText(
+      /^Connected to Collie \d+\.\d+\.\d+\S*\.$/,
+    );
     expect(new URL(page.url()).port).not.toBe(String(daemon.port));
     expect(cookie).toEqual(expect.objectContaining({ httpOnly: true, sameSite: "Strict" }));
     expect(cookie?.expires).toBeGreaterThanOrEqual(Math.floor(signedIn) + THIRTY_DAYS - 60);

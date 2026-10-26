@@ -383,21 +383,29 @@ async function describe(stop: ElementHandle<Element>): Promise<string> {
   });
 }
 
-/** Whether no point of a 5 × 5 grid over the element, inside the viewport, shows the element on top. Runs in the page. */
+/**
+ * Whether no point of a 5 × 5 grid over the part of the element inside the
+ * viewport shows the element on top; a stop taller or wider than the
+ * viewport is sampled where it shows. Runs in the page.
+ */
 function isEntirelyCovered(element: Element): boolean {
   const samples = 5;
   const box = element.getBoundingClientRect();
+  const left = Math.max(0, box.left);
+  const top = Math.max(0, box.top);
+  const width = Math.min(window.innerWidth, box.right) - left;
+  const height = Math.min(window.innerHeight, box.bottom) - top;
   const root = element.getRootNode();
   const scope = root instanceof ShadowRoot ? root : document;
+  if (width <= 0 || height <= 0) {
+    return true;
+  }
   for (let column = 0; column < samples; column += 1) {
     for (let row = 0; row < samples; row += 1) {
-      const x = box.left + (box.width * (column + 0.5)) / samples;
-      const y = box.top + (box.height * (row + 0.5)) / samples;
-      if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) {
-        continue;
-      }
-      const top = scope.elementsFromPoint(x, y)[0];
-      if (top !== undefined && element.contains(top)) {
+      const x = left + (width * (column + 0.5)) / samples;
+      const y = top + (height * (row + 0.5)) / samples;
+      const shown = scope.elementsFromPoint(x, y)[0];
+      if (shown !== undefined && element.contains(shown)) {
         return false;
       }
     }

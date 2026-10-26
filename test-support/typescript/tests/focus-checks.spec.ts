@@ -24,6 +24,17 @@ test.describe("focusChecks", () => {
     await expect(checked).resolves.toBeUndefined();
   });
 
+  test("passes a stop taller than the viewport, checked over its visible part", async ({
+    page,
+    cspPages,
+  }) => {
+    await page.goto(cspPages.url("focus-tall"));
+
+    const checked = focusChecks(page);
+
+    await expect(checked).resolves.toBeUndefined();
+  });
+
   for (const { page: name, code } of BROKEN_PAGES) {
     test(`fails with ${code} on the ${name} page`, async ({ page, cspPages }) => {
       await page.goto(cspPages.url(name));

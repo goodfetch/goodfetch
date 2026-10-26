@@ -6,7 +6,8 @@
 //! document was read in and where it came from (ADR 0119), a Response cache
 //! or Response recording that answered in place of the network, the
 //! Clean-up rules the Run holds to (ADR 0047), a Wall read past (ADR 0052),
-//! a payment (ADR 0045), and each Value transform with its text, locale and
+//! a payment (ADR 0045), the invalid-certificate exception its document's
+//! host was reached through (ADR 0042, pitfall H03), and each Value transform with its text, locale and
 //! zone (ADR 0123). The Run trace keeps the rest of each page's Provenance,
 //! which the request's ID reaches.
 
@@ -51,6 +52,11 @@ pub struct RecordProvenance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub payment: Option<PaymentMark>,
+    /// The exception of `tls.accept_invalid_certs` its document's host was
+    /// reached through; none where its certificate verified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub certificate_exception: Option<CertificateExceptionMark>,
     /// Each field whose value an engine Value transform gave, in the
     /// order read; empty where the program parsed its own values.
     #[serde(default)]
@@ -196,6 +202,29 @@ pub struct PaymentMark {
     /// The domain paid.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub payee_domain: String,
+}
+
+/// The invalid-certificate exception a Record's document was fetched
+/// under (ADR 0042, pitfall H03).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CertificateExceptionMark {
+    /// The kind of exception.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub kind: CertificateExceptionKind,
+    /// The SHA-256 of the public key of the certificate it accepted, as
+    /// `sha256/<base64>`, the known-certificates store's spelling.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub spki_sha256: String,
+}
+
+/// The kind of an invalid-certificate exception (ADR 0042).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CertificateExceptionKind {
+    /// Its domain was listed without a pin: the key pinned on first use.
+    TrustOnFirstUse,
+    /// Its domain was listed with `any`, and the host has no pin.
+    Any,
 }
 
 /// How a Value transform gave one field of a Record (ADR 0123).

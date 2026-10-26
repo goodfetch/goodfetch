@@ -1,5 +1,6 @@
-# Area 12's user stories (specs #591 and #592, Console, Collie), the
-# declared `story:12-<id>` Features of ADR 0072. Each story's milestone is
+# Area 12's user stories (specs #591 and #592, Console, Collie; spec #593,
+# Console, Foxhound, from 201), the declared `story:12-<id>` Features of
+# ADR 0072. Each story's milestone is
 # that of the ticket that finishes it; a story without a Journey carries ADR
 # 0075's reason (`actor`, `part` or `reach`). The spec's issue keeps the full
 # text; this copy is the one the Feature check reads. It holds the stories a
@@ -359,3 +360,30 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 201
+title = "As a user with Foxhound installed, I want my major's Foxhound Daemon to serve Foxhound's Console build on the Console's port, listing both Products' runs in one Runs screen and one \"Needs you\", so that installing Foxhound adds screens without moving anything (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 202
+title = "As a user, I want every screen of Collie's Console present and unchanged in Foxhound's, so that moving from Collie to Foxhound loses nothing (ADR 0094)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 203
+title = "As a user, I want Foxhound's screens shown for every run that needs Foxhound, and a Collie run to show only the views every run has, so that each run shows what it can hold (ADRs 0096, 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"

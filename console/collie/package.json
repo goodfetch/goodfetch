@@ -2,10 +2,17 @@
   "name": "@goodfetch/console",
   "version": "0.0.0",
   "private": true,
-  "description": "Collie's Console: its shell, its design system and Collie's build entry, which Collie's executable embeds (ADRs 0031, 0057 and 0087); never published.",
+  "description": "Collie's Console: its shell, its design system and Collie's build entry, which Collie's executable embeds, and the screens and build entry Foxhound's Console composes with its own (ADRs 0031, 0057 and 0087); never published.",
   "type": "module",
   "imports": {
     "#*": "./src/*"
+  },
+  "exports": {
+    "./start": "./src/start.tsx",
+    "./console-build": "./src/console-build.ts",
+    "./client": "./src/client/client.ts",
+    "./error-message": "./src/errors/error-message.tsx",
+    "./i18n": "./src/i18n.tsx"
   },
   "scripts": {
     "build": "vite build",

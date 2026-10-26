@@ -1,0 +1,120 @@
+// Foxhound's Daemon serving Foxhound's Console build (spec #593, stories
+// 201 and 203; ADRs 0094 and 0098), on Foxhound's executable built from the
+// commit, with a Daemon and home of its own on port 0. The runs are the
+// Compatibility corpus's run-state heads (ADR 0047) of a Collie run and of
+// a crawl, each left stopped by a filled filesystem, written into the
+// per-major data folder's run folders and indexed with `runs reindex`, as
+// run states copied from another machine are. One Runs screen lists both
+// Products' runs, one "Needs you" lists the storage stop of each, the
+// Collie run's page shows only the views every run has, and the crawl's
+// shows Foxhound's views beside them, each answered by Foxhound's engine.
+import { mkdir, readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { expect, test, type ServedDaemon } from "@goodfetch/test-support/playwright";
+
+/** The corpus's run-state heads. */
+const CORPUS = new URL("../../../../compat/run-state/head/", import.meta.url);
+
+/** The Run ID the test gives the corpus's Collie run, and its crawl. */
+const COLLIE_RUN = "copied-collie-run";
+const CRAWL_RUN = "copied-crawl";
+
+/** Writes the corpus's run `head` as `runId` under `folder`, stopped by a filled filesystem. */
+async function seeded(folder: string, head: string, runId: string): Promise<void> {
+  const runFolder = join(folder, runId);
+  await mkdir(runFolder, { recursive: true });
+  const database = new DatabaseSync(join(runFolder, "run.sqlite"));
+  try {
+    database.exec(await readFile(new URL(`${head}.sql`, CORPUS), "utf8"));
+    const stopped = JSON.stringify({ kind: "resources", resource: "storage", folder });
+    const row = database.prepare("SELECT report FROM run").get();
+    const kept = row?.["report"];
+    let report: string | null = null;
+    if (typeof kept === "string") {
+      const parsed: Record<string, unknown> = JSON.parse(kept);
+      parsed["run_id"] = runId;
+      report = JSON.stringify(parsed);
+    }
+    database
+      .prepare(
+        "UPDATE run SET run_id = ?, lifecycle = 'stopped', stop_reason = ?, verdict = 'verified', completeness = 'incomplete', report = ?",
+      )
+      .run(runId, stopped, report);
+  } finally {
+    database.close();
+  }
+}
+
+/** The run folders of the per-major data folder, the one that holds the Daemon's socket. */
+async function runsFolder(daemon: ServedDaemon): Promise<string> {
+  for (const entry of await readdir(daemon.home, { withFileTypes: true })) {
+    const folder = join(daemon.home, entry.name);
+    if (entry.isDirectory() && (await readdir(folder)).includes("daemon.sock")) {
+      return join(folder, "runs");
+    }
+  }
+  throw new Error("the test's home holds no per-major folder with the Daemon's socket");
+}
+
+test.use({ product: "foxhound" });
+
+test(
+  "Foxhound's Daemon serves Foxhound's build: both Products' runs in one Runs screen and one Needs you, and Foxhound's views for the run that needs Foxhound only",
+  {
+    annotation: [
+      { type: "covers", description: "story:12-201" },
+      { type: "covers", description: "story:12-203" },
+      { type: "covers", description: "screen:/runs" },
+      { type: "covers", description: "screen:/runs/$run" },
+      { type: "covers", description: "screen:/needs-you" },
+    ],
+  },
+  async ({ page, daemon, signIn }) => {
+    const runs = await runsFolder(daemon);
+    await seeded(runs, "paused", COLLIE_RUN);
+    await seeded(runs, "crawl", CRAWL_RUN);
+    const reindexed = await daemon.run(["runs", "reindex"]);
+    expect(reindexed.code, reindexed.stderr).toBe(0);
+    await signIn.withLink(page);
+
+    await expect(page).toHaveTitle("Goodfetch Foxhound");
+    await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toHaveText(
+      "Goodfetch Foxhound",
+    );
+
+    await page
+      .getByRole("navigation", { name: "Console" })
+      .getByRole("link", { name: "Runs" })
+      .click();
+    const collieRow = page.getByRole("row").filter({ hasText: COLLIE_RUN });
+    const crawlRow = page.getByRole("row").filter({ hasText: CRAWL_RUN });
+    await expect(collieRow.getByRole("cell", { name: "Collie", exact: true })).toBeVisible();
+    await expect(crawlRow.getByRole("cell", { name: "Foxhound", exact: true })).toBeVisible();
+
+    await page
+      .getByRole("navigation", { name: "Console" })
+      .getByRole("link", { name: /Needs you/ })
+      .click();
+    const items = page.getByRole("list", { name: "Needs you" }).getByRole("listitem");
+    await expect(items.filter({ hasText: COLLIE_RUN })).toHaveCount(1);
+    await expect(items.filter({ hasText: CRAWL_RUN })).toHaveCount(1);
+
+    await page.goto(new URL(`/runs/${COLLIE_RUN}`, daemon.url).href);
+    await expect(page.getByRole("region", { name: "How it stands" })).toContainText("stopped");
+    await expect(page.getByRole("tablist")).toHaveCount(0);
+
+    await page.goto(new URL(`/runs/${CRAWL_RUN}`, daemon.url).href);
+    const tabs = page.getByRole("tablist", { name: "Run views" }).getByRole("tab");
+    await expect(tabs).toHaveText(["Run", "Seeds", "Outcomes", "Failed requests"]);
+    await expect(page.getByRole("region", { name: "How it stands" })).toContainText("stopped");
+    for (const name of ["Seeds", "Outcomes", "Failed requests"]) {
+      await page.getByRole("tab", { name, exact: true }).click();
+      const panel = page.getByRole("tabpanel", { name, exact: true });
+      await expect(panel.getByRole("table")).toBeVisible();
+      await expect(panel).not.toContainText("not_in_product");
+    }
+    await page.getByRole("tab", { name: "Seeds", exact: true }).click();
+    await expect(page.getByRole("tabpanel", { name: "Seeds" })).toContainText("https://shop.test/");
+  },
+);

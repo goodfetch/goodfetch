@@ -1,8 +1,9 @@
 // The Console's shell (ADR 0090): its side menu, with a link to each
 // screen of Collie's build, "Needs you" counting what waits for a person
 // as the list changes (ADR 0031), and the screen of the route the page
-// opened at. Its first screen, at `/`, names the Product, "Goodfetch Collie", then
-// calls it "Collie", and says which engine its Client reached, by Product
+// opened at. Its first screen, at `/`, names the build's Product,
+// "Goodfetch Collie" or "Goodfetch Foxhound", then calls it "Collie" or
+// "Foxhound", and says which engine its Client reached, by Product
 // and version, or that the page is not signed in; the Runs screen lists
 // the runs, and a run's page, at `/runs/<run-id>`, one of them. Each
 // screen's route is plain data (`routes.ts`, ADR 0072), its `$` segments
@@ -11,13 +12,17 @@
 // While the Client has no Connection, after its first or once its first
 // attempt failed, a banner says the page is read-only until it reconnects,
 // which it does by itself, and each screen disables its actions (ADR
-// 0031).
+// 0031). A Product's build entry passes its build (`console-build.ts`):
+// Foxhound's carries Foxhound's views of a run, which a run's page shows
+// for a run that needs Foxhound (ADRs 0087 and 0098).
+import type { Product } from "@goodfetch/collie-client/generated";
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
 import { NO_ADDRESS, type Address } from "#address.ts";
 import type { ConsoleClient } from "#client/client.ts";
+import { COLLIE_BUILD, type ConsoleBuild, type RunView } from "#console-build.ts";
 import { EngineSettings } from "#engine-settings/engine-settings.tsx";
 import { formatCount } from "#format.ts";
 import { NeedsYouStore, READING, type NeedsYouState } from "#needs-you/needs-you-store.ts";
@@ -39,6 +44,8 @@ export interface ShellProps {
   readonly offline?: OfflineCache | undefined;
   /** Signs the page out, wiping its offline cache; none for a page that cannot. */
   readonly onSignOut?: (() => void) | undefined;
+  /** The Product's build the page is; Collie's by default. */
+  readonly build?: ConsoleBuild | undefined;
 }
 
 /** What a screen shows over: the Console's Client, the page's address, the shell's "Needs you" and whether the page is read-only. */
@@ -48,6 +55,8 @@ interface ScreenContext {
   readonly address: Address;
   readonly needsYou: ShellNeedsYou;
   readonly readOnly: boolean;
+  /** The views of a run that needs Foxhound the build carries. */
+  readonly runViews: readonly RunView[];
 }
 
 /** A screen of Collie's build: its route, its name, whether the side menu links it, and what it shows with its route's parameters. */
@@ -91,8 +100,15 @@ const SCREENS: readonly Screen[] = [
     route: RUN,
     name: msg`Run`,
     inMenu: false,
-    content: ({ client, readOnly, offline }, { run = "" }) => (
-      <RunPage key={run} client={client} runId={run} readOnly={readOnly} offline={offline} />
+    content: ({ client, readOnly, offline, runViews }, { run = "" }) => (
+      <RunPage
+        key={run}
+        client={client}
+        runId={run}
+        readOnly={readOnly}
+        offline={offline}
+        runViews={runViews}
+      />
     ),
   },
 ];
@@ -189,9 +205,13 @@ function Engine({ client }: { readonly client: ConsoleClient }): ReactNode {
   );
 }
 
-/** The message of a page that is not signed in. */
-function NotSignedIn(): ReactNode {
-  return <Trans>Not signed in: run goodfetch-collie console to open the Console signed in.</Trans>;
+/** The message of a page of `product`'s build that is not signed in. */
+function NotSignedIn({ product }: { readonly product: Product }): ReactNode {
+  return product === "foxhound" ? (
+    <Trans>Not signed in: run goodfetch-foxhound console to open the Console signed in.</Trans>
+  ) : (
+    <Trans>Not signed in: run goodfetch-collie console to open the Console signed in.</Trans>
+  );
 }
 
 /**
@@ -217,21 +237,46 @@ function NeedsYouAnnouncement({ state }: { readonly state: NeedsYouState }): Rea
   );
 }
 
-/** The first screen. */
-function Overview({ client }: { readonly client: ConsoleClient | undefined }): ReactNode {
+/** The first screen of `product`'s build. */
+function Overview({
+  client,
+  product,
+}: {
+  readonly client: ConsoleClient | undefined;
+  readonly product: Product;
+}): ReactNode {
   return (
     <>
       <h1 className="font-heading text-3xl font-semibold tracking-tight">
-        <Trans>Goodfetch Collie</Trans>
+        {product === "foxhound" ? (
+          <Trans>Goodfetch Foxhound</Trans>
+        ) : (
+          <Trans>Goodfetch Collie</Trans>
+        )}
       </h1>
       <p className="text-muted-foreground">
-        <Trans>Collie's Console. The runs you start with Collie show under Runs.</Trans>
+        {product === "foxhound" ? (
+          <Trans>
+            Foxhound's Console. The runs you start with Foxhound or Collie show under Runs.
+          </Trans>
+        ) : (
+          <Trans>Collie's Console. The runs you start with Collie show under Runs.</Trans>
+        )}
       </p>
       <output className="block">
-        {client === undefined ? <NotSignedIn /> : <Engine client={client} />}
+        {client === undefined ? <NotSignedIn product={product} /> : <Engine client={client} />}
       </output>
     </>
   );
+}
+
+/** The page's title: the screen's name, if any, then the build's Product. */
+function useTitle(product: Product, name: string | undefined): string {
+  const { t } = useLingui();
+  if (product === "foxhound") {
+    return name === undefined ? t`Goodfetch Foxhound` : t`${name} · Goodfetch Foxhound`;
+  }
+  return name === undefined ? t`Goodfetch Collie` : t`${name} · Goodfetch Collie`;
 }
 
 /** A link of the side menu to `route`, marked when it is the page's. */
@@ -262,12 +307,13 @@ export function Shell({
   address = NO_ADDRESS,
   offline,
   onSignOut,
+  build = COLLIE_BUILD,
 }: ShellProps): ReactNode {
   const { i18n, t } = useLingui();
   const at = screenAt(route);
   const screen = at?.screen;
   const name = screen === undefined ? undefined : i18n._(screen.name);
-  const title = name === undefined ? t`Goodfetch Collie` : t`${name} · Goodfetch Collie`;
+  const title = useTitle(build.product, name);
   useEffect(() => {
     document.title = title;
   }, [title]);
@@ -314,16 +360,19 @@ export function Shell({
       {client === undefined ? null : <NeedsYouAnnouncement state={needsYou.state} />}
       {at === undefined ? (
         <main className="mx-auto flex max-w-2xl flex-col justify-center gap-3 px-6 py-16">
-          <Overview client={client} />
+          <Overview client={client} product={build.product} />
         </main>
       ) : (
         <main className="mx-auto flex max-w-5xl flex-col gap-3 px-6 py-8">
           {client === undefined ? (
             <output className="block">
-              <NotSignedIn />
+              <NotSignedIn product={build.product} />
             </output>
           ) : (
-            at.screen.content({ client, address, needsYou, readOnly, offline }, at.params)
+            at.screen.content(
+              { client, address, needsYou, readOnly, offline, runViews: build.runViews },
+              at.params,
+            )
           )}
         </main>
       )}

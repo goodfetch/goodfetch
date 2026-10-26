@@ -16,6 +16,7 @@
 mod environment;
 mod error;
 mod files;
+mod hosts;
 mod keys;
 mod resolve;
 #[cfg(test)]
@@ -36,6 +37,7 @@ pub use files::{
     load_project, operator_policy, policy_version, project_settings, rewrite, set,
     user_configuration,
 };
+pub use hosts::{HostEntry, without_root};
 pub use resolve::{Effective, HostDefaults, Layers, Policy, Recipe, Resolved, Unapplied, resolve};
 pub use values::Values;
 
@@ -257,6 +259,11 @@ impl RunSettings {
             }
         }
     }
+}
+
+/// The protocol version that added the setting `key`, when one has it.
+pub fn arrived_in(key: &str) -> Option<goodfetch_protocol::catalog::ProtocolVersion> {
+    keys::find(key).map(|found| found.setting.arrived_in)
 }
 
 /// The value of `key` in `settings`, nested as a file nests it, or written

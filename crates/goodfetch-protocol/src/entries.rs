@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 47] = [
+pub const MODULES: [&Entries; 49] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,
@@ -42,6 +42,7 @@ pub const MODULES: [&Entries; 47] = [
     &security::ENTRIES,
     &sample::ENTRIES,
     &settings::ENTRIES,
+    &settings::edit::ENTRIES,
     &usage::ENTRIES,
     &versions::ENTRIES,
     &politeness::ENTRIES,
@@ -52,6 +53,7 @@ pub const MODULES: [&Entries; 47] = [
     &foxhound::fetch::ENTRIES,
     &foxhound::frontier::ENTRIES,
     &foxhound::dataset::ENTRIES,
+    &foxhound::export::ENTRIES,
     &foxhound::outcomes::ENTRIES,
     &foxhound::rejections::ENTRIES,
     &foxhound::report::ENTRIES,
@@ -98,7 +100,7 @@ mod tests {
     use crate::catalog::Product;
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 84] = [
+    const COLLIE: [&str; 87] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -180,6 +182,9 @@ mod tests {
         "console.rotate_key",
         "sample.echo",
         "config.explain",
+        "config.policy_read",
+        "config.policy_write",
+        "config.user_write",
         "usage.list",
         "usage.set",
         "usage.raise",
@@ -207,6 +212,9 @@ mod tests {
                     "crawl_request.enqueue_links",
                     "crawl_request.push",
                     "run.records",
+                    "run.export",
+                    "export.save_as",
+                    "export.stream",
                     "run.outcomes",
                     "run.failed_requests",
                     "run.rejected_records",

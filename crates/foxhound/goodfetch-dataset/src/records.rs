@@ -1,19 +1,25 @@
 //! The Records a crawl commits (ADRs 0008 and 0103): each kept in the run
 //! file's `records` table under its Dataset and its number, which counts
 //! from 1 per Dataset, in commit order, with no gaps, beside the crawl
-//! request whose attempt committed it, that request's URL and the time of
-//! the commit. Only Records that passed their Dataset's check, a
+//! request whose attempt committed it, that request's URL, the time of
+//! the commit and the Record's Provenance (ADR 0123). Every value the Run
+//! resolved is replaced by its `%name%` before a Record, its Provenance or
+//! a rejection is written, so no secret lands in a Dataset (ADR 0092).
+//! Only Records that passed their Dataset's check, a
 //! [`Checked`] value, are committed, inside the write that commits their
 //! attempt, with the rejections the attempt staged, which enter their
 //! Datasets' rejection tables. [`read`] answers the committed Records a
 //! [`Query`] takes, in number order: the one query a reader, an Export and
 //! a Sink share.
 
+use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetRecord;
 use goodfetch_protocol::foxhound::outcomes::DatasetRecords;
+use goodfetch_protocol::foxhound::provenance::RecordProvenance;
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::Connection;
+use serde_json::Value;
 
 use crate::rejections::{self, Rejection};
 
@@ -56,8 +62,9 @@ impl Checked {
     }
 }
 
-/// The attempt whose Records commit: its crawl request's ID and URL, and
-/// the time of its commit.
+/// The attempt whose Records commit: its crawl request's ID and URL, the
+/// time of its commit, the Provenance each of its Records carries, and the
+/// values its Run resolved, which no Record keeps.
 #[derive(Clone, Copy, Debug)]
 pub struct Committing<'a> {
     /// The crawl request's ID, its work item's.
@@ -66,12 +73,17 @@ pub struct Committing<'a> {
     pub url: &'a str,
     /// When the attempt commits.
     pub at: &'a PointInTime,
+    /// The Provenance of each Record it commits.
+    pub provenance: &'a RecordProvenance,
+    /// The engine's masks, which hold the values the Run resolved.
+    pub masks: &'a Masks,
 }
 
 /// Commits `records`, which the attempt `committing` names staged, in
 /// `connection`'s transaction: each Record takes its Dataset's next number
 /// and the hash of the schema the run file declares it with, and each of
-/// its rejections its Dataset's next number in its rejection table.
+/// its rejections its Dataset's next number in its rejection table; every
+/// value the Run resolved is kept as its `%name%` (ADR 0092).
 /// Answers, per Dataset in the order first pushed (those only rejected
 /// after), how many it committed and rejected.
 ///
@@ -84,10 +96,14 @@ pub fn commit(
     records: &Checked,
 ) -> rusqlite::Result<Vec<DatasetRecords>> {
     let mut insert = connection.prepare(
-        "INSERT INTO records (dataset, number, work_item, url, committed_at, data, schema_hash)
+        "INSERT INTO records (dataset, number, work_item, url, committed_at, data, schema_hash, provenance)
          VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM records WHERE dataset = ?1), ?2, ?3, ?4, ?5,
-             (SELECT schema_hash FROM datasets WHERE name = ?1))",
+             (SELECT schema_hash FROM datasets WHERE name = ?1), ?6)",
     )?;
+    let provenance = masked(
+        committing.masks,
+        serde_json::to_value(committing.provenance).expect("invariant: a Provenance encodes"),
+    );
     let mut counted: Vec<DatasetRecords> = Vec::new();
     for record in records.records() {
         insert.execute((
@@ -95,7 +111,8 @@ pub fn commit(
             committing.request_id,
             committing.url,
             committing.at.as_str(),
-            record.data.to_string(),
+            masked(committing.masks, record.data.clone()),
+            &provenance,
         ))?;
         match counted
             .iter_mut()
@@ -114,9 +131,17 @@ pub fn commit(
         connection,
         committing.request_id,
         &records.rejected,
+        &mut |value| masked(committing.masks, value),
         &mut counted,
     )?;
     Ok(counted)
+}
+
+/// `value` as JSON text, each value the Run resolved replaced by its
+/// `%name%`, as the engine keeps it.
+fn masked(masks: &Masks, mut value: Value) -> String {
+    masks.apply_value(&mut value, Scope::Kept);
+    value.to_string()
 }
 
 /// Which committed Records a read takes: one Dataset's, after a number.
@@ -128,6 +153,69 @@ pub struct Query<'a> {
     pub dataset: &'a str,
     /// The number of the last Record already read: 0 reads from the first.
     pub after: u64,
+    /// The number of the last Record to read, such as the last one
+    /// committed when an Export began; none reads to the last committed.
+    pub through: Option<u64>,
+}
+
+/// The number of `dataset`'s last committed Record, 0 when it has none.
+///
+/// # Errors
+///
+/// The run file's, when it cannot be read.
+pub fn last_number(connection: &Connection, dataset: &str) -> rusqlite::Result<u64> {
+    connection.query_row(
+        "SELECT coalesce(max(number), 0) FROM records WHERE dataset = ?1",
+        [dataset],
+        |row| Ok(u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default()),
+    )
+}
+
+/// The numbers and values of the committed Records `query` takes, at most
+/// `most`, in number order, each value its JSON text as committed: what an
+/// Export writes, byte for byte.
+///
+/// # Errors
+///
+/// The run file's, when it cannot be read.
+pub fn read_values(
+    connection: &Connection,
+    query: Query<'_>,
+    most: usize,
+) -> rusqlite::Result<Vec<(u64, String)>> {
+    selected(connection, "number, data", query, most, |row| {
+        Ok((
+            u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default(),
+            row.get(1)?,
+        ))
+    })
+}
+
+/// The rows of `columns` of the committed Records `query` takes, each read
+/// by `row`: the one query every reader of a Dataset filters through.
+fn selected<T>(
+    connection: &Connection,
+    columns: &str,
+    query: Query<'_>,
+    most: usize,
+    row: impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+) -> rusqlite::Result<Vec<T>> {
+    let number = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
+    connection
+        .prepare(&format!(
+            "SELECT {columns} FROM records
+             WHERE dataset = ?1 AND number > ?2 AND number <= ?3 ORDER BY number LIMIT ?4"
+        ))?
+        .query_map(
+            (
+                query.dataset,
+                number(query.after),
+                query.through.map_or(i64::MAX, number),
+                i64::try_from(most).unwrap_or(i64::MAX),
+            ),
+            row,
+        )?
+        .collect()
 }
 
 /// The committed Records `query` takes, at most `most`, in number order.
@@ -140,34 +228,35 @@ pub fn read(
     query: Query<'_>,
     most: usize,
 ) -> rusqlite::Result<Vec<DatasetRecord>> {
-    connection
-        .prepare(
-            "SELECT number, data, work_item, url, committed_at FROM records
-             WHERE dataset = ?1 AND number > ?2 ORDER BY number LIMIT ?3",
-        )?
-        .query_map(
-            (
-                query.dataset,
-                i64::try_from(query.after).unwrap_or(i64::MAX),
-                i64::try_from(most).unwrap_or(i64::MAX),
-            ),
-            |row| {
-                let data: String = row.get(1)?;
-                let value = serde_json::from_str(&data).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        1,
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
-                })?;
-                Ok(DatasetRecord {
-                    number: u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default(),
-                    value,
-                    request_id: row.get(2)?,
-                    url: row.get(3)?,
-                    committed_at: PointInTime::from_rfc3339(row.get(4)?),
-                })
-            },
-        )?
-        .collect()
+    selected(
+        connection,
+        "number, data, work_item, url, committed_at, provenance",
+        query,
+        most,
+        |row| {
+            let data: String = row.get(1)?;
+            let value = json_column(1, &data)?;
+            let provenance: String = row.get(5)?;
+            let provenance = json_column(5, &provenance)?;
+            Ok(DatasetRecord {
+                number: u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default(),
+                value,
+                request_id: row.get(2)?,
+                url: row.get(3)?,
+                committed_at: PointInTime::from_rfc3339(row.get(4)?),
+                provenance,
+            })
+        },
+    )
+}
+
+/// The JSON text `text` of the column `column` read as `T`.
+fn json_column<T: serde::de::DeserializeOwned>(column: usize, text: &str) -> rusqlite::Result<T> {
+    serde_json::from_str(text).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            column,
+            rusqlite::types::Type::Text,
+            Box::new(error),
+        )
+    })
 }

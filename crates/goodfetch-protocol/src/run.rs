@@ -44,9 +44,9 @@ pub use self::progress::{
 };
 
 pub use self::report::{
-    AppliedLimit, AxisReason, EndingError, KindUsage, LimitSetter, ModelUsage, NothingDone,
-    PlanReport, PlanStatus, PluginRun, ProxyKindBytes, RecordingReport, RunReport, RunUsage,
-    RunWarning, SeedsKept, UncertainEffect, UsageAmount,
+    AppliedLimit, AxisReason, EndingError, KindUsage, LimitSetter, ModelAllowance, ModelUsage,
+    NothingDone, PlanReport, PlanStatus, PluginRun, ProxyKindBytes, RecordingReport, RunReport,
+    RunUsage, RunWarning, SeedsKept, UncertainEffect, UsageAmount,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -1216,6 +1216,9 @@ pub struct RunIndexRow {
     /// Why it stopped, once it stopped: "Needs you" lists a Run stopped by
     /// storage from it (ADR 0122).
     pub stop_reason: Option<StopReason>,
+    /// Whether it replayed a Response recording (ADR 0105), which marks
+    /// its row so that no one reads it as a live run.
+    pub replayed: bool,
 }
 
 /// Where the engine that owns a live Run is reached (ADR 0031).

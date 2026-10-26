@@ -18,6 +18,8 @@
 //! (STYLE.md, reason 2).
 
 mod declaration;
+mod encoding;
+mod export;
 mod reader;
 mod records;
 mod rejected_records;
@@ -28,7 +30,8 @@ use goodfetch_engine::Contribution;
 use goodfetch_engine::run_state::RunStateTables;
 
 pub use declaration::{Datasets, Refused};
-pub use records::{Checked, Committing, Query, commit, read};
+pub use encoding::ExportEncoder;
+pub use records::{Checked, Committing, Query, commit, last_number, read, read_values};
 pub use rejections::{Rejection, fuzz_rejection};
 pub use resume::Began;
 
@@ -37,8 +40,9 @@ pub use resume::Began;
 /// schema's hash (none for a Dataset without one) and its key as a JSON
 /// array; and `records`, each committed Record by its Dataset and its
 /// number, with the crawl request whose attempt committed it, that
-/// request's URL, the time of the commit and the hash of the schema it was
-/// committed under (none for a Dataset without one); and
+/// request's URL, the time of the commit, the hash of the schema it was
+/// committed under (none for a Dataset without one) and its Provenance as
+/// JSON; and
 /// `rejected_records`, each Dataset's rejection table: each rejected Record
 /// by its Dataset and its number there, with the crawl request whose
 /// attempt staged it, the Record as JSON and, as a JSON object, why
@@ -61,6 +65,7 @@ pub const TABLES: RunStateTables = RunStateTables {
             committed_at TEXT NOT NULL,
             data TEXT NOT NULL,
             schema_hash TEXT,
+            provenance TEXT NOT NULL,
             PRIMARY KEY (dataset, number)
         ) STRICT",
         "CREATE TABLE IF NOT EXISTS rejected_records (
@@ -74,11 +79,15 @@ pub const TABLES: RunStateTables = RunStateTables {
     ],
 };
 
-/// What Datasets add to the engine: [`TABLES`], `run.records` and
-/// `run.rejected_records`.
+/// What Datasets add to the engine: [`TABLES`], `run.records`,
+/// `run.rejected_records`, and `run.export` with `export.save_as` and
+/// `export.stream`.
 pub fn contribution() -> Contribution {
-    Contribution::new("goodfetch-dataset")
-        .with_run_state_tables(TABLES)
-        .with_handler(reader::handler())
-        .with_handler(rejected_records::handler())
+    export::handlers().into_iter().fold(
+        Contribution::new("goodfetch-dataset")
+            .with_run_state_tables(TABLES)
+            .with_handler(reader::handler())
+            .with_handler(rejected_records::handler()),
+        Contribution::with_handler,
+    )
 }

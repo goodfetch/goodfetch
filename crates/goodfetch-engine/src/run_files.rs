@@ -13,6 +13,11 @@
 //! once no record of the Run names it, as when a key whose bytes it holds
 //! is deleted or replaced.
 //!
+//! An Export is kept the same way, under the Run folder's `exports/`, but
+//! recorded in no table: it is written from the Run's committed state, a
+//! Run that ended having no writer, so its ID names its file by its
+//! SHA-256. It is deleted with its Run, and a Checkpoint does not carry it.
+//!
 //! A kept file reaches the program's path through [`save`], under ADR
 //! 0116's rule: a hidden temporary file beside the path,
 //! `.<name>.<random>.partial`, synced, then renamed over the path, so the
@@ -26,8 +31,8 @@ mod store;
 
 pub(crate) use carry::{CarryError, drop_chunks, pack, unpack};
 pub(crate) use save::{SaveError, os_code, reason_of, save};
-pub use store::{FileKind, KeepError, Kept, Record};
-pub(crate) use store::{file, find, forget, read, record, store, unrecord};
+pub use store::{FileKind, KeepError, Kept, KeptExport, Record, export_file};
+pub(crate) use store::{file, find, forget, read, record, store, store_export, unrecord};
 
 use crate::run_state::RunStateTables;
 

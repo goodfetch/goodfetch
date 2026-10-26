@@ -52,7 +52,8 @@ const SCHEMA: &[&str] = &[
         owner TEXT,
         presence TEXT NOT NULL,
         progress_message TEXT,
-        stop_reason TEXT
+        stop_reason TEXT,
+        replayed INTEGER NOT NULL DEFAULT 0
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS needs_you_dismissed (
         item TEXT NOT NULL PRIMARY KEY,
@@ -74,7 +75,7 @@ const SCHEMA: &[&str] = &[
     ) STRICT",
 ];
 
-const COLUMNS: &str = "run_id, location, kind, needs, tags, lifecycle, verdict, completeness, started_at, ended_at, owner, presence, progress_message, stop_reason";
+const COLUMNS: &str = "run_id, location, kind, needs, tags, lifecycle, verdict, completeness, started_at, ended_at, owner, presence, progress_message, stop_reason, replayed";
 
 fn failed(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     RunStateError::Sqlite {
@@ -180,13 +181,14 @@ fn insert(connection: &Connection, row: &RunIndexRow) -> rusqlite::Result<()> {
     connection.execute(
         &format!(
             "INSERT INTO runs ({COLUMNS})
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
              ON CONFLICT (run_id) DO UPDATE SET
                 location = excluded.location, kind = excluded.kind, needs = excluded.needs,
                 tags = excluded.tags, lifecycle = excluded.lifecycle, verdict = excluded.verdict,
                 completeness = excluded.completeness, started_at = excluded.started_at,
                 ended_at = excluded.ended_at, owner = excluded.owner, presence = excluded.presence,
-                progress_message = excluded.progress_message, stop_reason = excluded.stop_reason"
+                progress_message = excluded.progress_message, stop_reason = excluded.stop_reason,
+                replayed = excluded.replayed"
         ),
         (
             row.run_id.as_str(),
@@ -207,6 +209,7 @@ fn insert(connection: &Connection, row: &RunIndexRow) -> rusqlite::Result<()> {
             row.stop_reason.as_ref().map(|reason| {
                 serde_json::to_string(reason).expect("invariant: a stop reason encodes")
             }),
+            row.replayed,
         ),
     )?;
     Ok(())
@@ -251,6 +254,7 @@ fn row_of(row: &Row<'_>) -> rusqlite::Result<RunIndexRow> {
                     .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
             })
             .transpose()?,
+        replayed: row.get(14)?,
     })
 }
 

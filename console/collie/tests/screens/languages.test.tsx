@@ -30,6 +30,7 @@ const RUN: RunIndexRow = {
   ended_at: "2026-11-01T00:15:00Z",
   progress_message: "Read 40 of 40 pages",
   presence: "present",
+  replayed: false,
 };
 
 /** Whether `element` sits inside `translate="no"`. */

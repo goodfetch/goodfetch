@@ -170,6 +170,42 @@ export type DaemonEndpoint =
 export type Unready =
   "draining" | "run_state_not_writable" | "browsers_missing" | "governor_last_resort" | "storage_critical";
 /**
+ * Where a document's encoding came from, in the order the tiers look
+ * (ADR 0119).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EncodingSource".
+ */
+export type EncodingSource = "bom" | "setting" | "header" | "meta" | "utf8" | "detected";
+/**
+ * What answered a Record's request in place of the network.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ResponseOrigin".
+ */
+export type ResponseOrigin =
+  | {
+      /**
+       * A point in time in UTC, as RFC 3339.
+       */
+      fetched_at: string;
+      kind: "response_cache";
+    }
+  | {
+      kind: "response_recording";
+      /**
+       * A point in time in UTC, as RFC 3339.
+       */
+      recorded_at: string;
+    };
+/**
+ * Which scope's `fetch.tier` forced a tier.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ForcedBy".
+ */
+export type ForcedBy = "run" | "label";
+/**
  * One dialog a handler answers, which `dialog.*` names.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -271,6 +307,14 @@ export type World = "main" | "isolated";
  * via the `definition` "Product".
  */
 export type Product = "collie" | "foxhound";
+/**
+ * A tier that fetches a crawl request's document (ADR 0020), from the
+ * cheapest up.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FetchTier".
+ */
+export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
 /**
  * The form a Client's user writes names in (ADR 0099), which the engine
  * renders the names and targets of its messages in.
@@ -637,6 +681,14 @@ export type PeriodLength = "day" | "week" | "month";
  */
 export type PlanStatus = "unchanged" | "promoted" | "pending_review" | "frozen";
 /**
+ * A table of the Operator policy: what it sets, what it sets and locks, and
+ * its caps.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyTable".
+ */
+export type PolicyTable = "settings" | "lock" | "cap";
+/**
  * An event's position among every event of one engine, which only goes up.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -883,6 +935,13 @@ export type StorageLevel = "normal" | "low" | "critical";
  */
 export type Tags2 = Tag[];
 /**
+ * How the tier of a Record's document was chosen (ADRs 0023 and 0093).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TierChosen".
+ */
+export type TierChosen = "forced" | "compared" | "sample" | "escalation" | "race";
+/**
  * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
  * one, or a regular expression in the `regex` crate's syntax. A predicate
  * runs in the program, which routes every URL and falls back for the
@@ -906,6 +965,20 @@ export type UrlMatcher =
        */
       pattern: string;
     };
+/**
+ * One of the engine's closed list of Value transforms (ADR 0123).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ValueTransform".
+ */
+export type ValueTransform = "text" | "match" | "number" | "currency" | "date" | "date_time" | "relative_time" | "map";
+/**
+ * A Wall's kind (ADR 0052).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WallKind".
+ */
+export type WallKind = "paywall" | "consent_wall" | "ad_blocker_wall";
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -1866,6 +1939,7 @@ export interface DatasetRecord {
    * Its number in its Dataset, from 1, in commit order, with no gaps.
    */
   number: number;
+  provenance: RecordProvenance;
   /**
    * The ID of the crawl request whose attempt committed it.
    */
@@ -1880,6 +1954,171 @@ export interface DatasetRecord {
   value: {
     [k: string]: unknown;
   };
+}
+/**
+ * How it was obtained (ADR 0123's Provenance of a Record).
+ */
+export interface RecordProvenance {
+  /**
+   * The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
+   * whose Run trace names their date and the release that applied them.
+   */
+  clean_up_rules?: string | null;
+  /**
+   * The encoding the document was read in, and where it came from;
+   * none for a request with no document.
+   */
+  encoding?: EncodingProvenance | null;
+  /**
+   * The Response cache or Response recording that answered in place of
+   * the network; none when the network did.
+   */
+  origin?: ResponseOrigin | null;
+  /**
+   * The payment of a Paid fetch of its page; none where nothing was
+   * paid.
+   */
+  payment?: PaymentMark | null;
+  /**
+   * The ID of the crawl request whose attempt produced it.
+   */
+  request_id: string;
+  /**
+   * The tier that fetched that request's document, and how it was
+   * chosen; none where the handler was given its request alone.
+   */
+  tier?: TierProvenance | null;
+  /**
+   * Each field whose value an engine Value transform gave, in the
+   * order read; empty where the program parsed its own values.
+   */
+  value_transforms?: TransformProvenance[];
+  /**
+   * The Wall its page was read past; none where no Wall was met.
+   */
+  wall?: WallMarker | null;
+}
+/**
+ * The encoding a Record's document was read in, and where it came from
+ * (ADR 0119).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EncodingProvenance".
+ */
+export interface EncodingProvenance {
+  /**
+   * Its WHATWG name, such as `Shift_JIS`.
+   */
+  encoding: string;
+  /**
+   * Where it came from; none where the browser read the document by a
+   * rule the engine did not see.
+   */
+  source?: EncodingSource | null;
+}
+/**
+ * The payment of a Paid fetch, as a Record's Provenance marks it (ADR
+ * 0045).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PaymentMark".
+ */
+export interface PaymentMark {
+  /**
+   * The amount charged, an exact decimal.
+   */
+  amount: string;
+  /**
+   * Its currency, an ISO 4217 code.
+   */
+  currency: string;
+  /**
+   * The domain paid.
+   */
+  payee_domain: string;
+  /**
+   * The payment scheme the site asked through.
+   */
+  scheme: string;
+}
+/**
+ * The tier that fetched a Record's document and how it was chosen.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TierProvenance".
+ */
+export interface TierProvenance {
+  /**
+   * The call a cheaper tier could not serve, which moved the request
+   * here, for an escalation or a sample's browser run.
+   */
+  call?: string | null;
+  /**
+   * How it was chosen.
+   */
+  chosen: "forced" | "compared" | "sample" | "escalation" | "race";
+  /**
+   * What forced it, when `chosen` is `forced`.
+   */
+  forced_by?: ForcedBy | null;
+  /**
+   * The tier.
+   */
+  tier: "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
+}
+/**
+ * How a Value transform gave one field of a Record (ADR 0123).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TransformProvenance".
+ */
+export interface TransformProvenance {
+  /**
+   * A relative time's anchor: the fetch time of the page's document.
+   */
+  anchor?: PointInTime | null;
+  /**
+   * The field, a JSON Pointer into the Record.
+   */
+  field: string;
+  /**
+   * Its resolved locale, a BCP 47 tag, for a locale-dependent one.
+   */
+  locale?: string | null;
+  /**
+   * The stated CLDR pattern, such as `dd/MM/yyyy`, when one was.
+   */
+  pattern?: string | null;
+  /**
+   * The page text exactly as read.
+   */
+  text: string;
+  /**
+   * Its resolved time zone, an IANA name, for a date-time or a
+   * relative time.
+   */
+  time_zone?: string | null;
+  /**
+   * The transform.
+   */
+  transform: "text" | "match" | "number" | "currency" | "date" | "date_time" | "relative_time" | "map";
+}
+/**
+ * The `wall` marker of a Record whose page was read past a Wall (ADR
+ * 0052), which Dataset queries and every Export format filter on.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WallMarker".
+ */
+export interface WallMarker {
+  /**
+   * The Wall's kind.
+   */
+  kind: "paywall" | "consent_wall" | "ad_blocker_wall";
+  /**
+   * The vendor detected, when one was.
+   */
+  vendor?: string | null;
 }
 /**
  * A dialog as its handler sees it.
@@ -2300,6 +2539,12 @@ export interface ExplainedSetting {
     [k: string]: unknown;
   };
   /**
+   * Whether it is fixed for a Run's life: a resume that changes it is
+   * refused with `setting_not_applicable`, and only a new Run takes
+   * another value (ADRs 0102 and 0120).
+   */
+  fixed_for_run?: boolean;
+  /**
    * Its key.
    */
   key: string;
@@ -2321,6 +2566,12 @@ export interface ExplainedSetting {
    * The Products that honour it, from its Product mark (ADR 0095).
    */
   products: Product[];
+  /**
+   * Whether user configuration may set it: its authority lets user
+   * configuration hold it and no lower layer locked it, so the Console
+   * offers its user-level value for editing (ADR 0031).
+   */
+  user_settable?: boolean;
   /**
    * The effective value, or for a key this engine does not apply, the
    * value its highest layer wrote.
@@ -3150,6 +3401,57 @@ export interface MemoryReading {
   used: number;
 }
 /**
+ * One kind of a Run's Model allowance (ADR 0107): the most model Usage
+ * of that kind the Run may spend, past which its model calls are refused
+ * while it goes on.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ModelAllowance".
+ */
+export interface ModelAllowance {
+  /**
+   * The currency of a `price` allowance, an ISO 4217 code.
+   */
+  currency?: string | null;
+  /**
+   * Its kind: `price`, `tokens` or `calls`; a kind this reader does not
+   * know is kept as it is.
+   */
+  kind: string;
+  /**
+   * When a model call was first refused under it; none until then.
+   */
+  reached_at?: PointInTime | null;
+  /**
+   * What remains of it, spent and reserved taken off.
+   */
+  remains: number;
+  source: SettingLimit;
+  /**
+   * What it allows: a count, or millionths of the currency.
+   */
+  value: number;
+}
+/**
+ * The setting that set it, its value and its layer.
+ */
+export interface SettingLimit {
+  /**
+   * The setting's key.
+   */
+  key: string;
+  /**
+   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   */
+  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * Its value.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
  * A Run's model calls (ADR 0101).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -3436,7 +3738,8 @@ export interface NeedsYouRemoveRefetchDomainParams {
   instead_of_star?: string[] | null;
 }
 /**
- * What `run.new_page` takes: the Run whose default Session opens the page.
+ * What `run.new_page` takes: the Run whose default Session opens the page,
+ * and the page's own settings.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "NewPageParams".
@@ -3446,6 +3749,39 @@ export interface NewPageParams {
    * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
+  /**
+   * The page's own settings, nested by key (ADR 0083), which it takes
+   * over its Session's and its Run's: `content.extractor`, the
+   * main-content step its formats read with. Any other key is refused
+   * with `setting_not_applicable`, as only its Session or its Run sets
+   * it.
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * What `session.new_page` takes: the Session, and the page's own
+ * settings.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NewSessionPageParams".
+ */
+export interface NewSessionPageParams {
+  /**
+   * The Session.
+   */
+  session_id: string;
+  /**
+   * The page's own settings, nested by key (ADR 0083), which it takes
+   * over its Session's and its Run's: `content.extractor`, the
+   * main-content step its formats read with. Any other key is refused
+   * with `setting_not_applicable`, as only its Session or its Run sets
+   * it.
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `run.new_session` takes: the Run whose Session it opens, the
@@ -3465,7 +3801,9 @@ export interface NewSessionParams {
    * `browser.block_resources` and `live_view.hiding` choose its pages'
    * Clean-up rules over the Run's, and `browser.service_workers` whether
    * a site's service workers run in them, and `session.page_check` the
-   * Page check its pages are judged against. `session.source` is refused here with `setting_not_applicable`,
+   * Page check its pages are judged against, and `content.extractor`
+   * the main-content step their formats read with. `session.source` is
+   * refused here with `setting_not_applicable`,
    * as the call's own `source` sets it, and so is any other key, which
    * only the Run sets.
    */
@@ -3533,6 +3871,56 @@ export interface SeedsKept {
    * code or a Block cause.
    */
   reason: string;
+}
+/**
+ * The Operator policy as `config.policy_read` reads it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "OperatorPolicyRead".
+ */
+export interface OperatorPolicyRead {
+  /**
+   * The digest of the file as read, which `config.policy_write` takes
+   * back. It is the policy version a Run report names, `sha256:` and 16
+   * hex digits, of the file's text, or of no text when there is none.
+   */
+  digest: string;
+  /**
+   * Every entry of its three tables, by table, then key, the other
+   * Product's keys included.
+   */
+  entries: PolicyEntry[];
+  /**
+   * Whether the file exists; a policy that does not sets nothing.
+   */
+  found: boolean;
+  /**
+   * Its file's path.
+   */
+  path: string;
+}
+/**
+ * One entry of the Operator policy: a key of one of its tables, and its
+ * value.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyEntry".
+ */
+export interface PolicyEntry {
+  /**
+   * Its key.
+   */
+  key: string;
+  /**
+   * Its table.
+   */
+  table: "settings" | "lock" | "cap";
+  /**
+   * Its value.
+   */
+  value: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `page.body` takes: the body to read.
@@ -4068,6 +4456,98 @@ export interface PluginRun {
   network_level: string;
 }
 /**
+ * One change `config.policy_write` makes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyChange".
+ */
+export interface PolicyChange {
+  /**
+   * The key it changes.
+   */
+  key: string;
+  /**
+   * The table it changes.
+   */
+  table: "settings" | "lock" | "cap";
+  /**
+   * The key's new value; `null` removes it from the table.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * What `config.policy_read` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyReadParams".
+ */
+export interface PolicyReadParams {}
+/**
+ * What `config.policy_write` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyWriteParams".
+ */
+export interface PolicyWriteParams {
+  /**
+   * The changes, made in order, in one write.
+   */
+  changes: PolicyChange[];
+  /**
+   * The digest `config.policy_read` answered: the write is made only if
+   * the file still has it.
+   */
+  digest: string;
+}
+/**
+ * What `config.policy_write` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyWritten".
+ */
+export interface PolicyWritten {
+  /**
+   * Each key the write changed, with its values before and after, as the
+   * Audit log records them.
+   */
+  diff: SettingDiff[];
+  /**
+   * The file's digest after the write, the version new Runs name.
+   */
+  digest: string;
+}
+/**
+ * One key's values before and after a write.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingDiff".
+ */
+export interface SettingDiff {
+  /**
+   * Its value after; `null` when the write removed it.
+   */
+  after: {
+    [k: string]: unknown;
+  };
+  /**
+   * Its value before; `null` when the file did not hold it.
+   */
+  before: {
+    [k: string]: unknown;
+  };
+  /**
+   * The key.
+   */
+  key: string;
+  /**
+   * The Operator policy's table, for a change to it; none for user
+   * configuration.
+   */
+  table?: PolicyTable | null;
+}
+/**
  * What `locator.press` takes: the locator whose element gets the key, and
  * the key.
  *
@@ -4161,6 +4641,52 @@ export interface LimitScope4 {
   kind: string;
 }
 /**
+ * How one committed Record was obtained.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecordProvenance".
+ */
+export interface RecordProvenance1 {
+  /**
+   * The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
+   * whose Run trace names their date and the release that applied them.
+   */
+  clean_up_rules?: string | null;
+  /**
+   * The encoding the document was read in, and where it came from;
+   * none for a request with no document.
+   */
+  encoding?: EncodingProvenance | null;
+  /**
+   * The Response cache or Response recording that answered in place of
+   * the network; none when the network did.
+   */
+  origin?: ResponseOrigin | null;
+  /**
+   * The payment of a Paid fetch of its page; none where nothing was
+   * paid.
+   */
+  payment?: PaymentMark | null;
+  /**
+   * The ID of the crawl request whose attempt produced it.
+   */
+  request_id: string;
+  /**
+   * The tier that fetched that request's document, and how it was
+   * chosen; none where the handler was given its request alone.
+   */
+  tier?: TierProvenance | null;
+  /**
+   * Each field whose value an engine Value transform gave, in the
+   * order read; empty where the program parsed its own values.
+   */
+  value_transforms?: TransformProvenance[];
+  /**
+   * The Wall its page was read past; none where no Wall was met.
+   */
+  wall?: WallMarker | null;
+}
+/**
  * What `$/record` carries: the next Record a `run.records` call reads.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -4185,6 +4711,7 @@ export interface DatasetRecord1 {
    * Its number in its Dataset, from 1, in commit order, with no gaps.
    */
   number: number;
+  provenance: RecordProvenance;
   /**
    * The ID of the crawl request whose attempt committed it.
    */
@@ -4725,6 +5252,11 @@ export interface RunIndexRow {
    */
   progress_message?: string | null;
   /**
+   * Whether it replayed a Response recording (ADR 0105), which marks
+   * its row so that no one reads it as a live run.
+   */
+  replayed: boolean;
+  /**
    * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
    */
   run_id: string;
@@ -5141,6 +5673,11 @@ export interface RunUsage {
   limits?: AppliedLimit[];
   model: ModelUsage1;
   /**
+   * Its Model allowance, one entry per kind set (ADR 0107): not a Limit,
+   * so apart from `limits`; empty when none is set.
+   */
+  model_allowance?: ModelAllowance[];
+  /**
    * What it used of a Usage kind this engine does not name, kept as the
    * ledger holds it.
    */
@@ -5424,6 +5961,11 @@ export interface RunUsage1 {
   limits?: AppliedLimit[];
   model: ModelUsage1;
   /**
+   * Its Model allowance, one entry per kind set (ADR 0107): not a Limit,
+   * so apart from `limits`; empty when none is set.
+   */
+  model_allowance?: ModelAllowance[];
+  /**
    * What it used of a Usage kind this engine does not name, kept as the
    * ledger holds it.
    */
@@ -5701,7 +6243,7 @@ export interface SessionPages {
   pages: PageId[];
 }
 /**
- * What `session.new_page` and `session.close` take: the Session.
+ * What `session.close` takes: the Session.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "SessionParams".
@@ -5755,6 +6297,29 @@ export interface SetLogLevelParams {
    * it and above; `off`, the default, receives none.
    */
   log_level: "off" | "error" | "warn" | "info" | "debug" | "trace";
+}
+/**
+ * A setting that decided an outcome: its key, its value and the layer that
+ * set it (ADRs 0028 and 0079).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingLimit".
+ */
+export interface SettingLimit1 {
+  /**
+   * The setting's key.
+   */
+  key: string;
+  /**
+   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   */
+  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * Its value.
+   */
+  value: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `config.explain` answers and `config explain --json` prints:
@@ -6090,6 +6655,48 @@ export interface UsageSetParams {
    * The Usage kind it caps.
    */
   usage_kind: string;
+}
+/**
+ * One user-level value `config.user_write` writes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UserChange".
+ */
+export interface UserChange {
+  /**
+   * The key.
+   */
+  key: string;
+  /**
+   * Its new value; `null` removes it from user configuration.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * What `config.user_write` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UserConfigurationWritten".
+ */
+export interface UserConfigurationWritten {
+  /**
+   * Each key the write changed, with its values before and after.
+   */
+  diff: SettingDiff[];
+}
+/**
+ * What `config.user_write` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UserWriteParams".
+ */
+export interface UserWriteParams {
+  /**
+   * The changes, made in order, in one write.
+   */
+  changes: UserChange[];
 }
 /**
  * What `locator.wait_for_count` takes: the locator and the count its

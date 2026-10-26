@@ -403,6 +403,10 @@ fn changed_crates_select_their_dependants_through_rdeps(
 // The Products' executables are built from it, and the conformance crate's
 // tests run them.
 #[case::what_an_executable_is_built_from_reaches_the_crates_whose_tests_run_it(&["crates/goodfetch-engine/src/lib.rs"], "goodfetch-collie goodfetch-conformance goodfetch-engine goodfetch-foxhound goodfetch-frontier")]
+// Only Foxhound's executable is built from it, and no Cargo dependency
+// points from the conformance crate to it: the conformance crate's tests
+// still run, as they drive that executable (#950's `goodfetch-fetch-tier`).
+#[case::what_only_foxhounds_executable_is_built_from_reaches_the_crates_whose_tests_run_it(&["crates/foxhound/goodfetch-frontier/src/lib.rs"], "goodfetch-conformance goodfetch-foxhound goodfetch-frontier")]
 fn changed_crates_list_them_and_their_dependants_for_cargo(
     #[case] paths: &[&str],
     #[case] crates: &str,

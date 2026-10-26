@@ -1077,6 +1077,19 @@
             },
             "type": "object"
           },
+          "content": {
+            "additionalProperties": false,
+            "properties": {
+              "extractor": {
+                "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+                "enum": [
+                  "dom_smoothie",
+                  "trafilatura"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "crawl": {
             "additionalProperties": false,
             "properties": {
@@ -1305,14 +1318,14 @@
             "additionalProperties": false,
             "properties": {
               "allowed_domains": {
-                "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run. A request to a host it does not list fails with `egress_refused`.",
+                "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run, and only narrowed by a Recipe or a Client acting for a model, whose value listing a host the value below does not cover is `setting_locked`. A request to a host it does not list fails with `egress_refused`.",
                 "items": {
                   "type": "string"
                 },
                 "type": "array"
               },
               "blocked_domains": {
-                "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run. A request to a host it lists fails with `egress_refused`.",
+                "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run, and only added to by a Recipe or a Client acting for a model, whose value that leaves a host the value below lists uncovered is `setting_locked`. A request to a host it lists fails with `egress_refused`.",
                 "items": {
                   "type": "string"
                 },
@@ -3374,6 +3387,19 @@
             },
             "type": "object"
           },
+          "content": {
+            "additionalProperties": false,
+            "properties": {
+              "extractor": {
+                "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+                "enum": [
+                  "dom_smoothie",
+                  "trafilatura"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "crawl": {
             "additionalProperties": false,
             "properties": {
@@ -3602,14 +3628,14 @@
             "additionalProperties": false,
             "properties": {
               "allowed_domains": {
-                "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run. A request to a host it does not list fails with `egress_refused`.",
+                "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run, and only narrowed by a Recipe or a Client acting for a model, whose value listing a host the value below does not cover is `setting_locked`. A request to a host it does not list fails with `egress_refused`.",
                 "items": {
                   "type": "string"
                 },
                 "type": "array"
               },
               "blocked_domains": {
-                "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run. A request to a host it lists fails with `egress_refused`.",
+                "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run, and only added to by a Recipe or a Client acting for a model, whose value that leaves a host the value below lists uncovered is `setting_locked`. A request to a host it lists fails with `egress_refused`.",
                 "items": {
                   "type": "string"
                 },

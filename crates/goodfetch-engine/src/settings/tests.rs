@@ -1100,6 +1100,7 @@ fn an_explanation_lists_each_effective_value_with_its_layers() {
                 "layer": "run",
                 "origin": "settings",
                 "weakens": false,
+                "user_settable": true,
             }],
         })
     );
@@ -1493,4 +1494,203 @@ fn a_private_range_that_is_no_range_address_or_host_is_invalid(#[case] value: Va
         ("setting_invalid", true),
         "{refused:?}"
     );
+}
+
+/// What `key` resolves to when user configuration sets it to `configured`
+/// and `layer` gives `value`, from a Client acting for a model where
+/// `for_model`: the value taken, or the refusal's code and key.
+fn over_configuration(
+    key: &str,
+    configured: &Value,
+    layer: SettingsLayer,
+    for_model: bool,
+    value: &Value,
+) -> Result<Value, (&'static str, String)> {
+    let mut layers = only(layer, key, value);
+    if layer != SettingsLayer::UserConfiguration {
+        layers.user_configuration =
+            values(SettingsLayer::UserConfiguration, json!({ key: configured }));
+    }
+    if for_model {
+        layers.run = layers.run.from_model();
+        layers.project_configuration = layers.project_configuration.from_model();
+    }
+    over_layers(&layers, key)
+}
+
+/// Story 4-4 (spec #563, G5): a Client acting for a model and a Recipe
+/// only narrow the domain policy the layers below them set: fewer hosts in
+/// `egress.allowed_domains` (an entry the lower value lists, or a
+/// subdomain of one, as the URL parser reads a host), more in
+/// `egress.blocked_domains`. A widening value from them is
+/// `setting_locked` naming the key, and the program's own code and
+/// configuration still widen it (positive control).
+/// Covers: story:4-4, error:setting_locked, setting:egress.allowed_domains, setting:egress.blocked_domains
+#[rstest]
+#[case::allowed_every_host_narrowed_by_a_model(
+    "egress.allowed_domains", json!(["*"]), SettingsLayer::Run, true, json!(["scope.test"]), true
+)]
+#[case::allowed_narrowed_to_a_subdomain_by_a_model(
+    "egress.allowed_domains", json!(["scope.test", "elsewhere.test"]), SettingsLayer::Run, true, json!(["www.scope.test"]), true
+)]
+#[case::allowed_narrowed_in_another_spelling_by_a_model(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["WWW.Scope.Test."]), true
+)]
+#[case::allowed_emptied_by_a_model(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!([]), true
+)]
+#[case::allowed_widened_by_a_model(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["scope.test", "elsewhere.test"]), false
+)]
+#[case::allowed_widened_to_a_parent_by_a_model(
+    "egress.allowed_domains", json!(["www.scope.test"]), SettingsLayer::Run, true, json!(["scope.test"]), false
+)]
+#[case::allowed_widened_to_every_host_by_a_model(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["*"]), false
+)]
+#[case::allowed_widened_by_a_name_sharing_a_suffix(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["evilscope.test"]), false
+)]
+#[case::allowed_widened_by_an_entry_that_is_no_host(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, true, json!(["scope.test/path"]), false
+)]
+#[case::allowed_widened_by_a_models_project_configuration(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::ProjectConfiguration, true, json!(["elsewhere.test"]), false
+)]
+#[case::allowed_narrowed_by_a_recipe(
+    "egress.allowed_domains", json!(["*"]), SettingsLayer::Recipe, false, json!(["scope.test"]), true
+)]
+#[case::allowed_widened_by_a_recipe(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Recipe, false, json!(["elsewhere.test"]), false
+)]
+#[case::allowed_widened_by_the_programs_own_code(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::Run, false, json!(["scope.test", "elsewhere.test"]), true
+)]
+#[case::allowed_widened_by_project_configuration(
+    "egress.allowed_domains", json!(["scope.test"]), SettingsLayer::ProjectConfiguration, false, json!(["*"]), true
+)]
+#[case::blocked_added_to_by_a_model(
+    "egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Run, true, json!(["ads.test", "tracker.test"]), true
+)]
+#[case::blocked_widened_to_a_parent_by_a_model(
+    "egress.blocked_domains", json!(["www.ads.test"]), SettingsLayer::Run, true, json!(["ads.test"]), true
+)]
+#[case::blocked_entry_removed_by_a_model(
+    "egress.blocked_domains", json!(["ads.test", "tracker.test"]), SettingsLayer::Run, true, json!(["ads.test"]), false
+)]
+#[case::blocked_entry_replaced_by_its_subdomain_by_a_model(
+    "egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Run, true, json!(["www.ads.test"]), false
+)]
+#[case::blocked_every_host_dropped_by_a_model(
+    "egress.blocked_domains", json!(["*"]), SettingsLayer::Run, true, json!(["ads.test"]), false
+)]
+#[case::blocked_entry_removed_by_a_recipe(
+    "egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Recipe, false, json!([]), false
+)]
+#[case::blocked_added_to_by_a_recipe(
+    "egress.blocked_domains", json!([]), SettingsLayer::Recipe, false, json!(["ads.test"]), true
+)]
+#[case::blocked_entry_removed_by_the_programs_own_code(
+    "egress.blocked_domains", json!(["ads.test"]), SettingsLayer::Run, false, json!([]), true
+)]
+fn a_model_and_a_recipe_only_narrow_the_domain_policy(
+    #[case] key: &str,
+    #[case] configured: Value,
+    #[case] layer: SettingsLayer,
+    #[case] for_model: bool,
+    #[case] value: Value,
+    #[case] taken: bool,
+) {
+    let resolved = over_configuration(key, &configured, layer, for_model, &value);
+
+    let expected = if taken {
+        Ok(value)
+    } else {
+        Err(("setting_locked", key.to_owned()))
+    };
+    assert_eq!(resolved, expected);
+}
+
+/// Story 4-4: `egress.private_ranges`, the third key of the domain policy,
+/// is never a model's even when it lists fewer ranges than configuration
+/// does; the same narrower value from the program's own code is taken
+/// (positive control).
+/// Covers: story:4-4, error:setting_locked, setting:egress.private_ranges
+#[rstest]
+#[case::fewer_from_a_model(true, false)]
+#[case::fewer_from_the_programs_own_code(false, true)]
+fn a_model_never_sets_the_private_ranges_even_to_fewer(
+    #[case] for_model: bool,
+    #[case] taken: bool,
+) {
+    let fewer = json!(["127.0.0.0/8"]);
+
+    let resolved = over_configuration(
+        "egress.private_ranges",
+        &json!(["127.0.0.0/8", "10.0.0.0/8"]),
+        SettingsLayer::Run,
+        for_model,
+        &fewer,
+    );
+
+    let expected = if taken {
+        Ok(fewer)
+    } else {
+        Err(("setting_locked", "egress.private_ranges".to_owned()))
+    };
+    assert_eq!(resolved, expected);
+}
+
+/// Story 4-4 and #225: a Recipe's narrowed `egress.allowed_domains` stays
+/// locked for a Client acting for a model, even to a narrower value,
+/// unless the Recipe exposes it; exposed, the model narrows it further
+/// and still never widens it.
+/// Covers: story:4-4, story:3-87, error:setting_locked, setting:egress.allowed_domains
+#[rstest]
+#[case::narrower_where_unexposed(false, json!(["www.scope.test"]), false)]
+#[case::narrower_where_exposed(true, json!(["www.scope.test"]), true)]
+#[case::wider_where_exposed(true, json!(["elsewhere.test"]), false)]
+fn a_recipes_domain_policy_stays_locked_unless_exposed(
+    #[case] exposed: bool,
+    #[case] value: Value,
+    #[case] taken: bool,
+) {
+    let key = "egress.allowed_domains";
+    let exposure = Exposure {
+        minimum: None,
+        maximum: None,
+        one_of: Vec::new(),
+    };
+    let expose = if exposed {
+        vec![(key, exposure)]
+    } else {
+        Vec::new()
+    };
+    let layers = Layers {
+        recipe: Some(recipe(json!({ key: ["scope.test"] }), &expose)),
+        run: values(SettingsLayer::Run, json!({ key: value })).from_model(),
+        ..Layers::default()
+    };
+
+    let resolved = over_layers(&layers, key);
+
+    let expected = if taken {
+        Ok(value)
+    } else {
+        Err(("setting_locked", key.to_owned()))
+    };
+    assert_eq!(resolved, expected);
+}
+
+/// What `key` resolves to under `layers`: the value taken, or the
+/// refusal's code and key.
+fn over_layers(layers: &Layers, key: &str) -> Result<Value, (&'static str, String)> {
+    resolve(layers, Product::Foxhound, Product::Foxhound)
+        .map(|effective| effective.value(key).clone())
+        .map_err(|refused| {
+            let SettingsError::Locked { key, .. } = &refused else {
+                panic!("{refused:?}");
+            };
+            (refused.code(), key.clone())
+        })
 }

@@ -25,7 +25,12 @@
 //! failing with `blocked` for a `rate_limit` (a 429) halves its concurrency,
 //! for every sharing run (ADR 0053), as one failing with
 //! `response_unavailable` for a 502, 503 or 504 backs it off; the time a
-//! failure's `retry_after` names holds the domain until then (ADR 0118). A
+//! failure's `retry_after` names holds the domain until then (ADR 0118).
+//! The site's own answer to the request's document, which the engine
+//! fetched on any tier, does the same whatever the handler made of the
+//! page, as does a fetch the site refused, timed out or reset with
+//! `ENHANCE_YOUR_CALM` (frontier's `backoff_classes`); a proxy's own
+//! answer backs no domain off (ADR 0053). A
 //! domain the Politeness holds for want of room waits for the wake of a
 //! Permit given back. When that time is further away than the Run waits
 //! (`politeness.retry_after.max`), the request whose response asked ends
@@ -974,8 +979,14 @@ async fn settled(
     }
     let waiting = attempt.leased.waiting.clone();
     let merged = std::mem::take(&mut attempt.merged);
-    let domain = domain_ending(&attempt.answer, run.clock().now(), run.clock().wall());
     let resolved = settings.at_admission().await;
+    let domain = domain_ending(
+        &attempt.answer,
+        attempt.document.as_ref(),
+        proxied(&resolved),
+        run.clock().now(),
+        run.clock().wall(),
+    );
     pool.settle(
         &attempt.session,
         &waiting.key,

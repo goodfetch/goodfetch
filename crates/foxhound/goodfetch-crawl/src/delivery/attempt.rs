@@ -99,7 +99,7 @@ use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_session_pool::Effect;
 use serde_json::{Map, Value};
-use tokio::sync::oneshot;
+use tokio::sync::{Mutex, oneshot};
 
 use crate::code_free::CodeFree;
 use crate::lease::{CommitError, SoFar, WorkItemLease};
@@ -396,6 +396,10 @@ pub(super) struct Attempt {
     /// The race it was, with its browser-fetch's latency, once its
     /// document arrived.
     pub(super) raced: Option<(Raced, Duration)>,
+    /// The site's answer to its request's own document, when the engine
+    /// fetched it, on any tier: its domain's Politeness reads it whatever
+    /// the handler made of the page (the `backoff_classes` rule).
+    pub(super) document: Option<PageResponse>,
 }
 
 /// One attempt: the handler request, bounded by its lease, on the tier its
@@ -416,7 +420,9 @@ pub(super) async fn attempt(
     (tiering, gating): (Tiering, Gating),
     in_flight: SharedInFlight,
 ) -> Attempt {
+    let document = Mutex::new(None);
     let on = On {
+        document: &document,
         run: &run,
         context: &context,
         leased: &leased,
@@ -487,6 +493,7 @@ pub(super) async fn attempt(
         },
     };
     Attempt {
+        document: document.into_inner(),
         server,
         leased,
         _counted: counted,
@@ -531,6 +538,10 @@ struct On<'a> {
     lease: &'a WorkItemLease,
     gating: &'a Gating,
     in_flight: &'a SharedInFlight,
+    /// The site's answer to the request's own document, as the last run
+    /// that fetched it met it, which its domain's Politeness reads (the
+    /// `backoff_classes` rule).
+    document: &'a Mutex<Option<PageResponse>>,
 }
 
 impl On<'_> {
@@ -768,6 +779,7 @@ impl On<'_> {
             .document(tiering, http, choice, &hand_over)
             .await
             .map_err(|answer| (answer, Vec::new()))?;
+        *self.document.lock().await = tiers.response(&page_id);
         // A `discovered_api` page replays its Label's calls (ADR 0020).
         if let Some(plan) = plan {
             tiers.replay_on(&page_id, plan.clone());
@@ -1019,6 +1031,7 @@ impl On<'_> {
             forced: choice.forced.clone().filter(|_| how == Chosen::AsChosen),
         };
         let encoding = read_by_browser(tiers, &page_id, navigated.response.as_ref());
+        self.document.lock().await.clone_from(&navigated.response);
         record_tier(run, leased, lease, &browser, how, encoding.clone(), None).await;
         self.in_flight
             .lock()

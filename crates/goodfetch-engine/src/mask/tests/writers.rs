@@ -309,6 +309,7 @@ fn is_product_code(path: &str) -> bool {
         "/generated/",
         "crates/goodfetch-test-support/",
         "crates/goodfetch-conformance/",
+        "crates/goodfetch-stub-gateway/",
     ];
     !path.ends_with("tests.rs")
         && !path.ends_with("/build.rs")

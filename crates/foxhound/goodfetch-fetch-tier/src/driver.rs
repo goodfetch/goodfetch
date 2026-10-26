@@ -37,6 +37,7 @@ use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_engine::happy_eyeballs::FamilyUnavailable;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::{CertificateChanged, CertificateInvalid, ExceptionUsed};
+use goodfetch_frontier::backoff_classes::Met;
 use goodfetch_protocol::dns::IpFamily;
 use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NavigationFailedDetails, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
@@ -47,6 +48,9 @@ use url::{Host, Url};
 
 use crate::content_types::{Accepts, typed};
 use crate::decoding::{self, DecodingFailed};
+
+#[cfg(test)]
+mod tests;
 
 /// One hop of a fetch: one request as it leaves.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -198,6 +202,11 @@ pub enum TransportFailure {
     /// The site asked over HTTP/2 for HTTP/1.1 (`HTTP_1_1_REQUIRED`), having
     /// processed nothing (`net::ERR_HTTP_1_1_REQUIRED`).
     Http11Required,
+    /// The site reset the HTTP/2 stream, or closed the connection, with
+    /// `ENHANCE_YOUR_CALM`: it asks for less load, and its domain backs off
+    /// as on a 503 (ADR 0118). Chromium names it as every HTTP/2 reset it
+    /// has no error of its own for (`net::ERR_HTTP2_PROTOCOL_ERROR`).
+    EnhanceYourCalm,
     /// The host's certificate failed verification so, and no exception
     /// covers its domain (`net::ERR_CERT_AUTHORITY_INVALID`): nothing was
     /// sent to it, and the attempt ends with `certificate_invalid` (ADR
@@ -286,7 +295,31 @@ impl std::fmt::Debug for BrowserFailure {
     }
 }
 
+/// What an HTTP tier's hop met, as the backoff classes read it (spec
+/// #579): its answer's status and `Proxy-Status`, the proxy having
+/// forwarded the hop itself when `forwarded` (an `http:` URL sent to an
+/// HTTP proxy), so that only then can the field name the proxy's own error.
+pub fn met(status: u16, headers: &[(String, String)], forwarded: bool) -> Met<'_> {
+    Met::Response {
+        status,
+        proxy_status: headers
+            .iter()
+            .find(|(name, _)| name == "proxy-status")
+            .map(|(_, value)| value.as_str()),
+        forwarded,
+    }
+}
+
 impl TransportFailure {
+    /// What a hop that failed so met, as the backoff classes read it: its
+    /// network error, Chrome's name for it, the proxy's own for a tunnel
+    /// the proxy refused, asked credentials for or never opened.
+    pub fn met(&self) -> Met<'static> {
+        Met::Failure {
+            error: self.network_error(),
+        }
+    }
+
     /// The network error Chrome names the same failure with.
     pub fn network_error(&self) -> &'static str {
         match self {
@@ -300,6 +333,7 @@ impl TransportFailure {
             Self::ClosedAtReuse => "net::ERR_EMPTY_RESPONSE",
             Self::RefusedStream => "net::ERR_HTTP2_SERVER_REFUSED_STREAM",
             Self::Http11Required => "net::ERR_HTTP_1_1_REQUIRED",
+            Self::EnhanceYourCalm => "net::ERR_HTTP2_PROTOCOL_ERROR",
             Self::CertificateInvalid(_) => "net::ERR_CERT_AUTHORITY_INVALID",
             Self::CertificateChanged(_) => "net::ERR_SSL_PINNED_KEY_NOT_IN_CERT_CHAIN",
             Self::ClientCertificate(_) => "net::ERR_BAD_SSL_CLIENT_AUTH_CERT",

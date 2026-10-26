@@ -19,7 +19,7 @@ pub(crate) const PROXY_STATUS: &str = "proxy-status";
 
 /// Who answered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Party {
+pub enum Party {
     /// The proxy itself.
     Proxy,
     /// The site, through the proxy.
@@ -28,7 +28,7 @@ pub(crate) enum Party {
 
 /// What a request through the proxy met.
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum Answer<'a> {
+pub enum Answer<'a> {
     /// No response: the browser's network error, such as
     /// `net::ERR_TUNNEL_CONNECTION_FAILED` for a tunnel the proxy refused.
     Failure {
@@ -62,7 +62,7 @@ pub(crate) fn relay_unreachable() -> String {
 }
 
 /// Who gave `answer`.
-pub(crate) fn party(answer: Answer<'_>) -> Party {
+pub fn party(answer: Answer<'_>) -> Party {
     match answer {
         Answer::Failure { error } if tunnel_failure(error) => Party::Proxy,
         Answer::Response {

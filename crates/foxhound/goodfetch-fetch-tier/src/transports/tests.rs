@@ -42,6 +42,23 @@ fn http_1_1_required_wrapped_in_an_io_error_is_its_own_failure() {
     assert_eq!(failure, TransportFailure::Http11Required);
 }
 
+/// A site's HTTP/2 `ENHANCE_YOUR_CALM`, a reset or a `GOAWAY`, is its own
+/// failure, which backs its domain off (ADR 0118).
+///
+/// Covers: story:5-132
+#[test]
+fn enhance_your_calm_is_its_own_failure_named_as_chrome_names_it() {
+    let failure = classify(&h2::Error::from(h2::Reason::ENHANCE_YOUR_CALM));
+
+    assert_eq!(
+        (failure.clone(), failure.network_error()),
+        (
+            TransportFailure::EnhanceYourCalm,
+            "net::ERR_HTTP2_PROTOCOL_ERROR"
+        )
+    );
+}
+
 /// Covers: story:5-127
 #[test]
 fn another_http2_error_is_the_generic_case() {

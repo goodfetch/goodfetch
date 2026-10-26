@@ -26,6 +26,9 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+# The Cloud-readiness conformance suite's gateway cases, which its tests run
+# against the gateway's executable (tests/it/cloud_readiness.rs).
+goodfetch-conformance.workspace = true
 goodfetch-test-support.workspace = true
 rstest.workspace = true
 # The gateway's HTTP Client in its tests (tests/it/gateway.rs).
@@ -35,6 +38,11 @@ tungstenite.workspace = true
 
 [lints]
 workspace = true
+
+# Its tests run both Products' executables through the test tool manifest,
+# so a change to either runs them (`xtask affected`).
+[package.metadata.goodfetch]
+runs = ["goodfetch-collie", "goodfetch-foxhound", "goodfetch-proving-ground"]
 
 [[bin]]
 name = "goodfetch-stub-gateway"

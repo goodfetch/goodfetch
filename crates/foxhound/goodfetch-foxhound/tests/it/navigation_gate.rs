@@ -752,6 +752,90 @@ fn with_robots_txt_not_respected_a_handlers_goto_is_not_refused() {
     );
 }
 
+/// The `access-policy` family's TDMRep-header task's host: its second page
+/// answers with `tdm-reservation: 1`.
+const TDMREP_HOST: &str = "5.access-policy.test";
+
+/// A handler's `goto` to a document whose `TDMRep` header reserves its
+/// rights, under `site_preferences`: answers the call and whether the page
+/// then holds any text.
+fn goto_reserved_document(site_preferences: &Value) -> (Value, Value) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let reserved = proving_ground.url(TDMREP_HOST, "/catalog/2");
+    let more = json!({ "site_preferences": site_preferences });
+
+    let (mut went, mut text) = (Value::Null, Value::Null);
+    let report = crawl_with(
+        &mut engine,
+        "signals",
+        &[json!({ "url": proving_ground.url(TDMREP_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            let page_id = new_page(inside, handle);
+            went = inside.call("page.goto", &json!({ "page_id": page_id, "url": reserved }));
+            text = inside.call(
+                "page.evaluate",
+                &json!({
+                    "page_id": page_id,
+                    "function": "() => document.documentElement.textContent.trim().length > 0",
+                }),
+            )["result"]["value"]
+                .clone();
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    (went, text)
+}
+
+/// With `site_preferences.respect_use_signals` on and a Purpose the
+/// document's `TDMRep` header refuses, a handler's `goto` to it raises
+/// `site_preferences_refused` with `use_signals` and leaves the page on a
+/// blank document.
+///
+/// Covers: story:5-134, error:site_preferences_refused, setting:site_preferences.respect_use_signals, setting:site_preferences.purpose, operation:page.goto, operation:page.evaluate
+#[test]
+fn a_handlers_goto_to_a_document_whose_use_signals_refuse_the_purpose_is_refused_blank() {
+    let (went, text) =
+        goto_reserved_document(&json!({ "respect_use_signals": true, "purpose": "ai-input" }));
+
+    assert_eq!(
+        (
+            &went["error"]["data"]["code"],
+            &went["error"]["data"]["reason"],
+            &text
+        ),
+        (
+            &json!("site_preferences_refused"),
+            &json!("use_signals"),
+            &json!(false)
+        ),
+        "{went}"
+    );
+}
+
+/// With `site_preferences.respect_use_signals` off, or a Purpose of
+/// `search`, the same `goto` loads the document.
+///
+/// Covers: story:5-134, setting:site_preferences.respect_use_signals, setting:site_preferences.purpose, operation:page.goto, operation:page.evaluate
+#[rstest::rstest]
+#[case::not_honoured(json!({ "respect_use_signals": false, "purpose": "ai-input" }))]
+#[case::for_search(json!({ "respect_use_signals": true, "purpose": "search" }))]
+fn a_handlers_goto_to_a_reserved_document_loads_unless_the_signals_are_honoured_for_a_purpose(
+    #[case] site_preferences: Value,
+) {
+    let (went, text) = goto_reserved_document(&site_preferences);
+
+    assert_eq!(
+        (&went["result"]["response"]["status"], &text),
+        (&json!(200), &json!(true)),
+        "{went}"
+    );
+}
+
 /// How many handlers run at once in the eight-handler case.
 const HANDLERS: usize = 8;
 

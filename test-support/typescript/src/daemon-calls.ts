@@ -61,3 +61,103 @@ export async function callDaemon(
     socket.end();
   }
 }
+
+/** How a Connection answers a request the engine sends it, such as a crawl's `crawl_request.handle`. */
+export type EngineRequestHandler = (params: unknown) => unknown;
+
+/** A Connection to the test's Daemon held open, as a program serving a crawl holds one. */
+export interface DaemonConnection {
+  /** Calls `method` with `params`, answering its result; a refusal throws. */
+  call(method: string, params: unknown): Promise<unknown>;
+  /** Closes the Connection. */
+  close(): void;
+}
+
+/**
+ * Opens a Connection to the Daemon over its socket, as an SDK of `needs`
+ * does, after `hello`, answering each request the engine sends with the
+ * result of `handlers`' function for its method; one with no function is
+ * refused with `method_not_found`. It stays open until `close`.
+ */
+export async function connectDaemon(
+  daemon: ServedDaemon,
+  needs: "collie" | "foxhound",
+  handlers: Readonly<Record<string, EngineRequestHandler>> = {},
+): Promise<DaemonConnection> {
+  const info: unknown = JSON.parse(await command(daemon, ["engine", "info", "--json"]));
+  const version =
+    typeof info === "object" && info !== null && "product_version" in info
+      ? String(info.product_version)
+      : "";
+  const socket = createConnection(daemon.socket);
+  const pending = new Map<
+    number,
+    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+  >();
+  let next = 0;
+  const write = (message: unknown): void => {
+    socket.write(`${JSON.stringify(message)}\n`);
+  };
+  const lines = createInterface({ input: socket });
+  lines.on("line", (line) => {
+    const message: unknown = JSON.parse(line);
+    if (typeof message !== "object" || message === null) {
+      return;
+    }
+    if ("method" in message && typeof message.method === "string") {
+      if (!("id" in message)) {
+        return;
+      }
+      const handler = handlers[message.method];
+      const params = "params" in message ? message.params : undefined;
+      if (handler === undefined) {
+        write({
+          jsonrpc: "2.0",
+          id: message.id,
+          error: { code: -32601, message: `the test serves no ${message.method}` },
+        });
+        return;
+      }
+      const { id } = message;
+      const answer = async (): Promise<void> => {
+        write({ jsonrpc: "2.0", id, result: await handler(params) });
+      };
+      void answer();
+      return;
+    }
+    if ("id" in message && typeof message.id === "number") {
+      const waiting = pending.get(message.id);
+      pending.delete(message.id);
+      if ("error" in message) {
+        waiting?.reject(
+          new Error(`call ${String(message.id)} failed: ${JSON.stringify(message.error)}`),
+        );
+      } else {
+        waiting?.resolve("result" in message ? message.result : undefined);
+      }
+    }
+  });
+  socket.on("close", () => {
+    for (const waiting of pending.values()) {
+      waiting.reject(new Error("the Daemon closed the Connection before answering"));
+    }
+    pending.clear();
+  });
+  const call = async (method: string, params: unknown): Promise<unknown> => {
+    const id = next;
+    next += 1;
+    const answered = new Promise<unknown>((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+    });
+    write({ jsonrpc: "2.0", id, method, params });
+    return answered;
+  };
+  await call("hello", {
+    protocol_version: "0.1",
+    surface: "sdk_typescript",
+    token: daemon.token,
+    needs,
+    product_version: version,
+  });
+  return { call, close: () => socket.end() };
+}

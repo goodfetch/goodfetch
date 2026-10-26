@@ -1,6 +1,7 @@
 # Which of the crate's top-level modules may import which (ADR 0126).
 [modules]
 admit = ["bounds", "identity", "rules", "scope", "url"]
+backoff_classes = []
 bounds = []
 domain_key = []
 forms = []

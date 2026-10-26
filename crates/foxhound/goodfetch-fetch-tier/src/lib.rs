@@ -55,7 +55,7 @@ pub use content_types::ContentTypes;
 pub use discovered_api::{Call as CapturedCall, Capture, Plan as ReplayPlan, infer as infer_plan};
 pub use document::{Matched, SelectorInvalid};
 pub use driver::{
-    Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
+    Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch, met,
 };
 pub use gate::{HandOver, RobotsTxtFetch, crawl_delay, disallowing};
 pub use goodfetch_page::page_value::PooledSession;

@@ -1125,11 +1125,28 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 274
+title = "As a crawl developer, I want a Record's `wall` marker filterable in Dataset queries and every Export format, so that pages read past a Wall can be set apart (ADR 0052)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 275
 title = "As a crawl developer, I want Secret values masked in Records as `%name%`, so that a secret never lands in a Dataset (ADR 0092)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 276
+title = "As a crawl developer, I want `run.export(dataset, { format, compression })` to return an `Export` only once its file is whole, in JSON, JSONL, CSV, XLSX, XML, Parquet, HTML table, RSS, Atom, Avro, Arrow IPC or Markdown, gzip or zstd, so that every common format comes from one call (CO-27, ADRs 0026, 0103, 0116)."
+milestone = "M1 Core"
+journey = true
 status = "active"
 product = "foxhound"
 
@@ -1145,6 +1162,15 @@ product = "foxhound"
 [[story]]
 id = 278
 title = "As a crawl developer, I want CSV, XLSX, HTML-table and Markdown Exports to carry the union of every field seen, in first-seen order, so that a later Record's field is never dropped (CO-27; pitfall D07)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 279
+title = "As a crawl developer, I want each format's options as `export.*` settings, so that an Export's shape is configured once per project (ADR 0103) **(shape)**."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

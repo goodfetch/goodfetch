@@ -34,7 +34,7 @@ const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
 /// The shared Unicode record as one Record's value: each field's text
 /// under its name.
-fn unicode_value() -> Value {
+pub(crate) fn unicode_value() -> Value {
     Value::Object(
         unicode_record()
             .fields
@@ -45,13 +45,13 @@ fn unicode_value() -> Value {
 }
 
 /// The Record of `books` that the crawl request of `page` commits.
-fn book(page: u64) -> Value {
+pub(crate) fn book(page: u64) -> Value {
     json!({ "page": page, "title": format!("Café {page}") })
 }
 
 /// Starts a crawl `run_id` of `pages` seeds, one request at a time,
 /// declaring `books`.
-fn crawl(engine: &mut Attached, run_id: &str, pages: u64) {
+pub(crate) fn crawl(engine: &mut Attached, run_id: &str, pages: u64) {
     let seeds: Vec<Value> = (1..=pages)
         .map(|page| json!({ "url": format!("https://shop.test/{page}"), "label": "page" }))
         .collect();
@@ -81,7 +81,7 @@ fn pushing(value: &Value) -> Value {
 }
 
 /// Finishes `run_id`, each request answered by pushing `record(page)`.
-fn finish(engine: &mut Attached, run_id: &str, record: impl Fn(u64) -> Value) {
+pub(crate) fn finish(engine: &mut Attached, run_id: &str, record: impl Fn(u64) -> Value) {
     let finished = engine.call(
         "finish",
         "run.finish",
@@ -106,7 +106,7 @@ fn export(engine: &mut Attached, run_id: &str, format: &str) -> Value {
 }
 
 /// Saves the Export `export_id` at `path` and answers the reply.
-fn save_as(engine: &mut Attached, export_id: &Value, path: &Path) -> Value {
+pub(crate) fn save_as(engine: &mut Attached, export_id: &Value, path: &Path) -> Value {
     engine.call(
         "save",
         "export.save_as",
@@ -583,7 +583,12 @@ fn an_export_at_the_critical_storage_level_fails_before_writing() {
 
 /// `run.export`'s reply for `books` of `run_id` in `format`, under the
 /// run layer `settings`.
-fn export_under(engine: &mut Attached, run_id: &str, format: &str, settings: &Value) -> Value {
+pub(crate) fn export_under(
+    engine: &mut Attached,
+    run_id: &str,
+    format: &str,
+    settings: &Value,
+) -> Value {
     engine.call(
         "export",
         "run.export",
@@ -594,7 +599,7 @@ fn export_under(engine: &mut Attached, run_id: &str, format: &str, settings: &Va
 
 /// The bytes of the Export `reply` answered, saved by `export.save_as` in
 /// the test's home as `name`.
-fn saved(engine: &mut Attached, env: &TestEnv, reply: &Value, name: &str) -> Vec<u8> {
+pub(crate) fn saved(engine: &mut Attached, env: &TestEnv, reply: &Value, name: &str) -> Vec<u8> {
     let path = env.home().join("saved").join(name);
     let saved = save_as(engine, &reply["result"]["export_id"], &path);
     assert_eq!(saved["result"]["written"], json!(true), "{reply} {saved}");
@@ -602,7 +607,7 @@ fn saved(engine: &mut Attached, env: &TestEnv, reply: &Value, name: &str) -> Vec
 }
 
 /// The rows a CSV reader reads from `bytes`, its header row first.
-fn csv_rows(bytes: &[u8], delimiter: u8) -> Vec<Vec<String>> {
+pub(crate) fn csv_rows(bytes: &[u8], delimiter: u8) -> Vec<Vec<String>> {
     csv::ReaderBuilder::new()
         .has_headers(false)
         .delimiter(delimiter)
@@ -613,14 +618,17 @@ fn csv_rows(bytes: &[u8], delimiter: u8) -> Vec<Vec<String>> {
 }
 
 /// The text of the ZIP entry `name` in `archive`.
-fn entry(archive: &mut zip::ZipArchive<std::io::Cursor<Vec<u8>>>, name: &str) -> String {
+pub(crate) fn entry(archive: &mut zip::ZipArchive<std::io::Cursor<Vec<u8>>>, name: &str) -> String {
     let mut text = String::new();
     std::io::Read::read_to_string(&mut archive.by_name(name).unwrap(), &mut text).unwrap();
     text
 }
 
 /// The value of `element`'s attribute `name`, unescaped.
-fn attribute(element: &quick_xml::events::BytesStart<'_>, name: &[u8]) -> Option<String> {
+pub(crate) fn attribute(
+    element: &quick_xml::events::BytesStart<'_>,
+    name: &[u8],
+) -> Option<String> {
     element
         .attributes()
         .map(Result::unwrap)
@@ -634,7 +642,7 @@ fn attribute(element: &quick_xml::events::BytesStart<'_>, name: &[u8]) -> Option
 }
 
 /// The column index of a cell reference such as `AB12`, from 0.
-fn column_of(reference: &str) -> usize {
+pub(crate) fn column_of(reference: &str) -> usize {
     reference
         .bytes()
         .take_while(u8::is_ascii_uppercase)
@@ -651,7 +659,7 @@ fn column_of(reference: &str) -> usize {
 /// spreadsheet reads them; the header row first. No spreadsheet library
 /// fits the build: calamine turns on `flate2`'s zlib-rs backend for the
 /// whole workspace, which changes the Proving ground's compressed bodies.
-fn xlsx_rows(bytes: Vec<u8>) -> (Vec<String>, Vec<Vec<String>>) {
+pub(crate) fn xlsx_rows(bytes: Vec<u8>) -> (Vec<String>, Vec<Vec<String>>) {
     use quick_xml::Reader;
     use quick_xml::escape::resolve_predefined_entity;
     use quick_xml::events::Event;
@@ -728,7 +736,7 @@ fn xlsx_rows(bytes: Vec<u8>) -> (Vec<String>, Vec<Vec<String>>) {
 
 /// The title and the rows an HTML parser reads in `text`, its header row
 /// first.
-fn html_rows(text: &str) -> (String, Vec<Vec<String>>) {
+pub(crate) fn html_rows(text: &str) -> (String, Vec<Vec<String>>) {
     let document = scraper::Html::parse_document(text);
     let title = scraper::Selector::parse("title").unwrap();
     let rows = scraper::Selector::parse("tr").unwrap();
@@ -753,7 +761,7 @@ fn html_rows(text: &str) -> (String, Vec<Vec<String>>) {
 
 /// The rows of the table a Markdown parser reads in `text`, its header row
 /// first, an inline HTML line break kept as its text.
-fn markdown_rows(text: &str) -> Vec<Vec<String>> {
+pub(crate) fn markdown_rows(text: &str) -> Vec<Vec<String>> {
     use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
     let mut rows = Vec::new();
@@ -777,7 +785,7 @@ fn markdown_rows(text: &str) -> Vec<Vec<String>> {
 
 /// The text a table Export's cell holds for `value`: nothing for none or
 /// `null`, a string's text, and JSON's text of anything else.
-fn cell_text(value: Option<&Value>) -> String {
+pub(crate) fn cell_text(value: Option<&Value>) -> String {
     match value {
         None | Some(Value::Null) => String::new(),
         Some(Value::String(text)) => text.clone(),
@@ -787,7 +795,7 @@ fn cell_text(value: Option<&Value>) -> String {
 
 /// The rows a table of `records` under `columns` holds, its header row
 /// first.
-fn table_of(columns: &[&str], records: &[Value]) -> Vec<Vec<String>> {
+pub(crate) fn table_of(columns: &[&str], records: &[Value]) -> Vec<Vec<String>> {
     let header = columns.iter().map(|&name| name.to_owned()).collect();
     std::iter::once(header)
         .chain(records.iter().map(|record| {
@@ -801,7 +809,7 @@ fn table_of(columns: &[&str], records: &[Value]) -> Vec<Vec<String>> {
 
 /// The third book, which adds fields the first two lack: a nested object,
 /// a boolean, a `null`, a number and an array.
-fn third_book() -> Value {
+pub(crate) fn third_book() -> Value {
     json!({
         "author": { "name": "Zoé" },
         "in_stock": true,

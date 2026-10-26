@@ -179,13 +179,13 @@ function Edit({
 }: {
   readonly setting: ExplainedSetting;
   readonly disabled: boolean;
-  readonly onEdit: ((edit: SettingEdit) => void) | undefined;
+  readonly onEdit: (edit: SettingEdit) => void;
 }): ReactNode {
   const can = editable(setting);
   switch (can.kind) {
     case "user":
     case "run":
-      return onEdit === undefined ? null : (
+      return (
         <ValueEditor
           setting={setting}
           layer={can.kind === "run" ? "run" : "user_configuration"}
@@ -255,7 +255,7 @@ export function EffectiveSettings({
   readonly settings: readonly ExplainedSetting[];
   /** Whether the Console has no Connection now, which disables editing. */
   readonly readOnly?: boolean | undefined;
-  /** Where a person's edit goes; without it, nothing is offered for editing. */
+  /** Where a person's edit goes; without it, as on a Run report, the table has no Edit column. */
   readonly onEdit?: ((edit: SettingEdit) => void) | undefined;
 }): ReactNode {
   const { i18n } = useLingui();
@@ -281,9 +281,11 @@ export function EffectiveSettings({
           <th scope="col" className="py-2 pe-4 font-medium">
             <Trans>Notes</Trans>
           </th>
-          <th scope="col" className="py-2 font-medium">
-            <Trans>Edit</Trans>
-          </th>
+          {onEdit === undefined ? null : (
+            <th scope="col" className="py-2 font-medium">
+              <Trans>Edit</Trans>
+            </th>
+          )}
         </tr>
       </thead>
       <tbody>
@@ -312,9 +314,11 @@ export function EffectiveSettings({
             <td className="py-2 pe-4">
               <Notes setting={setting} />
             </td>
-            <td className="py-2">
-              <Edit setting={setting} disabled={readOnly} onEdit={onEdit} />
-            </td>
+            {onEdit === undefined ? null : (
+              <td className="py-2">
+                <Edit setting={setting} disabled={readOnly} onEdit={onEdit} />
+              </td>
+            )}
           </tr>
         ))}
       </tbody>

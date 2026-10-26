@@ -476,7 +476,9 @@ function ConsentWall({
         onClick={() => onAllow?.(domain)}
         className={buttonClassName}
       >
-        <Trans>Accept {domain}'s consent walls in later runs</Trans>
+        <Trans>
+          Accept <span translate="no">{domain}</span>'s consent walls in later runs
+        </Trans>
       </button>
       <p className="text-sm">
         <Trans>
@@ -605,7 +607,10 @@ function RefetchStopped({
               onClick={() => onRemove?.(domain, undefined)}
               className={buttonClassName}
             >
-              <Trans>Remove {domain} from wall.refetch_domains</Trans>
+              <Trans>
+                Remove <span translate="no">{domain}</span> from{" "}
+                <span translate="no">wall.refetch_domains</span>
+              </Trans>
             </button>
           ) : null}
         </>
@@ -633,7 +638,9 @@ function RefetchStopped({
           />
         </div>
         <button type="submit" disabled={readOnly} className={buttonClassName}>
-          <Trans>Deny {domain}</Trans>
+          <Trans>
+            Deny <span translate="no">{domain}</span>
+          </Trans>
         </button>
       </Form>
     </>

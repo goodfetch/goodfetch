@@ -1567,9 +1567,9 @@ export interface RunAddSeedsParams {
  */
 export interface RunExportParams {
   /**
-   * The compression, none when absent.
+   * The compression; absent, `none`.
    */
-  compression?: "none";
+  compression?: ExportCompression | null;
   /**
    * The Dataset's name.
    */

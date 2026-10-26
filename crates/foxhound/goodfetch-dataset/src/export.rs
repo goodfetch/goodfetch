@@ -131,7 +131,7 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
     Ok(Export {
         export_id: ExportId::of(&params.run_id, &kept.sha256),
         format: params.format,
-        compression: params.compression,
+        compression: params.compression.unwrap_or_default(),
         records,
         last_number,
         size: kept.size,

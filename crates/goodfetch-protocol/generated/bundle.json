@@ -9717,10 +9717,16 @@
           "arrived_in": "0.1"
         },
         "compression": {
-          "$ref": "#/$defs/ExportCompression",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExportCompression"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "arrived_in": "0.1",
-          "default": "none",
-          "description": "The compression, none when absent."
+          "description": "The compression; absent, `none`."
         },
         "dataset": {
           "arrived_in": "0.1",

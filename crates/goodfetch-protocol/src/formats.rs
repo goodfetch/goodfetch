@@ -17,7 +17,6 @@ use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, Setting, Value
 use crate::clean_up_rules::CleanUpRulesManifest;
 use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
-use crate::foxhound::export::JsonExport;
 use crate::jsonrpc::Message;
 use crate::people::SignInRow;
 use crate::politeness::PermitRow;
@@ -392,14 +391,15 @@ pub const ACCOUNTS_STORE: Format = Format {
 /// format of it keeps: UTF-8 with no BOM, each Record's value as
 /// committed, in number order; `json` one array of the values, `jsonl` one
 /// value per line. A consumer reads it, never an engine, so it keeps the
-/// default version rule; its schema is a `json` Export's document.
+/// default version rule; its schema is a `json` Export's document, an
+/// array of values.
 pub const EXPORT: Format = Format {
     name: "export",
     version: ProtocolVersion { major: 0, minor: 1 },
     storage: Storage::Json,
     rule: Rule::Default,
     hello_from: &[],
-    schema: schema_of::<JsonExport>,
+    schema: schema_of::<Vec<Value>>,
 };
 
 /// Every registered format.

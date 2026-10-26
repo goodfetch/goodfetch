@@ -13,7 +13,6 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::catalog::{
     Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Stability, schema_of,
@@ -89,10 +88,10 @@ pub struct RunExportParams {
     /// The format.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub format: ExportFormat,
-    /// The compression, none when absent.
-    #[serde(default)]
+    /// The compression; absent, `none`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub compression: ExportCompression,
+    pub compression: Option<ExportCompression>,
 }
 
 /// What `run.export` answers once the Export's file is whole (ADR 0103).
@@ -219,10 +218,6 @@ pub const EXPORT_STREAM: Operation = Operation {
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
-
-/// An Export of the `json` format, its Compatibility corpus's document
-/// (ADR 0066): an array of the Records' values, each as committed.
-pub type JsonExport = Vec<Value>;
 
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {

@@ -750,8 +750,8 @@ class RunExportParams(BaseModel):
         extra="forbid",
         arbitrary_types_allowed=True,
     )
-    compression: ExportCompression | None = "none"
-    """The compression, none when absent."""
+    compression: ExportCompression | None = None
+    """The compression; absent, `none`."""
     dataset: str
     """The Dataset's name."""
     format: ExportFormat

@@ -190,54 +190,20 @@ pub(crate) fn read(
         text.clone_from(&group);
         read_text = group;
     }
-    let given = match &field.transform {
-        FieldTransform::Text => {
-            transforms.push(provenance(&read_text, ValueTransform::Text));
-            return Read {
-                value: Value::String(text),
-                transforms,
-                unread: None,
-            };
-        }
-        FieldTransform::Number { locale } => {
-            let mut named = provenance(&text, ValueTransform::Number);
-            named.locale = Some(locale.clone());
-            (
-                named,
-                (form == Form::Invariant).then(|| number(&text)).flatten(),
-            )
-        }
-        FieldTransform::Date { locale } => {
-            let mut named = provenance(&text, ValueTransform::Date);
-            named.locale = Some(locale.clone());
-            (
-                named,
-                (form == Form::Invariant).then(|| date(&text)).flatten(),
-            )
-        }
-        FieldTransform::DateTime { locale, time_zone } => {
-            let mut named = provenance(&text, ValueTransform::DateTime);
-            named.locale = Some(locale.clone());
-            if form == Form::Printed {
-                (named, None)
-            } else {
-                match date_time(&text, time_zone.as_deref()) {
-                    DateTime::Given { value, zoned } => {
-                        if zoned {
-                            named.time_zone.clone_from(time_zone);
-                        }
-                        (named, Some(value))
-                    }
-                    DateTime::NoTimeZone => {
-                        return unread(UnreadReason::NoTimeZone, Some(text), transforms);
-                    }
-                    DateTime::NotParsed => (named, None),
-                }
-            }
-        }
-    };
-    match given {
-        (named, Some(value)) => {
+    if field.transform == FieldTransform::Text {
+        transforms.push(provenance(&read_text, ValueTransform::Text));
+        return Read {
+            value: Value::String(text),
+            transforms,
+            unread: None,
+        };
+    }
+    match typed(
+        &field.transform,
+        provenance(&text, ValueTransform::Text),
+        form,
+    ) {
+        Ok((named, value)) => {
             transforms.push(named);
             Read {
                 value,
@@ -245,8 +211,53 @@ pub(crate) fn read(
                 unread: None,
             }
         }
-        (_, None) => unread(UnreadReason::NotParsed, Some(text), transforms),
+        Err(reason) => unread(reason, Some(text), transforms),
     }
+}
+
+/// The value a `number`, `date` or `date_time` gives of the text `named`
+/// holds, read in `form`, and `named` completed as Provenance names that
+/// transform: its locale, and the time zone that gave a date-time's
+/// offset; why the field is null otherwise.
+fn typed(
+    transform: &FieldTransform,
+    mut named: TransformProvenance,
+    form: Form,
+) -> Result<(TransformProvenance, Value), UnreadReason> {
+    let invariant = form == Form::Invariant;
+    let value = match transform {
+        FieldTransform::Text => Some(Value::String(named.text.clone())),
+        FieldTransform::Number { locale } => {
+            named.transform = ValueTransform::Number;
+            named.locale = Some(locale.clone());
+            invariant.then(|| number(&named.text)).flatten()
+        }
+        FieldTransform::Date { locale } => {
+            named.transform = ValueTransform::Date;
+            named.locale = Some(locale.clone());
+            invariant.then(|| date(&named.text)).flatten()
+        }
+        FieldTransform::DateTime { locale, time_zone } => {
+            named.transform = ValueTransform::DateTime;
+            named.locale = Some(locale.clone());
+            if !invariant {
+                return Err(UnreadReason::NotParsed);
+            }
+            match date_time(&named.text, time_zone.as_deref()) {
+                DateTime::Given { value, zoned } => {
+                    if zoned {
+                        named.time_zone.clone_from(time_zone);
+                    }
+                    Some(value)
+                }
+                DateTime::NoTimeZone => return Err(UnreadReason::NoTimeZone),
+                DateTime::NotParsed => None,
+            }
+        }
+    };
+    value
+        .map(|value| (named, value))
+        .ok_or(UnreadReason::NotParsed)
 }
 
 /// The text `field` reads of `element`, and its form: the attribute it

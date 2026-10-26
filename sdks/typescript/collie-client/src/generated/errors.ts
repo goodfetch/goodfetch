@@ -595,6 +595,15 @@ export class ProxyProviderUnavailableError extends UnavailableError {
 }
 
 /**
+ * The engine could not open the loopback relay a Session's proxy goes through, such as when the machine has no free local port: the proxy itself was never tried. The details name the proxy, never its credentials, and the local error. Retry once the machine frees ports or file descriptors.
+ */
+export class ProxyRelayUnavailableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "proxy_relay_unavailable", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The Session's proxy could not be reached, its TLS failed, or it refused the tunnel or the request with an error of its own: the details name the proxy, never its credentials, and the browser's network error when it named one. It is the proxy's failure, never the site's and never `navigation_failed`: retry later, or through another proxy.
  */
 export class ProxyUnavailableError extends UnavailableError {
@@ -927,6 +936,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
   proxy_auth_failed: ProxyAuthFailedError,
   proxy_provider_unavailable: ProxyProviderUnavailableError,
+  proxy_relay_unavailable: ProxyRelayUnavailableError,
   proxy_unavailable: ProxyUnavailableError,
   resources_exhausted: ResourcesExhaustedError,
   response_limit_exceeded: ResponseLimitExceededError,

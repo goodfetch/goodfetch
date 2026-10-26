@@ -403,7 +403,7 @@ impl serve::Observe for Unobserved {
     fn reached(&self, _: &str) {}
     fn refused(&self, _: &goodfetch_engine::egress::Refused, _: &str) {}
     fn upstream(&self, _: serve::Met) {}
-    fn unauthenticated(&self) {}
+    fn unauthenticated(&self, _: bool) {}
     fn terminated(&self, _: &str, _: Option<&goodfetch_engine::tls::ExceptionUsed>) {}
     fn stopped(&self, _: &str, _: &str, _: &terminate::Stop) {}
     fn client_hello(&self, _: &str, _: client_hello::ClientHello) {}

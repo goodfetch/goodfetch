@@ -6,7 +6,8 @@
 //! answers each one added, `no_link`, `skipped_by_payload` or not added
 //! with its reason, each link taking its own Payload; a `Shift_JIS` page's
 //! link is fetched with its query in `Shift_JIS`, the bytes a browser sends;
-//! and a page's links resolve against its `<base href>` (pitfall U08).
+//! and a page's links resolve against its `<base href>`, or the URL it was
+//! redirected to (pitfall U08).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -341,25 +342,33 @@ fn a_shift_jis_pages_link_is_fetched_with_its_query_in_shift_jis() {
     );
 }
 
-/// Pitfall U08: `1.links.test/guide/`'s relative links `book/<n>` resolve
-/// against its `<base href="/library/shelves/">`, through `enqueueLinks`
-/// as through `enqueue`, and the Proving ground records no request a wrong
-/// base made.
+/// Pitfall U08: a shelf's relative links `book/<n>` resolve against its
+/// document's base URL through `enqueueLinks` as through `enqueue`:
+/// `1.links.test/guide/`'s `<base href="/library/shelves/">`, and the
+/// final URL `/new/shelf/` that `2.links.test/old/shelf` moved (`301`) to.
+/// The Proving ground records no request a wrong base made.
 ///
-/// Covers: story:6-232, story:6-231, operation:crawl_request.enqueue_links
-#[test]
-fn enqueue_links_resolves_against_the_documents_base_href() {
+/// Covers: story:6-232, operation:crawl_request.enqueue_links
+#[rstest::rstest]
+/// Covers: story:6-231
+#[case::base_href("1.links.test", "/guide/", "/library/shelves/book/")]
+#[case::redirect("2.links.test", "/old/shelf", "/new/shelf/book/")]
+fn enqueue_links_resolves_against_the_documents_base_url(
+    #[case] host: &str,
+    #[case] shelf: &str,
+    #[case] books: &str,
+) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let seeds = [json!({ "url": proving_ground.url("1.links.test", "/guide/"), "label": "shelf" })];
+    let seeds = [json!({ "url": proving_ground.url(host, shelf), "label": "shelf" })];
     let mut engine = Attached::start(&env);
 
     let mut answered = Value::Null;
     let report = crawl_with(
         &mut engine,
-        "base-href",
+        "base-url",
         &seeds,
-        &served(&proving_ground, &["1.links.test"]),
+        &served(&proving_ground, &[host]),
         &mut |inside: &mut Inside<'_>, handle: &Value| {
             if handle["crawl_request"]["label"] == "shelf" {
                 answered = enqueue_links(inside, handle, "ul.books a", &json!({ "label": "book" }));
@@ -372,14 +381,12 @@ fn enqueue_links_resolves_against_the_documents_base_href() {
 
     let urls: Vec<Value> = answered["links"]
         .as_array()
-        .unwrap()
+        .unwrap_or_else(|| panic!("{answered}"))
         .iter()
         .map(|link| link["url"].clone())
         .collect();
     let expected: Vec<Value> = (1..=8)
-        .map(|book| {
-            json!(proving_ground.url("1.links.test", &format!("/library/shelves/book/{book}")))
-        })
+        .map(|book| json!(proving_ground.url(host, &format!("{books}{book}"))))
         .collect();
     assert_eq!(
         (

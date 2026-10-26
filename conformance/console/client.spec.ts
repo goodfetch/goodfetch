@@ -9,7 +9,7 @@ import type { BrowserContext, Page } from "@playwright/test";
 import { expect, test } from "@goodfetch/test-support/conformance";
 import type { ServedFixtures } from "@goodfetch/test-support/playwright";
 import { command } from "@goodfetch/test-support/daemon-calls";
-import type { ConsoleClient } from "@goodfetch/console/src/client/client.ts";
+import type { ConsoleClient } from "@goodfetch/console/client";
 import {
   connected,
   consoleClient,

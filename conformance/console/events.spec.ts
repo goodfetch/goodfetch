@@ -8,7 +8,7 @@
 // the page's WebSocket as a network or a proxy does, and only drops or
 // holds the target's own messages.
 import { expect, test } from "@goodfetch/test-support/conformance";
-import { eventClasses } from "@goodfetch/console/src/generated/operations.ts";
+import { eventClasses } from "@goodfetch/console/generated/operations";
 import {
   BANNER,
   Carrier,

@@ -1,0 +1,18 @@
+{
+  "daFG6r": "{0, plural, one {# failed request} other {# failed requests}}",
+  "uUJkAb": "{0, plural, one {# outcome} other {# outcomes}}",
+  "Yll7un": "{0, plural, one {# seed} other {# seeds}}",
+  "hp8OtS": "Added",
+  "WRt2nG": "Asking the engine…",
+  "32TndD": "Blocked",
+  "7Bj3x9": "Failed",
+  "T0jROq": "Failed requests",
+  "87a_t_": "Label",
+  "59aT_8": "Not added",
+  "EufvBx": "Outcome",
+  "ZU3zZC": "Outcomes",
+  "GNmcBQ": "Seeds",
+  "9NyAH9": "Skipped",
+  "KAbcm2": "Succeeded",
+  "IagCbF": "URL"
+}

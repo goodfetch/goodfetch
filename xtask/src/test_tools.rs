@@ -8,9 +8,9 @@
 //! them) would reach the executables, which tests then would not run as they
 //! ship, so the crates whose features differ compile twice per suite (ADR
 //! 0094's note).
-//! Collie's executable embeds its Console build, which it builds first
-//! (`xtask console build`, ADR 0057). `just test` runs it before any runner
-//! starts.
+//! Each Product's executable embeds its Console build, which it builds
+//! first (`xtask console build`, ADR 0057). `just test` runs it before any
+//! runner starts.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -84,9 +84,11 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
             binaries.push(target.name);
         }
     }
-    // Collie's executable embeds its Console build, which this workspace's
-    // Console package makes first (ADR 0057).
-    if binaries.iter().any(|binary| binary == "goodfetch-collie")
+    // Each Product's executable embeds its Console build, which this
+    // workspace's Console packages make first (ADR 0057).
+    if binaries
+        .iter()
+        .any(|binary| binary == "goodfetch-collie" || binary == "goodfetch-foxhound")
         && root.join(console::PACKAGE).join("package.json").is_file()
     {
         console::build(root)?;

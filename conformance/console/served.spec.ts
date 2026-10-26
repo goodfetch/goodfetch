@@ -6,7 +6,7 @@
 // was served from, which is its configuration (story 12-137).
 import type { Page } from "@playwright/test";
 import { expect, test } from "@goodfetch/test-support/conformance";
-import { operationClasses } from "@goodfetch/console/src/generated/operations.ts";
+import { operationClasses } from "@goodfetch/console/generated/operations";
 import { startRun } from "./target.ts";
 
 test(

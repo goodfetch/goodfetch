@@ -194,7 +194,9 @@ pub fn lightpanda_copy() -> Result<PathBuf, BrowserCacheError> {
 /// [`browser_cache`], holding also the Lightpanda build Foxhound pins for
 /// the light-browser tier (ADR 0020), laid out as a prepared copy holds
 /// it from the tests' own copy, which `ci/lightpanda-fetch.sh` downloads,
-/// so no test downloads it either.
+/// so no test downloads it either. Called again in the same folder, it
+/// leaves an executable already laid out in place, as [`browser_cache`]
+/// does.
 ///
 /// # Errors
 ///
@@ -210,10 +212,7 @@ pub fn browser_cache_with_lightpanda(env: &TestEnv) -> Result<PathBuf, BrowserCa
         .join(LIGHTPANDA_BUILD);
     let files = entry.join("files");
     fs::create_dir_all(&files)?;
-    let target = files.join(asset);
-    if fs::hard_link(&source, &target).is_err() {
-        fs::copy(&source, &target)?;
-    }
+    link_file(&source, &files.join(asset))?;
     fs::write(entry.join("lock"), "")?;
     let installed = serde_json::json!({
         "format_version": "0.1",
@@ -230,11 +229,8 @@ pub fn browser_cache_with_lightpanda(env: &TestEnv) -> Result<PathBuf, BrowserCa
     Ok(root)
 }
 
-/// `source`'s tree at `target`: each file a hard link, or a copy across
-/// file systems, and each symbolic link the same link. A file or link
-/// already at `target` stays as it is: Linux refuses to open a running
-/// executable for writing (`ETXTBSY`), and over a hard link a copy would
-/// empty Playwright's own file.
+/// `source`'s tree at `target`: each file as [`link_file`] lays it out,
+/// and each symbolic link the same link unless one is already there.
 fn link_tree(source: &Path, target: &Path) -> io::Result<()> {
     fs::create_dir_all(target)?;
     for entry in fs::read_dir(source)? {
@@ -242,16 +238,30 @@ fn link_tree(source: &Path, target: &Path) -> io::Result<()> {
         let from = entry.path();
         let to = target.join(entry.file_name());
         let kind = entry.file_type()?;
-        if !kind.is_dir() && fs::symlink_metadata(&to).is_ok() {
-            continue;
-        }
-        if kind.is_symlink() {
-            symlink(&fs::read_link(&from)?, &to)?;
-        } else if kind.is_dir() {
+        if kind.is_dir() {
             link_tree(&from, &to)?;
-        } else if fs::hard_link(&from, &to).is_err() {
-            fs::copy(&from, &to)?;
+        } else if kind.is_symlink() {
+            if fs::symlink_metadata(&to).is_err() {
+                symlink(&fs::read_link(&from)?, &to)?;
+            }
+        } else {
+            link_file(&from, &to)?;
         }
+    }
+    Ok(())
+}
+
+/// `source` at `target`: a hard link, or a copy across file systems. A
+/// file already at `target`, laid out by an earlier call in the same
+/// folder, stays as it is: a browser started from it may still run it,
+/// and Linux refuses to open a running executable for writing
+/// (`ETXTBSY`), while over a hard link a copy would empty the source.
+fn link_file(source: &Path, target: &Path) -> io::Result<()> {
+    if fs::symlink_metadata(target).is_ok() {
+        return Ok(());
+    }
+    if fs::hard_link(source, target).is_err() {
+        fs::copy(source, target)?;
     }
     Ok(())
 }

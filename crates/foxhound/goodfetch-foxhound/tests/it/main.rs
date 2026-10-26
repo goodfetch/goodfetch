@@ -40,6 +40,7 @@ mod records;
 mod redundant_requests;
 mod rejections;
 mod robots_txt;
+mod sample_comparison;
 mod scope;
 mod seeds;
 mod served_calls;

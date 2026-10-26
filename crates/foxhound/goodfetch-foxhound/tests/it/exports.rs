@@ -612,31 +612,117 @@ fn csv_rows(bytes: &[u8], delimiter: u8) -> Vec<Vec<String>> {
         .collect()
 }
 
-/// The sheets' names a spreadsheet library reads in the XLSX `bytes`, and
-/// the rows of the first, its header row first, a number written as JSON
-/// writes it.
-fn xlsx_rows(bytes: Vec<u8>) -> (Vec<String>, Vec<Vec<String>>) {
-    use calamine::{Data, Reader as _};
+/// The text of the ZIP entry `name` in `archive`.
+fn entry(archive: &mut zip::ZipArchive<std::io::Cursor<Vec<u8>>>, name: &str) -> String {
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut archive.by_name(name).unwrap(), &mut text).unwrap();
+    text
+}
 
-    let mut workbook = calamine::Xlsx::new(std::io::Cursor::new(bytes)).unwrap();
-    let names = workbook.sheet_names();
-    let range = workbook.worksheet_range(&names[0]).unwrap();
-    let rows = range
-        .rows()
-        .map(|row| {
-            row.iter()
-                .map(|cell| match cell {
-                    Data::Empty => String::new(),
-                    Data::String(text) => text.clone(),
-                    Data::Bool(boolean) => boolean.to_string(),
-                    Data::Int(number) => number.to_string(),
-                    Data::Float(number) if number.fract() == 0.0 => format!("{number:.0}"),
-                    Data::Float(number) => number.to_string(),
-                    other => panic!("an XLSX Export holds no {other:?}"),
-                })
-                .collect()
+/// The value of `element`'s attribute `name`, unescaped.
+fn attribute(element: &quick_xml::events::BytesStart<'_>, name: &[u8]) -> Option<String> {
+    element
+        .attributes()
+        .map(Result::unwrap)
+        .find(|attribute| attribute.key.as_ref() == name)
+        .map(|attribute| {
+            attribute
+                .normalized_value(quick_xml::XmlVersion::Explicit1_0)
+                .unwrap()
+                .into_owned()
         })
-        .collect();
+}
+
+/// The column index of a cell reference such as `AB12`, from 0.
+fn column_of(reference: &str) -> usize {
+    reference
+        .bytes()
+        .take_while(u8::is_ascii_uppercase)
+        .fold(0, |index, letter| {
+            index * 26 + usize::from(letter - b'A' + 1)
+        })
+        - 1
+}
+
+/// The sheets' names and the rows of the first in the XLSX `bytes`, read as
+/// ECMA-376 lays a workbook out: the ZIP (the `zip` crate), the workbook's
+/// `sheet` elements, and the sheet's cells placed by their references
+/// (`quick-xml`), each an inline string, a boolean or a number, as a
+/// spreadsheet reads them; the header row first. No spreadsheet library
+/// fits the build: calamine turns on `flate2`'s zlib-rs backend for the
+/// whole workspace, which changes the Proving ground's compressed bodies.
+fn xlsx_rows(bytes: Vec<u8>) -> (Vec<String>, Vec<Vec<String>>) {
+    use quick_xml::Reader;
+    use quick_xml::escape::resolve_predefined_entity;
+    use quick_xml::events::Event;
+
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let workbook = entry(&mut archive, "xl/workbook.xml");
+    let mut reader = Reader::from_str(&workbook);
+    let mut names = Vec::new();
+    loop {
+        match reader.read_event().unwrap() {
+            Event::Start(element) | Event::Empty(element)
+                if element.local_name().as_ref() == b"sheet" =>
+            {
+                names.push(attribute(&element, b"name").unwrap());
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    let sheet = entry(&mut archive, "xl/worksheets/sheet1.xml");
+    let mut reader = Reader::from_str(&sheet);
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let (mut column, mut kind, mut text, mut inside) = (0, String::new(), String::new(), false);
+    loop {
+        match reader.read_event().unwrap() {
+            Event::Start(element) | Event::Empty(element) => match element.local_name().as_ref() {
+                b"row" => rows.push(Vec::new()),
+                b"c" => {
+                    column = column_of(&attribute(&element, b"r").unwrap());
+                    kind = attribute(&element, b"t").unwrap_or_default();
+                    text.clear();
+                }
+                b"t" | b"v" => inside = true,
+                _ => {}
+            },
+            Event::Text(part) if inside => text.push_str(&part.decode().unwrap()),
+            Event::GeneralRef(reference) if inside => match reference.resolve_char_ref().unwrap() {
+                Some(character) => text.push(character),
+                None => {
+                    text.push_str(resolve_predefined_entity(&reference.decode().unwrap()).unwrap());
+                }
+            },
+            Event::End(element) => match element.local_name().as_ref() {
+                b"t" | b"v" => inside = false,
+                b"c" => {
+                    let value = match kind.as_str() {
+                        "b" => (text == "1").to_string(),
+                        "inlineStr" | "str" => text.clone(),
+                        _ => {
+                            let number: f64 = text.parse().unwrap();
+                            if number.fract() == 0.0 {
+                                format!("{number:.0}")
+                            } else {
+                                number.to_string()
+                            }
+                        }
+                    };
+                    let row = rows.last_mut().unwrap();
+                    row.resize(column, String::new());
+                    row.push(value);
+                }
+                _ => {}
+            },
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    let width = rows.iter().map(Vec::len).max().unwrap_or(0);
+    for row in &mut rows {
+        row.resize(width, String::new());
+    }
     (names, rows)
 }
 

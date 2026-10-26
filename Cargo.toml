@@ -103,10 +103,9 @@ phonenumber = { version = "0.3.10", default-features = false }
 # structure with pulldown-cmark, resolving its links with the url crate
 # below (ADR 0007).
 pulldown-cmark = { version = "0.13.4", default-features = false }
-# The reference readers the table Exports are read back with in tests
-# (CSV and XLSX; spec #582, pitfall D07).
+# The CSV reader the CSV Exports are read back with in tests (spec #582,
+# pitfall D07).
 csv = { version = "1.4.0", default-features = false }
-calamine = { version = "0.37.0", default-features = false }
 # The embedded Clean-up rules, serialized and compressed at build time and
 # decompressed once when loaded (ADR 0057).
 zstd = { version = "0.14.0", default-features = false }

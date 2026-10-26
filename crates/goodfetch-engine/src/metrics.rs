@@ -22,8 +22,9 @@ use goodfetch_protocol::storage::{
 };
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{
-    Counter, Gauge, Meter, MeterProvider as _, NoopMeterProvider, UpDownCounter,
+    AsyncInstrument, Counter, Gauge, Meter, MeterProvider as _, NoopMeterProvider, UpDownCounter,
 };
+use tokio::sync::watch;
 
 /// The name of the engine's meter, its instrumentation scope.
 pub const METER: &str = "goodfetch";
@@ -43,9 +44,45 @@ struct Instruments {
     governor_saturation: Gauge<f64>,
     governor_target: Gauge<u64>,
     governor_pressure_source: Gauge<u64>,
-    storage_available: Gauge<u64>,
-    storage_inodes_available: Gauge<u64>,
-    storage_level: Gauge<u64>,
+    /// The storage series of the last sample, which the storage gauges
+    /// read whole at each collection.
+    storage: watch::Sender<Arc<[FolderStorage]>>,
+}
+
+/// What a storage sample found of the filesystem holding one folder
+/// (ADR 0122).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FolderStorage {
+    /// What the folder holds.
+    pub(crate) holds: SampledFolder,
+    /// Its filesystem's level.
+    pub(crate) level: StorageLevel,
+    /// The space left on it, in bytes.
+    pub(crate) free: u64,
+    /// Its inodes left, where it reports them.
+    pub(crate) free_inodes: Option<u64>,
+}
+
+/// A storage gauge of `meter` named as `metric` says, each collection
+/// observing what `value` reads of every folder of the last sample.
+fn storage_gauge(
+    meter: &Meter,
+    metric: &goodfetch_protocol::catalog::Metric,
+    storage: watch::Receiver<Arc<[FolderStorage]>>,
+    value: fn(&FolderStorage) -> Option<u64>,
+) {
+    meter
+        .u64_observable_gauge(metric.name)
+        .with_description(metric.description)
+        .with_unit(metric.unit)
+        .with_callback(move |observer: &dyn AsyncInstrument<u64>| {
+            for folder in storage.borrow().iter() {
+                if let Some(value) = value(folder) {
+                    observer.observe(value, &[KeyValue::new("holds", folder.holds.as_str())]);
+                }
+            }
+        })
+        .build();
 }
 
 impl Default for Metrics {
@@ -57,6 +94,12 @@ impl Default for Metrics {
 impl Metrics {
     /// The instruments of `meter`.
     pub fn new(meter: &Meter) -> Self {
+        let (storage, read) = watch::channel(Arc::from([]));
+        storage_gauge(meter, &AVAILABLE, read.clone(), |folder| Some(folder.free));
+        storage_gauge(meter, &INODES_AVAILABLE, read.clone(), |folder| {
+            folder.free_inodes
+        });
+        storage_gauge(meter, &LEVEL, read, |folder| Some(folder.level.gauge()));
         Self(Arc::new(Instruments {
             meter: meter.clone(),
             browser_running: meter
@@ -99,21 +142,7 @@ impl Metrics {
                 .with_description(PRESSURE_SOURCE.description)
                 .with_unit(PRESSURE_SOURCE.unit)
                 .build(),
-            storage_available: meter
-                .u64_gauge(AVAILABLE.name)
-                .with_description(AVAILABLE.description)
-                .with_unit(AVAILABLE.unit)
-                .build(),
-            storage_inodes_available: meter
-                .u64_gauge(INODES_AVAILABLE.name)
-                .with_description(INODES_AVAILABLE.description)
-                .with_unit(INODES_AVAILABLE.unit)
-                .build(),
-            storage_level: meter
-                .u64_gauge(LEVEL.name)
-                .with_description(LEVEL.description)
-                .with_unit(LEVEL.unit)
-                .build(),
+            storage,
         }))
     }
 
@@ -199,21 +228,11 @@ impl Metrics {
     }
 
     /// What the Resource governor's last storage sample found of the
-    /// filesystem holding the folder of `holds` (ADR 0122): its `level`,
-    /// the space left on it and its inodes left, where it reports them.
-    pub(crate) fn storage(
-        &self,
-        holds: SampledFolder,
-        level: StorageLevel,
-        free: u64,
-        free_inodes: Option<u64>,
-    ) {
-        let label = [KeyValue::new("holds", holds.as_str())];
-        self.0.storage_available.record(free, &label);
-        if let Some(inodes) = free_inodes {
-            self.0.storage_inodes_available.record(inodes, &label);
-        }
-        self.0.storage_level.record(level.gauge(), &label);
+    /// filesystems holding `folders` (ADR 0122), in place of the previous
+    /// sample's: a collection reads one sample's series whole, never some
+    /// folders of it without the others.
+    pub(crate) fn storage(&self, folders: impl IntoIterator<Item = FolderStorage>) {
+        self.0.storage.send_replace(folders.into_iter().collect());
     }
 }
 

@@ -12,6 +12,8 @@
     "./start": "./src/start.tsx",
     "./console-build": "./src/console-build.ts",
     "./client": "./src/client/client.ts",
+    "./client/browser": "./src/client/browser.ts",
+    "./generated/operations": "./src/generated/operations.ts",
     "./error-message": "./src/errors/error-message.tsx",
     "./i18n": "./src/i18n.tsx"
   },

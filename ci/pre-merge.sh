@@ -72,17 +72,23 @@ if [[ $all == quick ]]; then
 fi
 names=()
 pids=()
-# Starts a step beside the host's, its lines marked with its name.
+# Starts a step beside the host's, its lines marked with its name, in a
+# process group of its own that it leads (job control, `set -m`, for that
+# one command), so stopping the group stops every process the step started:
+# `just` passes a stop on to its recipe's shell alone, and `just perf`'s
+# `xtask perf build` and its `cargo bench` outlived it.
 beside() {
+  set -m
   just "$1" > >(awk -v mark="[$1] " '{ print mark $0; fflush() }') 2>&1 &
+  set +m
   names+=("$1")
   pids+=("$!")
 }
-# At the end, stops the steps still running beside, releases the gate's
-# records, then lists what this host skipped.
-# `kill` signals each process it is given, even past one that has ended.
+# At the end, stops the process groups of the steps still running beside,
+# releases the gate's records, then lists what this host skipped.
+# `kill` signals each group it is given, even past one that has ended.
 lock=""
-trap '[[ ${#pids[@]} -eq 0 ]] || kill "${pids[@]}" 2>/dev/null || true; [[ -z $lock ]] || rm -rf "$lock"; just _skips-report' EXIT
+trap '[[ ${#pids[@]} -eq 0 ]] || kill -TERM -- "${pids[@]/#/-}" 2>/dev/null || true; [[ -z $lock ]] || rm -rf "$lock"; just _skips-report' EXIT
 
 # A whole-workspace gate run that narrows what runs or swaps the
 # executables under test would record results a normal run then reuses, so

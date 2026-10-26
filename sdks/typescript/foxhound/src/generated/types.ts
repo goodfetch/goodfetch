@@ -250,6 +250,73 @@ export type ExportId = string;
  */
 export type ExtractionFollow = "scope" | "sitemap" | "none";
 /**
+ * What finds a field's element, named by `kind`: a CSS selector or an
+ * `XPath` expression. A page a fetch tier serves from its document reads
+ * a CSS selector; an `XPath` expression is read by the browser, to which
+ * the request escalates under `fetch.tier: auto` (`browser_required`
+ * under a forced cheaper tier).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "FieldLocator".
+ */
+export type FieldLocator =
+  | {
+      kind: "css";
+      /**
+       * The selector.
+       */
+      selector: string;
+    }
+  | {
+      kind: "xpath";
+      /**
+       * The expression.
+       */
+      selector: string;
+    };
+/**
+ * A field's Value transform (ADR 0123), named by `kind`, each
+ * locale-dependent one stating its locale, a BCP 47 tag. A `number`,
+ * `date` or `date_time` reads the machine-readable value of a `<time
+ * datetime>`, a `<data value>` or an element's `content` attribute in its
+ * invariant form (ISO 8601, a plain decimal with a dot), whatever the
+ * locale; a text printed for people, read under its locale's CLDR forms,
+ * is the Value transforms' parsers' (#844, #848), and until they land is
+ * not a value.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "FieldTransform".
+ */
+export type FieldTransform =
+  | {
+      kind: "text";
+    }
+  | {
+      kind: "number";
+      /**
+       * Its locale.
+       */
+      locale: string;
+    }
+  | {
+      kind: "date";
+      /**
+       * Its locale.
+       */
+      locale: string;
+    }
+  | {
+      kind: "date_time";
+      /**
+       * Its locale.
+       */
+      locale: string;
+      /**
+       * The time zone, an IANA name, of a text that states none.
+       */
+      time_zone?: string | null;
+    };
+/**
  * The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -396,12 +463,22 @@ export interface CountOf {
  * `url`, whose JSON Schema is generated from `formats`, and commits one
  * Record per page fetched: the page's formats, as `page.formats` answers
  * them (its `url` the document's, after redirects), its response's
- * `status` and `fetchedAt`, when the engine read it.
+ * `status` and `fetchedAt`, when the engine read it, and its named
+ * `fields`, each read by a locator and given by a Value transform (ADR
+ * 0123).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "CrawlExtraction".
  */
 export interface CrawlExtraction {
+  /**
+   * The named fields each page's Record holds beside its formats, by
+   * name, which no format's property and neither `status` nor
+   * `fetchedAt` may take; none by default.
+   */
+  fields?: {
+    [k: string]: ExtractionField;
+  };
   /**
    * Which pages the crawl fetches beyond its seeds: `scope` by default.
    */
@@ -410,6 +487,96 @@ export interface CrawlExtraction {
    * The formats each page's Record holds, as `page.formats` takes them.
    */
   formats: FormatsRequest;
+}
+/**
+ * One named field of a code-free crawl's Records (ADR 0123): the first
+ * element its locator finds in the page, its text, its runs of white
+ * space read as one space and trimmed, or one of its attributes, an
+ * `href` or `src` resolved against the document's base URL; optionally a
+ * capture group of a regular expression over that text; then its Value
+ * transform. A field the page does not give is null, and the Record's
+ * Provenance names why (`unread_fields`).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ExtractionField".
+ */
+export interface ExtractionField {
+  /**
+   * The attribute read in place of the element's text.
+   */
+  attribute?: string | null;
+  /**
+   * What finds its element.
+   */
+  locator:
+    | {
+        kind: "css";
+        /**
+         * The selector.
+         */
+        selector: string;
+      }
+    | {
+        kind: "xpath";
+        /**
+         * The expression.
+         */
+        selector: string;
+      };
+  /**
+   * The `match` that picks the text its transform reads.
+   */
+  match?: FieldMatch | null;
+  /**
+   * Its Value transform: `text` by default.
+   */
+  transform?:
+    | {
+        kind: "text";
+      }
+    | {
+        kind: "number";
+        /**
+         * Its locale.
+         */
+        locale: string;
+      }
+    | {
+        kind: "date";
+        /**
+         * Its locale.
+         */
+        locale: string;
+      }
+    | {
+        kind: "date_time";
+        /**
+         * Its locale.
+         */
+        locale: string;
+        /**
+         * The time zone, an IANA name, of a text that states none.
+         */
+        time_zone?: string | null;
+      };
+}
+/**
+ * The `match` before a field's transform (ADR 0123): a capture group of a
+ * regular expression, in the `regex` crate's syntax (ADR 0081), over the
+ * text read; that group's text is what the transform reads.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "FieldMatch".
+ */
+export interface FieldMatch {
+  /**
+   * The capture group, 1 by default; 0 is the whole match.
+   */
+  group?: number;
+  /**
+   * The expression's source.
+   */
+  pattern: string;
 }
 /**
  * What `crawl_request.enqueue_links` takes: every link a locator matches,

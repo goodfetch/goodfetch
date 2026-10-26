@@ -415,6 +415,121 @@ class ExtractionFollow(StrEnum):
     """The seeds alone."""
 
 
+class FieldLocator1(BaseModel):
+    """A CSS selector."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["css"]
+    selector: str
+    """The selector."""
+
+
+class FieldLocator2(BaseModel):
+    """An `XPath` 1.0 expression."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["xpath"]
+    selector: str
+    """The expression."""
+
+
+class FieldLocator(RootModel[FieldLocator1 | FieldLocator2]):
+    root: FieldLocator1 | FieldLocator2
+    """
+    What finds a field's element, named by `kind`: a CSS selector or an
+    `XPath` expression. A page a fetch tier serves from its document reads
+    a CSS selector; an `XPath` expression is read by the browser, to which
+    the request escalates under `fetch.tier: auto` (`browser_required`
+    under a forced cheaper tier).
+    """
+
+
+class FieldMatch(BaseModel):
+    """
+    The `match` before a field's transform (ADR 0123): a capture group of a
+    regular expression, in the `regex` crate's syntax (ADR 0081), over the
+    text read; that group's text is what the transform reads.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group: Annotated[int | None, Field(ge=0)] = 1
+    """The capture group, 1 by default; 0 is the whole match."""
+    pattern: str
+    """The expression's source."""
+
+
+class FieldTransform1(BaseModel):
+    """The text read: a string."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["text"]
+
+
+class FieldTransform2(BaseModel):
+    """
+    An integer or decimal: a JSON number, never through a float, so a
+    decimal a JSON number cannot hold exactly is not a value.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["number"]
+    locale: str
+    """Its locale."""
+
+
+class FieldTransform3(BaseModel):
+    """A date: `YYYY-MM-DD`."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["date"]
+    locale: str
+    """Its locale."""
+
+
+class FieldTransform4(BaseModel):
+    """
+    A date and time: RFC 3339 with its offset, the one the text states,
+    else `time_zone`'s at that time; one stating neither is not a value.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["date_time"]
+    locale: str
+    """Its locale."""
+    time_zone: str | None = None
+    """The time zone, an IANA name, of a text that states none."""
+
+
+class FieldTransform(
+    RootModel[FieldTransform1 | FieldTransform2 | FieldTransform3 | FieldTransform4]
+):
+    root: FieldTransform1 | FieldTransform2 | FieldTransform3 | FieldTransform4
+    """
+    A field's Value transform (ADR 0123), named by `kind`, each
+    locale-dependent one stating its locale, a BCP 47 tag. A `number`,
+    `date` or `date_time` reads the machine-readable value of a `<time
+    datetime>`, a `<data value>` or an element's `content` attribute in its
+    invariant form (ISO 8601, a plain decimal with a dot), whatever the
+    locale; a text printed for people, read under its locale's CLDR forms,
+    is the Value transforms' parsers' (#844, #848), and until they land is
+    not a value.
+    """
+
+
 class HttpBody(RootModel[str]):
     root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
     """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
@@ -1094,27 +1209,6 @@ class SkipReason(StrEnum):
     """Its response's content type is not one its Label takes."""
 
 
-class CrawlExtraction(BaseModel):
-    """
-    What a crawl with no handler reads from each page it fetches (spec
-    #582's code-free crawls; ADR 0103): the engine declares the Label
-    [`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by
-    `url`, whose JSON Schema is generated from `formats`, and commits one
-    Record per page fetched: the page's formats, as `page.formats` answers
-    them (its `url` the document's, after redirects), its response's
-    `status` and `fetchedAt`, when the engine read it.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-    )
-    follow: ExtractionFollow | None = "scope"
-    """Which pages the crawl fetches beyond its seeds: `scope` by default."""
-    formats: FormatsRequest
-    """The formats each page's Record holds, as `page.formats` takes them."""
-
-
 class CrawlRequestEnqueueParams(BaseModel):
     """
     What `crawl_request.enqueue` takes: one request to add, from one attempt
@@ -1400,6 +1494,32 @@ class Export(BaseModel):
     """Its size in bytes."""
 
 
+class ExtractionField(BaseModel):
+    """
+    One named field of a code-free crawl's Records (ADR 0123): the first
+    element its locator finds in the page, its text, its runs of white
+    space read as one space and trimmed, or one of its attributes, an
+    `href` or `src` resolved against the document's base URL; optionally a
+    capture group of a regular expression over that text; then its Value
+    transform. A field the page does not give is null, and the Record's
+    Provenance names why (`unread_fields`).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attribute: str | None = None
+    """The attribute read in place of the element's text."""
+    locator: FieldLocator
+    """What finds its element."""
+    match: FieldMatch | None = None
+    """The `match` that picks the text its transform reads."""
+    transform: Annotated[FieldTransform | None, Field(validate_default=True)] = {
+        "kind": "text"
+    }
+    """Its Value transform: `text` by default."""
+
+
 class FailedRequests(BaseModel):
     """What `run.failed_requests` answers."""
 
@@ -1506,6 +1626,35 @@ class SinkReport(BaseModel):
     For an inactive Sink, the Dataset names it gave that the crawl does
     not declare.
     """
+
+
+class CrawlExtraction(BaseModel):
+    """
+    What a crawl with no handler reads from each page it fetches (spec
+    #582's code-free crawls; ADR 0103): the engine declares the Label
+    [`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by
+    `url`, whose JSON Schema is generated from `formats`, and commits one
+    Record per page fetched: the page's formats, as `page.formats` answers
+    them (its `url` the document's, after redirects), its response's
+    `status` and `fetchedAt`, when the engine read it, and its named
+    `fields`, each read by a locator and given by a Value transform (ADR
+    0123).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    fields: dict[str, ExtractionField] | None = None
+    """
+    The named fields each page's Record holds beside its formats, by
+    name, which no format's property and neither `status` nor
+    `fetchedAt` may take; none by default.
+    """
+    follow: ExtractionFollow | None = "scope"
+    """Which pages the crawl fetches beyond its seeds: `scope` by default."""
+    formats: FormatsRequest
+    """The formats each page's Record holds, as `page.formats` takes them."""
 
 
 class CrawlRunReport(BaseModel):

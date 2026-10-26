@@ -426,6 +426,67 @@ fn a_recipe_caps_a_security_control_its_runs_would_switch_off(
     );
 }
 
+/// An Operator policy that locks `site_preferences.respect_robots_txt`
+/// on, or a Recipe that declares it on or exposes it held to on, keeps a
+/// run from turning robots.txt off (ADRs 0028 and 0086), so a shared
+/// Daemon can forbid it; a Recipe that exposes it unbounded lets the run
+/// turn it off, which then weakens the run (positive control).
+/// Covers: story:4-119, setting:site_preferences.respect_robots_txt, error:setting_locked
+#[rstest]
+#[case::locked_by_the_operator_policy(
+    Some(policy(json!({}), json!({ "site_preferences": { "respect_robots_txt": true } }), json!({}))),
+    None,
+    Err("setting_locked")
+)]
+#[case::declared_on_by_a_recipe(
+    None,
+    Some(recipe(json!({ "site_preferences": { "respect_robots_txt": true } }), &[])),
+    Err("setting_locked")
+)]
+#[case::exposed_held_on_by_a_recipe(
+    None,
+    Some(recipe(
+        json!({}),
+        &[("site_preferences.respect_robots_txt", Exposure { one_of: vec![json!(true)], ..Exposure::default() })],
+    )),
+    Err("setting_locked")
+)]
+#[case::exposed_unbounded_by_a_recipe(
+    None,
+    Some(recipe(json!({}), &[("site_preferences.respect_robots_txt", Exposure::default())])),
+    Ok(vec!["site_preferences.respect_robots_txt".to_owned()])
+)]
+fn a_policy_or_a_recipe_keeps_a_run_from_turning_robots_txt_off(
+    #[case] locking: Option<Policy>,
+    #[case] recipe: Option<Recipe>,
+    #[case] expected: Result<Vec<String>, &str>,
+) {
+    let layers = Layers {
+        operator_policy: locking.unwrap_or_default(),
+        recipe,
+        run: values(
+            SettingsLayer::Run,
+            json!({ "site_preferences": { "respect_robots_txt": false } }),
+        ),
+        ..Layers::default()
+    };
+
+    let outcome = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    assert_eq!(
+        outcome
+            .map(|resolved| {
+                resolved
+                    .weakened()
+                    .into_iter()
+                    .map(|weakened| weakened.key)
+                    .collect()
+            })
+            .map_err(|refused| refused.code()),
+        expected
+    );
+}
+
 /// The keys a Recipe and the run only narrow, or never set (spec #213's
 /// story 90): each refused when it widens or sets what is reserved.
 /// Covers: story:3-90, story:5-101, setting:paid_fetch.domains, setting:paid_fetch.max_price_per_page, setting:consent.domains, setting:wall.domains, setting:wall.refetch_domains, setting:wall.denied_domains, setting:tls.trusted_cas, setting:tls.accept_invalid_certs, setting:paid_fetch.exchange_rates, setting:paid_fetch.chain_rpc_endpoints

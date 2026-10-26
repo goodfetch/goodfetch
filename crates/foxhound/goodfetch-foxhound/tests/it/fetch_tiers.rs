@@ -54,7 +54,7 @@ pub(crate) fn engine(env: &TestEnv) -> Attached {
 /// An engine whose pages launch Chrome for Testing from `cache`, a cache
 /// a test prepared once, so a second engine reuses it while the first's
 /// browser may still run.
-fn engine_on(env: &TestEnv, cache: &std::path::Path) -> Attached {
+pub(crate) fn engine_on(env: &TestEnv, cache: &std::path::Path) -> Attached {
     Attached::start_with(env, Some(Duration::from_secs(60)), |command| {
         command.env(BROWSERS_PATH_VARIABLE, cache);
     })

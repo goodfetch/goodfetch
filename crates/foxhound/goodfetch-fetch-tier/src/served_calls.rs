@@ -10,15 +10,21 @@
 //! | Row | Document tiers | `light_browser` | `browser` |
 //! |---|---|---|---|
 //! | [`Row::Read`] | served | served | served |
-//! | [`Row::Question`] | from markup | served | served |
-//! | [`Row::StateWait`] | when already true | served | served |
-//! | [`Row::NetworkWait`] | `discovered_api` from replayed calls | served | served |
-//! | [`Row::Script`] | escalates | served | served |
+//! | [`Row::Question`] | from markup | from markup | served |
+//! | [`Row::StateWait`] | when already true | when already true | served |
+//! | [`Row::NetworkWait`] | `discovered_api` from replayed calls | escalates | served |
+//! | [`Row::Script`] | escalates | escalates | served |
 //! | [`Row::Layout`] | escalates | escalates | served |
 //! | [`Row::Gesture`] | escalates | escalates | served |
-//! | [`Row::Navigation`] | over the same tier | served | served |
+//! | [`Row::Navigation`] | over the same tier | escalates | served |
 //! | [`Row::Request`] | served | served | served |
 //! | [`Row::Lifecycle`] | served | served | served |
+//!
+//! The `light_browser` tier's page is the document Lightpanda's run of the
+//! page's scripts left (the `light_browser` module): its markup answers
+//! what a document tier's does, a wait for scripted content included,
+//! while a script of the handler's, a network wait and a navigation, which
+//! would need a live page, escalate (#771's first build).
 //!
 //! On a page with no document (ADR 0119), a call of a row that
 //! [reads the document](Row::reads_document) fails with
@@ -180,7 +186,11 @@ impl Row {
             tier,
             FetchTier::Http | FetchTier::BrowserFetch | FetchTier::DiscoveredApi
         );
+        let rendered = tier == FetchTier::LightBrowser;
         match self {
+            Self::Question if rendered => Service::FromMarkup,
+            Self::StateWait if rendered => Service::WhenAlreadyTrue,
+            Self::NetworkWait | Self::Script | Self::Navigation if rendered => Service::Escalates,
             Self::Question if document => Service::FromMarkup,
             Self::StateWait if document => Service::WhenAlreadyTrue,
             Self::NetworkWait if tier == FetchTier::DiscoveredApi => Service::FromReplayedCalls,

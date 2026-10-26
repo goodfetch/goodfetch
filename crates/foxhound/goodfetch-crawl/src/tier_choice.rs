@@ -20,6 +20,13 @@
 //! consent wall stays on `browser` for the Run, never sampled again
 //! (ADR 0048).
 //!
+//! Where the Run allows the `light_browser` tier (`fetch.light_browser`,
+//! ADR 0020), each sample also runs on it, before the browser, and a
+//! sample whose `http` run differed but whose light run matched counts as
+//! matched there: a Label (or segment) whose samples all matched goes on
+//! `http` when every one matched over `http`, and on `light_browser` when
+//! some matched only there.
+//!
 //! A choice is sampled again once it served `fetch.sample.refresh_after`'s
 //! requests, or once its time passed, whichever comes first (500 requests
 //! or 24 hours by default), and at once when [`TierChoices::invalidate`]
@@ -101,11 +108,13 @@ pub(crate) struct Sampled {
     pub(crate) segment: String,
 }
 
-/// How the weighing judged a sample's two runs.
+/// How the weighing judged a sample's runs against the browser's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Weighed {
-    /// They staged the same results.
+    /// Its `http` run staged the same results.
     Matched,
+    /// Its `http` run did not, but its `light_browser` run did.
+    MatchedLight,
     /// They did not, or the cheaper run escalated or failed.
     Differed,
     /// The browser's run met a consent wall: its Label stays on `browser`
@@ -144,6 +153,9 @@ pub(crate) enum Unit {
 pub(crate) struct Sample {
     segment: String,
     matched: bool,
+    /// Whether it matched only on `light_browser`.
+    #[serde(default)]
+    light: bool,
 }
 
 /// One segment of a split Label.
@@ -152,6 +164,9 @@ pub(crate) struct Segment {
     name: String,
     /// Its samples that matched so far.
     matched: usize,
+    /// Whether one of them matched only on `light_browser`.
+    #[serde(default)]
+    light: bool,
     /// Its tier, once chosen.
     tier: Option<FetchTier>,
 }
@@ -215,8 +230,8 @@ impl TierChoices {
             });
         match weighed {
             Weighed::Walled => *unit = Unit::Walled,
-            Weighed::Matched | Weighed::Differed => {
-                unit.classify(&sampled.segment, weighed == Weighed::Matched, (count, now));
+            Weighed::Matched | Weighed::MatchedLight | Weighed::Differed => {
+                unit.classify(&sampled.segment, weighed, (count, now));
             }
         }
         unit
@@ -301,41 +316,46 @@ impl Unit {
         }
     }
 
-    /// Takes a sample in `segment` that `matched` or not, of `count`
+    /// Takes a sample in `segment` weighed as `weighed`, of `count`
     /// samples a choice takes, at `now`. A choice once made stands until
     /// it is sampled again.
-    fn classify(&mut self, segment: &str, matched: bool, (count, now): (usize, u64)) {
+    fn classify(&mut self, segment: &str, weighed: Weighed, (count, now): (usize, u64)) {
+        let sample = Sample {
+            segment: segment.to_owned(),
+            matched: matches!(weighed, Weighed::Matched | Weighed::MatchedLight),
+            light: weighed == Weighed::MatchedLight,
+        };
         match self {
             Self::Learned { .. } | Self::Walled => {}
             Self::Sampling { samples } => {
-                samples.push(Sample {
-                    segment: segment.to_owned(),
-                    matched,
-                });
+                samples.push(sample);
                 if samples.len() >= count {
                     *self = Self::chosen(samples, count, now);
                 }
             }
             Self::Split { segments, .. } => {
-                Segment::take(segments, segment, matched, count);
+                Segment::take(segments, &sample, count);
             }
         }
     }
 
     /// What a Label on a domain learned at `now` from its first `samples`:
-    /// `http` when every one matched; split by first segment when some
-    /// segment matched throughout and another did not; `browser`
+    /// `http` when every one matched over `http`, `light_browser` when
+    /// every one matched and some only there; split by first segment when
+    /// some segment matched throughout and another did not; `browser`
     /// otherwise.
     fn chosen(samples: &[Sample], count: usize, now: u64) -> Self {
         if samples.iter().all(|sample| sample.matched) {
-            return Self::Learned {
-                tier: FetchTier::Http,
-                since: now,
+            let tier = if samples.iter().any(|sample| sample.light) {
+                FetchTier::LightBrowser
+            } else {
+                FetchTier::Http
             };
+            return Self::Learned { tier, since: now };
         }
         let mut segments: Vec<Segment> = Vec::new();
         for sample in samples {
-            Segment::take(&mut segments, &sample.segment, sample.matched, count);
+            Segment::take(&mut segments, sample, count);
         }
         let some_matched = segments
             .iter()
@@ -355,18 +375,19 @@ impl Unit {
 }
 
 impl Segment {
-    /// Takes a sample in `segment` that `matched` or not among `segments`,
-    /// opening the segment while fewer than [`MAX_SEGMENTS`] are kept.
-    fn take(segments: &mut Vec<Self>, segment: &str, matched: bool, count: usize) {
-        match segments.iter().position(|kept| kept.name == segment) {
-            Some(found) => segments[found].classify(matched, count),
+    /// Takes `sample` among `segments`, opening its segment while fewer
+    /// than [`MAX_SEGMENTS`] are kept.
+    fn take(segments: &mut Vec<Self>, sample: &Sample, count: usize) {
+        match segments.iter().position(|kept| kept.name == sample.segment) {
+            Some(found) => segments[found].classify(sample, count),
             None if segments.len() < MAX_SEGMENTS => {
                 let mut kept = Self {
-                    name: segment.to_owned(),
+                    name: sample.segment.clone(),
                     matched: 0,
+                    light: false,
                     tier: None,
                 };
-                kept.classify(matched, count);
+                kept.classify(sample, count);
                 segments.push(kept);
             }
             None => {}
@@ -375,18 +396,24 @@ impl Segment {
 
     /// Takes one of its samples: its first that did not match keeps it on
     /// `browser`; its `count`th that matched, all before it matching,
-    /// moves it to `http`.
-    fn classify(&mut self, matched: bool, count: usize) {
+    /// moves it to `http`, or to `light_browser` when one matched only
+    /// there.
+    fn classify(&mut self, sample: &Sample, count: usize) {
         if self.tier.is_some() {
             return;
         }
-        if !matched {
+        if !sample.matched {
             self.tier = Some(FetchTier::Browser);
             return;
         }
         self.matched += 1;
+        self.light |= sample.light;
         if self.matched >= count {
-            self.tier = Some(FetchTier::Http);
+            self.tier = Some(if self.light {
+                FetchTier::LightBrowser
+            } else {
+                FetchTier::Http
+            });
         }
     }
 }

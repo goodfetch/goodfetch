@@ -27,11 +27,13 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{RunState, RunStateError};
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, PushedRecord};
+use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
 use goodfetch_protocol::run::PointInTime;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use crate::staging::{SoFar, Staging};
+pub(crate) use crate::staging::SoFar;
+use crate::staging::Staging;
 use crate::work_items::{self, Fetched};
 
 /// The `tracing` target of the run fencing model's transitions.
@@ -231,13 +233,43 @@ impl WorkItemLease {
     /// handler runs again on another tier with its first answer discarded:
     /// an escalation or a sample's browser run (ADR 0093). Answers what
     /// the discarded run had staged, which a sample compares.
+    /// Its robots.txt mark, which holds for its request's URL whatever
+    /// the tier, is kept.
     pub(crate) fn restage(&self) -> SoFar {
         let epoch = self.0.state.borrow().lease.epoch();
-        let pushed = self.0.leases.staging.discard(&self.0.work_item, epoch);
+        let staging = &self.0.leases.staging;
+        let robots_txt = staging.robots_txt(&self.0.work_item, epoch);
+        let pushed = staging.discard(&self.0.work_item, epoch);
         if self.check().is_ok() {
-            self.0.leases.staging.open(&self.0.work_item, epoch);
+            staging.open(&self.0.work_item, epoch);
+            if robots_txt.is_some() {
+                staging.fetched(
+                    &self.0.work_item,
+                    epoch,
+                    Fetched {
+                        robots_txt,
+                        ..Fetched::default()
+                    },
+                );
+            }
         }
         pushed
+    }
+
+    /// Notes that its request's URL is one its origin's robots.txt
+    /// disallows, fetched while `site_preferences.respect_robots_txt` was
+    /// off, which the Provenance of each Record it commits marks (ADR
+    /// 0086).
+    pub(crate) fn robots_txt_ignored(&self) {
+        let epoch = self.0.state.borrow().lease.epoch();
+        self.0.leases.staging.fetched(
+            &self.0.work_item,
+            epoch,
+            Fetched {
+                robots_txt: Some(RobotsTxtMark::Ignored),
+                ..Fetched::default()
+            },
+        );
     }
 
     /// Notes how its attempt's run fetched its document, which the

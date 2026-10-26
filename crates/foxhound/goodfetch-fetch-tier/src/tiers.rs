@@ -37,6 +37,7 @@ use bytes::Bytes;
 use encoding_rs::Encoding;
 use goodfetch_engine::dns::ResolverConfiguration;
 use goodfetch_engine::egress::Policy;
+use goodfetch_engine::home::Home;
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
@@ -48,11 +49,12 @@ use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, Reader,
     ServedDocument,
 };
+use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::{CRAWL_CONTENT_TYPES, CrawlRequest};
 use goodfetch_protocol::foxhound::fetch::{
-    FETCH_ENCODING, FETCH_HEDGE_ENABLED, FETCH_REDIRECT_MAX, FETCH_TIER, FETCH_TIER_RACE,
-    FetchTier, REDIRECT_MAX_LIMIT,
+    FETCH_ENCODING, FETCH_HEDGE_ENABLED, FETCH_LIGHT_BROWSER, FETCH_REDIRECT_MAX, FETCH_TIER,
+    FETCH_TIER_RACE, FetchTier, REDIRECT_MAX_LIMIT,
 };
 use goodfetch_protocol::foxhound::frontier::CRAWL_REQUEST_LINKS;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
@@ -84,8 +86,9 @@ use crate::document::{self, Matched, SelectorInvalid, matched};
 use crate::driver::{Deadlines, Hop, Transport, fetch, fetch_accepting};
 use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
+use crate::light_browser::LightBrowser;
 use crate::redundant::{Redundant, Requester};
-use crate::transports::{AddressCheck, BrowserFetch, Reqwest, TransportConfig};
+use crate::transports::{AddressCheck, BrowserFetch, LocalSource, Reqwest, TransportConfig};
 use crate::use_signals::UseSignals;
 
 mod calls;
@@ -110,6 +113,9 @@ struct Served {
     /// How the browser tier opens Collie's pages, which the page crate
     /// hands over once the engine is composed.
     browser: OnceLock<Arc<dyn BrowserPages>>,
+    /// The light-browser tier's Lightpanda build, prepared at its first
+    /// run (ADR 0020).
+    light: LightBrowser,
 }
 
 #[derive(Default)]
@@ -343,6 +349,45 @@ pub struct Signed {
     pub canonical: Option<Url>,
 }
 
+/// `capability_unavailable` for `fetch.tier: light_browser` forced in
+/// `layer`, or by `label`, where `settings` do not allow the tier: naming
+/// `fetch.light_browser` while it is off, else this platform, for which
+/// Lightpanda builds nothing (ADRs 0020 and 0093).
+fn light_unavailable(settings: &Resolved, layer: SettingsLayer, label: Option<&str>) -> CallError {
+    let set = label.map_or_else(
+        || layer.as_str().to_owned(),
+        |label| format!("the Label `{label}`"),
+    );
+    let switched_on = settings.boolean(FETCH_LIGHT_BROWSER.name) == Some(true);
+    let (key, fix, message) = if switched_on {
+        (
+            FETCH_TIER.name,
+            "`fetch.tier: auto`",
+            format!(
+                "Lightpanda builds nothing for this platform, so no crawl request is fetched on the `light_browser` tier, which `fetch.tier` forces in {set}: set `fetch.tier` to `auto`, `http` or `browser`."
+            ),
+        )
+    } else {
+        (
+            FETCH_LIGHT_BROWSER.name,
+            "`fetch.light_browser: true`",
+            format!(
+                "`fetch.tier` forces the `light_browser` tier in {set}, which the Run does not allow: switch `fetch.light_browser` on, or set `fetch.tier` to `auto`, `http` or `browser`."
+            ),
+        )
+    };
+    CallError::new(
+        &CAPABILITY_UNAVAILABLE,
+        message,
+        &CapabilityUnavailableDetails {
+            key: key.to_owned(),
+            layer,
+            kind: FetchTier::LightBrowser.as_str().to_owned(),
+            fix: fix.to_owned(),
+        },
+    )
+}
+
 /// Locks `mutex`, whose holders never panic while they hold it.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -420,9 +465,15 @@ impl FetchTiers {
         let by_label = labels
             .forced()
             .map(|(label, tier)| (tier, SettingsLayer::Run, Some(label)));
+        let light = Self::light_allowed(settings);
         for (tier, layer, label) in run.into_iter().chain(by_label) {
-            if matches!(tier, FetchTier::Http | FetchTier::Browser) {
+            if matches!(tier, FetchTier::Http | FetchTier::Browser)
+                || (tier == FetchTier::LightBrowser && light)
+            {
                 continue;
+            }
+            if tier == FetchTier::LightBrowser {
+                return Err(light_unavailable(settings, layer, label));
             }
             let name = tier.as_str();
             let set = label.map_or_else(
@@ -459,7 +510,9 @@ impl FetchTiers {
 
     /// An HTTP tier for `run` under its settings, one per Run so its hops
     /// share connections: the one its crawl requests on the `http` tier
-    /// take, and its navigation gate fetches robots.txt with.
+    /// take, and its navigation gate fetches robots.txt with, sending from
+    /// `local` when the Run sets `egress.local_addresses` (ADR 0044). Each
+    /// Session's own local addresses take [`HttpTier::from_session`].
     ///
     /// # Errors
     ///
@@ -470,7 +523,11 @@ impl FetchTiers {
     /// # Cancel safety
     ///
     /// Dropping the future loses only the tier.
-    pub async fn built(run: &Run, settings: &Resolved) -> Result<HttpTier, String> {
+    pub async fn built(
+        run: &Run,
+        settings: &Resolved,
+        local: Option<LocalSource>,
+    ) -> Result<HttpTier, String> {
         let egress = Policy::of(settings).map_err(|error| error.to_string())?;
         let trust = trusted_cas(settings.value(TLS_TRUSTED_CAS.name), run.owner()).await;
         let client_certificates = ClientCertificates::listed(
@@ -482,7 +539,7 @@ impl FetchTiers {
             Some(run.id().clone()),
         )
         .map_err(|error| error.to_string())?;
-        let transport = Reqwest::new(TransportConfig {
+        let config = TransportConfig {
             trust,
             exceptions: exceptions_of(run, settings),
             client_certificates: Some(client_certificates),
@@ -491,8 +548,9 @@ impl FetchTiers {
             egress: egress.clone(),
             clock: run.clock(),
             resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,
-        })
-        .map_err(|error| error.to_string())?;
+            local,
+        };
+        let transport = Reqwest::new(config.clone()).map_err(|error| error.to_string())?;
         Ok(HttpTier {
             addresses: transport.address_check(),
             transport: Arc::new(transport),
@@ -500,6 +558,10 @@ impl FetchTiers {
             deadlines: Deadlines::of(settings),
             redundant: Arc::new(Redundant::of(settings)),
             following: Following::of(settings),
+            sessions: Arc::new(SessionTransports {
+                config,
+                built: Mutex::new(BTreeMap::new()),
+            }),
         })
     }
 
@@ -617,6 +679,26 @@ impl FetchTiers {
                 ),
             }));
         }
+        self.open_served(tier, run, choice, fetched, hand_over.encoding)
+    }
+
+    /// Opens a page served from `fetched` on `tier` for `run`, its calls
+    /// served as `choice` says, its document read with `forced` from
+    /// `fetch.encoding`.
+    ///
+    /// # Errors
+    ///
+    /// `browser_required` under a forced tier for a document only a guess
+    /// could read, which under `auto` opens a page already escalated at
+    /// `fetch.encoding` instead (ADR 0119).
+    fn open_served(
+        &self,
+        tier: &HttpTier,
+        run: &Run,
+        choice: &TierChoice,
+        fetched: crate::driver::Fetched,
+        forced: Option<&'static Encoding>,
+    ) -> Result<PageId, Stop> {
         let status = fetched.status;
         let (url, headers, body) = (
             fetched.url.clone(),
@@ -624,7 +706,7 @@ impl FetchTiers {
             Bytes::from(fetched.body.clone()),
         );
         let certificate_exception = fetched.certificate_exception.as_ref().map(mark);
-        let opened = Opened::of(run, fetched, hand_over.encoding);
+        let opened = Opened::of(run, fetched, forced);
         // A document only a guess could read is never served: under a
         // forced tier it fails, and under `auto` its page escalates before
         // its handler runs (ADR 0119). A page holding no document is never
@@ -669,6 +751,102 @@ impl FetchTiers {
         Ok(page_id)
     }
 
+    /// Loads `request`'s URL on the `light_browser` tier for `run`:
+    /// Lightpanda, out of process, its build prepared in the Browser cache
+    /// of `home` at the tier's first run by the Product version
+    /// `pinned_by`, its requests sent only where `tier`, the Run's HTTP
+    /// tier, may connect (ADRs 0017 and 0020). It opens a page served from
+    /// the document the page's scripts left, whose calls are served as
+    /// `choice` says, and whose type its Label must take (ADR 0119).
+    ///
+    /// # Errors
+    ///
+    /// [`Stop::Failed`] with the Browser cache's Error codes or
+    /// `navigation_failed`; [`Stop::Skipped`] with `content_type` for a
+    /// type its Label does not take.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future kills Lightpanda and opens no page.
+    pub async fn light(
+        &self,
+        tier: &HttpTier,
+        run: &Run,
+        request: &CrawlRequest,
+        choice: &TierChoice,
+        hand_over: &Arc<HandOver>,
+        (home, pinned_by): (&Home, &PinnedBy),
+    ) -> Result<PageId, Stop> {
+        let prepared = self
+            .served
+            .light
+            .prepared(run, home, pinned_by)
+            .await
+            .map_err(Stop::Failed)?;
+        let rendered = crate::light_browser::render(
+            run,
+            &prepared.executable,
+            &request.url,
+            tier.address_check(),
+        )
+        .await
+        .map_err(Stop::Failed)?;
+        let header = rendered
+            .headers
+            .iter()
+            .find(|(name, _)| name == "content-type")
+            .map(|(_, value)| value.clone());
+        let (essence, _) = typed(
+            header.as_deref(),
+            rendered.html.as_bytes(),
+            rendered.url.path(),
+        );
+        if !hand_over.content_types.accepts(&essence) {
+            return Err(Stop::Skipped(Skip {
+                reason: SkipReason::ContentType,
+                message: format!(
+                    "`{}` answered `{essence}`, which its Label's `crawl.content_types` does not list.",
+                    rendered.url
+                ),
+            }));
+        }
+        // The document is the one its scripts left, serialized as UTF-8:
+        // Lightpanda decoded what the site sent.
+        let mut headers: Vec<(String, String)> = rendered
+            .headers
+            .into_iter()
+            .filter(|(name, _)| name != "content-type")
+            .collect();
+        if is_document(&essence) {
+            headers.push((
+                "content-type".to_owned(),
+                format!("{essence}; charset=utf-8"),
+            ));
+        } else if let Some(header) = header {
+            headers.push(("content-type".to_owned(), header));
+        }
+        let fetched = crate::driver::Fetched {
+            url: rendered.url,
+            status: rendered.status,
+            headers,
+            body: rendered.html.into_bytes(),
+            unaccepted: None,
+            // Lightpanda makes its own TLS connections through the bridge,
+            // which relays them unread: no `tls.accept_invalid_certs`
+            // exception is taken on this tier.
+            certificate_exception: None,
+        };
+        self.open_served(tier, run, choice, fetched, None)
+    }
+
+    /// Whether a Run's resolved `settings` let its crawl take the
+    /// `light_browser` tier: `fetch.light_browser` is on, and this platform
+    /// has a pinned Lightpanda build (ADR 0020).
+    pub fn light_allowed(settings: &Resolved) -> bool {
+        settings.boolean(FETCH_LIGHT_BROWSER.name) == Some(true)
+            && crate::light_browser::pinned_here().is_some()
+    }
+
     /// The AI-use signals the response of the served page `page_id`
     /// carried; none once the page closed.
     pub fn use_signals(&self, page_id: &PageId) -> UseSignals {
@@ -707,6 +885,9 @@ impl FetchTiers {
         lock(&self.served.pages)
             .open
             .get(page_id)
+            // Lightpanda decoded a light page's document itself, in an
+            // encoding the engine does not learn.
+            .filter(|page| page.choice.tier != FetchTier::LightBrowser)
             .and_then(|page| page.read)
             .map(|read| EncodingProvenance {
                 encoding: read.encoding.name().to_owned(),
@@ -1201,6 +1382,26 @@ pub struct HttpTier {
     redundant: Arc<Redundant>,
     /// What its requests' redirect chains follow.
     following: Following,
+    /// The reqwest transports of the Run's Sessions that hold their own
+    /// local addresses, which every clone shares.
+    sessions: Arc<SessionTransports>,
+}
+
+/// The reqwest transport of each local source a Session of the Run sends
+/// from (ADR 0044), built on its first use, so the hops of Sessions that
+/// share one share its connections.
+struct SessionTransports {
+    /// The Run's transport configuration, its `local` replaced for each.
+    config: TransportConfig,
+    built: Mutex<BTreeMap<LocalSource, (Arc<Reqwest>, AddressCheck)>>,
+}
+
+impl SessionTransports {
+    fn built(&self) -> MutexGuard<'_, BTreeMap<LocalSource, (Arc<Reqwest>, AddressCheck)>> {
+        self.built
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 /// How many redirects a robots.txt fetch follows: RFC 9309 §2.3.1.2's
@@ -1208,6 +1409,41 @@ pub struct HttpTier {
 const ROBOTS_TXT_REDIRECTS: usize = 5;
 
 impl HttpTier {
+    /// The tier as a Session holding the local addresses `local` sends on
+    /// it: its connections and DNS queries leave from them (ADR 0044);
+    /// the tier itself for `None`, a Session sending from the Run's.
+    ///
+    /// # Errors
+    ///
+    /// A message when its transport cannot be built.
+    pub fn from_session(&self, local: Option<&LocalSource>) -> Result<HttpTier, String> {
+        let Some(local) = local else {
+            return Ok(self.clone());
+        };
+        if self.sessions.config.local.as_ref() == Some(local) {
+            return Ok(self.clone());
+        }
+        let mut built = self.sessions.built();
+        let (transport, addresses) = if let Some(transport) = built.get(local) {
+            transport.clone()
+        } else {
+            let transport = Reqwest::new(TransportConfig {
+                local: Some(local.clone()),
+                ..self.sessions.config.clone()
+            })
+            .map_err(|error| error.to_string())?;
+            let addresses = transport.address_check();
+            let transport = (Arc::new(transport), addresses);
+            built.insert(local.clone(), transport.clone());
+            transport
+        };
+        Ok(HttpTier {
+            transport,
+            addresses,
+            ..self.clone()
+        })
+    }
+
     /// The address check of the tier's connections, which judges a crawl
     /// request's URL, and the addresses its name resolves to, before
     /// anything is sent for it (ADR 0017).

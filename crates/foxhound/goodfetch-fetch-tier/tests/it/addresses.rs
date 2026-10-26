@@ -574,6 +574,7 @@ mod linux {
                 egress: policy(&every_host(), &[public.to_string()]),
                 clock: Clock::system(),
                 resolver: ResolverConfiguration::system().unwrap(),
+                local: None,
             },
         );
         let hop = Hop::get(Url::parse(&format!("http://{NAME}:{port}/")).unwrap());

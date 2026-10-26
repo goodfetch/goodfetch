@@ -126,10 +126,15 @@ fn every_session_of_a_runs_pools_leaves_from_a_proxy_of_the_runs_kind_and_provid
     );
     assert!(engine.finish());
 
+    // The handled pages ran in the Label's own pool's Session and in the
+    // replacement of the Run's pool Session the 403 retired (and in the
+    // retired one too when the crawl admitted `public-1` before the 403).
+    let mut sessions: BTreeSet<Value> = sessions.into_iter().collect();
+    sessions.remove(&json!("session-1"));
     let isp = BTreeSet::from(["isp".to_owned()]);
     assert_eq!(
         (
-            sessions,
+            &sessions,
             proxies_to(&proving_ground, "mark=account-"),
             proxies_to(&proving_ground, "mark=public-1"),
             proxies_to(&proving_ground, "/corpus/ip-block"),
@@ -137,11 +142,7 @@ fn every_session_of_a_runs_pools_leaves_from_a_proxy_of_the_runs_kind_and_provid
             &finished["result"]["lifecycle"],
         ),
         (
-            vec![
-                json!("account.session-1"),
-                json!("session-1"),
-                json!("session-2"),
-            ],
+            &BTreeSet::from([json!("account.session-1"), json!("session-2")]),
             isp.clone(),
             isp.clone(),
             isp.clone(),

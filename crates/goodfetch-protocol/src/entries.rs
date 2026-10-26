@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 48] = [
+pub const MODULES: [&Entries; 49] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,

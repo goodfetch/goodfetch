@@ -94,4 +94,4 @@ pub use composition::{
 };
 pub use engine::{Dependencies, Engine};
 pub use info::contribution;
-pub use product::{Channel, Identity};
+pub use product::{CHANNEL_VARIABLE, Channel, Identity, Requested};

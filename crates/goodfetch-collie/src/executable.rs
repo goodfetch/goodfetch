@@ -20,7 +20,8 @@
 //! `main` reads the environment once and passes the map (ADR 0059); every
 //! `GOODFETCH_` variable in it must be a deployment variable, or the
 //! executable stops with `setting_unknown` or `setting_invalid` before any
-//! command runs (ADR 0083).
+//! command runs (ADR 0083), its exit code its Error code's row (ADR 0069);
+//! Collie's refuses what only Foxhound carries (the `identity` module).
 //!
 //! Logs go to stderr through the `tracing` subscriber (the `logs` module),
 //! filtered by `log.level` (`info` when unset), as text unless `log.format`
@@ -45,6 +46,7 @@ use std::ffi::OsString;
 use std::process::ExitCode;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
+use goodfetch_cli::exit_codes;
 use goodfetch_cli::generated::{Call, Generated, Joined, Joining};
 use goodfetch_cli::output::{self, ColourChoice, ColourFlag, Human};
 use goodfetch_cli::settings_flags::SettingsFlags;
@@ -59,13 +61,14 @@ use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::log::LogEvents;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::settings::{check_environment, deployment_variable};
+use goodfetch_engine::settings::deployment_variable;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
-use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
+use goodfetch_engine::{Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use identity::{Refused, identity, refuse};
 
 mod audit;
 mod audit_events;
@@ -74,6 +77,7 @@ mod certs;
 mod config;
 mod console;
 mod daemon;
+mod identity;
 mod log_file;
 mod logs;
 mod metrics;
@@ -449,28 +453,9 @@ pub struct Start {
 ///
 /// If Tokio cannot build its runtime.
 pub fn main(start: &Start) -> ExitCode {
-    let (command_line, generated) = command_line(start.product);
-    let command_line = command_line.version(start.version);
-    let binary = command_line.get_name().to_owned();
-    let parsed = command_line
-        .try_get_matches_from(&start.arguments)
-        .and_then(|matches| {
-            let colour = matches
-                .get_one::<ColourChoice>(COLOR)
-                .copied()
-                .unwrap_or_default();
-            let parsed = match generated.call(&matches) {
-                Some(call) => Parsed::Generated(call),
-                None => Parsed::HandWritten(CommandLine::from_arg_matches(&matches)?.command),
-            };
-            Ok((parsed, colour))
-        });
-    let (parsed, colour) = match parsed {
+    let (binary, parsed, colour) = match parse(start) {
         Ok(parsed) => parsed,
-        Err(error) => {
-            let _ = error.print();
-            return ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(2));
-        }
+        Err(exit) => return exit,
     };
     let environment = with_passed_variables(&start.environment, &parsed);
     let human = Human::new(colour, &environment);
@@ -491,27 +476,23 @@ pub fn main(start: &Start) -> ExitCode {
         Ok(installed) => installed,
         Err(exit) => return exit,
     };
-    if let Err(error) = check_environment(&environment) {
-        tracing::error!(code = error.code(), "{error}");
-        return ExitCode::FAILURE;
-    }
-    let Ok(product_version) = ProductVersion::parse(start.version) else {
-        tracing::error!(
-            version = start.version,
-            "the executable's version is no Product version"
-        );
-        return ExitCode::FAILURE;
+    let identity = match identity(start, &environment) {
+        Ok(identity) => identity,
+        Err(Refused::Setting(error)) => {
+            tracing::error!(code = error.code(), "{error}");
+            return ExitCode::from(exit_codes::of_code(error.code()));
+        }
+        Err(Refused::Version) => {
+            tracing::error!(
+                version = start.version,
+                "the executable's version is no Product version"
+            );
+            return ExitCode::FAILURE;
+        }
     };
     let pinned_by = PinnedBy {
         product: start.product,
-        product_version: product_version.clone(),
-    };
-    let identity = Identity {
-        product: start.product,
-        product_version,
-        // The packages of each channel say which they are with the release
-        // pipeline (area 1); until then every executable is a source build.
-        channel: Channel::CratesIo,
+        product_version: identity.product_version.clone(),
     };
     let engine = match Engine::new(identity, &(start.composition)()) {
         Ok(engine) => instrumented(engine, log_events, logs.audit_events()).with_masks(masks),
@@ -551,6 +532,35 @@ pub fn main(start: &Start) -> ExitCode {
         &environment,
         &human,
     )
+}
+
+/// The executable's name, the command `start`'s command line asks for and
+/// its colour; or, when the command line cannot be read, its exit code: a
+/// usage error's, or `not_in_product`'s when it names what only Foxhound
+/// carries and the executable is not Foxhound's (ADR 0087).
+fn parse(start: &Start) -> Result<(String, Parsed, ColourChoice), ExitCode> {
+    let (command_line, generated) = command_line(start.product);
+    let mut command_line = command_line.version(start.version);
+    let binary = command_line.get_name().to_owned();
+    let parsed = command_line
+        .try_get_matches_from_mut(&start.arguments)
+        .and_then(|matches| {
+            let colour = matches
+                .get_one::<ColourChoice>(COLOR)
+                .copied()
+                .unwrap_or_default();
+            let parsed = match generated.call(&matches) {
+                Some(call) => Parsed::Generated(call),
+                None => Parsed::HandWritten(CommandLine::from_arg_matches(&matches)?.command),
+            };
+            Ok((binary, parsed, colour))
+        });
+    parsed.map_err(|error| {
+        refuse(start, &command_line, &error).unwrap_or_else(|| {
+            let _ = error.print();
+            ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(2))
+        })
+    })
 }
 
 /// `engine`, its Connections receiving `log_events`, its Resource governor

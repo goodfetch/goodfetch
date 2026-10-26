@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::settings::{ExplainedSetting, WeakenedSetting};
+use crate::settings::{ExplainedSetting, SettingLimit, WeakenedSetting};
 
 use super::{Checkpoint, Completeness, Lifecycle, LimitScope, Period, PointInTime, RunId};
 use super::{StopReason, Verdict};
@@ -112,6 +112,16 @@ pub struct RunReport {
     /// `CrawlRunReport`), kept as the engine sent them.
     #[serde(flatten)]
     pub kind_parts: Map<String, Value>,
+}
+
+impl RunReport {
+    /// Whether it replayed a Response recording (ADR 0105), which marks it
+    /// in its Run index row.
+    pub fn replayed(&self) -> bool {
+        self.recording
+            .as_ref()
+            .is_some_and(|recording| recording.mode == "replay")
+    }
 }
 
 /// One reason a Run is not `verified` or not `complete` (ADR 0029).
@@ -218,11 +228,44 @@ pub struct RunUsage {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub limits: Vec<AppliedLimit>,
+    /// Its Model allowance, one entry per kind set (ADR 0107): not a Limit,
+    /// so apart from `limits`; empty when none is set.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub model_allowance: Vec<ModelAllowance>,
     /// Whether it spent, or reserved, money in a currency no Limit holding
     /// it caps (ADR 0041): *uncapped*.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub uncapped: bool,
+}
+
+/// One kind of a Run's Model allowance (ADR 0107): the most model Usage
+/// of that kind the Run may spend, past which its model calls are refused
+/// while it goes on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ModelAllowance {
+    /// Its kind: `price`, `tokens` or `calls`; a kind this reader does not
+    /// know is kept as it is.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub kind: String,
+    /// The currency of a `price` allowance, an ISO 4217 code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub currency: Option<String>,
+    /// What it allows: a count, or millionths of the currency.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub value: u64,
+    /// What remains of it, spent and reserved taken off.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub remains: u64,
+    /// When a model call was first refused under it; none until then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reached_at: Option<PointInTime>,
+    /// The setting that set it, its value and its layer.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub source: SettingLimit,
 }
 
 /// A Run's model calls (ADR 0101).

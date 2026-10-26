@@ -21,6 +21,7 @@ import type {
   Product,
   RunIndexRow,
   RunProgress,
+  RunReport,
   StorageLevel,
   Verdict,
 } from "@goodfetch/collie-client/generated";
@@ -36,6 +37,7 @@ import type { OfflineCache } from "#offline/offline.ts";
 import { cachedRun } from "#offline/summaries.ts";
 import { RUNS } from "#routes.ts";
 import { COMPLETENESS_NAMES, LIFECYCLE_NAMES, VERDICT_NAMES } from "./names.ts";
+import { ReplayedMark, RunReportView } from "./run-report.tsx";
 
 /** A run's three axes (ADR 0029): its Verdict and Completeness once it ended. */
 export interface RunAxisValues {
@@ -52,6 +54,8 @@ export interface ShownRun {
   readonly needs: Product;
   /** Whether it spent, or reserved, money no Limit caps (ADR 0041). */
   readonly uncapped: boolean;
+  /** Its Run report, once it ended and the engine answered it (ADR 0102). */
+  readonly report?: RunReport | undefined;
 }
 
 /** What the page read of its run. */
@@ -414,6 +418,11 @@ function Shown({
 }: Omit<RunPageViewProps, "read"> & { readonly run: ShownRun }): ReactNode {
   return (
     <>
+      {run.report?.recording?.mode === "replay" ? (
+        <p className="self-start">
+          <ReplayedMark /> <Trans>This run replayed a Response recording: it is no live run.</Trans>
+        </p>
+      ) : null}
       {run.uncapped ? (
         <p className="self-start rounded-md border border-destructive px-3 py-1.5">
           <strong className="text-destructive">
@@ -439,6 +448,7 @@ function Shown({
         <Pauses pauses={run.progress.pauses} />
         <Actions run={run} {...props} />
       </section>
+      {run.report === undefined ? null : <RunReportView report={run.report} />}
     </>
   );
 }
@@ -575,12 +585,30 @@ async function uncappedOf(
   }
 }
 
+/** The run's Run report once it ended; none while it runs or when the read fails. */
+async function reportOf(
+  client: ConsoleClient,
+  progress: RunProgress,
+  signal: AbortSignal,
+): Promise<RunReport | undefined> {
+  if (progress.lifecycle === "running") {
+    return undefined;
+  }
+  try {
+    return await client.call("run.report", { run_id: progress.run_id }, { signal });
+  } catch {
+    signal.throwIfAborted();
+    return undefined;
+  }
+}
+
 /** The run `progress` and the reads beside it show, after `before`. */
 function shownOf(
   progress: RunProgress,
   row: RunIndexRow | undefined,
   uncapped: boolean | undefined,
   before: ShownRun | undefined,
+  report?: RunReport,
 ): ShownRun {
   const axes: RunAxisValues =
     row === undefined
@@ -593,6 +621,7 @@ function shownOf(
     axes,
     needs: row?.needs ?? before?.needs ?? "collie",
     uncapped: uncapped ?? before?.uncapped ?? false,
+    report: progress.lifecycle === "running" ? undefined : (report ?? before?.report),
   };
 }
 
@@ -643,7 +672,8 @@ export function RunPage({
         rowOf(client, runId, signal),
         uncappedOf(client, runId, signal),
       ]);
-      let shown = shownOf(progress, row, uncapped, undefined);
+      const report = await reportOf(client, progress, signal);
+      let shown = shownOf(progress, row, uncapped, undefined, report);
       dispatch({ kind: "read", read: { kind: "shown", run: shown } });
       showing = true;
       void offline?.put("run_page", runId, cachedRun(shown));
@@ -653,11 +683,13 @@ export function RunPage({
           { run_id: runId, after: shown.progress.position },
           { signal },
         );
-        const [nextRow, nextUncapped] = await Promise.all([
-          next.lifecycle === shown.axes.lifecycle ? undefined : rowOf(client, runId, signal),
+        const changed = next.lifecycle !== shown.axes.lifecycle;
+        const [nextRow, nextUncapped, nextReport] = await Promise.all([
+          changed ? rowOf(client, runId, signal) : undefined,
           uncappedOf(client, runId, signal),
+          changed ? reportOf(client, next, signal) : undefined,
         ]);
-        shown = shownOf(next, nextRow, nextUncapped, shown);
+        shown = shownOf(next, nextRow, nextUncapped, shown, nextReport);
         dispatch({ kind: "read", read: { kind: "shown", run: shown } });
         void offline?.put("run_page", runId, cachedRun(shown));
       }

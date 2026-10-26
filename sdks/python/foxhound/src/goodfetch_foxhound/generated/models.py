@@ -315,6 +315,87 @@ class EquivalentForm(StrEnum):
     """A final `index.php` against its folder."""
 
 
+class ExportCompression(StrEnum):
+    """How an Export's bytes are compressed."""
+
+    none = "none"
+    """Not compressed."""
+
+
+class ExportFormat(StrEnum):
+    """An Export's format, named, never inferred from a file name (ADR 0103)."""
+
+    json = "json"
+    """One JSON array of the Records' values."""
+    jsonl = "jsonl"
+    """One Record's value per line, each line ended by a line feed."""
+
+
+class ExportId(RootModel[str]):
+    root: str
+    """
+    An Export of a Run, named by the engine when its file is whole:
+    `<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase
+    hexadecimal, so two Exports of the same bytes are one file.
+    """
+
+
+class ExportSaveAsParams(BaseModel):
+    """What `export.save_as` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    export_id: ExportId
+    """The Export."""
+    path: str | None = None
+    """
+    The program's path, absolute, which an Attached engine writes
+    itself; any other engine leaves it to the SDK and sends the file's
+    bytes instead.
+    """
+
+
+class ExportSaved(BaseModel):
+    """What `export.save_as` answers once the file is whole."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    sha256: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+    written: bool
+    """
+    Whether the engine wrote the program's path itself; when not, the
+    `$/chunk` notifications before this answer carried every byte, and
+    the SDK writes the path.
+    """
+
+
+class ExportStreamParams(BaseModel):
+    """What `export.stream` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    export_id: ExportId
+    """The Export."""
+
+
+class ExportStreamed(BaseModel):
+    """What `export.stream` answers once it sent every byte."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    sha256: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """The file's size in bytes."""
+
+
 class HttpBody(RootModel[str]):
     root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
     """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
@@ -658,6 +739,23 @@ class RunAddSeedsParams(BaseModel):
         extra="forbid",
         arbitrary_types_allowed=True,
     )
+    run_id: RunId
+    """The crawl's Run."""
+
+
+class RunExportParams(BaseModel):
+    """What `run.export` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    compression: ExportCompression | None = None
+    """The compression; absent, `none`."""
+    dataset: str
+    """The Dataset's name."""
+    format: ExportFormat
+    """The format."""
     run_id: RunId
     """The crawl's Run."""
 
@@ -1233,6 +1331,28 @@ class EnqueuedLinks(BaseModel):
     )
     links: list[EnqueuedLink]
     """Each element's answer."""
+
+
+class Export(BaseModel):
+    """What `run.export` answers once the Export's file is whole (ADR 0103)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    compression: ExportCompression
+    """Its compression."""
+    export_id: ExportId
+    """The Export, which `export.save_as` and `export.stream` take."""
+    format: ExportFormat
+    """Its format."""
+    last_number: Annotated[int, Field(ge=0)]
+    """The number of the last Record it holds, 0 when it holds none."""
+    records: Annotated[int, Field(ge=0)]
+    """How many Records it holds."""
+    sha256: str
+    """The SHA-256 of its bytes, in lowercase hexadecimal."""
+    size: Annotated[int, Field(ge=0)]
+    """Its size in bytes."""
 
 
 class FailedRequests(BaseModel):

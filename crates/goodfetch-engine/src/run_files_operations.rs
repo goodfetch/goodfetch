@@ -4,8 +4,10 @@
 //! runs, and then either writes the program's path itself, on an Attached
 //! engine, under ADR 0116's rule, or, on any other engine, writes nothing
 //! on its own machine and sends the kept file in `$/chunk` notifications,
-//! one per credit, for the SDK to write. And the Error code of a file a
-//! Run could not keep, for the areas that keep one.
+//! one per credit, for the SDK to write. That save and that send are
+//! public, [`save_kept`] and [`send_kept`], for the files Foxhound's
+//! crates keep, such as an Export. And the Error code of a file a Run
+//! could not keep, for the areas that keep one.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -25,7 +27,7 @@ use tokio::io::AsyncReadExt as _;
 use crate::composition::{CallContext, CallError, Handler};
 use crate::rpc::notification_line;
 use crate::run::run_error;
-use crate::run_files::{self, KeepError, Record, SaveError};
+use crate::run_files::{self, KeepError, SaveError};
 use crate::runs::RunError;
 
 /// The handlers of the calls on a Run's kept files.
@@ -103,11 +105,42 @@ async fn save_as(
             format!("the Run's state names the file `{}`", record.sha256),
         )
     })?;
-    match params.path {
+    let written = save_kept(&context, &folder, source, params.path).await?;
+    Ok(DownloadSaved {
+        size: record.size,
+        sha256: record.sha256,
+        written,
+    })
+}
+
+/// Saves the file `source` that the Run whose folder is `folder` keeps,
+/// a Download's or an Export's, for the call `context` serves (ADR 0116):
+/// an Attached engine given the program's `path` writes it there itself,
+/// through a hidden temporary file renamed over it; any other engine
+/// writes nothing on its own machine and sends the file in `$/chunk`
+/// notifications, one per credit, for the SDK to write. Answers whether
+/// the engine wrote the path.
+///
+/// # Errors
+///
+/// `path_not_writable` or `file_write_failed` with side `program` when the
+/// path could not be written, `file_write_failed` with side `engine` when
+/// the kept file could not be read, and `call_cancelled`.
+pub async fn save_kept(
+    context: &CallContext,
+    folder: &Path,
+    source: PathBuf,
+    path: Option<String>,
+) -> Result<bool, CallError> {
+    match path {
         Some(path) if context.daemon().is_none() => {
-            written(&context, &folder, source, path, &record).await
+            written(context, folder, source, path).await?;
+            Ok(true)
         }
-        _ => sent(&context, &folder, &source, &record).await,
+        _ => {
+            send_kept(context, folder, &source).await?;
+            Ok(false)
+        }
     }
 }
 
@@ -118,30 +151,29 @@ async fn written(
     folder: &Path,
     source: PathBuf,
     path: String,
-    record: &Record,
-) -> Result<DownloadSaved, CallError> {
+) -> Result<(), CallError> {
     let owner = Arc::clone(&context.runs().limits().owner);
     let token = context.cancellation().clone();
     let target = PathBuf::from(&path);
     owner
         .blocking(move || run_files::save(&source, &target, &|| token.is_cancelled()))
         .await
-        .map_err(|error| save_error(error, &path, folder))?;
-    Ok(DownloadSaved {
-        size: record.size,
-        sha256: record.sha256.clone(),
-        written: true,
-    })
+        .map_err(|error| save_error(error, &path, folder))
 }
 
-/// Sends the kept file `source` in `$/chunk` notifications, one per credit,
-/// writing nothing on the engine's machine.
-async fn sent(
+/// Sends the file `source` that the Run whose folder is `folder` keeps in
+/// `$/chunk` notifications of the call `context` serves, in order, one per
+/// credit, writing nothing on the engine's machine.
+///
+/// # Errors
+///
+/// `file_write_failed` with side `engine` when the kept file could not be
+/// read.
+pub async fn send_kept(
     context: &CallContext,
     folder: &Path,
     source: &Path,
-    record: &Record,
-) -> Result<DownloadSaved, CallError> {
+) -> Result<(), CallError> {
     let unreadable = |error: std::io::Error| {
         save_error(
             SaveError::Source {
@@ -178,11 +210,7 @@ async fn sent(
         }
         offset += u64::try_from(read).unwrap_or(u64::MAX);
     }
-    Ok(DownloadSaved {
-        size: record.size,
-        sha256: record.sha256.clone(),
-        written: false,
-    })
+    Ok(())
 }
 
 /// The Error code of a save to the program's `path` that failed, the Run

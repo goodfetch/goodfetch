@@ -18,6 +18,8 @@
 //! (STYLE.md, reason 2).
 
 mod declaration;
+mod encoding;
+mod export;
 mod reader;
 mod records;
 mod rejected_records;
@@ -28,7 +30,8 @@ use goodfetch_engine::Contribution;
 use goodfetch_engine::run_state::RunStateTables;
 
 pub use declaration::{Datasets, Refused};
-pub use records::{Checked, Committing, Query, commit, read};
+pub use encoding::ExportEncoder;
+pub use records::{Checked, Committing, Query, commit, last_number, read, read_values};
 pub use rejections::{Rejection, fuzz_rejection};
 pub use resume::Began;
 
@@ -76,11 +79,15 @@ pub const TABLES: RunStateTables = RunStateTables {
     ],
 };
 
-/// What Datasets add to the engine: [`TABLES`], `run.records` and
-/// `run.rejected_records`.
+/// What Datasets add to the engine: [`TABLES`], `run.records`,
+/// `run.rejected_records`, and `run.export` with `export.save_as` and
+/// `export.stream`.
 pub fn contribution() -> Contribution {
-    Contribution::new("goodfetch-dataset")
-        .with_run_state_tables(TABLES)
-        .with_handler(reader::handler())
-        .with_handler(rejected_records::handler())
+    export::handlers().into_iter().fold(
+        Contribution::new("goodfetch-dataset")
+            .with_run_state_tables(TABLES)
+            .with_handler(reader::handler())
+            .with_handler(rejected_records::handler()),
+        Contribution::with_handler,
+    )
 }

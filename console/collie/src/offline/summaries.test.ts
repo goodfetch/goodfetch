@@ -20,6 +20,7 @@ const ROW: RunIndexRow = {
   ended_at: "2026-10-25T09:05:00Z",
   owner: { daemon: { unix: "/run/goodfetch/daemon.sock" } },
   presence: "present",
+  replayed: false,
   progress_message: "logged in with hunter2",
   stop_reason: { kind: "pause" },
 };

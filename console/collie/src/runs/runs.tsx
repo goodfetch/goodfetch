@@ -30,6 +30,7 @@ import type { OfflineCache } from "#offline/offline.ts";
 import { cachedRow } from "#offline/summaries.ts";
 import { formatInstant, formatList } from "#format.ts";
 import { ErrorMessage } from "#errors/error-message.tsx";
+import { ReplayedMark } from "./run-report.tsx";
 import {
   COMPLETENESSES,
   LIFECYCLES,
@@ -497,6 +498,11 @@ function RunRow({ row }: { readonly row: RunIndexRow }): ReactNode {
           </code>
         </a>
         <Presence row={row} />
+        {row.replayed ? (
+          <span className="block">
+            <ReplayedMark />
+          </span>
+        ) : null}
         {watch ? (
           <span className="block text-sm text-muted-foreground">
             <Trans>Watch run</Trans>

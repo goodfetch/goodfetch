@@ -1916,11 +1916,14 @@ dependencies = [
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-test-support",
+ "gungraun",
  "jsonschema",
+ "rstest",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tokio",
  "tracing",
 ]
 
@@ -2059,6 +2062,7 @@ dependencies = [
 name = "goodfetch-foxhound"
 version = "0.0.0"
 dependencies = [
+ "data-encoding",
  "goodfetch-collie",
  "goodfetch-crawl",
  "goodfetch-dataset",
@@ -2075,6 +2079,7 @@ dependencies = [
  "rstest",
  "rusqlite",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
 ]

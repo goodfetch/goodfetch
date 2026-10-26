@@ -21,6 +21,7 @@ mod browser_pool;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod browser_sandbox;
+mod canaries;
 mod certificate_exceptions;
 mod certs;
 #[cfg(target_os = "macos")]

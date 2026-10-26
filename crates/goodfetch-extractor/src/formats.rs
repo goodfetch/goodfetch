@@ -8,7 +8,9 @@ use crate::blocks::{body, fit, text};
 use crate::light::light;
 use crate::main_content::{main_content, main_text_length};
 use crate::markdown::markdown;
+use crate::references::{References, references};
 use crate::shadow::composed;
+use crate::tables::tables;
 use goodfetch_protocol::page::{
     Asked, FormatsRequest, HtmlFormat, HtmlKind, MainContent, MarkdownContent, MarkdownFormat,
     MarkdownOptions, PageFormats,
@@ -89,6 +91,17 @@ pub fn formats(
     let seen = composed(cleaned);
     let main = main_content(&seen, document.url);
     let of_main = |read: fn(&str) -> String| main.as_deref().map(read).unwrap_or_default();
+    // One streaming pass over the document as it stands, its shadow roots'
+    // templates included, for whichever of them the request names.
+    let References {
+        links,
+        images,
+        media,
+    } = if request.links.is_some() || request.images.is_some() || request.media.is_some() {
+        references(document.html, document.base_url)
+    } else {
+        References::default()
+    };
     PageFormats {
         url: document.url.to_owned(),
         base_url: document.base_url.to_owned(),
@@ -111,6 +124,10 @@ pub fn formats(
             HtmlKind::Main => main.clone().unwrap_or_default(),
         }),
         text: request.text.map(|Asked| of_main(text)),
+        links: request.links.map(|Asked| links),
+        images: request.images.map(|Asked| images),
+        media: request.media.map(|Asked| media),
+        tables: request.tables.map(|Asked| tables(&seen)),
     }
 }
 
@@ -149,6 +166,10 @@ pub fn fuzz_formats(data: &[u8]) {
         })),
         html: Some(HtmlFormat::Asked(Asked)),
         text: Some(Asked),
+        links: Some(Asked),
+        images: Some(Asked),
+        media: Some(Asked),
+        tables: Some(Asked),
     };
     let _ = formats(&document, &request, &Context::default());
     let _ = light(&html);

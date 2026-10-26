@@ -121,9 +121,9 @@ function Status({ progress }: { readonly progress: CrawlRunProgress }): ReactNod
   const id = useId();
   return (
     <section aria-labelledby={id} className={sectionClassName}>
-      <h3 id={id} className={headingClassName}>
+      <h2 id={id} className={headingClassName}>
         <Trans>Status</Trans>
-      </h3>
+      </h2>
       {progress.message === undefined || progress.message === null ? (
         <p>
           <Trans>The program set no status message.</Trans>
@@ -231,9 +231,9 @@ function Wait({ group }: { readonly group: WaitGroup }): ReactNode {
   const more = group.more_domains ?? 0;
   return (
     <section aria-labelledby={id} className={sectionClassName}>
-      <h4 id={id} className="font-semibold">
+      <h3 id={id} className="font-semibold">
         {reason}: <Plural value={group.count} one="# request waits" other="# requests wait" />
-      </h4>
+      </h3>
       {group.domains.length === 0 ? null : (
         <table className={tableClassName}>
           <caption className="sr-only">
@@ -282,9 +282,9 @@ function Waiting({ groups }: { readonly groups: readonly WaitGroup[] }): ReactNo
   const id = useId();
   return (
     <section aria-labelledby={id} className={sectionClassName}>
-      <h3 id={id} className={headingClassName}>
+      <h2 id={id} className={headingClassName}>
         <Trans>Why due requests wait</Trans>
-      </h3>
+      </h2>
       {groups.length === 0 ? (
         <p>
           <Trans>No due request waits.</Trans>
@@ -358,9 +358,9 @@ function Concurrency({
   const { governor, open_pages: open, page_allowance: allowance } = concurrency;
   return (
     <section aria-labelledby={id} className={sectionClassName}>
-      <h3 id={id} className={headingClassName}>
+      <h2 id={id} className={headingClassName}>
         <Trans>Concurrency</Trans>
-      </h3>
+      </h2>
       <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
         <dt>
           <Trans>Handlers running</Trans>

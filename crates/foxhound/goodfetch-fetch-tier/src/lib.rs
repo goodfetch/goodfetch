@@ -53,7 +53,7 @@ pub use choice::{Choosing, Forced, LabelSettings, SetTier, TierChoice};
 pub use content_types::ContentTypes;
 pub use document::{Matched, SelectorInvalid};
 pub use driver::{
-    Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
+    Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch, met,
 };
 pub use gate::{HandOver, RobotsTxtFetch, crawl_delay, disallowing};
 pub use goodfetch_page::page_value::PooledSession;

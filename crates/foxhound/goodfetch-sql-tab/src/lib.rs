@@ -71,7 +71,7 @@ async fn query(
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;
     let resolved = settings.resolved();
-    let mut opened = Vec::with_capacity(runs.len());
+    let mut selected = Vec::with_capacity(runs.len());
     let mut first = None;
     for run_id in runs {
         let failed = |error| run_error(error, context.identity());
@@ -83,7 +83,7 @@ async fn query(
         reader.read(|_| Ok(())).await.map_err(failed)?;
         let opener = reader.opener();
         let open: OpenRun = Arc::new(move || opener.open());
-        opened.push((run_id.as_str().to_owned(), open));
+        selected.push((run_id.as_str().to_owned(), open));
         first.get_or_insert(reader);
     }
     let reader = first.expect("invariant: a query selects at least one run");
@@ -94,7 +94,7 @@ async fn query(
             .count(DATASET_QUERY_MAX_ROWS.name)
             .unwrap_or(u64::MAX),
     };
-    let sandbox = Sandbox::open(opened, limits).map_err(|failure| answer(failure, &memory))?;
+    let sandbox = Sandbox::open(selected, limits).map_err(|failure| answer(failure, &memory))?;
     let stop = StopOnDrop(sandbox.stopper());
     let deadline = Deadline::of(resolved, &TIMEOUT_DATASET_QUERY)
         .unwrap_or_else(|| Deadline::declared(&TIMEOUT_DATASET_QUERY));

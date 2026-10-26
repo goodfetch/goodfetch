@@ -3,8 +3,9 @@
 //! to every crawl's run file, read through the table functions DuckDB
 //! calls, never through DuckDB's SQLite extension (ADR 0057).
 #![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "the tests write run files and a file outside the runs, watch a loopback listener no query may reach, and stop a query from a thread of their own, outside any async runtime"
 )]
 
 mod limits;

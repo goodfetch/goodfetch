@@ -5,6 +5,10 @@
 //! nothing spilled to disk; and the one statement it runs, checked to be a
 //! single `SELECT` or `WITH` before it runs, whose first rows it returns
 //! and the rest it counts.
+#![expect(
+    clippy::disallowed_types,
+    reason = "a query is stopped from another thread while DuckDB runs it on its own, outside the engine's tasks, through std's atomic, which no loom model reaches (ADR 0060)"
+)]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

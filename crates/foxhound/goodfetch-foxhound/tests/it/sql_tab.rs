@@ -11,6 +11,10 @@
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test writes and reads back the file outside the runs, outside any async worker"
+)]
 
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rstest::rstest;

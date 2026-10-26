@@ -1,5 +1,10 @@
 //! One named case per DuckDB error class the translation point knows, and
 //! an unknown failure, each raised by a real DuckDB connection (ADR 0127).
+#![expect(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "a thread of the test's own interrupts DuckDB's query, outside any async runtime"
+)]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

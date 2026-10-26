@@ -10,6 +10,10 @@
     unsafe_code,
     reason = "DuckDB's table functions hand their extra info as a raw pointer and their BIGINT columns as raw storage (STYLE.md, `unsafe`)"
 )]
+#![expect(
+    clippy::disallowed_types,
+    reason = "DuckDB calls the table functions on its own threads, outside the engine's tasks, so their state is guarded by std's Mutex, which no loom model reaches (ADR 0060)"
+)]
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -213,12 +217,13 @@ impl VTab for RunTableFunction {
         };
         let rows = page(connection, bound, &scan.columns, after.as_deref())?;
         if rows.len() < PAGE {
-            write(output, bound, &scan.columns, &rows)?;
+            write(output, bound, &scan.columns, &rows);
             *cursor = Cursor::Done;
             return Ok(());
         }
         *after = rows.last().map(|row| row.key.clone());
-        write(output, bound, &scan.columns, &rows)
+        write(output, bound, &scan.columns, &rows);
+        Ok(())
     }
 
     fn supports_pushdown() -> bool {
@@ -297,12 +302,7 @@ fn page(
 }
 
 /// Writes `rows` into `output`, the projected columns in order.
-fn write(
-    output: &mut DataChunkHandle,
-    bound: &Bound,
-    columns: &[Option<usize>],
-    rows: &[Row],
-) -> Result<(), Box<dyn Error>> {
+fn write(output: &mut DataChunkHandle, bound: &Bound, columns: &[Option<usize>], rows: &[Row]) {
     for (place, column) in columns.iter().enumerate() {
         let declared = column.and_then(|index| bound.table.columns.get(index));
         let mut vector = output.flat_vector(place);
@@ -348,5 +348,4 @@ fn write(
         }
     }
     output.set_len(rows.len());
-    Ok(())
 }

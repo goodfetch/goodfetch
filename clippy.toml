@@ -4,7 +4,7 @@
 allow-unwrap-in-tests = true
 # Clippy's own list (`..`) plus the registry names and the words in prose the
 # docs spell as written.
-doc-valid-idents = ["PyPI", "JUnit", "LazyFS", "RustSec", "EasyList", "EasyPrivacy", "DuckDuckGo", "OneTrust", "TrustArc", "TikTok", "BoringSSL", "ClientHello", "AppArmor", ".."]
+doc-valid-idents = ["PyPI", "JUnit", "LazyFS", "RustSec", "EasyList", "EasyPrivacy", "DuckDuckGo", "OneTrust", "TrustArc", "TikTok", "BoringSSL", "ClientHello", "AppArmor", "DuckDB", ".."]
 
 disallowed-methods = [
   # Tasks start only through their owner's tracker, in the `tasks` module.

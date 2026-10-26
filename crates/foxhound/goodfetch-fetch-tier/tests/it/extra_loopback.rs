@@ -18,7 +18,7 @@ use goodfetch_fetch_tier::{
     Wreq,
 };
 use goodfetch_protocol::dns::IpFamily;
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rstest::rstest;
 use serde_json::Value;
 use url::Url;
@@ -63,13 +63,12 @@ fn bound(
     )
 }
 
-/// The source address of the connection each request for the target `path` came on.
+/// The source address of the connection each request of the case for the
+/// target `path` came on.
 fn sources_of(observations: &Value, path: &str) -> Vec<IpAddr> {
     let connections = observations["connections"].as_array().unwrap();
-    observations["requests"]
-        .as_array()
-        .unwrap()
-        .iter()
+    ReceivedRequests::of(observations)
+        .of_the_case()
         .filter(|request| request["target"] == path)
         .map(|request| {
             let connection = connections

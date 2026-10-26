@@ -91,7 +91,7 @@ async function engineSettings(
 /** The effective settings' row of `key`. */
 function rowOf(key: string) {
   return page
-    .getByRole("table", { name: "Effective settings" })
+    .getByRole("grid", { name: "Effective settings" })
     .getByRole("row")
     .filter({ hasText: key });
 }
@@ -194,16 +194,16 @@ test(
     }));
 
     await expect
-      .element(rowOf("crawl.scope.strategy").getByRole("cell").last())
+      .element(rowOf("crawl.scope.strategy").getByRole("gridcell").last())
       .toHaveTextContent("Fixed for a run's life: start a new run to change it");
     await expect
-      .element(rowOf("timeout.first_byte").getByRole("cell").last())
+      .element(rowOf("timeout.first_byte").getByRole("gridcell").last())
       .toHaveTextContent("Edit the project configuration file, under version control");
     await expect
-      .element(rowOf("timeout.navigation").getByRole("cell").last())
+      .element(rowOf("timeout.navigation").getByRole("gridcell").last())
       .toHaveTextContent("Edit the Recipe's manifest, under version control");
     expect(
-      page.getByRole("table", { name: "Effective settings" }).getByRole("button").elements(),
+      page.getByRole("grid", { name: "Effective settings" }).getByRole("button").elements(),
     ).toEqual([]);
     client.close();
   },

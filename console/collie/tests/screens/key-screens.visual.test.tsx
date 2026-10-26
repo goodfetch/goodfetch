@@ -234,7 +234,7 @@ test("Engine & settings", async () => {
   });
   const client = clientOf(adapter);
   await shellAt(client, "/settings");
-  await expect.element(page.getByRole("table", { name: "Effective settings" })).toBeVisible();
+  await expect.element(page.getByRole("grid", { name: "Effective settings" })).toBeVisible();
 
   await expect.element(page.getByRole("main")).toMatchScreenshot("engine-settings");
   client.close();

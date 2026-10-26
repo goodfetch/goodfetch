@@ -7,16 +7,19 @@
     reason = "tests draw from a seeded Entropy (ADR 0059)"
 )]
 
+use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::entropy::Entropy;
+use goodfetch_engine::local_addresses::{BlockSizes, Host, Ipv6Prefix, LocalAddresses, Rotation};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::session_pool::{ProxyTier, ServingSession};
 use goodfetch_protocol::page::SessionId;
 use rstest::rstest;
 use rusqlite::Connection;
 
-use super::{Effect, SessionPool};
+use super::{Effect, LocalAddressing, Rotated, SessionPool};
 use crate::labels::PoolKey;
 use crate::settings::PoolSettings;
 use crate::store::TABLES;
@@ -459,5 +462,183 @@ fn the_pools_read_again_from_run_state_keep_each_labels_sessions_and_the_browser
             ],
             true
         )
+    );
+}
+
+/// A host that holds every address, as Linux holds all of `127.0.0.0/8`.
+struct EveryAddress;
+
+impl Host for EveryAddress {
+    fn holds(&self, _address: IpAddr) -> bool {
+        true
+    }
+
+    fn interface(&self, _name: &str) -> Option<Vec<IpAddr>> {
+        None
+    }
+
+    fn addresses(&self) -> Vec<IpAddr> {
+        Vec::new()
+    }
+
+    fn binds_any_of(&self, _prefix: Ipv6Prefix) -> bool {
+        false
+    }
+}
+
+/// Room for ten Sessions, so each request opens a new one.
+const ROOMY: PoolSettings = PoolSettings {
+    max_size: 10,
+    ..ONE
+};
+
+/// Sessions spread over `addresses` in /30 blocks, sending through a proxy
+/// when `proxied`.
+fn local(addresses: &[[u8; 4]], proxied: bool) -> LocalAddressing {
+    LocalAddressing::new(
+        Rotation::new(
+            LocalAddresses::Addresses(
+                addresses
+                    .iter()
+                    .map(|octets| IpAddr::from(*octets))
+                    .collect(),
+            ),
+            BlockSizes { ipv4: 30, ipv6: 64 },
+        ),
+        BlockSizes { ipv4: 30, ipv6: 64 },
+        Arc::new(EveryAddress),
+        proxied,
+    )
+}
+
+/// The IPv4 address the Session `served` holds.
+fn address_of(pool: &SessionPool, served: &ServingSession) -> [u8; 4] {
+    pool.local_addresses(&served.id)
+        .unwrap()
+        .unwrap()
+        .ipv4
+        .unwrap()
+        .octets()
+}
+
+/// Draws a Session for `domain` and settles it with `effect`, answering
+/// its address.
+fn served(pool: &mut SessionPool, domain: &str, effect: Effect) -> [u8; 4] {
+    let served = pool.draw(&PoolKey::Run, domain, &ROOMY, start());
+    let address = address_of(pool, &served);
+    pool.settle(&served, domain, effect, &ROOMY);
+    address
+}
+
+/// Without a proxy, a Session a block retired is replaced by one outside
+/// every /30 blocked on its domain during the run, where round robin
+/// would have gone back into one; another domain keeps round robin.
+///
+/// Covers: story:4-109
+#[rstest]
+#[case::ip_block(BlockCause::IpBlock)]
+#[case::rate_limit(BlockCause::RateLimit)]
+#[case::challenge(BlockCause::Challenge)]
+fn a_replacement_after_a_block_takes_an_address_outside_every_block_blocked_on_its_domain(
+    #[case] cause: BlockCause,
+) {
+    let mut pool = pool(1).with_local_addresses(local(
+        &[[127, 0, 0, 2], [127, 0, 0, 3], [127, 0, 0, 4]],
+        false,
+    ));
+
+    let addresses = [
+        served(&mut pool, "shop.test", Effect::Blocked(cause)),
+        served(&mut pool, "shop.test", Effect::Success),
+        served(&mut pool, "shop.test", Effect::Success),
+        served(&mut pool, "books.test", Effect::Success),
+    ];
+
+    assert_eq!(
+        (addresses, pool.rotated_within_block()),
+        (
+            [
+                [127, 0, 0, 2],
+                [127, 0, 0, 4],
+                [127, 0, 0, 4],
+                [127, 0, 0, 2]
+            ],
+            Vec::new()
+        )
+    );
+}
+
+/// With every block blocked on the domain, the replacement rotates within
+/// a block, and the pool says which Session did, for the Run report.
+///
+/// Covers: story:4-109
+#[test]
+fn with_every_block_blocked_a_replacement_rotates_within_a_block_and_says_so() {
+    let mut pool = pool(1).with_local_addresses(local(&[[127, 0, 0, 2], [127, 0, 0, 4]], false));
+    let ip_block = Effect::Blocked(BlockCause::IpBlock);
+
+    let addresses = [
+        served(&mut pool, "shop.test", ip_block),
+        served(&mut pool, "shop.test", ip_block),
+        served(&mut pool, "shop.test", Effect::Success),
+    ];
+
+    assert_eq!(
+        (addresses, pool.rotated_within_block()),
+        (
+            [[127, 0, 0, 2], [127, 0, 0, 4], [127, 0, 0, 2]],
+            vec![Rotated {
+                session: SessionId("session-3".to_owned()),
+                domain_key: "shop.test".to_owned(),
+            }]
+        )
+    );
+}
+
+/// With a proxy, whose exit rotates instead (ADR 0021), the replacement
+/// keeps the local address of the Session the block retired.
+///
+/// Covers: story:4-109
+#[test]
+fn with_a_proxy_the_replacement_keeps_the_retired_sessions_address() {
+    let mut pool = pool(1).with_local_addresses(local(&[[127, 0, 0, 2], [127, 0, 0, 4]], true));
+
+    let addresses = [
+        served(&mut pool, "shop.test", Effect::Blocked(BlockCause::IpBlock)),
+        served(&mut pool, "shop.test", Effect::Success),
+        served(&mut pool, "shop.test", Effect::Success),
+    ];
+
+    assert_eq!(
+        (addresses, pool.rotated_within_block()),
+        ([[127, 0, 0, 2], [127, 0, 0, 2], [127, 0, 0, 4]], Vec::new())
+    );
+}
+
+/// A pool read again from run state keeps each Session's address and the
+/// blocks blocked on each domain.
+///
+/// Covers: story:4-109
+#[test]
+fn a_pool_read_again_from_run_state_keeps_its_addresses_and_blocked_blocks() {
+    let addresses = [[127, 0, 0, 2], [127, 0, 0, 3], [127, 0, 0, 4]];
+    let file = run_file();
+    let mut pool = SessionPool::open(&file, Entropy::seeded(1))
+        .unwrap()
+        .with_local_addresses(local(&addresses, false));
+    served(&mut pool, "shop.test", Effect::Blocked(BlockCause::IpBlock));
+    let open = pool.draw(&PoolKey::Run, "books.test", &ROOMY, start());
+    let before = address_of(&pool, &open);
+    pool.changes().write(&file).unwrap();
+
+    let mut resumed = SessionPool::open(&file, Entropy::seeded(2))
+        .unwrap()
+        .with_local_addresses(local(&addresses, false));
+    let kept = address_of(&resumed, &open);
+    let replacement = served(&mut resumed, "shop.test", Effect::Success);
+
+    assert_eq!(
+        (before, kept, replacement),
+        ([127, 0, 0, 4], [127, 0, 0, 4], [127, 0, 0, 4])
     );
 }

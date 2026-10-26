@@ -47,12 +47,13 @@ kept as received (ADR 0079).
 - `partitioned_crawl`: Every Partition of a Partitioned crawl (ADR 0054).
 """
 
-RunWarningCode: TypeAlias = CollieRunWarningCode | Literal["trap_links_off"]
+RunWarningCode: TypeAlias = CollieRunWarningCode | Literal["local_address_rotated_within_block", "trap_links_off"]
 """A `run_warning_code`, a type both Products share (ADR 0095).
 
 Collie's values and Foxhound's own below; a value this package does not know is
 kept as received (ADR 0079).
 
+- `local_address_rotated_within_block`: A Session replacing one a block retired found every block of `egress.local_addresses` blocked on its domain, so it took an address within a blocked block; `sessions` names it.
 - `trap_links_off`: The crawl ran with its trap-link detection off.
 """
 

@@ -8183,6 +8183,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Session replacing one a block retired found every block of `egress.local_addresses` blocked on its domain, so it took an address within a blocked block; `sessions` names it.",
+      "name": "local_address_rotated_within_block",
+      "product": "foxhound",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Model allowance skipped requests the crawl would otherwise have handled, counted: `incomplete`.",
       "name": "model_allowance",
       "product": "foxhound",

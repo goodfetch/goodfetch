@@ -11,6 +11,7 @@ mod addresses;
 mod certificates;
 mod chain;
 mod conformance_gate;
+mod extra_loopback;
 mod fetch_edge;
 mod fingerprint;
 mod transport_failures;
@@ -85,6 +86,7 @@ fn config(proving_ground: &ProvingGround, proxy: Option<Url>, trusted: &[&str]) 
         resolve,
         clock: Clock::system(),
         resolver: ResolverConfiguration::system().unwrap(),
+        local: None,
     }
 }
 

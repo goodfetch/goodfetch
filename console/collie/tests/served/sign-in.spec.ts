@@ -30,7 +30,9 @@ test(
 
     await signIn.withLink(page);
 
-    await expect(page.getByRole("status")).toHaveText(/^Connected to Collie \d+\.\d+\.\d+\S*\.$/);
+    await expect(page.getByRole("main").getByRole("status")).toHaveText(
+      /^Connected to Collie \d+\.\d+\.\d+\S*\.$/,
+    );
     expect(new URL(page.url()).hash).toBe("");
     const cookies = await context.cookies(daemon.url);
     expect(cookies).toEqual([

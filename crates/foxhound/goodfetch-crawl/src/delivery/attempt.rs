@@ -83,7 +83,7 @@ use goodfetch_protocol::foxhound::crawl::{
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
-use goodfetch_protocol::foxhound::provenance::EncodingProvenance;
+use goodfetch_protocol::foxhound::provenance::{CertificateExceptionMark, EncodingProvenance};
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::foxhound::settings::{
     POLITENESS_DOMAIN_ADAPTIVE_DELAY, POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MAX_CRAWL_DELAY,
@@ -669,7 +669,7 @@ impl On<'_> {
         // (ADR 0119).
         if let Some(call) = tiers.escalated(&page_id) {
             tiers.close(&page_id);
-            record_tier(run, leased, lease, choice, how, None).await;
+            record_tier(run, leased, lease, choice, how, None, None).await;
             let message =
                 "The document declares no encoding and is not UTF-8: only the browser reads it.";
             return Ok((
@@ -679,7 +679,17 @@ impl On<'_> {
         }
         let merged = learn(run, tiers, &page_id, leased).await;
         let encoding = tiers.encoding(&page_id);
-        record_tier(run, leased, lease, choice, how, encoding.clone()).await;
+        let certificate_exception = tiers.certificate_exception(&page_id);
+        record_tier(
+            run,
+            leased,
+            lease,
+            choice,
+            how,
+            encoding.clone(),
+            certificate_exception,
+        )
+        .await;
         match judged(run, tiering, &page_id).await {
             Some(Judged::Passed) | None => {}
             Some(Judged::Failed(error)) => {
@@ -845,7 +855,7 @@ impl On<'_> {
             forced: choice.forced.clone().filter(|_| how == Chosen::AsChosen),
         };
         let encoding = read_by_browser(tiers, &page_id, navigated.response.as_ref());
-        record_tier(run, leased, lease, &browser, how, encoding.clone()).await;
+        record_tier(run, leased, lease, &browser, how, encoding.clone(), None).await;
         self.in_flight
             .lock()
             .await
@@ -977,7 +987,9 @@ fn failed(error: &CallError) -> Answer {
 /// Records in the Run's Provenance the tier `choice` names for `leased`'s
 /// attempt, how it came there, as `how` says (ADR 0023), and the
 /// `encoding` its document was read in (ADR 0119), and notes both on
-/// `lease`, for the Provenance of each Record the attempt commits.
+/// `lease`, with the `certificate_exception` its document's host was
+/// reached through (ADR 0042), for the Provenance of each Record the
+/// attempt commits.
 async fn record_tier(
     run: &Run,
     leased: &Leased,
@@ -985,6 +997,7 @@ async fn record_tier(
     choice: &TierChoice,
     how: Chosen,
     encoding: Option<EncodingProvenance>,
+    certificate_exception: Option<CertificateExceptionMark>,
 ) {
     let tier = goodfetch_fetch_tier::tier_provenance(choice, how);
     let encoding = goodfetch_fetch_tier::record_tier(
@@ -998,6 +1011,7 @@ async fn record_tier(
     lease.fetched(Fetched {
         tier: Some(tier),
         encoding,
+        certificate_exception,
     });
 }
 

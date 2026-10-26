@@ -85,11 +85,17 @@ markup5ever_rcdom = { version = "0.38.0", default-features = false }
 lol_html = { version = "3.0.2", default-features = false }
 # The page formats' tables, read from an html5ever tree (spec #580; ADR 0007).
 scraper = { version = "0.27.0", default-features = false }
+# scraper's tree, whose node IDs the microdata reader keys on (#787).
+ego-tree = { version = "0.11.1", default-features = false }
 # The other built-in main-content step, `content.extractor = "trafilatura"`
 # (ADR 0007; #788): rs-trafilatura, pinned to the release the lab reviewed
 # (`rnd/lab/adapters/extract-rust`). Its own dom_query and html-cleaning
 # lines come with it.
 rs-trafilatura = { version = "=0.2.2", default-features = false }
+# The page formats' telephone numbers in E.164 (spec #580; #787):
+# libphonenumber's metadata and parser, so a national number written with
+# its region's trunk prefix converts as the region dials it.
+phonenumber = { version = "0.3.10", default-features = false }
 # The Proving ground's oracle reads a submitted Markdown value as its
 # structure with pulldown-cmark, resolving its links with the url crate
 # below (ADR 0007).

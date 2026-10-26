@@ -1,11 +1,13 @@
 //! `formats` through the crate's interface, over committed fixtures and
 //! generated documents; no owned code is mocked (ADR 0062).
 
+mod contacts;
 mod content_modes;
 mod envelope;
 mod extractors;
 mod live_document;
 mod markdown;
+mod metadata;
 mod properties;
 mod references;
 mod tables;

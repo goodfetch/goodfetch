@@ -22,7 +22,7 @@ use goodfetch_protocol::checkpoint::{
     RunCheckpointParams, RunResumeParams, SESSION_BOUND_TO_MACHINE, SessionBoundToMachineDetails,
     WriteSide,
 };
-use goodfetch_protocol::connection::StoppedBy;
+use goodfetch_protocol::connection::{StoppedBy, Surface};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::formats::{Compatibility, Format};
 use goodfetch_protocol::run::{
@@ -332,6 +332,24 @@ fn draining(run_id: Option<RunId>) -> CallError {
             run_id: run_id.map(|run_id| run_id.to_string()),
         },
     )
+}
+
+/// [`settings_error`] for a call on `context`'s Connection: a setting the
+/// run's Product lacks is worded for Goodfetch Cloud's gateway when the
+/// Connection's `hello` came from it, naming the run's Product rather than
+/// an install that would not help there (ADR 0096).
+fn call_settings_error(error: &SettingsError, context: &CallContext) -> CallError {
+    match error {
+        SettingsError::NotInProduct { key, needs } => {
+            let behind_gateway = context.surface() == Surface::Cloud;
+            let (message, details) =
+                context
+                    .identity()
+                    .not_in_product(Requested::Name(key), *needs, behind_gateway);
+            CallError::new(&NOT_IN_PRODUCT, message, &details)
+        }
+        other => settings_error(other, context.identity()),
+    }
 }
 
 /// The failure a call answers with for a refused setting, on an engine
@@ -750,7 +768,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             acting_for_model: context.surface().acts_for_model(),
         })
         .await
-        .map_err(|error| settings_error(&error, context.identity()))?;
+        .map_err(|error| call_settings_error(&error, &context))?;
     let started = context
         .runs()
         .start(Start {
@@ -915,7 +933,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             acting_for_model: context.surface().acts_for_model(),
         })
         .await
-        .map_err(|error| settings_error(&error, context.identity()))?;
+        .map_err(|error| call_settings_error(&error, &context))?;
     let resumed = context
         .runs()
         .resume(Resume {

@@ -238,6 +238,13 @@ Decided in [ADR 0059](docs/adr/0059-dependencies-are-injected-as-values-and-only
   - The Happy Eyeballs race's end-to-end test relies on auto-advance instead: while its attempt to an address that drops packets waits, the race's attempt delay is the only timer, so the clock moves exactly to it.
 - **A test of the binary sets short durations through settings.** No build has a test-only clock control.
 - **Never sleep for real** beyond a short duration the test set itself.
+- **A timing-sensitive test runs in nextest's `timing-sensitive` test group** (`.config/nextest.toml`): at most four of them run at once, whatever the run's thread count, and the rest of the suite takes the other threads.
+  - A test is timing-sensitive when a check waits on real time against a figure the test or its suite sets: a lease, a navigation timeout, a domain delay or rate, an idle timer, a race's delay, a kill's deadline, or the protocol client's per-message deadline over a long browser run.
+  - To tell, look for such a figure in the test or its helpers. Or run it with `NEXTEST_TEST_THREADS=num-cpus` beside other load (`just repeat`, at `nice -n 10`): a timing-sensitive test passes alone and fails, or nears its figure, there.
+  - The group selects whole modules of a test binary, so a new test in a listed module joins it. A timing-sensitive test elsewhere goes into a listed module, or its module joins the filter in the change that adds it.
+  - The group fixes no flaky test. It keeps the run's own load off the timers and lengthens none of them, and a test in it still asserts no elapsed time.
+
+  _Why:_ nextest starts a binary's tests together, so at every thread the long browser cases of one module ran at once. On a 16-thread host shared with other builds and test runs, their timers then starved with no change to the product. In one of two such runs of every Rust test, three `request_kinds` cases missed their 60 s message deadline. With the group, no timer of its tests failed in two runs at every thread or in five repeats of its tests.
 - **Clocks Goodfetch doesn't own stay real:** the Valkey server's (short durations), Chromium's (Proving ground pages take their time step from the task), and the Script sandbox's live `Date.now`, whose tests compare the order of Effects.
 
 ### Randomness

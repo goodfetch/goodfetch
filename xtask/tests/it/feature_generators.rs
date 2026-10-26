@@ -148,7 +148,7 @@ fn a_removed_command_leaves_the_inventory() {
 }
 
 const COLLIE_ROUTES: &str = "console/collie/routes.json";
-const FOXHOUND_ROUTES: &str = "console/foxhound-screens/routes.json";
+const FOXHOUND_ROUTES: &str = "console/foxhound/routes.json";
 
 #[test]
 fn each_console_route_is_a_feature_with_its_products() {

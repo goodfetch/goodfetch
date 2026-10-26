@@ -1,0 +1,10 @@
+{
+  "name": "@goodfetch/console-foxhound",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Foxhound's Console build, which writes its page where it is told.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}

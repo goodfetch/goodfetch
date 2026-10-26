@@ -547,7 +547,10 @@ impl BrowserCache {
         let partial = blocking(|| store::partial(&self.root))
             .await
             .map_err(CacheError::cache(&self.root))?;
-        let archive = partial.path().join("archive.zip");
+        let archive = partial.path().join("archive");
+        // A URL naming a ZIP archive is unpacked; any other serves one
+        // executable, placed under its own name (ADR 0020's Lightpanda).
+        let file_name = url.file_name().to_owned();
         let host = url.host().to_owned();
         let mut report = |received_bytes, total_bytes| {
             progress(DownloadProgress {
@@ -578,7 +581,11 @@ impl BrowserCache {
         }
         let files = store::files(partial.path());
         let unpacked = blocking(|| {
-            extract::unpack(&archive, &files)?;
+            if file_name.ends_with(".zip") {
+                extract::unpack(&archive, &files)?;
+            } else {
+                extract::place(&archive, &files, &file_name)?;
+            }
             content_digest(&files)
         })
         .await;

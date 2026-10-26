@@ -64,6 +64,10 @@
 //! Session holding both families keeps a client of each, a hop taking the
 //! family of its host's first answer, IPv4 first as the engine's resolver
 //! orders them; `wreq` binds both on one client.
+//!
+//! Size: one transport, reqwest, with its clients per client-certificate
+//! scope and local binding, its resolver and its failure classification:
+//! each is read only by its `send`, so they stay one concern.
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};

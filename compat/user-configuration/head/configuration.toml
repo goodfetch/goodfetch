@@ -146,6 +146,9 @@ command = "example"
 [settings.secret_providers.bw]
 command = "example"
 
+[settings.secret_providers.vault]
+address = "example"
+
 [settings.security]
 field_encryption = true
 secure_delete = true

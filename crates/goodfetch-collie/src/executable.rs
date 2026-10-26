@@ -90,12 +90,13 @@ mod service;
 mod upgrade;
 mod usage;
 
-/// The Goodfetch home's log folder (ADR 0122).
-const LOG_FOLDER: &str = "logs";
-
 /// The Goodfetch home's folder of crash reports, which stay on the machine
 /// (ADR 0043).
 const CRASH_FOLDER: &str = "crashes";
+
+/// The Goodfetch home's folder in the OS's usual data folder, where
+/// `GOODFETCH_HOME` is unset.
+const HOME_FOLDER: &str = "goodfetch";
 
 /// The deployment variable that roots the Goodfetch home (ADRs 0059, 0083).
 pub const HOME_VARIABLE: &str = "GOODFETCH_HOME";
@@ -769,7 +770,7 @@ fn age_notice(release_date: Option<&str>, home: &Home, identity: &Identity) {
 fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
     let home = match deployment_variable(environment, HOME_VARIABLE) {
         Some(home) => Home::new(home.into()),
-        None => Home::new(dirs::data_dir()?.join("goodfetch")),
+        None => Home::new(dirs::data_dir()?.join(HOME_FOLDER)),
     };
     Some(home.with_browsers_path(
         deployment_variable(environment, BROWSERS_PATH_VARIABLE).map(Into::into),

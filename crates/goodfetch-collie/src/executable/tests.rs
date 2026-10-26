@@ -3,13 +3,19 @@
     reason = "the log writer test shares what the subscriber wrote with the test through a Mutex"
 )]
 
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use goodfetch_cli::output::ColourChoice;
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::home::Home;
 use goodfetch_engine::mask::{Masks, Reach, Redaction};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::log::{LOG_FILE_MAX_FILES, LOG_FILE_MAX_SIZE, LOG_OUTPUT};
+use goodfetch_protocol::versions::VERSION_AGE_NOTICE;
 use rstest::rstest;
 use secrecy::SecretString;
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -289,6 +295,63 @@ impl std::io::Write for Writes {
     }
 }
 
+/// The log formats' redaction with values hard to redact (TESTING.md,
+/// Secrets): a value and a longer one holding it, each logged in the
+/// message and as a field, Display and Debug, through the text and the
+/// JSON format, leave no form a Secret canary search finds.
+///
+/// Covers: story:4-91
+#[rstest]
+#[case::quotes_backslashes_and_percent(r#"a"b\c%d%2"#)]
+#[case::a_newline("first\nsecond")]
+#[case::unicode("pässwört-日本語-🔑")]
+#[case::a_common_word("password")]
+#[case::very_long(&"x\"y\\z%".repeat(40))]
+fn no_form_of_a_hard_value_passes_either_log_format(
+    #[case] value: &str,
+    #[values(false, true)] json: bool,
+) {
+    let outer = format!("<{value}>");
+    let masks = Masks::new();
+    let mask = masks.for_run(Redaction::On);
+    mask.join("inner", &SecretString::from(value), Reach::Value);
+    mask.join("outer", &SecretString::from(outer.as_str()), Reach::Value);
+    let written = Written::default();
+    let writer = written.clone();
+    let layer = tracing_subscriber::fmt::layer()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(Masked::new(masks, move || writer.clone()));
+    let log = || {
+        tracing::info!(inner = value, outer = %outer, "said {value} and {outer:?}");
+    };
+    if json {
+        tracing::subscriber::with_default(tracing_subscriber::registry().with(layer.json()), log);
+    } else {
+        tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), log);
+    }
+
+    let mut canaries = goodfetch_test_support::Canaries::new(0);
+    canaries.add(goodfetch_test_support::Canary::known(
+        "inner",
+        goodfetch_test_support::SecretKind::TypedPassword,
+        value,
+    ));
+    canaries.add(goodfetch_test_support::Canary::known(
+        "outer",
+        goodfetch_test_support::SecretKind::TypedPassword,
+        &outer,
+    ));
+    let written = written.0.lock().unwrap().clone();
+    let leaks = canaries
+        .leaks(&[goodfetch_test_support::Output::Bytes {
+            name: "log",
+            bytes: &written,
+        }])
+        .unwrap();
+    assert_eq!(leaks, Vec::new(), "{}", String::from_utf8_lossy(&written));
+}
+
 /// A log line the Mask rewrites reaches the writer below as one write, the
 /// whole masked line: the log file takes each write as a line of its own,
 /// so a line split into several writes would tear.
@@ -405,4 +468,179 @@ fn masked_lines_logged_at_once_from_many_threads_are_each_one_json_line_in_the_l
         (text.lines().count(), unreadable),
         (THREADS * LINES, Vec::<&str>::new())
     );
+}
+
+/// The Operations guide's page (spec #583), which an operator reads to
+/// find and bound the Daemon's logs.
+const OPERATIONS_GUIDE: &str = include_str!("../../../../docs/operations.md");
+
+/// The rows of the log folder table in the guide's section "Where the logs
+/// are": each row's place and the folders its second cell names in code
+/// spans, a span holding a path separator being a folder.
+fn log_folder_rows(guide: &str) -> Vec<(String, Vec<String>)> {
+    let section = guide
+        .split("\n## ")
+        .find(|section| section.starts_with("Where the logs are"))
+        .expect("the guide has a section \"Where the logs are\"");
+    section
+        .lines()
+        .skip_while(|line| !line.starts_with("| Where"))
+        .skip(2)
+        .take_while(|line| line.starts_with('|'))
+        .map(|line| {
+            let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+            let folders = cells[1]
+                .split('`')
+                .skip(1)
+                .step_by(2)
+                .filter(|span| span.contains(['/', '\\']))
+                .map(str::to_owned)
+                .collect();
+            (cells[0].to_owned(), folders)
+        })
+        .collect()
+}
+
+/// `folder` as a path, its `~` and variables (`$NAME`, `%NAME%`) expanded
+/// by `variables`; `None` when it names one `variables` leaves unset.
+fn expand(folder: &str, variables: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    let mut path = PathBuf::new();
+    for part in folder.split(['/', '\\']) {
+        let value = match part {
+            "~" => dirs::home_dir()?.display().to_string(),
+            variable if variable.starts_with('$') => variables(&variable[1..])?,
+            variable
+                if variable.len() > 1 && variable.starts_with('%') && variable.ends_with('%') =>
+            {
+                variables(variable.trim_matches('%'))?
+            }
+            plain => plain.to_owned(),
+        };
+        path.push(value);
+    }
+    Some(path)
+}
+
+/// The log folder the guide names for each OS is the one the executable's
+/// Goodfetch home lays out: on this OS the very folder it resolves, with
+/// `GOODFETCH_HOME` unset and set, and on every other OS the same folders
+/// below its data folder. The guide names each OS once, and no other place.
+///
+/// Covers: story:13-47
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the guide's folder for this OS depends on the variables the OS's data folder reads, as `main` passes none of them"
+)]
+fn the_operations_guide_names_the_log_folder_the_goodfetch_home_lays_out_on_each_os() {
+    let rows = log_folder_rows(OPERATIONS_GUIDE);
+    let places: Vec<&str> = rows.iter().map(|(place, _)| place.as_str()).collect();
+    assert_eq!(
+        places,
+        ["Linux", "macOS", "Windows", "`GOODFETCH_HOME` is set"]
+    );
+    let below_home = Path::new(super::HOME_FOLDER).join(
+        Home::new("root".into())
+            .logs()
+            .strip_prefix("root")
+            .expect("invariant: the log folder is in the home"),
+    );
+    for (place, folders) in &rows[..3] {
+        assert_ne!(
+            folders.as_slice(),
+            [] as [String; 0],
+            "{place} names no log folder"
+        );
+        for folder in folders {
+            let path = expand(folder, &|_| Some("data".to_owned())).unwrap();
+            assert!(
+                path.ends_with(&below_home),
+                "{place}'s `{folder}` is not the Goodfetch home's log folder"
+            );
+        }
+    }
+
+    let this_os = match std::env::consts::OS {
+        "linux" => "Linux",
+        "macos" => "macOS",
+        "windows" => "Windows",
+        other => panic!("the guide names no log folder for {other}"),
+    };
+    let (_, folders) = rows
+        .iter()
+        .find(|(place, _)| place == this_os)
+        .expect("the guide names this OS");
+    let environment = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+    // A folder naming a variable that is set is the one the OS uses then.
+    let named = folders
+        .iter()
+        .filter(|folder| folder.contains(['$', '%']))
+        .find_map(|folder| expand(folder, &environment));
+    let plain = folders
+        .iter()
+        .filter(|folder| !folder.contains(['$', '%']))
+        .find_map(|folder| expand(folder, &environment));
+    let resolved = super::home(&BTreeMap::new())
+        .expect("the OS has a data folder")
+        .logs();
+    assert_eq!(named.or(plain), Some(resolved));
+
+    let (_, folders) = &rows[3];
+    let root = std::env::temp_dir().join("goodfetch-home");
+    let environment = BTreeMap::from([(
+        OsString::from(super::HOME_VARIABLE),
+        root.clone().into_os_string(),
+    )]);
+    let home = super::home(&environment).expect("GOODFETCH_HOME is set");
+    assert_ne!(folders.as_slice(), [] as [String; 0]);
+    for folder in folders {
+        let named = expand(folder, &|name| {
+            (name == super::HOME_VARIABLE).then(|| root.display().to_string())
+        });
+        assert_eq!(named, Some(home.logs()), "`{folder}`");
+    }
+}
+
+/// Every `log.*` and `version.*` setting the guide names is one of Collie's
+/// settings, spelled as the generated reference spells it, and the guide
+/// names the age notice's setting and the settings that bound the log
+/// files.
+///
+/// Covers: story:13-47
+#[test]
+fn the_operations_guide_names_the_log_and_age_notice_settings_of_the_generated_reference() {
+    let guide = OPERATIONS_GUIDE;
+    let catalog: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../goodfetch-protocol/generated/collie.json"
+    ))
+    .unwrap();
+    let reference: Vec<&str> = catalog["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|setting| setting["name"].as_str().unwrap())
+        .collect();
+    let named: BTreeSet<&str> = guide
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .filter(|span| span.starts_with("log.") || span.starts_with("version."))
+        .collect();
+    for setting in &named {
+        assert!(
+            reference.contains(setting),
+            "the guide names `{setting}`, which is not in Collie's settings reference"
+        );
+    }
+    for setting in [
+        VERSION_AGE_NOTICE.name,
+        LOG_OUTPUT.name,
+        LOG_FILE_MAX_SIZE.name,
+        LOG_FILE_MAX_FILES.name,
+    ] {
+        assert!(
+            named.contains(setting),
+            "the guide does not name `{setting}`"
+        );
+    }
 }

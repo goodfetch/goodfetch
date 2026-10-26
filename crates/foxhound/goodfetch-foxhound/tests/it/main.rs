@@ -22,6 +22,7 @@ mod crawl;
 mod daemon;
 mod datasets;
 mod decoding;
+mod discovered_api;
 mod enqueue_links;
 mod exports;
 mod extra_loopback;

@@ -156,7 +156,7 @@ fn the_sites_retry_after_holds_its_domain_until_the_time_it_names(
 #[rstest]
 #[case::its_own_429(429)]
 #[case::its_own_502(502)]
-fn a_forward_proxys_own_answer_backs_no_domain_off(#[case] status: u16) {
+fn a_forward_proxy_s_own_answer_backs_no_domain_off(#[case] status: u16) {
     let response = document(
         "http://shop.test/1",
         status,

@@ -41,7 +41,7 @@ fn each_answer_of_the_site_asks_its_domain_for_its_class(
 #[case::a_proxy_nothing_answers_on(Met::Failure { error: "net::ERR_PROXY_CONNECTION_FAILED" }, Party::Proxy, Class::Done)]
 #[case::the_sites_429_through_it(Met::Response { status: 429, proxy_status: Some("proxy.test"), forwarded: true }, Party::Site, Class::TooManyRequests)]
 #[case::the_sites_502_over_a_tunnel(Met::Response { status: 502, proxy_status: Some("cdn.test; error=connection_timeout"), forwarded: false }, Party::Site, Class::BackOff)]
-fn a_proxys_own_answer_lowers_its_ceiling_and_backs_no_domain_off(
+fn a_proxy_s_own_answer_lowers_its_ceiling_and_backs_no_domain_off(
     #[case] met: Met<'static>,
     #[case] party: Party,
     #[case] expected: Class,

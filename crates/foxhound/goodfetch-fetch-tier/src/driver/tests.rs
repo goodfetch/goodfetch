@@ -72,7 +72,7 @@ fn proxy_status() -> impl Strategy<Value = (String, bool)> {
 
 proptest! {
     #[test]
-    fn a_response_is_the_proxys_only_when_it_forwarded_it_and_named_its_own_error(
+    fn a_response_is_the_proxy_s_only_when_it_forwarded_it_and_named_its_own_error(
         status in 100_u16..600,
         field in prop::option::of(proxy_status()),
         forwarded in any::<bool>(),
@@ -85,15 +85,15 @@ proptest! {
         if let Some((value, _)) = &field {
             headers.push(("proxy-status".to_owned(), value.clone()));
         }
-        let proxys = forwarded && field.as_ref().is_some_and(|(_, error)| *error);
+        let by_proxy = forwarded && field.as_ref().is_some_and(|(_, error)| *error);
 
         let answered = met(status, &headers, forwarded);
         let (party, class) = (party_of(answered), class(answered));
 
-        prop_assert_eq!(party, if proxys { Party::Proxy } else { Party::Site });
+        prop_assert_eq!(party, if by_proxy { Party::Proxy } else { Party::Site });
         prop_assert_eq!(
             class,
-            match (proxys, status) {
+            match (by_proxy, status) {
                 (true, 429 | 502) => Class::ProxyRefusal,
                 (false, 429) => Class::TooManyRequests,
                 (false, 502..=504) => Class::BackOff,
@@ -103,15 +103,15 @@ proptest! {
     }
 
     #[test]
-    fn a_failure_is_the_proxys_only_when_the_proxy_answered_the_tunnel(
+    fn a_failure_is_the_proxy_s_only_when_the_proxy_answered_the_tunnel(
         index in 0..failures().len(),
     ) {
-        let (failure, proxys) = failures().swap_remove(index);
+        let (failure, by_proxy) = failures().swap_remove(index);
 
         let answered = failure.met();
         let (party, class) = (party_of(answered), class(answered));
 
-        prop_assert_eq!(party, if proxys { Party::Proxy } else { Party::Site });
+        prop_assert_eq!(party, if by_proxy { Party::Proxy } else { Party::Site });
         let backs_off = matches!(
             failure,
             TransportFailure::ConnectionRefused

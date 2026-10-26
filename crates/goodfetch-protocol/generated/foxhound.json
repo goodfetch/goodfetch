@@ -3290,6 +3290,26 @@
           "const": "jsonl",
           "description": "One Record's value per line, each line ended by a line feed.",
           "type": "string"
+        },
+        {
+          "const": "csv",
+          "description": "RFC 4180 CSV: a header row of the fields seen, then one row per\nRecord, each line ended by CR LF.",
+          "type": "string"
+        },
+        {
+          "const": "xlsx",
+          "description": "One XLSX workbook of one sheet: a header row of the fields seen,\nthen one row per Record.",
+          "type": "string"
+        },
+        {
+          "const": "html_table",
+          "description": "One HTML document holding one table: a header row of the fields\nseen, then one row per Record.",
+          "type": "string"
+        },
+        {
+          "const": "markdown",
+          "description": "One GitHub Flavored Markdown table: a header row of the fields seen,\nthen one row per Record.",
+          "type": "string"
         }
       ]
     },
@@ -8179,10 +8199,28 @@
           "arrived_in": "0.1",
           "description": "The format."
         },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
           "description": "The crawl's Run."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Export's settings, nested by key: the run layer (ADR 0083),\nwhose `export.*` keys shape its format.",
+          "type": "object"
         }
       },
       "required": [
@@ -15449,7 +15487,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named (`json`, one array of the Records' values; `jsonl`, one value per line), UTF-8 with no BOM, characters written as themselves and each value as it was committed. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+      "description": "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named (`json`, one array of the Records' values; `jsonl`, one value per line; `csv`, `xlsx`, `html_table` and `markdown`, a table of one column per field seen in any of its Records, in first-seen order, and one row per Record), UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
       "events": [],
       "kind": "round_trip",
       "name": "run.export",
@@ -17152,6 +17190,73 @@
         "maximum": 128,
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Whether a CSV Export starts with a UTF-8 byte order mark, which some spreadsheet programs need to read it as UTF-8 and which Python's `csv` module, Node's csv-parse and Unix tools read as part of the first column's name: off by default. Set for the connection or the Run.",
+      "name": "export.csv.bom",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": ",",
+      "description": "The one character between a CSV Export's fields: `,` by default, or such as `;` or a tab. A double quote, a carriage return, a line feed, or a text of more or less than one character fails the Export with `setting_invalid`. Set for the connection or the Run.",
+      "name": "export.csv.delimiter",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "json",
+      "description": "How a CSV Export writes a field whose value is an object: `json`, the default, its JSON text in the field's column; `flatten`, each of its fields in a column of its own named by its dotted path, such as `author.name`, at any depth. An array, and an empty object, is its JSON text either way. Set for the connection or the Run.",
+      "name": "export.csv.nested",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "json",
+          "flatten"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "The name of an XLSX Export's one sheet: none by default, which names it after the Dataset, each character a sheet name cannot hold (`:`, `\\`, `/`, `?`, `*`, `[` and `]`) written as `_` and cut to 31 characters. A name that is empty, longer than 31 characters, holds one of those characters, or starts or ends with `'` fails the Export with `setting_invalid`. Set for the connection or the Run.",
+      "name": "export.xlsx.sheet",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
       },
       "weakens": false
     },

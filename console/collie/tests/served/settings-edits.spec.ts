@@ -13,6 +13,7 @@ import { promisify } from "node:util";
 import type { SettingsExplanation } from "@goodfetch/collie-client/generated";
 import { expect, test, type ServedDaemon } from "@goodfetch/test-support/playwright";
 import type { Page } from "@playwright/test";
+import { settingRow } from "#tests/effective-settings.ts";
 
 const run = promisify(execFile);
 
@@ -53,10 +54,7 @@ test(
 
     await signIn.withLink(page);
     await page.goto(new URL("/settings", daemon.url).href);
-    const row = page
-      .getByRole("grid", { name: "Effective settings" })
-      .getByRole("row")
-      .filter({ has: page.getByRole("rowheader", { name: "timeout.navigation", exact: true }) });
+    const row = settingRow(page, "timeout.navigation");
     await expect(row.getByRole("gridcell").nth(1)).toHaveText("Built-in default");
     await row.getByRole("button", { name: "Edit user value of timeout.navigation" }).click();
     await row.getByLabel("The user-level value of timeout.navigation, as JSON").fill("45000");

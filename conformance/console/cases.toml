@@ -1,0 +1,134 @@
+# The Console conformance suite's case list (ADRs 0031, 0068 and 0096;
+# TESTING.md, The Console conformance suite): what the Console needs from
+# its target, by capability, with the Features each case covers (ADR 0072).
+# Each case is a test of this folder titled with its ID and annotated with
+# its capability; the Playwright reporter writes one `conformance` document
+# per target. Collie's Daemon serving Collie's build is the target here;
+# the Stub gateway's cases and its routing are Foxhound's (spec #593), and
+# step-up's join with the step-up ticket. Bump the version whenever a case
+# changes.
+
+[suite]
+name = "console"
+version = "1"
+
+[[capability]]
+name = "runs.list"
+
+[[capability.case]]
+id = "the-runs-screen-lists-every-run-of-the-index"
+covers = ["story:12-10"]
+
+[[capability]]
+name = "events.resumption"
+
+[[capability.case]]
+id = "a-resubscription-resumes-after-the-last-position-read"
+covers = ["story:12-123"]
+
+[[capability.case]]
+id = "a-position-the-engine-no-longer-holds-answers-a-snapshot"
+covers = ["story:12-123"]
+
+[[capability]]
+name = "events.lossless"
+
+[[capability.case]]
+id = "every-lossless-event-reaches-the-page-in-position-order"
+covers = ["story:12-14"]
+
+[[capability]]
+name = "needs-you"
+
+[[capability.case]]
+id = "needs-you-lists-an-item-as-it-comes-and-drops-it-once-dismissed"
+covers = ["story:12-23", "story:12-32"]
+
+[[capability]]
+name = "bodies"
+
+[[capability.case]]
+id = "a-large-file-arrives-by-handle-to-a-sign-in-only"
+covers = ["story:12-127"]
+
+[[capability]]
+name = "sign-in"
+
+[[capability.case]]
+id = "the-single-user-link-signs-in-and-no-cookie-is-refused"
+covers = ["story:12-1", "story:12-109"]
+
+[[capability]]
+name = "event-stream-fallback"
+
+[[capability.case]]
+id = "with-websockets-refused-the-console-works-over-server-sent-events-plus-post"
+covers = ["story:12-124", "story:12-110"]
+
+[[capability]]
+name = "reconnection"
+
+[[capability.case]]
+id = "a-dropped-connection-turns-the-page-read-only-until-it-reconnects"
+covers = ["story:12-125"]
+
+[[capability]]
+name = "content-origin"
+
+[[capability.case]]
+id = "a-file-is-shown-only-from-the-content-origin-sandboxed"
+covers = ["story:12-127"]
+
+[[capability]]
+name = "security-headers"
+
+[[capability.case]]
+id = "every-route-carries-the-console-security-headers"
+covers = ["story:12-128", "story:12-129"]
+
+[[capability]]
+name = "catalog"
+
+[[capability.case]]
+id = "the-console-sends-only-catalog-operations-to-its-configured-origin"
+covers = ["story:12-137"]
+
+# The Console's own Client, the protocol code the TypeScript SDK runs, on
+# the target's endpoint with the page's sign-in as configuration: the
+# JSON-RPC protocol suite's cases (#172) and the TypeScript SDK's lifecycle
+# cases of `conformance/clients/` (#364) a browser's Client has, under
+# their IDs there.
+[[capability]]
+name = "client"
+
+[[capability.case]]
+id = "hello-is-answered-with-the-engines-product"
+covers = ["story:12-138"]
+
+[[capability.case]]
+id = "engine-info-names-the-engine-hello-named"
+covers = ["story:12-138"]
+
+[[capability.case]]
+id = "an-unknown-method-is-method-not-found"
+covers = ["story:12-138"]
+
+[[capability.case]]
+id = "params-the-operation-does-not-take-are-invalid-params"
+covers = ["story:12-138"]
+
+[[capability.case]]
+id = "a-call-in-flight-cancelled-ends-with-call-cancelled"
+covers = ["story:12-138"]
+
+[[capability.case]]
+id = "cancelling-an-answered-call-leaves-the-connection-answering"
+covers = ["story:12-138"]
+
+[[capability.case]]
+id = "two-connections-at-once"
+covers = ["story:12-138"]
+
+[[capability.case]]
+id = "connect-after-close"
+covers = ["story:12-138"]

@@ -26,6 +26,12 @@ overrides:
   # ajv; 3.1.8 and before have open advisories (GHSA-w74x-v6f9-j3xg and
   # three more) that 3.1.9 fixes. Remove once ajv's own range resolves it.
   "fast-uri@<3.1.9": 3.1.9
+  # Lighthouse lists Sentry's Node client, an error reporter, which ADR 0043
+  # keeps out of every lockfile (`xtask telemetry`). `-` removes it, so it is
+  # never installed. Lighthouse loads it only in its CLI, after the user agrees
+  # to error reporting, through an `import` it catches; the programmatic API
+  # the Console's recorder calls never does (`core/lib/sentry.js`).
+  "lighthouse>@sentry/node": "-"
 
 # One version of each shared tool for every package. Playwright's entry is
 # shared by Playwright Test and Vitest's browser provider (ADR 0068).

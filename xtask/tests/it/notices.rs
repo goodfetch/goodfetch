@@ -199,6 +199,34 @@ fn mpl_entry_carries_its_source_location(
     assert_eq!(notice["source"], source);
 }
 
+/// A crate from outside a registry, as a fork Goodfetch carries in its
+/// repository, is listed as modified, with its folder as its source; a
+/// crate from its registry is listed as published.
+#[rstest]
+#[case::fork_in_the_repository("patched-crate", "modified", "forks/patched-crate")]
+#[case::crate_from_its_registry(
+    "permissive-crate",
+    "unmodified",
+    "https://crates.io/crates/permissive-crate/1.0.0"
+)]
+fn crate_outside_a_registry_is_listed_as_modified(
+    #[case] name: &str,
+    #[case] usage: &str,
+    #[case] source: &str,
+) {
+    let workspace = installed_workspace();
+
+    let outcome = workspace.xtask(&["notices", "--out", "target/notices.json"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let inventory = inventory(&workspace);
+    let notice = notice(&inventory, "cargo", name);
+    assert_eq!(
+        (notice["use"].as_str(), notice["source"].as_str()),
+        (Some(usage), Some(source))
+    );
+}
+
 /// A compiled Filter list is recorded under CC BY-SA, whether its authors
 /// offer CC BY-SA beside the GPL or, as fanboy.co.nz's copies say, CC BY
 /// (ADRs 0018 and 0047).

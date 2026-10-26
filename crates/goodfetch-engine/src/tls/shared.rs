@@ -18,6 +18,10 @@
 //! A client presenting a client certificate passes a covered host only when
 //! it has no pin and its certificate verifies: the certificate is never
 //! sent to a host reached through an exception.
+//!
+//! A TLS library that verifies outside rustls takes the same decision
+//! through [`SharedTrust::verdict`] and [`SharedTrust::decide_presented`]:
+//! `wreq`, whose custom verification runs during its handshake (spec #565).
 
 #![expect(
     clippy::disallowed_types,
@@ -73,6 +77,20 @@ pub enum Decision {
     /// The host passes only through its exception, and the connection
     /// presents a client certificate, which never goes to such a host.
     Excepted,
+}
+
+/// How a certificate a host presented fares under a [`SharedTrust`]'s
+/// decision, for a TLS library that verifies outside rustls, as `wreq`'s
+/// custom verification does during its handshake.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Verdict {
+    /// The connection goes on.
+    Passes,
+    /// It failed verification, and no exception covers its host.
+    Rejected(CertificateFailure),
+    /// Its host's exception decides first ([`SharedTrust::decide_presented`]):
+    /// the handshake stops, and nothing is sent.
+    Undecided(Presented),
 }
 
 /// The key a covered host presented before the client knew its decision,
@@ -173,8 +191,27 @@ impl SharedTrust {
             return None;
         };
         let Undecided(presented) = other.downcast_ref::<Undecided>()?;
+        Some(
+            self.decide_presented(host, presented.clone(), presents)
+                .await,
+        )
+    }
+
+    /// What the client does once a handshake with `host` stopped before
+    /// its decision, the host having presented `presented` over a
+    /// connection that presents a client certificate when `presents`.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`SharedTrust::decide`].
+    pub async fn decide_presented(
+        &self,
+        host: &str,
+        presented: Presented,
+        presents: bool,
+    ) -> Decision {
         let key = key_of(host);
-        Some(match self.exceptions.admit(host, presented.clone()).await {
+        match self.exceptions.admit(host, presented).await {
             Err(changed) => Decision::Changed(changed),
             Ok(None) => {
                 self.known().insert(key, Known::Unpinned);
@@ -188,7 +225,31 @@ impl SharedTrust {
                     Decision::Again
                 }
             }
-        })
+        }
+    }
+
+    /// The verdict on `presented`, what `host` presented in a handshake
+    /// over a connection that presents a client certificate when
+    /// `presents`, from what the client learnt of the host before the
+    /// connection ([`SharedTrust::before`]): the rustls verifier's
+    /// decision, for a TLS library that verifies outside rustls.
+    pub fn verdict(&self, host: &str, presented: Presented, presents: bool) -> Verdict {
+        if !self.exceptions.covers(host) {
+            return match presented.failure {
+                None => Verdict::Passes,
+                Some(failure) => Verdict::Rejected(failure),
+            };
+        }
+        let passes = match self.known().get(&key_of(host)) {
+            Some(Known::Unpinned) => presented.failure.is_none(),
+            Some(Known::Admitted(used)) => !presents && used.certificate == presented.key,
+            Some(Known::Pinned) | None => false,
+        };
+        if passes {
+            Verdict::Passes
+        } else {
+            Verdict::Undecided(presented)
+        }
     }
 
     /// The exception `host`'s connections pass through: none when no
@@ -251,26 +312,21 @@ impl ServerCertVerifier for Deciding {
             self.inner
                 .failure(end_entity, intermediates, server_name, ocsp_response, now)?;
         let host = server_name.to_str();
-        if !self.shared.exceptions.covers(&host) {
-            return match failure {
-                None => Ok(ServerCertVerified::assertion()),
-                Some(failure) => Err(rustls::Error::InvalidCertificate(CertificateError::Other(
-                    OtherError(Arc::new(Rejected(failure))),
-                ))),
-            };
-        }
-        let parsed = ParsedCertificate::try_from(end_entity)?;
-        let key = KeyHash::of_public_key(parsed.subject_public_key_info().as_ref());
-        let passes = match self.shared.known().get(&key_of(&host)) {
-            Some(Known::Unpinned) => failure.is_none(),
-            Some(Known::Admitted(used)) => !self.presents && used.certificate == key,
-            Some(Known::Pinned) | None => false,
+        let verdict = if self.shared.exceptions.covers(&host) {
+            let parsed = ParsedCertificate::try_from(end_entity)?;
+            let key = KeyHash::of_public_key(parsed.subject_public_key_info().as_ref());
+            self.shared
+                .verdict(&host, Presented { key, failure }, self.presents)
+        } else {
+            failure.map_or(Verdict::Passes, Verdict::Rejected)
         };
-        if passes {
-            return Ok(ServerCertVerified::assertion());
-        }
+        let refusal: Arc<dyn std::error::Error + Send + Sync> = match verdict {
+            Verdict::Passes => return Ok(ServerCertVerified::assertion()),
+            Verdict::Rejected(failure) => Arc::new(Rejected(failure)),
+            Verdict::Undecided(presented) => Arc::new(Undecided(presented)),
+        };
         Err(rustls::Error::InvalidCertificate(CertificateError::Other(
-            OtherError(Arc::new(Undecided(Presented { key, failure }))),
+            OtherError(refusal),
         )))
     }
 

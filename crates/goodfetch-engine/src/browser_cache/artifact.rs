@@ -91,9 +91,11 @@ pub struct PinnedArtifact {
     pub id: ArtifactId,
     /// The platform it is built for, or `None` for every platform.
     pub platform: Option<BuildPlatform>,
-    /// Where it downloads from, an `https` URL with no query.
+    /// Where it downloads from, an `https` URL with no query: a ZIP
+    /// archive when its path ends in `.zip`, else a single executable,
+    /// placed under its path's last segment.
     pub url: String,
-    /// The digest of the ZIP archive the URL serves, or `None` while it is
+    /// The digest of the ZIP archive or executable the URL serves, or `None` while it is
     /// not yet known: the build is then never downloaded, only taken from a
     /// cache that holds it, such as a prepared `GOODFETCH_BROWSERS_PATH`.
     pub archive_digest: Option<Digest>,

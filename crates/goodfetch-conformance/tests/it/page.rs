@@ -126,14 +126,18 @@ fn the_page_suites_parts_take_each_of_its_capabilities_once() {
 /// Runs `part` of the page suite against Collie's Attached engine on a
 /// Proving ground copy of its own, keeps its document, and asserts that
 /// each of its capabilities, and only those, is proved.
-fn prove((name, capabilities): Part) {
-    let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
+fn prove(part: Part) {
+    prove_in(&TestEnv::new(), part, part.0);
+}
+
+/// [`prove`] in `env`, its document kept as `name`'s.
+fn prove_in(env: &TestEnv, (_, capabilities): Part, name: &str) {
+    let copy = LocalCopy::start(env, env.seed());
     let proving_ground = ProvingGround::local(copy.address());
     let mut environment = env.env().clone();
     environment.insert(
         BROWSERS_PATH_VARIABLE.to_owned(),
-        browser_cache(&env).unwrap().display().to_string(),
+        browser_cache(env).unwrap().display().to_string(),
     );
     let target = EngineTarget {
         executable: tools().unwrap().path(Tool::Collie).unwrap().to_path_buf(),
@@ -202,10 +206,35 @@ fn the_page_suite_proves_navigation_against_collies_attached_engine() {
     prove(NAVIGATION);
 }
 
-/// Covers: story:6-1, story:6-8, story:6-12, story:6-9, story:6-10, story:6-14, story:6-2, story:6-3, story:6-4, story:6-5, operation:page.formats, operation:page.wait_for_function, operation:page.evaluate, operation:locator.wait_for, setting:filter_lists.ads
+/// Covers: story:6-1, story:6-8, story:6-12, story:6-9, story:6-10, story:6-14, story:6-2, story:6-3, story:6-4, story:6-5, story:6-6, story:6-7, operation:page.formats, operation:page.wait_for_function, operation:page.evaluate, operation:locator.wait_for, setting:filter_lists.ads
 #[test]
 fn the_page_suite_proves_formats_against_collies_attached_engine() {
     prove(FORMATS);
+}
+
+/// `formats`' output never depends on the host's time zone or locale
+/// (ADR 0073): under `TZ=Pacific/Chatham` and `LANG=tr_TR.UTF-8`, the
+/// engine's own environment, every format of the formats part still equals
+/// what the oracle holds, value for value, as under the host's; its
+/// `GOODFETCH_HOME` and Browser cache sit in the test's folder, whose path
+/// holds a space and a non-ASCII letter. The Release suite runs it with the
+/// Pre-merge suite's tests.
+///
+/// Covers: story:6-1, story:6-2, story:6-3, story:6-4, story:6-5, story:6-6, story:6-7, operation:page.formats
+#[test]
+fn the_page_suite_proves_formats_under_another_time_zone_and_locale() {
+    let elsewhere = TestEnv::new()
+        .with_time_zone("Pacific/Chatham")
+        .unwrap()
+        .with_locale("tr-TR")
+        .unwrap();
+    let folder = elsewhere.folder().display().to_string();
+    assert!(
+        folder.contains(' ') && !folder.is_ascii(),
+        "the test's folder holds a space and a non-ASCII letter: {folder}"
+    );
+
+    prove_in(&elsewhere, FORMATS, "formats-chatham-tr");
 }
 
 /// Covers: story:6-11, story:6-1, story:6-2, story:6-3, setting:content.extractor, operation:page.formats, operation:run.new_page, operation:run.new_session, operation:session.new_page, error:setting_invalid, error:setting_not_applicable

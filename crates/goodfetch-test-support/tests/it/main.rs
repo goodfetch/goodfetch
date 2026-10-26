@@ -13,6 +13,8 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod browser_cache;
 mod canaries;
 mod cli;
 mod cli_json;

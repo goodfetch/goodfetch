@@ -375,7 +375,7 @@ fn plan(cargo: &OsStr, root: &Path) -> Result<Plan> {
         test_support::canary_rule(cargo, root)?,
     );
     files.extend(cdp::generate(root)?);
-    for (name, text) in console::files(root, &collie)? {
+    for (name, text) in console::files(root, &collie, &foxhound_names)? {
         files.insert(format!("{}/{name}", console::FOLDER), text.into_bytes());
     }
 

@@ -474,6 +474,35 @@ fn a_resumed_run_reopens_a_borrowed_session_on_its_browser() {
     );
 }
 
+/// A call on a Borrowed browser whose connection ended answers at once,
+/// however long the Run's `timeout.close`: the engine sees no exit of a
+/// browser it did not launch, so it waits for none to name the loss (fix
+/// queue 104: a Run finished while its engine page opened waited
+/// `timeout.close` for it, twice, past the client's deadline).
+///
+/// Covers: error:page_crashed, operation:session.new_page
+#[test]
+fn a_call_on_a_borrowed_browser_that_went_answers_without_waiting_for_its_exit() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let mut program = Program::start(&env, &cache, "sdk_typescript");
+    // Past the client's deadline for each message (`BROWSER_DEADLINE`), so
+    // a call that waited for an exit would never answer in time.
+    let started = program.call(
+        "run.start",
+        &json!({ "run_id": "went", "settings": { "timeout": { "close": 600_000 } } }),
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    let session = program.borrow("went", &lent.cdp_url)["result"]["session_id"].clone();
+    lent.stop();
+
+    let page = program.call("session.new_page", &json!({ "session_id": session }));
+    program.finish("went");
+
+    assert_eq!(error(&page).0, json!("page_crashed"), "{page}");
+}
+
 /// Writes an Operator policy whose `session.source` is the `cdp_url`
 /// `url`, and that sets `egress.no_private_endpoints` when `no_private`.
 fn operator_policy(env: &TestEnv, url: &str, no_private: bool) {

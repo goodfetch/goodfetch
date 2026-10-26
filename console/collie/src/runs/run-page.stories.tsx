@@ -2,9 +2,16 @@
 // the Run index does not list, the engine's refusal, a live run with Human
 // pauses waiting, a low storage level and the uncapped mark, a run in each
 // Lifecycle and Verdict, an interrupted run with its resume command, the
-// notices of its actions, and the page with no Connection.
-import { RunStateUnavailableError, type RunProgress } from "@goodfetch/collie-client/generated";
+// notices of its actions, the page with no Connection, a live run with its
+// owning engine, and a run that needs Foxhound on Collie's engine, each
+// Foxhound view refused with `not_in_product`.
+import {
+  NotInProductError,
+  RunStateUnavailableError,
+  type RunProgress,
+} from "@goodfetch/collie-client/generated";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { FOXHOUND_VIEWS } from "./foxhound-views.ts";
 import { RunPageView, type RunAxisValues, type ShownRun } from "./run-page.tsx";
 
 const RUN_ID = "01kb7x3y4z5a6b7c8d9e0f1g2h";
@@ -167,3 +174,44 @@ export const Interrupted: Story = {
 
 /** The Console has no Connection: the run shown stays, and stop and checkpoint are disabled. */
 export const ReadOnly: Story = { args: { read: { kind: "shown", run: LIVE }, readOnly: true } };
+
+/** A crawl that needs Foxhound, on Collie's engine: the views every run has, and each Foxhound view refused. */
+export const NeedsFoxhound: Story = {
+  args: {
+    read: {
+      kind: "shown",
+      run: {
+        ...ended({ lifecycle: "finished", verdict: "verified", completeness: "incomplete" }),
+        needs: "foxhound",
+      },
+    },
+    foxhoundViews: Object.fromEntries(
+      FOXHOUND_VIEWS.map(({ operation }) => [
+        operation,
+        {
+          kind: "refused",
+          error: new NotInProductError(
+            `\`${operation}\` is part of Foxhound, and this engine is Collie 0.1.0.`,
+            {
+              fix: "Run it with Foxhound, which contains everything Collie does (`npm install @goodfetch/foxhound`), or connect to a Foxhound engine.",
+              details: { product: "collie", needs: "foxhound", requested: operation },
+            },
+          ),
+        },
+      ]),
+    ),
+  },
+};
+
+/** A live run owned by the Daemon, the Product it needs named. */
+export const LiveOwned: Story = {
+  args: {
+    read: {
+      kind: "shown",
+      run: {
+        ...LIVE,
+        owner: { daemon: { unix: "/home/ada/.local/share/goodfetch/0.1/daemon.sock" } },
+      },
+    },
+  },
+};

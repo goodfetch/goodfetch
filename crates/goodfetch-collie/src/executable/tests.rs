@@ -99,6 +99,38 @@ fn the_help_of_every_command_is_rendered_from_the_command_line() {
     insta::assert_snapshot!("help_tree", tree);
 }
 
+/// The containment check (ADRs 0090 and 0094): Foxhound's executable
+/// carries every command of Collie's unchanged, so each command path of
+/// Collie's renders the same help in Foxhound's, its executable's name
+/// aside; the snapshot is Foxhound's whole help tree.
+#[test]
+fn foxhounds_help_shows_each_command_collies_carries_unchanged() {
+    let (collie, foxhound) = (command(Product::Collie), command(Product::Foxhound));
+
+    let changed: Vec<String> = paths(&collie)
+        .into_iter()
+        .filter(|path| {
+            help(&foxhound, path).replace("goodfetch-foxhound", "goodfetch-collie")
+                != help(&collie, path)
+        })
+        .map(|path| path.join(" "))
+        .collect();
+
+    assert_eq!(changed, Vec::<String>::new());
+    let tree = std::iter::once(Vec::new()).chain(paths(&foxhound)).fold(
+        String::new(),
+        |mut tree, path| {
+            let words: Vec<&str> = std::iter::once("goodfetch-foxhound")
+                .chain(path.iter().map(String::as_str))
+                .chain(std::iter::once("--help"))
+                .collect();
+            let _ = writeln!(tree, "$ {}\n{}", words.join(" "), help(&foxhound, &path));
+            tree
+        },
+    );
+    insta::assert_snapshot!("help_tree_foxhound", tree);
+}
+
 /// `--color` is taken before the command, after a group and after a
 /// command, of the hand-written commands and the generated ones alike; given
 /// twice, the later one wins.

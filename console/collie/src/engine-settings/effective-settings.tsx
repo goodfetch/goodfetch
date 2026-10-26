@@ -7,8 +7,20 @@
 // a run's own value, never a project configuration's or a Recipe
 // manifest's, which are files under version control, and never a run's
 // value fixed for its life, which only a new run changes.
+//
+// The table is a grid (WAI-ARIA's data grid pattern, ADR 0073): it takes one
+// Tab stop however many settings there are, and the arrow keys, Home, End,
+// Page Up and Page Down move between its cells, onto a cell's Edit button
+// where it has one.
 import { Trans, useLingui } from "@lingui/react/macro";
-import { useId, useState, type ReactNode, type SubmitEvent } from "react";
+import {
+  useId,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  type SubmitEvent,
+} from "react";
 import type { ExplainedSetting, Product } from "@goodfetch/collie-client/generated";
 import { LAYERS, RUN_ORIGINS } from "#settings-layers.ts";
 import { Form } from "#form.tsx";
@@ -86,11 +98,14 @@ function ValueEditor({
   setting,
   layer,
   disabled,
+  tabIndex,
   onEdit,
 }: {
   readonly setting: ExplainedSetting;
   readonly layer: SettingEdit["layer"];
   readonly disabled: boolean;
+  /** The button's place in the grid's one Tab stop. */
+  readonly tabIndex: number;
   readonly onEdit: (edit: SettingEdit) => void;
 }): ReactNode {
   const { t } = useLingui();
@@ -103,6 +118,7 @@ function ValueEditor({
       <button
         type="button"
         disabled={disabled}
+        tabIndex={tabIndex}
         onClick={() => {
           setOpen(true);
         }}
@@ -177,10 +193,13 @@ function ValueEditor({
 function Edit({
   setting,
   disabled,
+  tabIndex,
   onEdit,
 }: {
   readonly setting: ExplainedSetting;
   readonly disabled: boolean;
+  /** Its button's place in the grid's one Tab stop, when it has one. */
+  readonly tabIndex: number;
   readonly onEdit: (edit: SettingEdit) => void;
 }): ReactNode {
   const can = editable(setting);
@@ -192,6 +211,7 @@ function Edit({
           setting={setting}
           layer={can.kind === "run" ? "run" : "user_configuration"}
           disabled={disabled}
+          tabIndex={tabIndex}
           onEdit={onEdit}
         />
       );
@@ -248,6 +268,72 @@ function Notes({ setting }: { readonly setting: ExplainedSetting }): ReactNode {
   return notes;
 }
 
+/** A cell of the grid, its row counted from the header's. */
+interface Cell {
+  readonly row: number;
+  readonly column: number;
+}
+
+/** How many rows Page Up and Page Down move. */
+const PAGE_ROWS = 10;
+
+/** The cell `key` moves focus to from `from` in a grid of `rows` by `columns`, or `undefined` for a key the grid leaves alone. */
+function moved(
+  key: string,
+  toCorner: boolean,
+  from: Cell,
+  { rows, columns }: { readonly rows: number; readonly columns: number },
+): Cell | undefined {
+  const at = (row: number, column: number): Cell => ({
+    row: Math.min(Math.max(row, 0), rows - 1),
+    column: Math.min(Math.max(column, 0), columns - 1),
+  });
+  switch (key) {
+    case "ArrowUp":
+      return at(from.row - 1, from.column);
+    case "ArrowDown":
+      return at(from.row + 1, from.column);
+    case "ArrowLeft":
+      return at(from.row, from.column - 1);
+    case "ArrowRight":
+      return at(from.row, from.column + 1);
+    case "PageUp":
+      return at(from.row - PAGE_ROWS, from.column);
+    case "PageDown":
+      return at(from.row + PAGE_ROWS, from.column);
+    case "Home":
+      return toCorner ? at(0, 0) : at(from.row, 0);
+    case "End":
+      return toCorner ? at(rows - 1, columns - 1) : at(from.row, columns - 1);
+    default:
+      return undefined;
+  }
+}
+
+/** The grid's cell that holds `target`, or `undefined` outside a cell or inside an open edit, whose field keeps its keys. */
+function cellOf(target: EventTarget): Cell | undefined {
+  if (!(target instanceof Element) || target.closest("form") !== null) {
+    return undefined;
+  }
+  const cell = target.closest("th,td");
+  const row = cell?.parentElement;
+  return cell instanceof HTMLTableCellElement && row instanceof HTMLTableRowElement
+    ? { row: row.rowIndex, column: cell.cellIndex }
+    : undefined;
+}
+
+/** Focuses `cell` of `table`: its widget when it has one, else the cell itself. */
+function focusCell(table: HTMLTableElement, { row, column }: Cell): void {
+  const element = table.rows[row]?.cells[column];
+  if (element !== undefined) {
+    (element.querySelector<HTMLElement>("button:enabled,input") ?? element).focus();
+  }
+}
+
+/** A cell's ring when it holds the grid's focus. */
+const cellClassName =
+  "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring";
+
 /** Every effective setting, one row each, each with what a person may edit of it. */
 export function EffectiveSettings({
   settings,
@@ -261,69 +347,156 @@ export function EffectiveSettings({
   readonly onEdit?: ((edit: SettingEdit) => void) | undefined;
 }): ReactNode {
   const { i18n, t } = useLingui();
+  const caption = useId();
+  const rows = settings.length + 1;
+  const columns = onEdit === undefined ? 5 : 6;
+  // The cell holding the grid's one Tab stop: the last one focused, kept inside the grid as settings go.
+  const [focused, setFocused] = useState<Cell>({ row: 0, column: 0 });
+  const stop: Cell = {
+    row: Math.min(focused.row, rows - 1),
+    column: Math.min(focused.column, columns - 1),
+  };
+  /** The Tab index of the cell at `row` and `column`, or of its widget: 0 for the grid's stop. */
+  const tabIndexOf = (row: number, column: number): number =>
+    row === stop.row && column === stop.column ? 0 : -1;
+  const follow = (event: FocusEvent<HTMLTableElement>): void => {
+    const cell = cellOf(event.target);
+    if (cell !== undefined && (cell.row !== focused.row || cell.column !== focused.column)) {
+      setFocused(cell);
+    }
+  };
+  const move = (event: KeyboardEvent<HTMLTableElement>): void => {
+    const from = cellOf(event.target);
+    const to =
+      from === undefined
+        ? undefined
+        : moved(event.key, event.ctrlKey || event.metaKey, from, { rows, columns });
+    if (to !== undefined) {
+      event.preventDefault();
+      focusCell(event.currentTarget, to);
+    }
+  };
   return (
-    <ScrollRegion label={t`Effective settings, scrollable`}>
-      <table className="w-full border-collapse text-start text-sm">
-        <caption className="sr-only">
+    <ScrollRegion label={t`Effective settings, scrollable`} focusable={false}>
+      <table
+        role="grid"
+        aria-labelledby={caption}
+        onKeyDown={move}
+        onFocus={follow}
+        className="w-full border-collapse text-start text-sm"
+      >
+        <caption id={caption} className="sr-only">
           <Trans>Effective settings</Trans>
         </caption>
         <thead className="border-b">
           <tr>
-            <th scope="col" className="py-2 pe-4 font-medium">
+            <th
+              scope="col"
+              tabIndex={tabIndexOf(0, 0)}
+              className={`py-2 pe-4 font-medium ${cellClassName}`}
+            >
               <Trans>Setting</Trans>
             </th>
-            <th scope="col" className="py-2 pe-4 font-medium">
+            <th
+              scope="col"
+              tabIndex={tabIndexOf(0, 1)}
+              className={`py-2 pe-4 font-medium ${cellClassName}`}
+            >
               <Trans>Value</Trans>
             </th>
-            <th scope="col" className="py-2 pe-4 font-medium">
+            <th
+              scope="col"
+              tabIndex={tabIndexOf(0, 2)}
+              className={`py-2 pe-4 font-medium ${cellClassName}`}
+            >
               <Trans>Set by</Trans>
             </th>
-            <th scope="col" className="py-2 pe-4 font-medium">
+            <th
+              scope="col"
+              tabIndex={tabIndexOf(0, 3)}
+              className={`py-2 pe-4 font-medium ${cellClassName}`}
+            >
               <Trans>Locked by</Trans>
             </th>
-            <th scope="col" className="py-2 pe-4 font-medium">
+            <th
+              scope="col"
+              tabIndex={tabIndexOf(0, 4)}
+              className={`py-2 pe-4 font-medium ${cellClassName}`}
+            >
               <Trans>Notes</Trans>
             </th>
             {onEdit === undefined ? null : (
-              <th scope="col" className="py-2 font-medium">
+              <th
+                scope="col"
+                tabIndex={tabIndexOf(0, 5)}
+                className={`py-2 font-medium ${cellClassName}`}
+              >
                 <Trans>Edit</Trans>
               </th>
             )}
           </tr>
         </thead>
         <tbody>
-          {settings.map((setting) => (
-            <tr key={setting.key} className="border-b align-top">
-              <th scope="row" className="py-2 pe-4 font-mono font-normal" translate="no">
-                {setting.key}
-              </th>
-              <td className="py-2 pe-4 font-mono break-all" translate="no">
-                {json(setting.value)}
-              </td>
-              <td className="py-2 pe-4">
-                {i18n._(
-                  setting.layer === "run" && setting.origin !== undefined && setting.origin !== null
-                    ? RUN_ORIGINS[setting.origin]
-                    : LAYERS[setting.layer],
-                )}
-              </td>
-              <td className="py-2 pe-4">
-                {setting.locked_by === undefined || setting.locked_by === null ? (
-                  <Trans>Not locked</Trans>
-                ) : (
-                  i18n._(LAYERS[setting.locked_by])
-                )}
-              </td>
-              <td className="py-2 pe-4">
-                <Notes setting={setting} />
-              </td>
-              {onEdit === undefined ? null : (
-                <td className="py-2">
-                  <Edit setting={setting} disabled={readOnly} onEdit={onEdit} />
+          {settings.map((setting, index) => {
+            const row = index + 1;
+            const kind = editable(setting).kind;
+            return (
+              <tr key={setting.key} className="border-b align-top">
+                <th
+                  scope="row"
+                  tabIndex={tabIndexOf(row, 0)}
+                  className={`py-2 pe-4 font-mono font-normal ${cellClassName}`}
+                  translate="no"
+                >
+                  {setting.key}
+                </th>
+                <td
+                  tabIndex={tabIndexOf(row, 1)}
+                  className={`py-2 pe-4 font-mono break-all ${cellClassName}`}
+                  translate="no"
+                >
+                  {json(setting.value)}
                 </td>
-              )}
-            </tr>
-          ))}
+                <td tabIndex={tabIndexOf(row, 2)} className={`py-2 pe-4 ${cellClassName}`}>
+                  {i18n._(
+                    setting.layer === "run" &&
+                      setting.origin !== undefined &&
+                      setting.origin !== null
+                      ? RUN_ORIGINS[setting.origin]
+                      : LAYERS[setting.layer],
+                  )}
+                </td>
+                <td tabIndex={tabIndexOf(row, 3)} className={`py-2 pe-4 ${cellClassName}`}>
+                  {setting.locked_by === undefined || setting.locked_by === null ? (
+                    <Trans>Not locked</Trans>
+                  ) : (
+                    i18n._(LAYERS[setting.locked_by])
+                  )}
+                </td>
+                <td tabIndex={tabIndexOf(row, 4)} className={`py-2 pe-4 ${cellClassName}`}>
+                  <Notes setting={setting} />
+                </td>
+                {onEdit === undefined ? null : (
+                  <td
+                    // A cell with an enabled Edit button gives the grid's stop to the button.
+                    tabIndex={
+                      (kind === "user" || kind === "run") && !readOnly
+                        ? undefined
+                        : tabIndexOf(row, 5)
+                    }
+                    className={`py-2 ${cellClassName}`}
+                  >
+                    <Edit
+                      setting={setting}
+                      disabled={readOnly}
+                      tabIndex={tabIndexOf(row, 5)}
+                      onEdit={onEdit}
+                    />
+                  </td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </ScrollRegion>

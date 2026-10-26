@@ -183,3 +183,68 @@ fn references_and_tables_are_asked_for_with_true_alone(#[case] value: Value) {
 
     assert!(parsed.is_err(), "{parsed:?}");
 }
+
+/// The result of a request for the page's metadata and contacts, each
+/// field given.
+fn metadata_and_contacts() -> Value {
+    json!({
+        "url": "https://a.test/",
+        "base_url": "https://a.test/",
+        "main_content": "found",
+        "metadata": {
+            "title": "A",
+            "description": null,
+            "canonical": "https://a.test/a",
+            "lang": "fr-FR",
+            "open_graph": [{ "property": "og:title", "content": "A" }],
+            "twitter": [{ "property": "twitter:card", "content": "summary" }],
+            "json_ld": [{ "@context": "https://schema.org", "@type": "Thing" }],
+            "microdata": [{
+                "type": ["https://schema.org/Product"],
+                "id": null,
+                "properties": { "name": ["A"], "offers": [{ "type": [], "id": null, "properties": { "price": ["1"] } }] },
+            }],
+            "meta": { "author": "B" },
+        },
+        "contacts": {
+            "emails": [{ "value": "a@a.test", "text": "Write to us" }],
+            "phones": [
+                { "value": "01 23 45 67 89", "text": "01 23 45 67 89", "e164": "+33123456789" },
+                { "value": "0123", "text": "Call", "e164": null },
+            ],
+            "social": [{ "value": "https://github.com/a", "text": "A on GitHub", "network": "github" }],
+        },
+    })
+}
+
+/// Covers: story:6-6, story:6-7
+#[rstest]
+#[case::every_field_given(metadata_and_contacts(), true)]
+#[case::a_title_missing(remove(metadata_and_contacts(), "/metadata", "title"), false)]
+#[case::json_ld_missing(remove(metadata_and_contacts(), "/metadata", "json_ld"), false)]
+#[case::a_microdata_item_without_its_id(
+    remove(metadata_and_contacts(), "/metadata/microdata/0", "id"),
+    false
+)]
+#[case::a_microdata_value_neither_text_nor_item(set(metadata_and_contacts(), "/metadata/microdata/0/properties/name/0", json!(1)), false)]
+#[case::a_phone_without_e164(remove(metadata_and_contacts(), "/contacts/phones/1", "e164"), false)]
+#[case::a_profile_of_an_unknown_network(set(metadata_and_contacts(), "/contacts/social/0/network", json!("myspace")), false)]
+#[case::the_contacts_missing(remove(metadata_and_contacts(), "", "contacts"), false)]
+fn the_schema_of_a_metadata_and_contacts_requests_result_holds_each(
+    #[case] result: Value,
+    #[case] holds: bool,
+) {
+    let schema = page_formats_schema(&request(json!({ "metadata": true, "contacts": true })));
+
+    assert_eq!(valid(&schema, &result), holds);
+}
+
+/// Covers: story:6-6, story:6-7
+#[rstest]
+#[case::metadata_with_options(json!({ "metadata": { "json_ld": true } }))]
+#[case::contacts_false(json!({ "contacts": false }))]
+fn metadata_and_contacts_are_asked_for_with_true_alone(#[case] value: Value) {
+    let parsed = serde_json::from_value::<FormatsRequest>(value);
+
+    assert!(parsed.is_err(), "{parsed:?}");
+}

@@ -147,6 +147,33 @@ test(
 );
 
 test(
+  "each row names the Product its run needs, and a live run's row the engine that owns it",
+  { tags: ["story:12-120", "screen:/runs"] },
+  async () => {
+    const adapter = createProtocolAdapter();
+    adapter.answer("run.list", {
+      runs: [
+        row("crawl-run", {
+          needs: "foxhound",
+          kind: "crawl",
+          owner: { daemon: { tcp: "127.0.0.1:7801" } },
+        }),
+        FINISHED,
+      ],
+    });
+    const client = clientOf(adapter);
+
+    await renderRuns(client, new TestAddress(""));
+
+    expect(await cells("crawl-run")).toEqual(
+      expect.arrayContaining(["Foxhound", "the Daemon at 127.0.0.1:7801"]),
+    );
+    expect(await cells("finished-run")).toEqual(expect.arrayContaining(["Collie", ""]));
+    client.close();
+  },
+);
+
+test(
   "the Runs screen lists every row of the Run index with its three axes, a missing and an erased row as such",
   { tags: ["story:12-10", "story:12-13", "screen:/runs"] },
   async () => {

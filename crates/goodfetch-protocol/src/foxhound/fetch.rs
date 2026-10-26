@@ -78,7 +78,7 @@ fn auto() -> Value {
 /// `fetch.tier` (ADRs 0020 and 0093; spec #579).
 pub const FETCH_TIER: Setting = Setting {
     name: "fetch.tier",
-    description: "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+    description: "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `light_browser` forces the Lightpanda tier where `fetch.light_browser` allows it, and under `auto` a Run that allows it also runs a sample on `light_browser` where its `http` run differed, the Label moving to `light_browser` once every sample matched there or over `http`; `discovered_api` and `browser_fetch` are refused with `capability_unavailable` at the crawl's start until they are built.",
     kind: ValueKind::Choice(FETCH_TIERS),
     default: auto,
     clearable: false,
@@ -91,6 +91,18 @@ pub const FETCH_TIER: Setting = Setting {
 pub const FETCH_TIER_RACE: Setting = Setting {
     name: "fetch.tier_race",
     description: "Whether a crawl request races its tiers: browser-fetch first, then the navigation after the Label-on-domain's median browser-fetch latency, the first result that passes the Page check and the Label's comparison winning, both counting in Politeness and Usage. The loser is cancelled, and Provenance records the race. Set for the Run only: a Label setting it is refused with `setting_not_applicable`, as is a Run switching it on while `politeness.domain.concurrency` is 1, where the navigation could never start. Off by default.",
+    kind: ValueKind::Boolean,
+    default: off,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `fetch.light_browser` (ADRs 0020 and 0093; spec #579).
+pub const FETCH_LIGHT_BROWSER: Setting = Setting {
+    name: "fetch.light_browser",
+    description: "Whether a crawl may fetch on the `light_browser` tier: Lightpanda, run out of process, its build downloaded on first use into the Browser cache with its pinned digest and never bundled, so its AGPL licence stays outside the distribution. It runs the page's scripts without layout, and its page is the document they leave, so a wait for scripted content is served from it while a call that needs layout, pixels, a script of the handler's or a navigation escalates under `auto` and fails with `browser_required` under a forced tier. Set for the Run only. Off by default: `fetch.tier: light_browser` then fails the crawl's start with `capability_unavailable` naming this key, as it does on a platform Lightpanda builds nothing for.",
     kind: ValueKind::Boolean,
     default: off,
     clearable: false,
@@ -389,6 +401,7 @@ pub const ENTRIES: Entries = Entries {
     settings: &[
         FETCH_TIER,
         FETCH_TIER_RACE,
+        FETCH_LIGHT_BROWSER,
         FETCH_SAMPLE_COUNT,
         FETCH_SAMPLE_REFRESH_AFTER,
         FETCH_ENCODING,

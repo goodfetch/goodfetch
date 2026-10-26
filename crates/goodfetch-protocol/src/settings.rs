@@ -454,9 +454,12 @@ pub struct RecipeManifest {
 /// only its own Product's. `GOODFETCH_DAEMON_ADDRESS`,
 /// `GOODFETCH_DAEMON_DRAIN_GRACE` and `GOODFETCH_OPS_ADDRESS` are the
 /// foreground Daemon's own process configuration (ADRs 0049, 0050 and
-/// 0083), which only `daemon run` reads.
+/// 0083), which only `daemon run` reads. `GOODFETCH_CHANNEL` is the channel
+/// an executable came from, which that channel's launcher or image sets
+/// (ADRs 0087 and 0090).
 pub const DEPLOYMENT_VARIABLES: &[&str] = &[
     "GOODFETCH_BROWSERS_PATH",
+    "GOODFETCH_CHANNEL",
     "GOODFETCH_COLLIE_ENGINE_PATH",
     "GOODFETCH_DAEMON_ADDRESS",
     "GOODFETCH_DAEMON_DRAIN_GRACE",

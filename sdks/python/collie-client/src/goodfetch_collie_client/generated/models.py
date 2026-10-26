@@ -662,6 +662,30 @@ class GovernorLevel(StrEnum):
     """Memory passed `governor.critical`, or the host's is critical."""
 
 
+class HtmlKind(StrEnum):
+    """Which of the page's HTML an `html` format holds."""
+
+    raw = "raw"
+    """
+    The document as served, or as the DOM stands on a browser tier,
+    before the Clean-up rules: what `content()` returns there.
+    """
+    cleaned = "cleaned"
+    """The document after the Clean-up rules' cosmetic rules."""
+    main = "main"
+    """The main content the extractor finds, the default."""
+
+
+class HtmlOptions(BaseModel):
+    """The options of the `html` format."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: HtmlKind
+    """Which of the page's HTML it holds."""
+
+
 class HttpBody(RootModel[str]):
     root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
     """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
@@ -894,6 +918,14 @@ class MarkdownContent(StrEnum):
 
     main = "main"
     """The main content the extractor finds, the default."""
+    full = "full"
+    """The whole body, after the Clean-up rules."""
+    fit = "fit"
+    """
+    The main content without its link-dense blocks (more than half
+    their text in links), its image-only blocks and the navigation
+    lists the document repeats: the "fit" of `Crawl4AI`.
+    """
 
 
 class MarkdownOptions(BaseModel):
@@ -1152,10 +1184,14 @@ class PageFormats(BaseModel):
     The URL its relative URLs resolve against: its first `<base href>`,
     else its URL.
     """
+    html: str | None = None
+    """Its HTML of the kind the request named, when it asked for it."""
     main_content: MainContent
     """Whether it has main content."""
     markdown: str | None = None
     """Its content as Markdown, when the request asked for it."""
+    text: str | None = None
+    """Its main content's text, when the request asked for it."""
     url: str
     """The document's URL, after redirects."""
 
@@ -3496,6 +3532,11 @@ class HelloResult(BaseModel):
     """The protocol version the engine speaks."""
 
 
+class HtmlFormat(RootModel[Asked | HtmlOptions]):
+    root: Asked | HtmlOptions
+    """The `html` format of a request: `true`, or its options."""
+
+
 class HumanPause(BaseModel):
     """A Human pause waiting for a person (ADR 0092)."""
 
@@ -4803,8 +4844,12 @@ class FormatsRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    html: HtmlFormat | None = None
+    """The page's HTML: its main content by default."""
     markdown: MarkdownFormat | None = None
     """The page's content as Markdown, with GFM's tables."""
+    text: Asked | None = None
+    """The text of the page's main content, a paragraph per block."""
 
 
 class Limit(BaseModel):

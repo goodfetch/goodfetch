@@ -7,7 +7,16 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
-from goodfetch_collie_client.generated.shared_types import BlockCause as CollieBlockCause, CompletenessReasonCode as CollieCompletenessReasonCode, LimitScope as CollieLimitScope, RunWarningCode as CollieRunWarningCode, UsageKind as CollieUsageKind
+from goodfetch_collie_client.generated.shared_types import AuditKind as CollieAuditKind, BlockCause as CollieBlockCause, CompletenessReasonCode as CollieCompletenessReasonCode, LimitScope as CollieLimitScope, RunWarningCode as CollieRunWarningCode, UsageKind as CollieUsageKind
+
+AuditKind: TypeAlias = CollieAuditKind | Literal["politeness_weakened"]
+"""A `audit_kind`, a type both Products share (ADR 0095).
+
+Collie's values and Foxhound's own below; a value this package does not know is
+kept as received (ADR 0079).
+
+- `politeness_weakened`: A run set a Politeness or Site-preferences value that presses a site harder than its built-in default, or a `site_preferences.robots_txt_user_agent`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0086).
+"""
 
 BlockCause: TypeAlias = CollieBlockCause | Literal["decoy"]
 """A `block_cause`, a type both Products share (ADR 0095).

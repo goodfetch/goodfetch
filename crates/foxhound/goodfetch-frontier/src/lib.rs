@@ -38,6 +38,7 @@ mod url;
 use std::sync::Arc;
 
 use goodfetch_engine::Contribution;
+use goodfetch_protocol::foxhound::settings::{POLITENESS_WEAKENED, PRESSING_HARDER};
 
 pub use admit::{Candidate, admit};
 pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
@@ -69,10 +70,12 @@ pub use ::encoding_rs::Encoding;
 /// What Foxhound's Frontier adds to the engine: `run.seeds`, its per-domain
 /// queues as the gate in admission, with its per-domain Politeness as the
 /// rule of their keys, the tables that keep each seed's answer and each
-/// domain's wait, and the table of the per-user Politeness file the rule
-/// keeps each domain's shared state in.
+/// domain's wait, the table of the per-user Politeness file the rule
+/// keeps each domain's shared state in, and the Politeness and
+/// Site-preferences values that press a site harder, each recorded once
+/// per Run as `politeness_weakened` (ADR 0086).
 pub fn contribution() -> Contribution {
-    Contribution::new("goodfetch-frontier")
+    let contribution = Contribution::new("goodfetch-frontier")
         .with_handler(seeds::handler())
         .with_run_state_tables(queues::TABLES)
         .with_run_state_tables(seeds::TABLES)
@@ -84,5 +87,10 @@ pub fn contribution() -> Contribution {
         .with_run_state_tables(payload::TABLES)
         .with_politeness_tables(politeness::TABLES)
         .with_politeness_tables(robots_txt::TABLES)
-        .with_admission_gates(Arc::new(queues::DomainGates))
+        .with_admission_gates(Arc::new(queues::DomainGates));
+    PRESSING_HARDER
+        .into_iter()
+        .fold(contribution, |contribution, setting| {
+            contribution.with_recorded_weakening(setting, &POLITENESS_WEAKENED)
+        })
 }

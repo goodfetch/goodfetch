@@ -281,8 +281,8 @@ mod tests {
     #[test]
     fn a_column_is_named_by_its_letters() {
         assert_eq!(
-            [0, 25, 26, 51, 52, 701, 702].map(letters),
-            ["A", "Z", "AA", "AZ", "BA", "ZZ", "AAA"]
+            [0, 25, 26, 51, 701, 702, 16_383].map(letters),
+            ["A", "Z", "AA", "AZ", "ZZ", "AAA", "XFD"]
         );
     }
 

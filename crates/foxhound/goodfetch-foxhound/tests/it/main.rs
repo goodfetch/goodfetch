@@ -55,6 +55,7 @@ mod served_calls;
 mod service_manager;
 mod session_pool;
 mod sitemap;
+mod sql_tab;
 mod staging;
 mod tier_race;
 mod tmpfs;

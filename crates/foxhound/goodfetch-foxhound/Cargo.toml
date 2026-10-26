@@ -24,6 +24,7 @@ goodfetch-engine.workspace = true
 goodfetch-fetch-tier.workspace = true
 goodfetch-protocol.workspace = true
 goodfetch-session-pool.workspace = true
+goodfetch-sql-tab.workspace = true
 mimalloc = { workspace = true, optional = true }
 
 [build-dependencies]

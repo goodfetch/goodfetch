@@ -2317,12 +2317,19 @@ dependencies = [
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-test-support",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rcgen",
  "rstest",
+ "rustls",
  "secrecy",
  "serde_json",
  "tokio",
+ "tokio-rustls",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

@@ -52,11 +52,15 @@ use std::collections::BTreeMap;
 use std::future::ready;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use goodfetch_protocol::egress::ConfiguredKind;
 use goodfetch_protocol::page::RequestFailed;
+use goodfetch_protocol::settings::NETWORK_RESOLVE;
+use goodfetch_protocol::tls::TLS_TRUSTED_CAS;
+use http_body_util::Full;
 use http_body_util::{BodyExt as _, Empty};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, StatusCode};
@@ -73,6 +77,7 @@ use crate::response_limits::{
     BodyFailure, Decoding, JsonFailure, LimitExceeded, Limits, parse_json,
 };
 use crate::run_trace::RequestLog;
+use crate::settings::Resolved;
 use crate::tls::{
     self, CertificateChanged, CertificateExceptions, CertificateInvalid, ClientCertificateFailure,
     ClientCertificates, ExceptionUsed, Trust,
@@ -663,6 +668,148 @@ impl ConfiguredEndpoint<'_> {
         send_to(&server, &Via::Direct(&found), request, &[], &network)
             .await
             .map_err(failed)
+    }
+}
+
+/// What the machine's settings let every Operator-configured endpoint
+/// reach and trust: `egress.no_private_endpoints`, `network.resolve`,
+/// `tls.trusted_cas` and the race's delays. Each endpoint's module holds
+/// one and sends through it with its own kind.
+#[derive(Clone, Debug)]
+pub(crate) struct EndpointSettings {
+    policy: EndpointPolicy,
+    resolve: Resolve,
+    authorities: Vec<(String, Vec<PathBuf>)>,
+    clock: Clock,
+    delays: Delays,
+}
+
+/// Why an Operator-configured endpoint gave no whole answer.
+#[derive(Debug)]
+pub(crate) enum WholeFailure {
+    /// The egress policy refused it before any connection.
+    Refused(Refused),
+    /// Its certificate failed verification, so nothing was sent.
+    CertificateInvalid(CertificateInvalid),
+    /// No answer, or a connection that broke.
+    Network,
+    /// The answer was longer than the caller's limit.
+    TooLong,
+}
+
+impl EndpointSettings {
+    /// The settings `settings`, the machine's resolved ones, give.
+    pub(crate) fn of(settings: &Resolved, clock: Clock) -> Self {
+        let resolve = settings
+            .hosts(NETWORK_RESOLVE.name)
+            .into_iter()
+            .fold(Resolve::new(), |mapping, (host, addresses)| {
+                mapping.with(host, addresses)
+            });
+        let authorities = settings
+            .value(TLS_TRUSTED_CAS.name)
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(domain, files)| {
+                let files = files
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|file| file.as_str().map(PathBuf::from))
+                    .collect();
+                (domain.clone(), files)
+            })
+            .collect();
+        Self {
+            policy: EndpointPolicy::of(settings),
+            resolve,
+            authorities,
+            clock,
+            delays: Delays::of(settings),
+        }
+    }
+
+    /// Sends `request`, whose URI is the endpoint's absolute URL, to an
+    /// endpoint of `kind`, and answers its whole answer, at most `limit`
+    /// bytes of body.
+    ///
+    /// # Errors
+    ///
+    /// [`WholeFailure`] when the policy refused the endpoint, its
+    /// certificate failed, or it gave no whole answer of at most `limit`
+    /// bytes.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes the connection it opened.
+    pub(crate) async fn send_whole(
+        &self,
+        kind: ConfiguredKind,
+        request: Request<Bytes>,
+        limit: usize,
+    ) -> Result<hyper::Response<Bytes>, WholeFailure> {
+        let trust = self.trust().await;
+        let endpoint = ConfiguredEndpoint {
+            kind,
+            policy: self.policy,
+            resolve: &self.resolve,
+            trust: &trust,
+            clock: self.clock,
+            delays: self.delays,
+        };
+        let mut answer = endpoint
+            .send(request.map(Full::new))
+            .await
+            .map_err(|failure| match failure {
+                EndpointFailure::Refused(refused) => WholeFailure::Refused(refused),
+                EndpointFailure::Failed(Failure::CertificateInvalid(invalid)) => {
+                    WholeFailure::CertificateInvalid(invalid)
+                }
+                EndpointFailure::Failed(_) => WholeFailure::Network,
+            })?;
+        let mut body = Vec::new();
+        while let Some(bytes) = answer.chunk().await.map_err(|_| WholeFailure::Network)? {
+            if body.len() + bytes.len() > limit {
+                return Err(WholeFailure::TooLong);
+            }
+            body.extend_from_slice(&bytes);
+        }
+        let mut response = hyper::Response::new(Bytes::from(body));
+        *response.status_mut() = answer.status;
+        *response.headers_mut() = answer.headers;
+        Ok(response)
+    }
+
+    /// The trust of the endpoint's certificate: the authorities
+    /// `tls.trusted_cas` lists for each domain, read now; a file that
+    /// cannot be read is logged and trusts nothing.
+    async fn trust(&self) -> Trust {
+        let mut trust = Trust::default_roots();
+        for (domain, files) in &self.authorities {
+            let mut authorities = Vec::new();
+            for file in files {
+                let read = tokio::fs::read(file)
+                    .await
+                    .map_err(|error| error.to_string())
+                    .and_then(|bytes| {
+                        tls::read_certificates(&bytes).map_err(|error| error.to_string())
+                    });
+                match read {
+                    Ok(read) => authorities.extend(read),
+                    Err(error) => tracing::warn!(
+                        %error,
+                        file = %file.display(),
+                        "a certificate authority of `tls.trusted_cas` cannot be read"
+                    ),
+                }
+            }
+            match trust.clone().with_trusted_cas(domain, authorities) {
+                Ok(with) => trust = with,
+                Err(error) => tracing::warn!(%error, "an entry of `tls.trusted_cas` names no host"),
+            }
+        }
+        trust
     }
 }
 

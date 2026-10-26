@@ -1,7 +1,7 @@
 //! The handlers of the app-state waits (ADR 0080): those on the page's
 //! requests, URL and load states, armed in its events when their call
-//! arrives, `page.wait_for_function`, which runs its function until it is
-//! truthy, and the locator waits, through the guard's check, each under its
+//! arrives, `page.wait_for_function` and `locator.wait_for_function`, which
+//! run their function until it is truthy, and the locator waits, through the guard's check, each under its
 //! call's own `timeout`, else the Run's `timeout.wait`, and each a call on
 //! its page, which raises what ended the page under it.
 
@@ -13,17 +13,18 @@ use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::functions::{Evaluated, World};
 use goodfetch_protocol::page::waits::{
-    Count, Counted, LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, LocatorWaitForParams,
-    PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_LOAD_STATE, PAGE_WAIT_FOR_REQUEST,
-    PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL, Reached, WaitForCountParams, WaitForExchangeParams,
-    WaitForFunctionParams, WaitForLoadStateParams, WaitForUrlParams,
+    Count, Counted, LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, LOCATOR_WAIT_FOR_FUNCTION,
+    LocatorWaitForFunctionParams, LocatorWaitForParams, PAGE_WAIT_FOR_FUNCTION,
+    PAGE_WAIT_FOR_LOAD_STATE, PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,
+    Reached, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams,
+    WaitForLoadStateParams, WaitForUrlParams,
 };
 use goodfetch_protocol::page::{Locator, PageId};
 
 use super::{Pages, pattern_of};
 use crate::guard::{self, Awaited, Wait, Waited, Window};
 use crate::page_events::WaitDeadline;
-use crate::page_functions::{self, Injection};
+use crate::page_functions::{self, Injection, Matches};
 use crate::sessions::PageEvent;
 
 /// How long `page.wait_for_function` leaves between two checks when the
@@ -126,15 +127,53 @@ fn with_armed_handlers(contribution: Contribution, pages: &Pages) -> Contributio
 }
 
 /// Adds the handlers of the waits that check the page from when their call
-/// arrives: `page.wait_for_function` and the locator waits.
+/// arrives: the function waits and the locator waits.
 fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
-    let (functioning, waiting, counting) = (pages.clone(), pages.clone(), pages.clone());
+    let (functioning, locating, waiting, counting) =
+        (pages.clone(), pages.clone(), pages.clone(), pages.clone());
     contribution
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_FUNCTION,
             move |params: WaitForFunctionParams, context: CallContext| {
                 let pages = functioning.clone();
-                async move { Box::pin(pages.wait_for_function(params, context.surface())).await }
+                async move {
+                    let expression =
+                        page_functions::expression(&params.function, params.arg.as_ref());
+                    let wait = FunctionWait {
+                        page_id: &params.page_id,
+                        expression: &expression,
+                        world: params.world,
+                        polling_interval: params.polling_interval,
+                        timeout: params.timeout,
+                        by: (Injection::WaitForFunction, PAGE_WAIT_FOR_FUNCTION.name),
+                    };
+                    Box::pin(pages.wait_for_function(wait, context.surface())).await
+                }
+            },
+        ))
+        .with_handler(Handler::new(
+            &LOCATOR_WAIT_FOR_FUNCTION,
+            move |params: LocatorWaitForFunctionParams, context: CallContext| {
+                let pages = locating.clone();
+                async move {
+                    let expression = page_functions::on_locator(
+                        &params.function,
+                        params.arg.as_ref(),
+                        (&params.locator.selector, Matches::One),
+                    );
+                    let wait = FunctionWait {
+                        page_id: &params.locator.page_id,
+                        expression: &expression,
+                        world: params.world,
+                        polling_interval: params.polling_interval,
+                        timeout: params.timeout,
+                        by: (
+                            Injection::LocatorWaitForFunction,
+                            LOCATOR_WAIT_FOR_FUNCTION.name,
+                        ),
+                    };
+                    Box::pin(pages.wait_for_function(wait, context.surface())).await
+                }
             },
         ))
         .with_handler(Handler::new(
@@ -189,6 +228,22 @@ fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribu
         ))
 }
 
+/// A function wait: its page, its page function's call as
+/// `page_functions` built it, its world, its interval and its deadline, as
+/// its call gave them, and the operation it is with its Provenance mark.
+struct FunctionWait<'a> {
+    page_id: &'a PageId,
+    expression: &'a str,
+    world: Option<World>,
+    polling_interval: Option<u64>,
+    #[expect(
+        clippy::option_option,
+        reason = "three states (ADR 0080): absent for `timeout.wait`, `null` for none, a value"
+    )]
+    timeout: Option<Option<u64>>,
+    by: (Injection, &'static str),
+}
+
 /// `count`, or `invalid_params` when its least is above its most.
 fn count_of(count: Count) -> Result<Count, CallError> {
     match (count.min, count.max) {
@@ -223,18 +278,19 @@ impl Pages {
             .await
     }
 
-    /// Runs the page function `params` names on its page, again at its
-    /// interval and in each new document, until its result is truthy, and
-    /// answers that result, unless its deadline passes first; a
-    /// main-world call marks the Session in Provenance. Its errors are
-    /// spelled for `surface`.
-    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_WAIT_FOR_FUNCTION.name, run_id = tracing::field::Empty))]
+    /// Runs the page function of `wait` on its page, again at its interval
+    /// and in each new document, until its result is truthy, and answers
+    /// that result, unless its deadline passes first; a main-world call
+    /// marks the Session in Provenance. Its errors are spelled for
+    /// `surface`.
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %wait.page_id.0, operation = wait.by.1, run_id = tracing::field::Empty))]
     async fn wait_for_function(
         &self,
-        params: WaitForFunctionParams,
+        wait: FunctionWait<'_>,
         surface: Surface,
     ) -> Result<Evaluated, CallError> {
-        let interval = match params.polling_interval {
+        let (injection, operation) = wait.by;
+        let interval = match wait.polling_interval {
             Some(0) => {
                 return Err(CallError::protocol(
                     ProtocolFailure::InvalidParams,
@@ -244,27 +300,18 @@ impl Pages {
             Some(millis) => Duration::from_millis(millis),
             None => FRAME,
         };
-        let page = self.open(&params.page_id).await?;
+        let page = self.open(wait.page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
-        let deadline = self
-            .events
-            .get(&params.page_id)?
-            .wait_deadline(params.timeout)?;
-        let world = params.world.unwrap_or_default();
+        let deadline = self.events.get(wait.page_id)?.wait_deadline(wait.timeout)?;
+        let world = wait.world.unwrap_or_default();
         if world == World::Main {
             page.injections
-                .mark(
-                    &page.run,
-                    &page.session,
-                    &params.page_id,
-                    Injection::WaitForFunction,
-                )
+                .mark(&page.run, &page.session, wait.page_id, injection)
                 .await;
         }
-        let expression = page_functions::expression(&params.function, params.arg.as_ref());
         let truthy = Box::pin(page_functions::until_truthy(
             &page.driver,
-            &expression,
+            (wait.expression, operation),
             world,
             (interval, deadline.clock()),
             surface,

@@ -66,8 +66,8 @@ use goodfetch_protocol::page::events::{
     ResponseBodyParams, WaitForRequestFinishedParams,
 };
 use goodfetch_protocol::page::functions::{
-    AddInitScriptParams, EvaluateParams, Evaluated, InitScriptEnded, PAGE_ADD_INIT_SCRIPT,
-    PAGE_EVALUATE, World,
+    AddInitScriptParams, EvaluateParams, Evaluated, InitScriptEnded, LOCATOR_EVALUATE_ALL,
+    LocatorEvaluateAllParams, PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE, World,
 };
 use goodfetch_protocol::page::request::{MAX_REDIRECTS, PAGE_REQUEST, PageRequestParams};
 use goodfetch_protocol::page::route::UrlMatcher;
@@ -100,7 +100,7 @@ use crate::driver::{Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
-use crate::page_functions::{self, InitScripts, Injection, Pending, Registered};
+use crate::page_functions::{self, InitScripts, Injection, Matches, Pending, Registered};
 use crate::page_value::{
     BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages, Opening, PageValue,
     PooledSession, ProgramPages,
@@ -188,17 +188,49 @@ pub fn contribution_with(
     contribution.guarded(&guard)
 }
 
-/// Adds the handlers of `page.evaluate` and of `page.add_init_script`,
-/// whose script is counted on its way in when its call arrives, so that a
-/// navigation sent after it waits for it.
+/// Adds the handlers of `page.evaluate`, of `locator.evaluate_all` and of
+/// `page.add_init_script`, whose script is counted on its way in when its
+/// call arrives, so that a navigation sent after it waits for it.
 fn with_function_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
-    let (evaluating, registering) = (pages.clone(), pages.clone());
+    let (evaluating, evaluating_all, registering) = (pages.clone(), pages.clone(), pages.clone());
     contribution
         .with_handler(Handler::new(
             &PAGE_EVALUATE,
             move |params: EvaluateParams, context: CallContext| {
                 let pages = evaluating.clone();
-                async move { pages.evaluate(params, context.surface()).await }
+                async move {
+                    let expression =
+                        page_functions::expression(&params.function, params.arg.as_ref());
+                    pages
+                        .evaluate(
+                            &params.page_id,
+                            (&expression, params.world),
+                            (Injection::Evaluate, PAGE_EVALUATE.name),
+                            context.surface(),
+                        )
+                        .await
+                }
+            },
+        ))
+        .with_handler(Handler::new(
+            &LOCATOR_EVALUATE_ALL,
+            move |params: LocatorEvaluateAllParams, context: CallContext| {
+                let pages = evaluating_all.clone();
+                async move {
+                    let expression = page_functions::on_locator(
+                        &params.function,
+                        params.arg.as_ref(),
+                        (&params.locator.selector, Matches::All),
+                    );
+                    pages
+                        .evaluate(
+                            &params.locator.page_id,
+                            (&expression, params.world),
+                            (Injection::EvaluateAll, LOCATOR_EVALUATE_ALL.name),
+                            context.surface(),
+                        )
+                        .await
+                }
             },
         ))
         .with_handler(Handler::new(
@@ -1182,34 +1214,32 @@ impl Pages {
         Ok(fetched.response)
     }
 
-    /// Runs the page function `params` names on its page, in the world it
-    /// names, and answers its JSON; a main-world call marks the Session in
-    /// Provenance. Its errors are spelled for `surface`.
-    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_EVALUATE.name, run_id = tracing::field::Empty))]
+    /// Runs `expression`, a page function's call as `page_functions` built
+    /// it, on the page `page_id`, in `world`, the main world when absent,
+    /// for the operation `operation`, and answers its JSON; a main-world
+    /// call marks the Session in Provenance as `injection`. Its errors are
+    /// spelled for `surface`.
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %page_id.0, operation = operation, run_id = tracing::field::Empty))]
     async fn evaluate(
         &self,
-        params: EvaluateParams,
+        page_id: &PageId,
+        (expression, world): (&str, Option<World>),
+        (injection, operation): (Injection, &'static str),
         surface: Surface,
     ) -> Result<Evaluated, CallError> {
-        let page = self.open(&params.page_id).await?;
+        let page = self.open(page_id).await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
-        let world = params.world.unwrap_or_default();
+        let world = world.unwrap_or_default();
         if world == World::Main {
             page.injections
-                .mark(
-                    &page.run,
-                    &page.session,
-                    &params.page_id,
-                    Injection::Evaluate,
-                )
+                .mark(&page.run, &page.session, page_id, injection)
                 .await;
         }
-        let expression = page_functions::expression(&params.function, params.arg.as_ref());
         let returns = page
             .life
             .call(
                 PageEvent::Read,
-                page.driver.evaluate(&expression, world, PAGE_EVALUATE.name),
+                page.driver.evaluate(expression, world, operation),
             )
             .await?;
         page_functions::answered(returns, surface)

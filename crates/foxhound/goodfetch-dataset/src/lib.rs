@@ -20,6 +20,7 @@
 mod declaration;
 mod encoding;
 mod export;
+mod page;
 mod reader;
 mod records;
 mod rejected_records;
@@ -87,6 +88,7 @@ pub fn contribution() -> Contribution {
         Contribution::new("goodfetch-dataset")
             .with_run_state_tables(TABLES)
             .with_handler(reader::handler())
+            .with_handler(page::handler())
             .with_handler(rejected_records::handler()),
         Contribution::with_handler,
     )

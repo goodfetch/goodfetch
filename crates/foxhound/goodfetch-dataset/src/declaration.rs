@@ -127,7 +127,7 @@ impl Datasets {
     }
 
     /// The declarations, in the order declared.
-    pub(crate) fn declarations(&self) -> &[DatasetDeclaration] {
+    pub fn declarations(&self) -> &[DatasetDeclaration] {
         &self.0
     }
 

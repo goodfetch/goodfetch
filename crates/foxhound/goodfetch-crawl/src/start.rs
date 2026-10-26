@@ -99,6 +99,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_handler(add_seeds)
         .with_handler(read_outcomes)
         .with_handler(read_failed_requests)
+        .with_handler(crate::dataset_list::handler())
         .with_run_state_tables(work_items::TABLES)
         .with_run_state_tables(labels::TABLES)
         .with_run_state_tables(code_free::TABLES)

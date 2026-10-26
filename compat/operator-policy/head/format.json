@@ -2084,7 +2084,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "The Proxy provider each Session of the Run, or the Session it is set on, draws its one proxy from when it opens, fixed for the Session's life: `list`, the user's own servers in `proxy.providers.list.servers`. None by default. A Session that resolves both `proxy.server` and `proxy.provider` is refused with `setting_invalid`. Set as `proxy.server` is: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`."
+                "description": "The Proxy provider each Session of the Run, or the Session it is set on, draws its one proxy from when it opens, fixed for the Session's life: `bright_data`, `oxylabs` or `apify`, whose adapters build the provider's sticky-session username from the account in `proxy.providers.<name>` and ask for the provider's longest sticky lifetime, or `list`, the user's own servers in `proxy.providers.list.servers`. None by default. A Session that resolves both `proxy.server` and `proxy.provider` is refused with `setting_invalid`. Set as `proxy.server` is: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`."
               },
               "providers": {
                 "additionalProperties": {
@@ -2141,7 +2141,7 @@
                   },
                   "type": "object"
                 },
-                "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
+                "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`); `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
                 "type": "object"
               },
               "server": {
@@ -4426,7 +4426,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "The Proxy provider each Session of the Run, or the Session it is set on, draws its one proxy from when it opens, fixed for the Session's life: `list`, the user's own servers in `proxy.providers.list.servers`. None by default. A Session that resolves both `proxy.server` and `proxy.provider` is refused with `setting_invalid`. Set as `proxy.server` is: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`."
+                "description": "The Proxy provider each Session of the Run, or the Session it is set on, draws its one proxy from when it opens, fixed for the Session's life: `bright_data`, `oxylabs` or `apify`, whose adapters build the provider's sticky-session username from the account in `proxy.providers.<name>` and ask for the provider's longest sticky lifetime, or `list`, the user's own servers in `proxy.providers.list.servers`. None by default. A Session that resolves both `proxy.server` and `proxy.provider` is refused with `setting_invalid`. Set as `proxy.server` is: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`."
               },
               "providers": {
                 "additionalProperties": {
@@ -4483,7 +4483,7 @@
                   },
                   "type": "object"
                 },
-                "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
+                "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`); `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
                 "type": "object"
               },
               "server": {

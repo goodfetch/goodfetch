@@ -204,7 +204,8 @@
         "console/*.spec.ts",
         "console/**/*.stories.tsx",
         "console/tests/**",
-        "console/*/tests/**"
+        "console/*/tests/**",
+        "console/*/perf/**"
       ],
       "jsPlugins": ["eslint-plugin-lingui"],
       "rules": {

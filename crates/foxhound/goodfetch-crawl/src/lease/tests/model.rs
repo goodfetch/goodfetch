@@ -445,13 +445,11 @@ impl StateMachineTest for Subject {
                             data: record(attempt, number),
                         })
                         .collect();
-                    let state = subject.state().clone();
-                    let committed = subject.runtime.block_on(lease.commit(
-                        &state,
-                        &Masks::new(),
-                        records,
-                        ended_at(),
-                    ));
+                    let (state, masks) = (subject.state().clone(), Masks::new());
+                    let committed =
+                        subject
+                            .runtime
+                            .block_on(lease.commit(&state, &masks, records, ended_at()));
                     let counted = match committed {
                         Ok(_) => true,
                         Err(CommitError::LeaseLost) => false,

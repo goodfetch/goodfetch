@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<title>books</title>
+<id>urn:goodfetch:dataset:books</id>
+<author><name>books</name></author>
+<entry><id>https://shop.test/1</id><title>Café</title><link href="https://shop.test/1"/><published>2026-01-02T08:00:00Z</published><updated>2026-01-02T08:00:00Z</updated></entry>
+<entry><id>urn:goodfetch:dataset:books:2</id><title></title><updated>2026-01-05T09:00:00Z</updated></entry>
+<entry><id>urn:goodfetch:dataset:books:3</id><title>Ünïcode</title><updated>2026-01-05T09:00:00Z</updated><category scheme="urn:goodfetch:wall" term="paywall"/></entry>
+<updated>2026-01-05T09:00:00Z</updated>
+</feed>

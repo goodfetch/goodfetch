@@ -22,9 +22,11 @@ use goodfetch_engine::settings::{Opening, Resolved};
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::export::{
-    EXPORT_CSV_BOM, EXPORT_CSV_DELIMITER, EXPORT_CSV_NESTED, EXPORT_SAVE_AS, EXPORT_STREAM,
-    EXPORT_XLSX_SHEET, Export, ExportFormat, ExportId, ExportSaveAsParams, ExportSaved,
-    ExportStreamParams, ExportStreamed, RUN_EXPORT, RunExportParams,
+    EXPORT_CSV_BOM, EXPORT_CSV_DELIMITER, EXPORT_CSV_NESTED, EXPORT_FEED_LINK,
+    EXPORT_FEED_PUBLISHED, EXPORT_FEED_SUMMARY, EXPORT_FEED_TITLE, EXPORT_JSON_INDENT,
+    EXPORT_PARQUET_COMPRESSION, EXPORT_SAVE_AS, EXPORT_STREAM, EXPORT_XLSX_SHEET,
+    EXPORT_XML_RECORD, EXPORT_XML_ROOT, Export, ExportFormat, ExportId, ExportSaveAsParams,
+    ExportSaved, ExportStreamParams, ExportStreamed, RUN_EXPORT, RunExportParams,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::RunId;
@@ -34,8 +36,11 @@ use goodfetch_protocol::settings::{
 use tokio::sync::mpsc;
 
 use crate::declaration::Datasets;
-use crate::encoding::{Columns, ExportEncoder, ExportOptions, Nested, csv_delimiter, sheet_name};
-use crate::records::{self, Query};
+use crate::encoding::{
+    Columns, Compressor, ExportEncoder, ExportOptions, Exported, Nested, ParquetCodec,
+    csv_delimiter, feed_field, json_indent, sheet_name, xml_name,
+};
+use crate::records::{self, CommittedText, Query};
 
 /// The most Records one read of the run file takes.
 const PAGE: usize = 256;
@@ -126,13 +131,13 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
     if params.format.is_table() {
         let mut last = 0;
         loop {
-            let page = page(&mut reader, &params.dataset, last, through)
+            let page = page(&mut reader, &params.dataset, last, through, params.wall)
                 .await
                 .map_err(failed)?;
             let full = page.len() == PAGE;
-            for (number, value) in page {
-                columns.see(&value);
-                last = number;
+            for record in page {
+                columns.see(&exported(&record).marked());
+                last = record.number;
             }
             if !full {
                 break;
@@ -140,9 +145,21 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
         }
     }
     let encoder = ExportEncoder::new(params.format, &options, columns);
+    let compression = params.compression.unwrap_or_default();
+    let reading = Reading {
+        dataset: &params.dataset,
+        through,
+        wall: params.wall,
+    };
     let (kept, written) = tokio::join!(
         context.runs().keep_export(params.run_id.clone(), source),
-        encode(&mut reader, &params.dataset, through, encoder, send),
+        encode(
+            &mut reader,
+            reading,
+            encoder,
+            Compressor::new(compression),
+            send
+        ),
     );
     let (records, last_number) = written.map_err(failed)?;
     let kept = match kept {
@@ -159,7 +176,7 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
     Ok(Export {
         export_id: ExportId::of(&params.run_id, &kept.sha256),
         format: params.format,
-        compression: params.compression.unwrap_or_default(),
+        compression,
         records,
         last_number,
         size: kept.size,
@@ -167,53 +184,73 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
     })
 }
 
-/// Reads `dataset`'s Records through the number `through`, in number
-/// order, a page at a time, and sends their encoded bytes to `send`, then
-/// the end; answers how many it encoded and the last one's number. It
+/// Which Records an Export reads: its Dataset's, through a number, with
+/// or without a Wall marker.
+#[derive(Clone, Copy)]
+struct Reading<'a> {
+    dataset: &'a str,
+    through: u64,
+    wall: Option<bool>,
+}
+
+/// A committed Record as the encoder takes it.
+fn exported(record: &CommittedText) -> Exported<'_> {
+    Exported {
+        number: record.number,
+        value: &record.value,
+        wall: record.wall.as_deref(),
+        committed_at: &record.committed_at,
+    }
+}
+
+/// Reads the Records `reading` takes, in number order, a page at a time,
+/// and sends their encoded bytes, compressed by `compressor`, to `send`,
+/// then the end; answers how many it encoded and the last one's number. It
 /// stops, sending no end, once the file's writer stops taking them.
 async fn encode(
     reader: &mut RunReader,
-    dataset: &str,
-    through: u64,
+    reading: Reading<'_>,
     mut encoder: ExportEncoder,
+    mut compressor: Compressor,
     send: mpsc::Sender<Part>,
 ) -> Result<(u64, u64), RunError> {
     let mut bytes = Vec::new();
     encoder.begin(&mut bytes);
     let mut last = 0;
     loop {
-        let page = page(reader, dataset, last, through).await?;
+        let page = page(reader, reading.dataset, last, reading.through, reading.wall).await?;
         let full = page.len() == PAGE;
-        for (number, value) in page {
-            encoder.value(&value, &mut bytes);
-            last = number;
+        for record in &page {
+            encoder.value(&exported(record), &mut bytes);
+            last = record.number;
         }
         if !full {
             break;
         }
-        if send
-            .send(Part::Bytes(std::mem::take(&mut bytes)))
-            .await
-            .is_err()
-        {
+        let compressed = compressor.write(std::mem::take(&mut bytes));
+        if send.send(Part::Bytes(compressed)).await.is_err() {
             return Ok((encoder.values(), last));
         }
     }
     encoder.end(&mut bytes);
-    if send.send(Part::Bytes(bytes)).await.is_ok() {
+    let mut compressed = compressor.write(bytes);
+    compressed.append(&mut compressor.finish());
+    if send.send(Part::Bytes(compressed)).await.is_ok() {
         let _ = send.send(Part::End).await;
     }
     Ok((encoder.values(), last))
 }
 
 /// The next page of `dataset`'s Records after the number `after`, through
-/// the number `through`, as committed.
+/// the number `through`, with or without a Wall marker as `wall` says, as
+/// committed.
 async fn page(
     reader: &mut RunReader,
     dataset: &str,
     after: u64,
     through: u64,
-) -> Result<Vec<(u64, String)>, RunError> {
+    wall: Option<bool>,
+) -> Result<Vec<CommittedText>, RunError> {
     let dataset = dataset.to_owned();
     reader
         .read(move |connection| {
@@ -223,6 +260,7 @@ async fn page(
                     dataset: &dataset,
                     after,
                     through: Some(through),
+                    wall,
                 },
                 PAGE,
             )
@@ -250,7 +288,7 @@ async fn options(
         .await
         .map_err(|error| settings_error(&error, context.identity()))?;
     let resolved = settings.resolved();
-    let mut options = ExportOptions::of(&params.dataset);
+    let mut options = ExportOptions::of_run(params.run_id.as_str(), &params.dataset);
     match params.format {
         ExportFormat::Csv => {
             options.csv_bom = resolved.boolean(EXPORT_CSV_BOM.name).unwrap_or(false);
@@ -267,10 +305,43 @@ async fn options(
                 options.xlsx_sheet = checked(resolved, &EXPORT_XLSX_SHEET, sheet_name(text))?;
             }
         }
-        ExportFormat::Json
-        | ExportFormat::Jsonl
+        ExportFormat::Json => {
+            if let Some(count) = resolved.value(EXPORT_JSON_INDENT.name).as_u64() {
+                options.json_indent = checked(resolved, &EXPORT_JSON_INDENT, json_indent(count))?;
+            }
+        }
+        ExportFormat::Xml => {
+            if let Some(text) = resolved.value(EXPORT_XML_ROOT.name).as_str() {
+                options.xml_root = checked(resolved, &EXPORT_XML_ROOT, xml_name(text))?;
+            }
+            if let Some(text) = resolved.value(EXPORT_XML_RECORD.name).as_str() {
+                options.xml_record = checked(resolved, &EXPORT_XML_RECORD, xml_name(text))?;
+            }
+        }
+        ExportFormat::Parquet => {
+            options.parquet_codec = match resolved.value(EXPORT_PARQUET_COMPRESSION.name).as_str() {
+                Some("snappy") => ParquetCodec::Snappy,
+                Some("none") => ParquetCodec::None,
+                _ => ParquetCodec::Zstd,
+            };
+        }
+        ExportFormat::Rss | ExportFormat::Atom => {
+            for (setting, field) in [
+                (&EXPORT_FEED_TITLE, &mut options.feed.title),
+                (&EXPORT_FEED_LINK, &mut options.feed.link),
+                (&EXPORT_FEED_PUBLISHED, &mut options.feed.published),
+                (&EXPORT_FEED_SUMMARY, &mut options.feed.summary),
+            ] {
+                if let Some(text) = resolved.value(setting.name).as_str() {
+                    *field = checked(resolved, setting, feed_field(text))?;
+                }
+            }
+        }
+        ExportFormat::Jsonl
         | ExportFormat::HtmlTable
-        | ExportFormat::Markdown => {}
+        | ExportFormat::Markdown
+        | ExportFormat::Avro
+        | ExportFormat::ArrowIpc => {}
     }
     Ok(options)
 }

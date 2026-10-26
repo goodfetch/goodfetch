@@ -57,6 +57,7 @@ async fn read_records(
                         dataset: &dataset,
                         after,
                         through: None,
+                        wall: params.wall,
                     },
                     PAGE,
                 )

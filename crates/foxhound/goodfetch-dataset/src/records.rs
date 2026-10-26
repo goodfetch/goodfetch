@@ -144,9 +144,9 @@ fn masked(masks: &Masks, mut value: Value) -> String {
     value.to_string()
 }
 
-/// Which committed Records a read takes: one Dataset's, after a number.
-/// A filter on what Records carry, such as the Wall marker (ADR 0052),
-/// joins here, so every reader of a Dataset filters alike.
+/// Which committed Records a read takes: one Dataset's, after a number,
+/// and with or without a Wall marker (ADR 0052). Every reader of a Dataset
+/// filters here, alike.
 #[derive(Clone, Copy, Debug)]
 pub struct Query<'a> {
     /// The Dataset's name.
@@ -156,6 +156,24 @@ pub struct Query<'a> {
     /// The number of the last Record to read, such as the last one
     /// committed when an Export began; none reads to the last committed.
     pub through: Option<u64>,
+    /// `true` takes only the Records whose Provenance marks a Wall read
+    /// past, `false` only the others; none takes every Record.
+    pub wall: Option<bool>,
+}
+
+/// One committed Record as an Export reads it: its number, its value's
+/// JSON text as committed, its Wall marker's JSON text, and when it was
+/// committed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommittedText {
+    /// Its number in its Dataset.
+    pub number: u64,
+    /// Its value's JSON text, as committed.
+    pub value: String,
+    /// The JSON text of the Wall marker its Provenance holds, if any.
+    pub wall: Option<String>,
+    /// When it was committed, RFC 3339.
+    pub committed_at: String,
 }
 
 /// The number of `dataset`'s last committed Record, 0 when it has none.
@@ -171,9 +189,9 @@ pub fn last_number(connection: &Connection, dataset: &str) -> rusqlite::Result<u
     )
 }
 
-/// The numbers and values of the committed Records `query` takes, at most
-/// `most`, in number order, each value its JSON text as committed: what an
-/// Export writes, byte for byte.
+/// The committed Records `query` takes, at most `most`, in number order,
+/// each value its JSON text as committed: what an Export writes, byte for
+/// byte.
 ///
 /// # Errors
 ///
@@ -182,13 +200,21 @@ pub fn read_values(
     connection: &Connection,
     query: Query<'_>,
     most: usize,
-) -> rusqlite::Result<Vec<(u64, String)>> {
-    selected(connection, "number, data", query, most, |row| {
-        Ok((
-            u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default(),
-            row.get(1)?,
-        ))
-    })
+) -> rusqlite::Result<Vec<CommittedText>> {
+    selected(
+        connection,
+        "number, data, json_extract(provenance, '$.wall'), committed_at",
+        query,
+        most,
+        |row| {
+            Ok(CommittedText {
+                number: u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default(),
+                value: row.get(1)?,
+                wall: row.get(2)?,
+                committed_at: row.get(3)?,
+            })
+        },
+    )
 }
 
 /// The rows of `columns` of the committed Records `query` takes, each read
@@ -204,7 +230,9 @@ fn selected<T>(
     connection
         .prepare(&format!(
             "SELECT {columns} FROM records
-             WHERE dataset = ?1 AND number > ?2 AND number <= ?3 ORDER BY number LIMIT ?4"
+             WHERE dataset = ?1 AND number > ?2 AND number <= ?3
+               AND (?5 IS NULL OR (json_extract(provenance, '$.wall') IS NOT NULL) = ?5)
+             ORDER BY number LIMIT ?4"
         ))?
         .query_map(
             (
@@ -212,6 +240,7 @@ fn selected<T>(
                 number(query.after),
                 query.through.map_or(i64::MAX, number),
                 i64::try_from(most).unwrap_or(i64::MAX),
+                query.wall,
             ),
             row,
         )?

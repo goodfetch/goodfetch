@@ -106,6 +106,16 @@ pulldown-cmark = { version = "0.13.4", default-features = false }
 # The CSV reader the CSV Exports are read back with in tests (spec #582,
 # pitfall D07).
 csv = { version = "1.4.0", default-features = false }
+# The Arrow IPC and Parquet Exports' columns, batches and writers (spec #582,
+# ADR 0026). Parquet without its default features: they turn on flate2's
+# zlib-rs backend, which changes the Proving ground's compressed bodies in a
+# shared build; its codecs here are zstd and Snappy only.
+arrow-array = { version = "60.0.0", default-features = false }
+arrow-ipc = { version = "60.0.0", default-features = false }
+arrow-schema = { version = "60.0.0", default-features = false }
+parquet = { version = "60.0.0", default-features = false, features = ["arrow", "snap", "zstd"] }
+# The Avro reader the Avro Exports are read back with in tests (spec #582).
+apache-avro = { version = "0.22.0", default-features = false }
 # The embedded Clean-up rules, serialized and compressed at build time and
 # decompressed once when loaded (ADR 0057).
 zstd = { version = "0.14.0", default-features = false }

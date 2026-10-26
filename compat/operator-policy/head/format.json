@@ -1408,6 +1408,50 @@
             },
             "type": "object"
           },
+          "export": {
+            "additionalProperties": false,
+            "properties": {
+              "csv": {
+                "additionalProperties": false,
+                "properties": {
+                  "bom": {
+                    "description": "Whether a CSV Export starts with a UTF-8 byte order mark, which some spreadsheet programs need to read it as UTF-8 and which Python's `csv` module, Node's csv-parse and Unix tools read as part of the first column's name: off by default. Set for the connection or the Run.",
+                    "type": "boolean"
+                  },
+                  "delimiter": {
+                    "description": "The one character between a CSV Export's fields: `,` by default, or such as `;` or a tab. A double quote, a carriage return, a line feed, or a text of more or less than one character fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
+                  },
+                  "nested": {
+                    "description": "How a CSV Export writes a field whose value is an object: `json`, the default, its JSON text in the field's column; `flatten`, each of its fields in a column of its own named by its dotted path, such as `author.name`, at any depth. An array, and an empty object, is its JSON text either way. Set for the connection or the Run.",
+                    "enum": [
+                      "json",
+                      "flatten"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
+              "xlsx": {
+                "additionalProperties": false,
+                "properties": {
+                  "sheet": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The name of an XLSX Export's one sheet: none by default, which names it after the Dataset, each character a sheet name cannot hold (`:`, `\\`, `/`, `?`, `*`, `[` and `]`) written as `_` and cut to 31 characters. A name that is empty, longer than 31 characters, holds one of those characters, or starts or ends with `'` fails the Export with `setting_invalid`. Set for the connection or the Run."
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
           "fetch": {
             "additionalProperties": false,
             "properties": {
@@ -3856,6 +3900,50 @@
                     "maximum": 128,
                     "minimum": 0,
                     "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "export": {
+            "additionalProperties": false,
+            "properties": {
+              "csv": {
+                "additionalProperties": false,
+                "properties": {
+                  "bom": {
+                    "description": "Whether a CSV Export starts with a UTF-8 byte order mark, which some spreadsheet programs need to read it as UTF-8 and which Python's `csv` module, Node's csv-parse and Unix tools read as part of the first column's name: off by default. Set for the connection or the Run.",
+                    "type": "boolean"
+                  },
+                  "delimiter": {
+                    "description": "The one character between a CSV Export's fields: `,` by default, or such as `;` or a tab. A double quote, a carriage return, a line feed, or a text of more or less than one character fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
+                  },
+                  "nested": {
+                    "description": "How a CSV Export writes a field whose value is an object: `json`, the default, its JSON text in the field's column; `flatten`, each of its fields in a column of its own named by its dotted path, such as `author.name`, at any depth. An array, and an empty object, is its JSON text either way. Set for the connection or the Run.",
+                    "enum": [
+                      "json",
+                      "flatten"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
+              "xlsx": {
+                "additionalProperties": false,
+                "properties": {
+                  "sheet": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The name of an XLSX Export's one sheet: none by default, which names it after the Dataset, each character a sheet name cannot hold (`:`, `\\`, `/`, `?`, `*`, `[` and `]`) written as `_` and cut to 31 characters. A name that is empty, longer than 31 characters, holds one of those characters, or starts or ends with `'` fails the Export with `setting_invalid`. Set for the connection or the Run."
                   }
                 },
                 "type": "object"

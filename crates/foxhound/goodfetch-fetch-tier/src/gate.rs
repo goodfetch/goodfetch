@@ -80,6 +80,7 @@ use url::Url;
 
 use crate::chain::{Gating, HopGate, Skip, Stop};
 use crate::content_types::ContentTypes;
+use crate::discovered_api::Capture;
 use crate::driver::{Hop, judged};
 use crate::transports::AddressCheck;
 use crate::use_signals::{Purpose, UseSignals};
@@ -152,6 +153,10 @@ pub struct HandOver {
     /// document be, its Label's else the Run's (ADR 0119); none of the
     /// handler's own navigations is judged by them.
     pub content_types: ContentTypes,
+    /// What a sample's browser run captures of the JSON calls its page
+    /// makes, for the `discovered_api` tier's plan (ADR 0020); none on
+    /// any other run.
+    pub capture: Option<Capture>,
 }
 
 impl HandOver {

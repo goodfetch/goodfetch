@@ -85,7 +85,11 @@ test("Runs, a live run beside ended ones", async () => {
   const adapter = engine();
   adapter.answer("run.list", {
     runs: [
-      row("nightly", { tags: ["team:shop"], progress_message: "Read 12 of 40 pages" }),
+      row("nightly", {
+        tags: ["team:shop"],
+        progress_message: "Read 12 of 40 pages",
+        owner: { daemon: { tcp: "127.0.0.1:7801" } },
+      }),
       row("prices", {
         lifecycle: "finished",
         verdict: "verified",

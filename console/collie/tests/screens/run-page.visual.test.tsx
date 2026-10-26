@@ -84,6 +84,8 @@ test.each([
           started_at: "2026-10-24T08:00:00Z",
           presence: "present",
           replayed: false,
+          // A live run's index row names the engine that owns it (ADR 0031).
+          owner: live ? { daemon: { tcp: "127.0.0.1:7801" } } : null,
           ...axes,
         },
       ],

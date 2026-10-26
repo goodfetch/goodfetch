@@ -46,6 +46,7 @@ function row(run_id: string, overrides: Partial<RunIndexRow> = {}): RunIndexRow 
     lifecycle: "running",
     started_at: "2026-10-01T08:00:00Z",
     presence: "present",
+    replayed: false,
     ...overrides,
   };
 }
@@ -126,6 +127,24 @@ async function renderRuns(client: ConsoleClient, address: Address): Promise<void
     </ConsoleI18n>,
   );
 }
+
+test(
+  "the row of a run that replayed a Response recording carries the replayed mark, and a live run's row none",
+  { tags: ["story:12-15", "screen:/runs"] },
+  async () => {
+    const adapter = createProtocolAdapter();
+    adapter.answer("run.list", {
+      runs: [row("replayed-run", { lifecycle: "finished", replayed: true }), FINISHED],
+    });
+    const client = clientOf(adapter);
+
+    await renderRuns(client, new TestAddress(""));
+
+    expect((await headerOf("replayed-run")).textContent).toContain("Replayed");
+    expect((await headerOf("finished-run")).textContent).not.toContain("Replayed");
+    client.close();
+  },
+);
 
 test(
   "the Runs screen lists every row of the Run index with its three axes, a missing and an erased row as such",

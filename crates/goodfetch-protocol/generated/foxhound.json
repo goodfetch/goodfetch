@@ -4483,6 +4483,62 @@
       ],
       "type": "object"
     },
+    "ModelAllowance": {
+      "description": "One kind of a Run's Model allowance (ADR 0107): the most model Usage\nof that kind the Run may spend, past which its model calls are refused\nwhile it goes on.",
+      "properties": {
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency of a `price` allowance, an ISO 4217 code.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "Its kind: `price`, `tokens` or `calls`; a kind this reader does not\nknow is kept as it is.",
+          "type": "string"
+        },
+        "reached_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When a model call was first refused under it; none until then."
+        },
+        "remains": {
+          "arrived_in": "0.1",
+          "description": "What remains of it, spent and reserved taken off.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source": {
+          "$ref": "#/$defs/SettingLimit",
+          "arrived_in": "0.1",
+          "description": "The setting that set it, its value and its layer."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "What it allows: a count, or millionths of the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "value",
+        "remains",
+        "source"
+      ],
+      "type": "object"
+    },
     "ModelUsage": {
       "description": "A Run's model calls (ADR 0101).",
       "properties": {
@@ -7261,6 +7317,10 @@
             "null"
           ]
         },
+        "replayed": {
+          "description": "Whether it replayed a Response recording (ADR 0105), which marks\nits row so that no one reads it as a live run.",
+          "type": "boolean"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "description": "The Run's ID."
@@ -7304,7 +7364,8 @@
         "tags",
         "lifecycle",
         "started_at",
-        "presence"
+        "presence",
+        "replayed"
       ],
       "type": "object"
     },
@@ -8422,6 +8483,14 @@
           "arrived_in": "0.1",
           "description": "Its model calls."
         },
+        "model_allowance": {
+          "arrived_in": "0.1",
+          "description": "Its Model allowance, one entry per kind set (ADR 0107): not a Limit,\nso apart from `limits`; empty when none is set.",
+          "items": {
+            "$ref": "#/$defs/ModelAllowance"
+          },
+          "type": "array"
+        },
         "other": {
           "arrived_in": "0.1",
           "description": "What it used of a Usage kind this engine does not name, kept as the\nledger holds it.",
@@ -9227,6 +9296,31 @@
       },
       "required": [
         "log_level"
+      ],
+      "type": "object"
+    },
+    "SettingLimit": {
+      "description": "A setting that decided an outcome: its key, its value and the layer that\nset it (ADRs 0028 and 0079).",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The setting's key.",
+          "type": "string"
+        },
+        "layer": {
+          "$ref": "#/$defs/SettingsLayer",
+          "arrived_in": "0.1",
+          "description": "The layer that set it."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its value."
+        }
+      },
+      "required": [
+        "key",
+        "value",
+        "layer"
       ],
       "type": "object"
     },

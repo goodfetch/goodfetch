@@ -7,7 +7,8 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import type { ReactNode } from "react";
 import { formatDuration } from "#format.ts";
-import { describeError, type ErrorLimit } from "./errors.ts";
+import type { EndingError } from "@goodfetch/collie-client/generated";
+import { describeEnding, describeError, type ErrorDescription, type ErrorLimit } from "./errors.ts";
 
 /** A JSON value as text. */
 function json(value: unknown): string {
@@ -64,7 +65,17 @@ function Field({
 /** How the Console shows `error`: the catalog's message with its fields, or the engine's English message. */
 export function ErrorMessage({ error }: { readonly error: unknown }): ReactNode {
   const { i18n } = useLingui();
-  const described = describeError(error, i18n);
+  return <Described described={describeError(error, i18n)} />;
+}
+
+/** How the Console shows the error a Run report's ending raised, as `ErrorMessage` shows a failed call's. */
+export function EndingErrorMessage({ ending }: { readonly ending: EndingError }): ReactNode {
+  const { i18n } = useLingui();
+  return <Described described={describeEnding(ending, i18n)} />;
+}
+
+/** A failure as `described` gives it. */
+function Described({ described }: { readonly described: ErrorDescription }): ReactNode {
   if (described.kind === "engine") {
     return <p translate="no">{described.message}</p>;
   }

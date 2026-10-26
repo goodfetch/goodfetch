@@ -4153,6 +4153,7 @@ impl Registry {
                 .as_ref()
                 .map(|message| message.as_str().to_owned()),
             stop_reason: report.and_then(|report| report.stop_reason.clone()),
+            replayed: report.is_some_and(RunReport::replayed),
         }
     }
 
@@ -5245,6 +5246,7 @@ impl Recording {
             ended_at: Some(report.ended_at.clone()),
             owner: None,
             stop_reason: report.stop_reason.clone(),
+            replayed: report.replayed(),
             ..self.row
         };
         if let Err(error) = run_index::write(&self.index, &self.version, &ended) {

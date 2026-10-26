@@ -27,20 +27,25 @@ async function seeded(folder: string, head: string, runId: string): Promise<void
   const database = new DatabaseSync(join(runFolder, "run.sqlite"));
   try {
     database.exec(await readFile(new URL(`${head}.sql`, CORPUS), "utf8"));
-    const stopped = JSON.stringify({ kind: "resources", resource: "storage", folder });
+    // The Run index takes a run's stop from its Run report, which says it too.
+    const stop = { kind: "resources", resource: "storage", folder };
     const row = database.prepare("SELECT report FROM run").get();
     const kept = row?.["report"];
     let report: string | null = null;
     if (typeof kept === "string") {
       const parsed: Record<string, unknown> = JSON.parse(kept);
       parsed["run_id"] = runId;
+      parsed["lifecycle"] = "stopped";
+      parsed["stop_reason"] = stop;
+      parsed["verdict"] = "verified";
+      parsed["completeness"] = "incomplete";
       report = JSON.stringify(parsed);
     }
     database
       .prepare(
         "UPDATE run SET run_id = ?, lifecycle = 'stopped', stop_reason = ?, verdict = 'verified', completeness = 'incomplete', report = ?",
       )
-      .run(runId, stopped, report);
+      .run(runId, JSON.stringify(stop), report);
   } finally {
     database.close();
   }
@@ -56,6 +61,9 @@ async function runsFolder(daemon: ServedDaemon): Promise<string> {
   }
   throw new Error("the test's home holds no per-major folder with the Daemon's socket");
 }
+
+/** How long a run index change may take to reach "Needs you": its sources read again at each storage sample, a second apart, under load later. */
+const SAMPLED = 30_000;
 
 test.use({ product: "foxhound" });
 
@@ -97,8 +105,8 @@ test(
       .getByRole("link", { name: /Needs you/ })
       .click();
     const items = page.getByRole("list", { name: "Needs you" }).getByRole("listitem");
-    await expect(items.filter({ hasText: COLLIE_RUN })).toHaveCount(1);
-    await expect(items.filter({ hasText: CRAWL_RUN })).toHaveCount(1);
+    await expect(items.filter({ hasText: COLLIE_RUN })).toHaveCount(1, { timeout: SAMPLED });
+    await expect(items.filter({ hasText: CRAWL_RUN })).toHaveCount(1, { timeout: SAMPLED });
 
     await page.goto(new URL(`/runs/${COLLIE_RUN}`, daemon.url).href);
     await expect(page.getByRole("region", { name: "How it stands" })).toContainText("stopped");

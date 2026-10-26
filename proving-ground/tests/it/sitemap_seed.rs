@@ -1,7 +1,8 @@
 //! The `sitemap-seed` family: a site whose robots.txt cross-submits a
 //! sitemap on a partner host and disallows `/private/`, whose index lists
 //! two sitemaps, one relative, whose sitemaps list its pages, a partner's
-//! page and a page no rule would match, and whose pages answer on each of
+//! page and a page no rule would match, one listing a page robots.txt
+//! disallows, and whose pages answer on each of
 //! its hosts, all on the port the request named; and an index of a plain
 //! and a gzip sitemap beside the files no crawl should read: one past
 //! sitemaps.org's 50 MB, a decompression bomb, broken XML, a 500, a 404
@@ -38,6 +39,7 @@ fn the_robots_txt_cross_submits_the_partners_sitemap_and_the_sitemaps_list_the_p
         locs(&get("sitemap-seed.test", "/sitemaps/books.xml").body),
         locs(&get("sitemap-seed.test", "/sitemaps/more.xml").body),
         locs(&get("sitemap-partner.test", "/cross.xml").body),
+        locs(&get("sitemap-seed.test", "/sitemaps/private.xml").body),
     ];
 
     assert_eq!(
@@ -70,6 +72,10 @@ fn the_robots_txt_cross_submits_the_partners_sitemap_and_the_sitemaps_list_the_p
                 on("sitemap-seed.test", "/books/4"),
                 on("sitemap-partner.test", "/books/5"),
             ],
+            vec![
+                on("sitemap-seed.test", "/books/20"),
+                on("sitemap-seed.test", "/private/books/21"),
+            ],
         ]
     );
 }
@@ -85,11 +91,12 @@ fn each_page_answers_on_every_host_and_any_other_path_is_not_found() {
         status("sitemap-partner.test", "/books/5"),
         status("sitemap-seed.test", "/authors/2"),
         status("sitemap-seed.test", "/about"),
+        status("sitemap-seed.test", "/private/books/21"),
         status("sitemap-seed.test", "/books/01"),
         status("sitemap-partner.test", "/robots.txt"),
     ];
 
-    assert_eq!(statuses, [200, 200, 200, 200, 404, 404]);
+    assert_eq!(statuses, [200, 200, 200, 200, 200, 404, 404]);
 }
 
 fn gunzip(body: &[u8]) -> Vec<u8> {

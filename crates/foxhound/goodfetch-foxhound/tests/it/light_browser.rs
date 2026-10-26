@@ -206,6 +206,10 @@ fn a_label_whose_sample_matches_chromes_runs_on_lightpanda_and_one_that_differs_
 ///
 /// Covers: story:5-120, story:5-115, error:browser_required, operation:page.evaluate, operation:locator.click
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one test drives two crawls, under `auto` and forced, whose answers it compares together"
+)]
 fn a_call_the_light_browser_cannot_serve_escalates_under_auto_and_fails_when_forced() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();

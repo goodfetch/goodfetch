@@ -102,6 +102,8 @@ pub fn pins() -> Vec<PinnedArtifact> {
                 url: format!("{RELEASES}/{build}/{}", text("asset")),
                 archive_digest: Some(digest("archive_digest")),
                 digest: digest("digest"),
+                // Lightpanda is no Chromium the relay presents.
+                application_settings: std::collections::BTreeMap::new(),
             }
         })
         .collect()

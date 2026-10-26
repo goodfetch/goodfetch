@@ -545,6 +545,7 @@ fn a_pinned_single_executable_is_placed_under_its_name_and_runs() {
             platform: Some(BuildPlatform::LinuxX64),
             url: stand_in.url("/lightpanda-x86_64-linux"),
             archive_digest: Some(Digest::of(&bytes)),
+            application_settings: BTreeMap::new(),
             digest,
         };
 

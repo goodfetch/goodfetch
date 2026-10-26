@@ -5,6 +5,14 @@
 //! (`ci/lightpanda-fetch.sh`), so no test reaches GitHub.
 //!
 //! Covers: story:5-120
+#![expect(
+    clippy::disallowed_types,
+    reason = "the stand-in, outside the engine, counts its requests under a test-thread lock (ADR 0062)"
+)]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};

@@ -694,7 +694,10 @@ impl On<'_> {
         browser: &StagedRun<'_>,
     ) -> Option<ReplayPlan> {
         let document = goodfetch_frontier::Url::parse(&self.leased.crawl_request.url).ok()?;
-        let plan = infer_plan(&document, &capture.calls())?;
+        let calls = capture.calls();
+        let plan = infer_plan(&document, &calls);
+        tracing::debug!(run_id = %self.run.id(), work_item = %self.leased.crawl_request.id, calls = calls.len(), ?plan, "a sample's browser calls were read as a plan");
+        let plan = plan?;
         let browsers = self.lease.set_aside()?;
         self.lease.renew(self.lease.length());
         let ran = self

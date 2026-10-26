@@ -172,3 +172,94 @@ fn a_single_call_is_replayed_once() {
 fn calls_that_follow_no_plan_give_none(#[case] calls: Vec<Call>) {
     assert_eq!(infer(&url("http://t.test/list"), &calls), None);
 }
+
+/// Calls captured in another order than they were made, as their answers'
+/// bodies are read one beside another, are put back in order: by page
+/// number, or by the chain of cursors.
+#[test]
+fn calls_captured_out_of_order_are_put_back_in_order() {
+    let numbered = [
+        call(
+            "http://t.test/api/scroll/7?page=2",
+            json!({ "items": ["b"] }),
+        ),
+        call(
+            "http://t.test/api/scroll/7?page=1",
+            json!({ "items": ["a"] }),
+        ),
+        call(
+            "http://t.test/api/scroll/7?page=3",
+            json!({ "items": ["c"] }),
+        ),
+    ];
+    let cursored = [
+        call(
+            "http://t.test/api/cursor/7?after=k2",
+            json!({ "page": { "next": null } }),
+        ),
+        call(
+            "http://t.test/api/cursor/7?after=k1",
+            json!({ "page": { "next": "k2" } }),
+        ),
+        call(
+            "http://t.test/api/cursor/7",
+            json!({ "page": { "next": "k1" } }),
+        ),
+    ];
+
+    let pages = infer(&url("http://t.test/scroll/7"), &numbered).unwrap();
+    let cursors = infer(&url("http://t.test/cursor/7"), &cursored).unwrap();
+
+    assert_eq!(
+        replayed(&pages, "http://t.test/scroll/7", &|at| {
+            Some(json!({ "items": if at.ends_with("page=1") { vec![1] } else { vec![] } }))
+        }),
+        [
+            "http://t.test/api/scroll/7?page=1",
+            "http://t.test/api/scroll/7?page=2",
+        ]
+    );
+    assert_eq!(
+        replayed(&cursors, "http://t.test/cursor/7", &|_| None),
+        ["http://t.test/api/cursor/7"]
+    );
+}
+
+/// A call captured without its answer, which the browser no longer held,
+/// still tells its page number by its URL, and the same call made again
+/// brings the answer a cursor plan reads.
+#[test]
+fn a_call_captured_without_its_answer_still_counts() {
+    let numbered = [
+        call(
+            "http://t.test/api/scroll/7?page=1",
+            json!({ "items": ["a"] }),
+        ),
+        call("http://t.test/api/scroll/7?page=2", Value::Null),
+        call(
+            "http://t.test/api/scroll/7?page=3",
+            json!({ "items": ["c"] }),
+        ),
+    ];
+    let cursored = [
+        call("http://t.test/api/cursor/7", Value::Null),
+        call("http://t.test/api/cursor/7?after=k1", Value::Null),
+        call("http://t.test/api/cursor/7", json!({ "next": "k1" })),
+    ];
+
+    assert!(infer(&url("http://t.test/scroll/7"), &numbered).is_some());
+    let plan = infer(&url("http://t.test/cursor/7"), &cursored).unwrap();
+    let asked = replayed(&plan, "http://t.test/cursor/7", &|at| {
+        Some(match at {
+            "http://t.test/api/cursor/7" => json!({ "next": "k9" }),
+            _ => json!({ "next": null }),
+        })
+    });
+    assert_eq!(
+        asked,
+        [
+            "http://t.test/api/cursor/7",
+            "http://t.test/api/cursor/7?after=k9",
+        ]
+    );
+}

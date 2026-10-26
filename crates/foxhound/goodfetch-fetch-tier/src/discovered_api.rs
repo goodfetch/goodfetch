@@ -83,14 +83,19 @@ impl ResponseObserver for Capture {
         let json = response.headers.iter().any(|(name, value)| {
             name.eq_ignore_ascii_case("content-type") && value.to_ascii_lowercase().contains("json")
         });
-        if !(200..300).contains(&response.status) || !json || response.body_length > body.len() {
+        if !(200..300).contains(&response.status) || !json {
             return;
         }
-        let (Ok(url), Ok(json)) = (
-            Url::parse(response.url),
-            serde_json::from_slice::<Value>(body),
-        ) else {
+        let Ok(url) = Url::parse(response.url) else {
             return;
+        };
+        // A body the browser no longer held, or one past the cap, is
+        // captured without its answer: its URL still tells a page number,
+        // and the same call made again may bring its answer.
+        let json = if response.body_length > body.len() {
+            Value::Null
+        } else {
+            serde_json::from_slice::<Value>(body).unwrap_or(Value::Null)
         };
         self.calls
             .lock()
@@ -163,6 +168,15 @@ pub fn infer(document: &Url, calls: &[Call]) -> Option<Plan> {
     let mut groups: Vec<(String, Vec<&Call>)> = Vec::new();
     for call in calls {
         if !seen.insert(call.url.as_str().to_owned()) {
+            // The same call made again brings the answer the first lacked.
+            if !call.json.is_null()
+                && let Some(kept) = groups
+                    .iter_mut()
+                    .flat_map(|(_, group)| group.iter_mut())
+                    .find(|kept| kept.url == call.url && kept.json.is_null())
+            {
+                *kept = call;
+            }
             continue;
         }
         let key = endpoint(&call.url);
@@ -216,20 +230,72 @@ fn parts(url: &Url) -> (Vec<String>, Vec<(String, String)>) {
     )
 }
 
+/// The plan of one endpoint's `calls`, in whatever order they were
+/// captured: a page's calls are captured as their answers are read, which
+/// need not be the order they were made in.
 fn series(calls: &[&Call]) -> Option<Series> {
-    let first = calls.first()?.url.to_string();
-    if calls.len() == 1 {
-        return Some(Series::Once { first });
+    if let [only] = calls {
+        return Some(Series::Once {
+            first: only.url.to_string(),
+        });
     }
-    page_number(calls)
-        .map(|at| Series::PageNumber {
-            first: first.clone(),
+    if let Some(ordered) = by_page_number(calls)
+        && let Some(at) = page_number(&ordered)
+    {
+        return Some(Series::PageNumber {
+            first: ordered.first()?.url.to_string(),
             at,
+        });
+    }
+    let ordered = by_cursor(calls)?;
+    let (param, path) = cursor(&ordered)?;
+    Some(Series::Cursor {
+        first: ordered.first()?.url.to_string(),
+        param,
+        path,
+    })
+}
+
+/// `calls` in the order of the one number in which the first differs
+/// from each other; `None` when they differ in more than one place.
+fn by_page_number<'a>(calls: &[&'a Call]) -> Option<Vec<&'a Call>> {
+    let first = parts(&calls.first()?.url);
+    let place = differing(&first, &parts(&calls.get(1)?.url))?;
+    let mut keyed = calls
+        .iter()
+        .map(|call| {
+            let (segments, pairs) = parts(&call.url);
+            let at = match &place {
+                Place::Query { name } => query(&pairs, name)?,
+                Place::Segment { index } => segments.get(*index)?,
+            };
+            Some((number(at)?, *call))
         })
-        .or_else(|| {
-            let (param, path) = cursor(calls)?;
-            Some(Series::Cursor { first, param, path })
-        })
+        .collect::<Option<Vec<_>>>()?;
+    keyed.sort_by_key(|(number, _)| *number);
+    Some(keyed.into_iter().map(|(_, call)| call).collect())
+}
+
+/// `calls` in the order their cursors chain them: first the one no other
+/// call's answer leads to, then each the one before's answer leads to;
+/// `None` when they form no such chain.
+fn by_cursor<'a>(calls: &[&'a Call]) -> Option<Vec<&'a Call>> {
+    let leads = |from: &Call, to: &Call| cursor(&[from, to]).is_some();
+    let start = calls
+        .iter()
+        .find(|call| !calls.iter().any(|other| leads(other, call)))?;
+    let mut ordered = vec![*start];
+    let mut left: Vec<&Call> = calls
+        .iter()
+        .filter(|call| !std::ptr::eq(**call, *start))
+        .copied()
+        .collect();
+    while !left.is_empty() {
+        let last = *ordered.last()?;
+        let next = left.iter().position(|call| leads(last, call))?;
+        ordered.push(left.remove(next));
+    }
+    Some(ordered)
 }
 
 /// Where the page number of `calls` sits, when one number alone counts up

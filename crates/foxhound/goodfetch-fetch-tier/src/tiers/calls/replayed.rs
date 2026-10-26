@@ -1,4 +1,5 @@
-//! `page.wait_for_response` on a `discovered_api` page (ADRs 0020 and
+//! `page.wait_for_response` and `page.wait_for_request_finished` on a
+//! `discovered_api` page (ADRs 0020 and
 //! 0093): answered from the calls the tier replays for the page's
 //! document, the plan its Label learned from a sample's browser (the
 //! `discovered_api` module).
@@ -12,7 +13,7 @@
 //! replayed call answers, because the plan ended, a call failed or
 //! answered no JSON, or no navigation came before its deadline, is a
 //! call the tier cannot serve exactly: it escalates under `auto` (#770's
-//! first build; `wait_for_request`, `wait_for_request_finished`, the
+//! first build; `wait_for_request`, the
 //! page's events and kept responses join with #1659).
 
 use std::time::Duration;
@@ -23,7 +24,6 @@ use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::events::{PageExchange, PageRequest};
 use goodfetch_protocol::page::request::PageRequestParams;
 use goodfetch_protocol::page::route::UrlMatcher;
-use goodfetch_protocol::page::waits::WaitForExchangeParams;
 use goodfetch_protocol::settings::TIMEOUT_WAIT;
 use serde_json::Value;
 use tokio::sync::oneshot;
@@ -32,16 +32,21 @@ use url::Url;
 use super::super::{FetchTiers, ServedPage, Waiter, lock};
 use super::{answered, encoded, ready, sent};
 
-/// Arms `page.wait_for_response` with `params` on the served page
+/// Arms `page.wait_for_response` or `page.wait_for_request_finished`,
+/// for the URLs `url` matches under `timeout`, on the served page
 /// `page_id`, `page`, which replays the calls of its Label's plan.
+#[expect(
+    clippy::option_option,
+    reason = "the param's three states as the protocol carries them (ADR 0080): absent, `null` or a duration"
+)]
 pub(super) fn arm(
     tiers: &FetchTiers,
     page_id: &PageId,
     page: &ServedPage,
     operation: &'static str,
-    params: &WaitForExchangeParams,
+    (url, timeout): (Option<&UrlMatcher>, Option<Option<u64>>),
 ) -> GuardAnswer {
-    let pattern = match &params.url {
+    let pattern = match url {
         None => UrlPattern::glob(""),
         Some(UrlMatcher::Glob { pattern }) => UrlPattern::glob(pattern),
         Some(UrlMatcher::Regex { pattern }) => UrlPattern::regex(pattern),
@@ -62,7 +67,7 @@ pub(super) fn arm(
             .retain(|waiter| !waiter.answer.is_closed());
         replaying.waiters.push(Waiter { pattern, answer });
     }
-    let deadline = match params.timeout {
+    let deadline = match timeout {
         Some(timeout) => timeout.map(Duration::from_millis),
         None => page
             .document

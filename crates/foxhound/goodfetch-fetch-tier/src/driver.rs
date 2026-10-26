@@ -34,7 +34,9 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
+use goodfetch_engine::happy_eyeballs::FamilyUnavailable;
 use goodfetch_engine::settings::Resolved;
+use goodfetch_protocol::dns::IpFamily;
 use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NavigationFailedDetails, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
 };
@@ -160,6 +162,15 @@ pub enum TransportFailure {
     Egress(Refused),
     /// The host's name resolved to no address (`net::ERR_NAME_NOT_RESOLVED`).
     NameNotResolved,
+    /// The host's name resolved only to addresses of the family the
+    /// Session holds no local address of (ADR 0044):
+    /// `address_family_unavailable` (`net::ERR_ADDRESS_UNREACHABLE`).
+    AddressFamily {
+        /// The host's name.
+        name: String,
+        /// The one family the Session holds.
+        held: IpFamily,
+    },
     /// The host refused the connection (`net::ERR_CONNECTION_REFUSED`).
     ConnectionRefused,
     /// The connection timed out (`net::ERR_CONNECTION_TIMED_OUT`).
@@ -240,6 +251,7 @@ impl TransportFailure {
         match self {
             Self::Egress(_) => "net::ERR_BLOCKED_BY_CLIENT",
             Self::NameNotResolved => "net::ERR_NAME_NOT_RESOLVED",
+            Self::AddressFamily { .. } => "net::ERR_ADDRESS_UNREACHABLE",
             Self::ConnectionRefused => "net::ERR_CONNECTION_REFUSED",
             Self::ConnectionTimedOut => "net::ERR_CONNECTION_TIMED_OUT",
             Self::ConnectionReset => "net::ERR_CONNECTION_RESET",
@@ -266,6 +278,13 @@ impl TransportFailure {
         match self {
             Self::Egress(refused) => return refused.error(),
             Self::Browser(failure) => return failure.0.clone(),
+            Self::AddressFamily { name, held } => {
+                return FamilyUnavailable {
+                    name: name.clone(),
+                    held: *held,
+                }
+                .into();
+            }
             _ => {}
         }
         let error = self.network_error();

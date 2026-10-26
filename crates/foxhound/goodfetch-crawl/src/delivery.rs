@@ -175,7 +175,7 @@ pub(crate) async fn drive(
     let races = settings.resolved().boolean(FETCH_TIER_RACE.name) == Some(true);
     // One HTTP tier for the Run, so its hops share connections (#763); the
     // navigation gate fetches robots.txt on it too.
-    let http = match FetchTiers::built(&run, settings.resolved()) {
+    let http = match FetchTiers::built(&run, settings.resolved(), None) {
         Ok(http) => Some(http),
         // A request may take the `http` tier: the Run cannot go on.
         Err(error) if labels.settings.any() || run_tier != SetTier::Unset || races => {

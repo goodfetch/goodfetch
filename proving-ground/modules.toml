@@ -57,6 +57,7 @@ content_pages = []
 markdown_pages = []
 reference_pages = []
 structured_pages = []
+value_pages = []
 
 [submodules.network]
 calibration = []

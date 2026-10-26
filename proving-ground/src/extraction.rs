@@ -9,13 +9,15 @@
 //! judged by their Markdown's structure; and pages read in every form
 //! `page.formats` gives, each written by hand too; and pages whose links,
 //! images, media and tables are read, one behind a redirect, also by hand;
-//! and pages whose metadata and contacts are read, by hand too.
+//! and pages whose metadata and contacts are read, by hand too; and one
+//! page whose values a code-free crawl's fields read, also by hand.
 //! Every other expected Record comes from the same seed data as the pages.
 
 mod content_pages;
 mod markdown_pages;
 mod reference_pages;
 mod structured_pages;
+mod value_pages;
 
 use std::fmt::Write as _;
 
@@ -187,6 +189,7 @@ pub(crate) fn page(seed: u64, path: &str) -> Option<(&'static str, Vec<u8>)> {
         _ if path.starts_with(content_pages::INDEX) => content_pages::page(path)?,
         _ if path.starts_with(reference_pages::INDEX) => reference_pages::page(path)?,
         _ if path.starts_with(structured_pages::INDEX) => structured_pages::page(path)?,
+        value_pages::PATH => value_pages::page(path)?,
         _ => return routed(seed, path),
     };
     Some(html(page))

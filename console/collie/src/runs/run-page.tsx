@@ -411,6 +411,28 @@ function Actions({
   );
 }
 
+/**
+ * The run's Lifecycle, in a live region a screen reader announces when it
+ * changes (ADR 0073), out of sight beside the axes. Keyed by the Lifecycle,
+ * so React replaces the element, never a text node a page translator moved
+ * (react#11538).
+ */
+function Announcement({
+  lifecycle,
+}: {
+  readonly lifecycle: RunAxisValues["lifecycle"];
+}): ReactNode {
+  const { i18n } = useLingui();
+  const name = i18n._(LIFECYCLE_NAMES[lifecycle]);
+  return (
+    <output className="sr-only">
+      <span key={lifecycle}>
+        <Trans>The run is {name}.</Trans>
+      </span>
+    </output>
+  );
+}
+
 /** The run, as the page read it. */
 function Shown({
   run,
@@ -431,6 +453,7 @@ function Shown({
           <Trans>This run can spend money with no Limit capping it.</Trans>
         </p>
       ) : null}
+      <Announcement lifecycle={run.axes.lifecycle} />
       <section aria-labelledby="run-axes" className={sectionClassName}>
         <h2 id="run-axes" className="text-xl font-semibold">
           <Trans>How it stands</Trans>

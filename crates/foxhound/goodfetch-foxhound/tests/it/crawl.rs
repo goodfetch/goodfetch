@@ -46,9 +46,22 @@ impl Attached {
     ) -> Self {
         env.log_level("trace");
         let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-foxhound"));
-        command.arg("attached-engine").stderr(Stdio::piped());
+        command.arg("attached-engine");
         prepare(&mut command);
-        let process = env.spawn(&mut command).unwrap();
+        Self::spawned(env, deadline, &mut command)
+    }
+
+    /// An Attached engine `command` starts, such as Foxhound's executable
+    /// run in a mount namespace of its own, each wait for its output
+    /// bounded by `deadline` when given.
+    pub(crate) fn spawned(
+        env: &TestEnv,
+        deadline: Option<Duration>,
+        command: &mut Command,
+    ) -> Self {
+        env.log_level("trace");
+        command.stderr(Stdio::piped());
+        let process = env.spawn(command).unwrap();
         let stdin = process.child().stdin.take();
         let stdout = StrictStdout::of(&process).unwrap();
         let stdout = match deadline {

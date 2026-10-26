@@ -2457,6 +2457,17 @@
       ]
     },
     {
+      "id": "format:export",
+      "kind": "format",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:installed-executables",
       "kind": "format",
       "area": 3,
@@ -2821,6 +2832,26 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:export.save_as",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:export.stream",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -3325,6 +3356,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:run.export",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -19114,6 +19155,16 @@
       ]
     },
     {
+      "id": "story:6-277",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-28",
       "kind": "story",
       "area": 6,
@@ -19121,6 +19172,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-280",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

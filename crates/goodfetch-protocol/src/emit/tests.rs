@@ -110,6 +110,14 @@ fn file_formats() -> serde_json::Value {
             "hello_from": [],
             "schema": { "$ref": "#/$defs/SignInRow" },
         },
+        {
+            "name": "export",
+            "version": "0.1",
+            "storage": "json",
+            "rule": "default",
+            "hello_from": [],
+            "schema": { "type": "array", "items": true },
+        },
     ])
 }
 

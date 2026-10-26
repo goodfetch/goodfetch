@@ -56,6 +56,7 @@ async fn read_records(
                     Query {
                         dataset: &dataset,
                         after,
+                        through: None,
                     },
                     PAGE,
                 )

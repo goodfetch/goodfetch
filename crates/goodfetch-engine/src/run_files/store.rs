@@ -12,6 +12,10 @@ use crate::run_state::RunStateError;
 /// The folder of a Run's kept files, inside its folder.
 const FILES: &str = "files";
 
+/// The folder of a Run's Exports, inside its folder: files no record of
+/// its run state names, each named by its SHA-256 (ADR 0116).
+const EXPORTS: &str = "exports";
+
 /// What a kept file is to the program.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileKind {
@@ -38,6 +42,15 @@ pub struct Kept {
     /// Its position in the Run, from 1.
     pub position: u64,
     /// The SHA-256 of its bytes, in lowercase hexadecimal.
+    pub sha256: String,
+    /// Its size in bytes.
+    pub size: u64,
+}
+
+/// An Export a Run keeps, as `Runs::keep_export` answers it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeptExport {
+    /// The SHA-256 of its bytes, in lowercase hexadecimal, which names it.
     pub sha256: String,
     /// Its size in bytes.
     pub size: u64,
@@ -89,11 +102,21 @@ impl KeepError {
 /// The file of the bytes whose SHA-256 is `sha256` in the Run folder
 /// `folder`, or `None` when `sha256` is no SHA-256 in lowercase hex.
 pub(crate) fn file(folder: &Path, sha256: &str) -> Option<PathBuf> {
-    let is_digest = sha256.len() == 64
+    is_digest(sha256).then(|| folder.join(FILES).join(sha256))
+}
+
+/// The Export whose bytes' SHA-256 is `sha256` in the Run folder `folder`,
+/// or `None` when `sha256` is no SHA-256 in lowercase hex.
+pub fn export_file(folder: &Path, sha256: &str) -> Option<PathBuf> {
+    is_digest(sha256).then(|| folder.join(EXPORTS).join(sha256))
+}
+
+/// Whether `sha256` is a SHA-256 in lowercase hexadecimal.
+fn is_digest(sha256: &str) -> bool {
+    sha256.len() == 64
         && sha256
             .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-    is_digest.then(|| folder.join(FILES).join(sha256))
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// Writes what `source` reads as a file of the Run folder `folder`, whole
@@ -104,12 +127,27 @@ pub(crate) fn file(folder: &Path, sha256: &str) -> Option<PathBuf> {
 /// When `source` cannot be read or the file cannot be written; no partial
 /// file is left under its name.
 pub(crate) fn store(folder: &Path, source: &mut dyn Read) -> io::Result<(String, u64)> {
-    let files = folder.join(FILES);
-    std::fs::DirBuilder::new().recursive(true).create(&files)?;
+    store_in(&folder.join(FILES), source)
+}
+
+/// Writes what `source` reads as an Export of the Run folder `folder`, as
+/// [`store`] writes a kept file, under `exports/`.
+///
+/// # Errors
+///
+/// As [`store`]'s.
+pub(crate) fn store_export(folder: &Path, source: &mut dyn Read) -> io::Result<(String, u64)> {
+    store_in(&folder.join(EXPORTS), source)
+}
+
+/// Writes what `source` reads into the folder `files`, through a hidden
+/// temporary file, synced, then renamed to the SHA-256 of its bytes.
+fn store_in(files: &Path, source: &mut dyn Read) -> io::Result<(String, u64)> {
+    std::fs::DirBuilder::new().recursive(true).create(files)?;
     let mut partial = tempfile::Builder::new()
         .prefix(".")
         .suffix(".partial")
-        .tempfile_in(&files)?;
+        .tempfile_in(files)?;
     let mut hasher = Sha256::new();
     let mut size: u64 = 0;
     let mut buffer = vec![0_u8; 64 * 1024];
@@ -121,14 +159,16 @@ pub(crate) fn store(folder: &Path, source: &mut dyn Read) -> io::Result<(String,
             Err(error) => return Err(error),
         };
         hasher.update(&buffer[..read]);
-        partial.write_all(&buffer[..read])?;
+        // Through the raw file, whose error keeps its OS code; the
+        // temporary file's own writer wraps it with its path.
+        partial.as_file_mut().write_all(&buffer[..read])?;
         size += u64::try_from(read).unwrap_or(u64::MAX);
     }
     partial.as_file().sync_all()?;
     let sha256 = data_encoding::HEXLOWER.encode(&hasher.finalize());
-    let kept = file(folder, &sha256).expect("invariant: a SHA-256 in lowercase hex names a file");
+    let kept = files.join(&sha256);
     partial.persist(&kept).map_err(|error| error.error)?;
-    crate::durable::sync_folder(&files);
+    crate::durable::sync_folder(files);
     Ok((sha256, size))
 }
 

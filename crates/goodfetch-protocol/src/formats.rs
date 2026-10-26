@@ -387,6 +387,21 @@ pub const ACCOUNTS_STORE: Format = Format {
     schema: schema_of::<SignInRow>,
 };
 
+/// A Dataset's Export file (ADRs 0066, 0103 and 0119), the profile every
+/// format of it keeps: UTF-8 with no BOM, each Record's value as
+/// committed, in number order; `json` one array of the values, `jsonl` one
+/// value per line. A consumer reads it, never an engine, so it keeps the
+/// default version rule; its schema is a `json` Export's document, an
+/// array of values.
+pub const EXPORT: Format = Format {
+    name: "export",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Json,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<Vec<Value>>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -402,6 +417,7 @@ pub const FORMATS: &[&Format] = &[
     &ACCOUNTS_STORE,
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
+    &EXPORT,
 ];
 
 /// A settings file's schema: its `version` and each of `tables`, a table

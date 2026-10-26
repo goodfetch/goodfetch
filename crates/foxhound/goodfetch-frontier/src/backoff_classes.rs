@@ -77,19 +77,24 @@ pub fn party_of(met: Met<'_>) -> Party {
 /// What `met` asks of its domain or its proxy.
 pub fn class(met: Met<'_>) -> Class {
     match (party_of(met), met) {
-        (Party::Proxy, Met::Response { status, .. }) if matches!(status, 429 | 502) => {
-            Class::ProxyRefusal
-        }
+        (
+            Party::Proxy,
+            Met::Response {
+                status: 429 | 502, ..
+            },
+        ) => Class::ProxyRefusal,
         (Party::Proxy, Met::Failure { error }) if name(error) == "ERR_TUNNEL_CONNECTION_FAILED" => {
             Class::ProxyRefusal
         }
-        (Party::Proxy, _) => Class::Done,
         (Party::Site, Met::Response { status: 429, .. }) => Class::TooManyRequests,
-        (Party::Site, Met::Response { status, .. }) if matches!(status, 502..=504) => {
-            Class::BackOff
-        }
+        (
+            Party::Site,
+            Met::Response {
+                status: 502..=504, ..
+            },
+        ) => Class::BackOff,
         (Party::Site, Met::Failure { error }) if BACKS_OFF.contains(&name(error)) => Class::BackOff,
-        (Party::Site, _) => Class::Done,
+        (Party::Proxy | Party::Site, _) => Class::Done,
     }
 }
 

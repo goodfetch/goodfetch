@@ -952,8 +952,14 @@ async fn settled(
     }
     let waiting = attempt.leased.waiting.clone();
     let merged = std::mem::take(&mut attempt.merged);
-    let domain = domain_ending(&attempt.answer, run.clock().now(), run.clock().wall());
     let resolved = settings.at_admission().await;
+    let domain = domain_ending(
+        &attempt.answer,
+        attempt.document.as_ref(),
+        proxied(&resolved),
+        run.clock().now(),
+        run.clock().wall(),
+    );
     pool.settle(
         &attempt.session,
         &waiting.key,

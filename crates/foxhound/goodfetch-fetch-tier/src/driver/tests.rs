@@ -6,10 +6,6 @@
 //! answers back a domain off, only the proxy's lower its ceiling.
 //!
 //! Covers: story:5-133
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 
 use goodfetch_frontier::backoff_classes::{Class, class, party_of};
 use goodfetch_page::Party;
@@ -51,10 +47,10 @@ fn member() -> impl Strategy<Value = (String, bool)> {
         .prop_map(|(name, error, other)| {
             let mut member = name;
             if let Some((key, value)) = other.filter(|(key, _)| key != "error") {
-                member.push_str(&format!("; {key}={value}"));
+                member = format!("{member}; {key}={value}");
             }
             if let Some(error) = &error {
-                member.push_str(&format!("; error={error}"));
+                member = format!("{member}; error={error}");
             }
             (member, error.is_some())
         })
@@ -99,10 +95,9 @@ proptest! {
             class,
             match (proxys, status) {
                 (true, 429 | 502) => Class::ProxyRefusal,
-                (true, _) => Class::Done,
                 (false, 429) => Class::TooManyRequests,
                 (false, 502..=504) => Class::BackOff,
-                (false, _) => Class::Done,
+                (true | false, _) => Class::Done,
             }
         );
     }

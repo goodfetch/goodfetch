@@ -97,7 +97,21 @@ and not (
 # rest of the suite takes the other threads. Each selection is a module, so
 # a new test of the module joins it; a timing-sensitive test elsewhere joins
 # the filter in the change that adds it.
+#
+# The SSRF table's navigation and request kind runners on Chromium
+# (TESTING.md, Time) each take dozens of the table's cases through one
+# engine, under the protocol client's per-message deadline. While the
+# host's memory is under pressure the Resource governor admits no page past
+# its floor, one (ADR 0040), so a page waits until the pressure ends, and
+# their own browsers must not be what makes it (fix-queue items 107 and
+# 110): each finishes a Run once its cases are done, so it holds one
+# browser and one page at a time, and at most two run at once, which
+# halves the serial time one at a time would take. They are
+# timing-sensitive too; this group's limit is the stricter one, and its
+# override comes first, as nextest takes the first override that matches a
+# test.
 [test-groups]
+browser-fleet = { max-threads = 2 }
 fixture-builds = { max-threads = 4 }
 service-manager = { max-threads = 1 }
 timing-sensitive = { max-threads = 4 }
@@ -109,6 +123,10 @@ test-group = "fixture-builds"
 [[profile.default.overrides]]
 filter = "kind(test) & test(/^service_manager::/)"
 test-group = "service-manager"
+
+[[profile.default.overrides]]
+filter = "binary_id(goodfetch-collie::it) & (test(/^navigation_egress::every_.*_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium$/) | test(/^request_kinds::every_address_case_of_the_ssrf_table_/))"
+test-group = "browser-fleet"
 
 [[profile.default.overrides]]
 filter = """

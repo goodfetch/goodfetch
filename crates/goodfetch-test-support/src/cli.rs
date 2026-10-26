@@ -11,7 +11,7 @@
 //!
 //! The command is the longest run of the test's arguments whose names,
 //! joined by dots, are a `command:` Feature of `features/inventory.json`
-//! (`browsers install` is `browsers.install`); arguments that hold none are
+//! (`browser install` is `browser.install`); arguments that hold none are
 //! recorded as `unmatched`, which the audit reports.
 //!
 //! `json(schema)` checks a `--json` run: stdout holds exactly one document,

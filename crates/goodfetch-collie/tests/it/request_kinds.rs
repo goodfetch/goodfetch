@@ -508,9 +508,12 @@ fn reached_from(proving_ground: &ProvingGround, kind: &str, from: usize) -> (usi
 /// `page.request_failed`, and never reaches the Proving ground. The page
 /// makes one kind's requests to many hosts at once, each host once per
 /// page; one Run per domain policy and mapping, a case's lookups in its
-/// `network.resolve`. The positive control, an allowed host, reaches the
-/// Proving ground. The cases a kind never brings to the engine
-/// ([`Unjudged`]) reach nothing, with no refusal recorded.
+/// `network.resolve`, finished once its cases are done, so the test holds
+/// one browser and one page at a time: the Resource governor admits no
+/// page past its floor, one, while the host is under pressure (ADR 0040).
+/// The positive control, an allowed host, reaches the Proving ground. The
+/// cases a kind never brings to the engine ([`Unjudged`]) reach nothing,
+/// with no refusal recorded.
 ///
 /// Covers: story:4-1, story:4-7, story:4-89, error:egress_refused, operation:page.goto
 #[rstest]
@@ -562,12 +565,10 @@ fn every_address_case_of_the_ssrf_table_is_refused_for_each_kind_of_request_on_c
         }
     }
     let mut outcomes: BTreeMap<String, Outcome> = BTreeMap::new();
-    let mut runs = Vec::new();
     let mut waves = 0;
     for (index, (settings, mut members)) in groups.into_iter().enumerate() {
         let run_id = format!("run-{index}");
         let page = program.page_with(&run_id, &settings);
-        runs.push(run_id.clone());
         while !members.is_empty() {
             let mut hosts = BTreeSet::new();
             let (wave, rest): (Vec<_>, Vec<_>) = members
@@ -614,9 +615,9 @@ fn every_address_case_of_the_ssrf_table_is_refused_for_each_kind_of_request_on_c
                 );
             }
         }
+        let _ = program.call("run.finish", &json!({ "run_id": run_id }));
     }
-    let finished: Vec<&str> = runs.iter().map(String::as_str).collect();
-    program.finish(&finished);
+    program.finish(&[]);
 
     let result = runner.run(&controls.cases, public, |case| {
         outcomes.remove(&case.name).unwrap_or_default()

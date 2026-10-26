@@ -1046,11 +1046,11 @@ prefix = "delivery."
 number = 6
 kind = "setting"
 prefix = "webhook."
-# The Browser cache's commands (#259): `browsers install` and `browsers clean`.
+# The Browser cache's commands (#259, #1203): `browser install` and `browser clean`.
 [[area]]
 number = 3
 kind = "command"
-prefix = "browsers."
+prefix = "browser."
 
 # The hidden Attached-engine entry of both executables, which an SDK starts
 # (spec #213).

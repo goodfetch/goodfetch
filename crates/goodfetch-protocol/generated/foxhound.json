@@ -2251,8 +2251,8 @@
       },
       "type": "object"
     },
-    "DaemonStatus": {
-      "description": "What `daemon.status` answers.",
+    "DaemonState": {
+      "description": "What `daemon.status` answers: the running Daemon's state.",
       "properties": {
         "clients": {
           "arrived_in": "0.1",
@@ -12122,7 +12122,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.",
+      "description": "A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browser install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -12132,7 +12132,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The `offline` setting refused a pinned download the call needed. Run the Product's `browsers install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.",
+      "description": "The `offline` setting refused a pinned download the call needed. Run the Product's `browser install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set.",
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -12202,7 +12202,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path.",
+      "description": "The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browser install` where the cache is writable, install the browser of that channel, or correct the path.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -14327,7 +14327,7 @@
       "product": "collie",
       "reach": "all_surfaces",
       "result": {
-        "$ref": "#/$defs/DaemonStatus"
+        "$ref": "#/$defs/DaemonState"
       },
       "stability": "stable"
     },

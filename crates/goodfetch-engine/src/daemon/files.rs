@@ -13,6 +13,10 @@
 //!                                    registered
 //! <home>/<major>/ops.token           the ops token, mode 0600, which the
 //!                                    ops listener's `/metrics` takes
+//! <home>/<major>/http-listener.token the HTTP listener's token, mode 0600,
+//!                                    which `daemon http-listener-token`
+//!                                    prints and `daemon rotate-token`
+//!                                    replaces
 //! ```
 //!
 //! A Daemon is running while its runtime file is there and its serving
@@ -60,6 +64,7 @@ const START_LOCK: &str = "daemon-start.lock";
 const TOKEN_FILE: &str = "daemon.token";
 const SERVICE_FILE: &str = "daemon-service.json";
 const OPS_TOKEN_FILE: &str = "ops.token";
+const HTTP_LISTENER_TOKEN_FILE: &str = "http-listener.token";
 /// The page that opens the Console's sign-in link in a browser.
 const CONSOLE_OPENER: &str = "console.html";
 
@@ -219,6 +224,35 @@ impl DaemonFiles {
             Some(token) => Ok(token),
             None => self.write_token(OPS_TOKEN_FILE),
         }
+    }
+
+    /// The HTTP listener's token's file.
+    pub fn http_listener_token_file(&self) -> PathBuf {
+        self.folder.join(HTTP_LISTENER_TOKEN_FILE)
+    }
+
+    /// The HTTP listener's token, a token of its own (spec #608), made
+    /// from the OS generator when there is none.
+    ///
+    /// # Errors
+    ///
+    /// When its file cannot be read or written, or the OS generator gives
+    /// nothing.
+    pub fn http_listener_token(&self) -> io::Result<String> {
+        match read_token(&self.http_listener_token_file())? {
+            Some(token) => Ok(token),
+            None => self.rotate_http_listener_token(),
+        }
+    }
+
+    /// Replaces the HTTP listener's token with a new one from the OS
+    /// generator, readable and writable by its owner alone, in one rename.
+    ///
+    /// # Errors
+    ///
+    /// When its file cannot be written, or the OS generator gives nothing.
+    pub fn rotate_http_listener_token(&self) -> io::Result<String> {
+        self.write_token(HTTP_LISTENER_TOKEN_FILE)
     }
 
     /// The persistent token, made from the OS generator when there is none.

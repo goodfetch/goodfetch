@@ -1993,12 +1993,12 @@ export interface DaemonHealth {
  */
 export interface DaemonParams {}
 /**
- * What `daemon.status` answers.
+ * What `daemon.status` answers: the running Daemon's state.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "DaemonStatus".
+ * via the `definition` "DaemonState".
  */
-export interface DaemonStatus {
+export interface DaemonState {
   /**
    * How many Clients are connected, the caller and Consoles included.
    */

@@ -110,7 +110,7 @@
       ]
     },
     {
-      "id": "command:browsers.clean",
+      "id": "command:browser.clean",
       "kind": "command",
       "area": 3,
       "milestone": null,
@@ -121,7 +121,7 @@
       ]
     },
     {
-      "id": "command:browsers.install",
+      "id": "command:browser.install",
       "kind": "command",
       "area": 3,
       "milestone": null,
@@ -188,6 +188,17 @@
     },
     {
       "id": "command:daemon.health",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:daemon.http-listener-token",
       "kind": "command",
       "area": 3,
       "milestone": null,
@@ -12463,6 +12474,28 @@
     },
     {
       "id": "story:12-134",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-135",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-136",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",

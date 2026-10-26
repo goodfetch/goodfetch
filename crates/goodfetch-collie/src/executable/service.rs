@@ -1,6 +1,7 @@
-//! The major's per-user service, from both Products' executables (ADRs
-//! 0024, 0031 and 0098): `daemon install`, `daemon uninstall` and `daemon
-//! rotate-token`. The definitions and commands are the engine's pure
+//! The major's per-user service and the Daemon's tokens, from both
+//! Products' executables (ADRs 0024, 0031 and 0098): `daemon install`,
+//! `daemon uninstall`, `daemon rotate-token` and `daemon
+//! http-listener-token`. The definitions and commands are the engine's pure
 //! [`service::plan`]; this module writes the files, runs the service
 //! manager's commands, and keeps the records: the service's, in the major's
 //! folder, the persistent token of a socket-activated Daemon, and the
@@ -9,7 +10,13 @@
 //! keeps it until `daemon uninstall` forgets it.
 //!
 //! A Daemon running when the service is installed or removed stops first,
-//! since the service's socket takes its place.
+//! since the service's socket takes its place. `daemon rotate-token`
+//! replaces the persistent token, which a socket-activated Daemon and the
+//! foreground Daemon take, and the HTTP listener's token (spec #608); an
+//! installed service's Daemon stops with it, and any other Daemon refuses
+//! the old token from its next start. `daemon http-listener-token` prints
+//! the HTTP listener's token on stdout, the one command that prints a
+//! credential, and logs nothing of it.
 #![expect(
     clippy::disallowed_methods,
     reason = "the CLI writes the service's files and runs its service manager before and outside any async worker (ADR 0060)"
@@ -24,8 +31,8 @@ use goodfetch_engine::daemon::service::{
 };
 use goodfetch_engine::installed::fingerprint;
 use goodfetch_protocol::daemon::{
-    DaemonInstallOutput, DaemonRotateTokenOutput, DaemonUninstallOutput, InstalledService,
-    ServiceManager,
+    DaemonStopping, DaemonUninstallOutput, HttpListenerToken, InstalledService, ServiceManager,
+    TokenRotated,
 };
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 
@@ -39,18 +46,18 @@ fn unavailable(what: &str) -> impl Fn(std::io::Error) -> Failure + '_ {
 /// `daemon install`.
 pub(super) fn install(machine: &Machine<'_>, json: bool) -> ExitCode {
     match installed(machine) {
-        Ok(installed) => {
+        Ok((service, stopped)) => {
             if json {
-                output::json(&installed);
+                output::json(&machine.status_of(None));
             } else {
-                if let Some(stopped) = &installed.stopped {
+                if let Some(stopped) = &stopped {
                     output::line(&format!(
                         "The Daemon of major {} stopped for its service, and its {} live Runs with it",
                         machine.major(),
                         stopped.live_runs
                     ));
                 }
-                output::line(&describe(&installed.service));
+                output::line(&describe(&service));
             }
             ExitCode::SUCCESS
         }
@@ -91,14 +98,35 @@ pub(super) fn rotate_token(machine: &Machine<'_>, json: bool) -> ExitCode {
                 output::json(&rotated);
             } else {
                 output::line(&format!(
-                    "A new persistent token is in {}; the next connection starts a Daemon that takes it",
-                    rotated.token_file
+                    "New tokens are in {} and {}; the next Daemon takes them and refuses the old ones",
+                    machine.files().token_file().display(),
+                    machine.files().http_listener_token_file().display()
                 ));
             }
             ExitCode::SUCCESS
         }
         Err(failure) => failure.report(),
     }
+}
+
+/// `daemon http-listener-token`: the token alone on stdout, or as
+/// `HttpListenerToken` under `--json`; nothing of it anywhere else.
+pub(super) fn http_listener_token(machine: &Machine<'_>, json: bool) -> ExitCode {
+    let token = match machine.files().http_listener_token() {
+        Ok(token) => token,
+        Err(error) => {
+            return Failure::Unavailable(format!(
+                "the HTTP listener's token cannot be read or made: {error}"
+            ))
+            .report();
+        }
+    };
+    if json {
+        output::json(&HttpListenerToken { token });
+    } else {
+        output::line(&token);
+    }
+    ExitCode::SUCCESS
 }
 
 /// What `daemon status` says of `service`.
@@ -121,7 +149,7 @@ pub(super) fn describe(service: &InstalledService) -> String {
     }
 }
 
-fn installed(machine: &Machine<'_>) -> Result<DaemonInstallOutput, Failure> {
+fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonStopping>), Failure> {
     let manager = manager_of_this_os().ok_or_else(|| {
         Failure::Unavailable("this OS has no service manager Goodfetch registers with".to_owned())
     })?;
@@ -187,10 +215,7 @@ fn installed(machine: &Machine<'_>) -> Result<DaemonInstallOutput, Failure> {
         }
         return Err(failure);
     }
-    Ok(DaemonInstallOutput {
-        service: plan.service,
-        stopped,
-    })
+    Ok((plan.service, stopped))
 }
 
 fn uninstalled(machine: &Machine<'_>) -> Result<DaemonUninstallOutput, Failure> {
@@ -208,27 +233,25 @@ fn uninstalled(machine: &Machine<'_>) -> Result<DaemonUninstallOutput, Failure> 
     })
 }
 
-fn rotated(machine: &Machine<'_>) -> Result<DaemonRotateTokenOutput, Failure> {
+fn rotated(machine: &Machine<'_>) -> Result<TokenRotated, Failure> {
     let files = machine.files();
     let activated = files
         .service()
         .map_err(unavailable("the installed service's record cannot be read"))?
         .is_some_and(|service| service.socket.is_some());
-    if !activated {
-        return Err(Failure::Unavailable(format!(
-            "no service with socket activation is installed for major {}: the Daemon's token is new at each launch, and `daemon restart` gives it another",
-            machine.major()
-        )));
-    }
     files
         .rotate_token()
         .map_err(unavailable("the persistent token cannot be replaced"))?;
-    // Connections that opened with the old token close with their Daemon.
-    let stopped = machine.stop()?;
-    Ok(DaemonRotateTokenOutput {
-        token_file: files.token_file().display().to_string(),
-        stopped,
-    })
+    files
+        .rotate_http_listener_token()
+        .map_err(unavailable("the HTTP listener's token cannot be replaced"))?;
+    let rotated_at = now();
+    if activated {
+        // Connections that opened with the old token close with their
+        // Daemon; the next connection starts one that takes the new token.
+        machine.stop()?;
+    }
+    Ok(TokenRotated { rotated_at })
 }
 
 /// Removes `service`: stops and unregisters it, removes its files and

@@ -183,7 +183,7 @@ fn prints_to_both_streams_then_exits_with_3() {
 fn records_a_command_then_drops_its_test_env() {
     let env = TestEnv::new();
 
-    goodfetch_test_support::record_command(&env, &["browsers", "install"], Some(0)).unwrap();
+    goodfetch_test_support::record_command(&env, &["browser", "install"], Some(0)).unwrap();
 }
 
 #[test]

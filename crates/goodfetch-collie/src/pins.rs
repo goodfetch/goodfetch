@@ -1,5 +1,5 @@
 //! The Pinned artifacts Collie's version pins (ADRs 0024 and 0098): the
-//! builds its launches take from the Browser cache, which `browsers install`
+//! builds its launches take from the Browser cache, which `browser install`
 //! fetches and whose entries the clean-up keeps. Foxhound's version pins the
 //! same, since it launches what Collie launches.
 //!

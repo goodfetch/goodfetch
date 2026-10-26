@@ -334,7 +334,7 @@ fn a_daemon_on_port_zero_reports_its_consoles_address() {
 
     assert_eq!(started.exit, Some(0), "{}", started.stderr);
     let started: Value = serde_json::from_str(&started.stdout).unwrap();
-    validate(&started, "DaemonStartOutput");
+    validate(&started, "DaemonStatus");
     let url = console_url(&env);
     let port: u16 = url
         .trim_start_matches("http://127.0.0.1:")
@@ -342,13 +342,13 @@ fn a_daemon_on_port_zero_reports_its_consoles_address() {
         .parse()
         .unwrap();
     assert_ne!(port, 0);
-    assert_eq!(started["daemon"]["console"]["serving"], url.as_str());
+    assert_eq!(started["console_url"], url.as_str());
     let status = cli(&env, COLLIE)
         .args(["daemon", "status", "--json"])
         .run()
         .unwrap();
     let status: Value = serde_json::from_str(&status.stdout).unwrap();
-    assert_eq!(status["daemon"]["console"]["serving"], url.as_str());
+    assert_eq!(status["console_url"], url.as_str());
 }
 
 /// Covers: story:12-3, setting:console.address, command:daemon.start, command:daemon.status
@@ -367,26 +367,19 @@ fn a_console_port_another_program_holds_fails_only_the_consoles_start() {
 
     // `console_port_in_use` has no row of its own: its group's, `8`.
     assert_eq!(started.exit, Some(8), "{}", started.stderr);
-    let started: Value = serde_json::from_str(&started.stdout).unwrap();
+    let printed: Value = serde_json::from_str(&started.stdout).unwrap();
     assert_eq!(
-        started["daemon"]["console"]["failed"]["code"],
-        "console_port_in_use"
+        (printed["pid"].is_u64(), printed["console_url"].clone()),
+        (true, Value::Null)
     );
-    assert!(
-        started["daemon"]["console"]["failed"]["fix"]
-            .as_str()
-            .unwrap()
-            .contains("`console.address`")
-    );
+    assert!(started.stderr.contains("console_port_in_use"), "{started}");
+    assert!(started.stderr.contains("`console.address`"), "{started}");
     let status = cli(&env, COLLIE)
         .args(["daemon", "status", "--json"])
         .run()
         .unwrap();
     assert_eq!(status.exit, Some(0), "{}", status.stderr);
     let status: Value = serde_json::from_str(&status.stdout).unwrap();
-    assert_eq!(
-        status["daemon"]["console"]["failed"]["code"],
-        "console_port_in_use"
-    );
+    assert_eq!(status["console_url"], Value::Null);
     drop(held);
 }

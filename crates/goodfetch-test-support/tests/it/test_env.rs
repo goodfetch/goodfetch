@@ -5,7 +5,7 @@ use std::io::{BufRead as _, BufReader};
 use std::path::Path;
 
 use goodfetch_test_support::{
-    CRASH_DUMP_VARIABLE, Process, TOOLS_VARIABLE, TestEnv, Tool, command, tools,
+    CRASH_DUMP_VARIABLE, Process, TOOLS_VARIABLE, TestEnv, Tool, command, schemas, tools,
 };
 use serde_json::Value;
 
@@ -158,25 +158,10 @@ fn print_schemas_starts_nothing() {
         .unwrap();
 
     assert!(output.status.success());
-    let schemas: serde_json::Map<String, Value> = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(
-        schemas.keys().collect::<Vec<_>>(),
-        [
-            "engine-scripts/script.schema.json",
-            "schemas/endpoint-table.schema.json",
-            "schemas/hostile-header-values.schema.json",
-            "schemas/hostile-limits.schema.json",
-            "schemas/hostile-paths.schema.json",
-            "schemas/hostile-schema-refs.schema.json",
-            "schemas/hostile-secret-redirects.schema.json",
-            "schemas/locales.schema.json",
-            "schemas/snapshot-filters.schema.json",
-            "schemas/ssrf-cases.schema.json",
-            "schemas/test-env-description.schema.json",
-            "schemas/test-tool-manifest.schema.json",
-            "schemas/unicode-record.schema.json"
-        ]
-    );
+    // Every schema the crate defines, by its path: `xtask codegen` commits
+    // exactly what it prints, and its check names a schema left uncommitted.
+    let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(printed, serde_json::to_value(schemas()).unwrap());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(!stderr.contains("goodfetch-test-seed="), "{stderr}");
 }

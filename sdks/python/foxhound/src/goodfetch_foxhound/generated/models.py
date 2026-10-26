@@ -1651,7 +1651,7 @@ class CrawlExtraction(BaseModel):
     name, which no format's property and neither `status` nor
     `fetchedAt` may take; none by default.
     """
-    follow: ExtractionFollow | None = "scope"
+    follow: ExtractionFollow | None = ExtractionFollow.scope
     """Which pages the crawl fetches beyond its seeds: `scope` by default."""
     formats: FormatsRequest
     """The formats each page's Record holds, as `page.formats` takes them."""

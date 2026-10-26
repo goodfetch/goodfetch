@@ -33,16 +33,27 @@
 //!   such as Lightpanda's light engine, so the light-browser tier's sample
 //!   differs from Chrome's there (ADR 0020).
 //!
+//! - `/scroll/<n>`, `/cursor/<n>` and `/signed/<n>`: infinite lists, each
+//!   a shell whose script loads its items from a JSON API under `/api/`
+//!   (the discovered-API cases, spec #579): by page number, by the cursor
+//!   each answer names, or once with a token its document issued, which
+//!   the API takes only once.
+//!
 //! `n` runs from 1 to 99, written without leading zeros; each listing holds
 //! three entries named from the seed and `n`. A query `hold=<ms>`, from 1
 //! to [`MAX_HOLD_MS`], holds the answer that long and names the hold in
 //! `Server-Timing: hold;dur=<ms>`, so a fetch on one tier is still in
 //! flight when a fetch on another starts (`fetch.tier_race`, CO-16).
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::time::Duration;
 
+use hyper::StatusCode;
+
 use super::{Held, Page, Visit, canonical_number, document, name};
+use crate::generator;
+use crate::sync::Mutex;
 
 pub(super) const HOST: &str = "tiers.test";
 pub(super) const FAMILY: &str = "tiers";
@@ -147,8 +158,183 @@ fn sample_case(kind: &str, number: u64) -> Option<Page> {
     Some(Page::ok(document(&title, &body)))
 }
 
-pub(super) fn respond(visit: &Visit<'_>) -> Page {
+/// The pages of each infinite list.
+const LIST_PAGES: u64 = 3;
+
+/// The items of each page of an infinite list.
+const LIST_ITEMS: u64 = 2;
+
+/// What each infinite list's script starts with: `load(url)`, which reads
+/// one JSON call and adds its items to the list. The calls are synchronous,
+/// so every one ended before the page's `load` event, and a tool handed
+/// the page after it sees no call of its first load still in flight.
+const LIST_LOADER: &str = r#"const feed = document.querySelector(".feed");
+const load = (url) => {
+  const call = new XMLHttpRequest();
+  call.open("GET", url, false);
+  call.send();
+  const answer = JSON.parse(call.responseText);
+  for (const item of answer.items) {
+    const entry = document.createElement("li");
+    entry.className = "item";
+    entry.textContent = item;
+    feed.append(entry);
+  }
+  return answer;
+};
+"#;
+
+/// The script of `/scroll/<n>`: it loads its list's pages, page after
+/// page, by their number, until its API names no next page.
+const SCROLL_SCRIPT: &str = r"for (let page = 1; page !== null; ) {
+  page = load(`/api/scroll/${feed.dataset.number}?page=${page}`).next;
+}
+";
+
+/// The script of `/cursor/<n>`: it loads its list's pages, each from the
+/// cursor the page before named, until one names none.
+const CURSOR_SCRIPT: &str = r"for (let url = `/api/cursor/${feed.dataset.number}`; url !== null; ) {
+  const next = load(url).page.next;
+  url = next === null ? null : `/api/cursor/${feed.dataset.number}?after=${next}`;
+}
+";
+
+/// The script of `/signed/<n>`: it loads its list once, with the token
+/// its document carries.
+const SIGNED_SCRIPT: &str = r"load(`/api/signed/${feed.dataset.number}?token=${feed.dataset.token}`);
+";
+
+/// What the family keeps for one `serve`: the tokens its signed pages
+/// issued, and those already taken.
+pub(super) struct State {
+    tokens: Mutex<Tokens>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            tokens: Mutex::new(Tokens::default()),
+        }
+    }
+}
+
+#[derive(Default)]
+struct Tokens {
+    issued: u64,
+    taken: BTreeSet<u64>,
+}
+
+/// The place of an infinite list's values of `kind`.
+fn list_place(kind: &str) -> u64 {
+    match kind {
+        "scroll" => 1,
+        "cursor" => 2,
+        _ => 3,
+    }
+}
+
+/// The items of page `page` of the infinite list `kind` number `number`.
+fn list_items(seed: u64, kind: &str, number: u64, page: u64) -> Vec<String> {
+    (1..=LIST_ITEMS)
+        .map(|item| name(seed, &[FAMILY_PLACE, list_place(kind), number, page, item]))
+        .collect()
+}
+
+/// The cursor that names page `page` of the cursor list `number`.
+fn cursor(seed: u64, number: u64, page: u64) -> String {
+    format!(
+        "{:016x}",
+        generator::draw(seed, &[FAMILY_PLACE, 4, number, page])
+    )
+}
+
+/// The infinite lists (spec #579's discovered-API cases): a shell page
+/// whose script loads every item from its JSON API.
+fn list_shell(state: &State, kind: &str, number: u64) -> Option<Page> {
+    let (script, extra) = match kind {
+        "scroll" => (SCROLL_SCRIPT, String::new()),
+        "cursor" => (CURSOR_SCRIPT, String::new()),
+        "signed" => {
+            let mut tokens = state.tokens.lock();
+            tokens.issued += 1;
+            (SIGNED_SCRIPT, format!(" data-token=\"{}\"", tokens.issued))
+        }
+        _ => return None,
+    };
+    let title = format!("{kind} {number}");
+    Some(Page::ok(document(
+        &title,
+        &format!(
+            "<h1>{title}</h1>\n<ul class=\"feed\" data-number=\"{number}\"{extra}></ul>\n<script>\n{LIST_LOADER}{script}</script>\n"
+        ),
+    )))
+}
+
+/// The JSON API of the infinite lists, at `/api/<kind>/<number>`.
+fn list_api(visit: &Visit<'_>, state: &State, kind: &str, number: u64) -> Option<Page> {
+    let seed = visit.seed;
+    let json = |value: serde_json::Value| Page::text("application/json", value.to_string());
+    Some(match kind {
+        "scroll" => {
+            let page = visit
+                .request
+                .parameter("page")
+                .and_then(canonical_number)
+                .unwrap_or(1);
+            if (1..=LIST_PAGES).contains(&page) {
+                let next = (page < LIST_PAGES).then_some(page + 1);
+                json(
+                    serde_json::json!({ "items": list_items(seed, kind, number, page), "next": next }),
+                )
+            } else {
+                json(serde_json::json!({ "items": [], "next": null }))
+            }
+        }
+        "cursor" => {
+            let page = match visit.request.parameter("after") {
+                None => Some(1),
+                Some(after) => (2..=LIST_PAGES).find(|page| cursor(seed, number, *page) == after),
+            };
+            let Some(page) = page else {
+                return Some(Page {
+                    status: StatusCode::BAD_REQUEST,
+                    ..json(serde_json::json!({ "error": "unknown cursor" }))
+                });
+            };
+            let next = (page < LIST_PAGES).then(|| cursor(seed, number, page + 1));
+            json(
+                serde_json::json!({ "items": list_items(seed, kind, number, page), "page": { "next": next } }),
+            )
+        }
+        "signed" => {
+            let token = visit.request.parameter("token").and_then(canonical_number);
+            let mut tokens = state.tokens.lock();
+            match token {
+                Some(token) if token <= tokens.issued && tokens.taken.insert(token) => {
+                    json(serde_json::json!({ "items": list_items(seed, kind, number, 1) }))
+                }
+                _ => Page {
+                    status: StatusCode::FORBIDDEN,
+                    ..json(
+                        serde_json::json!({ "error": "this token was never issued, or was taken" }),
+                    )
+                },
+            }
+        }
+        _ => return None,
+    })
+}
+
+pub(super) fn respond(visit: &Visit<'_>, state: &State) -> Page {
     let path = visit.request.path;
+    if let Some((kind, number)) = path
+        .strip_prefix("/api/")
+        .and_then(|rest| rest.split_once('/'))
+        .and_then(|(kind, number)| Some((kind, canonical_number(number)?)))
+        .filter(|(_, number)| (1..=PAGES).contains(number))
+    {
+        return list_api(visit, state, kind, number).unwrap_or_else(Page::not_found);
+    }
     if path == "/states" {
         return Page::ok(document("states", STATES));
     }
@@ -169,7 +355,7 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
     else {
         return Page::not_found();
     };
-    if let Some(page) = sample_case(kind, number) {
+    if let Some(page) = sample_case(kind, number).or_else(|| list_shell(state, kind, number)) {
         return page;
     }
     let Some(scripted) = scripted(kind, number) else {

@@ -46,7 +46,7 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 use super::audit_events;
 use super::log_file::{LogFile, Rotation};
 use super::otlp::{EXPORT_TIMEOUT, ToCollector};
-use super::{Command, DaemonCommand, LOG_FOLDER, Parsed};
+use super::{Command, DaemonCommand, Parsed};
 
 /// The kinds of process whose logs ADR 0122 tells apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -185,7 +185,7 @@ pub(super) fn file_of(
         code: SETTING_NOT_APPLICABLE.name,
         message: "`log.output` is `file`, and no Goodfetch home holds a log folder".to_owned(),
     })?;
-    let folder = home.root().join(LOG_FOLDER);
+    let folder = home.logs();
     LogFile::open(&folder, &stem, rotation, clock)
         .map(Some)
         .map_err(|error| Refused {

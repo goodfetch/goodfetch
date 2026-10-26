@@ -33,7 +33,7 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 
 pub(crate) use crate::staging::SoFar;
-use crate::staging::Staging;
+use crate::staging::{SetAside, Staging};
 use crate::work_items::{self, Fetched, FieldsRead};
 
 /// The `tracing` target of the run fencing model's transitions.
@@ -254,6 +254,24 @@ impl WorkItemLease {
             }
         }
         pushed
+    }
+
+    /// Sets aside what its attempt staged so far, its run that commits,
+    /// while a run whose staging is discarded runs after it (a sample's
+    /// `discovered_api` run); `None` once the attempt ended.
+    pub(crate) fn set_aside(&self) -> Option<SetAside> {
+        let epoch = self.0.state.borrow().lease.epoch();
+        self.0.leases.staging.set_aside(&self.0.work_item, epoch)
+    }
+
+    /// Puts back what [`WorkItemLease::set_aside`] set aside, what was
+    /// staged since discarded.
+    pub(crate) fn put_back(&self, set_aside: SetAside) {
+        let epoch = self.0.state.borrow().lease.epoch();
+        self.0
+            .leases
+            .staging
+            .put_back(&self.0.work_item, epoch, set_aside);
     }
 
     /// Notes that its request's URL is one its origin's robots.txt

@@ -90,6 +90,9 @@ pub(crate) struct SoFar {
     pub(crate) enqueues: BTreeSet<String>,
 }
 
+/// What an attempt staged, set aside while another run of it stages.
+pub(crate) struct SetAside(Entry);
+
 /// What an attempt staged, taken out to commit.
 #[derive(Default)]
 pub(crate) struct Staged {
@@ -172,6 +175,26 @@ impl Staging {
                 enqueues: entry.enqueues.clone(),
             })
             .unwrap_or_default()
+    }
+
+    /// Sets aside what the attempt of `work_item` under `lease_epoch`
+    /// staged so far and stages anew, while a run whose staging is then
+    /// discarded runs after it: a sample's `discovered_api` run, which
+    /// needs the browser's run before it (ADR 0103). `None` once the
+    /// attempt ended.
+    pub(crate) fn set_aside(&self, work_item: &str, lease_epoch: u64) -> Option<SetAside> {
+        let mut entries = self.entries();
+        let entry = entries.get_mut(&(work_item.to_owned(), lease_epoch))?;
+        Some(SetAside(std::mem::take(entry)))
+    }
+
+    /// Puts back what [`Staging::set_aside`] set aside, in place of what
+    /// the attempt staged since, which is discarded; nothing once the
+    /// attempt ended.
+    pub(crate) fn put_back(&self, work_item: &str, lease_epoch: u64, set_aside: SetAside) {
+        if let Some(entry) = self.entries().get_mut(&(work_item.to_owned(), lease_epoch)) {
+            *entry = set_aside.0;
+        }
     }
 
     /// Takes out what the attempt staged, to commit it; every later staging

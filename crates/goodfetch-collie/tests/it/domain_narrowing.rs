@@ -15,6 +15,8 @@
     reason = "the test writes the Goodfetch home's user configuration itself"
 )]
 
+use std::path::Path;
+
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Value, json};
 
@@ -48,6 +50,40 @@ fn configure(env: &TestEnv, proving_ground: &ProvingGround) {
     .unwrap();
 }
 
+/// An Attached engine whose Browser cache is `cache`, greeted by a Client
+/// acting for a model (the `mcp` surface).
+fn for_a_model<'env>(env: &'env TestEnv, cache: &Path) -> Attached<'env> {
+    let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
+        command.env(BROWSERS_PATH_VARIABLE, cache);
+    });
+    let mut greeting = hello("collie", "0.1");
+    greeting["params"]["surface"] = json!("mcp");
+    engine.send(&greeting);
+    let _ = engine.next();
+    engine
+}
+
+/// The answer to `run.start` of `run_id` with `egress` as its `egress`
+/// settings.
+fn start(engine: &mut Attached<'_>, id: i64, run_id: &str, egress: &Value) -> Value {
+    call(
+        engine,
+        id,
+        "run.start",
+        &json!({ "run_id": run_id, "settings": { "egress": egress } }),
+    )
+}
+
+/// A refusal's code, key and the value of the limit that holds it.
+fn locked(answered: &Value) -> (Value, Value, Value) {
+    let data = &answered["error"]["data"];
+    (
+        data["code"].clone(),
+        data["key"].clone(),
+        data["limit"]["value"].clone(),
+    )
+}
+
 /// A Client acting for a model that narrows `egress.allowed_domains` to
 /// `catalog.test` loads it and is refused `shop.test`, which configuration
 /// allows, with `egress_refused` naming the setting and no request reaching
@@ -63,39 +99,25 @@ fn a_client_acting_for_a_model_narrows_the_domain_policy_and_never_widens_it() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     configure(&env, &proving_ground);
-    let mut engine = Attached::start_waiting(&env, BROWSER_DEADLINE, |command| {
-        command.env(BROWSERS_PATH_VARIABLE, &cache);
-    });
-    let mut greeting = hello("collie", "0.1");
-    greeting["params"]["surface"] = json!("mcp");
-    engine.send(&greeting);
-    let _ = engine.next();
-    let start = |engine: &mut Attached<'_>, id: i64, run_id: &str, egress: Value| {
-        call(
-            engine,
-            id,
-            "run.start",
-            &json!({ "run_id": run_id, "settings": { "egress": egress } }),
-        )
-    };
+    let mut engine = for_a_model(&env, &cache);
 
     let wider = start(
         &mut engine,
         1,
         "wider",
-        json!({ "allowed_domains": ["catalog.test", "shop.test", "scope.test"] }),
+        &json!({ "allowed_domains": ["catalog.test", "shop.test", "scope.test"] }),
     );
     let unblocked = start(
         &mut engine,
         2,
         "unblocked",
-        json!({ "blocked_domains": [] }),
+        &json!({ "blocked_domains": [] }),
     );
     let narrowed = start(
         &mut engine,
         3,
         "narrowed",
-        json!({ "allowed_domains": ["catalog.test"] }),
+        &json!({ "allowed_domains": ["catalog.test"] }),
     );
     let page = opened(&call(
         &mut engine,
@@ -132,14 +154,6 @@ fn a_client_acting_for_a_model_narrows_the_domain_policy_and_never_widens_it() {
     );
     let _ = engine.finish();
 
-    let locked = |answered: &Value| {
-        let data = &answered["error"]["data"];
-        (
-            data["code"].clone(),
-            data["key"].clone(),
-            data["limit"]["value"].clone(),
-        )
-    };
     assert_eq!(
         (locked(&wider), locked(&unblocked)),
         (

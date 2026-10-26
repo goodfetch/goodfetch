@@ -83,7 +83,10 @@ fn playwright_browsers(variables: &Variables) -> Option<PathBuf> {
 
 /// A Browser cache in `env`'s folder holding the pinned Chrome for Testing
 /// build, writable by the engine; its root, which the test passes as
-/// `GOODFETCH_BROWSERS_PATH`.
+/// `GOODFETCH_BROWSERS_PATH`. Called again in the same folder, as a test
+/// that starts several Runs does, it lays out only the build's files that
+/// are missing and leaves the others in place, since a browser started
+/// from them may still run them (fix-queue 106).
 ///
 /// # Errors
 ///
@@ -122,7 +125,10 @@ pub fn browser_cache(env: &TestEnv) -> Result<PathBuf, BrowserCacheError> {
 }
 
 /// `source`'s tree at `target`: each file a hard link, or a copy across
-/// file systems, and each symbolic link the same link.
+/// file systems, and each symbolic link the same link. A file or link
+/// already at `target` stays as it is: Linux refuses to open a running
+/// executable for writing (`ETXTBSY`), and over a hard link a copy would
+/// empty Playwright's own file.
 fn link_tree(source: &Path, target: &Path) -> io::Result<()> {
     fs::create_dir_all(target)?;
     for entry in fs::read_dir(source)? {
@@ -130,6 +136,9 @@ fn link_tree(source: &Path, target: &Path) -> io::Result<()> {
         let from = entry.path();
         let to = target.join(entry.file_name());
         let kind = entry.file_type()?;
+        if !kind.is_dir() && fs::symlink_metadata(&to).is_ok() {
+            continue;
+        }
         if kind.is_symlink() {
             symlink(&fs::read_link(&from)?, &to)?;
         } else if kind.is_dir() {

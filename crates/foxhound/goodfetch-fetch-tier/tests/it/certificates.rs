@@ -8,6 +8,10 @@
 //! a pinned host presenting another key ends with `certificate_changed`
 //! before any byte of the request goes, and so does every later hop to it;
 //! and each domain's client certificate goes to its own hosts alone.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;

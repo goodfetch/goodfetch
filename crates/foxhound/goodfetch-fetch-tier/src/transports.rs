@@ -196,10 +196,10 @@ impl Reqwest {
     /// The clients of a scope presenting `client`.
     fn scope_clients(
         &self,
-        client: Option<Arc<CertifiedKey>>,
+        client: Option<&Arc<CertifiedKey>>,
     ) -> Result<ScopeClients, TransportUnavailable> {
         let clients = |alpn: &[&[u8]]| -> Result<Clients, TransportUnavailable> {
-            let mut tls = self.trust.client_config(client.clone());
+            let mut tls = self.trust.client_config(client.cloned());
             tls.alpn_protocols = alpn.iter().map(|protocol| protocol.to_vec()).collect();
             let client = |pooled: bool| {
                 let builder = reqwest::Client::builder()
@@ -253,7 +253,7 @@ impl Reqwest {
             (Some(_), Some(certificates)) => certificates
                 .for_host(host)
                 .await
-                .map_err(client_certificate_failure)?,
+                .map_err(|failure| client_certificate_failure(&failure))?,
             _ => None,
         };
         let presents = client.is_some();
@@ -261,7 +261,7 @@ impl Reqwest {
             return Ok((Arc::clone(clients), presents));
         }
         let built = Arc::new(
-            self.scope_clients(client)
+            self.scope_clients(client.as_ref())
                 .map_err(|_| TransportFailure::Other)?,
         );
         let clients = Arc::clone(self.scopes.scopes().entry(scope).or_insert(built));
@@ -298,7 +298,7 @@ impl Reqwest {
         clients: &ScopeClients,
         hop: &Hop,
         reuse: Reuse,
-    ) -> Result<Sent, (TransportFailure, Option<rustls::Error>)> {
+    ) -> Result<Sent, (TransportFailure, Option<Box<rustls::Error>>)> {
         let mut request = self
             .client(clients, hop, reuse)
             .request(hop.method.clone(), hop.url.clone());
@@ -328,7 +328,7 @@ impl Reqwest {
                 }
                 failure => failure,
             };
-            (failure, tls_error(&error))
+            (failure, tls_error(&error).map(Box::new))
         })?;
         let headers = response
             .headers()
@@ -396,8 +396,8 @@ impl Reqwest {
 
 /// The failure a client certificate that cannot be presented ends a hop
 /// with: the Secret-provider driver's own error, or `setting_invalid`.
-fn client_certificate_failure(failure: ClientCertificateFailure) -> TransportFailure {
-    let error = match &failure {
+fn client_certificate_failure(failure: &ClientCertificateFailure) -> TransportFailure {
+    let error = match failure {
         ClientCertificateFailure::Secret(secret) => Some(secret_error(secret)),
         _ => failure.setting_invalid(),
     };

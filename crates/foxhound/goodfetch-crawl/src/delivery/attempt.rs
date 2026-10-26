@@ -990,10 +990,6 @@ fn failed(error: &CallError) -> Answer {
 /// `lease`, with the `certificate_exception` its document's host was
 /// reached through (ADR 0042), for the Provenance of each Record the
 /// attempt commits.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each is one part of how the attempt fetched its document"
-)]
 async fn record_tier(
     run: &Run,
     leased: &Leased,

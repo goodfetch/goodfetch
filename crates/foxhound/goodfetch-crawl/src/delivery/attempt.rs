@@ -100,9 +100,8 @@ use goodfetch_session_pool::Effect;
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
 
-use crate::lease::{CommitError, WorkItemLease};
+use crate::lease::{CommitError, SoFar, WorkItemLease};
 use crate::progress::SharedInFlight;
-use crate::staging::SoFar;
 use crate::tier_choice::weighing::{self, StagedRun};
 use crate::tier_choice::{AttemptPlan, Sampled, Weighed};
 use crate::tier_race::Raced;

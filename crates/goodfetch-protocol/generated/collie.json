@@ -1027,6 +1027,42 @@
         }
       ]
     },
+    "Contacts": {
+      "additionalProperties": false,
+      "description": "The contacts the page shows, each value once, where it first appears.",
+      "properties": {
+        "emails": {
+          "arrived_in": "0.1",
+          "description": "Its e-mail addresses, from `mailto:` links and from text matching\nthe HTML Standard's valid e-mail address syntax.",
+          "items": {
+            "$ref": "#/$defs/Email"
+          },
+          "type": "array"
+        },
+        "phones": {
+          "arrived_in": "0.1",
+          "description": "Its telephone numbers, from `tel:` links and from text.",
+          "items": {
+            "$ref": "#/$defs/Phone"
+          },
+          "type": "array"
+        },
+        "social": {
+          "arrived_in": "0.1",
+          "description": "Its social profiles, from links to the extractor's list of networks.",
+          "items": {
+            "$ref": "#/$defs/SocialProfile"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "emails",
+        "phones",
+        "social"
+      ],
+      "type": "object"
+    },
     "Count": {
       "additionalProperties": false,
       "description": "A count of matches, bounded on either side or both: an exact count is\nboth bounds.",
@@ -1530,6 +1566,27 @@
         }
       ]
     },
+    "Email": {
+      "additionalProperties": false,
+      "description": "An e-mail address the page shows.",
+      "properties": {
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The text it was read from: its `mailto:` link's text, else the\naddress as the text writes it.",
+          "type": "string"
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The address.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "text"
+      ],
+      "type": "object"
+    },
     "EndingError": {
       "description": "An Error code a Run's ending raises, with its message and details.",
       "properties": {
@@ -1943,6 +2000,18 @@
       "additionalProperties": false,
       "description": "The formats a `page.formats` call asks for, each `true` or its options:\none value, which a Record can carry and a Dataset's schema can be\ngenerated from (ADR 0103). A format left out is left out of the result.",
       "properties": {
+        "contacts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Asked"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The e-mail addresses, telephone numbers and social profiles the\npage shows."
+        },
         "html": {
           "anyOf": [
             {
@@ -2002,6 +2071,18 @@
           ],
           "arrived_in": "0.1",
           "description": "The page's video and audio sources, each with its URL resolved."
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Asked"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page's metadata: its title, description, canonical URL,\nlanguage, Open Graph and Twitter tags, JSON-LD blocks and microdata\nitems."
         },
         "tables": {
           "anyOf": [
@@ -3119,6 +3200,162 @@
       ],
       "type": "object"
     },
+    "MetaTag": {
+      "additionalProperties": false,
+      "description": "One `<meta>` tag of a vocabulary, Open Graph's or Twitter's, in\ndocument order: a property a page writes more than once, such as\n`og:image`, is listed once per tag.",
+      "properties": {
+        "content": {
+          "arrived_in": "0.1",
+          "description": "Its `content`.",
+          "type": "string"
+        },
+        "property": {
+          "arrived_in": "0.1",
+          "description": "Its `property`, else its `name`, as written, such as `og:title`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "property",
+        "content"
+      ],
+      "type": "object"
+    },
+    "Metadata": {
+      "additionalProperties": false,
+      "description": "The page's metadata, each value as the document writes it.",
+      "properties": {
+        "canonical": {
+          "arrived_in": "0.1",
+          "description": "Its `<link rel=\"canonical\">`'s `href` resolved against the base URL;\n`null` when it has none or it does not parse.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "arrived_in": "0.1",
+          "description": "Its `<meta name=\"description\">`'s content; `null` when it has none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "json_ld": {
+          "arrived_in": "0.1",
+          "description": "Each `<script type=\"application/ld+json\">` block that parses, as\nJSON, in document order.",
+          "items": true,
+          "type": "array"
+        },
+        "lang": {
+          "arrived_in": "0.1",
+          "description": "Its root element's `lang`; `null` when it has none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "meta": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Its `<meta name>` tags other than Open Graph's and Twitter's, by name\nin lower case, the first of a name kept.",
+          "type": "object"
+        },
+        "microdata": {
+          "arrived_in": "0.1",
+          "description": "Its top-level microdata items, in tree order.",
+          "items": {
+            "$ref": "#/$defs/MicrodataItem"
+          },
+          "type": "array"
+        },
+        "open_graph": {
+          "arrived_in": "0.1",
+          "description": "Its Open Graph tags: every `<meta property>` not named `twitter:`,\nand every `<meta name>` named `og:`.",
+          "items": {
+            "$ref": "#/$defs/MetaTag"
+          },
+          "type": "array"
+        },
+        "title": {
+          "arrived_in": "0.1",
+          "description": "Its first `<title>`'s text, white space collapsed; `null` when it\nhas none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "twitter": {
+          "arrived_in": "0.1",
+          "description": "Its Twitter tags, those named `twitter:`.",
+          "items": {
+            "$ref": "#/$defs/MetaTag"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "open_graph",
+        "twitter",
+        "json_ld",
+        "microdata",
+        "meta"
+      ],
+      "type": "object"
+    },
+    "MicrodataItem": {
+      "additionalProperties": false,
+      "description": "A microdata item (the HTML Standard's microdata), as its JSON\nconversion writes it, with every field given.",
+      "properties": {
+        "id": {
+          "arrived_in": "0.1",
+          "description": "Its `itemid`, resolved against the document's base URL; `null` when\nit has none or it does not parse.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "properties": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/MicrodataValue"
+            },
+            "type": "array"
+          },
+          "arrived_in": "0.1",
+          "description": "Its properties, by name, each name's values in tree order.",
+          "type": "object"
+        },
+        "type": {
+          "arrived_in": "0.1",
+          "description": "Its `itemtype` tokens; empty when it has none.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "type",
+        "properties"
+      ],
+      "type": "object"
+    },
+    "MicrodataValue": {
+      "anyOf": [
+        {
+          "description": "Text: the element's content, value or resolved URL, as the HTML\nStandard reads each element.",
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/MicrodataItem",
+          "description": "An item, the element having `itemscope`."
+        }
+      ],
+      "description": "The value of a microdata property: text, or an item of its own."
+    },
     "ModelAllowance": {
       "description": "One kind of a Run's Model allowance (ADR 0107): the most model Usage\nof that kind the Run may spend, past which its model calls are refused\nwhile it goes on.",
       "properties": {
@@ -3936,6 +4173,11 @@
           "description": "The URL its relative URLs resolve against: its first `<base href>`,\nelse its URL.",
           "type": "string"
         },
+        "contacts": {
+          "$ref": "#/$defs/Contacts",
+          "arrived_in": "0.1",
+          "description": "Its contacts, when the request asked for them."
+        },
         "html": {
           "arrived_in": "0.1",
           "description": "Its HTML of the kind the request named, when it asked for it.",
@@ -3974,6 +4216,11 @@
             "$ref": "#/$defs/Media"
           },
           "type": "array"
+        },
+        "metadata": {
+          "$ref": "#/$defs/Metadata",
+          "arrived_in": "0.1",
+          "description": "Its metadata, when the request asked for it."
         },
         "tables": {
           "arrived_in": "0.1",
@@ -4441,6 +4688,35 @@
           "type": "string"
         }
       ]
+    },
+    "Phone": {
+      "additionalProperties": false,
+      "description": "A telephone number the page shows.",
+      "properties": {
+        "e164": {
+          "arrived_in": "0.1",
+          "description": "The number in E.164, such as `+33123456789`, when it carries its\ncountry code or the document's language tag carries a region, and\nit is a valid number there; `null` otherwise, as no country is\nguessed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The text it was read from: its `tel:` link's text, else the number\nas the text writes it.",
+          "type": "string"
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The number as written: its `tel:` link's number, else the text's.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "text"
+      ],
+      "type": "object"
     },
     "PlanReport": {
       "description": "What a Run did with its Plan file (ADR 0091).",
@@ -7509,6 +7785,78 @@
         "person",
         "created",
         "last_used"
+      ],
+      "type": "object"
+    },
+    "SocialNetwork": {
+      "description": "A social network whose profiles the page links to.",
+      "oneOf": [
+        {
+          "const": "x",
+          "description": "X, formerly Twitter.",
+          "type": "string"
+        },
+        {
+          "const": "linkedin",
+          "description": "`LinkedIn`.",
+          "type": "string"
+        },
+        {
+          "const": "facebook",
+          "description": "Facebook.",
+          "type": "string"
+        },
+        {
+          "const": "instagram",
+          "description": "Instagram.",
+          "type": "string"
+        },
+        {
+          "const": "youtube",
+          "description": "`YouTube`.",
+          "type": "string"
+        },
+        {
+          "const": "tiktok",
+          "description": "`TikTok`.",
+          "type": "string"
+        },
+        {
+          "const": "github",
+          "description": "`GitHub`.",
+          "type": "string"
+        },
+        {
+          "const": "mastodon",
+          "description": "A Mastodon instance's profile, linked with `rel=\"me\"`.",
+          "type": "string"
+        }
+      ]
+    },
+    "SocialProfile": {
+      "additionalProperties": false,
+      "description": "A social profile the page links to.",
+      "properties": {
+        "network": {
+          "$ref": "#/$defs/SocialNetwork",
+          "arrived_in": "0.1",
+          "description": "Its network."
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "Its link's text, white space collapsed.",
+          "type": "string"
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The profile's URL, resolved against the document's base URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "text",
+        "network"
       ],
       "type": "object"
     },

@@ -10,6 +10,7 @@
 
 mod blocks;
 mod character_references;
+mod contacts;
 mod extractor;
 mod formats;
 mod light;
@@ -18,6 +19,8 @@ mod markdown;
 mod references;
 mod shadow;
 mod signature;
+mod social;
+mod structured_data;
 mod tables;
 
 pub use extractor::{BuiltIn, Extractor};
@@ -25,3 +28,4 @@ pub use formats::{
     CleanUp, Context, Document, Serialization, formats, fuzz_formats, main_content_length,
 };
 pub use signature::page_signature;
+pub use social::SOCIAL_NETWORKS_VERSION;

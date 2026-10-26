@@ -12,6 +12,7 @@ import { promisify } from "node:util";
 import type { SettingsExplanation } from "@goodfetch/collie-client/generated";
 import { expect, test, type ServedDaemon } from "@goodfetch/test-support/playwright";
 import type { Page } from "@playwright/test";
+import { effectiveSettings, settingRow } from "#tests/effective-settings.ts";
 
 const run = promisify(execFile);
 
@@ -68,8 +69,7 @@ const LAYERS: Readonly<Record<string, string>> = {
 /** What the screen's row of each key shows: its value, the layer that set it and the layer that locked it. */
 async function shown(page: Page): Promise<Record<string, readonly string[]>> {
   const rows: Record<string, readonly string[]> = {};
-  const settings = page
-    .getByRole("grid", { name: "Effective settings" })
+  const settings = effectiveSettings(page)
     .getByRole("row")
     .filter({ has: page.getByRole("rowheader") });
   for (const row of await settings.all()) {
@@ -95,13 +95,13 @@ test(
     await signIn.withLink(page);
     await page.goto(new URL("/settings", daemon.url).href);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Engine & settings");
-    await expect(page.getByRole("grid", { name: "Effective settings" })).toBeVisible();
+    await expect(effectiveSettings(page)).toBeVisible();
     await page.getByLabel("Project configuration").setInputFiles(project);
     await page.getByLabel("Run values").fill("timeout.run = 600000");
     await page.getByRole("button", { name: "Explain" }).click();
-    await expect(
-      page.getByRole("row").filter({ hasText: "timeout.run" }).getByRole("gridcell").first(),
-    ).toHaveText("600000");
+    await expect(settingRow(page, "timeout.run").getByRole("gridcell").first()).toHaveText(
+      "600000",
+    );
 
     const expected = Object.fromEntries(
       cli.settings.map((setting) => [
@@ -136,7 +136,7 @@ test(
       ["10000", "Project configuration", "Not locked"],
       ["600000", "Run", "Not locked"],
     ]);
-    await expect(page.getByRole("row").filter({ hasText: "crawl.retry.max" })).toContainText(
+    await expect(settingRow(page, "crawl.retry.max")).toContainText(
       "Foxhound's setting, not applied by this engine",
     );
   },

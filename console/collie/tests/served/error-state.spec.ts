@@ -6,6 +6,7 @@
 // a Turkish browser in Nepal's time zone and under emulated page
 // translation (ADR 0073).
 import { expect, test } from "@goodfetch/test-support/playwright";
+import { effectiveSettings } from "#tests/effective-settings.ts";
 
 test(
   "a refused explanation shows the catalog's message for its Error code, its fields as data",
@@ -18,7 +19,7 @@ test(
   async ({ page, daemon, signIn }) => {
     await signIn.withLink(page);
     await page.goto(new URL("/settings", daemon.url).href);
-    await expect(page.getByRole("table")).toBeVisible();
+    await expect(effectiveSettings(page)).toBeVisible();
 
     await page.getByLabel("Run values").fill("timeout.navigation_ = 1000");
     await page.getByRole("button", { name: "Explain" }).click();

@@ -95,6 +95,16 @@ impl Foreground {
         }
     }
 
+    /// Its next line on stdout, which must be one JSON document.
+    pub(crate) fn first_line(&mut self) -> Value {
+        let line = self
+            .lines
+            .recv_timeout(LOG_DEADLINE)
+            .unwrap_or_else(|_| panic!("no line on its stdout: {:#?}", self.logged));
+        self.logged.push(line.clone());
+        serde_json::from_str(&line).unwrap()
+    }
+
     /// The fields of the first log record from here on whose message is
     /// `message`.
     pub(crate) fn record(&mut self, message: &str) -> Value {

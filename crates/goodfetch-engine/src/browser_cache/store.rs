@@ -231,6 +231,22 @@ pub(super) fn install(
     }
 }
 
+/// The bytes the files under `folder` take, its subfolders' included;
+/// links are counted as themselves, never followed.
+pub(super) fn bytes(folder: &Path) -> io::Result<u64> {
+    let mut total = 0;
+    for entry in fs::read_dir(folder)? {
+        let entry = entry?;
+        let metadata = fs::symlink_metadata(entry.path())?;
+        total += if metadata.is_dir() {
+            bytes(&entry.path())?
+        } else {
+            metadata.len()
+        };
+    }
+    Ok(total)
+}
+
 /// Moves `folder` out of the cache into `.deleting/`, then deletes it. A
 /// deletion cut off after the rename is finished by [`finish_deletions`].
 pub(super) fn delete(root: &Path, folder: &Path) -> io::Result<()> {

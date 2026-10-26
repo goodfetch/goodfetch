@@ -93,7 +93,7 @@ fn cache_in(env: &TestEnv) -> BrowserCache {
     BrowserCache::new(&CacheLocation::new(env.home(), None))
 }
 
-/// Lays out `id`'s entry as `browsers install` leaves it, used at `used_at`.
+/// Lays out `id`'s entry as `browser install` leaves it, used at `used_at`.
 fn lay_out(cache: &BrowserCache, id: &ArtifactId, used_at: jiff::Timestamp) -> PathBuf {
     let folder = cache
         .root()
@@ -243,7 +243,7 @@ fn a_missing_build_under_offline_names_the_build_its_pin_and_the_setting() {
     assert_eq!(details.limit.layer, SettingsLayer::UserConfiguration);
     assert_eq!(
         details.fix,
-        "Run `goodfetch-collie browsers install` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set"
+        "Run `goodfetch-collie browser install` beforehand where the Browser cache is writable, or lift `egress.offline` where it was set"
     );
 }
 
@@ -327,7 +327,7 @@ fn a_missing_build_in_a_cache_the_engine_cannot_write_is_not_installed() {
     );
     assert_eq!(
         details.fix,
-        "Run `goodfetch-collie browsers install` where the Browser cache is writable, such as in the image's build, or point GOODFETCH_BROWSERS_PATH at a cache that holds it"
+        "Run `goodfetch-collie browser install` where the Browser cache is writable, such as in the image's build, or point GOODFETCH_BROWSERS_PATH at a cache that holds it"
     );
 }
 
@@ -636,6 +636,47 @@ fn a_dry_run_lists_what_it_would_delete_and_deletes_nothing() {
 
     assert_eq!(report.deleted, std::slice::from_ref(&old));
     assert!(entry_exists(&cache, &old));
+}
+
+/// Each entry the clean-up deletes, or would delete, comes with the bytes
+/// its folder takes, which `browser clean` reports as freed (spec #608).
+///
+/// Covers: story:11-296
+#[rstest]
+#[case::deleting(false)]
+#[case::dry_run(true)]
+fn the_clean_up_reports_the_bytes_each_entry_it_deletes_takes(#[case] dry_run: bool) {
+    let env = TestEnv::new();
+    let cache = cache_in(&env);
+    let old = browser("unpinned-and-unused");
+    let folder = lay_out(&cache, &old, days_before(&env, 31));
+    let bytes = folder_bytes(&folder);
+
+    let report = goodfetch_test_support::runtime()
+        .block_on(cache.clean_up(&clean_up_at(&env, BTreeSet::new(), dry_run)))
+        .unwrap();
+
+    assert_eq!(
+        (report.deleted.clone(), report.bytes_of(&old)),
+        (vec![old.clone()], Some(bytes))
+    );
+    assert!(bytes > 0);
+}
+
+/// The bytes of every file under `folder`.
+fn folder_bytes(folder: &Path) -> u64 {
+    fs::read_dir(folder)
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            let kind = entry.file_type().unwrap();
+            if kind.is_dir() {
+                folder_bytes(&entry.path())
+            } else {
+                entry.metadata().unwrap().len()
+            }
+        })
+        .sum()
 }
 
 /// Covers: story:3-140

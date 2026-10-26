@@ -67,7 +67,7 @@ class AddressFamilyUnavailableError(UnavailableError):
 
 
 class ArtifactDownloadFailedError(UnavailableError):
-    """A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browsers install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache."""
+    """A pinned download the call needed failed: the network, an HTTP status, or bytes whose digest is not the pinned one. Retry, or install beforehand with the Product's `browser install`, or point `GOODFETCH_BROWSERS_PATH` at a prepared cache."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
@@ -75,7 +75,7 @@ class ArtifactDownloadFailedError(UnavailableError):
 
 
 class ArtifactUnavailableOfflineError(RefusedError):
-    """The `offline` setting refused a pinned download the call needed. Run the Product's `browsers install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set."""
+    """The `offline` setting refused a pinned download the call needed. Run the Product's `browser install` beforehand where the cache is writable, point `GOODFETCH_BROWSERS_PATH` at a prepared cache, or lift `offline` where it was set."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
@@ -123,7 +123,7 @@ class BrowserLaunchFailedError(UnavailableError):
 
 
 class BrowserNotInstalledError(UnavailableError):
-    """The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browsers install` where the cache is writable, install the browser of that channel, or correct the path."""
+    """The browser build a launch needs is not in the Browser cache and the engine cannot write that cache, such as an image's read-only `GOODFETCH_BROWSERS_PATH`; or a browser named by channel or path is not there. Run the Product's `browser install` where the cache is writable, install the browser of that channel, or correct the path."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""

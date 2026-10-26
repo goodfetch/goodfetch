@@ -160,7 +160,13 @@ impl RawClient {
     /// whose `hello` carries `found`'s token.
     #[cfg(unix)]
     pub(crate) fn refused(found: &RuntimeFile) -> bool {
-        let mut client = Self::connected(&found.endpoint);
+        Self::refused_at(&found.endpoint, &found.token)
+    }
+
+    /// Whether the Daemon at `endpoint` closes, unanswered, a Connection
+    /// whose `hello` carries `token`.
+    pub(crate) fn refused_at(endpoint: &DaemonEndpoint, token: &str) -> bool {
+        let mut client = Self::connected(endpoint);
         client.send(&json!({
             "jsonrpc": "2.0",
             "id": 0,
@@ -168,7 +174,7 @@ impl RawClient {
             "params": {
                 "protocol_version": PROTOCOL_VERSION.to_string(),
                 "surface": "sdk_typescript",
-                "token": found.token,
+                "token": token,
                 "needs": "collie",
                 "product_version": VERSION,
             },
@@ -245,9 +251,9 @@ fn daemon_start_status_and_stop_run_one_daemon_of_the_major_under_goodfetch_home
     let stopped = json_of(COLLIE.as_ref(), &env, &["daemon", "stop", "--json"]);
     let after = json_of(COLLIE.as_ref(), &env, &["daemon", "status", "--json"]);
 
-    validate(&started, "DaemonStartOutput");
-    validate(&status, "DaemonStatusOutput");
-    validate(&stopped, "DaemonStopOutput");
+    validate(&started, "DaemonStatus");
+    validate(&status, "DaemonStatus");
+    validate(&stopped, "DaemonStatus");
     let copy = &installed_copy(&env);
     let installed: Value = serde_json::from_slice(
         &std::fs::read(env.home().join("installed-executables.json")).unwrap(),
@@ -255,35 +261,36 @@ fn daemon_start_status_and_stop_run_one_daemon_of_the_major_under_goodfetch_home
     .unwrap();
     assert_eq!(
         (
-            started["started"].clone(),
-            status["daemon"]["product"].clone(),
-            status["daemon"]["pid"].clone(),
+            started["pid"] == status["pid"],
+            status["product"].clone(),
+            status["pid"].clone(),
             found.version.as_str(),
             installed["executables"][0]["copy"]["kind"].clone(),
             copy.is_file(),
-            stopped,
-            after["daemon"].clone(),
+            stopped["pid"].clone(),
+            after["pid"].clone(),
         ),
         (
-            json!(true),
+            true,
             json!("collie"),
             json!(found.pid),
             VERSION,
             json!("executable_copy"),
             true,
-            json!({ "stopped": { "live_runs": 0 } }),
+            Value::Null,
             Value::Null,
         )
     );
 }
 
 /// With no service installed, `daemon uninstall` has nothing to remove and
-/// `daemon rotate-token` refuses, since a Daemon's token is new at each
-/// launch; neither touches a service manager.
+/// `daemon rotate-token` replaces the persistent token a foreground Daemon
+/// takes; neither touches a service manager.
 ///
 /// Covers: story:3-21, command:daemon.uninstall, command:daemon.rotate-token
 #[test]
-fn with_no_service_installed_uninstall_removes_nothing_and_no_token_rotates() {
+fn with_no_service_installed_uninstall_removes_nothing_and_rotate_token_replaces_the_persistent_token()
+ {
     let env = TestEnv::new();
 
     let uninstalled = json_of(COLLIE.as_ref(), &env, &["daemon", "uninstall", "--json"]);
@@ -294,25 +301,18 @@ fn with_no_service_installed_uninstall_removes_nothing_and_no_token_rotates() {
     let status = json_of(COLLIE.as_ref(), &env, &["daemon", "status", "--json"]);
 
     validate(&uninstalled, "DaemonUninstallOutput");
+    validate(
+        &serde_json::from_str(&rotated.stdout).unwrap(),
+        "TokenRotated",
+    );
     assert_eq!(
         (
             uninstalled,
             rotated.exit,
-            rotated.stdout.as_str(),
-            rotated
-                .stderr
-                .contains("no service with socket activation is installed"),
             status["service"].clone(),
             env.home().join("0.0").join("daemon.token").exists(),
         ),
-        (
-            json!({ "removed": null }),
-            Some(1),
-            "",
-            true,
-            Value::Null,
-            false,
-        )
+        (json!({ "removed": null }), Some(0), Value::Null, true)
     );
 }
 
@@ -357,14 +357,10 @@ fn two_starts_at_once_start_one_daemon() {
         .map(|child| serde_json::from_slice(&child.wait_with_output().unwrap().stdout).unwrap())
         .collect();
 
-    let mut started: Vec<bool> = outputs
-        .iter()
-        .map(|output| output["started"].as_bool().unwrap())
-        .collect();
-    started.sort_unstable();
+    let found = RuntimeFile::read(&runtime_file(&env)).unwrap();
     assert_eq!(
-        (started, outputs[0]["daemon"]["pid"].clone()),
-        (vec![false, true], outputs[1]["daemon"]["pid"].clone())
+        (outputs[0]["pid"].clone(), outputs[1]["pid"].clone()),
+        (json!(found.pid), json!(found.pid))
     );
 }
 
@@ -380,7 +376,7 @@ fn the_daemon_stops_once_no_client_was_connected_for_its_idle_timeout() {
     let after = json_of(COLLIE.as_ref(), &env, &["daemon", "status", "--json"]);
 
     assert_eq!(
-        (after["daemon"].clone(), runtime_file(&env).exists()),
+        (after["pid"].clone(), runtime_file(&env).exists()),
         (Value::Null, false)
     );
 }
@@ -412,10 +408,7 @@ fn daemon_launched_prints_its_runtime_file_once_it_serves_and_exits_0_when_stopp
     let exit = daemon.child().wait().unwrap().code();
     record_command(&env, &["daemon", "launched"], exit).unwrap();
 
-    assert_eq!(
-        (status["daemon"]["pid"].clone(), exit),
-        (json!(printed.pid), Some(0))
-    );
+    assert_eq!((status["pid"].clone(), exit), (json!(printed.pid), Some(0)));
 }
 
 /// A Daemon killed while a Client's Run is live leaves that Run's state
@@ -464,10 +457,10 @@ fn a_killed_daemon_leaves_its_run_resumable_and_a_runtime_file_the_next_start_re
         (
             lifecycle.as_str(),
             integrity.as_str(),
-            restarted["started"].clone(),
-            restarted["daemon"]["pid"] == json!(found.pid)
+            restarted["pid"].is_u64(),
+            restarted["pid"] == json!(found.pid)
         ),
-        ("running", "ok", json!(true), false)
+        ("running", "ok", true, false)
     );
 }
 
@@ -593,11 +586,8 @@ fn a_runtime_file_whose_daemon_died_is_replaced() {
     let started = json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
 
     assert_eq!(
-        (
-            started["started"].clone(),
-            started["daemon"]["pid"] == json!(dead.pid)
-        ),
-        (json!(true), false)
+        (started["pid"].is_u64(), started["pid"] == json!(dead.pid)),
+        (true, false)
     );
 }
 

@@ -19,25 +19,23 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 /// A home that holds no older major's files has nothing to upgrade, and
 /// `--json` prints so as one document of its type.
 ///
-/// Covers: story:3-96, command:upgrade-files
+/// Covers: story:3-96, story:11-214, command:upgrade-files
 #[test]
 fn upgrade_files_json_with_no_older_major_has_nothing_to_upgrade() {
     let env = TestEnv::new();
 
     let checked = cli(&env, COLLIE)
         .args(["upgrade-files", "--json"])
-        .json("UpgradeFilesOutput")
+        .json("FilesUpgraded")
         .unwrap();
 
     assert_cli_snapshot!(checked.output, @r#"
     exit: 0
     ----- stdout -----
     {
-      "copied": [],
-      "from": null,
-      "kept": [],
-      "to": "0.0",
-      "unchanged": []
+      "refused": [],
+      "unchanged": [],
+      "upgraded": []
     }
     ----- stderr -----
     "#);

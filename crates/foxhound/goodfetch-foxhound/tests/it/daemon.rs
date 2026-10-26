@@ -58,10 +58,7 @@ fn json_of(executable: &Path, env: &TestEnv, arguments: &[&str]) -> Value {
 /// The running Daemon's Product and PID, as `daemon status` says.
 fn running(env: &TestEnv) -> (Value, Value) {
     let status = json_of(FOXHOUND.as_ref(), env, &["daemon", "status", "--json"]);
-    (
-        status["daemon"]["product"].clone(),
-        status["daemon"]["pid"].clone(),
-    )
+    (status["product"].clone(), status["pid"].clone())
 }
 
 fn explain(executable: &Path, env: &TestEnv) -> goodfetch_test_support::CliOutput {
@@ -148,7 +145,7 @@ fn a_foxhound_installed_but_never_run_becomes_the_pick_when_the_fixs_daemon_rest
     drop(busy);
 
     assert_eq!(
-        (refused.exit, restarted["daemon"]["product"].clone()),
+        (refused.exit, restarted["product"].clone()),
         (Some(10), json!("foxhound")),
         "{}",
         refused.stderr

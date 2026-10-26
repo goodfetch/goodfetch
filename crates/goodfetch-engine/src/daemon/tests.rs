@@ -213,6 +213,49 @@ fn the_persistent_token_is_its_owners_alone_and_a_rotation_replaces_it() {
     );
 }
 
+/// The HTTP listener's token is a token of its own, its owner's alone,
+/// made once and replaced only by a rotation (spec #608).
+///
+/// Covers: story:11-214
+#[cfg(unix)]
+#[test]
+fn the_http_listener_token_is_its_owners_alone_and_a_rotation_replaces_it() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let env = TestEnv::new();
+    let files = DaemonFiles::of(
+        &Home::new(env.home().to_owned()),
+        &ProductVersion::parse("1.5.0").unwrap(),
+    );
+
+    let first = files.http_listener_token().unwrap();
+    let again = files.http_listener_token().unwrap();
+    let persistent = files.persistent_token().unwrap();
+    let rotated = files.rotate_http_listener_token().unwrap();
+    let mode = std::fs::metadata(files.http_listener_token_file())
+        .unwrap()
+        .permissions()
+        .mode();
+
+    assert_eq!(
+        (
+            first == again,
+            first == persistent,
+            rotated == first,
+            files.http_listener_token().unwrap() == rotated,
+            files.http_listener_token_file(),
+            mode & 0o777,
+        ),
+        (
+            true,
+            false,
+            false,
+            true,
+            env.home().join("1").join("http-listener.token"),
+            0o600
+        )
+    );
+}
+
 /// A service's socket stays where its service manager listens across
 /// starts: in the major's folder when its path is short enough, otherwise
 /// in a folder of the user's own, named by that folder's path.

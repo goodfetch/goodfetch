@@ -9,7 +9,8 @@
 //! user configuration and the Operator policy, which
 //! `GOODFETCH_DAEMON_ADDRESS` and `GOODFETCH_DAEMON_DRAIN_GRACE` override
 //! unless the policy locks them; and its logs are JSON lines on stdout,
-//! which `main` set up. It listens for `SIGTERM` and `SIGINT` (Ctrl-C on
+//! which `main` set up; under `--json` its `DaemonStatus` comes first,
+//! once it listens. It listens for `SIGTERM` and `SIGINT` (Ctrl-C on
 //! Windows) before it listens for Clients, and on either it drains: it
 //! takes no run, checkpoints each live run as resumable and exits within
 //! `daemon.drain_grace`. On Linux it runs under its own reaper (the
@@ -29,6 +30,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_cli::output;
 use goodfetch_engine::browser_cache::{
     BrowserChoice, BrowserSource, CacheLocation, Pins, Platform, browser_source, entry_present,
 };
@@ -41,7 +43,9 @@ use goodfetch_engine::settings::{Resolved, SettingsError};
 use goodfetch_engine::transport::{Network, listen_ops};
 use goodfetch_engine::{Dependencies, Engine, Identity};
 use goodfetch_protocol::browser_cache::PinnedBy;
-use goodfetch_protocol::daemon::{ADDRESS, DRAIN_GRACE, DaemonEndpoint, IDLE_TIMEOUT};
+use goodfetch_protocol::daemon::{
+    ADDRESS, DRAIN_GRACE, DaemonEndpoint, DaemonStatus, IDLE_TIMEOUT,
+};
 use goodfetch_protocol::ops::{ADDRESS as OPS_ADDRESS, OTLP_METRICS_ENDPOINT};
 use goodfetch_protocol::settings::{SETTING_INVALID, SETTING_LOCKED, SettingsLayer};
 use tokio_util::sync::CancellationToken;
@@ -95,6 +99,7 @@ pub(in crate::executable) fn run(
     engine: &Engine,
     dependencies: Dependencies,
     machine: &Machine<'_>,
+    json: bool,
 ) -> ExitCode {
     let identity = engine.identity();
     let configured = match configured(machine) {
@@ -165,6 +170,7 @@ pub(in crate::executable) fn run(
                 DaemonEndpoint::Unix(_) => None,
             },
         };
+        announce(json, machine, identity, pid, &endpoint);
         tracing::info!(
             %endpoint,
             pid,
@@ -200,6 +206,30 @@ pub(in crate::executable) fn run(
         }
         Err(exit) => exit,
     }
+}
+
+/// Under `--json`, prints the Daemon's `DaemonStatus` once it listens at
+/// `endpoint`, before its first log line, as a container's tooling reads
+/// it: no Console, and no service, which a foreground Daemon never has.
+fn announce(
+    json: bool,
+    machine: &Machine<'_>,
+    identity: &Identity,
+    pid: u32,
+    endpoint: &DaemonEndpoint,
+) {
+    if !json {
+        return;
+    }
+    output::json(&DaemonStatus {
+        pid: Some(pid),
+        major: machine.major(),
+        product: Some(identity.product),
+        version: Some(identity.product_version.clone()),
+        address: Some(endpoint.to_string()),
+        console_url: None,
+        service: None,
+    });
 }
 
 /// The tokens the foreground Daemon takes: its Clients' persistent token,

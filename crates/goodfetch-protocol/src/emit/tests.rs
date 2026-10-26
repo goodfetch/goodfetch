@@ -307,20 +307,22 @@ fn the_bundle_holds_each_commands_json_output() {
     assert_eq!(
         emitted.bundle["outputs"],
         json!({
-            "browsers.clean": { "$ref": "#/$defs/BrowsersCleanOutput" },
-            "browsers.install": { "$ref": "#/$defs/BrowsersInstallOutput" },
+            "browser.clean": { "$ref": "#/$defs/BrowserCleaned" },
+            "browser.install": { "$ref": "#/$defs/BrowserInstalled" },
             "config.explain": { "$ref": "#/$defs/SettingsExplanation" },
             "console": { "$ref": "#/$defs/ConsoleOpened" },
             "daemon.health": { "$ref": "#/$defs/DaemonHealthOutput" },
-            "daemon.install": { "$ref": "#/$defs/DaemonInstallOutput" },
-            "daemon.restart": { "$ref": "#/$defs/DaemonStartOutput" },
-            "daemon.rotate-token": { "$ref": "#/$defs/DaemonRotateTokenOutput" },
-            "daemon.start": { "$ref": "#/$defs/DaemonStartOutput" },
-            "daemon.status": { "$ref": "#/$defs/DaemonStatusOutput" },
-            "daemon.stop": { "$ref": "#/$defs/DaemonStopOutput" },
+            "daemon.http-listener-token": { "$ref": "#/$defs/HttpListenerToken" },
+            "daemon.install": { "$ref": "#/$defs/DaemonStatus" },
+            "daemon.restart": { "$ref": "#/$defs/DaemonStatus" },
+            "daemon.rotate-token": { "$ref": "#/$defs/TokenRotated" },
+            "daemon.run": { "$ref": "#/$defs/DaemonStatus" },
+            "daemon.start": { "$ref": "#/$defs/DaemonStatus" },
+            "daemon.status": { "$ref": "#/$defs/DaemonStatus" },
+            "daemon.stop": { "$ref": "#/$defs/DaemonStatus" },
             "daemon.uninstall": { "$ref": "#/$defs/DaemonUninstallOutput" },
             "runs.reindex": { "$ref": "#/$defs/RunsReindexOutput" },
-            "upgrade-files": { "$ref": "#/$defs/UpgradeFilesOutput" },
+            "upgrade-files": { "$ref": "#/$defs/FilesUpgraded" },
         })
     );
 }

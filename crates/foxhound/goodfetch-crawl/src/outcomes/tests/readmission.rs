@@ -106,7 +106,18 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
         let epoch = leased.lease_epoch;
         let ended = match end(index) {
             First::Succeeds => {
-                work_items::commit(connection, id, epoch, &Checked::default(), &ended_at())
+                let ended_at = ended_at();
+                work_items::commit(
+                    connection,
+                    id,
+                    epoch,
+                    work_items::Committed {
+                        records: &Checked::default(),
+                        fetched: &work_items::Fetched::default(),
+                        masks: &goodfetch_engine::mask::Masks::new(),
+                        ended_at: &ended_at,
+                    },
+                )
             }
             First::Fails => work_items::end(
                 connection,

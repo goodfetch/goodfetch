@@ -51,6 +51,9 @@ use goodfetch_protocol::foxhound::fetch::{
     FetchTier, REDIRECT_MAX_LIMIT,
 };
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
+use goodfetch_protocol::foxhound::provenance::{
+    EncodingProvenance, EncodingSource, ForcedBy, TierChosen, TierProvenance,
+};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{BodyHandle, Navigated, PageId, PageResponse, SessionId};
 use goodfetch_protocol::run::RunId;
@@ -656,14 +659,14 @@ impl FetchTiers {
     /// The encoding the served page `page_id`'s document was read in and
     /// where it came from, as Provenance records them (ADR 0119); `None`
     /// for a page holding no document, or once it closed.
-    pub fn encoding(&self, page_id: &PageId) -> Option<DocumentEncoding> {
+    pub fn encoding(&self, page_id: &PageId) -> Option<EncodingProvenance> {
         lock(&self.served.pages)
             .open
             .get(page_id)
             .and_then(|page| page.read)
-            .map(|read| DocumentEncoding {
+            .map(|read| EncodingProvenance {
                 encoding: read.encoding.name().to_owned(),
-                source: Some(read.source.as_str()),
+                source: Some(read.source.provenance()),
             })
     }
 
@@ -1104,18 +1107,6 @@ impl HttpTier {
 /// Provenance's action for the tier a crawl request's attempt ran on.
 const FETCH_TIER_ACTION: &str = "fetch_tier";
 
-/// The encoding a crawl request's document was read in and where it came
-/// from, as Provenance records them (ADR 0119; pitfall H17).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DocumentEncoding {
-    /// Its WHATWG name, such as `Shift_JIS`.
-    pub encoding: String,
-    /// Where it came from: `bom`, `setting`, `header`, `meta`, `utf8` or
-    /// `detected`; `None` where the browser read the document by a rule
-    /// the engine did not see.
-    pub source: Option<&'static str>,
-}
-
 /// How an attempt's run came to be on its tier, for its Provenance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Chosen {
@@ -1132,14 +1123,39 @@ pub enum Chosen {
     Raced,
 }
 
-/// Records in `run`'s Provenance the tier `choice` names for an attempt of
-/// the crawl request `request_id` of `label`, and how it was chosen (ADR
+/// How `choice` came to fetch an attempt's document, as `how` says (ADR
 /// 0023): `forced`, with who forced it, the Run or the Label; `compared`
 /// under `auto`, the sample comparison's choice; `sample`, one run of a
-/// sample; `escalation` to the browser, naming the call the cheaper
-/// tier could not serve; or `race`, the winner of a tier race; and the
-/// `encoding` its document was read in, with where it came from (ADR
-/// 0119), when it read one.
+/// sample; `escalation` to the browser, naming the call the cheaper tier
+/// could not serve; or `race`, the winner of a tier race.
+pub fn tier_provenance(choice: &TierChoice, how: Chosen) -> TierProvenance {
+    let (chosen, call) = match how {
+        Chosen::AsChosen if choice.forced.is_some() => (TierChosen::Forced, None),
+        Chosen::AsChosen => (TierChosen::Compared, None),
+        Chosen::Sample(call) => (TierChosen::Sample, call),
+        Chosen::Escalated(call) => (TierChosen::Escalation, Some(call)),
+        Chosen::Raced => (TierChosen::Race, None),
+    };
+    TierProvenance {
+        tier: choice.tier,
+        chosen,
+        forced_by: choice.forced.as_ref().map(|forced| {
+            if forced.label.is_some() {
+                ForcedBy::Label
+            } else {
+                ForcedBy::Run
+            }
+        }),
+        call: call.map(str::to_owned),
+    }
+}
+
+/// Records in `run`'s Provenance the tier `tier` for an attempt of the
+/// crawl request `request_id` of `label`, as [`tier_provenance`] gives it,
+/// and the `encoding` its document was read in, with where it came from
+/// (ADR 0119), when it read one; a document the browser read only by its
+/// guess, after an escalation at `fetch.encoding`, is recorded as
+/// `detected`. Answers that encoding as recorded.
 ///
 /// # Cancel safety
 ///
@@ -1148,45 +1164,43 @@ pub async fn record_tier(
     run: &Run,
     request_id: &str,
     label: &str,
-    choice: &TierChoice,
-    how: Chosen,
-    encoding: Option<&DocumentEncoding>,
-) {
-    let (chosen, escalated) = match how {
-        Chosen::AsChosen => (choice.chosen(), None),
-        Chosen::Sample(call) => ("sample", call),
-        Chosen::Escalated(call) => ("escalation", Some(call)),
-        Chosen::Raced => ("race", None),
+    tier: &TierProvenance,
+    encoding: Option<EncodingProvenance>,
+) -> Option<EncodingProvenance> {
+    // The browser reads a document only a guess decodes with its own
+    // detector (ADR 0119).
+    let encoding = if tier.call.as_deref() == Some(ENCODING_CALL) {
+        encoding.map(|encoding| EncodingProvenance {
+            source: Some(EncodingSource::Detected),
+            ..encoding
+        })
+    } else {
+        encoding
     };
     let mut entry = serde_json::json!({
         "action": FETCH_TIER_ACTION,
         "crawl_request_id": request_id,
         "label": label,
-        "tier": choice.tier.as_str(),
-        "chosen": chosen,
+        "tier": tier.tier,
+        "chosen": tier.chosen,
     });
-    if let Some(forced) = &choice.forced {
-        entry["forced_by"] = serde_json::json!(if forced.label.is_some() {
-            "label"
-        } else {
-            "run"
-        });
+    if let Some(forced_by) = tier.forced_by {
+        entry["forced_by"] = serde_json::json!(forced_by);
     }
-    if let Some(encoding) = encoding {
+    if let Some(encoding) = &encoding {
         entry["encoding"] = serde_json::json!(encoding.encoding);
         if let Some(source) = encoding.source {
             entry["encoding_source"] = serde_json::json!(source);
         }
     }
-    if let Some(call) = escalated {
+    if let Some(call) = &tier.call {
         entry["call"] = serde_json::json!(call);
-        // The browser reads a document only a guess decodes with its own
-        // detector (ADR 0119).
-        if call == ENCODING_CALL {
-            entry["encoding_source"] = serde_json::json!("detected");
+        if call == ENCODING_CALL && encoding.is_none() {
+            entry["encoding_source"] = serde_json::json!(EncodingSource::Detected);
         }
     }
     goodfetch_page::provenance(run, &entry).await;
+    encoding
 }
 
 /// Provenance's action for a race of a crawl request's tiers.

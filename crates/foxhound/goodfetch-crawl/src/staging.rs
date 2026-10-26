@@ -5,6 +5,10 @@
 //! write that commits the Records of its answer and its work item's
 //! success, or are discarded once it ends any other way, so
 //! a failed, retried or escalated attempt leaves no stray link, seed or key.
+//! Beside them it keeps how its run's document was fetched, the tier and
+//! the encoding, which the Provenance of each Record it commits names
+//! (ADR 0123); a run that restages, an escalation or a sample's browser
+//! run, records its own.
 //! Nothing staged reaches the run file before that commit, so a crash
 //! between the staging and the commit leaves the Frontier as the last
 //! commit left it.
@@ -37,7 +41,7 @@ use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, EFFECT_STAGING_REFUSED}
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 
-use crate::work_items::Positions;
+use crate::work_items::{Fetched, Positions};
 
 /// An admission through the Frontier that an attempt staged, run again at
 /// each later staging of the attempt and at its commit.
@@ -60,6 +64,7 @@ struct Entry {
     admitted: Vec<Admitted>,
     records: Checked,
     writes: Vec<StagedWrite>,
+    fetched: Fetched,
     /// How many declared Effects' bodies run in it.
     effects: u32,
 }
@@ -78,6 +83,7 @@ pub(crate) struct Staged {
     admitted: Vec<Admitted>,
     records: Checked,
     writes: Vec<StagedWrite>,
+    fetched: Fetched,
 }
 
 impl Staged {
@@ -91,6 +97,11 @@ impl Staged {
             (admitted.admission)(connection, &mut positions)?;
         }
         Ok(&self.writes)
+    }
+
+    /// How the attempt's run fetched its document.
+    pub(crate) fn fetched(&self) -> &Fetched {
+        &self.fetched
     }
 
     /// The Records the attempt pushed, in order.
@@ -147,8 +158,18 @@ impl Staging {
                 admitted: entry.admitted,
                 records: entry.records,
                 writes: entry.writes,
+                fetched: entry.fetched,
             })
             .unwrap_or_default()
+    }
+
+    /// Notes how the attempt of `work_item` under `lease_epoch` fetched its
+    /// run's document, in place of what an earlier run of it noted; nothing
+    /// once the attempt ended.
+    pub(crate) fn fetched(&self, work_item: &str, lease_epoch: u64, fetched: Fetched) {
+        if let Some(entry) = self.entries().get_mut(&(work_item.to_owned(), lease_epoch)) {
+            entry.fetched = fetched;
+        }
     }
 
     /// Notes that a declared Effect's body begins in the attempt, which

@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::io::{IsTerminal as _, Write as _};
 
+use goodfetch_protocol::cli::CommandFailed;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use serde::Serialize;
@@ -59,6 +60,25 @@ pub fn json(value: &impl Serialize) {
 /// which never reaches stdout.
 pub fn note(text: &str) {
     write_stderr(format!("{text}\n").as_bytes());
+}
+
+/// Prints a command's failure: under `--json` the [`CommandFailed`] on
+/// stdout, else as `human` shows it on stderr, its message, then `code`,
+/// `retryable` and its `fix` when it has one, each on a line of its own.
+pub fn failed(failed: &CommandFailed, json: bool, human: &Human) {
+    if json {
+        self::json(failed);
+        return;
+    }
+    let error = &failed.error;
+    let mut details = vec![
+        ("code", error.code.clone()),
+        ("retryable", error.retryable.to_string()),
+    ];
+    if let Some(fix) = error.details.get("fix").and_then(serde_json::Value::as_str) {
+        details.push(("fix", fix.to_owned()));
+    }
+    human.failure(&error.message, &details);
 }
 
 /// When human output is coloured: `--color auto|always|never`.

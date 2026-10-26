@@ -64,6 +64,14 @@ ignore = [
   # unreleased); removed with the release that carries it. Agent decision of
   # #616, pending owner review.
   { id = "RUSTSEC-2026-0374", reason = "build-time only, through age's i18n-embed-fl; removed by cargo-i18n#176's release" },
+  # atomic-polyfill, unmaintained: heapless 0.7's `cas` feature, which
+  # postcard 1.1's default `heapless-cas` turns on, and postcard is how the
+  # phonenumber crate stores libphonenumber's metadata (#787, the page
+  # formats' E.164). On every target the Products build for, which all have
+  # native atomics, atomic-polyfill only re-exports `core`'s atomics. Removed
+  # when phonenumber's postcard leaves heapless 0.7 or its `cas` feature.
+  # Agent decision of #787, pending owner review.
+  { id = "RUSTSEC-2023-0089", reason = "re-exports core atomics on every Product target; through phonenumber's postcard default heapless-cas; removed when that drops heapless 0.7's cas" },
 ]
 
 # Only crates.io; a git or other registry source fails until it is listed

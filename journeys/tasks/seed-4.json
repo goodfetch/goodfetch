@@ -650,6 +650,14 @@
       "start_url": "http://9.extraction.test/references"
     },
     {
+      "description": "Crawl every page the index links and return one Record per page with the fields `id` (the path the index links) and, as JSON objects: `metadata`, `{ \"title\", \"description\", \"canonical\", \"lang\", \"open_graph\", \"twitter\", \"json_ld\", \"microdata\", \"meta\" }`, the first `<title>`'s text, the `description` meta tag, the canonical link resolved, the root's `lang` (each `null` when absent), the Open Graph and Twitter meta tags as `{ \"property\", \"content\" }` in document order, each JSON-LD block as JSON, each top-level microdata item as `{ \"type\", \"id\", \"properties\" }` by the HTML Standard's JSON conversion, and every named meta tag neither Open Graph's nor Twitter's, by its name in lower case; and `contacts`, `{ \"emails\", \"phones\", \"social\" }`, each value once with the text it was read from (its link's text, else the value as written): e-mail addresses from `mailto:` links and text, telephone numbers from `tel:` links and text with `e164` only when the number carries its country code or the page's language tag has a region (a national number in text with neither is no number), and social profiles with their `network`. Each field is judged as a JSON value.",
+      "digest": "ced2798566e4d82c7422f92ab6d6fa083ebc4948cbf53676c5f770939e5c7814",
+      "family": "extraction",
+      "id": "extraction/10",
+      "kind": "crawl",
+      "start_url": "http://10.extraction.test/structured"
+    },
+    {
       "description": "Crawl every page the index links and return one Record per page, with the fields `id` (the last segment of its path), `title` and `text`, the text each page shows, in UTF-8.",
       "digest": "6ced4f5248fbc4bcb999d64476d625f70e78663dc76fd2daab562029987802f8",
       "family": "encodings",

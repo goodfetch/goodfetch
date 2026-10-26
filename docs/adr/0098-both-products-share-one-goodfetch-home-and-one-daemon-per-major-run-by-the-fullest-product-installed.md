@@ -143,4 +143,5 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
   - Area 12 (Console) builds one Console for both Products.
 
   Each lists this ADR.
+  > Note (agent decision, pending owner review), 2026-10-26, [#930](https://github.com/goodfetch/goodfetch/issues/930): until Foxhound's own Console build exists ([#1202](https://github.com/goodfetch/goodfetch/issues/1202)), Foxhound's executable embeds Collie's, from the same `console-build/` folder, so a Daemon Foxhound runs serves the same Console on the same port and an open Console survives a handover; #1202 replaces it with Foxhound's build. On Collie's engine, Collie's build shows each Foxhound view of a run that needs Foxhound as the `not_in_product` the engine answers to that view's operation, named from the catalog's list of the operations only Foxhound carries (`xtask codegen`'s `console/collie/src/generated/foxhound.ts`).
 - **Downstream.** [Apply the product-line decisions to the affected specs and tickets](https://github.com/goodfetch/goodfetch/issues/460) carries this decision into the specs of areas 3, 10, 11 and 12.

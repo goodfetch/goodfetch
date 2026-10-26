@@ -1,19 +1,22 @@
-//! TLS per host on reqwest, the transport of `standard` and `identified`
-//! Sessions (ADR 0042, pitfall H03's acceptance test on the HTTP tier,
-//! spec #565): the engine's rustls verifier decides each host between
-//! Mozilla's roots, the domain's `tls.trusted_cas` and its pin. Each
-//! invalid certificate of the Proving ground's `certificates` family ends
-//! the hop with `certificate_invalid`, not retryable, nothing sent, and
-//! passes under its domain's exception, the answer carrying the exception;
-//! a pinned host presenting another key ends with `certificate_changed`
-//! before any byte of the request goes, and so does every later hop to it;
-//! and each domain's client certificate goes to its own hosts alone.
+//! TLS per host on both HTTP transports (ADR 0042, pitfall H03's
+//! acceptance test on the HTTP tier, spec #565): reqwest, of `standard` and
+//! `identified` Sessions, and `wreq`, of HTTP-only `stealth` ones, whose
+//! custom verification runs during the handshake. The engine's verifier
+//! decides each host between Mozilla's roots, the domain's
+//! `tls.trusted_cas` and its pin. Each invalid certificate of the Proving
+//! ground's `certificates` family ends the hop with `certificate_invalid`,
+//! not retryable, nothing sent, and passes under its domain's exception,
+//! the answer carrying the exception; a pinned host presenting another key
+//! ends with `certificate_changed` after a handshake and before any byte of
+//! the request goes, and so does every later hop to it; `wreq`'s scopes
+//! present one fingerprint; and each domain's client certificate goes to
+//! its own hosts alone.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,7 +30,7 @@ use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionKind, PinBook, Trust, read_certificates,
 };
-use goodfetch_fetch_tier::{Hop, Reqwest, Reuse, Transport, TransportFailure};
+use goodfetch_fetch_tier::{Hop, HttpProfile, Reqwest, Reuse, Transport, TransportFailure, Wreq};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
@@ -36,7 +39,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use url::Url;
 
-use crate::{config, running_clock_runtime};
+use crate::{Stack, config, running_clock_runtime};
 
 /// Any seed: the `certificates` family is served on every one.
 const SEED: u64 = 679;
@@ -97,18 +100,19 @@ impl Fixture {
         .for_run(Duration::from_secs(30))
     }
 
-    /// reqwest for a Run: the Proving ground's authority, and those of
-    /// `others`, trusted for `scope.test` and `certificates.test`, each
-    /// domain of `excepted` listed in `tls.accept_invalid_certs`, and the
-    /// client certificates `client_certificates` lists, whose keys
-    /// `secrets` holds.
+    /// `stack`'s transport for a Run: the Proving ground's authority, and
+    /// those of `others`, trusted for `trusted`, each domain of `excepted`
+    /// listed in `tls.accept_invalid_certs`, and the client certificates
+    /// `client_certificates` lists, whose keys `secrets` holds.
     fn transport(
         &self,
+        stack: Stack,
         others: &[&ProvingGround],
+        trusted: &[&str],
         excepted: &Value,
         client_certificates: &Value,
         secrets: RunSecrets,
-    ) -> Reqwest {
+    ) -> Box<dyn Transport> {
         let mut config = config(&self.proving_ground, None, &[]);
         let authorities: Vec<_> = std::iter::once(&self.proving_ground)
             .chain(others.iter().copied())
@@ -121,7 +125,7 @@ impl Fixture {
                 read_certificates(&authority).unwrap()
             })
             .collect();
-        config.trust = [VERIFIED, "certificates.test"]
+        config.trust = trusted
             .iter()
             .fold(Trust::default_roots(), |trust, domain| {
                 trust.with_trusted_cas(domain, authorities.clone()).unwrap()
@@ -146,13 +150,24 @@ impl Fixture {
             )
             .unwrap(),
         );
-        Reqwest::new(config).unwrap()
+        match stack {
+            Stack::Reqwest => Box::new(Reqwest::new(config).unwrap()),
+            Stack::Wreq => Box::new(Wreq::new(config, HttpProfile::default()).unwrap()),
+        }
     }
 
-    /// reqwest listing `excepted` in `tls.accept_invalid_certs`, with no
-    /// client certificate.
-    fn excepting(&self, excepted: &Value) -> Reqwest {
-        self.transport(&[], excepted, &json!({}), self.secrets(BTreeMap::new()))
+    /// `stack`'s transport trusting the Proving ground's authority for
+    /// `scope.test` and `certificates.test`, listing `excepted` in
+    /// `tls.accept_invalid_certs`, with no client certificate.
+    fn excepting(&self, stack: Stack, excepted: &Value) -> Box<dyn Transport> {
+        self.transport(
+            stack,
+            &[],
+            &[VERIFIED, "certificates.test"],
+            excepted,
+            &json!({}),
+            self.secrets(BTreeMap::new()),
+        )
     }
 }
 
@@ -170,7 +185,7 @@ fn hop(proving_ground: &ProvingGround, host: &str) -> Hop {
 /// The status `transport` got for `hop`, and the exception its host was
 /// reached through, as its kind.
 async fn sent(
-    transport: &Reqwest,
+    transport: &dyn Transport,
     hop: &Hop,
 ) -> Result<(u16, Option<ExceptionKind>), TransportFailure> {
     transport.send(hop, Reuse::Allowed).await.map(|sent| {
@@ -191,7 +206,23 @@ fn requested(proving_ground: &ProvingGround) -> Vec<String> {
         .collect()
 }
 
-/// H03 on reqwest: each invalid certificate ends the hop with
+/// The server names of the TLS handshakes `proving_ground` saw, each with
+/// its JA4 fingerprint.
+fn handshakes(proving_ground: &ProvingGround) -> Vec<(String, String)> {
+    proving_ground.observations().unwrap()["tls_handshakes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|handshake| {
+            (
+                handshake["sni"].as_str().unwrap_or_default().to_owned(),
+                handshake["ja4"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// H03 on each transport: each invalid certificate ends the hop with
 /// `certificate_invalid` naming how it failed, not retryable, and nothing
 /// reaches the host; under its domain's exception the same hop is answered
 /// and carries the exception, the extra handshake its decision took
@@ -210,16 +241,17 @@ fn requested(proving_ground: &ProvingGround) -> Vec<String> {
 )]
 #[case::self_signed("self-signed.certificates.test", KnownCertificateFailure::SelfSigned)]
 fn an_invalid_certificate_ends_the_hop_unsent_and_passes_under_its_exception(
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
     #[case] host: &str,
     #[case] failure: KnownCertificateFailure,
 ) {
     let fixture = fixture();
-    let strict = fixture.excepting(&json!({}));
-    let excepting = fixture.excepting(&json!({ "certificates.test": null }));
+    let strict = fixture.excepting(stack, &json!({}));
+    let excepting = fixture.excepting(stack, &json!({ "certificates.test": null }));
     let (refused, verified, excepted) = running_clock_runtime().block_on(async {
-        let refused = sent(&strict, &hop(&fixture.proving_ground, host)).await;
-        let verified = sent(&strict, &hop(&fixture.proving_ground, VERIFIED)).await;
-        let excepted = sent(&excepting, &hop(&fixture.proving_ground, host)).await;
+        let refused = sent(&*strict, &hop(&fixture.proving_ground, host)).await;
+        let verified = sent(&*strict, &hop(&fixture.proving_ground, VERIFIED)).await;
+        let excepted = sent(&*excepting, &hop(&fixture.proving_ground, host)).await;
         (refused, verified, excepted)
     });
 
@@ -256,23 +288,26 @@ fn an_invalid_certificate_ends_the_hop_unsent_and_passes_under_its_exception(
 }
 
 /// A pinned host presenting another key ends the hop with
-/// `certificate_changed` before any byte of the request is sent, and every
-/// later hop to it in the Run is refused too, whichever server it reaches;
-/// the pinned server answered first, and a host no exception covers is
-/// still reached.
+/// `certificate_changed` during the handshake, before any byte of the
+/// request is sent: the regenerated server saw the handshake and no
+/// request. Every later hop to the host in the Run is refused too,
+/// whichever server it reaches; the pinned server answered first, and a
+/// host no exception covers is still reached.
 /// Covers: story:4-104, error:certificate_changed
-#[test]
-fn a_pinned_host_presenting_another_key_is_stopped_before_anything_is_sent() {
+#[rstest]
+#[case::reqwest(Stack::Reqwest)]
+#[case::wreq(Stack::Wreq)]
+fn a_pinned_host_presenting_another_key_is_stopped_before_anything_is_sent(#[case] stack: Stack) {
     let fixture = fixture();
     let regenerated = ProvingGround::start(&fixture.env, SEED + 1).unwrap();
-    let transport = fixture.excepting(&json!({ "certificates.test": null }));
+    let transport = fixture.excepting(stack, &json!({ "certificates.test": null }));
     let expired = "expired.certificates.test";
 
     let (pinned, changed, again, verified) = running_clock_runtime().block_on(async {
-        let pinned = sent(&transport, &hop(&fixture.proving_ground, expired)).await;
-        let changed = sent(&transport, &hop(&regenerated, expired)).await;
-        let again = sent(&transport, &hop(&fixture.proving_ground, expired)).await;
-        let verified = sent(&transport, &hop(&fixture.proving_ground, VERIFIED)).await;
+        let pinned = sent(&*transport, &hop(&fixture.proving_ground, expired)).await;
+        let changed = sent(&*transport, &hop(&regenerated, expired)).await;
+        let again = sent(&*transport, &hop(&fixture.proving_ground, expired)).await;
+        let verified = sent(&*transport, &hop(&fixture.proving_ground, VERIFIED)).await;
         (pinned, changed, again, verified)
     });
 
@@ -291,8 +326,70 @@ fn a_pinned_host_presenting_another_key_is_stopped_before_anything_is_sent() {
         );
     }
     assert_eq!(verified, Ok((200, None)));
-    assert_eq!(requested(&regenerated), Vec::<String>::new());
+    assert_eq!(
+        (
+            requested(&regenerated),
+            handshakes(&regenerated)
+                .into_iter()
+                .map(|(name, _)| name)
+                .collect::<Vec<_>>()
+        ),
+        (Vec::<String>::new(), vec![expired.to_owned()]),
+        "the changed key was seen in a handshake, and no request followed"
+    );
     assert_eq!(requested(&fixture.proving_ground), [expired, VERIFIED]);
+}
+
+/// Story 4-105: `wreq` keeps one client per trust scope of a Session, each
+/// presenting the same HTTP profile, so a site cannot tell which scope
+/// served it. Three hosts in three scopes (two domains with their own
+/// `tls.trusted_cas`, and one reached through its exception under the
+/// default roots) are each answered, and the JA4 fingerprints the Proving
+/// ground saw for them are one.
+/// Covers: story:4-105
+#[test]
+fn every_trust_scope_of_a_stealth_session_presents_one_fingerprint() {
+    let fixture = fixture();
+    let self_signed = "self-signed.certificates.test";
+    let transport = fixture.transport(
+        Stack::Wreq,
+        &[],
+        &[VERIFIED, "access.test"],
+        &json!({ "certificates.test": "any" }),
+        &json!({}),
+        fixture.secrets(BTreeMap::new()),
+    );
+
+    let answered = running_clock_runtime().block_on(async {
+        let mut answered = Vec::new();
+        for host in [VERIFIED, "1.access.test", self_signed] {
+            let sent = sent(&*transport, &hop(&fixture.proving_ground, host)).await;
+            answered.push(sent.map(|(_, exception)| exception));
+        }
+        answered
+    });
+
+    assert_eq!(
+        answered,
+        [Ok(None), Ok(None), Ok(Some(ExceptionKind::Any))],
+        "each scope's host answered, the last through its exception"
+    );
+    let seen = handshakes(&fixture.proving_ground);
+    let fingerprints: BTreeMap<&str, BTreeSet<&str>> =
+        seen.iter()
+            .fold(BTreeMap::new(), |mut by_host, (host, ja4)| {
+                by_host
+                    .entry(host.as_str())
+                    .or_default()
+                    .insert(ja4.as_str());
+                by_host
+            });
+    let all: BTreeSet<&str> = fingerprints.values().flatten().copied().collect();
+    assert_eq!(
+        (fingerprints.len(), all.len()),
+        (3, 1),
+        "one fingerprint across the scopes: {fingerprints:?}"
+    );
 }
 
 /// Story 4-34 on reqwest, which picks a client certificate without the
@@ -318,12 +415,19 @@ fn two_domains_with_different_client_certificates_are_routed_by_host() {
         MUTUAL: { "certificate": own.certificate.display().to_string(), "key": "env:OWN_KEY" },
         OTHER_MUTUAL: { "certificate": others.certificate.display().to_string(), "key": "env:OTHER_KEY" },
     });
-    let transport = fixture.transport(&[&other], &json!({}), &listed, fixture.secrets(environment));
+    let transport = fixture.transport(
+        Stack::Reqwest,
+        &[&other],
+        &[VERIFIED, "certificates.test"],
+        &json!({}),
+        &listed,
+        fixture.secrets(environment),
+    );
 
     let (mutual, other_mutual, crossed) = running_clock_runtime().block_on(async {
-        let mutual = sent(&transport, &hop(&fixture.proving_ground, MUTUAL)).await;
-        let other_mutual = sent(&transport, &hop(&other, OTHER_MUTUAL)).await;
-        let crossed = sent(&transport, &hop(&fixture.proving_ground, OTHER_MUTUAL)).await;
+        let mutual = sent(&*transport, &hop(&fixture.proving_ground, MUTUAL)).await;
+        let other_mutual = sent(&*transport, &hop(&other, OTHER_MUTUAL)).await;
+        let crossed = sent(&*transport, &hop(&fixture.proving_ground, OTHER_MUTUAL)).await;
         (mutual, other_mutual, crossed)
     });
 

@@ -8,6 +8,7 @@ version = "0.0.0"
 dependencies = [
  "dev-only-crate",
  "mpl-crate",
+ "patched-crate",
  "permissive-crate",
 ]
 
@@ -22,6 +23,10 @@ name = "mpl-crate"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2222222222222222222222222222222222222222222222222222222222222222"
+
+[[package]]
+name = "patched-crate"
+version = "1.2.0+goodfetch.1"
 
 [[package]]
 name = "permissive-crate"

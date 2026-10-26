@@ -69,12 +69,12 @@ const LAYERS: Readonly<Record<string, string>> = {
 async function shown(page: Page): Promise<Record<string, readonly string[]>> {
   const rows: Record<string, readonly string[]> = {};
   const settings = page
-    .getByRole("table", { name: "Effective settings" })
+    .getByRole("grid", { name: "Effective settings" })
     .getByRole("row")
     .filter({ has: page.getByRole("rowheader") });
   for (const row of await settings.all()) {
     const key = await row.getByRole("rowheader").textContent();
-    const cells = await row.getByRole("cell").allTextContents();
+    const cells = await row.getByRole("gridcell").allTextContents();
     rows[key ?? ""] = cells.slice(0, 3);
   }
   return rows;
@@ -95,12 +95,12 @@ test(
     await signIn.withLink(page);
     await page.goto(new URL("/settings", daemon.url).href);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Engine & settings");
-    await expect(page.getByRole("table", { name: "Effective settings" })).toBeVisible();
+    await expect(page.getByRole("grid", { name: "Effective settings" })).toBeVisible();
     await page.getByLabel("Project configuration").setInputFiles(project);
     await page.getByLabel("Run values").fill("timeout.run = 600000");
     await page.getByRole("button", { name: "Explain" }).click();
     await expect(
-      page.getByRole("row").filter({ hasText: "timeout.run" }).getByRole("cell").first(),
+      page.getByRole("row").filter({ hasText: "timeout.run" }).getByRole("gridcell").first(),
     ).toHaveText("600000");
 
     const expected = Object.fromEntries(

@@ -54,16 +54,16 @@ test(
     await signIn.withLink(page);
     await page.goto(new URL("/settings", daemon.url).href);
     const row = page
-      .getByRole("table", { name: "Effective settings" })
+      .getByRole("grid", { name: "Effective settings" })
       .getByRole("row")
       .filter({ has: page.getByRole("rowheader", { name: "timeout.navigation", exact: true }) });
-    await expect(row.getByRole("cell").nth(1)).toHaveText("Built-in default");
+    await expect(row.getByRole("gridcell").nth(1)).toHaveText("Built-in default");
     await row.getByRole("button", { name: "Edit user value of timeout.navigation" }).click();
     await row.getByLabel("The user-level value of timeout.navigation, as JSON").fill("45000");
     await row.getByRole("button", { name: "Save" }).click();
 
-    await expect(row.getByRole("cell").nth(1)).toHaveText("User configuration");
-    await expect(row.getByRole("cell").first()).toHaveText("45000");
+    await expect(row.getByRole("gridcell").nth(1)).toHaveText("User configuration");
+    await expect(row.getByRole("gridcell").first()).toHaveText("45000");
     // Every other byte of the test home's user configuration is kept.
     expect(await readFile(user, "utf8")).toBe(
       `${before}\n[settings.timeout]\nnavigation = 45000\n`,

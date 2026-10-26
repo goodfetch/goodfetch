@@ -7,7 +7,12 @@
 // and the worst storage level among the filesystems it writes to, with
 // that folder and its free space. A live run offers stop and checkpoint; an
 // interrupted or stopped run shows the command that resumes it, with
-// **Copy resume command**.
+// **Copy resume command**. It names the Product the run needs and, while
+// it is live, the engine that owns it (ADR 0098). On Collie's engine, a run
+// that needs Foxhound keeps these views in a tab of their own beside one
+// tab per Foxhound view, each showing the `not_in_product` its operation
+// answers, whose fix names Foxhound: Collie's build holds no Foxhound
+// screen.
 //
 // The page follows the run through `run.progress`, each read after the
 // position it last read, reading the run's Usage with each value and its
@@ -20,12 +25,14 @@ import type {
   HumanPause,
   Product,
   RunIndexRow,
+  RunOwner,
   RunProgress,
   RunReport,
   StorageLevel,
   Verdict,
 } from "@goodfetch/collie-client/generated";
 import { GoodfetchError } from "@goodfetch/collie-client/generated";
+import { Tabs } from "@base-ui/react/tabs";
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -33,10 +40,13 @@ import { useEffect, useReducer, useState, useSyncExternalStore, type ReactNode }
 import type { ConsoleClient } from "#client/client.ts";
 import { formatBytes, formatCount, formatInstant } from "#format.ts";
 import { ErrorMessage } from "#errors/error-message.tsx";
+import type { FoxhoundOperation } from "#generated/foxhound.ts";
 import type { OfflineCache } from "#offline/offline.ts";
 import { cachedRun } from "#offline/summaries.ts";
 import { RUNS } from "#routes.ts";
-import { COMPLETENESS_NAMES, LIFECYCLE_NAMES, VERDICT_NAMES } from "./names.ts";
+import { COMPLETENESS_NAMES, LIFECYCLE_NAMES, PRODUCT_NAMES, VERDICT_NAMES } from "./names.ts";
+import { FOXHOUND_VIEWS } from "./foxhound-views.ts";
+import { Owner } from "./owner.tsx";
 import { ReplayedMark, RunReportView } from "./run-report.tsx";
 
 /** A run's three axes (ADR 0029): its Verdict and Completeness once it ended. */
@@ -52,6 +62,8 @@ export interface ShownRun {
   readonly axes: RunAxisValues;
   /** The Product the run needs, whose executable resumes it. */
   readonly needs: Product;
+  /** While it is live, the engine that owns it, as its Run index row names it (ADR 0031). */
+  readonly owner?: RunOwner | null | undefined;
   /** Whether it spent, or reserved, money no Limit caps (ADR 0041). */
   readonly uncapped: boolean;
   /** Its Run report, once it ended and the engine answered it (ADR 0102). */
@@ -75,6 +87,16 @@ export type Notice =
   | { readonly kind: "copy_refused" }
   | { readonly kind: "refused"; readonly error: unknown };
 
+/** What a view only Foxhound carries shows on Collie's engine: the engine's answer to its operation. */
+export type FoxhoundViewRead =
+  | { readonly kind: "reading" }
+  /** The engine refused, as Collie's refuses with `not_in_product`. */
+  | { readonly kind: "refused"; readonly error: unknown }
+  | { readonly kind: "answered" };
+
+/** What each view only Foxhound carries shows, by its operation; one not yet answered is being read. */
+export type FoxhoundViewReads = Readonly<Partial<Record<FoxhoundOperation, FoxhoundViewRead>>>;
+
 /** What a run's page shows. */
 export interface RunPageViewProps {
   readonly runId: string;
@@ -87,6 +109,12 @@ export interface RunPageViewProps {
   readonly onStop?: (() => void) | undefined;
   readonly onCheckpoint?: (() => void) | undefined;
   readonly onCopy?: ((command: string) => void) | undefined;
+  /**
+   * For a run that needs Foxhound on Collie's engine, what each of its
+   * Foxhound views shows, each in a tab beside the views every run has;
+   * none puts the page in no tabs.
+   */
+  readonly foxhoundViews?: FoxhoundViewReads | undefined;
 }
 
 /** Each Product's executable, whose `run resume` resumes a run that needs it (ADR 0090). */
@@ -270,17 +298,28 @@ function Pauses({ pauses }: { readonly pauses: readonly HumanPause[] }): ReactNo
   );
 }
 
-/** Where the run is: its writer, run epoch, last Checkpoint, status line and storage level. */
-function Progress({ progress }: { readonly progress: RunProgress }): ReactNode {
+/** Where the run is: the Product it needs, its owning engine, writer, run epoch, last Checkpoint, status line and storage level. */
+function Progress({ run }: { readonly run: ShownRun }): ReactNode {
+  const { progress, owner } = run;
   const epoch = formatCount(progress.epoch);
+  const noEngine = <Trans>none: no engine works this run</Trans>;
   return (
     <dl className={listClassName}>
-      <Fact term={<Trans>Writer</Trans>}>
-        {progress.writer === "live" ? (
-          <Trans>live: an engine works this run</Trans>
+      <Fact term={<Trans>Product it needs</Trans>}>
+        <span translate="no">{PRODUCT_NAMES[run.needs]}</span>
+      </Fact>
+      <Fact term={<Trans>Owning engine</Trans>}>
+        {/* Keyed, so React replaces the element, never text nodes a page translator moved (react#11538). */}
+        {live(run) && owner !== undefined && owner !== null ? (
+          <span key="owner">
+            <Owner owner={owner} />
+          </span>
         ) : (
-          <Trans>none: no engine works this run</Trans>
+          <span key="none">{noEngine}</span>
         )}
+      </Fact>
+      <Fact term={<Trans>Writer</Trans>}>
+        {progress.writer === "live" ? <Trans>live: an engine works this run</Trans> : noEngine}
       </Fact>
       <Fact term={<Trans>Run epoch</Trans>}>
         <data value={String(progress.epoch)} translate="no">
@@ -411,6 +450,31 @@ function Actions({
   );
 }
 
+/** What a view only Foxhound carries shows on Collie's engine. */
+function FoxhoundViewPanel({ read }: { readonly read: FoxhoundViewRead }): ReactNode {
+  switch (read.kind) {
+    case "reading":
+      return (
+        <output className="block">
+          <Trans>Asking the engine…</Trans>
+        </output>
+      );
+    case "refused":
+      return <ErrorMessage error={read.error} />;
+    case "answered":
+      return (
+        <p>
+          <Trans>This engine carries this view, which Foxhound's Console shows.</Trans>
+        </p>
+      );
+    default:
+      return read satisfies never;
+  }
+}
+
+const tabClassName =
+  "rounded-t-md border-b-2 border-transparent px-3 py-1.5 font-medium focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none data-[active]:border-foreground";
+
 /**
  * The run's Lifecycle, in a live region a screen reader announces when it
  * changes (ADR 0073), out of sight beside the axes. Keyed by the Lifecycle,
@@ -433,11 +497,44 @@ function Announcement({
   );
 }
 
-/** The run, as the page read it. */
+/** The run, as the page read it: in tabs when it has views only Foxhound carries. */
 function Shown({
-  run,
+  foxhoundViews,
   ...props
 }: Omit<RunPageViewProps, "read"> & { readonly run: ShownRun }): ReactNode {
+  const { t, i18n } = useLingui();
+  if (foxhoundViews === undefined) {
+    return <CommonViews {...props} />;
+  }
+  return (
+    <Tabs.Root defaultValue="run" className="flex flex-col gap-4">
+      <Tabs.List aria-label={t`Run views`} className="flex flex-wrap gap-1 border-b">
+        <Tabs.Tab value="run" className={tabClassName}>
+          <Trans>Run</Trans>
+        </Tabs.Tab>
+        {FOXHOUND_VIEWS.map((view) => (
+          <Tabs.Tab key={view.operation} value={view.operation} className={tabClassName}>
+            {i18n._(view.name)}
+          </Tabs.Tab>
+        ))}
+      </Tabs.List>
+      <Tabs.Panel value="run" className="flex flex-col gap-6">
+        <CommonViews {...props} />
+      </Tabs.Panel>
+      {FOXHOUND_VIEWS.map((view) => (
+        <Tabs.Panel key={view.operation} value={view.operation} className={sectionClassName}>
+          <FoxhoundViewPanel read={foxhoundViews[view.operation] ?? { kind: "reading" }} />
+        </Tabs.Panel>
+      ))}
+    </Tabs.Root>
+  );
+}
+
+/** The views every run has. */
+function CommonViews({
+  run,
+  ...props
+}: Omit<RunPageViewProps, "read" | "foxhoundViews"> & { readonly run: ShownRun }): ReactNode {
   return (
     <>
       {run.report?.recording?.mode === "replay" ? (
@@ -464,7 +561,7 @@ function Shown({
         <h2 id="run-progress" className="text-xl font-semibold">
           <Trans>Progress</Trans>
         </h2>
-        <Progress progress={run.progress} />
+        <Progress run={run} />
         <h3 className="font-semibold">
           <Trans>Human pauses</Trans>
         </h3>
@@ -643,6 +740,7 @@ function shownOf(
     progress,
     axes,
     needs: row?.needs ?? before?.needs ?? "collie",
+    owner: row === undefined ? before?.owner : row.owner,
     uncapped: uncapped ?? before?.uncapped ?? false,
     report: progress.lifecycle === "running" ? undefined : (report ?? before?.report),
   };
@@ -677,6 +775,12 @@ export function RunPage({
     read: { kind: "reading" },
     wakes: 0,
   });
+  const [foxhoundViews, setFoxhoundViews] = useState<FoxhoundViewReads>({});
+  // A run that needs Foxhound, on Collie's engine: its Foxhound views ask
+  // the engine, which refuses each with `not_in_product` (ADR 0098).
+  const foxhoundRun =
+    read.kind === "shown" && read.run.needs === "foxhound" && client.engine?.product === "collie";
+  const asksFoxhound = connection === "connected" && foxhoundRun;
   const [{ busy, notice }, setAction] = useState<{
     readonly busy: boolean;
     readonly notice: Notice | undefined;
@@ -761,6 +865,26 @@ export function RunPage({
     return () => subscription.close();
   }, [client, runId]);
 
+  useEffect(() => {
+    if (!asksFoxhound) {
+      return undefined;
+    }
+    const abort = new AbortController();
+    const { signal } = abort;
+    for (const { operation } of FOXHOUND_VIEWS) {
+      const shown = (viewRead: FoxhoundViewRead): void => {
+        if (!signal.aborted) {
+          setFoxhoundViews((before) => ({ ...before, [operation]: viewRead }));
+        }
+      };
+      client.callFoxhound(operation, { run_id: runId }, { signal }).then(
+        () => shown({ kind: "answered" }),
+        (error: unknown) => shown({ kind: "refused", error }),
+      );
+    }
+    return () => abort.abort();
+  }, [client, runId, asksFoxhound]);
+
   const act = async (action: () => Promise<Notice>): Promise<void> => {
     setAction({ busy: true, notice: undefined });
     let done: Notice;
@@ -776,6 +900,7 @@ export function RunPage({
     <RunPageView
       runId={runId}
       read={read}
+      foxhoundViews={foxhoundRun ? foxhoundViews : undefined}
       readOnly={readOnly}
       busy={busy}
       notice={notice}

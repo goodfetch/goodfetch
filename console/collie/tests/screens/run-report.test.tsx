@@ -333,7 +333,7 @@ test(
     const configuration = section("Settings and Plugins");
     await expect.poll(() => textOf(configuration)).toMatch(/Policy versionsha256:0227dc879fda140d/);
     await expect
-      .poll(() => textOf(configuration.getByRole("table", { name: "Effective settings" })))
+      .poll(() => textOf(configuration.getByRole("grid", { name: "Effective settings" })))
       .toMatch(/tls\.accept_invalid_certs\{"intranet\.example":null\}User configuration/);
     await expect
       .poll(() => textOf(page.getByRole("list", { name: "Plugins" })))

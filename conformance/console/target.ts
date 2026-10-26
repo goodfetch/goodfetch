@@ -4,7 +4,7 @@
 // network or a proxy carries it, and the Console's own Client reaching the
 // target's endpoint with the page's sign-in, as configuration.
 import { createHash } from "node:crypto";
-import { access, mkdir, readdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BrowserContext, Page, WebSocketRoute } from "@playwright/test";
 import { expect } from "@goodfetch/test-support/conformance";
@@ -33,8 +33,9 @@ export function field(value: unknown, name: string): unknown {
     : undefined;
 }
 
-/** One event the engine sent: its position, its name and its data. */
+/** One event the engine sent: the subscription it went to, its position, its name and its data. */
 export interface Sent {
+  readonly subscription: unknown;
   readonly position: number;
   readonly event: string;
   readonly data: unknown;
@@ -50,9 +51,11 @@ function eventsOf(message: unknown): Sent[] {
   if (field(message, "method") !== "$/events") {
     return [];
   }
-  const events = field(field(message, "params"), "events");
+  const params = field(message, "params");
+  const events = field(params, "events");
   return Array.isArray(events)
     ? events.map((event: unknown) => ({
+        subscription: field(params, "id"),
         position: Number(field(event, "position")),
         event: String(field(event, "event")),
         data: field(event, "data"),
@@ -310,4 +313,23 @@ export async function failureCode(call: Promise<unknown>): Promise<unknown> {
     return typeof error === "object" && error !== null && "code" in error ? error.code : error;
   }
   throw new Error("the call answered where it should have failed");
+}
+
+/** Restarts the test's Daemon on the port its Console had, as a restart does: its new engine holds none of the old positions. */
+export async function restartedOnItsPort(daemon: ServedDaemon): Promise<void> {
+  for (const major of await readdir(daemon.home)) {
+    const file = join(daemon.home, major, "configuration.toml");
+    const text = await readFile(file, "utf8").catch(() => undefined);
+    if (text?.includes("console.address") === true) {
+      await writeFile(
+        file,
+        text.replace(
+          /console\.address = "127\.0\.0\.1:0"/,
+          `console.address = "127.0.0.1:${String(daemon.port)}"`,
+        ),
+      );
+    }
+  }
+  await command(daemon, ["daemon", "stop"]);
+  await command(daemon, ["daemon", "start"]);
 }

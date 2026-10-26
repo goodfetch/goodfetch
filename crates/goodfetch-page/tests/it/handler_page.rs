@@ -71,6 +71,7 @@ fn pins() -> Vec<PinnedArtifact> {
         platform: Some(platform),
         url: "https://storage.googleapis.com/chrome-for-testing-public/unused.zip".to_owned(),
         archive_digest: None,
+        application_settings: std::collections::BTreeMap::new(),
         digest: chrome["platforms"][name]["digest"]
             .as_str()
             .expect("Collie pins this platform's build")

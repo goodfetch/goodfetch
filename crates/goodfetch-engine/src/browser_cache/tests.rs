@@ -84,6 +84,7 @@ fn pin(id: ArtifactId) -> PinnedArtifact {
         platform: None,
         url: "https://builds.goodfetch.test/chrome.zip".to_owned(),
         archive_digest: Some(Digest::of(b"no archive is downloaded here")),
+        application_settings: std::collections::BTreeMap::new(),
         digest: BUILD_DIGEST.parse().unwrap(),
     }
 }
@@ -256,6 +257,7 @@ fn a_missing_build_whose_pin_names_no_archive_digest_is_not_installed() {
     let id = browser("156.0.8078.4");
     let pinned = PinnedArtifact {
         archive_digest: None,
+        application_settings: std::collections::BTreeMap::new(),
         ..pin(id.clone())
     };
 

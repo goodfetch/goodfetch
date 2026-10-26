@@ -1,5 +1,5 @@
 # The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718, #859 and #709;
-# spec #580, tickets #783, #784, #785, #788 and #789): a Collie program's pages, their locator actions
+# spec #580, tickets #783, #784, #785, #786, #788 and #789): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
 # local Proving ground (ADR 0094), each case on a Run of its own whose
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "32"
+version = "33"
 
 [[capability]]
 name = "sessions.default"
@@ -246,6 +246,18 @@ covers = ["story:6-3", "story:6-10", "operation:page.formats", "operation:page.e
 [[capability.case]]
 id = "markdown-and-html-default-to-the-main-content-and-an-unknown-option-is-invalid-params"
 covers = ["story:6-2", "story:6-3", "operation:page.formats"]
+
+[[capability.case]]
+id = "links-images-media-and-tables-match-the-oracle-resolved-against-the-base-href-and-the-url-after-a-redirect"
+covers = ["story:6-4", "story:6-5", "operation:page.formats"]
+
+[[capability.case]]
+id = "an-ads-link-a-cosmetic-rule-hides-is-in-links"
+covers = ["story:6-4", "story:6-10", "operation:page.formats"]
+
+[[capability.case]]
+id = "links-and-markdown-of-one-call-agree-on-a-page-that-changes-between-two-reads"
+covers = ["story:6-4", "operation:page.formats", "operation:page.wait_for_function"]
 
 [[capability]]
 name = "formats.extractor"

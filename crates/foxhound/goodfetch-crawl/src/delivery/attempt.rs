@@ -110,7 +110,8 @@ mod sitemap_fetch;
 
 use learning::learn;
 use site_preferences::{
-    escaped_refusal, read_robots_txt, robots_txt_refusal, share_robots_txt, use_signals_refusal,
+    escaped_refusal, read_robots_txt, robots_txt_ignored, robots_txt_refusal, share_robots_txt,
+    use_signals_refusal,
 };
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -759,6 +760,9 @@ impl On<'_> {
                 if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
                     return Err(refused);
                 }
+                if robots_txt_ignored(run, leased, read.as_deref()) {
+                    lease.robots_txt_ignored();
+                }
                 tiers
                     .serve(http, run, &leased.crawl_request, &requester, choice, hand_over)
                     .await
@@ -998,6 +1002,7 @@ async fn record_tier(
     lease.fetched(Fetched {
         tier: Some(tier),
         encoding,
+        robots_txt: None,
     });
 }
 

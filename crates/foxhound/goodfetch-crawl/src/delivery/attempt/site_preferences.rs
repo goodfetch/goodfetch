@@ -203,6 +203,32 @@ pub(super) fn robots_txt_refusal(
         .map(|_| Answer::Refused(SkipReason::CrawlDelay))
 }
 
+/// Whether `leased`'s request is one the robots.txt `read` disallows,
+/// fetched anyway since `site_preferences.respect_robots_txt` is off: the
+/// Provenance of each Record it commits then marks it `ignored` (ADR
+/// 0086). A robots.txt that could not be read disallows nothing here.
+pub(super) fn robots_txt_ignored(run: &Run, leased: &Leased, read: Option<&Fetched>) -> bool {
+    let Some(settings) = run.settings().map(|settings| settings.resolved()) else {
+        return false;
+    };
+    if settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name) != Some(false) {
+        return false;
+    }
+    let (Some(read), Ok(url)) = (
+        read,
+        goodfetch_frontier::Url::parse(&leased.crawl_request.url),
+    ) else {
+        return false;
+    };
+    if matches!(read, Fetched::Unreachable(_)) {
+        return false;
+    }
+    let operator_token = settings
+        .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
+        .as_str();
+    goodfetch_fetch_tier::disallowing(read, operator_token, &url).is_some()
+}
+
 /// The skip reason of a handler's failure that is a `site_preferences_refused`
 /// its own navigation raised and it let escape: the request ends `skipped`
 /// with that refusal's reason, not `failed`, since the site asked not to be

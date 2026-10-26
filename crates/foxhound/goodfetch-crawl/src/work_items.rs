@@ -33,7 +33,7 @@ use goodfetch_protocol::foxhound::outcomes::{
     AttemptError, CrawlRequestOutcome, Ending, NothingCommitted, OutcomeRequest, SkipReason,
 };
 use goodfetch_protocol::foxhound::provenance::{
-    EncodingProvenance, RecordProvenance, TierProvenance,
+    EncodingProvenance, RecordProvenance, RobotsTxtMark, TierProvenance,
 };
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension as _};
@@ -601,6 +601,10 @@ pub(crate) struct Fetched {
     pub(crate) tier: Option<TierProvenance>,
     /// The encoding its document was read in, and where it came from.
     pub(crate) encoding: Option<EncodingProvenance>,
+    /// `ignored` when its request's URL is one its origin's robots.txt
+    /// disallows, fetched while `site_preferences.respect_robots_txt` was
+    /// off (ADR 0086).
+    pub(crate) robots_txt: Option<RobotsTxtMark>,
 }
 
 /// What an attempt commits: its Records, how its run fetched its
@@ -650,6 +654,7 @@ pub(crate) fn commit(
         clean_up_rules,
         wall: None,
         payment: None,
+        robots_txt: fetched.robots_txt,
         value_transforms: Vec::new(),
     };
     let committing = Committing {

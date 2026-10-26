@@ -36,6 +36,7 @@ mod pacing;
 mod path_budgets;
 mod payload;
 mod politeness;
+mod pool_proxies;
 mod provenance;
 mod records;
 mod redundant_requests;

@@ -51,7 +51,7 @@ pub use chain::{Following, Gating, HopGate, Skip, Stop, follow};
 pub use charset::fuzz_prescan;
 pub use choice::{Choosing, Forced, LabelSettings, SetTier, TierChoice};
 pub use content_types::ContentTypes;
-pub use document::{Matched, SelectorInvalid};
+pub use document::{FieldElement, Matched, SelectorInvalid, check_selector};
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
 };
@@ -66,8 +66,9 @@ pub use redundant::Requester;
 pub use refresh::fuzz_refresh;
 pub use sniffing::sniff;
 pub use tiers::{
-    Chosen, FetchTiers, HandedOver, HttpTier, Judged, LinksUnread, PAGE_CHECK_CALL, Race, RaceEnd,
-    ServedLinks, Signed, record_race, record_tier, tier_provenance,
+    Chosen, FetchTiers, FieldElements, HandedOver, HttpTier, Judged, LinksUnread, PAGE_CHECK_CALL,
+    Race, RaceEnd, ServedLinks, Signed, XPATH_FIELD_CALL, record_race, record_tier,
+    tier_provenance,
 };
 pub use transports::{
     AddressCheck, LocalSource, Reqwest, TransportConfig, TransportUnavailable, Wreq,

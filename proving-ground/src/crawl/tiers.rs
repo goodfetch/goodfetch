@@ -27,6 +27,11 @@
 //! - `/pictured/<n>`: a static page that loads an image,
 //!   `/images/<n>.gif`, and a font, `/fonts/tiers-<n>.woff2`, both `404`,
 //!   so a test sees whether a browser asked for them.
+//! - `/painted/<n>`: a page whose script paints a canvas black and writes
+//!   the alpha of its first pixel into its `h1.painted`, `alpha 255`
+//!   where the browser paints and `alpha 0` in a browser without pixels,
+//!   such as Lightpanda's light engine, so the light-browser tier's sample
+//!   differs from Chrome's there (ADR 0020).
 //!
 //! `n` runs from 1 to 99, written without leading zeros; each listing holds
 //! three entries named from the seed and `n`. A query `hold=<ms>`, from 1
@@ -101,9 +106,21 @@ for (const target of list.dataset.targets.split("|")) {
 }
 "#;
 
+/// The script that writes the alpha of a canvas's first pixel once it is
+/// painted black: 255 where pixels are painted, 0 where they are not.
+const PAINT_SCRIPT: &str = r##"const canvas = document.createElement("canvas");
+canvas.width = 2;
+canvas.height = 2;
+const context = canvas.getContext("2d");
+context.fillStyle = "#000";
+context.fillRect(0, 0, 2, 2);
+document.querySelector(".painted").textContent = "alpha " + context.getImageData(0, 0, 1, 1).data[3];
+"##;
+
 /// The pages of the sample comparison's cases (spec #579): a listing whose
 /// links only its script adds, one that a script moves to a static
-/// listing at once, and a static listing that loads an image and a font.
+/// listing at once, a static listing that loads an image and a font, and
+/// one whose text only painted pixels give.
 fn sample_case(kind: &str, number: u64) -> Option<Page> {
     let title = format!("{kind} {number}");
     let body = match kind {
@@ -121,6 +138,9 @@ fn sample_case(kind: &str, number: u64) -> Option<Page> {
         ),
         "pictured" => format!(
             "<style>@font-face {{ font-family: \"tiers\"; src: url(\"/fonts/tiers-{number}.woff2\"); }} h1 {{ font-family: \"tiers\"; }}</style>\n<h1>{title}</h1>\n<img src=\"/images/{number}.gif\" alt=\"{title}\">\n"
+        ),
+        "painted" => format!(
+            "<h1>{title}</h1>\n<p class=\"painted\"></p>\n<script>\n{PAINT_SCRIPT}</script>\n"
         ),
         _ => return None,
     };

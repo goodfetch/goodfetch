@@ -1,7 +1,10 @@
 //! Switchable controls and their reporting (ADRs 0016, 0028 and 0102): the
 //! settings each composition registers as a control that costs speed, the
 //! engine's own the seven `security.*` keys, and Foxhound's composition any
-//! it adds. A Run that starts with one of them switched off, which only a
+//! it adds. A composition may register a key as a weakening of its own
+//! instead, which is recorded as the Audit log kind it names, with the
+//! value's built-in default: Foxhound's Politeness and Site-preferences
+//! keys, as `politeness_weakened` (ADR 0086). A Run that starts with one of them switched off, which only a
 //! layer the Operator policy or the Recipe did not lock or cap can do, is
 //! reported once: one chained `security_switch_turned_off` entry per
 //! control in the Audit log, one warning through the host's logging, and
@@ -13,7 +16,7 @@
 //! it.
 
 use goodfetch_protocol::audit::{Actor, PRIVATE_ADDRESSES_ALLOWED, SECURITY_SWITCH_TURNED_OFF};
-use goodfetch_protocol::catalog::Setting;
+use goodfetch_protocol::catalog::{Setting, SharedTypeValue};
 use goodfetch_protocol::egress::EGRESS_PRIVATE_RANGES;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::security::SECURITY_AUDIT_CHAIN;
@@ -24,22 +27,67 @@ use serde_json::json;
 use crate::audit::{AuditError, AuditLog, Origin};
 use crate::settings::Resolved;
 
+/// How a registered key's weakening value is recorded.
+#[derive(Clone, Copy)]
+enum Recorded {
+    /// As a security control switched off.
+    Switch,
+    /// As this Audit log kind, with the value's built-in default.
+    As(&'static SharedTypeValue),
+}
+
+/// A registered key.
+#[derive(Clone, Copy)]
+struct Control {
+    setting: &'static Setting,
+    recorded: Recorded,
+}
+
+impl std::fmt::Debug for Control {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let recorded = match self.recorded {
+            Recorded::Switch => SECURITY_SWITCH_TURNED_OFF.name,
+            Recorded::As(kind) => kind.name,
+        };
+        formatter
+            .debug_struct("Control")
+            .field("setting", &self.setting.name)
+            .field("recorded", &recorded)
+            .finish()
+    }
+}
+
 /// The switchable controls an engine reports, as its composition registers
 /// them.
 #[derive(Clone, Debug, Default)]
-pub struct Controls(Vec<&'static str>);
+pub struct Controls(Vec<Control>);
 
 impl Controls {
     /// The same, reporting `setting` too: a key whose value, where it
     /// weakens, switches a control off.
     #[must_use]
-    pub fn with(mut self, setting: &'static Setting) -> Self {
+    pub fn with(self, setting: &'static Setting) -> Self {
+        self.registering(setting, Recorded::Switch)
+    }
+
+    /// The same, recording a value of `setting` that weakens as `kind`, with
+    /// the value, its built-in default and the layer that set it.
+    #[must_use]
+    pub fn with_recorded(self, setting: &'static Setting, kind: &'static SharedTypeValue) -> Self {
+        self.registering(setting, Recorded::As(kind))
+    }
+
+    fn registering(mut self, setting: &'static Setting, recorded: Recorded) -> Self {
         debug_assert!(
             setting.weakens.is_some(),
             "a switchable control's setting says which values switch it off"
         );
-        if !self.0.contains(&setting.name) {
-            self.0.push(setting.name);
+        if !self
+            .0
+            .iter()
+            .any(|control| control.setting.name == setting.name)
+        {
+            self.0.push(Control { setting, recorded });
         }
         self
     }
@@ -52,9 +100,14 @@ impl Controls {
             resolved
                 .weakened()
                 .into_iter()
-                .filter(|weakened| {
-                    self.0.contains(&weakened.key.as_str())
-                        || weakened.key == EGRESS_PRIVATE_RANGES.name
+                .filter_map(|weakened| {
+                    if weakened.key == EGRESS_PRIVATE_RANGES.name {
+                        return Some((weakened, None));
+                    }
+                    self.0
+                        .iter()
+                        .find(|control| control.setting.name == weakened.key)
+                        .map(|control| (weakened, Some(*control)))
                 })
                 .collect(),
         )
@@ -62,8 +115,8 @@ impl Controls {
 }
 
 /// The controls a Run's settings switch off.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct SwitchedOff(Vec<WeakenedSetting>);
+#[derive(Clone, Debug, Default)]
+pub struct SwitchedOff(Vec<(WeakenedSetting, Option<Control>)>);
 
 impl SwitchedOff {
     /// Whether the Audit log's hash chain is among them, so that the Run's
@@ -71,7 +124,7 @@ impl SwitchedOff {
     pub fn unchains(&self) -> bool {
         self.0
             .iter()
-            .any(|switched| switched.key == SECURITY_AUDIT_CHAIN.name)
+            .any(|(switched, _)| switched.key == SECURITY_AUDIT_CHAIN.name)
     }
 
     /// Reports each one for the new Run `run_id`, once: a chained entry in
@@ -88,7 +141,7 @@ impl SwitchedOff {
         run_id: &RunId,
         now: Timestamp,
     ) -> Result<(), AuditError> {
-        for switched in &self.0 {
+        for (switched, control) in &self.0 {
             let origin = Origin {
                 actor: Actor::Engine,
                 surface: None,
@@ -100,6 +153,29 @@ impl SwitchedOff {
                     &origin,
                     &PRIVATE_ADDRESSES_ALLOWED,
                     json!({ "setting": switched.key, "ranges": switched.value }),
+                    now,
+                )?;
+                continue;
+            }
+            if let Some(Control {
+                setting,
+                recorded: Recorded::As(kind),
+            }) = control
+            {
+                let default = (setting.default)();
+                tracing::warn!(
+                    run_id = %run_id,
+                    setting = %switched.key,
+                    layer = switched.layer.as_str(),
+                    "the Run `{run_id}` presses sites harder than the built-in default: its {} layer sets `{}` to {}, the default being {default}",
+                    switched.layer.as_str(),
+                    switched.key,
+                    switched.value,
+                );
+                audit.record(
+                    &origin,
+                    kind,
+                    json!({ "setting": switched.key, "value": switched.value, "default": default }),
                     now,
                 )?;
                 continue;

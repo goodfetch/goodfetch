@@ -7,9 +7,12 @@
 //!
 //! Its request runs as the crawl's tier choice planned it (the
 //! `tier_choice` module): alone, on one tier, or as a sample of the sample
-//! comparison, run on `http` and then on `browser`, the browser's run the
-//! one whose answer counts, and whether the two runs matched classified
-//! once the attempt settles.
+//! comparison, run on `http`, on `light_browser` where the Run allows it,
+//! and then on `browser`, the browser's run the one whose answer counts,
+//! and whether the cheaper runs matched it classified once the attempt
+//! settles. A run on `light_browser` is one on `http` whose page is served
+//! from the document Lightpanda's run of the page's scripts left (ADR
+//! 0020), escalated to the browser as `http`'s is.
 //!
 //! Under `fetch.tier_race` (ADR 0040; the `tier_race` module), an attempt
 //! whose tier is not forced races instead: its document is fetched through
@@ -76,6 +79,7 @@ use goodfetch_fetch_tier::{
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
     HANDLER_FAILED, LEASE_LOST, WORK_ITEM_LEASED,
@@ -96,7 +100,7 @@ use goodfetch_session_pool::Effect;
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
 
-use crate::lease::{CommitError, WorkItemLease};
+use crate::lease::{CommitError, SoFar, WorkItemLease};
 use crate::progress::SharedInFlight;
 use crate::tier_choice::weighing::{self, StagedRun};
 use crate::tier_choice::{AttemptPlan, Sampled, Weighed};
@@ -110,7 +114,8 @@ mod sitemap_fetch;
 
 use learning::learn;
 use site_preferences::{
-    escaped_refusal, read_robots_txt, robots_txt_refusal, share_robots_txt, use_signals_refusal,
+    escaped_refusal, read_robots_txt, robots_txt_ignored, robots_txt_refusal, share_robots_txt,
+    use_signals_refusal,
 };
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -159,18 +164,21 @@ pub(super) struct Tiering {
     tiers: FetchTiers,
     http: Option<HttpTier>,
     plan: AttemptPlan,
+    /// Whether a sample also runs on `light_browser`.
+    light: bool,
     /// The Page check the request's Label declares of its own.
     page_check: Option<PageCheck>,
     second_copies: SecondCopies,
 }
 
 impl Tiering {
-    /// `plan` on the Run's `tiers` and `http` tier, its hedges taking
-    /// `second_copies`, the request's Label declaring `page_check`.
+    /// `plan` on the Run's `tiers` and `http` tier, a sample also run on
+    /// `light_browser` when `light`, its hedges taking `second_copies`,
+    /// the request's Label declaring `page_check`.
     pub(super) fn of(
         tiers: &FetchTiers,
         http: Option<&HttpTier>,
-        plan: AttemptPlan,
+        (plan, light): (AttemptPlan, bool),
         page_check: Option<PageCheck>,
         second_copies: &SecondCopies,
     ) -> Self {
@@ -178,6 +186,7 @@ impl Tiering {
             tiers: tiers.clone(),
             http: http.cloned(),
             plan,
+            light,
             page_check,
             second_copies: second_copies.clone(),
         }
@@ -196,6 +205,13 @@ impl Tiering {
 /// The tier a sample's cheaper run takes: `http`, chosen by no one.
 const SAMPLED: TierChoice = TierChoice {
     tier: FetchTier::Http,
+    forced: None,
+};
+
+/// The tier a sample's light run takes: `light_browser`, chosen by no
+/// one.
+const LIGHT_SAMPLED: TierChoice = TierChoice {
+    tier: FetchTier::LightBrowser,
     forced: None,
 };
 
@@ -570,58 +586,61 @@ impl On<'_> {
         }
         self.lease.renew(self.lease.length());
         let cheaper = self.lease.restage();
+        // Where the Run allows it, the sample runs on `light_browser` too,
+        // before the browser, whose run stages what commits.
+        let light = if tiering.light {
+            match self
+                .on_http(tiering, http, &LIGHT_SAMPLED, Chosen::Sample(None))
+                .await
+            {
+                Ok((light, _))
+                    if matches!(light.answer, Answer::LeaseEnded | Answer::ClientGone) =>
+                {
+                    return (light.answer, merged, None);
+                }
+                Ok((light, _)) => {
+                    self.lease.renew(self.lease.length());
+                    Some((light, self.lease.restage()))
+                }
+                Err((Answer::LeaseEnded, _)) => return (Answer::LeaseEnded, merged, None),
+                Err((Answer::ClientGone, _)) => return (Answer::ClientGone, merged, None),
+                Err(_) => {
+                    self.lease.renew(self.lease.length());
+                    drop(self.lease.restage());
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let browser = self
             .browser_run(&tiering.tiers, &BROWSER, Chosen::Sample(run.escalated))
             .await;
         let browser_staged = self.lease.pushed();
-        let weighed = match (&browser.answer, &run) {
-            (Answer::Failed { code, details, .. }, _) if walled(code, details) => {
-                Some(Weighed::Walled)
-            }
-            (
-                Answer::Handled(CrawlRequestHandled {
-                    records,
-                    skipped: None,
-                }),
-                HttpRun {
-                    answer:
-                        Answer::Handled(CrawlRequestHandled {
-                            records: cheaper_records,
-                            skipped: None,
-                        }),
-                    escalated: None,
-                    ..
-                },
-            ) => {
-                let cheaper_records =
-                    [cheaper.records.records(), cheaper_records.as_slice()].concat();
+        let weighed = match &browser.answer {
+            Answer::Failed { code, details, .. } if walled(code, details) => Some(Weighed::Walled),
+            Answer::Handled(CrawlRequestHandled {
+                records,
+                skipped: None,
+            }) => {
                 let browser_records =
                     [browser_staged.records.records(), records.as_slice()].concat();
-                // No field is named removed yet: the extraction's removal
-                // reports none per attempt.
-                let matched = weighing::weigh(
-                    &StagedRun {
-                        records: &cheaper_records,
-                        enqueues: &cheaper.enqueues,
-                        ended_at: run.url.as_deref(),
-                        encoding: run.encoding.as_deref(),
-                    },
-                    &StagedRun {
-                        records: &browser_records,
-                        enqueues: &browser_staged.enqueues,
-                        ended_at: browser.ended_at.as_deref(),
-                        encoding: browser.encoding.as_deref(),
-                    },
-                    &std::collections::BTreeSet::new(),
-                );
-                Some(if matched {
+                let browser_run = StagedRun {
+                    records: &browser_records,
+                    enqueues: &browser_staged.enqueues,
+                    ended_at: browser.ended_at.as_deref(),
+                    encoding: browser.encoding.as_deref(),
+                };
+                Some(if matches_browser(&run, &cheaper, &browser_run) {
                     Weighed::Matched
+                } else if light
+                    .as_ref()
+                    .is_some_and(|(light, staged)| matches_browser(light, staged, &browser_run))
+                {
+                    Weighed::MatchedLight
                 } else {
                     Weighed::Differed
                 })
-            }
-            (Answer::Handled(CrawlRequestHandled { skipped: None, .. }), _) => {
-                Some(Weighed::Differed)
             }
             _ => None,
         };
@@ -700,7 +719,7 @@ impl On<'_> {
                 tiers.close(&page_id);
                 // Its handler never ran: the run escalates at the Page
                 // check, and the caller runs the request in the browser.
-                let message = "The page failed its expected page on the `http` tier.";
+                let message = "The page failed its expected page on a tier short of the browser.";
                 return Ok((
                     escalated_unhandled(PAGE_CHECK_FAILED, message, PAGE_CHECK_CALL),
                     merged,
@@ -714,7 +733,7 @@ impl On<'_> {
         let document = tiers.not_document(&page_id).is_none();
         let url = tiers.response(&page_id).map(|response| response.url);
         let params = self.params(
-            Some(FetchTier::Http),
+            Some(choice.tier),
             Some(page_id.clone()),
             tiers.response(&page_id),
         );
@@ -769,9 +788,31 @@ impl On<'_> {
                 if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
                     return Err(refused);
                 }
-                tiers
-                    .serve(http, run, &leased.crawl_request, &requester, choice, hand_over)
-                    .await
+                if robots_txt_ignored(run, leased, read.as_deref()) {
+                    lease.robots_txt_ignored();
+                }
+                let served = if choice.tier == FetchTier::LightBrowser {
+                    let identity = self.context.identity();
+                    let pinned_by = PinnedBy {
+                        product: identity.product,
+                        product_version: identity.product_version.clone(),
+                    };
+                    tiers
+                        .light(
+                            http,
+                            run,
+                            &leased.crawl_request,
+                            choice,
+                            hand_over,
+                            (self.context.runs().home(), &pinned_by),
+                        )
+                        .await
+                } else {
+                    tiers
+                        .serve(http, run, &leased.crawl_request, &requester, choice, hand_over)
+                        .await
+                };
+                served
                     .map_err(|stop| match stop {
                         Stop::Failed(error) => failed(&error),
                         Stop::Skipped(skip) => {
@@ -910,6 +951,40 @@ pub(super) fn read_by_browser(
     )
 }
 
+/// Whether the cheaper run `run`, which staged `staged`, staged what the
+/// browser's run `browser` did: it answered and skipped nothing, never
+/// escalated, and the weighing matched what each staged, the Records it
+/// pushed then those of its answer and the requests it enqueued, before
+/// any Hook (ADR 0103), the URL each ended on and the encoding each read
+/// in (ADRs 0118 and 0119).
+fn matches_browser(run: &HttpRun, staged: &SoFar, browser: &StagedRun<'_>) -> bool {
+    let HttpRun {
+        answer:
+            Answer::Handled(CrawlRequestHandled {
+                records,
+                skipped: None,
+            }),
+        escalated: None,
+        ..
+    } = run
+    else {
+        return false;
+    };
+    let records = [staged.records.records(), records.as_slice()].concat();
+    // No field is named removed yet: the extraction's removal reports none
+    // per attempt.
+    weighing::weigh(
+        &StagedRun {
+            records: &records,
+            enqueues: &staged.enqueues,
+            ended_at: run.url.as_deref(),
+            encoding: run.encoding.as_deref(),
+        },
+        browser,
+        &std::collections::BTreeSet::new(),
+    )
+}
+
 /// Whether a run that failed with `code` and `details` met a consent
 /// wall: `blocked` with `consent_required` (ADR 0048).
 fn walled(code: &str, details: &Map<String, Value>) -> bool {
@@ -1012,6 +1087,7 @@ async fn record_tier(
         tier: Some(tier),
         encoding,
         certificate_exception,
+        robots_txt: None,
     });
 }
 

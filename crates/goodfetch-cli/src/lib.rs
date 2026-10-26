@@ -8,5 +8,6 @@
 pub mod engine_choice;
 pub mod exit_codes;
 pub mod generated;
+pub mod other_product;
 pub mod output;
 pub mod settings_flags;

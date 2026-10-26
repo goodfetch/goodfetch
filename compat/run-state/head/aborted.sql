@@ -99,6 +99,11 @@ CREATE TABLE payloads (
             request TEXT NOT NULL PRIMARY KEY,
             payload TEXT NOT NULL
         ) STRICT, WITHOUT ROWID;
+CREATE TABLE pool_blocked_address_blocks (
+            domain_key TEXT NOT NULL,
+            block TEXT NOT NULL,
+            PRIMARY KEY (domain_key, block)
+        ) STRICT;
 CREATE TABLE pool_sessions (
             pool TEXT NOT NULL,
             position INTEGER NOT NULL,
@@ -107,6 +112,7 @@ CREATE TABLE pool_sessions (
             uses INTEGER NOT NULL,
             error_score REAL NOT NULL,
             retired_because TEXT,
+            address_ordinal INTEGER,
             PRIMARY KEY (pool, position)
         ) STRICT;
 CREATE TABLE pool_tiers (

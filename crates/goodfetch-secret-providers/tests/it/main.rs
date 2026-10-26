@@ -12,3 +12,5 @@
 
 #[cfg(unix)]
 mod providers;
+
+mod vault;

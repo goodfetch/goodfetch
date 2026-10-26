@@ -15,6 +15,14 @@ journey = true
 status = "active"
 
 [[story]]
+id = 2
+title = "As a user with both Products, I want `goodfetch-collie console` and `goodfetch-foxhound console` to open the same Console on the same port, so that a bookmark and my sign-in survive a change of Product (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
 id = 3
 title = "As a user with two majors installed, I want each major's Console on its own port, so that a 1.x and a 2.x project never share or restart each other's Console (area 3 story 22)."
 milestone = "M1 Core"
@@ -231,6 +239,30 @@ title = "As an operator, I want rotating the Console key to sign everyone out, a
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
+status = "active"
+
+[[story]]
+id = 120
+title = "As a user, I want every run listed with the Product it needs, so that I know which engine can resume it (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 121
+title = "As a user on a Collie Daemon, I want a run that needs Foxhound to keep its common views and its live actions, and each of its Foxhound views to show `not_in_product` with the fix naming Foxhound, so that I learn what to install (ADR 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 122
+title = "As a user, I want my Console to reconnect by itself when the Daemon hands over to a newly installed Product, so that installing Foxhound never breaks the tab I have open (ADRs 0066, 0098)."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
 status = "active"
 
 [[story]]

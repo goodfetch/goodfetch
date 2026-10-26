@@ -23,6 +23,7 @@ use goodfetch_dataset::{Checked, Committing};
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::egress::Policy;
+use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit, payload, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -30,6 +31,9 @@ use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
 use goodfetch_protocol::foxhound::outcomes::{
     AttemptError, CrawlRequestOutcome, Ending, NothingCommitted, OutcomeRequest, SkipReason,
+};
+use goodfetch_protocol::foxhound::provenance::{
+    EncodingProvenance, RecordProvenance, TierProvenance,
 };
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension as _};
@@ -583,17 +587,44 @@ fn still_leased(connection: &Connection, id: &str, lease_epoch: u64) -> rusqlite
         .is_some())
 }
 
-/// Commits an attempt's Records, once, each numbered in its Dataset,
-/// marks its work item succeeded and writes its outcome, ended at
-/// `ended_at`, when its lease is the one the run file holds; answers
-/// whether it did.
+/// How an attempt's run fetched its document, as its Records' Provenance
+/// names it: nothing where the handler was given its request alone.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Fetched {
+    /// The tier, and how it was chosen.
+    pub(crate) tier: Option<TierProvenance>,
+    /// The encoding its document was read in, and where it came from.
+    pub(crate) encoding: Option<EncodingProvenance>,
+}
+
+/// What an attempt commits: its Records, how its run fetched its
+/// document, the masks that hold the values its Run resolved, and when it
+/// ended.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Committed<'a> {
+    pub(crate) records: &'a Checked,
+    pub(crate) fetched: &'a Fetched,
+    pub(crate) masks: &'a Masks,
+    pub(crate) ended_at: &'a PointInTime,
+}
+
+/// Commits an attempt's Records, once, each numbered in its Dataset and
+/// naming its Provenance: its request, how its document was fetched and
+/// the Clean-up rules the Run holds to; marks its work item succeeded and
+/// writes its outcome, ended at `ended_at`, when its lease is the one the
+/// run file holds; answers whether it did.
 pub(crate) fn commit(
     connection: &Connection,
     id: &str,
     lease_epoch: u64,
-    records: &Checked,
-    ended_at: &PointInTime,
+    committed: Committed<'_>,
 ) -> rusqlite::Result<bool> {
+    let Committed {
+        records,
+        fetched,
+        masks,
+        ended_at,
+    } = committed;
     if !still_leased(connection, id, lease_epoch)? {
         return Ok(false);
     }
@@ -601,10 +632,26 @@ pub(crate) fn commit(
         connection.query_row("SELECT url FROM work_items WHERE id = ?1", [id], |row| {
             row.get(0)
         })?;
+    let clean_up_rules: Option<String> = connection
+        .query_row("SELECT clean_up_digest FROM run", [], |row| row.get(0))
+        .optional()?
+        .flatten();
+    let provenance = RecordProvenance {
+        request_id: id.to_owned(),
+        tier: fetched.tier.clone(),
+        encoding: fetched.encoding.clone(),
+        origin: None,
+        clean_up_rules,
+        wall: None,
+        payment: None,
+        value_transforms: Vec::new(),
+    };
     let committing = Committing {
         request_id: id,
         url: &url,
         at: ended_at,
+        provenance: &provenance,
+        masks,
     };
     let counted = goodfetch_dataset::commit(connection, committing, records)?;
     connection.execute(

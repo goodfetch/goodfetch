@@ -170,6 +170,42 @@ export type DaemonEndpoint =
 export type Unready =
   "draining" | "run_state_not_writable" | "browsers_missing" | "governor_last_resort" | "storage_critical";
 /**
+ * Where a document's encoding came from, in the order the tiers look
+ * (ADR 0119).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EncodingSource".
+ */
+export type EncodingSource = "bom" | "setting" | "header" | "meta" | "utf8" | "detected";
+/**
+ * What answered a Record's request in place of the network.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ResponseOrigin".
+ */
+export type ResponseOrigin =
+  | {
+      /**
+       * A point in time in UTC, as RFC 3339.
+       */
+      fetched_at: string;
+      kind: "response_cache";
+    }
+  | {
+      kind: "response_recording";
+      /**
+       * A point in time in UTC, as RFC 3339.
+       */
+      recorded_at: string;
+    };
+/**
+ * Which scope's `fetch.tier` forced a tier.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ForcedBy".
+ */
+export type ForcedBy = "run" | "label";
+/**
  * One dialog a handler answers, which `dialog.*` names.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -271,6 +307,14 @@ export type World = "main" | "isolated";
  * via the `definition` "Product".
  */
 export type Product = "collie" | "foxhound";
+/**
+ * A tier that fetches a crawl request's document (ADR 0020), from the
+ * cheapest up.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FetchTier".
+ */
+export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
 /**
  * The form a Client's user writes names in (ADR 0099), which the engine
  * renders the names and targets of its messages in.
@@ -883,6 +927,13 @@ export type StorageLevel = "normal" | "low" | "critical";
  */
 export type Tags2 = Tag[];
 /**
+ * How the tier of a Record's document was chosen (ADRs 0023 and 0093).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TierChosen".
+ */
+export type TierChosen = "forced" | "compared" | "sample" | "escalation" | "race";
+/**
  * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
  * one, or a regular expression in the `regex` crate's syntax. A predicate
  * runs in the program, which routes every URL and falls back for the
@@ -906,6 +957,20 @@ export type UrlMatcher =
        */
       pattern: string;
     };
+/**
+ * One of the engine's closed list of Value transforms (ADR 0123).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ValueTransform".
+ */
+export type ValueTransform = "text" | "match" | "number" | "currency" | "date" | "date_time" | "relative_time" | "map";
+/**
+ * A Wall's kind (ADR 0052).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WallKind".
+ */
+export type WallKind = "paywall" | "consent_wall" | "ad_blocker_wall";
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -1866,6 +1931,7 @@ export interface DatasetRecord {
    * Its number in its Dataset, from 1, in commit order, with no gaps.
    */
   number: number;
+  provenance: RecordProvenance;
   /**
    * The ID of the crawl request whose attempt committed it.
    */
@@ -1880,6 +1946,171 @@ export interface DatasetRecord {
   value: {
     [k: string]: unknown;
   };
+}
+/**
+ * How it was obtained (ADR 0123's Provenance of a Record).
+ */
+export interface RecordProvenance {
+  /**
+   * The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
+   * whose Run trace names their date and the release that applied them.
+   */
+  clean_up_rules?: string | null;
+  /**
+   * The encoding the document was read in, and where it came from;
+   * none for a request with no document.
+   */
+  encoding?: EncodingProvenance | null;
+  /**
+   * The Response cache or Response recording that answered in place of
+   * the network; none when the network did.
+   */
+  origin?: ResponseOrigin | null;
+  /**
+   * The payment of a Paid fetch of its page; none where nothing was
+   * paid.
+   */
+  payment?: PaymentMark | null;
+  /**
+   * The ID of the crawl request whose attempt produced it.
+   */
+  request_id: string;
+  /**
+   * The tier that fetched that request's document, and how it was
+   * chosen; none where the handler was given its request alone.
+   */
+  tier?: TierProvenance | null;
+  /**
+   * Each field whose value an engine Value transform gave, in the
+   * order read; empty where the program parsed its own values.
+   */
+  value_transforms?: TransformProvenance[];
+  /**
+   * The Wall its page was read past; none where no Wall was met.
+   */
+  wall?: WallMarker | null;
+}
+/**
+ * The encoding a Record's document was read in, and where it came from
+ * (ADR 0119).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EncodingProvenance".
+ */
+export interface EncodingProvenance {
+  /**
+   * Its WHATWG name, such as `Shift_JIS`.
+   */
+  encoding: string;
+  /**
+   * Where it came from; none where the browser read the document by a
+   * rule the engine did not see.
+   */
+  source?: EncodingSource | null;
+}
+/**
+ * The payment of a Paid fetch, as a Record's Provenance marks it (ADR
+ * 0045).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PaymentMark".
+ */
+export interface PaymentMark {
+  /**
+   * The amount charged, an exact decimal.
+   */
+  amount: string;
+  /**
+   * Its currency, an ISO 4217 code.
+   */
+  currency: string;
+  /**
+   * The domain paid.
+   */
+  payee_domain: string;
+  /**
+   * The payment scheme the site asked through.
+   */
+  scheme: string;
+}
+/**
+ * The tier that fetched a Record's document and how it was chosen.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TierProvenance".
+ */
+export interface TierProvenance {
+  /**
+   * The call a cheaper tier could not serve, which moved the request
+   * here, for an escalation or a sample's browser run.
+   */
+  call?: string | null;
+  /**
+   * How it was chosen.
+   */
+  chosen: "forced" | "compared" | "sample" | "escalation" | "race";
+  /**
+   * What forced it, when `chosen` is `forced`.
+   */
+  forced_by?: ForcedBy | null;
+  /**
+   * The tier.
+   */
+  tier: "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
+}
+/**
+ * How a Value transform gave one field of a Record (ADR 0123).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TransformProvenance".
+ */
+export interface TransformProvenance {
+  /**
+   * A relative time's anchor: the fetch time of the page's document.
+   */
+  anchor?: PointInTime | null;
+  /**
+   * The field, a JSON Pointer into the Record.
+   */
+  field: string;
+  /**
+   * Its resolved locale, a BCP 47 tag, for a locale-dependent one.
+   */
+  locale?: string | null;
+  /**
+   * The stated CLDR pattern, such as `dd/MM/yyyy`, when one was.
+   */
+  pattern?: string | null;
+  /**
+   * The page text exactly as read.
+   */
+  text: string;
+  /**
+   * Its resolved time zone, an IANA name, for a date-time or a
+   * relative time.
+   */
+  time_zone?: string | null;
+  /**
+   * The transform.
+   */
+  transform: "text" | "match" | "number" | "currency" | "date" | "date_time" | "relative_time" | "map";
+}
+/**
+ * The `wall` marker of a Record whose page was read past a Wall (ADR
+ * 0052), which Dataset queries and every Export format filter on.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WallMarker".
+ */
+export interface WallMarker {
+  /**
+   * The Wall's kind.
+   */
+  kind: "paywall" | "consent_wall" | "ad_blocker_wall";
+  /**
+   * The vendor detected, when one was.
+   */
+  vendor?: string | null;
 }
 /**
  * A dialog as its handler sees it.
@@ -4161,6 +4392,52 @@ export interface LimitScope4 {
   kind: string;
 }
 /**
+ * How one committed Record was obtained.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecordProvenance".
+ */
+export interface RecordProvenance1 {
+  /**
+   * The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
+   * whose Run trace names their date and the release that applied them.
+   */
+  clean_up_rules?: string | null;
+  /**
+   * The encoding the document was read in, and where it came from;
+   * none for a request with no document.
+   */
+  encoding?: EncodingProvenance | null;
+  /**
+   * The Response cache or Response recording that answered in place of
+   * the network; none when the network did.
+   */
+  origin?: ResponseOrigin | null;
+  /**
+   * The payment of a Paid fetch of its page; none where nothing was
+   * paid.
+   */
+  payment?: PaymentMark | null;
+  /**
+   * The ID of the crawl request whose attempt produced it.
+   */
+  request_id: string;
+  /**
+   * The tier that fetched that request's document, and how it was
+   * chosen; none where the handler was given its request alone.
+   */
+  tier?: TierProvenance | null;
+  /**
+   * Each field whose value an engine Value transform gave, in the
+   * order read; empty where the program parsed its own values.
+   */
+  value_transforms?: TransformProvenance[];
+  /**
+   * The Wall its page was read past; none where no Wall was met.
+   */
+  wall?: WallMarker | null;
+}
+/**
  * What `$/record` carries: the next Record a `run.records` call reads.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -4185,6 +4462,7 @@ export interface DatasetRecord1 {
    * Its number in its Dataset, from 1, in commit order, with no gaps.
    */
   number: number;
+  provenance: RecordProvenance;
   /**
    * The ID of the crawl request whose attempt committed it.
    */

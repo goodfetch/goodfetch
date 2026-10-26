@@ -548,6 +548,26 @@ class ElementState(StrEnum):
     """No element matches, or the one that does is not visible."""
 
 
+class EncodingSource(StrEnum):
+    """
+    Where a document's encoding came from, in the order the tiers look
+    (ADR 0119).
+    """
+
+    bom = "bom"
+    """Its byte order mark."""
+    setting = "setting"
+    """`fetch.encoding`."""
+    header = "header"
+    """The `Content-Type` charset."""
+    meta = "meta"
+    """A declaration in its own bytes: a `<meta>` or an XML declaration."""
+    utf8 = "utf8"
+    """Nothing declared, and the body is valid UTF-8."""
+    detected = "detected"
+    """The browser's guess, after the request escalated to it."""
+
+
 class EndingError(BaseModel):
     """An Error code a Run's ending raises, with its message and details."""
 
@@ -626,6 +646,36 @@ class Evaluated(BaseModel):
     )
     value: Any | None = None
     """The result as JSON; absent when it was `undefined`."""
+
+
+class FetchTier(StrEnum):
+    """
+    A tier that fetches a crawl request's document (ADR 0020), from the
+    cheapest up.
+    """
+
+    http = "http"
+    """
+    An HTTP request, over reqwest in `standard` and `identified`
+    Sessions.
+    """
+    discovered_api = "discovered_api"
+    """The site's own API, found from its pages."""
+    browser_fetch = "browser_fetch"
+    """A request sent from a browser page's context."""
+    light_browser = "light_browser"
+    """A browser that runs scripts without layout."""
+    browser = "browser"
+    """Collie's browser page."""
+
+
+class ForcedBy(StrEnum):
+    """Which scope's `fetch.tier` forced a tier."""
+
+    run = "run"
+    """The Run's setting."""
+    label = "label"
+    """The setting of the request's Label."""
 
 
 class Form(StrEnum):
@@ -1346,6 +1396,25 @@ class PauseOrigin(RootModel[PauseOrigin1 | PauseOrigin2]):
     """Who raised a Human pause."""
 
 
+class PaymentMark(BaseModel):
+    """
+    The payment of a Paid fetch, as a Record's Provenance marks it (ADR
+    0045).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    amount: str
+    """The amount charged, an exact decimal."""
+    currency: str
+    """Its currency, an ISO 4217 code."""
+    payee_domain: str
+    """The domain paid."""
+    scheme: str
+    """The payment scheme the site asked through."""
+
+
 class PeriodLength(StrEnum):
     """How long a period Limit counts before it starts again (ADR 0041)."""
 
@@ -1621,6 +1690,33 @@ class ResponseBodyParams(BaseModel):
     """The page."""
     request_id: str
     """The request, by the browser's ID."""
+
+
+class ResponseOrigin1(BaseModel):
+    """The Response cache (ADR 0046)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    fetched_at: PointInTime
+    """When the cached response was fetched."""
+    kind: Literal["response_cache"]
+
+
+class ResponseOrigin2(BaseModel):
+    """A Response recording (ADR 0105)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["response_recording"]
+    recorded_at: PointInTime
+    """When the recorded response was received."""
+
+
+class ResponseOrigin(RootModel[ResponseOrigin1 | ResponseOrigin2]):
+    root: ResponseOrigin1 | ResponseOrigin2
+    """What answered a Record's request in place of the network."""
 
 
 class RouteAnswered(BaseModel):
@@ -2504,6 +2600,40 @@ class Tags(RootModel[list[Tag]]):
     """A Run's tags, in the order given."""
 
 
+class TierChosen(StrEnum):
+    """How the tier of a Record's document was chosen (ADRs 0023 and 0093)."""
+
+    forced = "forced"
+    """`fetch.tier` forced it."""
+    compared = "compared"
+    """Under `auto`, the crawl's sample comparison chose it."""
+    sample = "sample"
+    """It was the browser run of a sample of that comparison."""
+    escalation = "escalation"
+    """A cheaper tier could not serve a call, and the request moved here."""
+    race = "race"
+    """It won a race of tiers (`fetch.tier_race`, ADR 0040)."""
+
+
+class TierProvenance(BaseModel):
+    """The tier that fetched a Record's document and how it was chosen."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    call: str | None = None
+    """
+    The call a cheaper tier could not serve, which moved the request
+    here, for an escalation or a sample's browser run.
+    """
+    chosen: TierChosen
+    """How it was chosen."""
+    forced_by: ForcedBy | None = None
+    """What forced it, when `chosen` is `forced`."""
+    tier: FetchTier
+    """The tier."""
+
+
 class TimeRange(BaseModel):
     """
     A span of time: from its first point, included, until its last,
@@ -2640,6 +2770,27 @@ class UsageListParams(BaseModel):
     )
 
 
+class ValueTransform(StrEnum):
+    """One of the engine's closed list of Value transforms (ADR 0123)."""
+
+    text = "text"
+    """The element's text, or one attribute."""
+    match = "match"
+    """A capture group of a regular expression over that text."""
+    number = "number"
+    """A number or an amount under its locale."""
+    currency = "currency"
+    """A currency symbol or code under its locale."""
+    date = "date"
+    """A date under its locale or a stated pattern."""
+    date_time = "date_time"
+    """A date and time with its time zone."""
+    relative_time = "relative_time"
+    """A relative time under its locale, anchored at the fetch time."""
+    map = "map"
+    """An exact text looked up in the transform's table."""
+
+
 class Verdict(StrEnum):
     """Whether a Run's own checks prove what it committed (ADR 0029)."""
 
@@ -2773,6 +2924,32 @@ class WallDomainDenied(BaseModel):
     """The domain, as `wall.denied_domains` now lists it."""
     reason: str
     """The reason, as the Audit log records it."""
+
+
+class WallKind(StrEnum):
+    """A Wall's kind (ADR 0052)."""
+
+    paywall = "paywall"
+    """A paywall."""
+    consent_wall = "consent_wall"
+    """A consent wall."""
+    ad_blocker_wall = "ad_blocker_wall"
+    """An ad-blocker wall."""
+
+
+class WallMarker(BaseModel):
+    """
+    The `wall` marker of a Record whose page was read past a Wall (ADR
+    0052), which Dataset queries and every Export format filter on.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: WallKind
+    """The Wall's kind."""
+    vendor: str | None = None
+    """The vendor detected, when one was."""
 
 
 class WeakenedSetting(BaseModel):
@@ -3180,24 +3357,6 @@ class DaemonStatus(BaseModel):
     """Its Product version."""
 
 
-class DatasetRecord(BaseModel):
-    """One committed Record of a Dataset, as a reader reads it (ADR 0103)."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    committed_at: PointInTime
-    """When it was committed."""
-    number: Annotated[int, Field(ge=0)]
-    """Its number in its Dataset, from 1, in commit order, with no gaps."""
-    request_id: str
-    """The ID of the crawl request whose attempt committed it."""
-    url: str
-    """That crawl request's URL."""
-    value: Any
-    """The Record, as JSON; the program's schema parses it."""
-
-
 class Dialog(BaseModel):
     """A dialog as its handler sees it."""
 
@@ -3267,6 +3426,24 @@ class DownloadProgress(BaseModel):
     """The bytes received so far."""
     total_bytes: Annotated[int | None, Field(ge=0)] = None
     """The bytes the answer announced, when it did."""
+
+
+class EncodingProvenance(BaseModel):
+    """
+    The encoding a Record's document was read in, and where it came from
+    (ADR 0119).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    encoding: str
+    """Its WHATWG name, such as `Shift_JIS`."""
+    source: EncodingSource | None = None
+    """
+    Where it came from; none where the browser read the document by a
+    rule the engine did not see.
+    """
 
 
 class EngineInfo(BaseModel):
@@ -4108,18 +4285,6 @@ class ReachedLimit(BaseModel):
     """The Usage kind it caps."""
 
 
-class RecordRead(BaseModel):
-    """What `$/record` carries: the next Record a `run.records` call reads."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: RequestId
-    """The id of the `run.records` call."""
-    record: DatasetRecord
-    """The Record."""
-
-
 class RefetchDomainRemoved(BaseModel):
     """What `needs_you.remove_refetch_domain` answers."""
 
@@ -4619,6 +4784,31 @@ class SystemInfo(BaseModel):
     """The reading that holds it above `normal`; none at `normal`."""
 
 
+class TransformProvenance(BaseModel):
+    """How a Value transform gave one field of a Record (ADR 0123)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    anchor: PointInTime | None = None
+    """A relative time's anchor: the fetch time of the page's document."""
+    field: str
+    """The field, a JSON Pointer into the Record."""
+    locale: str | None = None
+    """Its resolved locale, a BCP 47 tag, for a locale-dependent one."""
+    pattern: str | None = None
+    """The stated CLDR pattern, such as `dd/MM/yyyy`, when one was."""
+    text: str
+    """The page text exactly as read."""
+    time_zone: str | None = None
+    """
+    Its resolved time zone, an IANA name, for a date-time or a
+    relative time.
+    """
+    transform: ValueTransform
+    """The transform."""
+
+
 class UsageRaiseParams(BaseModel):
     """
     What `usage.raise` takes: a Limit a person sets, which replaces every
@@ -5001,6 +5191,50 @@ class PageExchange(BaseModel):
     """Its response, whose body `response.body` reads."""
 
 
+class RecordProvenance(BaseModel):
+    """How one committed Record was obtained."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    clean_up_rules: str | None = None
+    """
+    The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
+    whose Run trace names their date and the release that applied them.
+    """
+    encoding: EncodingProvenance | None = None
+    """
+    The encoding the document was read in, and where it came from;
+    none for a request with no document.
+    """
+    origin: ResponseOrigin | None = None
+    """
+    The Response cache or Response recording that answered in place of
+    the network; none when the network did.
+    """
+    payment: PaymentMark | None = None
+    """
+    The payment of a Paid fetch of its page; none where nothing was
+    paid.
+    """
+    request_id: str
+    """The ID of the crawl request whose attempt produced it."""
+    tier: TierProvenance | None = None
+    """
+    The tier that fetched that request's document, and how it was
+    chosen; none where the handler was given its request alone.
+    """
+    value_transforms: Annotated[
+        list[TransformProvenance] | None, Field(validate_default=True)
+    ] = []
+    """
+    Each field whose value an engine Value transform gave, in the
+    order read; empty where the program parsed its own values.
+    """
+    wall: WallMarker | None = None
+    """The Wall its page was read past; none where no Wall was met."""
+
+
 class Resync(BaseModel):
     """
     What `events.resync` gives: the current state, from which the stream
@@ -5214,6 +5448,26 @@ class UsageListResult(BaseModel):
     """Every Limit of the Usage ledger, by scope, with its Usage."""
 
 
+class DatasetRecord(BaseModel):
+    """One committed Record of a Dataset, as a reader reads it (ADR 0103)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    committed_at: PointInTime
+    """When it was committed."""
+    number: Annotated[int, Field(ge=0)]
+    """Its number in its Dataset, from 1, in commit order, with no gaps."""
+    provenance: RecordProvenance
+    """How it was obtained (ADR 0123's Provenance of a Record)."""
+    request_id: str
+    """The ID of the crawl request whose attempt committed it."""
+    url: str
+    """That crawl request's URL."""
+    value: Any
+    """The Record, as JSON; the program's schema parses it."""
+
+
 class FormatsParams(BaseModel):
     """What `page.formats` takes: the page, and the formats it asks for."""
 
@@ -5224,6 +5478,18 @@ class FormatsParams(BaseModel):
     """The formats."""
     page_id: PageId
     """The page."""
+
+
+class RecordRead(BaseModel):
+    """What `$/record` carries: the next Record a `run.records` call reads."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: RequestId
+    """The id of the `run.records` call."""
+    record: DatasetRecord
+    """The Record."""
 
 
 class RunReport(BaseModel):

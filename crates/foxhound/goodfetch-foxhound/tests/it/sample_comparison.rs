@@ -375,3 +375,70 @@ fn a_sample_count_below_three_is_a_weakened_control() {
         )
     );
 }
+
+/// A choice that served `fetch.sample.refresh_after`'s requests is sampled
+/// again: with one request, the Label's next request after the one its
+/// choice served is a sample on both tiers again, neither a retry nor a
+/// failure, every request succeeding at its first attempt (ADR 0020).
+///
+/// Covers: story:5-114, setting:fetch.sample.refresh_after
+#[test]
+fn a_choice_that_served_its_requests_is_sampled_again() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+
+    let mut attempts = Vec::new();
+    let report = crawl_declaring(
+        &mut engine,
+        "sample-refresh",
+        &seeds(
+            &proving_ground,
+            &[
+                ("/products/1", "page"),
+                ("/products/2", "page"),
+                ("/products/3", "page"),
+                ("/products/4", "page"),
+                ("/products/5", "page"),
+            ],
+        ),
+        &json!({ "page": {} }),
+        &settings(
+            &proving_ground,
+            &json!({ "fetch": {
+                "tier": "auto",
+                "sample": { "refresh_after": { "requests": 1, "after": 86_400_000 } },
+            } }),
+        ),
+        &mut |_, handle| {
+            attempts.push(handle["attempt"].clone());
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            attempts.iter().all(|attempt| *attempt == json!(1)),
+            chosen(&env, "sample-refresh", &["page"]),
+        ),
+        (
+            &json!("finished"),
+            true,
+            [
+                "page http sample",
+                "page browser sample",
+                "page http sample",
+                "page browser sample",
+                "page http sample",
+                "page browser sample",
+                "page http compared",
+                "page http sample",
+                "page browser sample",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+        )
+    );
+}

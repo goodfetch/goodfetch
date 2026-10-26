@@ -366,6 +366,22 @@ fn identity_of_key(key: &str, declared: Declared<'_>) -> String {
     identity
 }
 
+/// The identities the visited set holds for `crawl_request`: the one it
+/// was admitted with, and any a redirect of it reached.
+///
+/// # Errors
+///
+/// The run file's, when the visited set cannot be read.
+pub fn admitted_identities(
+    connection: &Connection,
+    crawl_request: &str,
+) -> rusqlite::Result<Vec<String>> {
+    connection
+        .prepare_cached("SELECT identity FROM visited WHERE crawl_request = ?1 ORDER BY identity")?
+        .query_map([crawl_request], |row| row.get(0))?
+        .collect()
+}
+
 /// The crawl request `identity` was admitted for, or reached by a
 /// redirect; `None` while the visited set lacks it.
 pub(crate) fn visitor(connection: &Connection, identity: &str) -> rusqlite::Result<Option<String>> {

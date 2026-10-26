@@ -30,7 +30,7 @@
     reason = "a lease's end discards its attempt's staging as it drops, which cannot wait, and the run-state writer's thread stages inside its writes: one Mutex guards the entries for a lookup or a push, with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
 )]
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use goodfetch_dataset::Checked;
@@ -62,6 +62,8 @@ struct Admitted {
 #[derive(Default)]
 struct Entry {
     admitted: Vec<Admitted>,
+    /// The Frontier identities of the requests its admissions added.
+    enqueues: BTreeSet<String>,
     records: Checked,
     writes: Vec<StagedWrite>,
     fetched: Fetched,
@@ -76,6 +78,15 @@ const STAGE_AFTER: &str = "Stage it after the `effect` declaration returns, from
 /// work item and lease epoch.
 #[derive(Clone, Default)]
 pub(crate) struct Staging(Arc<Mutex<HashMap<(String, u64), Entry>>>);
+
+/// What an attempt staged so far, as a sample comparison weighs it (ADR
+/// 0103): the Records it pushed, in order, and the Frontier identities of
+/// the requests it added.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SoFar {
+    pub(crate) records: Checked,
+    pub(crate) enqueues: BTreeSet<String>,
+}
 
 /// What an attempt staged, taken out to commit.
 #[derive(Default)]
@@ -132,20 +143,26 @@ impl Staging {
     }
 
     /// Discards what the attempt staged, as it ends without committing,
-    /// and answers the Records it had pushed; every later staging call of
-    /// it fails with `attempt_ended`.
-    pub(crate) fn discard(&self, work_item: &str, lease_epoch: u64) -> Checked {
+    /// and answers what it had staged; every later staging call of it
+    /// fails with `attempt_ended`.
+    pub(crate) fn discard(&self, work_item: &str, lease_epoch: u64) -> SoFar {
         self.entries()
             .remove(&(work_item.to_owned(), lease_epoch))
-            .map(|entry| entry.records)
+            .map(|entry| SoFar {
+                records: entry.records,
+                enqueues: entry.enqueues,
+            })
             .unwrap_or_default()
     }
 
-    /// The Records the attempt pushed so far, which stay staged.
-    pub(crate) fn pushed(&self, work_item: &str, lease_epoch: u64) -> Checked {
+    /// What the attempt staged so far, which stays staged.
+    pub(crate) fn pushed(&self, work_item: &str, lease_epoch: u64) -> SoFar {
         self.entries()
             .get(&(work_item.to_owned(), lease_epoch))
-            .map(|entry| entry.records.clone())
+            .map(|entry| SoFar {
+                records: entry.records.clone(),
+                enqueues: entry.enqueues.clone(),
+            })
             .unwrap_or_default()
     }
 
@@ -251,16 +268,26 @@ impl Staging {
         };
         let mut positions = Positions::of(connection)?;
         connection.execute_batch("SAVEPOINT staging")?;
-        let answered = (|| {
+        let answered = (|| -> rusqlite::Result<_> {
             for admitted in &earlier {
                 positions.keeping(admitted.positions.clone());
                 (admitted.admission)(connection, &mut positions)?;
             }
             positions.keeping(BTreeMap::new());
-            admission(connection, &mut positions)
+            let answered = admission(connection, &mut positions)?;
+            // The identities the requests it added were admitted with,
+            // read before the run file is rolled back.
+            let mut identities = BTreeSet::new();
+            for added in positions.given() {
+                identities.extend(goodfetch_frontier::admitted_identities(
+                    connection,
+                    &added.to_string(),
+                )?);
+            }
+            Ok((answered, identities))
         })();
         connection.execute_batch("ROLLBACK TO staging; RELEASE staging")?;
-        let answered = answered?;
+        let (answered, identities) = answered?;
         if !matches!(answered, Some(Ok(_))) {
             return Ok(answered);
         }
@@ -273,7 +300,10 @@ impl Staging {
             positions: positions.taken(),
         };
         match self.entries().get_mut(&key) {
-            Some(entry) => entry.admitted.push(admitted),
+            Some(entry) => {
+                entry.admitted.push(admitted);
+                entry.enqueues.extend(identities);
+            }
             None => return Ok(None),
         }
         Ok(answered)

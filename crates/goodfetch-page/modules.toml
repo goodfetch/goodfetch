@@ -83,7 +83,11 @@ relay = ["party"]
 
 # Which of `proxy_provider`'s own modules may import which.
 [submodules.proxy_provider]
+apify = ["failure"]
+bright_data = ["failure"]
+failure = []
 list = []
+oxylabs = ["failure"]
 
 # Which of `launch`'s own modules may import which.
 [submodules.launch]

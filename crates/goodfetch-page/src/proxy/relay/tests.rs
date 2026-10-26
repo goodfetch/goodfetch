@@ -96,6 +96,7 @@ fn upstream(address: SocketAddr) -> Upstream {
         refused: AtomicBool::new(false),
         unreachable: AtomicBool::new(false),
         usage: None,
+        refusal: None,
     }
 }
 
@@ -112,6 +113,112 @@ async fn whether_the_proxy_refused_the_credentials_is_the_latest_connections_ans
 
     owner.cancel();
     assert_eq!((after_a_refusal, after_an_acceptance), (true, false));
+}
+
+/// A fake HTTP proxy on loopback that answers each connection's `CONNECT`
+/// with the next answer head of `answers`.
+async fn fake_http_proxy(owner: &TaskOwner, answers: Vec<&'static str>) -> SocketAddr {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let answers = Arc::new(Mutex::new(VecDeque::from(answers)));
+    owner.spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let answer = answers
+                .lock()
+                .await
+                .pop_front()
+                .unwrap_or("HTTP/1.1 200 OK\r\n\r\n");
+            let mut request = Vec::new();
+            let mut byte = [0; 1];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).await.unwrap();
+                request.push(byte[0]);
+            }
+            stream.write_all(answer.as_bytes()).await.unwrap();
+        }
+    });
+    address
+}
+
+/// One browser `CONNECT` through the relay to `upstream`, until the proxy's
+/// answer head came back.
+async fn connect_through(upstream: &Upstream) -> String {
+    let browsers = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let mut browser = TcpStream::connect(browsers.local_addr().unwrap())
+        .await
+        .unwrap();
+    let (relayed, _) = browsers.accept().await.unwrap();
+    let driving = async {
+        browser
+            .write_all(b"CONNECT site.test:443 HTTP/1.1\r\nHost: site.test:443\r\n\r\n")
+            .await
+            .unwrap();
+        let mut answer = Vec::new();
+        let mut byte = [0; 1];
+        while !answer.ends_with(b"\r\n\r\n") {
+            browser.read_exact(&mut byte).await.unwrap();
+            answer.push(byte[0]);
+        }
+        drop(browser);
+        String::from_utf8(answer).unwrap()
+    };
+    let ((), answer) = tokio::join!(relay(relayed, upstream), driving);
+    answer
+}
+
+/// Covers: story:8-89, story:8-108
+#[tokio::test]
+async fn the_relay_keeps_a_hosted_providers_refusal_of_the_latest_connect_for_its_adapter() {
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let address = fake_http_proxy(
+        &owner,
+        vec![
+            "HTTP/1.1 502 Bad Gateway\r\nX-Brd-Err-Code: client_10064\r\nContent-Length: 0\r\n\r\n",
+            "HTTP/1.1 200 Connection established\r\n\r\n",
+        ],
+    )
+    .await;
+    let upstream = Upstream {
+        mode: Mode::AsItIs { http: true },
+        refusal: Some(std::sync::Mutex::new(None)),
+        ..upstream(address)
+    };
+    let latest = |upstream: &Upstream| {
+        upstream
+            .refusal
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .clone()
+            .map(|answer| {
+                (
+                    answer.status,
+                    answer.header("x-brd-err-code").map(str::to_owned),
+                )
+            })
+    };
+
+    let refused = connect_through(&upstream).await;
+    let after_a_refusal = latest(&upstream);
+    let taken = connect_through(&upstream).await;
+    let after_a_tunnel = latest(&upstream);
+
+    owner.cancel();
+    assert_eq!(
+        (
+            refused.starts_with("HTTP/1.1 502"),
+            after_a_refusal,
+            taken.starts_with("HTTP/1.1 200"),
+            after_a_tunnel
+        ),
+        (
+            true,
+            Some((502, Some("client_10064".to_owned()))),
+            true,
+            None
+        )
+    );
 }
 
 /// Covers: story:5-88

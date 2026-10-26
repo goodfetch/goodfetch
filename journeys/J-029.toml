@@ -1,0 +1,42 @@
+#:schema ./journey.schema.json
+id = "J-029"
+title = "Run a program through a provider adapter and see one exit per Session and its proxy bytes in Usage"
+goal = """
+A person names a Proxy provider's account in configuration, then runs a \
+program whose Sessions draw their proxy from that provider. The provider's \
+adapter MUST build the provider's sticky-session username for each Session, \
+so the proxy MUST see every request of a Session under one sticky session \
+and leave it from one exit for the Session's life, each Session its own; \
+and the Run report's Usage MUST count the bytes the proxy carried under its \
+proxy kind (ADR 0021, pitfall S05)."""
+area = 8
+product = "collie"
+status = "active"
+covers = ["story:8-89", "story:8-90"]
+
+[proving_ground]
+seed = 29
+
+[surfaces]
+cli = "M1"
+
+[[steps]]
+text = "Name an Oxylabs account in the user configuration: its proxy user, the Secret reference of its password, and the Proving ground's forward proxy as its endpoint"
+
+[[steps]]
+text = "Run the Daemon in the foreground (`daemon run`)"
+
+[[steps]]
+text = "Start a run on the Daemon from a program whose Sessions draw their proxy from `oxylabs`, and open two Sessions"
+
+[[steps]]
+text = "Visit two pages in each Session"
+
+[[steps]]
+text = "Finish the run and read its report"
+
+[[expect]]
+text = "The proxy saw each Session's requests under Oxylabs' sticky username, one sticky session and one exit per Session, each Session its own"
+
+[[expect]]
+text = "The Run report's Usage counts the bytes the proxy carried under the `residential` kind"

@@ -1,26 +1,30 @@
-//! The crawl's tier choice (spec #582's `goodfetch-crawl`; ADRs 0020, 0023
-//! and 0093; CO-15): under `fetch.tier: auto`, the tier each crawl request
-//! takes is learned per Label on a domain key by sample comparison, and
-//! kept in the run file so a resumed crawl takes the same tiers.
+//! The crawl's tier choice (spec #579's `comparison` and spec #582's
+//! `goodfetch-crawl`; ADRs 0020, 0023, 0048, 0093 and 0103; CO-15): under
+//! `fetch.tier: auto`, the tier each crawl request takes is learned per
+//! Label on a domain key by sample comparison, and kept in the run file so
+//! a resumed crawl takes the same tiers.
 //!
 //! [`TierChoices::serve_attempt`] plans an attempt: the first
-//! [`SAMPLES`] requests of a Label on a domain are samples, each run on
-//! `http` and then on `browser`, the browser's run the one that commits;
-//! [`TierChoices::classify`] then takes whether the two runs matched. A
-//! Label whose samples all matched is learned onto `http`. One whose
-//! samples disagree by the first segment of their URL paths, some segment
-//! having matched throughout, is split by that segment: each segment keeps
-//! a tier of its own, `http` once its own [`SAMPLES`] samples all matched,
-//! `browser` at its first sample that did not, so a segment whose own
-//! samples disagree stays on `browser`. At most [`MAX_SEGMENTS`] segments
-//! are kept per Label and domain; the rest share the Label's choice,
-//! `browser`. Any other Label is learned onto `browser`. A choice once made
-//! stands for the Run: re-sampling is #768's.
+//! `fetch.sample.count` requests of a Label on a domain (3 by default,
+//! [`Sampling`]) are samples, each run on `http` and then on `browser`,
+//! the browser's run the one that commits; [`TierChoices::classify`] then
+//! takes how the [`weighing`] judged the two runs. A Label whose samples
+//! all matched is learned onto `http`. One whose samples disagree by the
+//! first segment of their URL paths, some segment having matched
+//! throughout, is split by that segment: each segment keeps a tier of its
+//! own, `http` once its own samples all matched, `browser` at its first
+//! sample that did not, so a segment whose own samples disagree stays on
+//! `browser`. At most [`MAX_SEGMENTS`] segments are kept per Label and
+//! domain; the rest share the Label's choice, `browser`. Any other Label
+//! is learned onto `browser`. A Label whose browser sample showed a
+//! consent wall stays on `browser` for the Run, never sampled again
+//! (ADR 0048).
 //!
-//! What "matched" means, the sample comparison's weighing, is area 5's
-//! (#768); until it is built, [`matches`] stands in: the two runs pushed
-//! the same Records, in any order, and the cheaper one neither escalated
-//! nor failed.
+//! A choice is sampled again once it served `fetch.sample.refresh_after`'s
+//! requests, or once its time passed, whichever comes first (500 requests
+//! or 24 hours by default), and at once when [`TierChoices::invalidate`]
+//! is told a declared total stopped matching (ADR 0020). A sample run is
+//! neither a retry nor a failure.
 //!
 //! The hand-over of a Collie page on the planned tier, and the attempt's
 //! runs, are the delivery's (`attempt`).
@@ -29,16 +33,11 @@ use std::collections::BTreeMap;
 
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_fetch_tier::TierChoice;
-use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 use crate::tier_race::Raced;
-
-/// How many samples a Label on a domain, or one of its segments, takes
-/// before it moves to `http` (`fetch.sample.count`'s built-in, #768).
-pub(crate) const SAMPLES: usize = 3;
 
 /// How many path segments a split Label keeps a tier for on one domain.
 pub(crate) const MAX_SEGMENTS: usize = 16;
@@ -53,6 +52,30 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             PRIMARY KEY (label, domain_key)
         ) STRICT"],
 };
+
+/// How a Run samples: `fetch.sample.count` and
+/// `fetch.sample.refresh_after`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Sampling {
+    /// How many samples a Label on a domain, or one of its segments, takes
+    /// before it moves to `http`.
+    pub(crate) count: usize,
+    /// How many requests a choice serves before it is sampled again.
+    pub(crate) requests: u64,
+    /// How long, in milliseconds, a choice stands before it is sampled
+    /// again.
+    pub(crate) after_ms: u64,
+}
+
+impl Default for Sampling {
+    fn default() -> Self {
+        Self {
+            count: 3,
+            requests: 500,
+            after_ms: 24 * 60 * 60 * 1000,
+        }
+    }
+}
 
 /// How one attempt of a crawl request runs.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -78,10 +101,25 @@ pub(crate) struct Sampled {
     pub(crate) segment: String,
 }
 
+/// How the weighing judged a sample's two runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Weighed {
+    /// They staged the same results.
+    Matched,
+    /// They did not, or the cheaper run escalated or failed.
+    Differed,
+    /// The browser's run met a consent wall: its Label stays on `browser`
+    /// (ADR 0048).
+    Walled,
+}
+
 /// What every Label on every domain of a Run learned so far.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct TierChoices {
     units: BTreeMap<(String, String), Unit>,
+    /// The requests each learned choice served since it was made.
+    served: BTreeMap<(String, String), u64>,
+    sampling: Sampling,
 }
 
 /// What one Label on one domain learned.
@@ -90,11 +128,15 @@ pub(crate) struct TierChoices {
 pub(crate) enum Unit {
     /// Its first samples, in the order they were classified.
     Sampling { samples: Vec<Sample> },
-    /// One tier for every request.
-    Learned { tier: FetchTier },
-    /// A tier per path segment, in the order the segments came; any other
-    /// segment takes `browser`.
-    Split { segments: Vec<Segment> },
+    /// One tier for every request, chosen at `since` (milliseconds since
+    /// the Unix epoch).
+    Learned { tier: FetchTier, since: u64 },
+    /// A tier per path segment, in the order the segments came, chosen at
+    /// `since`; any other segment takes `browser`.
+    Split { segments: Vec<Segment>, since: u64 },
+    /// `browser` for every request, never sampled again: a browser sample
+    /// showed a consent wall (ADR 0048).
+    Walled,
 }
 
 /// One classified sample.
@@ -115,32 +157,87 @@ pub(crate) struct Segment {
 }
 
 impl TierChoices {
+    /// The same choices, sampled as `sampling` says.
+    #[must_use]
+    pub(crate) fn sampled_as(mut self, sampling: Sampling) -> Self {
+        self.sampling = sampling;
+        self
+    }
+
     /// How an attempt of a request of `label` at `url` on `domain_key`
-    /// runs under `auto`.
-    pub(crate) fn serve_attempt(&self, label: &str, domain_key: &str, url: &str) -> AttemptPlan {
+    /// runs under `auto` at `now` (milliseconds since the Unix epoch): a
+    /// choice that served its requests or outlived its time is sampled
+    /// again, and each request a choice serves counts toward its refresh.
+    pub(crate) fn serve_attempt(
+        &mut self,
+        label: &str,
+        domain_key: &str,
+        url: &str,
+        now: u64,
+    ) -> AttemptPlan {
         let segment = segment(url);
-        let unit = self.units.get(&(label.to_owned(), domain_key.to_owned()));
-        match unit.map_or(Some(Plan::Sample), |unit| unit.plan(&segment)) {
+        let id = (label.to_owned(), domain_key.to_owned());
+        let served = self.served.get(&id).copied().unwrap_or_default();
+        if self
+            .units
+            .get(&id)
+            .is_some_and(|unit| unit.stale(served, now, self.sampling))
+        {
+            self.units.remove(&id);
+            self.served.remove(&id);
+        }
+        match self
+            .units
+            .get(&id)
+            .map_or(Some(Plan::Sample), |unit| unit.plan(&segment))
+        {
             Some(Plan::Sample) | None => AttemptPlan::Sample(Sampled {
                 label: label.to_owned(),
                 domain_key: domain_key.to_owned(),
                 segment,
             }),
-            Some(Plan::On(tier)) => AttemptPlan::On(TierChoice { tier, forced: None }),
+            Some(Plan::On(tier)) => {
+                *self.served.entry(id).or_default() += 1;
+                AttemptPlan::On(TierChoice { tier, forced: None })
+            }
         }
     }
 
-    /// Takes the sample `sampled`, whose runs `matched` or not; answers
-    /// its unit as it now stands, for the run file.
-    pub(crate) fn classify(&mut self, sampled: &Sampled, matched: bool) -> &Unit {
+    /// Takes the sample `sampled`, as the weighing judged its runs at
+    /// `now`; answers its unit as it now stands, for the run file.
+    pub(crate) fn classify(&mut self, sampled: &Sampled, weighed: Weighed, now: u64) -> &Unit {
+        let count = self.sampling.count;
         let unit = self
             .units
             .entry((sampled.label.clone(), sampled.domain_key.clone()))
             .or_insert_with(|| Unit::Sampling {
                 samples: Vec::new(),
             });
-        unit.classify(&sampled.segment, matched);
+        match weighed {
+            Weighed::Walled => *unit = Unit::Walled,
+            Weighed::Matched | Weighed::Differed => {
+                unit.classify(&sampled.segment, weighed == Weighed::Matched, (count, now));
+            }
+        }
         unit
+    }
+
+    /// Samples `label` on `domain_key` again at once, as a declared total
+    /// that stopped matching says (ADR 0020); a walled Label stays on
+    /// `browser`.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "no contract declares a total yet: the crawl calls it once one does"
+        )
+    )]
+    pub(crate) fn invalidate(&mut self, label: &str, domain_key: &str) {
+        let id = (label.to_owned(), domain_key.to_owned());
+        if self.units.get(&id) != Some(&Unit::Walled) {
+            self.units.remove(&id);
+            self.served.remove(&id);
+        }
     }
 
     /// Every unit, by Label and domain key.
@@ -155,7 +252,7 @@ impl TierChoices {
     #[cfg(test)]
     pub(crate) fn segments(&self, label: &str, domain_key: &str) -> Vec<String> {
         match self.units.get(&(label.to_owned(), domain_key.to_owned())) {
-            Some(Unit::Split { segments }) => segments
+            Some(Unit::Split { segments, .. }) => segments
                 .iter()
                 .map(|segment| segment.name.clone())
                 .collect(),
@@ -172,65 +269,86 @@ enum Plan {
 }
 
 impl Unit {
+    /// Whether the choice it holds, having served `served` requests, is
+    /// to be sampled again at `now`.
+    fn stale(&self, served: u64, now: u64, sampling: Sampling) -> bool {
+        match self {
+            Self::Learned { since, .. } | Self::Split { since, .. } => {
+                served >= sampling.requests || now.saturating_sub(*since) >= sampling.after_ms
+            }
+            Self::Sampling { .. } | Self::Walled => false,
+        }
+    }
+
     /// The plan for a request in `segment`; `None` for a sample that opens
     /// a segment of a split Label.
     fn plan(&self, segment: &str) -> Option<Plan> {
         match self {
             Self::Sampling { .. } => Some(Plan::Sample),
-            Self::Learned { tier } => Some(Plan::On(*tier)),
-            Self::Split { segments } => match segments.iter().find(|kept| kept.name == segment) {
-                Some(Segment {
-                    tier: Some(tier), ..
-                }) => Some(Plan::On(*tier)),
-                Some(Segment { tier: None, .. }) => Some(Plan::Sample),
-                None if segments.len() < MAX_SEGMENTS => None,
-                // The rest share the Label's choice.
-                None => Some(Plan::On(FetchTier::Browser)),
-            },
+            Self::Learned { tier, .. } => Some(Plan::On(*tier)),
+            Self::Walled => Some(Plan::On(FetchTier::Browser)),
+            Self::Split { segments, .. } => {
+                match segments.iter().find(|kept| kept.name == segment) {
+                    Some(Segment {
+                        tier: Some(tier), ..
+                    }) => Some(Plan::On(*tier)),
+                    Some(Segment { tier: None, .. }) => Some(Plan::Sample),
+                    None if segments.len() < MAX_SEGMENTS => None,
+                    // The rest share the Label's choice.
+                    None => Some(Plan::On(FetchTier::Browser)),
+                }
+            }
         }
     }
 
-    /// Takes a sample in `segment` that `matched` or not. A choice once
-    /// made stands.
-    fn classify(&mut self, segment: &str, matched: bool) {
+    /// Takes a sample in `segment` that `matched` or not, of `count`
+    /// samples a choice takes, at `now`. A choice once made stands until
+    /// it is sampled again.
+    fn classify(&mut self, segment: &str, matched: bool, (count, now): (usize, u64)) {
         match self {
-            Self::Learned { .. } => {}
+            Self::Learned { .. } | Self::Walled => {}
             Self::Sampling { samples } => {
                 samples.push(Sample {
                     segment: segment.to_owned(),
                     matched,
                 });
-                if samples.len() >= SAMPLES {
-                    *self = Self::chosen(samples);
+                if samples.len() >= count {
+                    *self = Self::chosen(samples, count, now);
                 }
             }
-            Self::Split { segments } => {
-                Segment::take(segments, segment, matched);
+            Self::Split { segments, .. } => {
+                Segment::take(segments, segment, matched, count);
             }
         }
     }
 
-    /// What a Label on a domain learned from its first `samples`: `http`
-    /// when every one matched; split by first segment when some segment
-    /// matched throughout and another did not; `browser` otherwise.
-    fn chosen(samples: &[Sample]) -> Self {
+    /// What a Label on a domain learned at `now` from its first `samples`:
+    /// `http` when every one matched; split by first segment when some
+    /// segment matched throughout and another did not; `browser`
+    /// otherwise.
+    fn chosen(samples: &[Sample], count: usize, now: u64) -> Self {
         if samples.iter().all(|sample| sample.matched) {
             return Self::Learned {
                 tier: FetchTier::Http,
+                since: now,
             };
         }
         let mut segments: Vec<Segment> = Vec::new();
         for sample in samples {
-            Segment::take(&mut segments, &sample.segment, sample.matched);
+            Segment::take(&mut segments, &sample.segment, sample.matched, count);
         }
         let some_matched = segments
             .iter()
             .any(|kept| kept.tier != Some(FetchTier::Browser));
         if segments.len() > 1 && some_matched {
-            Self::Split { segments }
+            Self::Split {
+                segments,
+                since: now,
+            }
         } else {
             Self::Learned {
                 tier: FetchTier::Browser,
+                since: now,
             }
         }
     }
@@ -239,16 +357,16 @@ impl Unit {
 impl Segment {
     /// Takes a sample in `segment` that `matched` or not among `segments`,
     /// opening the segment while fewer than [`MAX_SEGMENTS`] are kept.
-    fn take(segments: &mut Vec<Self>, segment: &str, matched: bool) {
+    fn take(segments: &mut Vec<Self>, segment: &str, matched: bool, count: usize) {
         match segments.iter().position(|kept| kept.name == segment) {
-            Some(found) => segments[found].classify(matched),
+            Some(found) => segments[found].classify(matched, count),
             None if segments.len() < MAX_SEGMENTS => {
                 let mut kept = Self {
                     name: segment.to_owned(),
                     matched: 0,
                     tier: None,
                 };
-                kept.classify(matched);
+                kept.classify(matched, count);
                 segments.push(kept);
             }
             None => {}
@@ -256,9 +374,9 @@ impl Segment {
     }
 
     /// Takes one of its samples: its first that did not match keeps it on
-    /// `browser`; its [`SAMPLES`]th that matched, all before it matching,
+    /// `browser`; its `count`th that matched, all before it matching,
     /// moves it to `http`.
-    fn classify(&mut self, matched: bool) {
+    fn classify(&mut self, matched: bool, count: usize) {
         if self.tier.is_some() {
             return;
         }
@@ -267,7 +385,7 @@ impl Segment {
             return;
         }
         self.matched += 1;
-        if self.matched >= SAMPLES {
+        if self.matched >= count {
             self.tier = Some(FetchTier::Http);
         }
     }
@@ -285,35 +403,6 @@ pub(crate) fn segment(url: &str) -> String {
                 .map(str::to_owned)
         })
         .unwrap_or_default()
-}
-
-/// Whether a sample's cheaper run, which pushed `cheaper` (`None` when it
-/// escalated or failed), matched its browser run, which pushed `browser`.
-pub(crate) fn matches(cheaper: Option<&[PushedRecord]>, browser: &[PushedRecord]) -> bool {
-    let Some(cheaper) = cheaper else {
-        return false;
-    };
-    if cheaper.len() != browser.len() {
-        return false;
-    }
-    let mut left: Vec<&PushedRecord> = browser.iter().collect();
-    cheaper.iter().all(|record| {
-        left.iter()
-            .position(|other| *other == record)
-            .map(|found| left.swap_remove(found))
-            .is_some()
-    })
-}
-
-/// Whether a sample's cheaper run, which read its document in `cheaper`,
-/// and its browser run, whose `document.characterSet` is `browser`, read
-/// it alike (ADR 0119): a run that names no encoding leaves the Records to
-/// decide.
-pub(crate) fn same_encoding(cheaper: Option<&str>, browser: Option<&str>) -> bool {
-    match (cheaper, browser) {
-        (Some(cheaper), Some(browser)) => cheaper.eq_ignore_ascii_case(browser),
-        _ => true,
-    }
 }
 
 /// Records what `label` learned on `domain_key`.
@@ -336,7 +425,8 @@ pub(crate) fn record(
 }
 
 /// What the Run's Labels learned, as [`record`] kept it; a row that no
-/// longer reads is left out, its Label sampled again.
+/// longer reads is left out, its Label sampled again. Each choice counts
+/// the requests it serves anew.
 ///
 /// # Errors
 ///
@@ -363,8 +453,13 @@ pub(crate) fn read(connection: &Connection) -> rusqlite::Result<TierChoices> {
             }
         }
     }
-    Ok(TierChoices { units })
+    Ok(TierChoices {
+        units,
+        ..TierChoices::default()
+    })
 }
+
+pub(crate) mod weighing;
 
 #[cfg(test)]
 mod tests;

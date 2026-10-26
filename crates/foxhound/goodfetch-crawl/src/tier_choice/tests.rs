@@ -1,35 +1,55 @@
 //! Covers: story:6-257
 
 use goodfetch_fetch_tier::TierChoice;
-use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use rusqlite::Connection;
-use serde_json::json;
 
 use super::{
-    AttemptPlan, MAX_SEGMENTS, SAMPLES, Sampled, TABLES, TierChoices, matches, read, record,
-    same_encoding, segment,
+    AttemptPlan, MAX_SEGMENTS, Sampled, Sampling, TABLES, TierChoices, Weighed, read, record,
+    segment,
 };
 
 const KEY: &str = "tiers.test";
 
-/// The plan of a request of `label` at `path` on [`KEY`], under `auto`.
-fn plan(choices: &TierChoices, label: &str, path: &str) -> AttemptPlan {
-    choices.serve_attempt(label, KEY, &format!("http://tiers.test{path}"))
+/// The built-in `fetch.sample.count`.
+const SAMPLES: usize = 3;
+
+/// The moment every test starts at, in milliseconds since the Unix epoch.
+const START: u64 = 1_790_000_000_000;
+
+/// The plan of a request of `label` at `path` on [`KEY`], under `auto`, at
+/// [`START`].
+fn plan(choices: &mut TierChoices, label: &str, path: &str) -> AttemptPlan {
+    plan_at(choices, label, path, START)
+}
+
+/// The plan of a request of `label` at `path` on [`KEY`] at `now`.
+fn plan_at(choices: &mut TierChoices, label: &str, path: &str, now: u64) -> AttemptPlan {
+    choices.serve_attempt(label, KEY, &format!("http://tiers.test{path}"), now)
 }
 
 /// Classifies the sample of a request of `label` at `path`, as matched or
 /// not.
 fn sample(choices: &mut TierChoices, label: &str, path: &str, matched: bool) {
-    let AttemptPlan::Sample(sampled) = plan(choices, label, path) else {
-        panic!("{path} is no sample: {:?}", plan(choices, label, path));
+    let weighed = if matched {
+        Weighed::Matched
+    } else {
+        Weighed::Differed
     };
-    choices.classify(&sampled, matched);
+    weigh(choices, label, path, weighed);
+}
+
+/// Classifies the sample of a request of `label` at `path` as `weighed`.
+fn weigh(choices: &mut TierChoices, label: &str, path: &str, weighed: Weighed) {
+    let AttemptPlan::Sample(sampled) = plan(choices, label, path) else {
+        panic!("{path} is no sample");
+    };
+    choices.classify(&sampled, weighed, START);
 }
 
 /// The tier a request at `path` takes once the choice is made, `None`
 /// while it is still a sample.
-fn tier(choices: &TierChoices, label: &str, path: &str) -> Option<FetchTier> {
+fn tier(choices: &mut TierChoices, label: &str, path: &str) -> Option<FetchTier> {
     match plan(choices, label, path) {
         AttemptPlan::On(TierChoice { tier, forced: None }) => Some(tier),
         AttemptPlan::Sample(_) => None,
@@ -46,8 +66,8 @@ fn a_label_is_learned_onto_http_when_every_sample_matches_and_onto_browser_other
     let mut before = Vec::new();
     for page in 1..=SAMPLES {
         before.push((
-            tier(&choices, "static", &format!("/products/{page}")),
-            tier(&choices, "scripted", &format!("/blog/{page}")),
+            tier(&mut choices, "static", &format!("/products/{page}")),
+            tier(&mut choices, "scripted", &format!("/blog/{page}")),
         ));
         sample(&mut choices, "static", &format!("/products/{page}"), true);
         sample(&mut choices, "scripted", &format!("/blog/{page}"), false);
@@ -56,9 +76,9 @@ fn a_label_is_learned_onto_http_when_every_sample_matches_and_onto_browser_other
     assert_eq!(
         (
             before,
-            tier(&choices, "static", "/products/9"),
-            tier(&choices, "scripted", "/blog/9"),
-            tier(&choices, "other", "/products/9"),
+            tier(&mut choices, "static", "/products/9"),
+            tier(&mut choices, "scripted", "/blog/9"),
+            tier(&mut choices, "other", "/products/9"),
         ),
         (
             vec![(None, None); SAMPLES],
@@ -83,8 +103,8 @@ fn samples_that_disagree_by_first_segment_split_the_label_and_a_segment_that_dis
     sample(&mut choices, "page", "/blog/1", false);
     sample(&mut choices, "page", "/products/2", true);
     let split = (
-        tier(&choices, "page", "/products/3"),
-        tier(&choices, "page", "/blog/2"),
+        tier(&mut choices, "page", "/products/3"),
+        tier(&mut choices, "page", "/blog/2"),
     );
     sample(&mut choices, "page", "/products/3", true);
     sample(&mut choices, "page", "/mixed/1", true);
@@ -93,10 +113,10 @@ fn samples_that_disagree_by_first_segment_split_the_label_and_a_segment_that_dis
     assert_eq!(
         (
             split,
-            tier(&choices, "page", "/products/4"),
-            tier(&choices, "page", "/blog/3"),
-            tier(&choices, "page", "/mixed/3"),
-            tier(&choices, "page", "/"),
+            tier(&mut choices, "page", "/products/4"),
+            tier(&mut choices, "page", "/blog/3"),
+            tier(&mut choices, "page", "/mixed/3"),
+            tier(&mut choices, "page", "/"),
         ),
         (
             (None, Some(FetchTier::Browser)),
@@ -128,9 +148,9 @@ fn a_split_label_keeps_sixteen_segments_and_the_rest_share_the_labels_choice() {
     assert_eq!(
         (
             choices.segments("page", KEY),
-            tier(&choices, "page", "/s3/2"),
-            tier(&choices, "page", "/s17/1"),
-            tier(&choices, "page", "/s18/1"),
+            tier(&mut choices, "page", "/s3/2"),
+            tier(&mut choices, "page", "/s17/1"),
+            tier(&mut choices, "page", "/s18/1"),
         ),
         (
             kept,
@@ -162,21 +182,17 @@ fn the_learned_choices_read_back_from_the_run_file() {
         record(&connection, label, key, unit).unwrap();
     }
 
-    let read = read(&connection).unwrap();
+    let mut read = read(&connection).unwrap();
+    let same = read == choices;
 
     assert_eq!(
         (
-            tier(&read, "static", "/products/9"),
-            tier(&read, "page", "/blog/9"),
-            tier(&read, "page", "/products/9"),
-            &read,
+            same,
+            tier(&mut read, "static", "/products/9"),
+            tier(&mut read, "page", "/blog/9"),
+            tier(&mut read, "page", "/products/9"),
         ),
-        (
-            Some(FetchTier::Http),
-            Some(FetchTier::Browser),
-            None,
-            &choices,
-        )
+        (true, Some(FetchTier::Http), Some(FetchTier::Browser), None,)
     );
 }
 
@@ -184,10 +200,10 @@ fn the_learned_choices_read_back_from_the_run_file() {
 /// first segment of its URL's path.
 #[test]
 fn a_request_is_sampled_under_its_label_its_domain_key_and_its_first_segment() {
-    let choices = TierChoices::default();
+    let mut choices = TierChoices::default();
     assert_eq!(
         (
-            plan(&choices, "page", "/products/1?page=2"),
+            plan(&mut choices, "page", "/products/1?page=2"),
             segment("http://tiers.test/"),
             segment("http://tiers.test"),
             segment("not a url"),
@@ -205,61 +221,122 @@ fn a_request_is_sampled_under_its_label_its_domain_key_and_its_first_segment() {
     );
 }
 
-fn pushed(data: serde_json::Value) -> PushedRecord {
-    PushedRecord {
-        dataset: "default".to_owned(),
-        data,
-    }
-}
-
-/// The stand-in weighing until #768's: the same Records in any order
-/// match, a missing, extra or changed Record does not, and a cheaper run
-/// that escalated or failed never matches.
+/// A choice is sampled again once it served `fetch.sample.refresh_after`'s
+/// requests, or once its time passed, whichever comes first: its next
+/// request is a sample again, neither a retry nor a failure, and a choice
+/// the samples then make stands anew.
+///
+/// Covers: story:5-114
 #[test]
-fn two_runs_match_when_they_pushed_the_same_records_in_any_order() {
-    let one = pushed(json!({ "name": "Bench", "price": 3 }));
-    let two = pushed(json!({ "price": 4, "name": "Clock" }));
+fn a_choice_is_sampled_again_after_its_requests_or_its_time_whichever_comes_first() {
+    let mut choices = TierChoices::default().sampled_as(Sampling {
+        count: SAMPLES,
+        requests: 2,
+        after_ms: 60_000,
+    });
+    for page in 1..=SAMPLES {
+        sample(&mut choices, "by-count", &format!("/products/{page}"), true);
+        sample(&mut choices, "by-time", &format!("/products/{page}"), true);
+    }
+    let by_count = [
+        tier(&mut choices, "by-count", "/products/4"),
+        tier(&mut choices, "by-count", "/products/5"),
+        tier(&mut choices, "by-count", "/products/6"),
+    ];
+    let by_time = [
+        plan_at(&mut choices, "by-time", "/products/4", START + 59_999),
+        plan_at(&mut choices, "by-time", "/products/5", START + 60_000),
+    ];
+
     assert_eq!(
-        [
-            matches(
-                Some(&[one.clone(), two.clone()]),
-                &[two.clone(), one.clone()]
-            ),
-            matches(
-                Some(std::slice::from_ref(&one)),
-                &[one.clone(), two.clone()]
-            ),
-            matches(
-                Some(&[one.clone(), one.clone()]),
-                &[one.clone(), two.clone()]
-            ),
-            matches(
-                Some(&[pushed(json!({ "name": "Bench" }))]),
-                std::slice::from_ref(&one)
-            ),
-            matches(None, &[one]),
-            matches(Some(&[]), &[]),
-        ],
-        [true, false, false, false, false, true]
+        (by_count, by_time),
+        (
+            [Some(FetchTier::Http), Some(FetchTier::Http), None],
+            [
+                AttemptPlan::On(TierChoice {
+                    tier: FetchTier::Http,
+                    forced: None
+                }),
+                AttemptPlan::Sample(Sampled {
+                    label: "by-time".to_owned(),
+                    domain_key: KEY.to_owned(),
+                    segment: "products".to_owned(),
+                }),
+            ]
+        )
     );
 }
 
-/// A sample whose browser run read its document in another encoding than
-/// its cheaper run, its `document.characterSet` naming another, never
-/// matches, whatever Records each pushed (ADR 0119); names compare without
-/// regard to case, and a run that names none leaves the Records to decide.
+/// A declared total that stops matching samples its Label on its domain
+/// again at once, whatever it served (ADR 0020); other Labels keep theirs.
+///
+/// Covers: story:5-114
+#[test]
+fn a_declared_total_that_stops_matching_samples_the_label_again_at_once() {
+    let mut choices = TierChoices::default();
+    for page in 1..=SAMPLES {
+        sample(&mut choices, "listing", &format!("/products/{page}"), true);
+        sample(&mut choices, "other", &format!("/products/{page}"), true);
+    }
+    let before = tier(&mut choices, "listing", "/products/9");
+    choices.invalidate("listing", KEY);
+
+    assert_eq!(
+        (
+            before,
+            tier(&mut choices, "listing", "/products/9"),
+            tier(&mut choices, "other", "/products/9"),
+        ),
+        (Some(FetchTier::Http), None, Some(FetchTier::Http))
+    );
+}
+
+/// A Label whose browser sample showed a consent wall stays on `browser`
+/// for every request and segment, though its other samples matched, and
+/// is never sampled again, by its count, its time or a declared total
+/// (ADR 0048).
 ///
 /// Covers: story:5-117
 #[test]
-fn a_sample_whose_browser_read_another_encoding_never_matches() {
+fn a_label_whose_browser_sample_showed_a_consent_wall_never_moves_to_http() {
+    let mut choices = TierChoices::default().sampled_as(Sampling {
+        count: SAMPLES,
+        requests: 1,
+        after_ms: 1,
+    });
+    sample(&mut choices, "page", "/products/1", true);
+    weigh(&mut choices, "page", "/products/2", Weighed::Walled);
+    choices.invalidate("page", KEY);
+
     assert_eq!(
-        [
-            same_encoding(Some("Shift_JIS"), Some("Shift_JIS")),
-            same_encoding(Some("UTF-8"), Some("utf-8")),
-            same_encoding(Some("UTF-8"), Some("windows-1252")),
-            same_encoding(Some("EUC-KR"), None),
-            same_encoding(None, Some("UTF-8")),
-        ],
-        [true, true, false, true, true]
+        (
+            tier(&mut choices, "page", "/products/3"),
+            plan_at(&mut choices, "page", "/blog/1", START + 1_000_000),
+        ),
+        (
+            Some(FetchTier::Browser),
+            AttemptPlan::On(TierChoice {
+                tier: FetchTier::Browser,
+                forced: None
+            })
+        )
+    );
+}
+
+/// `fetch.sample.count` sets how many samples a Label takes: with one, its
+/// first matching sample moves it to `http`.
+///
+/// Covers: story:5-114
+#[test]
+fn fetch_sample_count_sets_how_many_samples_a_label_takes() {
+    let mut choices = TierChoices::default().sampled_as(Sampling {
+        count: 1,
+        ..Sampling::default()
+    });
+    sample(&mut choices, "page", "/products/1", true);
+
+    assert_eq!(
+        tier(&mut choices, "page", "/products/2"),
+        Some(FetchTier::Http)
     );
 }

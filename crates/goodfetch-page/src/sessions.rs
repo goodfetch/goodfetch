@@ -67,7 +67,7 @@ use goodfetch_protocol::egress::{EGRESS_LOCAL_ADDRESSES, LocalAddressFailure};
 use goodfetch_protocol::governor::WorkKind;
 use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
-use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
+use goodfetch_protocol::page::{CONTENT_EXTRACTOR, PageId, PageOpened, SessionId};
 use goodfetch_protocol::run::{Lifecycle, RUN_ENDED, RUN_NOT_FOUND, RunDetails, RunId};
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{
@@ -247,6 +247,8 @@ pub(crate) struct OpenPage {
     pub(crate) run: Run,
     /// Its Session.
     pub(crate) session: SessionId,
+    /// Its own settings, which it takes over its Session's and its Run's.
+    pub(crate) settings: Values,
     pub(crate) driver: PageDriver,
     /// Where it is, through its table: each call on it runs through it.
     pub(crate) life: PageLife,
@@ -472,6 +474,7 @@ impl Sessions {
     pub(crate) async fn new_default_page(
         &self,
         run_id: &RunId,
+        settings: &Map<String, Value>,
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
         let run = live(run_id, context).await?;
@@ -495,7 +498,7 @@ impl Sessions {
             ));
         }
         let session = session_id(run.id(), position);
-        self.new_page(&session, context).await
+        self.new_page(&session, settings, context).await
     }
 
     /// Opens the default Session of `run`, or a Session its crawl's Session
@@ -576,12 +579,14 @@ impl Sessions {
     pub(crate) async fn new_page(
         &self,
         session: &SessionId,
+        settings: &Map<String, Value>,
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
         let open = self.session(session, context).await?;
         if let Some(failed) = &open.reopen_failed {
             return Err(failed.clone());
         }
+        let settings = page_settings(settings, &open.run, context)?;
         open.life.call().await?;
         let run = open.run.clone();
         if let Some(proxy) = &open.proxy {
@@ -598,6 +603,7 @@ impl Sessions {
         let page = self
             .adopt(session_pages::Adopting {
                 observer: self.handler_pages.observer(run.id(), session),
+                settings,
                 open,
                 driver,
                 in_browser,
@@ -655,7 +661,7 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
         let session = self.pool_session(run_id, pooled, source, context).await?;
-        self.new_page(&session, context).await
+        self.new_page(&session, &Map::new(), context).await
     }
 
     /// The Session a crawl's Session pool names `pooled` in the live Run
@@ -1181,6 +1187,7 @@ fn own_settings(
             .find(|key| {
                 !SESSION_KEYS.contains(key)
                     && *key != SESSION_PAGE_CHECK.name
+                    && *key != CONTENT_EXTRACTOR.name
                     && !key.starts_with(PROXY_PREFIX)
             })
             .map(|key| (key, "set it on the Run, whose Sessions all take it"))
@@ -1195,6 +1202,17 @@ fn own_settings(
             context.identity(),
         ));
     }
+    not_locked(values, run, "Session", context)
+}
+
+/// `values`, a scope's own settings, unless the Run's layers lock one of
+/// them: then `setting_locked`, its fix naming `scope`.
+fn not_locked(
+    values: Values,
+    run: &Run,
+    scope: &str,
+    context: &CallContext,
+) -> Result<Values, CallError> {
     let locked = values.keys().find_map(|key| {
         let effective = run.settings()?.resolved().get(key)?;
         effective.locked_by.map(|layer| SettingLimit {
@@ -1209,7 +1227,7 @@ fn own_settings(
                 key: limit.key.clone(),
                 layer: SettingsLayer::Run,
                 fix: format!(
-                    "leave `{}` out of the Session's settings: the `{}` layer locks it for the Run",
+                    "leave `{}` out of the {scope}'s settings: the `{}` layer locks it for the Run",
                     limit.key,
                     limit.layer.as_str()
                 ),
@@ -1219,6 +1237,39 @@ fn own_settings(
         )),
         None => Ok(values),
     }
+}
+
+/// Reads a page's own `settings` (ADR 0083): `content.extractor`, the
+/// main-content step its formats read with, which it takes over its
+/// Session's and its Run's; `setting_locked` when the Run's layers lock
+/// it. Any other key is refused with `setting_not_applicable`, since no
+/// other setting takes effect on one page apart from its Session's yet,
+/// so none is ignored.
+fn page_settings(
+    settings: &Map<String, Value>,
+    run: &Run,
+    context: &CallContext,
+) -> Result<Values, CallError> {
+    if settings.is_empty() {
+        return Ok(Values::default());
+    }
+    let mut values = Values::read(SettingsLayer::Run, settings, context.identity().product)
+        .map_err(|error| settings_error(&error, context.identity()))?
+        .from_origin(RunOrigin::Settings);
+    if context.surface().acts_for_model() {
+        values = values.from_model();
+    }
+    if let Some(key) = values.keys().find(|key| *key != CONTENT_EXTRACTOR.name) {
+        return Err(settings_error(
+            &SettingsError::NotApplicable {
+                key: key.to_owned(),
+                layer: SettingsLayer::Run,
+                fix: "set it on the page's Session or its Run, whose pages all take it".to_owned(),
+            },
+            context.identity(),
+        ));
+    }
+    not_locked(values, run, "page", context)
 }
 
 /// What starts the `proxy.*` keys a Session's own `settings` may set.

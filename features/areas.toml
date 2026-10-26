@@ -667,6 +667,12 @@ number = 6
 kind = "setting"
 prefix = "crawl.content_types"
 
+# The main-content step `page.formats` reads with (ADR 0007, #788).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "content."
+
 # Area 6, Collection, Foxhound: a Label that keeps its URLs' fragments
 # (ADR 0120, #939).
 [[area]]

@@ -2088,7 +2088,7 @@ class SessionPages(BaseModel):
 
 
 class SessionParams(BaseModel):
-    """What `session.new_page` and `session.close` take: the Session."""
+    """What `session.close` takes: the Session."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -3852,13 +3852,45 @@ class NeedsYouList(BaseModel):
 
 
 class NewPageParams(BaseModel):
-    """What `run.new_page` takes: the Run whose default Session opens the page."""
+    """
+    What `run.new_page` takes: the Run whose default Session opens the page,
+    and the page's own settings.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
     )
     run_id: RunId
     """The Run."""
+    settings: dict[str, Any] | None = None
+    """
+    The page's own settings, nested by key (ADR 0083), which it takes
+    over its Session's and its Run's: `content.extractor`, the
+    main-content step its formats read with. Any other key is refused
+    with `setting_not_applicable`, as only its Session or its Run sets
+    it.
+    """
+
+
+class NewSessionPageParams(BaseModel):
+    """
+    What `session.new_page` takes: the Session, and the page's own
+    settings.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    session_id: SessionId
+    """The Session."""
+    settings: dict[str, Any] | None = None
+    """
+    The page's own settings, nested by key (ADR 0083), which it takes
+    over its Session's and its Run's: `content.extractor`, the
+    main-content step its formats read with. Any other key is refused
+    with `setting_not_applicable`, as only its Session or its Run sets
+    it.
+    """
 
 
 class NothingDone1(BaseModel):
@@ -4954,7 +4986,9 @@ class NewSessionParams(BaseModel):
     `browser.block_resources` and `live_view.hiding` choose its pages'
     Clean-up rules over the Run's, and `browser.service_workers` whether
     a site's service workers run in them, and `session.page_check` the
-    Page check its pages are judged against. `session.source` is refused here with `setting_not_applicable`,
+    Page check its pages are judged against, and `content.extractor`
+    the main-content step their formats read with. `session.source` is
+    refused here with `setting_not_applicable`,
     as the call's own `source` sets it, and so is any other key, which
     only the Run sets.
     """

@@ -103,6 +103,9 @@ service_workers = "allow"
 [settings.live_view]
 hiding = "auto"
 
+[settings.content]
+extractor = "dom_smoothie"
+
 [settings.proxy]
 server = "http://proxy.example:3128"
 bypass = "example"
@@ -384,6 +387,9 @@ service_workers = "allow"
 
 [lock.live_view]
 hiding = "auto"
+
+[lock.content]
+extractor = "dom_smoothie"
 
 [lock.proxy]
 server = "http://proxy.example:3128"

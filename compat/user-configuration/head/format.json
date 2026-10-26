@@ -247,6 +247,19 @@
             },
             "type": "object"
           },
+          "content": {
+            "additionalProperties": false,
+            "properties": {
+              "extractor": {
+                "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+                "enum": [
+                  "dom_smoothie",
+                  "trafilatura"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "crawl": {
             "additionalProperties": false,
             "properties": {

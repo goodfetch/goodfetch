@@ -3586,12 +3586,12 @@
       "cancellable": false,
       "class": "effect",
       "deprecated": null,
-      "description": "Opens a page in the Session, with its cookies and storage. Once the Session is closed, it raises `closed`.",
+      "description": "Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`.",
       "events": [],
       "kind": "round_trip",
       "name": "session.new_page",
       "params": {
-        "$ref": "#/$defs/SessionParams"
+        "$ref": "#/$defs/NewSessionPageParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -4209,6 +4209,26 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "dom_smoothie",
+      "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+      "name": "content.extractor",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "dom_smoothie",
+          "trafilatura"
+        ]
       },
       "weakens": false
     },

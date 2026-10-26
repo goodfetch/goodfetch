@@ -52,6 +52,7 @@ use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_engine::{CallContext, CallError, Contribution, Guard, Handler};
 use goodfetch_extractor::Serialization;
 use goodfetch_protocol::connection::Surface;
@@ -76,8 +77,8 @@ use goodfetch_protocol::page::route::{
     RouteOverridesParams, SESSION_ROUTE, SessionRouteParams,
 };
 use goodfetch_protocol::page::session::{
-    NewSessionParams, RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE, SessionClosed,
-    SessionParams,
+    NewSessionPageParams, NewSessionParams, RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE,
+    SessionClosed, SessionParams,
 };
 use goodfetch_protocol::page::session_pages::{
     self, PageCloseParams, PageClosed, SESSION_ON, SESSION_PAGES, SessionEventName, SessionOnParams,
@@ -362,9 +363,13 @@ fn with_session_handlers(contribution: Contribution, sessions: &Sessions) -> Con
         ))
         .with_handler(Handler::new(
             &SESSION_NEW_PAGE,
-            move |params: SessionParams, context: CallContext| {
+            move |params: NewSessionPageParams, context: CallContext| {
                 let sessions = paging.clone();
-                async move { sessions.new_page(&params.session_id, &context).await }
+                async move {
+                    sessions
+                        .new_page(&params.session_id, &params.settings, &context)
+                        .await
+                }
             },
         ))
         .with_handler(Handler::new(
@@ -587,7 +592,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                 async move {
                     pages
                         .sessions
-                        .new_default_page(&params.run_id, &context)
+                        .new_default_page(&params.run_id, &params.settings, &context)
                         .await
                 }
             },
@@ -1363,11 +1368,22 @@ impl Pages {
                 base_url: served.base_url,
             };
             let request = params.formats;
+            let extractor = clean_up::extractor(
+                served.run.settings().map(RunSettings::resolved),
+                &Values::default(),
+                &Values::default(),
+            );
             let (formats, read) = served
                 .run
                 .owner()
                 .blocking(move || {
-                    clean_up::read(&document, Serialization::Served, request, None, &[])
+                    clean_up::read(
+                        &document,
+                        Serialization::Served,
+                        request,
+                        extractor.extractor(),
+                        (None, &[]),
+                    )
                 })
                 .await;
             trace::provenance(&served.run, &read.entry(&params.page_id, None)).await;
@@ -1380,6 +1396,12 @@ impl Pages {
             .call(PageEvent::Read, page.driver.document())
             .await?;
         let request = params.formats;
+        let (_, session) = self.sessions.own_settings(&page.session).await?;
+        let extractor = clean_up::extractor(
+            page.run.settings().map(RunSettings::resolved),
+            &session,
+            &page.settings,
+        );
         let cosmetic = self.interception.cosmetic(&params.page_id);
         let hidden = page.sheets.runner_hidden();
         let (formats, read) = page
@@ -1390,8 +1412,8 @@ impl Pages {
                     &document,
                     Serialization::Dom,
                     request,
-                    cosmetic.as_ref(),
-                    &hidden,
+                    extractor.extractor(),
+                    (cosmetic.as_ref(), &hidden),
                 )
             })
             .await;

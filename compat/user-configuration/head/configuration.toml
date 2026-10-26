@@ -309,6 +309,22 @@ nested = "json"
 [settings.export.xlsx]
 sheet = "example"
 
+[settings.export.json]
+indent = 4
+
+[settings.export.xml]
+root = "example"
+record = "example"
+
+[settings.export.parquet]
+compression = "zstd"
+
+[settings.export.feed]
+title = "example"
+link = "example"
+published = "example"
+summary = "example"
+
 [settings.paid_fetch]
 domains = ["example"]
 max_price_per_page = "0.05 USD"

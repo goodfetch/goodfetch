@@ -309,6 +309,22 @@ nested = "json"
 [settings.export.xlsx]
 sheet = "example"
 
+[settings.export.json]
+indent = 4
+
+[settings.export.xml]
+root = "example"
+record = "example"
+
+[settings.export.parquet]
+compression = "zstd"
+
+[settings.export.feed]
+title = "example"
+link = "example"
+published = "example"
+summary = "example"
+
 [settings.paid_fetch]
 domains = ["example"]
 max_price_per_page = "0.05 USD"
@@ -627,6 +643,22 @@ nested = "json"
 [lock.export.xlsx]
 sheet = "example"
 
+[lock.export.json]
+indent = 4
+
+[lock.export.xml]
+root = "example"
+record = "example"
+
+[lock.export.parquet]
+compression = "zstd"
+
+[lock.export.feed]
+title = "example"
+link = "example"
+published = "example"
+summary = "example"
+
 [lock.paid_fetch]
 domains = ["example"]
 max_price_per_page = "0.05 USD"
@@ -765,6 +797,9 @@ max = 4
 
 [cap.fetch.refresh]
 max_delay = 30000
+
+[cap.export.json]
+indent = 4
 
 [cap.session.pool]
 max_size = 4

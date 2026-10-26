@@ -114,8 +114,11 @@ pub(crate) struct Expected {
     /// (`false`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) signed: Option<bool>,
-    /// The site of a task whose Records' `markdown` fields are Markdown,
-    /// judged by structure, each link on it by its path (ADR 0007).
+    /// The site of a task whose Records hold a page's formats (ADR 0007;
+    /// spec #580): its `markdown` and `markdown_*` fields are Markdown,
+    /// judged by structure, each link on it by its path; its `html_*` fields
+    /// HTML, judged by the text of its blocks; its `text` field text, judged
+    /// white space aside.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) markdown_site: Option<&'static str>,
     /// A decompression bomb's declared sizes, present on a `bombs` task:

@@ -1,0 +1,232 @@
+# The `extraction` family's content-mode pages (spec #580, ticket #785):
+# pages a program reads in every form `page.formats` gives, each with what
+# each form holds, written by hand. `markdown` is the main content's
+# Markdown, `markdown_full` the whole body's and `markdown_fit` the main
+# content's without its link-dense blocks (more than half their text in
+# links), image-only blocks and the navigation lists the page repeats;
+# each is judged by structure (`src/markdown.rs`). `html_main` is the main
+# content's HTML, judged by its blocks' text (`src/html.rs`), as the page's
+# own HTML is for the raw and cleaned HTML, which no cosmetic rule changes
+# here. `text` is the main content's text, judged white space aside. Served
+# at `/content-modes/<path>` on `extraction.test`, and listed by
+# `/content-modes`, task `extraction/8`'s start page. Append a page, never
+# reorder or remove one (ADR 0063).
+
+[[pages]]
+path = "navigation-and-related"
+html = '''
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Kite Journal | Northwind</title></head>
+<body>
+<header><nav><ul class="site"><li><a href="/">Home</a></li><li><a href="/shop">Shop</a></li><li><a href="/journal">Journal</a></li></ul></nav></header>
+<main>
+<article>
+<h1>Choosing a kite line</h1>
+<p>A kite line has to be strong enough for the pull of the kite in the strongest wind you fly in, and light enough that it does not sag between your hand and the kite on a calm day.</p>
+<p>Braided polyester is the usual choice for single-line kites: it stretches a little, which softens gusts, and it is cheap enough to replace when it frays on a rough reel.</p>
+<p>Read also <a href="/journal/bridle">Setting the bridle</a>, <a href="/journal/reels">Reels and winders</a> and <a href="/journal/knots">Three knots for the field</a>.</p>
+<figure><img src="/images/line.jpg" alt=""></figure>
+<p>Dyneema lines are thinner for the same strength and barely stretch, so a stunt kite answers your hands at once, but they cut skin and other lines when they rub.</p>
+<p>Wherever you fly, wear gloves when the wind rises, and wind the line onto the reel under a little tension so that it does not bite into itself.</p>
+<ul class="more"><li><a href="/">Home</a> (start here)</li><li><a href="/shop">Shop</a> (lines and reels)</li><li><a href="/journal">Journal</a> (more articles)</li></ul>
+</article>
+</main>
+<footer><p>Copyright 2026 Northwind Kites. All rights reserved.</p></footer>
+</body>
+</html>
+'''
+markdown = '''
+## Choosing a kite line
+
+A kite line has to be strong enough for the pull of the kite in the strongest wind you fly in, and light enough that it does not sag between your hand and the kite on a calm day.
+
+Braided polyester is the usual choice for single-line kites: it stretches a little, which softens gusts, and it is cheap enough to replace when it frays on a rough reel.
+
+Read also [Setting the bridle](/journal/bridle), [Reels and winders](/journal/reels) and [Three knots for the field](/journal/knots).
+
+Dyneema lines are thinner for the same strength and barely stretch, so a stunt kite answers your hands at once, but they cut skin and other lines when they rub.
+
+Wherever you fly, wear gloves when the wind rises, and wind the line onto the reel under a little tension so that it does not bite into itself.
+
+- [Home](/) (start here)
+- [Shop](/shop) (lines and reels)
+- [Journal](/journal) (more articles)
+'''
+markdown_full = '''
+- [Home](/)
+- [Shop](/shop)
+- [Journal](/journal)
+
+# Choosing a kite line
+
+A kite line has to be strong enough for the pull of the kite in the strongest wind you fly in, and light enough that it does not sag between your hand and the kite on a calm day.
+
+Braided polyester is the usual choice for single-line kites: it stretches a little, which softens gusts, and it is cheap enough to replace when it frays on a rough reel.
+
+Read also [Setting the bridle](/journal/bridle), [Reels and winders](/journal/reels) and [Three knots for the field](/journal/knots).
+
+Dyneema lines are thinner for the same strength and barely stretch, so a stunt kite answers your hands at once, but they cut skin and other lines when they rub.
+
+Wherever you fly, wear gloves when the wind rises, and wind the line onto the reel under a little tension so that it does not bite into itself.
+
+- [Home](/) (start here)
+- [Shop](/shop) (lines and reels)
+- [Journal](/journal) (more articles)
+
+Copyright 2026 Northwind Kites. All rights reserved.
+'''
+markdown_fit = '''
+## Choosing a kite line
+
+A kite line has to be strong enough for the pull of the kite in the strongest wind you fly in, and light enough that it does not sag between your hand and the kite on a calm day.
+
+Braided polyester is the usual choice for single-line kites: it stretches a little, which softens gusts, and it is cheap enough to replace when it frays on a rough reel.
+
+Dyneema lines are thinner for the same strength and barely stretch, so a stunt kite answers your hands at once, but they cut skin and other lines when they rub.
+
+Wherever you fly, wear gloves when the wind rises, and wind the line onto the reel under a little tension so that it does not bite into itself.
+'''
+html_main = '''
+<h2>Choosing a kite line</h2>
+<p>A kite line has to be strong enough for the pull of the kite in the strongest wind you fly in, and light enough that it does not sag between your hand and the kite on a calm day.</p>
+<p>Braided polyester is the usual choice for single-line kites: it stretches a little, which softens gusts, and it is cheap enough to replace when it frays on a rough reel.</p>
+<p>Read also <a href="/journal/bridle">Setting the bridle</a>, <a href="/journal/reels">Reels and winders</a> and <a href="/journal/knots">Three knots for the field</a>.</p>
+<figure><img src="/images/line.jpg" alt=""></figure>
+<p>Dyneema lines are thinner for the same strength and barely stretch, so a stunt kite answers your hands at once, but they cut skin and other lines when they rub.</p>
+<p>Wherever you fly, wear gloves when the wind rises, and wind the line onto the reel under a little tension so that it does not bite into itself.</p>
+<ul><li><a href="/">Home</a> (start here)</li><li><a href="/shop">Shop</a> (lines and reels)</li><li><a href="/journal">Journal</a> (more articles)</li></ul>
+'''
+text = '''
+Choosing a kite line
+
+A kite line has to be strong enough for the pull of the kite in the strongest wind you fly in, and light enough that it does not sag between your hand and the kite on a calm day.
+
+Braided polyester is the usual choice for single-line kites: it stretches a little, which softens gusts, and it is cheap enough to replace when it frays on a rough reel.
+
+Read also Setting the bridle, Reels and winders and Three knots for the field.
+
+Dyneema lines are thinner for the same strength and barely stretch, so a stunt kite answers your hands at once, but they cut skin and other lines when they rub.
+
+Wherever you fly, wear gloves when the wind rises, and wind the line onto the reel under a little tension so that it does not bite into itself.
+
+Home (start here)
+
+Shop (lines and reels)
+
+Journal (more articles)
+'''
+
+[[pages]]
+path = "figure-and-table"
+html = '''
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Reels compared | Northwind</title></head>
+<body>
+<header><p><a href="/">Northwind Kites</a></p></header>
+<article>
+<h1>Three reels compared</h1>
+<p>A reel holds the line you are not flying and lets you wind it in quickly when the wind drops, so the right one depends on how much line you fly and how hard the kite pulls.</p>
+<figure><img src="/images/reels.jpg" alt="Three reels on a bench"><figcaption>The hoop, the winder and the geared reel, left to right.</figcaption></figure>
+<table><caption>What each reel holds</caption><thead><tr><th>Reel</th><th>Line</th></tr></thead><tbody><tr><td>Hoop</td><td>100 m</td></tr><tr><td>Winder</td><td>60 m</td></tr><tr><td>Geared</td><td>300 m</td></tr></tbody></table>
+<p>A hoop is cheap and light; a geared reel winds in three times as fast but weighs as much as a small kite, which matters on a long walk to the field.</p>
+<p><a href="/shop/hoop">Hoop</a> · <a href="/shop/winder">Winder</a> · <a href="/shop/geared">Geared reel</a></p>
+</article>
+</body>
+</html>
+'''
+markdown = '''
+## Three reels compared
+
+A reel holds the line you are not flying and lets you wind it in quickly when the wind drops, so the right one depends on how much line you fly and how hard the kite pulls.
+
+The hoop, the winder and the geared reel, left to right.
+
+What each reel holds
+
+| Reel | Line |
+| --- | --- |
+| Hoop | 100 m |
+| Winder | 60 m |
+| Geared | 300 m |
+
+A hoop is cheap and light; a geared reel winds in three times as fast but weighs as much as a small kite, which matters on a long walk to the field.
+
+[Hoop](/shop/hoop) · [Winder](/shop/winder) · [Geared reel](/shop/geared)
+'''
+markdown_full = '''
+[Northwind Kites](/)
+
+# Three reels compared
+
+A reel holds the line you are not flying and lets you wind it in quickly when the wind drops, so the right one depends on how much line you fly and how hard the kite pulls.
+
+The hoop, the winder and the geared reel, left to right.
+
+What each reel holds
+
+| Reel | Line |
+| --- | --- |
+| Hoop | 100 m |
+| Winder | 60 m |
+| Geared | 300 m |
+
+A hoop is cheap and light; a geared reel winds in three times as fast but weighs as much as a small kite, which matters on a long walk to the field.
+
+[Hoop](/shop/hoop) · [Winder](/shop/winder) · [Geared reel](/shop/geared)
+'''
+markdown_fit = '''
+## Three reels compared
+
+A reel holds the line you are not flying and lets you wind it in quickly when the wind drops, so the right one depends on how much line you fly and how hard the kite pulls.
+
+The hoop, the winder and the geared reel, left to right.
+
+What each reel holds
+
+| Reel | Line |
+| --- | --- |
+| Hoop | 100 m |
+| Winder | 60 m |
+| Geared | 300 m |
+
+A hoop is cheap and light; a geared reel winds in three times as fast but weighs as much as a small kite, which matters on a long walk to the field.
+'''
+html_main = '''
+<h2>Three reels compared</h2>
+<p>A reel holds the line you are not flying and lets you wind it in quickly when the wind drops, so the right one depends on how much line you fly and how hard the kite pulls.</p>
+<figure><img src="/images/reels.jpg" alt="Three reels on a bench"><figcaption>The hoop, the winder and the geared reel, left to right.</figcaption></figure>
+<table><caption>What each reel holds</caption><thead><tr><th>Reel</th><th>Line</th></tr></thead><tbody><tr><td>Hoop</td><td>100 m</td></tr><tr><td>Winder</td><td>60 m</td></tr><tr><td>Geared</td><td>300 m</td></tr></tbody></table>
+<p>A hoop is cheap and light; a geared reel winds in three times as fast but weighs as much as a small kite, which matters on a long walk to the field.</p>
+<p><a href="/shop/hoop">Hoop</a> · <a href="/shop/winder">Winder</a> · <a href="/shop/geared">Geared reel</a></p>
+'''
+text = '''
+Three reels compared
+
+A reel holds the line you are not flying and lets you wind it in quickly when the wind drops, so the right one depends on how much line you fly and how hard the kite pulls.
+
+The hoop, the winder and the geared reel, left to right.
+
+What each reel holds
+
+Reel
+
+Line
+
+Hoop
+
+100 m
+
+Winder
+
+60 m
+
+Geared
+
+300 m
+
+A hoop is cheap and light; a geared reel winds in three times as fast but weighs as much as a small kite, which matters on a long walk to the field.
+
+Hoop · Winder · Geared reel
+'''

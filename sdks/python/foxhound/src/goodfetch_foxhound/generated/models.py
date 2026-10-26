@@ -1136,7 +1136,7 @@ class CrawlExtraction(BaseModel):
         extra="forbid",
         arbitrary_types_allowed=True,
     )
-    follow: ExtractionFollow | None = "scope"
+    follow: ExtractionFollow | None = ExtractionFollow.scope
     """Which pages the crawl fetches beyond its seeds: `scope` by default."""
     formats: FormatsRequest
     """The formats each page's Record holds, as `page.formats` takes them."""

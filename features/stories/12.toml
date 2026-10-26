@@ -419,3 +419,12 @@ journey = false
 not_journey = "part"
 status = "active"
 product = "foxhound"
+
+[[story]]
+id = 232
+title = "As a maintainer, I want a Stub gateway that serves Foxhound's Console build with the production headers, keeps its own index for `run.list`, starts each run's Attached engine from the executable of the Product that run gets and forwards every other operation, so that the Console is proved to need nothing beyond the catalog (ADRs 0068, 0096)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"

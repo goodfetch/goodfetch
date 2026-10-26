@@ -573,6 +573,23 @@ pub fn crawl_delay(fetched: &Fetched, operator_token: Option<&str>) -> Option<Du
         .max()
 }
 
+/// The Content Signals the robots.txt `fetched` declares to a crawl whose
+/// `site_preferences.robots_txt_user_agent` is `operator_token`: the
+/// `Content-Signal` lines of the groups that apply, as for its rules, in
+/// file order; none with no file.
+pub fn content_signals(fetched: &Fetched, operator_token: Option<&str>) -> Vec<(String, bool)> {
+    let Fetched::File(file) = fetched else {
+        return Vec::new();
+    };
+    let operator = operator_token.and_then(|token| ProductToken::new(token).ok());
+    let mut groups = applying_groups(file, operator.as_ref());
+    groups.sort_by_key(|group| group.line());
+    groups
+        .into_iter()
+        .flat_map(|group| group.content_signals().iter().cloned())
+        .collect()
+}
+
 /// The groups of `file` that apply to a crawl whose operator token is
 /// `operator` (ADRs 0086 and 0090).
 fn applying_groups<'a>(

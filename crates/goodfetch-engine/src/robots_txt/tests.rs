@@ -134,6 +134,27 @@ fn crawl_delay_and_sitemap_lines_are_kept() {
     );
 }
 
+/// A `Content-Signal` line belongs to its group, as Cloudflare's Content
+/// Signals Policy places it, each `name=yes` or `name=no` read in order,
+/// any other value saying nothing.
+#[test]
+fn content_signal_lines_are_kept_with_their_group() {
+    let file = parse(
+        b"User-agent: ExampleBot\nContent-Signal: search=yes, AI-Train=no, ai-input=maybe\nDisallow: /x\n\nUser-agent: *\nAllow: /\n",
+    );
+
+    assert_eq!(
+        (
+            group(&file, "ExampleBot").content_signals(),
+            group(&file, "*").content_signals(),
+        ),
+        (
+            &[("search".to_owned(), true), ("ai-train".to_owned(), false)][..],
+            &[][..],
+        )
+    );
+}
+
 #[rstest]
 #[case::star_matches_any_octets("Disallow: /fish*.php", "/fish/salmon.php", false)]
 #[case::star_matches_nothing_too("Disallow: /fish*.php", "/fish.php", false)]

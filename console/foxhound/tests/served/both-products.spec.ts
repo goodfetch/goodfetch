@@ -131,8 +131,11 @@ test(
     await page.getByRole("tab", { name: "Seeds", exact: true }).click();
     await expect(page.getByRole("tabpanel", { name: "Seeds" })).toContainText("https://shop.test/");
 
-    // The SQL tab runs its statement through Foxhound's engine (story 210):
-    // a crawl that committed no Record counts none.
+    // The SQL tab runs its statement through Foxhound's engine (story 210),
+    // which counts the Records the crawl's run file holds.
+    const crawlState = new DatabaseSync(join(runs, CRAWL_RUN, "run.sqlite"), { readOnly: true });
+    const committed = crawlState.prepare("SELECT count(*) AS n FROM records").get()?.["n"];
+    crawlState.close();
     await page.getByRole("tab", { name: "SQL", exact: true }).click();
     const sql = page.getByRole("tabpanel", { name: "SQL" });
     await sql
@@ -140,6 +143,6 @@ test(
       .fill(`SELECT count(*) AS committed FROM records('${CRAWL_RUN}')`);
     await sql.getByRole("button", { name: "Run the statement" }).click();
     await expect(sql.getByRole("columnheader")).toHaveText(["committed BIGINT"]);
-    await expect(sql.getByRole("cell")).toHaveText(["0"]);
+    await expect(sql.getByRole("cell")).toHaveText([String(committed)]);
   },
 );

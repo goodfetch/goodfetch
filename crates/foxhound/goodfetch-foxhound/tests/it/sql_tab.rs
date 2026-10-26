@@ -238,14 +238,16 @@ fn a_write_attach_install_or_outside_read_is_refused_beside_an_allowed_select(#[
 /// naming it, and at `dataset.query.memory_limit` with
 /// `query_memory_exceeded` naming it.
 ///
-/// Covers: story:12-211, setting:timeout.dataset_query, setting:dataset.query.memory_limit, error:query_memory_exceeded, error:deadline_exceeded
+/// Covers: story:12-211, setting:timeout.dataset_query, setting:dataset.query.memory_limit
 #[rstest]
+/// Covers: error:deadline_exceeded
 #[case::timeout(
     "timeout.dataset_query = 200\n",
     LONG,
     "deadline_exceeded",
     "timeout.dataset_query"
 )]
+/// Covers: error:query_memory_exceeded
 #[case::memory(
     "dataset.query.memory_limit = 16777216\n",
     HEAVY,
@@ -277,6 +279,37 @@ fn a_heavy_query_ends_at_its_limit_with_its_code(
         ),
         (&json!(code), &json!(key)),
         "{ended}"
+    );
+    assert_eq!(allowed["result"]["rows"], json!([[1]]), "{allowed}");
+    assert!(engine.finish());
+}
+
+/// A failure DuckDB's translation point does not recognise, such as a
+/// value that cannot be cast, answers `query_failed`, and the engine goes on
+/// answering queries.
+///
+/// Covers: story:12-211, error:query_failed
+#[test]
+fn an_unrecognised_failure_answers_query_failed() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    crawled(&mut engine, "shop", 1);
+
+    let failed = query(
+        &mut engine,
+        "SELECT CAST('not a number' AS INTEGER)",
+        &["shop"],
+    );
+    let allowed = query(
+        &mut engine,
+        "SELECT count(*) FROM records('shop')",
+        &["shop"],
+    );
+
+    assert_eq!(
+        failed["error"]["data"]["code"],
+        json!("query_failed"),
+        "{failed}"
     );
     assert_eq!(allowed["result"]["rows"], json!([[1]]), "{allowed}");
     assert!(engine.finish());

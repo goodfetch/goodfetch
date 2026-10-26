@@ -15,6 +15,11 @@
 //! of the rest. A work item is added once per identity, as the Frontier's
 //! visited set, in the same run file, decides; it keeps the method and body
 //! it is sent with.
+//!
+//! Size: one concern, the run state's work item tables and the statements
+//! that move a work item through them; a fetched document's Provenance
+//! marks (encoding, certificate exception, robots.txt) are fields its
+//! commit writes, not a concern of their own.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;

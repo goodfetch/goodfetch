@@ -58,6 +58,7 @@ fn main() {
         platform: None,
         url: "https://builds.goodfetch.test/chrome.zip".to_owned(),
         archive_digest: Some(Digest::of(b"never downloaded")),
+        application_settings: std::collections::BTreeMap::new(),
         digest,
     };
     let pinned_by = PinnedBy {

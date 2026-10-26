@@ -42,6 +42,10 @@ pub use clean_up_versions::manifest_file;
 pub use pages::{contribution, contribution_with};
 pub use trace::provenance;
 
+/// Captures a browser build's ALPS payload when the build is pinned
+/// (ADR 0042), for `pin-chrome-for-testing alps`.
+pub use egress_relay::capture::capture_application_settings;
+
 /// The egress relay's fuzz targets (ADR 0067), whose seeds and past
 /// crashers `fuzz_replay!` replays on every OS.
 pub use egress_relay::{

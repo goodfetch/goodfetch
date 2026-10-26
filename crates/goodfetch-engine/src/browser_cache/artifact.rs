@@ -13,6 +13,7 @@
     reason = "the digest reads files on the tasks module's blocking policy, never on an async worker"
 )]
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Read as _};
 use std::path::Path;
@@ -98,6 +99,11 @@ pub struct PinnedArtifact {
     pub archive_digest: Option<Digest>,
     /// The digest of the files the archive holds, which every launch checks.
     pub digest: Digest,
+    /// For a browser build, the ALPS payload it sends with each ALPN
+    /// protocol, such as `h2`, captured when it was pinned: the egress
+    /// relay sends a site the same (ADR 0042). Empty for any other
+    /// artifact.
+    pub application_settings: BTreeMap<String, Vec<u8>>,
 }
 
 /// Every Pinned artifact a Product version pins (ADR 0098: each Product asks

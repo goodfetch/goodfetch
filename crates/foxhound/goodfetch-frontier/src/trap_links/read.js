@@ -5,6 +5,7 @@
 // decides from. `cosmetic` holds the selectors of the cosmetic rules live
 // hiding applies to the page (ADR 0047): an element one of them matches, or
 // one holding it, is reported `cosmetic`. A selector the page refuses throws.
+/* eslint-disable unicorn/consistent-function-scoping -- CDP sends the function alone */
 // eslint-disable-next-line no-unused-vars -- `Runtime.callFunctionOn` calls it
 function trapLinks({ selector, cosmetic }) {
   // The element holding `element`, through the shadow root it sits in.
@@ -61,6 +62,7 @@ function trapLinks({ selector, cosmetic }) {
       for (const at of chain) {
         const its = getComputedStyle(at);
         if (
+          // oxlint-disable-next-line typescript/no-deprecated -- a trap link hides behind the obsolete `clip` too, so it must be read.
           its.clip === "rect(0px, 0px, 0px, 0px)" ||
           /^inset\((50|[5-9]\d|100)%\)$/.test(its.clipPath)
         ) {

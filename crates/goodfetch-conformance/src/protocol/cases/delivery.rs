@@ -30,6 +30,9 @@ const CRAWL_REQUEST_HANDLE: &str = "crawl_request.handle";
 /// `run.records`, Foxhound's cursor over a Dataset's Records.
 const RUN_RECORDS: &str = "run.records";
 
+/// `run.outcomes`, Foxhound's reader of a crawl's outcomes in commit order.
+const RUN_OUTCOMES: &str = "run.outcomes";
+
 /// `$/record`, the notification that carries one Record it reads.
 const RECORD: &str = "$/record";
 
@@ -40,11 +43,13 @@ const CREDIT: &str = "$/credit";
 /// 1 ms handler timeout, and room for a loaded machine.
 const LEASE_WAIT: Duration = Duration::from_secs(30);
 
-/// A crawl the harness handles: its Run ID, and the engine's requests and
-/// notifications not yet read.
+/// A crawl the harness handles: its Run ID, the engine's requests and
+/// notifications not yet read, and the position after which the next
+/// outcome it waits for commits.
 struct Crawl {
     run_id: &'static str,
     queued: VecDeque<Value>,
+    committed: Option<u64>,
 }
 
 impl Crawl {
@@ -76,6 +81,7 @@ impl Crawl {
         Ok(Self {
             run_id,
             queued: answer.others.into(),
+            committed: None,
         })
     }
 
@@ -85,6 +91,21 @@ impl Crawl {
             Some(message) => Ok(message),
             None => connection.next_within(deadline),
         }
+    }
+
+    /// Waits until the engine commits the Run's next outcome, through
+    /// `run.outcomes`, which waits for the next commit while the Run is
+    /// live, and keeps what the engine sent meanwhile.
+    fn next_commit(&mut self, connection: &mut Connection) -> Result<(), Gone> {
+        let mut params = json!({ "run_id": self.run_id });
+        if let Some(position) = self.committed {
+            params["after"] = json!(position);
+        }
+        let id = connection.request(RUN_OUTCOMES, &params)?;
+        let answer = connection.answer(id)?;
+        self.queued.extend(answer.others);
+        self.committed = answer.message["result"]["next"].as_u64();
+        Ok(())
     }
 
     /// `run.finish`, and every request or notification the engine sent
@@ -124,6 +145,34 @@ fn committed(connection: &mut Connection, run_id: &str) -> Result<(Vec<Value>, b
         .map(|record| record["value"].clone())
         .collect();
     Ok((values, numbered))
+}
+
+/// The work items of the finished Run `run_id`'s outcomes, in the order
+/// the engine committed them, as `run.outcomes` reads them: a Record
+/// commits with its work item's outcome, so this is its Records' commit
+/// order.
+fn commit_order(connection: &mut Connection, run_id: &str) -> Result<Vec<Value>, Gone> {
+    let mut order = Vec::new();
+    let mut after = None;
+    loop {
+        let mut params = json!({ "run_id": run_id });
+        if let Some(position) = after {
+            params["after"] = json!(position);
+        }
+        let id = connection.request(RUN_OUTCOMES, &params)?;
+        let answer = connection.answer(id)?;
+        let page = &answer.message["result"];
+        let outcomes = page["outcomes"].as_array().cloned().unwrap_or_default();
+        order.extend(
+            outcomes
+                .iter()
+                .map(|outcome| outcome["request"]["id"].clone()),
+        );
+        if outcomes.is_empty() || page["ended"] != json!(false) {
+            return Ok(order);
+        }
+        after = page["next"].as_u64();
+    }
 }
 
 fn is(message: &Value, method: &str) -> bool {
@@ -202,26 +251,32 @@ pub(super) fn at_least_once(connection: &mut Connection, checks: &mut Checks) ->
 }
 
 /// Each work item answered in time commits once: it is delivered once,
-/// never cancelled, and the Run finishes complete.
+/// never cancelled, and the Run finishes complete. The second work item's
+/// answer commits first: the harness answers the first only once the
+/// engine committed the second's, so commit order is never ask order.
 pub(super) fn exactly_once(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
     let mut crawl = Crawl::start(connection, "exactly-once", 2, checks)?;
-    let mut work_items = Vec::new();
+    let mut asked = Vec::new();
     for _ in 0..2 {
         let request = crawl.next(connection, DEADLINE)?;
         checks.check(
             "each work item's attempt is asked for",
             is(&request, CRAWL_REQUEST_HANDLE),
         );
-        work_items.push(request["params"]["crawl_request"]["id"].clone());
-        connection.reply(
-            &request["id"],
-            &records(&json!({ "work_item": request["params"]["crawl_request"]["id"] })),
-        )?;
+        asked.push(request);
     }
+    let work_items: Vec<Value> = asked
+        .iter()
+        .map(|request| request["params"]["crawl_request"]["id"].clone())
+        .collect();
     checks.check(
         "each work item is asked for once",
         work_items.len() == 2 && work_items[0] != work_items[1],
     );
+    for (request, work_item) in asked.iter().zip(&work_items).rev() {
+        connection.reply(&request["id"], &records(&json!({ "work_item": work_item })))?;
+        crawl.next_commit(connection)?;
+    }
     let (answer, sent) = crawl.finish(connection)?;
     checks.check(
         "no attempt answered in time is cancelled",
@@ -229,12 +284,16 @@ pub(super) fn exactly_once(connection: &mut Connection, checks: &mut Checks) -> 
     );
     finished_complete(&answer, &sent, checks);
     let (read, numbered) = committed(connection, "exactly-once")?;
+    let order = commit_order(connection, "exactly-once")?;
     checks.check(
         "`run.records` reads each work item's Record once, numbered from 1 in commit order",
-        read == work_items
-            .iter()
-            .map(|work_item| json!({ "work_item": work_item }))
-            .collect::<Vec<_>>()
+        order.len() == work_items.len()
+            && work_items.iter().all(|work_item| order.contains(work_item))
+            && read
+                == order
+                    .iter()
+                    .map(|work_item| json!({ "work_item": work_item }))
+                    .collect::<Vec<_>>()
             && numbered,
     );
     Ok(())

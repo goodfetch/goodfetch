@@ -64,7 +64,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use url::Url;
 
-use super::{FetchTiers, ServedPage};
+use super::{FetchTiers, ServedPage, lock};
 use crate::driver::{Fetched, Hop, fetch};
 use crate::gate::Gate;
 use crate::served_calls::{Row, Verdict, verdict};
@@ -244,6 +244,42 @@ fn body(
         }
         _ => ready(Err(tiers.unserved(page_id, operation, false))),
     }
+}
+
+/// The answer to the call `operation`, its params `params`, on the browser
+/// page `page_id` while it holds no document, its response read at the
+/// interception (ADR 0119): a call that reads, waits on or acts on the
+/// document fails at once with `response_not_document`, and
+/// `response.body` of its response reads the bytes kept; `None` for any
+/// other call or page, which the page crate answers.
+pub(super) fn on_browser(
+    tiers: &FetchTiers,
+    page_id: &PageId,
+    operation: &'static str,
+    params: &Value,
+) -> Option<GuardAnswer> {
+    let held = lock(&tiers.served.pages)
+        .browser
+        .get(page_id)
+        .and_then(|read| read.not_document.clone())?;
+    if Row::of(operation).is_some_and(Row::reads_document) {
+        return Some(ready(Err(not_document(&held.content_type, operation))));
+    }
+    if operation != RESPONSE_BODY.name {
+        return None;
+    }
+    let asked: ResponseBodyParams = read(params)?;
+    if asked.request_id != held.request_id {
+        return None;
+    }
+    Some(Box::pin(async move {
+        let stored = held
+            .run
+            .store_body(held.body.to_vec())
+            .await
+            .map_err(|error| failed(&held.request_id, &error))?;
+        Ok(encoded(&stored))
+    }))
 }
 
 /// `response_not_document` for the call `operation` on a page whose

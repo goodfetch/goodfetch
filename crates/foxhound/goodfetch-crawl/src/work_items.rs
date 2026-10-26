@@ -370,6 +370,12 @@ impl Positions {
         position
     }
 
+    /// The positions given since the last [`Positions::taken`], which are
+    /// the IDs of the work items added at them.
+    pub(crate) fn given(&self) -> impl Iterator<Item = u64> + '_ {
+        self.taken.values().copied()
+    }
+
     /// The positions given since the last call, by URL.
     pub(crate) fn taken(&mut self) -> BTreeMap<String, u64> {
         std::mem::take(&mut self.taken)

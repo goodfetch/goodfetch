@@ -384,6 +384,17 @@
                   }
                 },
                 "type": "object"
+              },
+              "sample": {
+                "additionalProperties": false,
+                "properties": {
+                  "count": {
+                    "description": "How many of a Label's first requests on a domain are samples under `fetch.tier: auto`, each fetched on `http` and then on `browser`, whose run commits: the Label moves to `http` once all of them gave the same Records and enqueues. 3 by default; set for the Run only. Fewer than 3 is a weakened control, named in the Run report's `weakened`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
               }
             },
             "type": "object"
@@ -1473,8 +1484,40 @@
                 },
                 "type": "object"
               },
+              "sample": {
+                "additionalProperties": false,
+                "properties": {
+                  "count": {
+                    "description": "How many of a Label's first requests on a domain are samples under `fetch.tier: auto`, each fetched on `http` and then on `browser`, whose run commits: the Label moves to `http` once all of them gave the same Records and enqueues. 3 by default; set for the Run only. Fewer than 3 is a weakened control, named in the Run report's `weakened`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "refresh_after": {
+                    "additionalProperties": false,
+                    "description": "When a Label's tier choice on a domain under `fetch.tier: auto` is sampled again: after it served `requests` crawl requests, or `after` milliseconds after it was made, whichever comes first; 500 requests or 24 hours (86,400,000 ms) by default. Set for the Run only. A Label whose browser sample showed a consent wall stays on `browser` and is not sampled again.",
+                    "properties": {
+                      "after": {
+                        "description": "The milliseconds a Label's tier choice on a domain stands before it is sampled again.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "requests": {
+                        "description": "The requests a Label's tier choice on a domain serves before it is sampled again.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "requests",
+                      "after"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
               "tier": {
-                "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first 3 requests of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all 3 gave the same Records, split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+                "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                 "enum": [
                   "auto",
                   "http",
@@ -3783,8 +3826,40 @@
                 },
                 "type": "object"
               },
+              "sample": {
+                "additionalProperties": false,
+                "properties": {
+                  "count": {
+                    "description": "How many of a Label's first requests on a domain are samples under `fetch.tier: auto`, each fetched on `http` and then on `browser`, whose run commits: the Label moves to `http` once all of them gave the same Records and enqueues. 3 by default; set for the Run only. Fewer than 3 is a weakened control, named in the Run report's `weakened`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "refresh_after": {
+                    "additionalProperties": false,
+                    "description": "When a Label's tier choice on a domain under `fetch.tier: auto` is sampled again: after it served `requests` crawl requests, or `after` milliseconds after it was made, whichever comes first; 500 requests or 24 hours (86,400,000 ms) by default. Set for the Run only. A Label whose browser sample showed a consent wall stays on `browser` and is not sampled again.",
+                    "properties": {
+                      "after": {
+                        "description": "The milliseconds a Label's tier choice on a domain stands before it is sampled again.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "requests": {
+                        "description": "The requests a Label's tier choice on a domain serves before it is sampled again.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "requests",
+                      "after"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
               "tier": {
-                "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first 3 requests of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all 3 gave the same Records, split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+                "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
                 "enum": [
                   "auto",
                   "http",

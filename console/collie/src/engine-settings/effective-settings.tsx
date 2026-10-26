@@ -2,9 +2,13 @@
 // key with its value, the layer that set it (a run value with its origin),
 // the layer that locked it, an Operator policy's cap, whether it weakens a
 // guarantee, and, for a key only the other Product honours, that Product's
-// name, so a shared configuration file reads honestly (ADR 0087).
+// name, so a shared configuration file reads honestly (ADR 0087). Each row
+// offers what the Console may edit of it (ADR 0031): a user-level value or
+// a run's own value, never a project configuration's or a Recipe
+// manifest's, which are files under version control, and never a run's
+// value fixed for its life, which only a new run changes.
 import { Trans, useLingui } from "@lingui/react/macro";
-import type { ReactNode } from "react";
+import { useId, useState, type ReactNode, type SubmitEvent } from "react";
 import type { ExplainedSetting, Product } from "@goodfetch/collie-client/generated";
 import { LAYERS, RUN_ORIGINS } from "#settings-layers.ts";
 
@@ -16,9 +20,194 @@ const PRODUCTS: Readonly<Record<Product, string>> = {
   foxhound: "Foxhound",
 };
 
+/** A value a person gave a setting: a user-level value, or a run's own value. */
+export interface SettingEdit {
+  readonly layer: "user_configuration" | "run";
+  readonly key: string;
+  readonly value: unknown;
+}
+
+/** What the Console may edit of a setting. */
+export type Editable =
+  /** Its user-level value, in user configuration. */
+  | { readonly kind: "user" }
+  /** Its run's own value. */
+  | { readonly kind: "run" }
+  /** Nothing: a run's value fixed for its life, which only a new run changes. */
+  | { readonly kind: "fixed_for_run" }
+  /** Nothing: a value under version control, in the project configuration or a Recipe's manifest. */
+  | { readonly kind: "versioned"; readonly layer: "project_configuration" | "recipe" }
+  /** Nothing: a locked value, the other Product's, or a key no user-level value sets. */
+  | { readonly kind: "none" };
+
+/** What the Console may edit of `setting`, from the layer that set it, its lock and its marks. */
+export function editable(setting: ExplainedSetting): Editable {
+  if (!setting.applied) {
+    return { kind: "none" };
+  }
+  switch (setting.layer) {
+    case "run":
+      return setting.fixed_for_run ? { kind: "fixed_for_run" } : { kind: "run" };
+    case "project_configuration":
+    case "recipe":
+      return { kind: "versioned", layer: setting.layer };
+    case "default":
+    case "operator_policy":
+    case "user_configuration":
+      return setting.user_settable ? { kind: "user" } : { kind: "none" };
+    default: {
+      const exhaustive: never = setting.layer;
+      return exhaustive;
+    }
+  }
+}
+
 /** A JSON value as `config explain` prints it. */
 function json(value: unknown): string {
   return JSON.stringify(value) ?? "null";
+}
+
+/** The value `text` writes as JSON, or `undefined` when it is no JSON. */
+function parsed(text: string): { readonly value: unknown } | undefined {
+  try {
+    return { value: JSON.parse(text) };
+  } catch {
+    return undefined;
+  }
+}
+
+const smallButtonClassName =
+  "rounded-md border px-2 py-1 text-sm font-medium focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50";
+
+/** The edit of one setting's value in `layer`: a button, then a field with Save and Cancel. */
+function ValueEditor({
+  setting,
+  layer,
+  disabled,
+  onEdit,
+}: {
+  readonly setting: ExplainedSetting;
+  readonly layer: SettingEdit["layer"];
+  readonly disabled: boolean;
+  readonly onEdit: (edit: SettingEdit) => void;
+}): ReactNode {
+  const { t } = useLingui();
+  const field = useId();
+  const [open, setOpen] = useState(false);
+  const [invalid, setInvalid] = useState(false);
+  const key = setting.key;
+  if (!open) {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          setOpen(true);
+        }}
+        aria-label={layer === "run" ? t`Edit run value of ${key}` : t`Edit user value of ${key}`}
+        className={smallButtonClassName}
+      >
+        {layer === "run" ? <Trans>Edit run value</Trans> : <Trans>Edit user value</Trans>}
+      </button>
+    );
+  }
+  const submit = (event: SubmitEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const text = new FormData(event.currentTarget).get("value");
+    const value = typeof text === "string" ? parsed(text) : undefined;
+    if (value === undefined) {
+      setInvalid(true);
+      return;
+    }
+    setInvalid(false);
+    setOpen(false);
+    onEdit({ layer, key, value: value.value });
+  };
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-1">
+      <label htmlFor={field} className="text-sm">
+        {layer === "run" ? (
+          <Trans>
+            The run's value of <span translate="no">{key}</span>, as JSON
+          </Trans>
+        ) : (
+          <Trans>
+            The user-level value of <span translate="no">{key}</span>, as JSON
+          </Trans>
+        )}
+      </label>
+      <input
+        id={field}
+        name="value"
+        defaultValue={json(setting.value)}
+        translate="no"
+        className="rounded-md border bg-background px-2 py-1 font-mono text-sm"
+      />
+      {invalid ? (
+        <p role="alert" className="text-destructive text-sm">
+          <Trans>The value is no JSON.</Trans>
+        </p>
+      ) : null}
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={disabled}
+          className="rounded-md bg-primary px-2 py-1 text-sm font-medium text-primary-foreground focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
+        >
+          <Trans>Save</Trans>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            setInvalid(false);
+          }}
+          className={smallButtonClassName}
+        >
+          <Trans>Cancel</Trans>
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** What a person may do with `setting`'s value here. */
+function Edit({
+  setting,
+  disabled,
+  onEdit,
+}: {
+  readonly setting: ExplainedSetting;
+  readonly disabled: boolean;
+  readonly onEdit: ((edit: SettingEdit) => void) | undefined;
+}): ReactNode {
+  const can = editable(setting);
+  switch (can.kind) {
+    case "user":
+    case "run":
+      return onEdit === undefined ? null : (
+        <ValueEditor
+          setting={setting}
+          layer={can.kind === "run" ? "run" : "user_configuration"}
+          disabled={disabled}
+          onEdit={onEdit}
+        />
+      );
+    case "fixed_for_run":
+      return <Trans>Fixed for a run's life: start a new run to change it</Trans>;
+    case "versioned":
+      return can.layer === "recipe" ? (
+        <Trans>Edit the Recipe's manifest, under version control</Trans>
+      ) : (
+        <Trans>Edit the project configuration file, under version control</Trans>
+      );
+    case "none":
+      return null;
+    default: {
+      const exhaustive: never = can;
+      return exhaustive;
+    }
+  }
 }
 
 /** The notes of `setting`, beside its layers: its cap, a weakening, and the Product that honours it when this engine does not. */
@@ -57,11 +246,17 @@ function Notes({ setting }: { readonly setting: ExplainedSetting }): ReactNode {
   return notes;
 }
 
-/** Every effective setting, one row each. */
+/** Every effective setting, one row each, each with what a person may edit of it. */
 export function EffectiveSettings({
   settings,
+  readOnly = false,
+  onEdit,
 }: {
   readonly settings: readonly ExplainedSetting[];
+  /** Whether the Console has no Connection now, which disables editing. */
+  readonly readOnly?: boolean | undefined;
+  /** Where a person's edit goes; without it, nothing is offered for editing. */
+  readonly onEdit?: ((edit: SettingEdit) => void) | undefined;
 }): ReactNode {
   const { i18n } = useLingui();
   return (
@@ -83,8 +278,11 @@ export function EffectiveSettings({
           <th scope="col" className="py-2 pe-4 font-medium">
             <Trans>Locked by</Trans>
           </th>
-          <th scope="col" className="py-2 font-medium">
+          <th scope="col" className="py-2 pe-4 font-medium">
             <Trans>Notes</Trans>
+          </th>
+          <th scope="col" className="py-2 font-medium">
+            <Trans>Edit</Trans>
           </th>
         </tr>
       </thead>
@@ -111,8 +309,11 @@ export function EffectiveSettings({
                 i18n._(LAYERS[setting.locked_by])
               )}
             </td>
-            <td className="py-2">
+            <td className="py-2 pe-4">
               <Notes setting={setting} />
+            </td>
+            <td className="py-2">
+              <Edit setting={setting} disabled={readOnly} onEdit={onEdit} />
             </td>
           </tr>
         ))}

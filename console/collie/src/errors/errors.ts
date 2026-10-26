@@ -69,6 +69,7 @@ const SUMMARIES: Readonly<Record<string, MessageDescriptor>> = {
   path_unsafe: msg`A name or path would leave its folder or is no safe file name on every system.`,
   pattern_unsupported: msg`The engine cannot match this URL pattern.`,
   person_required: msg`Only a person can give this answer.`,
+  policy_conflict: msg`The Operator policy changed since it was read, so nothing was written.`,
   protocol_version_unsupported: msg`The engine does not speak the protocol version the Client asked for.`,
   proxy_auth_failed: msg`The proxy refused the Session's credentials.`,
   proxy_unavailable: msg`The Session's proxy could not be reached.`,

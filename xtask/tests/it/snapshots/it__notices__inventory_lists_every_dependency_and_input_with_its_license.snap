@@ -14,6 +14,14 @@ expression: "workspace.read_text(\"target/notices.json\")"
     },
     {
       "ecosystem": "cargo",
+      "name": "patched-crate",
+      "version": "1.2.0+goodfetch.1",
+      "license": "Apache-2.0",
+      "source": "forks/patched-crate",
+      "use": "modified"
+    },
+    {
+      "ecosystem": "cargo",
       "name": "permissive-crate",
       "version": "1.0.0",
       "license": "MIT OR Apache-2.0",

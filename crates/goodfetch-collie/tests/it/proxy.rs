@@ -514,24 +514,37 @@ fn a_host_proxy_bypass_names_is_reached_without_the_proxy() {
     );
 }
 
+/// A proxy is a Session's, never a page's or a request's (ADR 0092): no
+/// call takes a `proxy` argument, so one is `invalid_params`, and a page's
+/// own `settings`, which hold only what one page can use, refuse
+/// `proxy.server` with `setting_not_applicable` naming it (ADR 0083's
+/// refusals, as for `browser.viewport` on a page).
+///
 /// Covers: story:5-89
 #[rstest]
 /// Covers: operation:session.new_page
 #[case::a_pages_own_proxy(
     "session.new_page",
-    json!({ "session_id": "per-page.session-1", "proxy": { "server": "http://127.0.0.1:3128" } })
+    json!({ "session_id": "per-page.session-1", "proxy": { "server": "http://127.0.0.1:3128" } }),
+    ("invalid_params", None)
 )]
 /// Covers: operation:run.new_page
 #[case::a_pages_own_settings(
     "run.new_page",
-    json!({ "run_id": "per-page", "settings": { "proxy": { "server": "http://127.0.0.1:3128" } } })
+    json!({ "run_id": "per-page", "settings": { "proxy": { "server": "http://127.0.0.1:3128" } } }),
+    ("setting_not_applicable", Some("proxy.server"))
 )]
 /// Covers: operation:page.goto
 #[case::a_requests_own_proxy(
     "page.goto",
-    json!({ "page_id": "page-1", "url": "http://scope.test/", "proxy": { "server": "http://127.0.0.1:3128" } })
+    json!({ "page_id": "page-1", "url": "http://scope.test/", "proxy": { "server": "http://127.0.0.1:3128" } }),
+    ("invalid_params", None)
 )]
-fn a_proxy_per_page_or_per_request_is_refused(#[case] method: &str, #[case] params: Value) {
+fn a_proxy_per_page_or_per_request_is_refused(
+    #[case] method: &str,
+    #[case] params: Value,
+    #[case] refusal: (&str, Option<&str>),
+) {
     let env = TestEnv::new();
     let mut engine = Attached::start(&env);
     engine.send(&hello("collie", "0.1"));
@@ -553,8 +566,11 @@ fn a_proxy_per_page_or_per_request_is_refused(#[case] method: &str, #[case] para
     let _ = engine.finish();
 
     assert_eq!(
-        &refused["error"]["data"]["code"],
-        &json!("invalid_params"),
+        (
+            &refused["error"]["data"]["code"],
+            &refused["error"]["data"]["key"]
+        ),
+        (&json!(refusal.0), &json!(refusal.1)),
         "{refused}"
     );
 }

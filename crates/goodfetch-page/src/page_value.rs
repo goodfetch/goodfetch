@@ -128,6 +128,29 @@ pub trait BrowserPages: Send + Sync {
         request: &'a EngineFetch,
         context: &'a CallContext,
     ) -> Opening<'a, Result<EngineFetched, CallError>>;
+
+    /// Calls the page function `function`, a JavaScript function's source,
+    /// in the guard's isolated world of the main frame of the page
+    /// `page_id` (ADR 0019), with `argument`, an object whose `cosmetic` the
+    /// engine sets to the selectors of the cosmetic rules the page's live
+    /// hiding applies now (ADR 0047), none without live hiding; answers its
+    /// value, none when its document went or the function threw. A failure
+    /// raises the code of the operation `operation`.
+    ///
+    /// # Errors
+    ///
+    /// `closed` for a page closed, and the browser's failures.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only what it reads.
+    fn read<'a>(
+        &'a self,
+        page_id: &'a PageId,
+        function: &'static str,
+        argument: serde_json::Value,
+        operation: &'static str,
+    ) -> Opening<'a, Result<Option<serde_json::Value>, CallError>>;
 }
 
 /// A request a Product sends from inside a Session's browser through

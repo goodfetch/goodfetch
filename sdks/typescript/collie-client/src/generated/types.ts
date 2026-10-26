@@ -286,7 +286,8 @@ export type Enqueued =
         | "max_segment_repeats"
         | "path_budget"
         | "trap_path"
-        | "no_rule";
+        | "no_rule"
+        | "trap_link";
       /**
        * Its URL as it was given.
        */
@@ -430,6 +431,13 @@ export type MainContent = "found" | "none";
  * via the `definition` "MarkdownContent".
  */
 export type MarkdownContent = "main" | "full" | "fit";
+/**
+ * Whether a media source plays video or audio.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MediaKind".
+ */
+export type MediaKind = "video" | "audio";
 /**
  * What `needs_you.changed` carries: one change of the list.
  *
@@ -595,7 +603,8 @@ export type NotAddedReason =
   | "max_segment_repeats"
   | "path_budget"
   | "trap_path"
-  | "no_rule";
+  | "no_rule"
+  | "trap_link";
 /**
  * Why a call that ends a Run did nothing (ADR 0102's G1).
  *
@@ -2634,9 +2643,25 @@ export interface FormatsRequest {
    */
   html?: HtmlFormat | null;
   /**
+   * The page's images, each with its URL resolved and its `alt`.
+   */
+  images?: Asked | null;
+  /**
+   * The page's links, each with its URL resolved.
+   */
+  links?: Asked | null;
+  /**
    * The page's content as Markdown, with GFM's tables.
    */
   markdown?: MarkdownFormat | null;
+  /**
+   * The page's video and audio sources, each with its URL resolved.
+   */
+  media?: Asked | null;
+  /**
+   * The page's tables, as rows of cells.
+   */
+  tables?: Asked | null;
   /**
    * The text of the page's main content, a paragraph per block.
    */
@@ -2674,9 +2699,25 @@ export interface FormatsRequest1 {
    */
   html?: HtmlFormat | null;
   /**
+   * The page's images, each with its URL resolved and its `alt`.
+   */
+  images?: Asked | null;
+  /**
+   * The page's links, each with its URL resolved.
+   */
+  links?: Asked | null;
+  /**
    * The page's content as Markdown, with GFM's tables.
    */
   markdown?: MarkdownFormat | null;
+  /**
+   * The page's video and audio sources, each with its URL resolved.
+   */
+  media?: Asked | null;
+  /**
+   * The page's tables, as rows of cells.
+   */
+  tables?: Asked | null;
   /**
    * The text of the page's main content, a paragraph per block.
    */
@@ -2867,6 +2908,28 @@ export interface HumanPause {
    * The condition that ends it by itself, as text.
    */
   until?: string | null;
+}
+/**
+ * An image of the page: an `<img src>`, in document order.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Image".
+ */
+export interface Image {
+  /**
+   * Its `alt`: empty for an image marked decorative, `null` when it has
+   * none.
+   */
+  alt?: string | null;
+  /**
+   * Its `src` as the document writes it.
+   */
+  src: string;
+  /**
+   * Its `src` resolved against the document's base URL; `null` when it
+   * does not parse.
+   */
+  url?: string | null;
 }
 /**
  * What an init script's subscription answers when its page closes.
@@ -3272,6 +3335,32 @@ export interface Limit1 {
   usage_kind: string;
 }
 /**
+ * A link of the page: an `<a href>` or `<area href>`, in document order.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Link".
+ */
+export interface Link {
+  /**
+   * Its `href` as the document writes it, its character references
+   * decoded.
+   */
+  href: string;
+  /**
+   * The tokens of its `rel`, as written; empty when it has none.
+   */
+  rel: string[];
+  /**
+   * Its text, white space collapsed.
+   */
+  text: string;
+  /**
+   * Its `href` resolved against the document's base URL by the WHATWG
+   * URL Standard; `null` when it does not parse.
+   */
+  url?: string | null;
+}
+/**
  * A locator (ADR 0085): what an action looks for on a page, resolved
  * again at each use, never a handle on an element. This tracer's locators
  * are CSS selectors.
@@ -3372,6 +3461,33 @@ export interface MarkdownOptions1 {
    * How much of the page it holds.
    */
   content: "main" | "full" | "fit";
+}
+/**
+ * A media source of the page: a `<video src>`, an `<audio src>` or a
+ * `<source src>` of either, in document order.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Media".
+ */
+export interface Media {
+  /**
+   * Whether it plays video or audio.
+   */
+  kind: "video" | "audio";
+  /**
+   * Its `src` as the document writes it.
+   */
+  src: string;
+  /**
+   * Its `type`, the MIME type a `<source>` declares; `null` when it has
+   * none.
+   */
+  type?: string | null;
+  /**
+   * Its `src` resolved against the document's base URL; `null` when it
+   * does not parse.
+   */
+  url?: string | null;
 }
 /**
  * The engine's memory, as the governor read it.
@@ -4147,6 +4263,14 @@ export interface PageFormats {
    */
   html?: string;
   /**
+   * Its images, when the request asked for them.
+   */
+  images?: Image[];
+  /**
+   * Its links, when the request asked for them.
+   */
+  links?: Link[];
+  /**
    * Whether it has main content.
    */
   main_content: "found" | "none";
@@ -4155,6 +4279,14 @@ export interface PageFormats {
    */
   markdown?: string;
   /**
+   * Its media sources, when the request asked for them.
+   */
+  media?: Media[];
+  /**
+   * Its tables, when the request asked for them.
+   */
+  tables?: Table[];
+  /**
    * Its main content's text, when the request asked for it.
    */
   text?: string;
@@ -4162,6 +4294,29 @@ export interface PageFormats {
    * The document's URL, after redirects.
    */
   url: string;
+}
+/**
+ * A table of the page, in document order, a table inside another listed
+ * on its own: each row its cells' text, white space collapsed, a row's
+ * header kept as its first cell.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Table".
+ */
+export interface Table {
+  /**
+   * Its other rows, its `<tfoot>`'s last.
+   */
+  body_rows: string[][];
+  /**
+   * Its `<caption>`'s text; `null` when it has none.
+   */
+  caption?: string | null;
+  /**
+   * Its header rows: its `<thead>`'s, else the rows it begins with whose
+   * cells are all `<th>`.
+   */
+  header_rows: string[][];
 }
 /**
  * What `page.on_dialog` takes: the page whose dialogs its handler

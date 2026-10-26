@@ -204,6 +204,9 @@ impl Site {
         let ok = |(content_type, body)| (StatusCode::OK, content_type, body);
         let html = |page: String| ok(("text/html; charset=utf-8", page.into_bytes()));
         let page = if of(extraction::HOST) {
+            if let Some(location) = extraction::moved(path).filter(|_| *method == Method::GET) {
+                return Some(Reply::found(&location));
+            }
             extraction::page(self.seed, path).map(ok)
         } else if of(encodings::HOST) {
             encodings::page(self.seed, path).map(ok)

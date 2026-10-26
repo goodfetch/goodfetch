@@ -52,6 +52,7 @@ mod sitemap;
 mod staging;
 mod tier_race;
 mod tmpfs;
+mod trap_links;
 mod url_fragments;
 mod use_signals;
 mod workers;

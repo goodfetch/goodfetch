@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="shift_jis"><base href="https://cdn.fuzz.test/assets/"><title>References &amp; tables</title></head>
+<body>
+<p><a href="a?b=1&amp;c=2&copy=3&#x41;&#0;&#xD800;&#99999999999;" rel=" next  prev ">Fish &amp; chips &notit &#128; <em>nested <a href="/inner">inner</a></em></a>
+<a href="http://[::1/">broken</a><a href='single "quoted"'>q</a><a href=unquoted&amp>u</a><a>no href</a>
+<map><area href="map"></map>
+<a href="/never-closed">open
+<img src="i.png" alt=""><img src="//x.test/j.png"><img alt="no src">
+<video src="v.webm"><source src="s.mp4" type="video/mp4"></video><audio><source src="a.mp3"></audio>
+<template shadowrootmode="open"><a href="/shadow">in a root</a><table><tr><td>shadow cell</td></tr></table></template>
+<table><caption>C</caption><thead><tr><th></th><th>H</th></tr></thead><tfoot><tr><td>F</td></tr></tfoot>
+<tr><th scope="row">R</th><td>1<br>2<table><tr><td>inner</td></tr></table></td></tr></table>
+<table><tr><th>only header</th></tr></table>
+<script>document.write('<a href="/script">x</a>')</script>
+</body>
+</html>

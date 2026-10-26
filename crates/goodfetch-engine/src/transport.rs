@@ -496,7 +496,7 @@ impl ConsoleListener {
     /// # Cancel safety
     ///
     /// Dropping the future loses no connection.
-    pub(crate) async fn accept(&self) -> io::Result<ConsoleStream> {
+    pub async fn accept(&self) -> io::Result<ConsoleStream> {
         let (stream, _) = self.0.accept().await?;
         stream.set_nodelay(true)?;
         Ok(ConsoleStream(stream))

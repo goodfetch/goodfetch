@@ -86,7 +86,7 @@ async function cellsOf(key: string): Promise<string[]> {
   const row = page.getByRole("row").filter({ hasText: key });
   await expect.element(row).toBeVisible();
   return row
-    .getByRole("cell")
+    .getByRole("gridcell")
     .elements()
     .map((cell) => cell.textContent ?? "");
 }
@@ -245,7 +245,7 @@ test(
 
 test("a project configuration that is no TOML is refused before any call, naming the file", async () => {
   const { adapter, client } = await engineSettings(explanation([setting("timeout.navigation")]));
-  await expect.element(page.getByRole("table", { name: "Effective settings" })).toBeVisible();
+  await expect.element(page.getByRole("grid", { name: "Effective settings" })).toBeVisible();
 
   await userEvent.upload(
     page.getByLabelText("Project configuration"),

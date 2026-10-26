@@ -7,11 +7,13 @@
 //! variants, each in its locale's language, currency and number format;
 //! and pages whose main content's Markdown the lab wrote by hand (ADR 0007),
 //! judged by their Markdown's structure; and pages read in every form
-//! `page.formats` gives, each written by hand too. Every other expected Record comes
-//! from the same seed data as the pages.
+//! `page.formats` gives, each written by hand too; and pages whose links,
+//! images, media and tables are read, one behind a redirect, also by hand.
+//! Every other expected Record comes from the same seed data as the pages.
 
 mod content_pages;
 mod markdown_pages;
+mod reference_pages;
 
 use std::fmt::Write as _;
 
@@ -181,9 +183,16 @@ pub(crate) fn page(seed: u64, path: &str) -> Option<(&'static str, Vec<u8>)> {
         "/huge" => huge(seed),
         _ if path.starts_with(markdown_pages::INDEX) => markdown_pages::page(path)?,
         _ if path.starts_with(content_pages::INDEX) => content_pages::page(path)?,
+        _ if path.starts_with(reference_pages::INDEX) => reference_pages::page(path)?,
         _ => return routed(seed, path),
     };
     Some(html(page))
+}
+
+/// Where the page at `path` moves, a path on the same host the family
+/// answers `302 Found` with; `None` for a page that does not move.
+pub(crate) fn moved(path: &str) -> Option<String> {
+    reference_pages::moved(path)
 }
 
 fn routed(seed: u64, path: &str) -> Option<(&'static str, Vec<u8>)> {
@@ -713,7 +722,40 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
             )
         },
         content_modes_task(port),
+        references_task(port),
     ]
+}
+
+/// Task 9: the reference pages, each read for its links, images, media
+/// and tables (spec #580; pitfall U08).
+fn references_task(port: Option<u16>) -> Task {
+    const ORDINAL: u32 = 9;
+    let origin = origin(&task_host(ORDINAL), port);
+    Task {
+        host: task_host(ORDINAL),
+        entry: Entry {
+            id: format!("{FAMILY}/{ORDINAL}"),
+            family: FAMILY,
+            kind: Kind::Crawl,
+            start_url: format!("{origin}{}", reference_pages::INDEX),
+            description: "Crawl every page the index links and return one Record per page with \
+                the fields `id` (the path the index links, before any redirect) and, as JSON \
+                arrays in document order: `links`, each `<a href>` and `<area href>` as \
+                `{ \"url\", \"href\", \"text\", \"rel\" }`; `images`, each `<img src>` as \
+                `{ \"url\", \"src\", \"alt\" }`; `media`, each `<video>` and `<audio>` source \
+                as `{ \"url\", \"src\", \"kind\" (\"video\" or \"audio\"), \"type\" }`; and \
+                `tables`, each table as `{ \"caption\", \"header_rows\", \"body_rows\" }`, a \
+                row a list of its cells' text, a row's header its first cell. `href` and `src` \
+                are as the page writes them, character references decoded; `url` is that \
+                value resolved against the document's base URL (its `<base href>`, else its \
+                URL after redirects) by the WHATWG URL Standard, `null` when it does not \
+                parse; `alt`, `type` and `caption` are `null` when absent; text has its white \
+                space collapsed. Each field is judged as a JSON value.",
+            account: None,
+            time_steps: None,
+        },
+        expected: Expected::records(reference_pages::records(&origin)),
+    }
 }
 
 /// Task 8: the content-mode pages, each read in every form `page.formats`

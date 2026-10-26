@@ -40,11 +40,13 @@ use tokio::io::{
     AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, DuplexStream, ReadBuf, duplex,
 };
 
+use super::application_settings::{self, ApplicationSettings};
 use super::authority::Authority;
 use super::client_hello::{self, ClientHello};
 use super::serve::{Met, Network, Observe, Relaying, Resolved, Served, Unreached, Upstream, serve};
 use super::terminate::{
-    Stop, Terminated, Terminating, failure_of, mirrors, request_trust_anchors, terminate, upstream,
+    Mirror, Stop, Terminated, Terminating, failure_of, mirrors, request_trust_anchors, terminate,
+    upstream,
 };
 
 /// The person whose pins the tests keep.
@@ -242,6 +244,8 @@ fn terminating(stores: &Stores, trusted: &SiteAuthority) -> Terminating {
         .unwrap(),
         examiner: trust(trusted).examiner(),
         trust: Trust::default_roots(),
+        application_settings: Arc::default(),
+        sessions: Arc::default(),
     }
 }
 
@@ -526,7 +530,12 @@ fn the_upstream_client_hello_mirrors_the_browsers() {
             async {
                 let read = client_hello::read(&mut relay_reads).await.unwrap().0;
                 drop(relay_reads);
-                let _ = upstream(relay_site, "site.listed.test", Some(&read)).await;
+                let mirror = Mirror {
+                    hello: &read,
+                    application_settings: &ApplicationSettings::new(),
+                    sessions: None,
+                };
+                let _ = upstream(relay_site, "site.listed.test", Some(mirror)).await;
                 read
             },
             async {
@@ -772,6 +781,8 @@ fn a_stopped_connection_is_told_before_the_browser_sees_it_end() {
         .unwrap(),
         examiner: trust(&trusted).examiner(),
         trust: trust(&trusted),
+        application_settings: Arc::default(),
+        sessions: Arc::default(),
     };
     let relaying = Relaying {
         policy: Policy::new(&["*"], &[] as &[&str]).unwrap(),
@@ -826,5 +837,152 @@ fn a_stopped_connection_is_told_before_the_browser_sees_it_end() {
             (Served::Refused, Vec::new()),
             vec![(format!("https://{host}:443/"), false)]
         )
+    );
+}
+
+/// What a site that keeps its sessions saw of one connection: whether it
+/// resumed an earlier session, and the ALPS payload the relay sent it.
+#[derive(Debug, Default)]
+struct Kept {
+    resumed: bool,
+    application_settings: Option<Vec<u8>>,
+}
+
+/// A site that keeps its sessions across connections, as `acceptor` does,
+/// accepting ALPS for `h2`: it answers `pong` once and tells what it saw.
+async fn keeping_site(stream: DuplexStream, acceptor: &SslAcceptor) -> Kept {
+    let mut ssl = btls::ssl::Ssl::new(acceptor.context()).unwrap();
+    ssl.set_alps_use_new_codepoint(true);
+    application_settings::offer(&mut ssl, b"h2", b"").unwrap();
+    let mut stream = tokio_btls::SslStream::new(ssl, stream).unwrap();
+    if std::pin::Pin::new(&mut stream).accept().await.is_err() {
+        return Kept::default();
+    }
+    let kept = Kept {
+        resumed: stream.ssl().session_reused(),
+        application_settings: application_settings::of_peer(stream.ssl()),
+    };
+    let mut buffer = [0; 4];
+    if stream.read_exact(&mut buffer).await.is_ok() {
+        let _ = stream.write_all(b"pong").await;
+    }
+    let _ = stream.shutdown().await;
+    kept
+}
+
+/// The acceptor of a site whose certificate for `host` `trusted` signed,
+/// choosing `h2`, which issues session tickets.
+fn keeping_acceptor(host: &str, trusted: &SiteAuthority) -> SslAcceptor {
+    let (certificate, key) = site_certificate(host, Made::Valid, trusted);
+    let mut builder = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()).unwrap();
+    builder
+        .set_certificate(&X509::from_der(&certificate).unwrap())
+        .unwrap();
+    builder
+        .set_private_key(&PKey::private_key_from_pkcs8(&key).unwrap())
+        .unwrap();
+    builder.set_alpn_select_callback(|_, offered| {
+        btls::ssl::select_next_proto(b"\x02h2", offered).ok_or(btls::ssl::AlpnError::NOACK)
+    });
+    builder.build()
+}
+
+/// A browser offering ALPS for `h2`, as Chromium does, with a payload of
+/// its own the relay never sees before its upstream handshake.
+async fn alps_browser(stream: DuplexStream, host: &str) -> Vec<u8> {
+    let mut builder = SslConnector::builder(SslMethod::tls()).unwrap();
+    builder.set_alpn_protos(b"\x02h2\x08http/1.1").unwrap();
+    builder.set_verify(SslVerifyMode::NONE);
+    let mut configuration = builder.build().configure().unwrap();
+    configuration.set_alps_use_new_codepoint(true);
+    application_settings::offer(&mut configuration, b"h2", b"browser").unwrap();
+    let ssl = configuration.into_ssl(host).unwrap();
+    let mut stream = tokio_btls::SslStream::new(ssl, stream).unwrap();
+    if std::pin::Pin::new(&mut stream).connect().await.is_err() {
+        return Vec::new();
+    }
+    stream.write_all(b"ping").await.unwrap();
+    let mut answer = Vec::new();
+    let _ = stream.read_to_end(&mut answer).await;
+    answer
+}
+
+/// One connection from a browser offering ALPS to `host` through
+/// `terminating`, the site keeping its sessions as `acceptor` does.
+fn kept_through(host: &str, terminating: &Terminating, acceptor: &SslAcceptor) -> (Kept, Vec<u8>) {
+    runtime().block_on(async {
+        let (browser_end, relay_browser) = duplex(1 << 16);
+        let (relay_site, site_end) = duplex(1 << 16);
+        let (_, answer, kept) = tokio::join!(
+            terminate(
+                relay_browser,
+                relay_site,
+                (Vec::new(), host),
+                terminating,
+                |_: Option<&ExceptionUsed>| {},
+                |_: &Stop| {}
+            ),
+            alps_browser(browser_end, host),
+            keeping_site(site_end, acceptor),
+        );
+        (kept, answer)
+    })
+}
+
+/// An ALPS payload captured from a pinned build: HTTP/2 `SETTINGS` values,
+/// which a build may send there (Chrome for Testing 156's is empty).
+const CAPTURED: &[u8] = b"\x00\x01\x00\x01\x00\x00\x00\x02\x00\x00\x00\x00";
+
+/// The relay sends a site the ALPS payload captured from the pinned build
+/// when it was pinned, never the empty one `btls` sends, and never the
+/// browser's own of the moment, which reaches the relay only after its
+/// upstream handshake (ADR 0042's conformance comparison includes it).
+/// Covers: story:4-39
+#[test]
+fn the_relay_sends_the_site_the_alps_payload_captured_from_the_pinned_build() {
+    let stores = stores();
+    let trusted = authority("Site authority");
+    let host = "site.listed.test";
+    let mut terminating = terminating(&stores, &trusted);
+    terminating.application_settings =
+        Arc::new([("h2".to_owned(), CAPTURED.to_vec())].into_iter().collect());
+
+    let (kept, answer) = kept_through(host, &terminating, &keeping_acceptor(host, &trusted));
+
+    assert_eq!(
+        (kept.application_settings.as_deref(), answer.as_slice()),
+        (Some(CAPTURED), b"pong".as_slice())
+    );
+}
+
+/// The relay keeps a Session's upstream TLS sessions, as a returning
+/// browser resumes: the Session's second connection to a site resumes the
+/// first's session, while a new Session's first connection does not, its
+/// tickets dropped with the Session that got them.
+/// Covers: story:4-39
+#[test]
+fn a_returning_connection_resumes_the_sessions_upstream_tls_session_and_a_new_session_does_not() {
+    let stores = stores();
+    let trusted = authority("Site authority");
+    let host = "site.listed.test";
+    let acceptor = keeping_acceptor(host, &trusted);
+    let session = terminating(&stores, &trusted);
+    let next_session = terminating(&stores, &trusted);
+
+    let resumed: Vec<(bool, Vec<u8>)> = [&session, &session, &next_session]
+        .into_iter()
+        .map(|terminating| {
+            let (kept, answer) = kept_through(host, terminating, &acceptor);
+            (kept.resumed, answer)
+        })
+        .collect();
+
+    assert_eq!(
+        resumed,
+        vec![
+            (false, b"pong".to_vec()),
+            (true, b"pong".to_vec()),
+            (false, b"pong".to_vec())
+        ]
     );
 }

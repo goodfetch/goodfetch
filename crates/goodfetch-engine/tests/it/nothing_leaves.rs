@@ -68,6 +68,7 @@ fn pin(build: &str, url: String) -> PinnedArtifact {
         platform: Some(BuildPlatform::LinuxX64),
         url,
         archive_digest: Some(ARCHIVE_DIGEST.parse::<Digest>().unwrap()),
+        application_settings: std::collections::BTreeMap::new(),
         digest: FILES_DIGEST.parse::<Digest>().unwrap(),
     }
 }

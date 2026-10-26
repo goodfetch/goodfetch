@@ -40,6 +40,7 @@ mod run;
 mod run_files;
 mod run_key;
 mod settings;
+mod settings_edits;
 mod storage;
 mod takeover;
 mod trace;

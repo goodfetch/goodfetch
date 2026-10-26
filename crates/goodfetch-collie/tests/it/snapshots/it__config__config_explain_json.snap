@@ -56,6 +56,7 @@ expression: "serde_json::to_string_pretty(&output).unwrap()"
         "collie",
         "foxhound"
       ],
+      "user_settable": true,
       "value": 30000,
       "weakens": false
     },
@@ -67,6 +68,7 @@ expression: "serde_json::to_string_pretty(&output).unwrap()"
         "collie",
         "foxhound"
       ],
+      "user_settable": true,
       "value": 30000,
       "weakens": false
     },
@@ -78,6 +80,7 @@ expression: "serde_json::to_string_pretty(&output).unwrap()"
         "collie",
         "foxhound"
       ],
+      "user_settable": true,
       "value": 10000,
       "weakens": false
     },
@@ -89,6 +92,7 @@ expression: "serde_json::to_string_pretty(&output).unwrap()"
         "collie",
         "foxhound"
       ],
+      "user_settable": true,
       "value": 60000,
       "weakens": false
     },
@@ -101,6 +105,7 @@ expression: "serde_json::to_string_pretty(&output).unwrap()"
         "collie",
         "foxhound"
       ],
+      "user_settable": true,
       "value": 3600000,
       "weakens": false
     },
@@ -112,6 +117,7 @@ expression: "serde_json::to_string_pretty(&output).unwrap()"
         "collie",
         "foxhound"
       ],
+      "user_settable": true,
       "value": 30000,
       "weakens": false
     },
@@ -123,6 +129,7 @@ expression: "serde_json::to_string_pretty(&output).unwrap()"
         "collie",
         "foxhound"
       ],
+      "user_settable": true,
       "value": 30000,
       "weakens": false
     }

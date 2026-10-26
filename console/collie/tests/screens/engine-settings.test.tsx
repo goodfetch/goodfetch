@@ -13,7 +13,11 @@ import { createProtocolAdapter } from "@goodfetch/test-support/protocol-adapter"
 import { expect, test } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
-import { createConsoleClient, type PageVisibility } from "#client/client.ts";
+import {
+  createConsoleClient,
+  type ConsoleOperations,
+  type PageVisibility,
+} from "#client/client.ts";
 import { ConsoleI18n } from "#i18n.tsx";
 import { Shell } from "#shell.tsx";
 
@@ -52,10 +56,17 @@ function explanation(settings: ExplainedSetting[]): SettingsExplanation {
 async function engineSettings(
   answer: SettingsExplanation | ((params: ConfigExplainParams) => SettingsExplanation),
 ) {
-  const adapter = createProtocolAdapter();
+  // The adapter over every operation the Console calls, the person-only `config.policy_*` included.
+  const adapter = createProtocolAdapter<ConsoleOperations>();
   adapter.answer("needs_you.list", { items: [] });
   adapter.answer("config.explain", answer);
   adapter.answer("usage.list", { limits: [] });
+  adapter.answer("config.policy_read", {
+    path: "/home/1/operator-policy.toml",
+    found: false,
+    digest: "sha256:e3b0c44298fc1c14",
+    entries: [],
+  });
   const client = createConsoleClient({
     transport: adapter.transport,
     bodyFetcher: adapter.bodyFetcher,
@@ -111,11 +122,13 @@ test(
       "Operator policy",
       "Operator policy",
       "",
+      "",
     ]);
     expect(await cellsOf("timeout.action")).toEqual([
       "30000",
       "Built-in default",
       "Not locked",
+      "",
       "",
     ]);
     expect(await cellsOf("timeout.first_byte")).toEqual([
@@ -123,11 +136,13 @@ test(
       "Project configuration",
       "Not locked",
       "",
+      "Edit the project configuration file, under version control",
     ]);
     expect(await cellsOf("timeout.navigation")).toEqual([
       "45000",
       "User configuration",
       "Not locked",
+      "",
       "",
     ]);
     expect(await cellsOf("timeout.run")).toEqual([
@@ -135,12 +150,14 @@ test(
       "Run, from the run's settings",
       "Not locked",
       "Capped at 900000",
+      "Edit run value",
     ]);
     expect(await cellsOf("tls.accept_invalid_certs")).toEqual([
       '["staging.example"]',
       "User configuration",
       "Not locked",
       "Weakens a guarantee",
+      "",
     ]);
     client.close();
   },
@@ -166,6 +183,7 @@ test(
       "User configuration",
       "Not locked",
       "Foxhound's setting, not applied by this engine",
+      "",
     ]);
     client.close();
   },
@@ -190,6 +208,7 @@ test(
       "Built-in default",
       "Not locked",
       "",
+      "",
     ]);
 
     const project = new File(
@@ -206,12 +225,14 @@ test(
       "Run, from the run's settings",
       "Not locked",
       "",
+      "Edit run value",
     ]);
     expect(await cellsOf("timeout.navigation")).toEqual([
       "60000",
       "Project configuration",
       "Not locked",
       "",
+      "Edit the project configuration file, under version control",
     ]);
     const explains = adapter.requests.filter((request) => request.method === "config.explain");
     expect(explains.at(-1)?.params).toEqual({
@@ -224,7 +245,7 @@ test(
 
 test("a project configuration that is no TOML is refused before any call, naming the file", async () => {
   const { adapter, client } = await engineSettings(explanation([setting("timeout.navigation")]));
-  await expect.element(page.getByRole("table")).toBeVisible();
+  await expect.element(page.getByRole("table", { name: "Effective settings" })).toBeVisible();
 
   await userEvent.upload(
     page.getByLabelText("Project configuration"),

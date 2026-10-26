@@ -442,6 +442,14 @@ class PersonRequiredError(RefusedError):
         super().__init__(message, code="person_required", group="refused", retryable=False)
 
 
+class PolicyConflictError(RefusedError):
+    """The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="policy_conflict", group="refused", retryable=False)
+
+
 class ProtocolVersionUnsupportedError(UnavailableError):
     """The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side."""
 
@@ -763,6 +771,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "path_unsafe": PathUnsafeError,
     "pattern_unsupported": PatternUnsupportedError,
     "person_required": PersonRequiredError,
+    "policy_conflict": PolicyConflictError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "proxy_auth_failed": ProxyAuthFailedError,
     "proxy_provider_unavailable": ProxyProviderUnavailableError,

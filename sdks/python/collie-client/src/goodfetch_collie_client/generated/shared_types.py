@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
-AuditKind: TypeAlias = Literal["audit_log_anchor", "audit_log_pruned", "certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pin_forgotten", "certificate_pinned", "consent_domain_allowed", "console_key_rotated", "endpoint_authentication_failed", "exposed_daemon_set_up", "lent_page_attached", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "refetch_domain_removed", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "sign_in_revoked", "signed_in", "tls_terminated_upstream", "wall_domain_denied"] | str
+AuditKind: TypeAlias = Literal["audit_log_anchor", "audit_log_pruned", "certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pin_forgotten", "certificate_pinned", "consent_domain_allowed", "console_key_rotated", "endpoint_authentication_failed", "exposed_daemon_set_up", "lent_page_attached", "operator_policy_written", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "refetch_domain_removed", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "sign_in_revoked", "signed_in", "tls_terminated_upstream", "user_configuration_written", "wall_domain_denied"] | str
 """A `audit_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -25,6 +25,7 @@ received (ADR 0079).
 - `endpoint_authentication_failed`: A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`.
 - `exposed_daemon_set_up`: An Exposed Daemon's setup completed through its setup link (ADR 0049).
 - `lent_page_attached`: A page was lent to the program's own Playwright client (ADR 0089).
+- `operator_policy_written`: A person wrote the Operator policy through `config.policy_write`, with its digest before and after and each key's values before and after.
 - `pressing_harder_value_set`: A run set a value that presses a site harder than its default, with the setting and its value (ADR 0086).
 - `private_addresses_allowed`: A run allowed private addresses through `egress.private_ranges`, with the ranges it listed.
 - `raw_cdp_attached`: A raw CDP client attached to a Session's browser.
@@ -36,6 +37,7 @@ received (ADR 0079).
 - `sign_in_revoked`: A Console sign-in was ended, by its person signing out or by `sign_in.revoke`, with its identifier.
 - `signed_in`: A person signed in to the Console, with the sign-in's identifier and how they proved who they are, such as the single-user link.
 - `tls_terminated_upstream`: An Exposed Daemon started with `daemon.tls.upstream`, TLS terminated in front of it (ADR 0049).
+- `user_configuration_written`: A person wrote user-level values through `config.user_write`, with each key's values before and after.
 - `wall_domain_denied`: A person added a domain to `wall.denied_domains` in the Operator policy, so no run reads past its Walls or refetches its pages (ADR 0052); `details` give the `domain` and the `reason`.
 """
 

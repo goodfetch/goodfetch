@@ -163,6 +163,30 @@ journey = true
 status = "active"
 
 [[story]]
+id = 95
+title = "As a user, I want to edit user-level values and a run's own values in the Console, never project configuration or Recipe manifests, a value fixed for a run's life shown read-only with its edit pointing to a new run, so that files under version control stay the truth (ADRs 0031, 0102, 0120)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 96
+title = "As an operator, I want to edit the Operator policy in the Console, written atomically and only if its digest has not changed since I read it, with a before-and-after diff in the Audit log, so that a hand edit is never lost (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 98
+title = "As a user, I want a tightened cap to reach running runs at their next admission point and other changes to apply to new runs, each run report naming its policy version, so that a change has a known reach (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 99
 title = "As a user, I want Usage against each Limit by scope (install, Daemon, person, named token, Client connection), each Limit showing who set it, and replayed responses counted apart from fetches, so that I see what is left (ADRs 0041, 0105)."
 milestone = "M1 Core"

@@ -36,6 +36,10 @@ const ACCOUNTS_STORE: &str = "accounts-store.sqlite";
 /// The Console key, outside the per-major folders (ADR 0098).
 const CONSOLE_KEY: &str = "console-key";
 
+/// The log folder, outside the per-major folders, where every Daemon but
+/// `daemon run` writes its JSON lines (ADR 0122).
+const LOGS: &str = "logs";
+
 /// The encrypted local files' folder, outside the per-major folders
 /// (spec #564).
 const SECRET_FILES: &str = "secrets";
@@ -131,6 +135,13 @@ impl Home {
     /// Daemon opens (spec #592).
     pub fn accounts_store(&self, version: &ProductVersion) -> PathBuf {
         self.per_major(version).join(ACCOUNTS_STORE)
+    }
+
+    /// The log folder, outside the per-major folders, which holds one set
+    /// of files per Daemon and one per other process that writes its own
+    /// (ADR 0122).
+    pub fn logs(&self) -> PathBuf {
+        self.root.join(LOGS)
     }
 
     /// The per-user Console key, outside the per-major folders, which every

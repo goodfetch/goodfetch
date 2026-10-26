@@ -274,7 +274,7 @@ fn secret_files(env: &TestEnv) -> std::path::PathBuf {
 
 /// Makes the identity of `env`'s encrypted local files, as `age-keygen -o`
 /// writes it, only its owner's where modes exist, and answers it.
-fn identity(env: &TestEnv) -> age::x25519::Identity {
+pub(crate) fn identity(env: &TestEnv) -> age::x25519::Identity {
     use age::secrecy::ExposeSecret as _;
     let identity = age::x25519::Identity::generate();
     std::fs::create_dir_all(secret_files(env)).unwrap();
@@ -298,7 +298,7 @@ fn identity(env: &TestEnv) -> age::x25519::Identity {
 
 /// Plants `value` in the encrypted local file `name`, encrypted to
 /// `identity` as `age -r` encrypts it.
-fn encrypt(env: &TestEnv, name: &str, value: &str, identity: &age::x25519::Identity) {
+pub(crate) fn encrypt(env: &TestEnv, name: &str, value: &str, identity: &age::x25519::Identity) {
     std::fs::write(
         secret_files(env).join(format!("{name}.age")),
         encrypted(value, identity),
@@ -698,7 +698,7 @@ mod keychain {
 /// test's folder; with no command, the start fails with
 /// `secret_unavailable`, `not_configured`.
 #[cfg(unix)]
-mod external_providers {
+pub(crate) mod external_providers {
     use std::os::unix::fs::PermissionsExt as _;
 
     use goodfetch_test_support::TestEnv;
@@ -708,23 +708,23 @@ mod external_providers {
     use super::{leaks, planted, started};
 
     /// The sign-in each stand-in takes; no real token's shape.
-    const SIGN_IN: &str = "stand-in-sign-in";
+    pub(crate) const SIGN_IN: &str = "stand-in-sign-in";
 
     #[derive(Clone, Copy, Debug)]
-    enum Vendor {
+    pub(crate) enum Vendor {
         OnePassword,
         Bitwarden,
     }
 
     impl Vendor {
-        fn scheme(self) -> &'static str {
+        pub(crate) fn scheme(self) -> &'static str {
             match self {
                 Self::OnePassword => "op",
                 Self::Bitwarden => "bw",
             }
         }
 
-        fn reference(self) -> &'static str {
+        pub(crate) fn reference(self) -> &'static str {
             match self {
                 Self::OnePassword => "op://Shop/run-key/password",
                 Self::Bitwarden => "bw:run-key/password",
@@ -732,7 +732,7 @@ mod external_providers {
         }
 
         /// The variable the vendor's CLI is signed in by.
-        fn sign_in(self) -> &'static str {
+        pub(crate) fn sign_in(self) -> &'static str {
             match self {
                 Self::OnePassword => "OP_SERVICE_ACCOUNT_TOKEN",
                 Self::Bitwarden => "BW_SESSION",
@@ -740,7 +740,7 @@ mod external_providers {
         }
 
         /// The stand-in, answering the reference with `store`'s content.
-        fn script(self, store: &std::path::Path) -> String {
+        pub(crate) fn script(self, store: &std::path::Path) -> String {
             let (expected, refusal) = match self {
                 Self::OnePassword => (
                     "read --no-newline op://Shop/run-key/password",

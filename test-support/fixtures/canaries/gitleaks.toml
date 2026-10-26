@@ -17,9 +17,33 @@ regex = '''GFCANARYTOTP[A-Z2-7]{20}'''
 keywords = ["gfcanary"]
 
 [[rules]]
+id = "goodfetch-secret-canary-one-time-code"
+description = "Goodfetch Secret canary: one-time code (ADR 0067)"
+regex = '''gfcanary-code-[0-9a-f]{16}'''
+keywords = ["gfcanary"]
+
+[[rules]]
 id = "goodfetch-secret-canary-proxy-password"
 description = "Goodfetch Secret canary: proxy password (ADR 0067)"
 regex = '''gfcanary-proxy-password-[0-9a-f]{16}'''
+keywords = ["gfcanary"]
+
+[[rules]]
+id = "goodfetch-secret-canary-http-authentication-password"
+description = "Goodfetch Secret canary: HTTP authentication password (ADR 0067)"
+regex = '''gfcanary-http-password-[0-9a-f]{16}'''
+keywords = ["gfcanary"]
+
+[[rules]]
+id = "goodfetch-secret-canary-header-value"
+description = "Goodfetch Secret canary: header or JSON value (ADR 0067)"
+regex = '''gfcanary-header-value-[0-9a-f]{16}'''
+keywords = ["gfcanary"]
+
+[[rules]]
+id = "goodfetch-secret-canary-caller-answer"
+description = "Goodfetch Secret canary: `caller:` answer (ADR 0067)"
+regex = '''gfcanary-caller-answer-[0-9a-f]{16}'''
 keywords = ["gfcanary"]
 
 [[rules]]

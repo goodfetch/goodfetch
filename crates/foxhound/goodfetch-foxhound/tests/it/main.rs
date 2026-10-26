@@ -21,6 +21,7 @@ mod datasets;
 mod decoding;
 mod enqueue_links;
 mod exports;
+mod extra_loopback;
 mod fetch_tiers;
 mod frontier;
 mod governor;

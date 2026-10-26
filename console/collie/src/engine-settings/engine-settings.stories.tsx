@@ -1,7 +1,7 @@
 // Each state of Engine & settings (TESTING.md, Components): reading, the
 // effective settings across every layer with a lock, a cap, a weakening and
-// a key only Foxhound honours, the engine's refusal, and a project
-// configuration that is no TOML.
+// a key only Foxhound honours, the engine's refusal, a project
+// configuration that is no TOML, and each row's edit.
 import {
   SettingInvalidError,
   type ExplainedSetting,
@@ -106,4 +106,38 @@ export const ProjectNotToml: Story = {
 /** The Console has no Connection: the values shown stay, and explaining is disabled. */
 export const ReadOnly: Story = {
   args: { explained: { kind: "explained", explanation: everyLayer }, readOnly: true },
+};
+
+/** Each row with what a person may edit of it: a user-level value, a run's own value, none of a project configuration's or a Recipe's, and a run's value fixed for its life. */
+export const Editable: Story = {
+  args: {
+    explained: {
+      kind: "explained",
+      explanation: {
+        files: [],
+        settings: [
+          setting("crawl.scope.strategy", "same_domain", {
+            products: ["foxhound"],
+            layer: "run",
+            origin: "settings",
+            fixed_for_run: true,
+          }),
+          setting("timeout.action", 30000, { user_settable: true }),
+          setting("timeout.first_byte", 10000, { layer: "project_configuration" }),
+          setting("timeout.navigation", 45000, { layer: "recipe" }),
+          setting("timeout.run", 600000, { layer: "run", origin: "settings" }),
+        ],
+      },
+    },
+    runValues: "timeout.run = 600000",
+    onEdit: (): void => {},
+  },
+};
+
+/** A user-level value written, for new runs. */
+export const UserValueWritten: Story = {
+  args: {
+    ...Editable.args,
+    editNotice: { kind: "user_written", key: "timeout.action" },
+  },
 };

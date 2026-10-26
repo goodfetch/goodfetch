@@ -149,6 +149,7 @@ fn the_cosmetic_matcher_takes_its_elements_out_of_the_markdown_shadow_roots_incl
         &html,
         &Context {
             clean_up: Some(&matcher),
+            ..Context::default()
         },
     );
 

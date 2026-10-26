@@ -11,6 +11,7 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
+use goodfetch_protocol::foxhound::frontier::FIXED_FOR_A_RUN;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
     ExplainedSetting, Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsExplanation,
@@ -376,6 +377,8 @@ impl Resolved {
                 locked_by: effective.locked_by,
                 cap: effective.cap.clone(),
                 weakens: effective.weakens,
+                user_settable: effective.locked_by.is_none() && user_settable(key),
+                fixed_for_run: fixed_for_run(key),
             })
             .chain(
                 self.unapplied
@@ -390,6 +393,8 @@ impl Resolved {
                         locked_by: None,
                         cap: None,
                         weakens: false,
+                        user_settable: false,
+                        fixed_for_run: fixed_for_run(key),
                     }),
             )
             .filter(|setting| wanted(&setting.key))
@@ -401,6 +406,21 @@ impl Resolved {
             settings,
         }
     }
+}
+
+/// Whether user configuration may hold `key`, by its authority.
+fn user_settable(key: &str) -> bool {
+    keys::find(key).is_some_and(|found| {
+        !matches!(
+            found.setting.authority,
+            Authority::OperatorPolicy | Authority::Fixed
+        )
+    })
+}
+
+/// Whether `key` is fixed for a Run's life (ADRs 0102 and 0120).
+fn fixed_for_run(key: &str) -> bool {
+    FIXED_FOR_A_RUN.iter().any(|fixed| fixed.name == key)
 }
 
 /// The Products that honour a key of `product`'s mark.

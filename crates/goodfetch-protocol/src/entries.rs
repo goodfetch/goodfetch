@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 48] = [
+pub const MODULES: [&Entries; 49] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,
@@ -42,6 +42,7 @@ pub const MODULES: [&Entries; 48] = [
     &security::ENTRIES,
     &sample::ENTRIES,
     &settings::ENTRIES,
+    &settings::edit::ENTRIES,
     &usage::ENTRIES,
     &versions::ENTRIES,
     &politeness::ENTRIES,
@@ -99,7 +100,7 @@ mod tests {
     use crate::catalog::Product;
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 84] = [
+    const COLLIE: [&str; 87] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -181,6 +182,9 @@ mod tests {
         "console.rotate_key",
         "sample.echo",
         "config.explain",
+        "config.policy_read",
+        "config.policy_write",
+        "config.user_write",
         "usage.list",
         "usage.set",
         "usage.raise",

@@ -667,6 +667,12 @@ number = 6
 kind = "setting"
 prefix = "crawl.content_types"
 
+# The main-content step `page.formats` reads with (ADR 0007, #788).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "content."
+
 # Area 6, Collection, Foxhound: a Label that keeps its URLs' fragments
 # (ADR 0120, #939).
 [[area]]
@@ -1129,6 +1135,12 @@ prefix = "console."
 number = 12
 kind = "operation"
 prefix = "sign_in."
+
+# Its Operator policy editor (#874): the Error code of a stale digest.
+[[area]]
+number = 12
+kind = "error"
+prefix = "policy_conflict"
 
 # Area 12's "Needs you" (#852): its operations, its event and its commands.
 [[area]]

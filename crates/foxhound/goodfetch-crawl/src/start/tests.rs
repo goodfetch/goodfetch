@@ -1018,7 +1018,7 @@ fn a_crawls_settings_shape_its_attempts() {
 /// its next admission point: the retry the crawl's settings allowed is not
 /// made (ADR 0028).
 ///
-/// Covers: story:3-88, setting:crawl.retry.max, setting:crawl.handler.concurrency, setting:crawl.retry.handler_failed, setting:timeout.handler
+/// Covers: story:3-88, story:12-98, setting:crawl.retry.max, setting:crawl.handler.concurrency, setting:crawl.retry.handler_failed, setting:timeout.handler
 #[test]
 fn an_operator_policy_tightened_cap_reaches_a_crawl_already_going() {
     let env = TestEnv::new();
@@ -1053,6 +1053,63 @@ fn an_operator_policy_tightened_cap_reaches_a_crawl_already_going() {
             1,
             Some("retry_requested".to_owned())
         )]
+    );
+}
+
+/// An Operator policy's cap loosened while a crawl goes on does not reach
+/// it: the crawl keeps the value the cap it began under held it to, and its
+/// Run report names the version of the policy it began under, while a crawl
+/// started after the change takes the loosened cap (ADR 0031).
+///
+/// Covers: story:12-98, setting:crawl.retry.max
+#[test]
+fn an_operator_policy_loosened_cap_applies_to_a_new_crawl_only() {
+    let env = TestEnv::new();
+    let policy = env.home().join("1").join("operator-policy.toml");
+    let tight = "version = \"0.1\"\n\n[cap.crawl.retry]\nmax = 1\n";
+    std::fs::create_dir_all(policy.parent().unwrap()).unwrap();
+    std::fs::write(&policy, tight).unwrap();
+    let started = |run_id: &str| json!({ "run_id": run_id, "seeds": seeds(1) });
+
+    let (going, after) = crawl(
+        || default_dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call("crawl.start", started("going"), &mut |_| Reply::Silent)
+                .await;
+            let mut loosen = |_: &Value| {
+                std::fs::write(&policy, "version = \"0.1\"\n\n[cap.crawl.retry]\nmax = 5\n")
+                    .unwrap();
+                Reply::Fails("retry_requested", true)
+            };
+            let going = client
+                .call("run.finish", json!({ "run_id": "going" }), &mut loosen)
+                .await;
+            client
+                .call("crawl.start", started("after"), &mut |_| Reply::Silent)
+                .await;
+            let mut fails = |_: &Value| Reply::Fails("retry_requested", true);
+            let after = client
+                .call("run.finish", json!({ "run_id": "after" }), &mut fails)
+                .await;
+            (going, after)
+        },
+    );
+
+    let attempts = |run_id: &str| work_items(&run_file(&env, run_id))[0].2;
+    assert_eq!(
+        (
+            attempts("going"),
+            going["result"]["policy_version"].clone(),
+            attempts("after"),
+            after["result"]["policy_version"] == going["result"]["policy_version"],
+        ),
+        (
+            2,
+            json!(goodfetch_engine::settings::policy_version(tight)),
+            3,
+            false,
+        )
     );
 }
 

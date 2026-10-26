@@ -1461,6 +1461,28 @@ class PointInTime(RootModel[AwareDatetime]):
     """A point in time in UTC, as RFC 3339."""
 
 
+class PolicyReadParams(BaseModel):
+    """What `config.policy_read` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class PolicyTable(StrEnum):
+    """
+    A table of the Operator policy: what it sets, what it sets and locks, and
+    its caps.
+    """
+
+    settings = "settings"
+    """`[settings]`: values it sets, which a higher layer may change."""
+    lock = "lock"
+    """`[lock]`: values it sets and locks."""
+    cap = "cap"
+    """`[cap]`: the most a count or a duration may be."""
+
+
 class Position(RootModel[int]):
     root: Annotated[int, Field(ge=0)]
     """An event's position among every event of one engine, which only goes up."""
@@ -2184,7 +2206,7 @@ class SessionPages(BaseModel):
 
 
 class SessionParams(BaseModel):
-    """What `session.new_page` and `session.close` take: the Session."""
+    """What `session.close` takes: the Session."""
 
     model_config = ConfigDict(
         extra="forbid",
@@ -2287,6 +2309,25 @@ class SetLogLevelParams(BaseModel):
     )
     log_level: LogLevel
     """The Connection's new level."""
+
+
+class SettingDiff(BaseModel):
+    """One key's values before and after a write."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    after: Any
+    """Its value after; `null` when the write removed it."""
+    before: Any
+    """Its value before; `null` when the file did not hold it."""
+    key: str
+    """The key."""
+    table: PolicyTable | None = None
+    """
+    The Operator policy's table, for a change to it; none for user
+    configuration.
+    """
 
 
 class SettingsLayer(StrEnum):
@@ -2768,6 +2809,38 @@ class UsageListParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+
+
+class UserChange(BaseModel):
+    """One user-level value `config.user_write` writes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The key."""
+    value: Any
+    """Its new value; `null` removes it from user configuration."""
+
+
+class UserConfigurationWritten(BaseModel):
+    """What `config.user_write` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    diff: list[SettingDiff]
+    """Each key the write changed, with its values before and after."""
+
+
+class UserWriteParams(BaseModel):
+    """What `config.user_write` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changes: list[UserChange]
+    """The changes, made in order, in one write."""
 
 
 class ValueTransform(StrEnum):
@@ -3552,6 +3625,12 @@ class ExplainedSetting(BaseModel):
     """
     cap: Any | None = None
     """An Operator policy's cap on it, if any."""
+    fixed_for_run: bool | None = None
+    """
+    Whether it is fixed for a Run's life: a resume that changes it is
+    refused with `setting_not_applicable`, and only a new Run takes
+    another value (ADRs 0102 and 0120).
+    """
     key: str
     """Its key."""
     layer: SettingsLayer
@@ -3566,6 +3645,12 @@ class ExplainedSetting(BaseModel):
     """For the run layer, where the value came from."""
     products: list[Product]
     """The Products that honour it, from its Product mark (ADR 0095)."""
+    user_settable: bool | None = None
+    """
+    Whether user configuration may set it: its authority lets user
+    configuration hold it and no lower layer locked it, so the Console
+    offers its user-level value for editing (ADR 0031).
+    """
     value: Any
     """
     The effective value, or for a key this engine does not apply, the
@@ -4029,13 +4114,45 @@ class NeedsYouList(BaseModel):
 
 
 class NewPageParams(BaseModel):
-    """What `run.new_page` takes: the Run whose default Session opens the page."""
+    """
+    What `run.new_page` takes: the Run whose default Session opens the page,
+    and the page's own settings.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
     )
     run_id: RunId
     """The Run."""
+    settings: dict[str, Any] | None = None
+    """
+    The page's own settings, nested by key (ADR 0083), which it takes
+    over its Session's and its Run's: `content.extractor`, the
+    main-content step its formats read with. Any other key is refused
+    with `setting_not_applicable`, as only its Session or its Run sets
+    it.
+    """
+
+
+class NewSessionPageParams(BaseModel):
+    """
+    What `session.new_page` takes: the Session, and the page's own
+    settings.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    session_id: SessionId
+    """The Session."""
+    settings: dict[str, Any] | None = None
+    """
+    The page's own settings, nested by key (ADR 0083), which it takes
+    over its Session's and its Run's: `content.extractor`, the
+    main-content step its formats read with. Any other key is refused
+    with `setting_not_applicable`, as only its Session or its Run sets
+    it.
+    """
 
 
 class NothingDone1(BaseModel):
@@ -4244,6 +4361,67 @@ class PlanReport(BaseModel):
     """The steps that changed, each Agent task one entry (ADR 0100)."""
     version: Annotated[int | None, Field(ge=0)] = None
     """The version it used."""
+
+
+class PolicyChange(BaseModel):
+    """One change `config.policy_write` makes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The key it changes."""
+    table: PolicyTable
+    """The table it changes."""
+    value: Any
+    """The key's new value; `null` removes it from the table."""
+
+
+class PolicyEntry(BaseModel):
+    """
+    One entry of the Operator policy: a key of one of its tables, and its
+    value.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """Its key."""
+    table: PolicyTable
+    """Its table."""
+    value: Any
+    """Its value."""
+
+
+class PolicyWriteParams(BaseModel):
+    """What `config.policy_write` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    changes: list[PolicyChange]
+    """The changes, made in order, in one write."""
+    digest: str
+    """
+    The digest `config.policy_read` answered: the write is made only if
+    the file still has it.
+    """
+
+
+class PolicyWritten(BaseModel):
+    """What `config.policy_write` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    diff: list[SettingDiff]
+    """
+    Each key the write changed, with its values before and after, as the
+    Audit log records them.
+    """
+    digest: str
+    """The file's digest after the write, the version new Runs name."""
 
 
 class PressParams(BaseModel):
@@ -5188,7 +5366,9 @@ class NewSessionParams(BaseModel):
     `browser.block_resources` and `live_view.hiding` choose its pages'
     Clean-up rules over the Run's, and `browser.service_workers` whether
     a site's service workers run in them, and `session.page_check` the
-    Page check its pages are judged against. `session.source` is refused here with `setting_not_applicable`,
+    Page check its pages are judged against, and `content.extractor`
+    the main-content step their formats read with. `session.source` is
+    refused here with `setting_not_applicable`,
     as the call's own `source` sets it, and so is any other key, which
     only the Run sets.
     """
@@ -5218,6 +5398,29 @@ class NotUnderstoodLimit(BaseModel):
     """The Limit's scope."""
     usage_kind: str
     """The Usage kind it caps."""
+
+
+class OperatorPolicyRead(BaseModel):
+    """The Operator policy as `config.policy_read` reads it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """
+    The digest of the file as read, which `config.policy_write` takes
+    back. It is the policy version a Run report names, `sha256:` and 16
+    hex digits, of the file's text, or of no text when there is none.
+    """
+    entries: list[PolicyEntry]
+    """
+    Every entry of its three tables, by table, then key, the other
+    Product's keys included.
+    """
+    found: bool
+    """Whether the file exists; a policy that does not sets nothing."""
+    path: str
+    """Its file's path."""
 
 
 class PageExchange(BaseModel):

@@ -308,7 +308,7 @@ fn a_console_run_setting_a_crawl_key_starts_on_foxhounds_engine() {
     );
 }
 
-/// Covers: story:12-232, operation:run.seeds
+/// Covers: story:12-232
 #[test]
 fn a_crawl_the_console_starts_runs_on_foxhounds_engine_which_answers_its_calls() {
     let env = TestEnv::new();
@@ -321,7 +321,7 @@ fn a_crawl_the_console_starts_runs_on_foxhounds_engine_which_answers_its_calls()
     assert!(answered.get("result").is_some(), "{answered}");
 }
 
-/// Covers: story:12-232, operation:run.list
+/// Covers: story:12-232
 #[test]
 fn run_list_answers_every_run_its_index_holds_on_either_engine() {
     let env = TestEnv::new();

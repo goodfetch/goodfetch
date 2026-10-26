@@ -31,6 +31,7 @@ use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::sandbox_probe::{self, Probed};
 use goodfetch_engine::settings::{Resolved, RunSettings};
+use goodfetch_engine::transport;
 use goodfetch_protocol::browser_cache::{
     BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser,
 };
@@ -49,6 +50,11 @@ const DATA_FOLDERS: &str = "browser-data";
 
 /// The folder of a Chromium profile's default user, in its data directory.
 const DEFAULT_PROFILE: &str = "Default";
+
+/// What Chromium adds below its temporary folder for its own socket, which
+/// it stops on when that path is too long for the OS: the longest of the
+/// browsers the engine starts (Chrome's folder is `.com.google.Chrome.*`).
+const CHROMIUM_SOCKET: &str = "/.org.chromium.Chromium.XXXXXX/SingletonSocket";
 
 /// A launched browser: its connection, how its process ended once it did,
 /// and its executable.
@@ -238,6 +244,13 @@ pub(crate) async fn launch(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    // A temporary folder too deep for Chromium's socket is replaced by
+    // `/tmp`, where it fits.
+    let temporary = std::env::temp_dir();
+    let browsers = transport::temporary_folder_for_sockets(&temporary, CHROMIUM_SOCKET.len());
+    if browsers != temporary {
+        command.env("TMPDIR", browsers);
+    }
     let (connection, driver, mut child) =
         start(command).map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
     let process = child.child.id();

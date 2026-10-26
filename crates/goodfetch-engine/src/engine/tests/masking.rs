@@ -29,6 +29,7 @@ use super::{Client, attached_with, dependencies, engine_with};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::Dependencies;
 use crate::log::LogEvents;
+use crate::mask::Masks;
 use crate::run_trace::RequestLog;
 
 /// The variable the Run's key-encryption key is read from.
@@ -123,13 +124,25 @@ fn keyed(env: &TestEnv, key: &str) -> Dependencies {
 /// Every message the Client received while a Run of `settings` started,
 /// reflected `text` and finished, its `hello` asking for `info` log lines.
 fn reflected(env: &TestEnv, key: &str, settings: &Value, text: &str) -> Vec<Value> {
+    reflected_through(env, key, settings, text, Masks::new())
+}
+
+/// As [`reflected`], the engine masking with `masks`.
+fn reflected_through(
+    env: &TestEnv,
+    key: &str,
+    settings: &Value,
+    text: &str,
+    masks: Masks,
+) -> Vec<Value> {
     let log_events = LogEvents::new();
     let subscriber = tracing_subscriber::registry().with(log_events.layer());
     let engine = engine_with(
         Product::Collie,
         Some(Contribution::new("test-reflect").with_handler(Handler::new(&REFLECT, reflect))),
     )
-    .with_log_events(log_events);
+    .with_log_events(log_events)
+    .with_masks(masks);
     let calls = [
         (
             "run.start",
@@ -284,4 +297,70 @@ fn with_redaction_off_a_resolved_credential_stays_only_in_the_run_trace() {
             vec![&json!("security.redaction")]
         )
     );
+}
+
+/// The positive control of the searches above (spec #564): with the
+/// harness's `Mask` letting every value through, the same search finds the
+/// Run's key in every output the Run wrote it to, so a search that finds
+/// nothing proves what it claims.
+/// Covers: story:4-91
+#[test]
+fn with_the_mask_letting_values_through_the_search_finds_the_key_in_every_output() {
+    let env = TestEnv::new();
+    let mut canaries = Canaries::new(env.seed());
+    let key = canaries.plant(SecretKind::RunDataKey).value().to_owned();
+
+    let received = reflected_through(&env, &key, &json!({}), &reflecting(&key), Masks::unmasked());
+
+    let outputs: std::collections::BTreeSet<String> = leaks(&canaries, &env, &received)
+        .into_iter()
+        .map(|leak| leak.split(" in ").nth(1).unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(
+        outputs.into_iter().collect::<Vec<_>>(),
+        vec![
+            "/home/1/run-index.sqlite",
+            "/home/1/runs/masked/run.sqlite",
+            "/home/1/runs/masked/trace/requests.jsonl",
+            "received",
+        ]
+    );
+}
+
+/// Spec #564's short-value rule through the engine: a resolved value of
+/// seven characters, a short Secret canary, is left in what a call returns
+/// and an event carries, where a page read may hold it by chance, and is
+/// masked in everything the engine keeps: run state, the Run index and the
+/// Run trace. The search reads the messages as page reads, so it finds no
+/// leak there, and every kept file as an output.
+/// Covers: story:4-91, setting:run_state.key_reference
+#[test]
+fn a_short_resolved_value_stays_in_a_read_and_is_masked_in_what_the_engine_keeps() {
+    let env = TestEnv::new();
+    let mut canaries = Canaries::new(env.seed());
+    let key = canaries
+        .plant_short(SecretKind::TypedPassword)
+        .value()
+        .to_owned();
+
+    let received = reflected(&env, &key, &json!({}), &reflecting(&key));
+
+    let read = serde_json::to_vec(&received).unwrap();
+    let leaks: Vec<String> = canaries
+        .leaks(&[
+            Output::Read {
+                name: "received",
+                bytes: &read,
+            },
+            Output::Path(env.folder()),
+        ])
+        .unwrap()
+        .into_iter()
+        .map(|hit| format!("{:?} in {}", hit.encoding, relative(&env, &hit.output)))
+        .collect();
+    let returned = received
+        .iter()
+        .find_map(|message| message["result"]["text"].as_str())
+        .is_some_and(|text| text.starts_with(&format!("raw {key} |")));
+    assert_eq!((leaks, returned), (Vec::<String>::new(), true));
 }

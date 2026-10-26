@@ -49,6 +49,10 @@ zstd.workspace = true
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true
+hyper = { workspace = true, features = ["http1", "server"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+rcgen = { workspace = true, features = ["ring"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
 gungraun.workspace = true
 proptest.workspace = true
 rstest.workspace = true

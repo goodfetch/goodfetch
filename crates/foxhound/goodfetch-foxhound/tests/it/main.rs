@@ -28,6 +28,7 @@ mod journeys;
 mod kept_responses;
 mod label_pools;
 mod learned_rules;
+mod light_browser;
 mod limits;
 mod navigation_gate;
 mod operator_policy;

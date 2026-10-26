@@ -12,6 +12,7 @@ mod chain;
 mod conformance_gate;
 mod fetch_edge;
 mod fingerprint;
+mod light_browser;
 mod transport_failures;
 
 use goodfetch_engine::clock::Clock;

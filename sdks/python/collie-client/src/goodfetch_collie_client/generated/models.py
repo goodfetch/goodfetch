@@ -924,7 +924,7 @@ class MarkdownContent(StrEnum):
     """
     The main content without its link-dense blocks (more than half
     their text in links), its image-only blocks and the navigation
-    lists the document repeats: Crawl4AI's "fit".
+    lists the document repeats: the "fit" of `Crawl4AI`.
     """
 
 

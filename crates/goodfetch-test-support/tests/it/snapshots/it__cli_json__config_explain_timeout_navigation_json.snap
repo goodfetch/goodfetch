@@ -20,12 +20,14 @@ exit: 0
   "settings": [
     {
       "applied": true,
+      "fixed_for_run": false,
       "key": "timeout.navigation",
       "layer": "default",
       "products": [
         "collie",
         "foxhound"
       ],
+      "user_settable": true,
       "value": 30000,
       "weakens": false
     }

@@ -259,6 +259,11 @@ impl RunSettings {
     }
 }
 
+/// The protocol version that added the setting `key`, when one has it.
+pub fn arrived_in(key: &str) -> Option<goodfetch_protocol::catalog::ProtocolVersion> {
+    keys::find(key).map(|found| found.setting.arrived_in)
+}
+
 /// The value of `key` in `settings`, nested as a file nests it, or written
 /// whole as one dotted key.
 pub fn nested<'a>(settings: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {

@@ -1130,6 +1130,12 @@ number = 12
 kind = "operation"
 prefix = "sign_in."
 
+# Its Operator policy editor (#874): the Error code of a stale digest.
+[[area]]
+number = 12
+kind = "error"
+prefix = "policy_conflict"
+
 # Area 12's "Needs you" (#852): its operations, its event and its commands.
 [[area]]
 number = 12

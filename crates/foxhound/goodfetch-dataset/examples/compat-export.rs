@@ -85,6 +85,7 @@ fn main() {
                     certificate_exception: None,
                     robots_txt: None,
                     value_transforms: Vec::new(),
+                    unread_fields: Vec::new(),
                 },
                 masks: &Masks::new(),
             },

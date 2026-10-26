@@ -119,6 +119,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                     work_items::Committed {
                         records: &Checked::default(),
                         fetched: &work_items::Fetched::default(),
+                        fields: &work_items::FieldsRead::default(),
                         masks: &goodfetch_engine::mask::Masks::new(),
                         ended_at: &ended_at,
                     },

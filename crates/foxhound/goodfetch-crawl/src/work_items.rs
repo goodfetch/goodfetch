@@ -39,6 +39,7 @@ use goodfetch_protocol::foxhound::outcomes::{
 };
 use goodfetch_protocol::foxhound::provenance::{
     CertificateExceptionMark, EncodingProvenance, RecordProvenance, RobotsTxtMark, TierProvenance,
+    TransformProvenance, UnreadField,
 };
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension as _};
@@ -615,13 +616,24 @@ pub(crate) struct Fetched {
     pub(crate) robots_txt: Option<RobotsTxtMark>,
 }
 
+/// What a code-free crawl's attempt read of its page's fields, as its
+/// Record's Provenance names it (ADR 0123): each Value transform that gave
+/// a field, and each field the page did not give; nothing for a crawl
+/// whose program handles its requests.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct FieldsRead {
+    pub(crate) value_transforms: Vec<TransformProvenance>,
+    pub(crate) unread: Vec<UnreadField>,
+}
+
 /// What an attempt commits: its Records, how its run fetched its
-/// document, the masks that hold the values its Run resolved, and when it
-/// ended.
+/// document, what it read of its page's fields, the masks that hold the
+/// values its Run resolved, and when it ended.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Committed<'a> {
     pub(crate) records: &'a Checked,
     pub(crate) fetched: &'a Fetched,
+    pub(crate) fields: &'a FieldsRead,
     pub(crate) masks: &'a Masks,
     pub(crate) ended_at: &'a PointInTime,
 }
@@ -640,6 +652,7 @@ pub(crate) fn commit(
     let Committed {
         records,
         fetched,
+        fields,
         masks,
         ended_at,
     } = committed;
@@ -664,7 +677,8 @@ pub(crate) fn commit(
         payment: None,
         certificate_exception: fetched.certificate_exception.clone(),
         robots_txt: fetched.robots_txt,
-        value_transforms: Vec::new(),
+        value_transforms: fields.value_transforms.clone(),
+        unread_fields: fields.unread.clone(),
     };
     let committing = Committing {
         request_id: id,

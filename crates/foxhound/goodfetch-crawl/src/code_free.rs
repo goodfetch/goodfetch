@@ -12,6 +12,11 @@
 //! sitemap` the start seeds the sitemaps each seed's site names in its
 //! robots.txt, as a sitemap seed of that robots.txt. The extraction is
 //! kept in the run file, so a resumed crawl handles its requests alike.
+//! Its named `fields` are read from the first element each one's locator
+//! finds and given by its Value transform (ADR 0123, the `fields`
+//! module): the Record holds each, null where the page did not give it,
+//! and its Provenance names each transform and why each null field is
+//! null.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -22,19 +27,20 @@ use goodfetch_frontier::Url;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::{
     CODE_FREE_DATASET, CODE_FREE_LABEL, CrawlExtraction, CrawlRequestHandleParams,
-    CrawlRequestHandled, CrawlStartParams, ExtractionFollow, LabelDeclaration, PushedRecord, Seed,
-    SitemapRule, SitemapSeed,
+    CrawlRequestHandled, CrawlStartParams, ExtractionFollow, FieldLocator, LabelDeclaration,
+    PushedRecord, Seed, SitemapRule, SitemapSeed,
 };
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::frontier::CrawlRequestEnqueueLinksParams;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::{FormatsRequest, Locator, PageFormats, page_formats_schema};
+use goodfetch_protocol::page::{FormatsRequest, Locator, PageFormats, PageId, page_formats_schema};
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension, params};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::enqueue::links::enqueue_links;
 use crate::serving::Crawls;
+use crate::work_items::FieldsRead;
 
 /// The locator whose links `follow: scope` admits from each page.
 const LINKS: &str = "a[href]";
@@ -134,15 +140,45 @@ fn declare_into(
             ),
         ));
     }
+    let every_record = page_schema(&extraction.formats);
+    for (name, field) in &extraction.fields {
+        let refused = if every_record["properties"].get(name).is_some() {
+            Err(format!(
+                "The field `{name}` takes the name of a property every Record of `{CODE_FREE_DATASET}` holds: name it otherwise."
+            ))
+        } else {
+            fields::check(name, field)
+        };
+        refused.map_err(|message| CallError::protocol(ProtocolFailure::InvalidParams, message))?;
+    }
     labels.entry(CODE_FREE_LABEL.to_owned()).or_default();
-    datasets.push(dataset(&extraction.formats));
+    datasets.push(dataset(extraction));
     Ok(())
 }
 
-/// The Dataset `pages` of a crawl reading `formats`: keyed by `url`, its
-/// schema `page.formats`' of the request with `status` and `fetchedAt`
-/// required beside it.
-pub(crate) fn dataset(formats: &FormatsRequest) -> DatasetDeclaration {
+/// The Dataset `pages` of a crawl reading `extraction`: keyed by `url`,
+/// its schema [`page_schema`]'s with each of its fields, its transform's
+/// type or null, required beside them.
+pub(crate) fn dataset(extraction: &CrawlExtraction) -> DatasetDeclaration {
+    let mut schema = page_schema(&extraction.formats);
+    if let Some(properties) = schema["properties"].as_object_mut() {
+        for (name, field) in &extraction.fields {
+            properties.insert(name.clone(), fields::schema(field));
+        }
+    }
+    if let Some(required) = schema["required"].as_array_mut() {
+        required.extend(extraction.fields.keys().cloned().map(Value::String));
+    }
+    DatasetDeclaration {
+        name: CODE_FREE_DATASET.to_owned(),
+        schema: Some(schema),
+        key: vec![KEY.to_owned()],
+    }
+}
+
+/// What every Record of a crawl reading `formats` holds: `page.formats`'
+/// schema of the request with `status` and `fetchedAt` required beside it.
+fn page_schema(formats: &FormatsRequest) -> Value {
     let mut schema = page_formats_schema(formats);
     if let Some(properties) = schema["properties"].as_object_mut() {
         properties.insert(
@@ -166,11 +202,7 @@ pub(crate) fn dataset(formats: &FormatsRequest) -> DatasetDeclaration {
     if let Some(required) = schema["required"].as_array_mut() {
         required.extend([json!("status"), json!("fetchedAt")]);
     }
-    DatasetDeclaration {
-        name: CODE_FREE_DATASET.to_owned(),
-        schema: Some(schema),
-        key: vec![KEY.to_owned()],
-    }
+    schema
 }
 
 /// The seeds a crawl admits: its own `seeds`, and for a code-free crawl
@@ -220,16 +252,18 @@ fn sitemap_seeds(extraction: &CrawlExtraction, seeds: &[Seed]) -> Vec<Seed> {
 }
 
 /// The Record of `pages` for a page read as `formats`, its response's
-/// `status`, read at `fetched_at`.
+/// `status`, read at `fetched_at`, with its `fields`' values.
 pub(crate) fn record_of(
     formats: &PageFormats,
     status: Option<u16>,
     fetched_at: &PointInTime,
+    fields: Map<String, Value>,
 ) -> Value {
     let mut record = serde_json::to_value(formats).expect("invariant: formats encode as JSON");
-    if let Some(fields) = record.as_object_mut() {
-        fields.insert("status".to_owned(), json!(status));
-        fields.insert("fetchedAt".to_owned(), json!(fetched_at));
+    if let Some(properties) = record.as_object_mut() {
+        properties.insert("status".to_owned(), json!(status));
+        properties.insert("fetchedAt".to_owned(), json!(fetched_at));
+        properties.extend(fields);
     }
     record
 }
@@ -250,14 +284,16 @@ impl CodeFree {
         })
     }
 
-    /// Handles the attempt `params` gives, as a handler would: under
-    /// `follow: scope`, admits every link of its page, staged with the
-    /// attempt, then answers its page's Record, read at `fetched_at`.
+    /// Handles the attempt `params` gives, as a handler would: reads its
+    /// page's formats and fields, under `follow: scope` admits every link
+    /// of its page, staged with the attempt, then answers its page's
+    /// Record, read at `fetched_at`, and what its fields' Provenance names.
     ///
     /// # Errors
     ///
-    /// `closed` when the attempt has no page, and those of `page.formats`
-    /// and of `crawl_request.enqueue_links`.
+    /// `closed` when the attempt has no page, and those of `page.formats`,
+    /// of [`FetchTiers::field_elements`] (an `XPath` field escalating a
+    /// served page under `auto`) and of `crawl_request.enqueue_links`.
     ///
     /// # Cancel safety
     ///
@@ -268,7 +304,7 @@ impl CodeFree {
         params: &CrawlRequestHandleParams,
         context: &CallContext,
         fetched_at: PointInTime,
-    ) -> Result<CrawlRequestHandled, CallError> {
+    ) -> Result<(CrawlRequestHandled, FieldsRead), CallError> {
         let Some(page_id) = &params.page_id else {
             return Err(CallError::new(
                 &CLOSED,
@@ -293,6 +329,7 @@ impl CodeFree {
                     &(),
                 )
             })??;
+        let (values, read) = self.fields(page_id, &params.crawl_request.id).await?;
         if self.extraction.follow == ExtractionFollow::Scope {
             enqueue_links(
                 CrawlRequestEnqueueLinksParams {
@@ -317,15 +354,60 @@ impl CodeFree {
             .await?;
         }
         let status = params.response.as_ref().map(|response| response.status);
-        Ok(CrawlRequestHandled {
-            records: vec![PushedRecord {
-                dataset: CODE_FREE_DATASET.to_owned(),
-                data: record_of(&formats, status, &fetched_at),
-            }],
-            skipped: None,
-        })
+        Ok((
+            CrawlRequestHandled {
+                records: vec![PushedRecord {
+                    dataset: CODE_FREE_DATASET.to_owned(),
+                    data: record_of(&formats, status, &fetched_at, values),
+                }],
+                skipped: None,
+            },
+            read,
+        ))
+    }
+
+    /// The values of the extraction's fields on the page `page_id` of the
+    /// crawl request `request_id`, by name, and what their Provenance
+    /// names; none for an extraction with no field.
+    async fn fields(
+        &self,
+        page_id: &PageId,
+        request_id: &str,
+    ) -> Result<(Map<String, Value>, FieldsRead), CallError> {
+        let declared = &self.extraction.fields;
+        if declared.is_empty() {
+            return Ok((Map::new(), FieldsRead::default()));
+        }
+        let locators: Vec<FieldLocator> = declared
+            .values()
+            .map(|field| field.locator.clone())
+            .collect();
+        let found = self
+            .tiers
+            .field_elements(page_id, &locators)
+            .await
+            .ok_or_else(|| {
+                CallError::new(
+                    &CLOSED,
+                    format!(
+                        "No tier serves the page of crawl request `{request_id}`, so its fields were not read."
+                    ),
+                    &(),
+                )
+            })??;
+        let mut values = Map::new();
+        let mut read = FieldsRead::default();
+        for ((name, field), element) in declared.iter().zip(found.elements) {
+            let one = fields::read(name, field, element.as_ref(), &found.base_url);
+            values.insert(name.clone(), one.value);
+            read.value_transforms.extend(one.transforms);
+            read.unread.extend(one.unread);
+        }
+        Ok((values, read))
     }
 }
+
+mod fields;
 
 #[cfg(test)]
 mod tests;

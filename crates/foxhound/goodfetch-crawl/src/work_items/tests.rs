@@ -244,6 +244,7 @@ impl Subject {
                     super::Committed {
                         records: &goodfetch_dataset::Checked::default(),
                         fetched: &super::Fetched::default(),
+                        fields: &super::FieldsRead::default(),
                         masks: &goodfetch_engine::mask::Masks::new(),
                         ended_at: &ended_at,
                     },

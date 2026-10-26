@@ -5,11 +5,17 @@
 //! `url`, whose schema it generates from the formats request; the program
 //! is never sent a `crawl_request.handle`. `follow` chooses the pages
 //! fetched beyond the seeds: every in-scope link (`scope`), the entries of
-//! the sitemaps each seed's site names (`sitemap`) or none.
+//! the sitemaps each seed's site names (`sitemap`) or none. Named `fields`
+//! are read by locators and given by Value transforms (ADR 0123), each
+//! Record's Provenance naming each transform, and each field the page did
+//! not give is null with its reason.
 
 use std::collections::BTreeSet;
+use std::time::Duration;
 
-use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
+use goodfetch_test_support::{
+    BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
+};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -53,6 +59,20 @@ fn path_of(url: &str) -> String {
 fn crawl(
     engine: &mut Attached,
     proving_ground: &ProvingGround,
+    run: (&str, &[Value]),
+    extraction: &Value,
+    more: &Value,
+) -> (Value, Vec<Value>) {
+    let (started, read) = crawl_read(engine, proving_ground, run, extraction, more);
+    let values = read.iter().map(|record| record["value"].clone()).collect();
+    (started, values)
+}
+
+/// As [`crawl`], answering each Record of `pages` as `run.records` reads
+/// it: its value, its Provenance and the rest.
+fn crawl_read(
+    engine: &mut Attached,
+    proving_ground: &ProvingGround,
     (run_id, seeds): (&str, &[Value]),
     extraction: &Value,
     more: &Value,
@@ -91,7 +111,7 @@ fn crawl(
             "a code-free crawl sent its program {message}"
         );
         if message["method"] == "$/record" {
-            records.push(message["params"]["record"]["value"].clone());
+            records.push(message["params"]["record"].clone());
         } else if message["id"] == "records" {
             assert!(message.get("result").is_some(), "{message}");
             return (started, records);
@@ -294,5 +314,152 @@ fn a_code_free_start_that_declares_a_dataset_is_refused() {
         refused["error"]["data"]["code"],
         json!("invalid_params"),
         "{refused}"
+    );
+}
+
+/// The fields of the value page, in German: a name, a SKU picked from its
+/// sentence by a `match`, a price, a release date and two date-times, one
+/// stating no offset and one stating its own, a relative link, and a
+/// discount the page does not show.
+fn value_fields() -> Value {
+    let css = |selector: &str| json!({ "kind": "css", "selector": selector });
+    json!({
+        "name": { "locator": css("h1") },
+        "sku": { "locator": css(".sku"), "match": { "pattern": "Artikelnummer: (\\S+)" } },
+        "price": { "locator": css(".price"), "transform": { "kind": "number", "locale": "de-DE" } },
+        "released": { "locator": css("time.released"), "transform": { "kind": "date", "locale": "de-DE" } },
+        "available": {
+            "locator": css("time.available"),
+            "transform": { "kind": "date_time", "locale": "de-DE", "time_zone": "Europe/Berlin" },
+        },
+        "updated": {
+            "locator": css("time.updated"),
+            "transform": { "kind": "date_time", "locale": "de-DE", "time_zone": "Europe/Berlin" },
+        },
+        "manual": { "locator": css("a.manual"), "attribute": "href" },
+        "discount": { "locator": css(".discount"), "transform": { "kind": "number", "locale": "de-DE" } },
+    })
+}
+
+/// What the value page's Record holds of its fields, and what its
+/// Provenance names: each transform with the text it read, its locale and
+/// its zone, and the discount null for want of an element.
+fn value_record(origin: &str) -> (Value, Value, Value) {
+    (
+        json!({
+            "name": "Delta-Drachen",
+            "sku": "DK-0042",
+            "price": 1099.98,
+            "released": "2026-02-01",
+            "available": "2026-02-01T10:00:00+01:00",
+            "updated": "2026-02-01T10:00:00+05:30",
+            "manual": format!("{origin}/manuals/delta.pdf"),
+            "discount": null,
+        }),
+        json!([
+            { "field": "/available", "text": "2026-02-01T10:00", "transform": "date_time", "locale": "de-DE", "time_zone": "Europe/Berlin" },
+            { "field": "/manual", "text": "manuals/delta.pdf", "transform": "text" },
+            { "field": "/name", "text": "\n  Delta-Drachen\n", "transform": "text" },
+            { "field": "/price", "text": "1099.98", "transform": "number", "locale": "de-DE" },
+            { "field": "/released", "text": "2026-02-01", "transform": "date", "locale": "de-DE" },
+            { "field": "/sku", "text": "Artikelnummer: DK-0042 (neu)", "transform": "match" },
+            { "field": "/sku", "text": "DK-0042", "transform": "text" },
+            { "field": "/updated", "text": "2026-02-01T10:00:00+05:30", "transform": "date_time", "locale": "de-DE" },
+        ]),
+        json!([{ "field": "/discount", "reason": "no_element" }]),
+    )
+}
+
+/// The value page's one Record: its fields' values, its Provenance's
+/// Value transforms and its unread fields.
+fn fields_of(records: &[Value]) -> (Value, Value, Value) {
+    let [record] = records else {
+        panic!("one Record of the value page, not {records:?}");
+    };
+    let names = value_fields();
+    let values: serde_json::Map<String, Value> = names
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(|name| (name.clone(), record["value"][name].clone()))
+        .collect();
+    (
+        Value::Object(values),
+        record["provenance"]["value_transforms"].clone(),
+        record["provenance"]["unread_fields"].clone(),
+    )
+}
+
+/// A code-free crawl with `fields` fills each on the `http` tier, with no
+/// code: a text and a link read as they are, a SKU picked by a `match`, a
+/// price, a date and two date-times given by their Value transforms from
+/// the page's machine-readable values, typed as the Dataset's generated
+/// schema holds them (the Record validated against it as it committed);
+/// the Record's Provenance names each transform with the text it read, its
+/// locale and its zone; and a locator that finds nothing leaves its field
+/// null with its reason, not an error.
+///
+/// Covers: story:6-304, operation:crawl.start, operation:run.records
+#[test]
+fn a_crawl_with_fields_fills_each_by_its_value_transform_and_provenance_names_it() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = Attached::start(&env);
+    let page = proving_ground.url("extraction.test", "/values");
+    let origin = proving_ground.url("extraction.test", "");
+
+    let (started, records) = crawl_read(
+        &mut engine,
+        &proving_ground,
+        ("fields", &[json!({ "url": page, "label": "page" })]),
+        &json!({ "formats": { "markdown": true }, "follow": "none", "fields": value_fields() }),
+        &json!({ "fetch": { "tier": "http" } }),
+    );
+    assert!(engine.finish());
+
+    assert!(started.get("result").is_some(), "{started}");
+    assert_eq!(fields_of(&records), value_record(&origin));
+    assert_eq!(records[0]["provenance"]["tier"]["tier"], json!("http"));
+}
+
+/// An `XPath` field is the browser's to read: under `auto` the served
+/// page escalates to the browser, whose page reads every field alike, and
+/// the Record holds the same values and Provenance as the `http` tier's.
+///
+/// Covers: story:6-304, operation:crawl.start, operation:run.records
+#[test]
+fn an_xpath_field_escalates_the_page_to_the_browser_which_reads_every_field() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = Attached::start_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let page = proving_ground.url("extraction.test", "/values");
+    let origin = proving_ground.url("extraction.test", "");
+    let mut fields = value_fields();
+    fields["name"]["locator"] = json!({ "kind": "xpath", "selector": "//article/h1" });
+
+    let (started, records) = crawl_read(
+        &mut engine,
+        &proving_ground,
+        ("xpath", &[json!({ "url": page, "label": "page" })]),
+        &json!({ "formats": { "markdown": true }, "follow": "none", "fields": fields }),
+        &json!({ "fetch": { "tier": "auto" } }),
+    );
+    assert!(engine.finish());
+
+    assert!(started.get("result").is_some(), "{started}");
+    assert_eq!(
+        (
+            fields_of(&records),
+            records[0]["provenance"]["tier"]["tier"].clone(),
+            records[0]["provenance"]["tier"]["call"].clone(),
+        ),
+        (
+            value_record(&origin),
+            json!("browser"),
+            json!("crawl.extraction.fields"),
+        )
     );
 }

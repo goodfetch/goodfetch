@@ -42,7 +42,7 @@ async function restarted(daemon: ServedDaemon): Promise<string> {
   const status: unknown = JSON.parse(
     (await command(daemon, ["daemon", "status", "--json"])).stdout,
   );
-  const url = field(field(field(status, "daemon"), "console"), "serving");
+  const url = field(status, "console_url");
   if (typeof url !== "string") {
     throw new Error(`the restarted Daemon serves no Console: ${JSON.stringify(status)}`);
   }

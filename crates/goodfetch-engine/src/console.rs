@@ -408,7 +408,7 @@ impl Site {
             path if path.starts_with(MESSAGES) => self.post_messages(request).await,
             path if path.starts_with(CONTENT_ADDRESS) => self.content_address(&request).await,
             path if path.starts_with(BODIES) => self.body(&request).await,
-            path => answer(self.build, request.method(), path, &self.policy),
+            path => build_file(self.build, request.method(), path, &self.policy),
         }
     }
 
@@ -891,7 +891,12 @@ fn refused(
 /// What the Console answers `method` on `path`: a file of `build` as it is
 /// stored, the reports endpoint's acknowledgement, or an error, each under
 /// the production headers.
-fn answer(
+/// What a Console build answers `method` on `path` with, under the
+/// production headers and `policy`: the file the path names, brotli as it
+/// is stored, or the page itself for `/` and each route of the build; `204`
+/// to a policy violation report; `404` or `405` otherwise. The Stub gateway
+/// serves Foxhound's build with it, as Goodfetch Cloud will (ADR 0096).
+pub fn build_file(
     build: &ConsoleBuild,
     method: &Method,
     path: &str,
@@ -929,7 +934,7 @@ fn answer(
         REVALIDATED
     };
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
-    secured(response, policy)
+    production_headers(response, policy)
 }
 
 /// An answer with no body.
@@ -939,7 +944,7 @@ fn plain(status: StatusCode, policy: &HeaderValue) -> Response<Full<Bytes>> {
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static(UNSTORED));
-    secured(response, policy)
+    production_headers(response, policy)
 }
 
 /// A method the path does not take, naming those it does.
@@ -951,8 +956,11 @@ fn refused_method(allowed: &[&'static str], policy: &HeaderValue) -> Response<Fu
     response
 }
 
-/// `response` with the headers every answer of the Console carries.
-fn secured<B>(mut response: Response<B>, policy: &HeaderValue) -> Response<B> {
+/// `response` with the production headers every answer of the Console
+/// carries: `policy`, the Content Security Policy, then
+/// `Referrer-Policy: no-referrer`, COOP and CORP `same-origin` and
+/// `X-Content-Type-Options: nosniff`.
+pub fn production_headers<B>(mut response: Response<B>, policy: &HeaderValue) -> Response<B> {
     let headers = response.headers_mut();
     headers.insert(header::CONTENT_SECURITY_POLICY, policy.clone());
     headers.insert(

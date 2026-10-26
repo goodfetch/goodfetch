@@ -16,6 +16,8 @@
 //!   `/private/hidden.xml`, which robots.txt disallows and lists
 //!   `/books/99`, and of `sitemap-blocked.test/sitemap.xml`, which lists
 //!   `/books/7`.
+//! - `/sitemaps/private.xml` lists `/books/20` and `/private/books/21`,
+//!   an entry robots.txt disallows.
 //! - `sitemap-partner.test/cross.xml` lists `sitemap-seed.test/books/4`
 //!   and the partner's own `/books/5`; the partner has no robots.txt.
 //! - `/limits-index.xml` is an index of `/sitemaps/plain.xml` (`/books/11`
@@ -29,8 +31,8 @@
 //!   breaks off, of `/sitemaps/error.xml`, which answers `500`, and of
 //!   `/sitemaps/missing.xml`, which answers `404`. The large files are
 //!   generated on request, never committed (ADR 0062).
-//! - Every `/books/<n>`, `/authors/<n>` and `/about` is an article with its
-//!   ID, on either host; any other path is `404`.
+//! - Every `/books/<n>`, `/private/books/<n>`, `/authors/<n>` and `/about`
+//!   is an article with its ID, on either host; any other path is `404`.
 //!
 //! No task names the family: the engine's sitemap seed cases read it.
 
@@ -100,6 +102,9 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
             on(BLOCKED, "/sitemap.xml"),
         ]),
         (HOST, "/private/hidden.xml") => urlset(&[on(HOST, "/books/99")]),
+        (HOST, "/sitemaps/private.xml") => {
+            urlset(&[on(HOST, "/books/20"), on(HOST, "/private/books/21")])
+        }
         (HOST, "/limits-index.xml") => index(&[
             on(HOST, "/sitemaps/plain.xml"),
             on(HOST, "/sitemaps/packed.xml.gz"),
@@ -130,7 +135,8 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
     }
 }
 
-/// An article for `/books/<n>`, `/authors/<n>` or `/about`, else `404`.
+/// An article for `/books/<n>`, `/private/books/<n>`, `/authors/<n>` or
+/// `/about`, else `404`.
 fn page(seed: u64, path: &str) -> Page {
     let numbered = |prefix: &str| path.strip_prefix(prefix).and_then(canonical_number);
     let (id, place) = if path == "/about" {
@@ -139,6 +145,8 @@ fn page(seed: u64, path: &str) -> Page {
         (format!("SS-BOOK-{number}"), 2 * number + 1)
     } else if let Some(number) = numbered("/authors/") {
         (format!("SS-AUTHOR-{number}"), 2 * number + 2)
+    } else if let Some(number) = numbered("/private/books/") {
+        (format!("SS-PRIVATE-BOOK-{number}"), 2 * number + 1)
     } else {
         return Page::not_found();
     };

@@ -55,15 +55,19 @@ async function seeded(folder: string, runId: string, stop?: object): Promise<voi
   }
 }
 
-/** The run folders of the per-major data folder, the one that holds the Daemon's socket. */
+/**
+ * The run folders of the per-major data folder, the one that holds the
+ * Daemon's runtime file: its socket is elsewhere when its path there would
+ * be too long for the OS.
+ */
 async function runsFolder(daemon: ServedDaemon): Promise<string> {
   for (const entry of await readdir(daemon.home, { withFileTypes: true })) {
     const folder = join(daemon.home, entry.name);
-    if (entry.isDirectory() && (await readdir(folder)).includes("daemon.sock")) {
+    if (entry.isDirectory() && (await readdir(folder)).includes("daemon.json")) {
       return join(folder, "runs");
     }
   }
-  throw new Error("the test's home holds no per-major folder with the Daemon's socket");
+  throw new Error("the test's home holds no per-major folder with the Daemon's runtime file");
 }
 
 /** Runs the executable's `args` in the test's home, failing the test when it fails. */

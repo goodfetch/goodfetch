@@ -1143,6 +1143,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 278
+title = "As a crawl developer, I want CSV, XLSX, HTML-table and Markdown Exports to carry the union of every field seen, in first-seen order, so that a later Record's field is never dropped (CO-27; pitfall D07)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 280
 title = "As a crawl developer, I want the engine's failed write to raise `file_write_failed`, side `engine`, and leave no unfinished file, and an Export at the `critical` storage level to fail before writing, so that an Export I hold is always whole (ADRs 0116, 0122)."
 milestone = "M1 Core"

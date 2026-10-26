@@ -67,6 +67,7 @@ function rowOf(overrides: Partial<RunIndexRow> = {}): RunIndexRow {
     lifecycle: "running",
     started_at: "2026-10-24T08:00:00Z",
     presence: "present",
+    replayed: false,
     ...overrides,
   };
 }
@@ -132,6 +133,20 @@ function engineOf({
   adapter.answer("run.progress", feed.answer);
   adapter.answer("run.usage", usage);
   adapter.answer("run.list", () => ({ runs: [typeof row === "function" ? row() : row] }));
+  // An ended run's page reads its Run report, which the report's own tests show.
+  adapter.answer("run.report", () => {
+    const listed = typeof row === "function" ? row() : row;
+    return reportOf({
+      lifecycle: listed.lifecycle,
+      ...(listed.verdict === undefined || listed.verdict === null
+        ? {}
+        : { verdict: listed.verdict }),
+      ...(listed.completeness === undefined || listed.completeness === null
+        ? {}
+        : { completeness: listed.completeness }),
+      usage,
+    });
+  });
   return adapter;
 }
 
@@ -242,9 +257,18 @@ test(
   },
 );
 
-/** ADR 0107's Model allowance as a newer engine reports it in `RunUsage`, a member this engine's schema does not name yet (#965). */
-const withAllowance: RunUsage = Object.assign(usageOf({ uncapped: true }), {
-  model_allowance: [{ kind: "price", currency: "USD", amount: 2_000_000, left: 500_000 }],
+/** ADR 0107's Model allowance in `RunUsage`, which no Limit is. */
+const withAllowance: RunUsage = usageOf({
+  uncapped: true,
+  model_allowance: [
+    {
+      kind: "price",
+      currency: "USD",
+      value: 2_000_000,
+      remains: 500_000,
+      source: { key: "ai.allowance.price", value: { amount: 2, currency: "USD" }, layer: "run" },
+    },
+  ],
 });
 
 test.each([

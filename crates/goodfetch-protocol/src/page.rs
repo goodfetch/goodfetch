@@ -1090,6 +1090,12 @@ pub enum MarkdownContent {
     /// The main content the extractor finds, the default.
     #[default]
     Main,
+    /// The whole body, after the Clean-up rules.
+    Full,
+    /// The main content without its link-dense blocks (more than half
+    /// their text in links), its image-only blocks and the navigation
+    /// lists the document repeats: the "fit" of `Crawl4AI`.
+    Fit,
 }
 
 /// The options of the `markdown` format.
@@ -1121,6 +1127,49 @@ impl MarkdownFormat {
     }
 }
 
+/// Which of the page's HTML an `html` format holds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HtmlKind {
+    /// The document as served, or as the DOM stands on a browser tier,
+    /// before the Clean-up rules: what `content()` returns there.
+    Raw,
+    /// The document after the Clean-up rules' cosmetic rules.
+    Cleaned,
+    /// The main content the extractor finds, the default.
+    #[default]
+    Main,
+}
+
+/// The options of the `html` format.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HtmlOptions {
+    /// Which of the page's HTML it holds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub kind: HtmlKind,
+}
+
+/// The `html` format of a request: `true`, or its options.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum HtmlFormat {
+    /// With its default options.
+    Asked(Asked),
+    /// With these options.
+    Options(HtmlOptions),
+}
+
+impl HtmlFormat {
+    /// Which of the page's HTML it holds.
+    pub fn kind(self) -> HtmlKind {
+        match self {
+            Self::Asked(Asked) => HtmlKind::default(),
+            Self::Options(options) => options.kind,
+        }
+    }
+}
+
 /// The formats a `page.formats` call asks for, each `true` or its options:
 /// one value, which a Record can carry and a Dataset's schema can be
 /// generated from (ADR 0103). A format left out is left out of the result.
@@ -1131,6 +1180,14 @@ pub struct FormatsRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub markdown: Option<MarkdownFormat>,
+    /// The page's HTML: its main content by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub html: Option<HtmlFormat>,
+    /// The text of the page's main content, a paragraph per block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub text: Option<Asked>,
 }
 
 /// What `page.formats` takes: the page, and the formats it asks for.
@@ -1175,6 +1232,14 @@ pub struct PageFormats {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String", extend("arrived_in" = "0.1"))]
     pub markdown: Option<String>,
+    /// Its HTML of the kind the request named, when it asked for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String", extend("arrived_in" = "0.1"))]
+    pub html: Option<String>,
+    /// Its main content's text, when the request asked for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String", extend("arrived_in" = "0.1"))]
+    pub text: Option<String>,
 }
 
 /// The JSON Schema of what `page.formats` answers to `request`: the

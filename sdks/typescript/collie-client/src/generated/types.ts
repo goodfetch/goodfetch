@@ -280,6 +280,13 @@ export type Product = "collie" | "foxhound";
  */
 export type Form = "typescript" | "python" | "rust" | "cli" | "tool" | "catalog";
 /**
+ * The `html` format of a request: `true`, or its options.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HtmlFormat".
+ */
+export type HtmlFormat = true | HtmlOptions;
+/**
  * The `markdown` format of a request: `true`, or its options.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -309,6 +316,13 @@ export type GovernorLevel = "normal" | "pressure" | "critical";
  * via the `definition` "LogLevel".
  */
 export type LogLevel = "off" | "error" | "warn" | "info" | "debug" | "trace";
+/**
+ * Which of the page's HTML an `html` format holds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HtmlKind".
+ */
+export type HtmlKind = "raw" | "cleaned" | "main";
 /**
  * The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).
  *
@@ -371,7 +385,7 @@ export type MainContent = "found" | "none";
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "MarkdownContent".
  */
-export type MarkdownContent = "main";
+export type MarkdownContent = "main" | "full" | "fit";
 /**
  * What `needs_you.changed` carries: one change of the list.
  *
@@ -2365,9 +2379,26 @@ export interface FormatsParams {
  */
 export interface FormatsRequest {
   /**
+   * The page's HTML: its main content by default.
+   */
+  html?: HtmlFormat | null;
+  /**
    * The page's content as Markdown, with GFM's tables.
    */
   markdown?: MarkdownFormat | null;
+  /**
+   * The text of the page's main content, a paragraph per block.
+   */
+  text?: Asked | null;
+}
+/**
+ * With these options.
+ */
+export interface HtmlOptions {
+  /**
+   * Which of the page's HTML it holds.
+   */
+  kind: "raw" | "cleaned" | "main";
 }
 /**
  * With these options.
@@ -2376,7 +2407,7 @@ export interface MarkdownOptions {
   /**
    * How much of the page it holds.
    */
-  content: "main";
+  content: "main" | "full" | "fit";
 }
 /**
  * The formats a `page.formats` call asks for, each `true` or its options:
@@ -2388,9 +2419,17 @@ export interface MarkdownOptions {
  */
 export interface FormatsRequest1 {
   /**
+   * The page's HTML: its main content by default.
+   */
+  html?: HtmlFormat | null;
+  /**
    * The page's content as Markdown, with GFM's tables.
    */
   markdown?: MarkdownFormat | null;
+  /**
+   * The text of the page's main content, a paragraph per block.
+   */
+  text?: Asked | null;
 }
 /**
  * What `page.goto` takes: the page, the URL it goes to, and when it
@@ -2517,6 +2556,18 @@ export interface PrivateEndpoint {
    * The path of the file holding its token.
    */
   token_file: string;
+}
+/**
+ * The options of the `html` format.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HtmlOptions".
+ */
+export interface HtmlOptions1 {
+  /**
+   * Which of the page's HTML it holds.
+   */
+  kind: "raw" | "cleaned" | "main";
 }
 /**
  * A Human pause waiting for a person (ADR 0092).
@@ -3069,7 +3120,7 @@ export interface MarkdownOptions1 {
   /**
    * How much of the page it holds.
    */
-  content: "main";
+  content: "main" | "full" | "fit";
 }
 /**
  * The engine's memory, as the governor read it.
@@ -3704,6 +3755,10 @@ export interface PageFormats {
    */
   base_url: string;
   /**
+   * Its HTML of the kind the request named, when it asked for it.
+   */
+  html?: string;
+  /**
    * Whether it has main content.
    */
   main_content: "found" | "none";
@@ -3711,6 +3766,10 @@ export interface PageFormats {
    * Its content as Markdown, when the request asked for it.
    */
   markdown?: string;
+  /**
+   * Its main content's text, when the request asked for it.
+   */
+  text?: string;
   /**
    * The document's URL, after redirects.
    */

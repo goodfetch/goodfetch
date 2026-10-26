@@ -12,6 +12,7 @@ use serde_json::Value;
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion, Setting, ValueKind,
+    ValueShape,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -77,7 +78,7 @@ fn auto() -> Value {
 /// `fetch.tier` (ADRs 0020 and 0093; spec #579).
 pub const FETCH_TIER: Setting = Setting {
     name: "fetch.tier",
-    description: "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first 3 requests of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all 3 gave the same Records, split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
+    description: "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `discovered_api`, `browser_fetch` and `light_browser` are refused with `capability_unavailable` at the crawl's start until they are built.",
     kind: ValueKind::Choice(FETCH_TIERS),
     default: auto,
     clearable: false,
@@ -274,6 +275,103 @@ pub const FETCH_REFRESH_MAX_DELAY: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// The samples `fetch.sample.count` takes by default (ADR 0020; spec
+/// #579).
+pub const SAMPLE_COUNT: u64 = 3;
+
+fn sample_count() -> Value {
+    Value::from(SAMPLE_COUNT)
+}
+
+/// Whether a `fetch.sample.count` takes fewer samples than the built-in
+/// three: a weakened control (ADR 0023).
+fn fewer_samples(value: &Value) -> bool {
+    value.as_u64().is_some_and(|count| count < SAMPLE_COUNT)
+}
+
+/// `fetch.sample.count` (ADRs 0020 and 0023; spec #579).
+pub const FETCH_SAMPLE_COUNT: Setting = Setting {
+    name: "fetch.sample.count",
+    description: "How many of a Label's first requests on a domain are samples under `fetch.tier: auto`, each fetched on `http` and then on `browser`, whose run commits: the Label moves to `http` once all of them gave the same Records and enqueues. 3 by default; set for the Run only. Fewer than 3 is a weakened control, named in the Run report's `weakened`.",
+    kind: ValueKind::Count,
+    default: sample_count,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: Some(fewer_samples),
+    arrived_in: ARRIVED_IN,
+};
+
+/// The fields of a `fetch.sample.refresh_after` value.
+const SAMPLE_REFRESH_FIELDS: &[&str] = &["requests", "after"];
+
+/// When a Label's tier choice is sampled again: after it served
+/// `requests`, or after `after` milliseconds, whichever comes first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SampleRefresh {
+    /// The requests a choice serves before it is sampled again.
+    pub requests: u64,
+    /// The milliseconds a choice stands before it is sampled again.
+    pub after: u64,
+}
+
+impl SampleRefresh {
+    /// The value `value` holds, or what is wrong with it.
+    ///
+    /// # Errors
+    ///
+    /// When `value` is no table of whole `requests` and `after`.
+    pub fn read(value: &Value) -> Result<Self, String> {
+        serde_json::from_value(value.clone()).map_err(|error| {
+            format!(
+                "`fetch.sample.refresh_after` is a table of `requests` and `after` (milliseconds), each a whole number: {error}"
+            )
+        })
+    }
+}
+
+/// A value of `fetch.sample.refresh_after`.
+pub const SAMPLE_REFRESH_SHAPE: ValueShape = ValueShape {
+    name: "SampleRefresh",
+    check: |value| SampleRefresh::read(value).map(drop),
+    schema: || {
+        serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": SAMPLE_REFRESH_FIELDS,
+            "properties": {
+                "requests": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "The requests a Label's tier choice on a domain serves before it is sampled again.",
+                },
+                "after": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "The milliseconds a Label's tier choice on a domain stands before it is sampled again.",
+                },
+            },
+        })
+    },
+    examples: || vec![serde_json::json!({ "requests": 500, "after": 86_400_000 })],
+};
+
+fn refresh_after() -> Value {
+    serde_json::json!({ "requests": 500, "after": 86_400_000 })
+}
+
+/// `fetch.sample.refresh_after` (ADR 0020; spec #579).
+pub const FETCH_SAMPLE_REFRESH_AFTER: Setting = Setting {
+    name: "fetch.sample.refresh_after",
+    description: "When a Label's tier choice on a domain under `fetch.tier: auto` is sampled again: after it served `requests` crawl requests, or `after` milliseconds after it was made, whichever comes first; 500 requests or 24 hours (86,400,000 ms) by default. Set for the Run only. A Label whose browser sample showed a consent wall stays on `browser` and is not sampled again.",
+    kind: ValueKind::Shape(&SAMPLE_REFRESH_SHAPE),
+    default: refresh_after,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -286,6 +384,8 @@ pub const ENTRIES: Entries = Entries {
     settings: &[
         FETCH_TIER,
         FETCH_TIER_RACE,
+        FETCH_SAMPLE_COUNT,
+        FETCH_SAMPLE_REFRESH_AFTER,
         FETCH_ENCODING,
         FETCH_HEDGE_ENABLED,
         FETCH_HEDGE_MAX_PERCENT,

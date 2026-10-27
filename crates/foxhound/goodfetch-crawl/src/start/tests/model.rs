@@ -19,6 +19,8 @@
 //! one work item at a time, so a handler request means the previous
 //! attempt's outcome was committed. 16 cases in the Quick suite and 256 in
 //! the Pre-merge suite (`proptest_config`).
+//! Each case's folder lies in memory (`TestEnv::in_memory`): on a busy
+//! disk its files' syncs passed the Quick kill (fix-queue 123).
 
 use std::collections::BTreeMap;
 
@@ -414,7 +416,7 @@ impl StateMachineTest for Subject {
     type Reference = Model;
 
     fn init_test(model: &Model) -> Self {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let folder = env
             .folder()
             .file_name()

@@ -1,5 +1,9 @@
 //! The Audit log's chain through its interface (spec #564's seam), on real
-//! SQLite in the test's folder: a log written through `record` verifies
+//! SQLite in the test's folder, which lies on a memory file system
+//! (`TestEnv::in_memory`): each case writes its own log through a few dozen
+//! synced writes and new files, which a busy disk would make last seconds
+//! (fix-queue 123); the log's durability is the LazyFS test's (`tests/it/lazyfs.rs`).
+//! A log written through `record` verifies
 //! intact, and each way of tampering with it (an edited entry, a deleted
 //! one, a reordered pair, a truncated middle, a truncated tail that the head
 //! file still names) is reported at the first sequence it touched, as
@@ -94,7 +98,7 @@ pub(super) fn broken(entries: u64, sequence: u64) -> AuditVerified {
 /// Covers: story:4-69, story:4-70
 #[test]
 fn a_log_written_through_record_verifies_intact() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = written(&env, 3);
 
     let verified = log.verify();
@@ -111,7 +115,7 @@ fn a_log_written_through_record_verifies_intact() {
 
 #[test]
 fn a_log_never_written_verifies_intact_and_empty() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
 
     let verified = log(&env).verify();
 
@@ -131,7 +135,7 @@ fn a_log_never_written_verifies_intact_and_empty() {
 /// Covers: story:4-69
 #[test]
 fn an_entry_holds_its_sequence_time_kind_actor_layer_run_and_details() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = written(&env, 1);
 
     let second = log
@@ -166,7 +170,7 @@ fn an_entry_holds_its_sequence_time_kind_actor_layer_run_and_details() {
 /// hash is that one, so another implementation can verify the chain.
 #[test]
 fn the_first_entry_hashes_zero_bytes_then_its_canonical_json() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = log(&env);
     log.record(
         &Origin {
@@ -202,7 +206,7 @@ fn the_first_entry_hashes_zero_bytes_then_its_canonical_json() {
 #[case::an_update("UPDATE entries SET entry = '{}' WHERE sequence = 1")]
 #[case::a_delete("DELETE FROM entries WHERE sequence = 1")]
 fn the_engines_own_connection_cannot_rewrite_an_entry(#[case] statement: &str) {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = written(&env, 2);
     let connection = log.open().unwrap();
 
@@ -224,7 +228,7 @@ fn the_engines_own_connection_cannot_rewrite_an_entry(#[case] statement: &str) {
 /// Covers: story:4-69
 #[test]
 fn two_engines_append_to_one_chain() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let (first, second) = (log(&env), log(&env));
 
     for _ in 0..2 {
@@ -259,7 +263,7 @@ fn two_engines_append_to_one_chain() {
 /// Covers: story:4-70
 #[test]
 fn a_removed_head_file_breaks_the_log_past_its_last_entry() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = written(&env, 2);
     std::fs::remove_file(env.home().join("audit-log-head.json")).unwrap();
 
@@ -269,7 +273,7 @@ fn a_removed_head_file_breaks_the_log_past_its_last_entry() {
 /// Covers: story:4-70
 #[test]
 fn a_head_file_naming_another_hash_breaks_the_log_at_its_sequence() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = written(&env, 3);
     std::fs::write(
         env.home().join("audit-log-head.json"),
@@ -293,7 +297,7 @@ fn log_at_version(env: &TestEnv, version: &str) -> AuditLog {
 /// Covers: format:audit-log
 #[test]
 fn a_log_of_a_newer_minor_opens_and_verifies() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = log_at_version(&env, "0.9");
 
     assert_eq!(
@@ -309,7 +313,7 @@ fn a_log_of_a_newer_minor_opens_and_verifies() {
 /// Covers: format:audit-log
 #[test]
 fn a_log_of_another_major_is_refused() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = log_at_version(&env, "1.0");
 
     assert_eq!(
@@ -327,7 +331,7 @@ fn a_log_of_another_major_is_refused() {
 /// Covers: format:audit-log
 #[test]
 fn the_head_sets_log_verifies_and_takes_another_entry() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let head = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../compat/audit-log/head");
     let log = log(&env);
     Connection::open(log.path())
@@ -364,7 +368,7 @@ proptest! {
     /// Covers: story:4-70
     #[test]
     fn an_edited_entry_is_reported_at_its_sequence((count, sequence) in log_and_sequence()) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = written(&env, count);
         tamper(&log)
             .execute(
@@ -379,7 +383,7 @@ proptest! {
     /// Covers: story:4-70
     #[test]
     fn a_deleted_entry_is_reported_at_its_sequence((count, sequence) in log_and_sequence()) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = written(&env, count);
         tamper(&log)
             .execute("DELETE FROM entries WHERE sequence = ?1", [at(sequence)])
@@ -392,7 +396,7 @@ proptest! {
     #[test]
     fn a_reordered_pair_is_reported_at_its_first_sequence((count, sequence) in log_and_sequence()) {
         prop_assume!(sequence < count);
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = written(&env, count);
         tamper(&log)
             .execute_batch(&format!(
@@ -409,7 +413,7 @@ proptest! {
     #[test]
     fn a_truncated_middle_is_reported_at_its_first_sequence((count, sequence) in log_and_sequence()) {
         prop_assume!(sequence + 1 < count);
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = written(&env, count);
         tamper(&log)
             .execute(
@@ -425,7 +429,7 @@ proptest! {
     /// Covers: story:4-70
     #[test]
     fn a_truncated_tail_is_reported_at_its_first_sequence((count, sequence) in log_and_sequence()) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = written(&env, count);
         tamper(&log)
             .execute("DELETE FROM entries WHERE sequence >= ?1", [at(sequence)])
@@ -438,7 +442,7 @@ proptest! {
     /// Covers: story:4-70
     #[test]
     fn an_untouched_log_verifies_intact((count, _sequence) in log_and_sequence()) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = written(&env, count);
 
         prop_assert_eq!(

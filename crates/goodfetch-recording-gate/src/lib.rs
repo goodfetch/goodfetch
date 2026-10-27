@@ -133,6 +133,14 @@ impl RecordingGate {
             .push((part.to_owned(), duration));
     }
 
+    /// Stops holding the requests `hold` held for `part`: those asked from
+    /// now on are admitted at once.
+    pub fn stop_holding(&self, part: &str) {
+        lock(&self.shared.rules)
+            .held
+            .retain(|(held, _)| held != part);
+    }
+
     /// Ends the lease, as `ended` says.
     pub fn end_lease(&self, ended: LeaseEnded) {
         lock(&self.shared.rules).lease_ended = Some(ended);

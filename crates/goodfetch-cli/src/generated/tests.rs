@@ -5,7 +5,7 @@
 use clap::Command;
 use clap::error::ErrorKind;
 use goodfetch_protocol::catalog::{
-    Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Stability, schema_of,
+    Operation, OperationClass, OperationKind, Product, ProtocolVersion, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::entries::operations_of;
 use proptest::prelude::{prop, prop_assert_eq, proptest};
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::{
-    Call, NAMESPACES, Namespace, Offer, PRODUCT, command, duration, member, members_of, offer,
+    Call, Generated, NAMESPACES, Namespace, Offer, command, duration, member, members_of, offer,
 };
 use crate::engine_choice::{Choice, Lifetime};
 
@@ -106,7 +106,7 @@ fn an_operation_is_a_command_by_its_kind_and_reach(
 /// Covers: story:11-198, story:11-218
 #[test]
 fn the_commands_of_collies_catalog_are_its_offered_operations() {
-    let commands: Vec<(&str, Offer)> = operations_of(PRODUCT)
+    let commands: Vec<(&str, Offer)> = operations_of(Product::Collie)
         .filter_map(|operation| Some((operation.name, offer(operation)?)))
         .collect();
 
@@ -170,7 +170,11 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
 /// catalog's order, with its spelling and its group's help.
 #[test]
 fn the_generated_namespaces_are_those_of_collies_commands() {
-    let names: Vec<&str> = NAMESPACES.iter().map(|namespace| namespace.name).collect();
+    let names: Vec<&str> = NAMESPACES
+        .iter()
+        .filter(|namespace| namespace.product == Product::Collie)
+        .map(|namespace| namespace.name)
+        .collect();
 
     assert_eq!(
         names,
@@ -198,8 +202,129 @@ fn the_generated_namespaces_are_those_of_collies_commands() {
             name: "run",
             spelled: "run",
             about: "Calls the catalog's `run` operations",
+            product: Product::Collie,
         }
     );
+}
+
+/// Foxhound's catalog adds its crawl's commands to Collie's, in the
+/// catalog's order (ADRs 0095 and 0099): a sequence of what a crawl
+/// committed prints it once the call ends unless `--follow` is given, a
+/// round trip that answers pages of what a crawl committed follows them under
+/// `--follow`, and a stream of seeds reads them from stdin. A handler's
+/// own calls and `crawl.serve`, which serves a handler, stay the SDKs'
+/// (ADR 0104).
+///
+/// Covers: story:11-1130
+#[test]
+fn foxhounds_catalog_adds_the_crawls_commands_to_collies() {
+    let collie: Vec<&str> = operations_of(Product::Collie)
+        .map(|operation| operation.name)
+        .collect();
+    let added: Vec<(&str, Offer)> = operations_of(Product::Foxhound)
+        .filter(|operation| !collie.contains(&operation.name))
+        .filter_map(|operation| Some((operation.name, offer(operation)?)))
+        .collect();
+
+    assert_eq!(
+        added,
+        [
+            ("sample.crawl", Offer::Command),
+            ("crawl.start", Offer::Command),
+            ("run.seeds", Offer::Command),
+            ("run.add_seed", Offer::Command),
+            ("run.add_seeds", Offer::Input),
+            ("run.records", Offer::Committed),
+            ("dataset.list", Offer::Command),
+            ("dataset.page", Offer::Command),
+            ("run.export", Offer::Command),
+            ("run.outcomes", Offer::Pages),
+            ("run.failed_requests", Offer::Command),
+            ("run.retry_failed", Offer::Command),
+            ("run.rejected_records", Offer::Pages),
+            ("dataset.query", Offer::Command),
+        ]
+    );
+}
+
+/// The generated namespaces hold Foxhound's commands' too, each marked by
+/// the Product whose catalog first gives it a command: Collie's first, in
+/// their order, then the two only Foxhound has.
+#[test]
+fn the_generated_namespaces_mark_the_two_only_foxhound_has() {
+    let foxhounds: Vec<&str> = NAMESPACES
+        .iter()
+        .filter(|namespace| namespace.product == Product::Foxhound)
+        .map(|namespace| namespace.name)
+        .collect();
+
+    assert_eq!(foxhounds, ["crawl", "dataset"]);
+}
+
+/// The command line of `product`'s executable, with no hand-written
+/// command, and the generated commands it carries.
+fn command_line(product: Product) -> (Command, Generated) {
+    let generated = Generated::beside(product, &Command::new("goodfetch"));
+    (generated.add_to(Command::new("goodfetch")), generated)
+}
+
+/// The call `arguments` ask of `product`'s generated commands, or clap's
+/// refusal.
+fn asked(product: Product, arguments: &[&str]) -> Result<Call, clap::Error> {
+    let (command, generated) = command_line(product);
+    let matches = command
+        .try_get_matches_from(std::iter::once("goodfetch").chain(arguments.iter().copied()))?;
+    Ok(generated
+        .call(&matches)
+        .expect("a generated command parsed"))
+}
+
+/// Foxhound's executable carries a crawl command, a value-bound one taking
+/// the Run ID first; Collie's has no such command, which its executable
+/// refuses with `not_in_product` before clap reads it.
+///
+/// Covers: story:11-1130, story:11-1131
+#[rstest]
+#[case::run_outcomes(
+    &["run", "outcomes", "r1", "--labels", "page"],
+    ("run.outcomes", json!({ "run_id": "r1", "labels": ["page"] }))
+)]
+#[case::run_records(
+    &["run", "records", "r1", "--dataset", "pages", "--after", "4"],
+    ("run.records", json!({ "run_id": "r1", "dataset": "pages", "after": 4 }))
+)]
+#[case::crawl_start(
+    &["crawl", "start", "--run-id", "r1", "--seeds", "https://example.test/"],
+    ("crawl.start", json!({ "run_id": "r1", "seeds": ["https://example.test/"] }))
+)]
+fn foxhounds_executable_carries_the_crawl_commands_and_collies_does_not(
+    #[case] arguments: &[&str],
+    #[case] expected: (&str, Value),
+) {
+    let call = asked(Product::Foxhound, arguments).unwrap();
+    let refused = asked(Product::Collie, arguments).err().unwrap();
+
+    assert_eq!(
+        (
+            (call.operation.name, Value::Object(call.params)),
+            refused.kind()
+        ),
+        (expected, ErrorKind::InvalidSubcommand)
+    );
+}
+
+/// A sequence of what a crawl committed and a round trip answering pages
+/// of its endings each run with or without `--follow`; Collie's sequences
+/// still need it.
+///
+/// Covers: story:11-1131
+#[rstest]
+#[case::committed_without(&["run", "records", "r1", "--dataset", "pages"], false)]
+#[case::committed_with(&["run", "records", "r1", "--dataset", "pages", "--follow"], true)]
+#[case::pages_without(&["run", "outcomes", "r1"], false)]
+#[case::pages_with(&["run", "outcomes", "r1", "--follow"], true)]
+fn a_crawls_reads_follow_only_under_follow(#[case] arguments: &[&str], #[case] follow: bool) {
+    assert_eq!(asked(Product::Foxhound, arguments).unwrap().follow, follow);
 }
 
 static SPIN: Operation = operation("widget.spin", OperationKind::RoundTrip, Reach::AllSurfaces);
@@ -215,7 +340,9 @@ fn parse(operation: &'static Operation, arguments: &[&str]) -> Result<Value, cla
     let matches = command(operation).try_get_matches_from(
         std::iter::once(member(operation)).chain(arguments.iter().copied()),
     )?;
-    Ok(Value::Object(Call::of(operation, &matches).params))
+    Ok(Value::Object(
+        Call::of(Product::Collie, operation, &matches).params,
+    ))
 }
 
 /// Covers: story:11-198
@@ -279,7 +406,7 @@ fn a_timeout_that_is_no_positive_duration_is_a_usage_error(#[case] timeout: &str
 
 /// Collie's catalog entry `name`.
 fn collies(name: &str) -> &'static Operation {
-    operations_of(PRODUCT)
+    operations_of(Product::Collie)
         .find(|operation| operation.name == name)
         .unwrap()
 }
@@ -289,7 +416,7 @@ fn call(operation: &'static Operation, arguments: &[&str]) -> Result<Call, clap:
     let matches = command(operation).try_get_matches_from(
         std::iter::once(member(operation)).chain(arguments.iter().copied()),
     )?;
-    Ok(Call::of(operation, &matches))
+    Ok(Call::of(Product::Collie, operation, &matches))
 }
 
 /// An opener's new value and the value a value-bound command names outlive

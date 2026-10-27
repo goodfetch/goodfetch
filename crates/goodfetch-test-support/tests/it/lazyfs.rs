@@ -8,7 +8,7 @@
 use std::ffi::OsString;
 use std::io::Write as _;
 use std::os::unix::ffi::OsStringExt as _;
-use std::os::unix::fs::MetadataExt as _;
+use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -26,7 +26,7 @@ fn write(path: &Path, text: &str, synced: bool) {
 
 #[test]
 fn an_fsynced_write_survives_clear_cache() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     let mounted = LazyFs::mount(&env, env.home()).unwrap();
     write(&env.home().join("synced"), "kept", true);
 
@@ -40,7 +40,7 @@ fn an_fsynced_write_survives_clear_cache() {
 
 #[test]
 fn an_unsynced_write_is_gone_after_clear_cache() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     let mounted = LazyFs::mount(&env, env.home()).unwrap();
     write(&env.home().join("unsynced"), "lost", false);
 
@@ -54,7 +54,7 @@ fn an_unsynced_write_is_gone_after_clear_cache() {
 
 #[test]
 fn a_folder_keeps_its_files_through_a_mount_and_after_it_ends() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     write(&env.home().join("before"), "before the mount", false);
     let mounted = LazyFs::mount(&env, env.home()).unwrap();
     let seen = std::fs::read_to_string(env.home().join("before")).unwrap();
@@ -75,7 +75,7 @@ fn a_folder_keeps_its_files_through_a_mount_and_after_it_ends() {
 
 #[test]
 fn a_remount_sees_what_was_synced_before_the_cache_was_cleared() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     let mounted = LazyFs::mount(&env, env.home()).unwrap();
     write(&env.home().join("synced"), "kept", true);
     write(&env.home().join("unsynced"), "lost", false);
@@ -98,7 +98,7 @@ fn a_remount_sees_what_was_synced_before_the_cache_was_cleared() {
 /// file as written, never empty.
 #[test]
 fn the_tests_user_configuration_written_on_a_mounted_home_survives_clear_cache() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     let file = env.home().join("0.0").join("configuration.toml");
     let mounted = LazyFs::mount(&env, env.home()).unwrap();
     env.log_level("debug");
@@ -121,7 +121,7 @@ fn the_tests_user_configuration_written_on_a_mounted_home_survives_clear_cache()
 
 #[test]
 fn a_mount_that_cannot_be_made_fails_with_lazyfs_output_and_leaves_the_folder_as_it_was() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     write(&env.home().join("before"), "untouched", false);
 
     let error = LazyFs::mount_program(&env, Path::new("/bin/false"), env.home()).unwrap_err();
@@ -136,9 +136,40 @@ fn a_mount_that_cannot_be_made_fails_with_lazyfs_output_and_leaves_the_folder_as
     );
 }
 
+/// A mount the operating system refuses, as Ubuntu's AppArmor profile of
+/// `fusermount3` does outside the folders it allows, fails naming that
+/// cause and where mounts are allowed, not only with LazyFS's output, in
+/// the text a test's `unwrap()` prints. A script stands in for LazyFS: it
+/// prints what `fusermount3` prints then and exits as LazyFS does.
+#[test]
+fn a_mount_the_os_refuses_fails_naming_the_refusal_and_where_mounts_are_allowed() {
+    let env = TestEnv::for_lazyfs();
+    let program = env.folder().join("refused-lazyfs");
+    write(
+        &program,
+        "#!/bin/sh\necho 'fusermount3: mount failed: Permission denied' >&2\nexit 4\n",
+        true,
+    );
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let error = LazyFs::mount_program(&env, &program, env.home()).unwrap_err();
+
+    let message = format!("{error:?}");
+    assert_eq!(
+        (
+            matches!(error, LazyFsError::MountRefused { .. }),
+            message.contains("AppArmor"),
+            message.contains("GOODFETCH_LAZYFS_FOLDER"),
+            message.contains("fusermount3: mount failed: Permission denied"),
+        ),
+        (true, true, true, true),
+        "{message}"
+    );
+}
+
 #[test]
 fn a_mount_of_a_folder_whose_parent_is_missing_fails() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
 
     let error = LazyFs::mount(&env, env.folder().join("missing").join("folder")).unwrap_err();
 
@@ -156,7 +187,7 @@ fn is_mount_point(path: &Path) -> bool {
 /// failed end never leaves a mount or a process behind.
 #[test]
 fn a_mount_whose_end_fails_still_stops_lazyfs_and_unmounts() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     let mounted = LazyFs::mount(&env, env.home()).unwrap();
     write(&env.home().join("open"), "kept open", true);
     let busy = std::fs::File::open(env.home().join("open")).unwrap();
@@ -181,7 +212,7 @@ fn a_mount_whose_end_fails_still_stops_lazyfs_and_unmounts() {
 /// a mount only when no process uses the folder.
 #[test]
 fn a_mount_that_a_running_process_still_uses_at_its_end_fails_naming_it() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     let mounted = LazyFs::mount(&env, env.home()).unwrap();
     write(&env.home().join("open"), "kept open", true);
     let user = env
@@ -221,7 +252,7 @@ fn a_mount_that_a_running_process_still_uses_at_its_end_fails_naming_it() {
 /// holds the mount with no open file, working folder or mapping in it.
 #[test]
 fn a_mount_that_a_passing_lookup_holds_at_its_end_ends_once_the_lookup_is_done() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     let fifo = env.home().join("pipe");
     assert!(
         Command::new("mkfifo")

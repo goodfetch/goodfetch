@@ -29,6 +29,41 @@ fn folder_name_holds_a_space_and_a_non_ascii_letter() {
     assert!(name.starts_with("env-tests-folder_name é "), "{name}");
 }
 
+/// On Linux an in-memory setup's folder, under the usual name, lies on a
+/// memory file system, so a store test's synced writes and new files wait
+/// for no disk however busy it is (fix-queue 123).
+#[cfg(target_os = "linux")]
+#[test]
+fn an_in_memory_setup_keeps_its_folder_on_a_memory_file_system() {
+    let env = TestEnv::in_memory();
+
+    let name = env.folder().file_name().unwrap().to_str().unwrap();
+
+    assert_eq!(
+        (file_system_of(env.folder()), name.contains(" é ")),
+        ("tmpfs".to_owned(), true),
+        "{name}"
+    );
+}
+
+/// The type of the file system `path` lies on: that of the longest mount
+/// point above it in `/proc/self/mounts`.
+#[cfg(target_os = "linux")]
+fn file_system_of(path: &Path) -> String {
+    let mounts = std::fs::read_to_string("/proc/self/mounts").unwrap();
+    mounts
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split(' ');
+            let point = fields.nth(1)?.replace("\\040", " ");
+            Some((std::path::PathBuf::from(point), fields.next()?.to_owned()))
+        })
+        .filter(|(point, _)| path.starts_with(point))
+        .max_by_key(|(point, _)| point.as_os_str().len())
+        .map(|(_, kind)| kind)
+        .unwrap()
+}
+
 /// The cleared map's variables, in order: those of every OS, and on Windows
 /// those a process needs to start.
 #[cfg(not(windows))]
@@ -399,4 +434,28 @@ fn outside_nextest_a_test_leaves_no_exercise_record() {
     drop(env);
 
     assert_eq!(record_lines(records.path()), Vec::<String>::new());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_lazyfs_tests_folder_is_made_in_the_folder_goodfetch_lazyfs_folder_names() {
+    let parent = test_env("env::tests::lazyfs_parent");
+    let variables =
+        Variables::from_iter([("GOODFETCH_LAZYFS_FOLDER", parent.folder().to_str().unwrap())]);
+
+    let env = TestEnv::create_for_lazyfs("env::tests::lazyfs_named", &variables).unwrap();
+
+    assert_eq!(env.folder().parent(), Some(parent.folder()));
+}
+
+/// `/tmp` whatever `TMPDIR` names: the folders where the operating system
+/// lets a user mount a FUSE file system include it (Ubuntu's AppArmor
+/// profile of `fusermount3`), and a `TMPDIR` such as `/g` lies outside them.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_lazyfs_tests_folder_is_made_in_tmp_when_no_folder_is_named() {
+    let env =
+        TestEnv::create_for_lazyfs("env::tests::lazyfs_default", &Variables::default()).unwrap();
+
+    assert_eq!(env.folder().parent(), Some(Path::new("/tmp")));
 }

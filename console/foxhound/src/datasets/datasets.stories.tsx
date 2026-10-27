@@ -3,7 +3,8 @@
 // without, the Records grid holding the Unicode record of
 // `goodfetch-test-support` with each cell isolated and kept out of
 // translation, a grid with more Records to read, and the controls that ask
-// the engine to filter, sort and keep columns. Foxhound's messages join the
+// the engine to filter, sort and keep columns, and the views a browser
+// keeps offline (story 215). Foxhound's messages join the
 // Console's before each story, as Foxhound's build entry adds them.
 import type { DatasetRecord, DatasetSummary } from "@goodfetch/foxhound/generated";
 import { i18n } from "@goodfetch/console/i18n";
@@ -11,7 +12,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 // oxlint-disable-next-line import/no-relative-parent-imports -- the Unicode record is the one shared fixture file Rust and Python read too (ADR 0073), which no package exports to a browser.
 import unicodeRecordText from "../../../../test-support/fixtures/unicode-record.json?raw";
 import { foxhoundMessages } from "#messages.ts";
-import { DatasetList, RecordsControls, RecordsGrid } from "./datasets.tsx";
+import { DatasetList, KeptViews, RecordsControls, RecordsGrid } from "./datasets.tsx";
 
 /** Loads Foxhound's messages in the Console's locale. */
 async function withFoxhoundMessages(): Promise<Record<string, never>> {
@@ -103,6 +104,25 @@ export const MoreToRead: Story = {
     ],
     more: true,
   },
+};
+
+/** The views a browser keeps offline, shown while the engine is not reachable (story 215). */
+export const KeptOffline: Story = {
+  render: () => (
+    <KeptViews
+      views={[
+        {
+          run_id: "crawl-run",
+          dataset: BOOKS,
+          columns: ["title"],
+          records: [
+            { number: 1, value: { title: "Dune" } },
+            { number: 2, value: { title: "الخيميائي" } },
+          ],
+        },
+      ]}
+    />
+  ),
 };
 
 /** The controls that ask the engine to sort, filter and keep columns. */

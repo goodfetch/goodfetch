@@ -9,6 +9,7 @@ import { appendFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, test } from "@goodfetch/test-support/conformance";
+import { NOT_ON_THE_STUB_GATEWAY, skipBehindGateway } from "./target.ts";
 
 const MIB = 1 << 20;
 
@@ -41,6 +42,7 @@ test(
     ],
   },
   async ({ page, daemon, signIn }) => {
+    skipBehindGateway(daemon, NOT_ON_THE_STUB_GATEWAY.sizeCapped);
     test.skip(
       process.platform !== "linux",
       "a size-capped filesystem is a tmpfs on Linux; macOS's and Windows's small disk image is not made yet",

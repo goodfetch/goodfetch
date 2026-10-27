@@ -29,6 +29,8 @@ export interface Tools {
   readonly scripted_engine?: string | undefined;
   /** `goodfetch-conformance`, whose `read` loads a result document through `goodfetch-protocol`'s reader. */
   readonly conformance?: string | undefined;
+  /** `goodfetch-stub-gateway`, the Stub gateway the Console conformance suite runs against (ADR 0096). */
+  readonly stub_gateway?: string | undefined;
 }
 
 /** One test's setup, as `goodfetch-test-env` describes it. */

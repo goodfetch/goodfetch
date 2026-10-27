@@ -116,13 +116,13 @@ describe("the offline cache", () => {
 
   test("a Dataset's erasure deletes that Dataset's rows only", async () => {
     const cache = await openOfflineCache(indexedDB, new StandInKeys());
-    await cache?.put("record", "a", { n: 1 }, "products");
-    await cache?.put("record", "b", { n: 2 }, "reviews");
+    await cache?.put("dataset_view", "a", { n: 1 }, "products");
+    await cache?.put("dataset_view", "b", { n: 2 }, "reviews");
     await cache?.put("run_summary", "c", { n: 3 });
 
     await cache?.forgetDataset("products");
 
-    expect(await cache?.all("record")).toEqual([{ n: 2 }]);
+    expect(await cache?.all("dataset_view")).toEqual([{ n: 2 }]);
     expect(await cache?.all("run_summary")).toEqual([{ n: 3 }]);
   });
 });

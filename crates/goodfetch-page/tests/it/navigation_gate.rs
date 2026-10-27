@@ -15,6 +15,7 @@ use goodfetch_engine::lease::LeaseEnded;
 use goodfetch_page::page_value::{Kept, NavigationKind};
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::page::SitePreference;
+use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use goodfetch_recording_gate::RecordingGate;
 use serde_json::{Map, Value, json};
 
@@ -29,24 +30,27 @@ const POPUP_HOST: &str = "1.access.test";
 /// The fetch edge pages: redirects and refresh stubs.
 const FETCH_EDGE: &str = "fetch-edge.test";
 
-/// The `timeout.navigation` of the cases whose permit wait outlasts it, in
-/// milliseconds. The setting also bounds what it rightly bounds there: the
-/// browser's launch, each page's opening and the navigation's own work,
-/// which take more than a second on a loaded machine; 3 s holds them.
-const SHORT_NAVIGATION_MS: u64 = 3_000;
+/// The held `page.goto`'s own `timeout`, in milliseconds. A call's own
+/// timeout bounds that navigation alone; the Run's `timeout.navigation`
+/// also bounds each command of the browser's launch and of each page's
+/// opening, which a loaded host stretches past a few seconds (fix-queue
+/// 121), so the Run keeps its default.
+const GOTO_TIMEOUT_MS: u64 = 3_000;
 
-/// How long those cases' gate holds a permit: past `SHORT_NAVIGATION_MS`,
-/// so a wait that counted against the timeout would fail its call.
-const PAST_THE_TIMEOUT: Duration = Duration::from_millis(SHORT_NAVIGATION_MS + 1_000);
+/// How long the gate holds the goto's permit: past `GOTO_TIMEOUT_MS`, so a
+/// wait that counted against the timeout would fail the call.
+const PAST_THE_GOTO_TIMEOUT: Duration = Duration::from_millis(GOTO_TIMEOUT_MS + 1_000);
 
-/// A Run's settings with `timeout.navigation` at `SHORT_NAVIGATION_MS`.
-fn short_navigation() -> Map<String, Value> {
-    let mut settings = Map::new();
-    settings.insert(
-        "timeout".to_owned(),
-        json!({ "navigation": SHORT_NAVIGATION_MS }),
-    );
-    settings
+/// How long the gate holds the permit of a call that takes no timeout of
+/// its own (`page.request`, `page.reload`): past `timeout.navigation`'s
+/// default, which bounds it. The Run keeps that default rather than a
+/// shorter one, which would bound its browser's launch and page openings
+/// below what every other browser test gives them.
+fn past_the_navigation_timeout() -> Duration {
+    let default = (TIMEOUT_NAVIGATION.default)()
+        .as_u64()
+        .expect("invariant: `timeout.navigation`'s default is milliseconds");
+    Duration::from_millis(default + 1_000)
 }
 
 /// Each request the gate admitted from the `from`th on, as its path and
@@ -491,19 +495,24 @@ fn a_page_whose_lease_ended_sends_nothing_more(#[case] method: &str, #[case] pat
 }
 
 /// Time spent waiting for a permit counts against no timeout: a navigation
-/// and a `page.request` each held at the gate past `timeout.navigation`
-/// arrive, the lease is held through each wait, and each permit is released
-/// once its navigation loaded or its response arrived.
+/// held at the gate past its own `timeout` and a `page.request` held past
+/// `timeout.navigation` arrive, the lease is held through each wait, and
+/// each permit is released once its navigation loaded or its response
+/// arrived.
 /// Covers: operation:page.goto, operation:page.request
 #[test]
 fn a_permit_wait_counts_against_no_timeout_and_holds_the_lease() {
     let gate = RecordingGate::new();
-    gate.hold("/held", PAST_THE_TIMEOUT);
-    with_handler_page(&gate, short_navigation(), async |program| {
+    gate.hold("/held-goto", PAST_THE_GOTO_TIMEOUT);
+    gate.hold("/held-request", past_the_navigation_timeout());
+    with_handler_page(&gate, Map::new(), async |program| {
         let goto = program
             .on_page(
                 "page.goto",
-                json!({ "url": program.proving_ground.url(HISTORY, "/held-goto") }),
+                json!({
+                    "url": program.proving_ground.url(HISTORY, "/held-goto"),
+                    "timeout": GOTO_TIMEOUT_MS,
+                }),
             )
             .await;
         let request = program
@@ -512,7 +521,11 @@ fn a_permit_wait_counts_against_no_timeout_and_holds_the_lease() {
                 json!({ "url": program.proving_ground.url(HISTORY, "/held-request") }),
             )
             .await;
-        settled(|| gate.released().len() >= 2).await;
+        settled_or(
+            || gate.released().len() >= 2,
+            || format!("goto {goto}, request {request}"),
+        )
+        .await;
         let waits: Vec<(Option<String>, bool)> = gate
             .waits()
             .into_iter()
@@ -668,7 +681,7 @@ fn a_service_workers_request_carrying_a_navigation_is_admitted_once(#[case] navi
 #[test]
 fn a_service_workers_navigation_waits_and_is_refused_as_its_pages() {
     let gate = RecordingGate::new();
-    with_handler_page(&gate, short_navigation(), async |program| {
+    with_handler_page(&gate, Map::new(), async |program| {
         let page = "/service-worker/?navigations=pass";
         program.goto("access.localhost", page).await;
         settled_or(
@@ -676,8 +689,9 @@ fn a_service_workers_navigation_waits_and_is_refused_as_its_pages() {
             || format!("{:?}", program.reported(page, "register")),
         )
         .await;
-        gate.hold("navigations=pass", PAST_THE_TIMEOUT);
+        gate.hold("navigations=pass", past_the_navigation_timeout());
         let held = program.on_page("page.reload", json!({})).await;
+        gate.stop_holding("navigations=pass");
         gate.refuse("navigations=pass", SitePreference::RobotsTxt);
         let refused = program.on_page("page.reload", json!({})).await;
 

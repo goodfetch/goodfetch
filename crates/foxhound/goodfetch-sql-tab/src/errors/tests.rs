@@ -48,7 +48,7 @@ fn invalid(reason: QueryRefusal) -> impl Fn(&Failure) -> bool {
 
 /// Covers: story:12-211
 #[rstest]
-#[case::parser("SELEC 1", invalid(QueryRefusal::Syntax))]
+#[case::parser("SELECT 1 +", invalid(QueryRefusal::Syntax))]
 #[case::binder(
     "SELECT missing_column FROM range(3)",
     invalid(QueryRefusal::UnknownName)
@@ -103,7 +103,7 @@ fn an_interrupt_is_the_engines_at_the_deadline() {
 #[case::insert("INSERT INTO t VALUES (1)", QueryRefusal::NotARead)]
 #[case::attach("ATTACH 'other.duckdb'", QueryRefusal::NotARead)]
 #[case::two_statements("SELECT 1; SELECT 2", QueryRefusal::NotARead)]
-#[case::syntax("SELEC 1", QueryRefusal::Syntax)]
+#[case::syntax("SELECT 1 +", QueryRefusal::Syntax)]
 fn only_one_select_or_with_is_a_read(#[case] sql: &str, #[case] reason: QueryRefusal) {
     let connection = connection("64MB");
     let serialized: String = connection

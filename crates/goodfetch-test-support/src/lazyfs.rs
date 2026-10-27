@@ -3,7 +3,10 @@
 //! `clear_cache` after a kill drops what never reached the disk, as a power
 //! cut would. The executable is the pinned build `xtask lazyfs build` makes,
 //! named by `GOODFETCH_LAZYFS`. A mount that cannot be made is an error, which
-//! fails the test; it is never a skip (ADR 0067's rule, applied here).
+//! fails the test; it is never a skip (ADR 0067's rule, applied here). The
+//! operating system lets a user mount only in some folders, so a LazyFS
+//! test's setup is `TestEnv::for_lazyfs`, whose folder is in one of them, and
+//! a mount refused there is [`LazyFsError::MountRefused`], which names them.
 //!
 //! The folder keeps its path: its files move to a backing folder beside it,
 //! `<name>.lazyfs/backing`, which LazyFS mounts back at the folder's path, and
@@ -32,7 +35,7 @@ use std::time::{Duration, Instant};
 
 use crate::env::TestEnv;
 use crate::process::Process;
-use crate::variables::{LAZYFS_VARIABLE, Variables};
+use crate::variables::{LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, Variables};
 
 /// How long a mount, an unmount or a command may take.
 pub const LAZYFS_DEADLINE: Duration = Duration::from_secs(10);
@@ -43,6 +46,10 @@ const POLL: Duration = Duration::from_millis(10);
 /// LazyFS's cache: large enough for any test's unsynced writes, since a full
 /// cache without eviction refuses writes.
 const CACHE_SIZE: &str = "512mb";
+
+/// What `fusermount3` prints, through LazyFS, when the kernel denies it the
+/// mount (`EACCES`), as an AppArmor profile does outside its folders.
+const MOUNT_DENIED: &str = "fusermount3: mount failed: Permission denied";
 
 /// The command that drops every unsynced write, and LazyFS's answer to it.
 const CLEAR_CACHE: &[u8] = b"lazyfs::clear-cache\n";
@@ -313,9 +320,17 @@ impl LazyFs {
                 .try_wait()
                 .map_err(LazyFsError::Command)?;
             if let Some(status) = exited {
-                return Err(LazyFsError::NotMounted {
-                    status: Some(status),
-                    output: self.output(),
+                let output = self.output();
+                return Err(if output.contains(MOUNT_DENIED) {
+                    LazyFsError::MountRefused {
+                        folder: self.folder.clone(),
+                        output,
+                    }
+                } else {
+                    LazyFsError::NotMounted {
+                        status: Some(status),
+                        output,
+                    }
                 });
             }
             if Instant::now() >= deadline {
@@ -520,9 +535,17 @@ fn sync_tree(folder: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// Its message, which holds every field: a test's `unwrap()` then panics
+/// with the cause in words and LazyFS's output on its own lines.
+impl std::fmt::Debug for LazyFsError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, formatter)
+    }
+}
+
 /// Why a folder cannot be mounted through LazyFS, or its mount used or
 /// ended. Each fails the test.
-#[derive(Debug, thiserror::Error)]
+#[derive(thiserror::Error)]
 #[non_exhaustive]
 pub enum LazyFsError {
     /// `GOODFETCH_LAZYFS` is not set.
@@ -557,6 +580,19 @@ pub enum LazyFsError {
     NotMounted {
         /// How it exited, if it did.
         status: Option<ExitStatus>,
+        /// What it printed.
+        output: String,
+    },
+    /// The operating system refused the mount: `fusermount3` was denied it,
+    /// as Ubuntu's AppArmor profile of `fusermount3` denies a mount outside
+    /// the folders it allows.
+    #[error(
+        "the operating system refused LazyFS's mount of {}: fusermount3 was denied it, as Ubuntu's AppArmor profile of fusermount3 (/etc/apparmor.d/fusermount3) denies a FUSE mount outside $HOME, /mnt, /run/user/<uid>, /media and /tmp. Make the test's setup with `TestEnv::for_lazyfs()`, whose folder is in /tmp, or in the folder {LAZYFS_FOLDER_VARIABLE} names, which must be one of those; LazyFS printed:\n{output}",
+        folder.display()
+    )]
+    MountRefused {
+        /// The folder.
+        folder: PathBuf,
         /// What it printed.
         output: String,
     },

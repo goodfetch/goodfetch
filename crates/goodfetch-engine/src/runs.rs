@@ -340,6 +340,18 @@ pub struct Resume {
     pub retry_failed: bool,
 }
 
+impl Resume {
+    /// The Run's event a resume is: `RetryFailed` for `run.retry_failed`'s,
+    /// else `Resume`.
+    fn event(retry_failed: bool) -> RunEvent {
+        if retry_failed {
+            RunEvent::RetryFailed
+        } else {
+            RunEvent::Resume
+        }
+    }
+}
+
 /// What a resume found.
 pub enum Resumed {
     /// It took the next run epoch of an interrupted Run, which goes on.
@@ -4802,12 +4814,7 @@ impl Registry {
             .await?;
         let folder = self.folder(&run_id);
         self.may_resume(&run_id, &held, &folder).await?;
-        let event = if retry_failed {
-            RunEvent::RetryFailed
-        } else {
-            RunEvent::Resume
-        };
-        let lifecycle = match lifecycle::apply(held.lifecycle, event) {
+        let lifecycle = match lifecycle::apply(held.lifecycle, Resume::event(retry_failed)) {
             Ok(Next::To(next)) => next,
             Ok(Next::Unchanged) => {
                 return Ok(Resumed::Existing(RunStarted {

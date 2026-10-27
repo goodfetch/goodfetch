@@ -152,6 +152,10 @@ fn latest(outcomes: &Value) -> BTreeMap<String, Value> {
 ///
 /// Covers: story:6-306, operation:run.retry_failed, operation:run.outcomes, operation:run.failed_requests, setting:crawl.retry.max
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one test drives one Run through its first crawl and two retries, whose endings it compares together"
+)]
 fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retry_budget() {
     let env = TestEnv::new();
     let mut engine = Attached::start(&env);

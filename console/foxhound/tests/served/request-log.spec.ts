@@ -107,7 +107,9 @@ test(
       await page.goto(new URL(`/runs/${RUN_ID}`, daemon.url).href);
       await page.getByRole("tab", { name: "Outcomes", exact: true }).click();
       const panel = page.getByRole("tabpanel", { name: "Outcomes", exact: true });
-      await expect(panel.getByText("0 outcomes Following the crawl live.")).toBeVisible();
+      await expect(
+        panel.getByText("Waiting for the first outcome the crawl commits…"),
+      ).toBeVisible();
 
       release();
       await expect(panel.getByText("4 outcomes Following the crawl live.")).toBeVisible({

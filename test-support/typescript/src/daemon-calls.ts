@@ -156,7 +156,8 @@ export async function connectDaemon(
             error: {
               code: -32000,
               message: error.message,
-              data: { code: error.code, retryable: error.retryable, details: error.details },
+              // The protocol flattens an Error code's details into `data`, beside its code.
+              data: { ...error.details, code: error.code, retryable: error.retryable },
             },
           });
         }

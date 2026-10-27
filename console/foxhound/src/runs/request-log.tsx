@@ -464,7 +464,7 @@ export function RequestLog({ client, runId }: RunViewProps): ReactNode {
       {followed.kind === "refused" ? <ErrorMessage error={followed.error} /> : null}
       {followed.kind === "reading" ? (
         <output className="block">
-          <Trans>Asking the engine…</Trans>
+          <Trans>Waiting for the first outcome the crawl commits…</Trans>
         </output>
       ) : null}
       {followed.kind === "following" ? (

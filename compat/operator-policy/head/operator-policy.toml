@@ -20,6 +20,7 @@ address = "example"
 content_address = "example"
 content_public_url = "example"
 offline_cache = true
+public_url = "example"
 
 [settings.console.sign_in]
 idle_expiry = 30000
@@ -359,6 +360,7 @@ address = "example"
 content_address = "example"
 content_public_url = "example"
 offline_cache = true
+public_url = "example"
 
 [lock.console.sign_in]
 idle_expiry = 30000

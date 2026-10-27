@@ -44,6 +44,12 @@ pub fn line(text: &str) {
     write_stdout(format!("{text}\n").as_bytes());
 }
 
+/// Writes `bytes` on stdout as they are, such as a file's that a command
+/// streams there.
+pub fn bytes(bytes: &[u8]) {
+    write_stdout(bytes);
+}
+
 /// Writes `value` on stdout as one line of JSON.
 ///
 /// # Panics

@@ -182,6 +182,10 @@ fn a_terminated_host_sees_the_fingerprint_the_build_shows_connecting_directly() 
         &proving_ground,
         &secure(&proving_ground, "fetch-edge.test", "/robots.txt"),
     );
+    // Taken before the Run starts: once its document loads, the Run reads
+    // the origin's robots.txt itself (spec #580), through the relay, and
+    // that read may arrive before the Run finishes.
+    let direct = requests_for(&proving_ground, "fetch-edge.test", "/robots.txt");
     trusting(&env, &proving_ground);
     let mut program = started(&env, &proving_ground, "relayed", &json!({}), &[]);
     let page = program.new_page("relayed");
@@ -191,7 +195,6 @@ fn a_terminated_host_sees_the_fingerprint_the_build_shows_connecting_directly() 
     );
     program.finish("relayed");
 
-    let direct = requests_for(&proving_ground, "fetch-edge.test", "/robots.txt");
     let relayed = requests_for(&proving_ground, "fetch-edge.test", "/target");
     assert_eq!(
         answer["result"]["response"]["status"],
@@ -210,7 +213,10 @@ fn a_terminated_host_sees_the_fingerprint_the_build_shows_connecting_directly() 
 /// first connection to a host is done, each later one resumes its session
 /// upstream (a returning navigation needs a new connection, since the
 /// site's `GOAWAY` ends the first), while a new Session's first connection
-/// to the same host resumes nothing.
+/// to the same host, the one its navigation takes, resumes nothing. That
+/// connection is found by the navigation it carried, not by when its
+/// handshake arrived: one the first Session had in flight as it closed, a
+/// favicon's retry say, may reach the site after `session.close` answered.
 ///
 /// Covers: story:4-39, operation:run.new_session, operation:session.close
 #[test]
@@ -232,7 +238,6 @@ fn a_returning_navigation_resumes_the_upstream_tls_session_and_a_new_session_doe
     let page = page_in(&mut program, &second);
     let next = program.goto(&page, &url)["result"]["response"]["status"].clone();
     program.finish("resuming");
-    let in_second = resumed(&proving_ground)[in_first.len()..].to_vec();
 
     assert_eq!(
         (statuses, closed.get("error"), next),
@@ -245,9 +250,9 @@ fn a_returning_navigation_resumes_the_upstream_tls_session_and_a_new_session_doe
         "the first Session's handshakes: {in_first:?}"
     );
     assert_eq!(
-        in_second.first(),
-        Some(&false),
-        "the second Session's handshakes: {in_second:?}"
+        navigation_resumed(&proving_ground),
+        Some(false),
+        "the second Session's navigation"
     );
 }
 
@@ -261,6 +266,22 @@ fn resumed(proving_ground: &ProvingGround) -> Vec<bool> {
         .filter(|handshake| handshake["sni"] == json!("goaway.fetch-edge.test"))
         .map(|handshake| handshake["resumed"] == json!(true))
         .collect()
+}
+
+/// Whether the connection that carried the latest navigation
+/// `goaway.fetch-edge.test` answered resumed a session upstream.
+fn navigation_resumed(proving_ground: &ProvingGround) -> Option<bool> {
+    let navigation = requests_for(proving_ground, "goaway.fetch-edge.test", "/target")
+        .into_iter()
+        .rfind(|request| request["status"] == json!(200))?;
+    proving_ground.observations().unwrap()["tls_handshakes"]
+        .as_array()?
+        .iter()
+        .find(|handshake| {
+            handshake["sni"] == json!("goaway.fetch-edge.test")
+                && handshake["connection"] == navigation["connection"]
+        })
+        .map(|handshake| handshake["resumed"] == json!(true))
 }
 
 /// A new Session of the Run `run_id`.

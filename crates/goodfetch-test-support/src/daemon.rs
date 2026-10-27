@@ -134,6 +134,12 @@ impl Daemon {
         &self.description
     }
 
+    /// Its process ID, such as for reading its peak resident memory while it
+    /// runs.
+    pub fn pid(&self) -> u32 {
+        self.process.child().id()
+    }
+
     /// Stops it with its executable's `daemon stop`, under the test's
     /// environment, and checks that its process ended and that it left no
     /// runtime file in the home.

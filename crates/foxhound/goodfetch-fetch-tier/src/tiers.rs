@@ -1219,14 +1219,23 @@ impl FetchTiers {
             document,
             status,
             choice,
+            own,
             ..
         } = page;
         let run = document.run.clone();
         let check = check.clone();
         let url = document.url.clone();
-        let verdict = run
+        let headers = own
+            .map(|(response, _)| response.headers)
+            .unwrap_or_default();
+        let (verdict, noindex) = run
             .owner()
-            .blocking(move || expected_page::judge(&check, &document.url, &document.html))
+            .blocking(move || {
+                let verdict = expected_page::judge(&check, &document.url, &document.html);
+                let noindex = verdict == Verdict::NotExpected
+                    && expected_page::noindex(&headers, &document.html);
+                (verdict, noindex)
+            })
             .await;
         Some(match verdict {
             Verdict::Expected => Judged::Passed,
@@ -1234,7 +1243,7 @@ impl FetchTiers {
             Verdict::NotExpected | Verdict::Unjudged if choice.forced.is_none() => {
                 Judged::Escalated
             }
-            Verdict::NotExpected => Judged::Failed(expected_page::failed(&url, status)),
+            Verdict::NotExpected => Judged::Failed(expected_page::failed(&url, status, noindex)),
             Verdict::Unjudged => match unserved(&choice, PAGE_CHECK_CALL, false) {
                 Unserved::Escalated(_) => Judged::Escalated,
                 Unserved::Refused(error) => Judged::Failed(error),

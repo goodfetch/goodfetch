@@ -529,7 +529,9 @@ pub const CRAWL_SERVE: Operation = Operation {
     description: "Offers this Connection's handler to a live crawl another Connection started, as each of `workers=N` handler processes does (ADR 0024): the engine leases the crawl's work items to it as `crawl_request.handle` requests too, as many at once as `crawl.handler.concurrency` allows on each Connection. Answers the crawl's Run report once the Run ends; cancelling the call stops new work items, while those already sent still expect their answers. A Run this engine does not run as a crawl fails with `run_not_found`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
-    reach: Reach::AllSurfaces,
+    // It serves a handler, which no CLI command, MCP tool or Code mode
+    // global carries (ADR 0104).
+    reach: Reach::SdkOnly,
     params: schema_of::<RunParams>,
     result: schema_of::<CrawlRunReport>,
     events: &[],

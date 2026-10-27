@@ -12,6 +12,7 @@ check = ["output"]
 clients = ["check", "environment", "features", "output"]
 codegen = ["check", "compat", "environment", "features", "license_allowlist"]
 commit_messages = ["check"]
+compare_spider = ["check", "environment", "output", "rss"]
 compat = ["check", "environment", "metadata", "output"]
 console = ["environment", "output"]
 containment = ["check"]
@@ -115,6 +116,14 @@ sql = []
 tag = ["tree"]
 tree = []
 writer = ["registry", "tree"]
+
+# Which of `compare_spider`'s own modules may import which.
+[submodules.compare_spider]
+report = ["trials"]
+run = ["same_work", "trial", "trials"]
+same_work = ["trials"]
+trial = ["trials"]
+trials = []
 
 # Which of `rss`'s own modules may import which.
 [submodules.rss]

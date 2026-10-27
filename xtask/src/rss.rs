@@ -10,7 +10,7 @@
 
 mod ceilings;
 mod measure;
-mod peak;
+pub(crate) mod peak;
 mod peaks;
 mod platform;
 mod report;

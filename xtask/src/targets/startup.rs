@@ -16,7 +16,7 @@ use goodfetch_protocol::catalog::Product;
 use serde::Deserialize;
 
 use crate::output;
-use crate::rss::scenario::hello_line;
+use crate::rss::scenario::{as_shipped, hello_line};
 
 use super::measured::startup_file;
 
@@ -57,7 +57,9 @@ pub(crate) fn measure(tools: &Path, out: &Path) -> Result<()> {
             "timing {}'s startup to hello: {WARMUP} warm-up runs, then {RUNS} runs",
             product.name()
         ));
-        let status = Command::new("hyperfine")
+        let mut hyperfine = Command::new("hyperfine");
+        as_shipped(&mut hyperfine, home.path());
+        let status = hyperfine
             .args(["--shell=none", "--style", "basic", "--warmup"])
             .arg(WARMUP.to_string())
             .arg("--runs")
@@ -69,8 +71,6 @@ pub(crate) fn measure(tools: &Path, out: &Path) -> Result<()> {
             .arg("--command-name")
             .arg(format!("{} attached engine to hello", product.as_str()))
             .arg(format!("{} attached-engine", quoted(&executable)))
-            .env("GOODFETCH_HOME", home.path())
-            .env_remove("GOODFETCH_LOG")
             .stdin(Stdio::null())
             .stderr(Stdio::inherit())
             .status();

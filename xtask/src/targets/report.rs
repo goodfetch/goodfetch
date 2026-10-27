@@ -52,8 +52,8 @@ pub(crate) fn write(folder: &Path, rows: &[Row], measured: &Measured) -> Result<
 fn markdown(platform: &str, rows: &[Row], measured: &Measured) -> String {
     let mut text = format!(
         "# Performance targets\n\n\
-         `local-controlled`, never published (ADR 0076): measured on {platform} with each \
-         Product's release build. The targets are ADR 0134's; a target never fails a change, \
+         `local-controlled`, never published (ADR 0076): measured on {platform}, on the builds \
+         `just targets` makes with the release profile. The targets are ADR 0134's; a target never fails a change, \
          and the owner weighs each miss at the owner test.\n\n\
          | Target | Product | Figure | Target value | Verdict | Gap |\n|---|---|---:|---:|---|---:|\n"
     );

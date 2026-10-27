@@ -9,7 +9,8 @@
 )]
 
 use std::io::{BufRead as _, BufReader, Write as _};
-use std::process::{ChildStdin, ChildStdout};
+use std::path::Path;
+use std::process::{ChildStdin, ChildStdout, Command};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
@@ -76,6 +77,19 @@ impl Scenario {
             Self::IdleAttachedEngine => idle_attached_engine(needs, stdin, stdout),
         }
     }
+}
+
+/// Runs the engine `command` starts as shipped: with `home` as its data
+/// folder and no other Goodfetch variable of this process's environment,
+/// since an engine stops on one it does not know and logs at its default
+/// level without `GOODFETCH_LOG`.
+pub(crate) fn as_shipped(command: &mut Command, home: &Path) {
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("GOODFETCH_") {
+            command.env_remove(name);
+        }
+    }
+    command.env("GOODFETCH_HOME", home);
 }
 
 /// The `hello` line a Client needing `needs` opens with, as the engine

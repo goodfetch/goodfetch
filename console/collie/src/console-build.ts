@@ -8,11 +8,14 @@ import type { Product } from "@goodfetch/collie-client/generated";
 import type { MessageDescriptor } from "@lingui/core";
 import type { ReactNode } from "react";
 import type { ConsoleClient } from "#client/client.ts";
+import type { OfflineCache } from "#offline/offline.ts";
 
-/** What a run's view shows over: the Console's Client and the run's Run ID. */
+/** What a run's view shows over: the Console's Client, the run's Run ID and the page's offline cache. */
 export interface RunViewProps {
   readonly client: ConsoleClient;
   readonly runId: string;
+  /** The browser's offline cache of the page's sign-in; none while `console.offline_cache` is off. */
+  readonly offline?: OfflineCache | undefined;
 }
 
 /** A view of a run that needs Foxhound, which a build carries beyond those every run has. */

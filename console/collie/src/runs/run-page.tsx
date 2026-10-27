@@ -829,7 +829,7 @@ export function RunPage({
       ? runViews.map((view) => ({
           id: view.id,
           name: view.name,
-          content: view.content({ client, runId }),
+          content: view.content({ client, runId, offline }),
         }))
       : undefined;
   // A run that needs Foxhound, in Collie's build on Collie's engine: its

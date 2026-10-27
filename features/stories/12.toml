@@ -473,6 +473,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 215
+title = "As a user, I want to keep a Dataset view offline, its Records cached encrypted under a key that expires with my sign-in, so that I can read it on a train and lose nothing to a stolen laptop (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 217
 title = "As a user, I want a crawl run's page to show its progress live: requests in flight with their phase, tier and attempt; why due requests wait, per reason, with the domains held, when each is next admitted and the setting behind the wait with its value and layer; each sitemap seed's progress; whether a keep-alive crawl is idle; the handlers running against their concurrency and the governor's level; and the program's status message, so that a slow crawl explains itself (ADRs 0102, 0118; ADR 0037 / RT-15)."
 milestone = "M1 Core"

@@ -140,7 +140,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             let (seconds, peak) = trial::run(
                 arguments.tool,
                 &arguments.executable,
-                &trial::Site {
+                &crate::rss::crawl::Site {
                     address: &arguments.address,
                     pages: arguments.pages,
                     concurrency: arguments.concurrency,

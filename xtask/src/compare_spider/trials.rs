@@ -8,11 +8,12 @@ use serde::{Deserialize, Serialize};
 pub(crate) const TRIALS: u32 = 10;
 /// The statistic each figure is reported as.
 pub(crate) const STATISTIC: &str = "median";
-/// Requests in flight at once, for each tool: M1's default of
-/// `crawl.handler.concurrency`.
-pub(crate) const CONCURRENCY: u32 = 16;
-/// The pages of the site both tools crawl.
-pub(crate) const SITE_PAGES: u64 = 1000;
+/// Requests in flight at once, for each tool: the resident-memory check's
+/// crawl's, M1's default of `crawl.handler.concurrency`.
+pub(crate) const CONCURRENCY: u32 = crate::rss::crawl::CONCURRENCY;
+/// The pages of the site both tools crawl: the resident-memory check's
+/// crawl's.
+pub(crate) const SITE_PAGES: u64 = crate::rss::crawl::PAGES;
 /// Spider's pinned version, which `xtask/compare-spider/Cargo.toml` pins.
 pub(crate) const SPIDER_VERSION: &str = "2.53.9";
 

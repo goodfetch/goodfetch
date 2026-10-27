@@ -289,6 +289,7 @@ INSERT INTO "tier_choices" VALUES('home','shop.test','{"kind":"split","segments"
 CREATE TABLE trap_link_suspected (
             work_item TEXT NOT NULL PRIMARY KEY
         ) STRICT, WITHOUT ROWID;
+INSERT INTO "trap_link_suspected" VALUES('2');
 CREATE TABLE url_fragments (
             scope TEXT NOT NULL PRIMARY KEY,
             keeps INTEGER NOT NULL

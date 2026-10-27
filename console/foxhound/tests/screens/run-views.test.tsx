@@ -126,11 +126,14 @@ test(
     const client = clientOf(adapter);
 
     await show(viewOf("outcomes"), client);
-    await expect.element(page.getByRole("table", { name: "2 outcomes" })).toBeVisible();
-    expect(rows()).toEqual([
-      ["https://shop.test/", "home", "Succeeded"],
-      ["https://shop.test/broken", "home", "Failed"],
-    ]);
+    await expect.element(page.getByText("2 outcomes The crawl ended.")).toBeVisible();
+    await expect.element(page.getByRole("table", { name: "Request log" })).toBeVisible();
+    expect(
+      page
+        .getByRole("rowheader")
+        .elements()
+        .map((cell) => cell.textContent),
+    ).toEqual(["https://shop.test/", "https://shop.test/broken"]);
 
     await show(viewOf("failed-requests"), client);
     await expect.element(page.getByRole("table", { name: "1 failed request" })).toBeVisible();

@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 # Owned names and help, which the catalog gives at run time.
 clap = { workspace = true, features = ["string"] }
+# The bytes of the `$/chunk` notifications `run export --out` writes.
+data-encoding.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
 # Human output's times in the local zone `TZ` names (ADR 0073): the system's
@@ -27,6 +29,8 @@ tracing.workspace = true
 goodfetch-test-support.workspace = true
 proptest.workspace = true
 rstest.workspace = true
+# The files `crawl start`'s `--seeds-file` and `--fields` read in a test.
+tempfile.workspace = true
 
 [lints]
 workspace = true

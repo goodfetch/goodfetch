@@ -3573,6 +3573,16 @@
       ]
     },
     {
+      "id": "operation:run.retry_failed",
+      "kind": "operation",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:run.seeds",
       "kind": "operation",
       "area": 6,

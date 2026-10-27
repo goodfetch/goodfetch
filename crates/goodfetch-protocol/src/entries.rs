@@ -222,6 +222,7 @@ mod tests {
                     "export.stream",
                     "run.outcomes",
                     "run.failed_requests",
+                    "run.retry_failed",
                     "run.rejected_records",
                 ],
             ]

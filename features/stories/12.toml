@@ -447,6 +447,32 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 210
+title = "As a developer, I want a read-only SQL tab over the runs I select, each run's tables registered as functions, so that I join and aggregate Records with SQL in place (ADR 0031)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 211
+title = "As a user, I want the SQL tab to refuse any write, attach, install or outside read, with time and memory limits and secret columns hidden, so that a query reads only the runs I chose and can never leak (ADRs 0031, 0057)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 212
+title = "As an agent's user, I want the SQL tab and search across runs to be catalog reads every surface offers, so that an agent can answer questions about my data too (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 217
 title = "As a user, I want a crawl run's page to show its progress live: requests in flight with their phase, tier and attempt; why due requests wait, per reason, with the domains held, when each is next admitted and the setting behind the wait with its value and layer; each sitemap seed's progress; whether a keep-alive crawl is idle; the handlers running against their concurrency and the governor's level; and the program's status message, so that a slow crawl explains itself (ADRs 0102, 0118; ADR 0037 / RT-15)."
 milestone = "M1 Core"

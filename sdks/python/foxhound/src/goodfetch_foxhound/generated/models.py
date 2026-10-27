@@ -254,6 +254,24 @@ class DatasetListParams(BaseModel):
     """The crawl's Run."""
 
 
+class DatasetQueryParams(BaseModel):
+    """What `dataset.query` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    limit: Annotated[int | None, Field(ge=1)] = None
+    """
+    The most rows it returns, at most `dataset.query.max_rows`; absent,
+    that setting's value.
+    """
+    runs: Annotated[list[RunId], Field(max_length=100, min_length=1)]
+    """The runs it reads, from 1 to 100: only these are registered."""
+    sql: str
+    """One `SELECT` or `WITH` statement."""
+
+
 class DatasetRecords(BaseModel):
     """
     What a succeeded request's commit did with its Records in one Dataset
@@ -934,6 +952,18 @@ class PaymentMark(BaseModel):
     """The domain paid."""
     scheme: str
     """The payment scheme the site asked through."""
+
+
+class QueryColumn(BaseModel):
+    """One column of a query's result."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: str
+    """Its name."""
+    type: str
+    """Its SQL type, as DuckDB names it, such as `BIGINT` or `VARCHAR`."""
 
 
 class RecordIssue(BaseModel):
@@ -1811,6 +1841,23 @@ class DatasetList(BaseModel):
     )
     datasets: list[DatasetSummary]
     """Each Dataset the crawl declares, in the order declared."""
+
+
+class DatasetQueryResult(BaseModel):
+    """What `dataset.query` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    columns: list[QueryColumn]
+    """The result's columns, in order."""
+    rows: list[list[Any]]
+    """
+    Its first rows, each a value per column as JSON, at most the
+    call's `limit`.
+    """
+    total: Annotated[int, Field(ge=0)]
+    """How many rows the query produced, those not returned counted."""
 
 
 class EncodingProvenance(BaseModel):

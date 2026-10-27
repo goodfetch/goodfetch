@@ -1390,3 +1390,15 @@ prefix = "download."
 number = 6
 kind = "error"
 prefix = "value_invalid"
+
+# The SQL tab (spec #593): `dataset.query`'s limits and its Error codes;
+# the operation is under `dataset.` above.
+[[area]]
+number = 12
+kind = "setting"
+prefix = "dataset.query."
+
+[[area]]
+number = 12
+kind = "error"
+prefix = "query_"

@@ -90,7 +90,7 @@ use tokio_util::sync::CancellationToken;
 pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext};
 pub use self::import::fuzz_run_state_import;
 pub use self::progress::{PauseHeld, ProgressPart};
-pub use self::reader::RunReader;
+pub use self::reader::{RunFileOpener, RunReader};
 pub use self::reindex::{Reindexed, reindex};
 pub use self::report::ReportPart;
 pub use self::writer::{Writer, test_writer};

@@ -17,6 +17,11 @@ reason = "only Foxhound's Datasets use DuckDB (ADR 0088)"
 crate = "libduckdb-sys"
 reason = "only Foxhound's Datasets use DuckDB (ADR 0088)"
 
+# Apache Arrow, which the `duckdb` crate takes for its Arrow results.
+[[bans.deny]]
+crate = "arrow"
+reason = "exists for DuckDB, which only Foxhound's SQL tab uses (ADR 0088)"
+
 # wreq, for the impersonated HTTP fetch tier, and the crates that exist for
 # it; not its BoringSSL, which Collie's TLS relay links (ADR 0124).
 [[bans.deny]]
@@ -188,6 +193,10 @@ reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-sink"
+reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
+
+[[bans.deny]]
+crate = "goodfetch-sql-tab"
 reason = "one of Foxhound's crates, under crates/foxhound/ (ADR 0087)"
 
 # xtask codegen: end

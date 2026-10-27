@@ -526,6 +526,10 @@ _Avoid_: results table, output, items
 One unit of structured data in a Dataset, committed once with the work that produced it.
 _Avoid_: row, document, item (an item is a unit of work)
 
+**SQL tab**:
+The read-only SQL query over the runs a person selects, each run's tables a table function that reads its run file, with no write, attach, install or outside read and with time, memory and row limits (`dataset.query`).
+_Avoid_: SQL console, query editor, DuckDB tab
+
 **Key-value store**:
 A run's named storage for files, blobs and the user's own state.
 _Avoid_: KVS, blob store, cache

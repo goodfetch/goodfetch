@@ -1,5 +1,6 @@
-// Storybook for Collie's Console (ADR 0068; TESTING.md, Components): each
-// state of a component is a story, which the root Vitest configuration's
+// Storybook for the Console (ADR 0068; TESTING.md, Components), Collie's
+// screens and Foxhound's (`console/foxhound`): each state of a component is
+// a story, which the root Vitest configuration's
 // `component-stories` projects render as a test, with the a11y addon's axe
 // pass, in light and dark. Docgen is `react-docgen`, which needs no
 // TypeScript compiler API.

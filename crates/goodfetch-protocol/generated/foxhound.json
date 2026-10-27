@@ -2601,6 +2601,81 @@
       ],
       "type": "object"
     },
+    "DatasetQueryParams": {
+      "additionalProperties": false,
+      "description": "What `dataset.query` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "The most rows it returns, at most `dataset.query.max_rows`; absent,\nthat setting's value.",
+          "format": "uint64",
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "runs": {
+          "arrived_in": "0.1",
+          "description": "The runs it reads, from 1 to 100: only these are registered.",
+          "items": {
+            "$ref": "#/$defs/RunId"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "sql": {
+          "arrived_in": "0.1",
+          "description": "One `SELECT` or `WITH` statement.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sql",
+        "runs"
+      ],
+      "type": "object"
+    },
+    "DatasetQueryResult": {
+      "description": "What `dataset.query` answers.",
+      "properties": {
+        "columns": {
+          "arrived_in": "0.1",
+          "description": "The result's columns, in order.",
+          "items": {
+            "$ref": "#/$defs/QueryColumn"
+          },
+          "type": "array"
+        },
+        "rows": {
+          "arrived_in": "0.1",
+          "description": "Its first rows, each a value per column as JSON, at most the\ncall's `limit`.",
+          "items": {
+            "items": true,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "total": {
+          "arrived_in": "0.1",
+          "description": "How many rows the query produced, those not returned counted.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "columns",
+        "rows",
+        "total"
+      ],
+      "type": "object"
+    },
     "DatasetRecord": {
       "description": "One committed Record of a Dataset, as a reader reads it (ADR 0103).",
       "properties": {
@@ -7938,6 +8013,26 @@
       "required": [
         "dataset",
         "data"
+      ],
+      "type": "object"
+    },
+    "QueryColumn": {
+      "description": "One column of a query's result.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name.",
+          "type": "string"
+        },
+        "type": {
+          "arrived_in": "0.1",
+          "description": "Its SQL type, as DuckDB names it, such as `BIGINT` or `VARCHAR`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type"
       ],
       "type": "object"
     },
@@ -14231,6 +14326,36 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The query failed in a way the engine does not recognise, such as a run file it could not read; the engine's log holds the cause. Try again; if it fails the same way, report it with the log.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "query_failed",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The SQL tab did not run the statement: it does not parse, names a table, column or function that does not exist or a run the query did not select, is not one `SELECT` or `WITH` statement (a write, `ATTACH`, `INSTALL`, `LOAD` or `COPY`), or reads a file or URL, which the SQL tab never reaches. The details say which. Read only the selected runs' tables, and select the run first.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "query_invalid",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The query needed more memory than `dataset.query.memory_limit`, so it was stopped. The details name the setting, its value and its layer. Aggregate or filter sooner, select fewer runs, or raise `dataset.query.memory_limit`.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "query_memory_exceeded",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each issue by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
       "exit_code": null,
       "group": "program",
@@ -15834,6 +15959,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DatasetPage"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Runs one read-only SQL statement, `SELECT` or `WITH`, over the runs `runs` selects, at most 100, and answers its columns, its first rows up to `limit` (at most `dataset.query.max_rows`) and how many rows it produced. Each run's tables are table functions that take its Run ID: `records(run)` (each Dataset's committed Records), `rejected_records(run)` and `datasets(run)`, which read its run file read-only; secret fields are never columns. Any other statement, a write, `ATTACH`, `INSTALL`, `LOAD`, `COPY`, a read of a file or URL, or a run not selected fails with `query_invalid`; past `timeout.dataset_query` it fails with `deadline_exceeded`, and past `dataset.query.memory_limit` with `query_memory_exceeded`. A run that does not exist fails with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dataset.query",
+      "params": {
+        "$ref": "#/$defs/DatasetQueryParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DatasetQueryResult"
       },
       "stability": "experimental"
     },
@@ -18407,6 +18551,40 @@
       ],
       "value": {
         "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 10000,
+      "description": "The most rows one `dataset.query` returns; the rest are counted in its `total`, not returned. 10,000 by default.",
+      "name": "dataset.query.max_rows",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 536870912,
+      "description": "The most memory, in bytes, one `dataset.query` may use; past it, the query fails with `query_memory_exceeded`. 512 MiB (536870912) by default.",
+      "name": "dataset.query.memory_limit",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
         "minimum": 0,
         "type": "integer"
       },
@@ -21501,6 +21679,24 @@
       "product": "collie",
       "products": [
         "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long one `dataset.query` may run before it is stopped and fails with `deadline_exceeded`: 30 s.",
+      "name": "timeout.dataset_query",
+      "product": "foxhound",
+      "products": [
         "foxhound"
       ],
       "value": {

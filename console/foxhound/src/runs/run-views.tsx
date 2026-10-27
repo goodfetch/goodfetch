@@ -4,7 +4,8 @@
 // has: the crawl's progress, followed live (`crawl-progress.tsx`), the
 // crawl's seeds, as `run.seeds` answers them, the outcome of each crawl
 // request, as `run.outcomes` gives its first page, and the requests whose
-// latest outcome failed, as `run.failed_requests` lists them. Each view
+// latest outcome failed, as `run.failed_requests` lists them, and the SQL
+// tab over the runs a person selects (`#sql-tab/sql-tab.tsx`). Each view
 // reads its operation once it shows, and shows the engine's refusal as the
 // Console shows any. A Collie run shows none of them: its page has only
 // the views every run has.
@@ -19,6 +20,7 @@ import { callFoxhound } from "#call.ts";
 import { Datasets } from "#datasets/datasets.tsx";
 import { CrawlProgress } from "#runs/crawl-progress.tsx";
 import type { FoxhoundConsoleOperations } from "#generated/operations.ts";
+import { SQL_TAB_VIEW } from "#sql-tab/sql-tab.tsx";
 
 /** What a view read of its operation. */
 type Read<Result> =
@@ -204,4 +206,5 @@ export const FOXHOUND_RUN_VIEWS: readonly RunView[] = [
     content: (props) => <FailedRequests {...props} />,
   },
   { id: "datasets", name: msg`Datasets`, content: (props) => <Datasets {...props} /> },
+  SQL_TAB_VIEW,
 ];

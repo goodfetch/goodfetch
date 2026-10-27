@@ -1970,6 +1970,67 @@ export interface RecordSort {
   field: string;
 }
 /**
+ * What `dataset.query` takes.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetQueryParams".
+ */
+export interface DatasetQueryParams {
+  /**
+   * The most rows it returns, at most `dataset.query.max_rows`; absent,
+   * that setting's value.
+   */
+  limit?: number | null;
+  /**
+   * The runs it reads, from 1 to 100: only these are registered.
+   *
+   * @minItems 1
+   * @maxItems 100
+   */
+  runs: [RunId, ...RunId[]];
+  /**
+   * One `SELECT` or `WITH` statement.
+   */
+  sql: string;
+}
+/**
+ * What `dataset.query` answers.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetQueryResult".
+ */
+export interface DatasetQueryResult {
+  /**
+   * The result's columns, in order.
+   */
+  columns: QueryColumn[];
+  /**
+   * Its first rows, each a value per column as JSON, at most the
+   * call's `limit`.
+   */
+  rows: unknown[][];
+  /**
+   * How many rows the query produced, those not returned counted.
+   */
+  total: number;
+}
+/**
+ * One column of a query's result.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "QueryColumn".
+ */
+export interface QueryColumn {
+  /**
+   * Its name.
+   */
+  name: string;
+  /**
+   * Its SQL type, as DuckDB names it, such as `BIGINT` or `VARCHAR`.
+   */
+  type: string;
+}
+/**
  * What `crawl_request.enqueue_links` answers: what became of each element
  * its locator matched, in document order.
  *

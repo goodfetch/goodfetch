@@ -341,6 +341,28 @@
             },
             "type": "object"
           },
+          "dataset": {
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_rows": {
+                    "description": "The most rows one `dataset.query` returns; the rest are counted in its `total`, not returned. 10,000 by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "memory_limit": {
+                    "description": "The most memory, in bytes, one `dataset.query` may use; past it, the query fails with `query_memory_exceeded`. 512 MiB (536870912) by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
           "export": {
             "additionalProperties": false,
             "properties": {
@@ -828,6 +850,11 @@
               },
               "close": {
                 "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "dataset_query": {
+                "description": "How long one `dataset.query` may run before it is stopped and fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -1324,6 +1351,28 @@
                 "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                 "minimum": 0,
                 "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "dataset": {
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_rows": {
+                    "description": "The most rows one `dataset.query` returns; the rest are counted in its `total`, not returned. 10,000 by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "memory_limit": {
+                    "description": "The most memory, in bytes, one `dataset.query` may use; past it, the query fails with `query_memory_exceeded`. 512 MiB (536870912) by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
               }
             },
             "type": "object"
@@ -3272,6 +3321,11 @@
               },
               "close": {
                 "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "dataset_query": {
+                "description": "How long one `dataset.query` may run before it is stopped and fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -3888,6 +3942,28 @@
             },
             "type": "object"
           },
+          "dataset": {
+            "additionalProperties": false,
+            "properties": {
+              "query": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_rows": {
+                    "description": "The most rows one `dataset.query` returns; the rest are counted in its `total`, not returned. 10,000 by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "memory_limit": {
+                    "description": "The most memory, in bytes, one `dataset.query` may use; past it, the query fails with `query_memory_exceeded`. 512 MiB (536870912) by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
           "delivery": {
             "additionalProperties": false,
             "properties": {
@@ -5832,6 +5908,11 @@
               },
               "close": {
                 "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "dataset_query": {
+                "description": "How long one `dataset.query` may run before it is stopped and fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
                 "type": "integer"
               },

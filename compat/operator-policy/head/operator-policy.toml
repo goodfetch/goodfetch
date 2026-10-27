@@ -139,6 +139,7 @@ navigation = 30000
 wait = 30000
 first_byte = 30000
 handler = 30000
+dataset_query = 30000
 
 [settings.secret_providers.op]
 command = "example"
@@ -335,6 +336,10 @@ chain_rpc_endpoints = { "example.test" = "example" }
 write_ids_and_epochs = true
 report_guarantee_class = true
 
+[settings.dataset.query]
+memory_limit = 4
+max_rows = 4
+
 [lock.log]
 level = "example"
 output = "stdout"
@@ -473,6 +478,7 @@ navigation = 30000
 wait = 30000
 first_byte = 30000
 handler = 30000
+dataset_query = 30000
 
 [lock.secret_providers.op]
 command = "example"
@@ -669,6 +675,10 @@ chain_rpc_endpoints = { "example.test" = "example" }
 write_ids_and_epochs = true
 report_guarantee_class = true
 
+[lock.dataset.query]
+memory_limit = 4
+max_rows = 4
+
 [cap.log.file]
 max_size = 4
 max_files = 4
@@ -742,6 +752,7 @@ navigation = 30000
 wait = 30000
 first_byte = 30000
 handler = 30000
+dataset_query = 30000
 
 [cap.sample]
 echo_repeats = 4
@@ -809,6 +820,10 @@ max_error_score = 4
 
 [cap.site_preferences]
 max_crawl_delay = 30000
+
+[cap.dataset.query]
+memory_limit = 4
+max_rows = 4
 
 [managed]
 install_limits = [{ usage_kind = "paid_solves", currency = "USD", period = { every = "month", time_zone = "UTC" }, amount = 20000000 }]

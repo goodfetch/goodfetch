@@ -25,6 +25,7 @@ pub fn composition() -> Composition {
         .with(goodfetch_session_pool::contribution())
         .with(goodfetch_dataset::contribution())
         .with(goodfetch_crawl::contribution(tiers))
+        .with(goodfetch_sql_tab::contribution())
 }
 
 #[cfg(test)]

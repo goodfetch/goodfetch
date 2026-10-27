@@ -139,6 +139,7 @@ navigation = 30000
 wait = 30000
 first_byte = 30000
 handler = 30000
+dataset_query = 30000
 
 [settings.secret_providers.op]
 command = "example"
@@ -334,3 +335,7 @@ chain_rpc_endpoints = { "example.test" = "example" }
 [settings.delivery]
 write_ids_and_epochs = true
 report_guarantee_class = true
+
+[settings.dataset.query]
+memory_limit = 4
+max_rows = 4

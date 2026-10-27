@@ -8,7 +8,7 @@
 //! Record was obtained, `report` what a crawl's
 //! Run report adds, `progress` what its progress adds, and `session_pool` the Session of its Session pool that
 //! serves each attempt, and `fetch` the tier that fetches a crawl
-//! request's document.
+//! request's document, and `sql_tab` the SQL tab's `dataset.query`.
 
 pub mod block;
 pub mod crawl;
@@ -24,6 +24,7 @@ pub mod rejections;
 pub mod report;
 pub mod session_pool;
 pub mod settings;
+pub mod sql_tab;
 pub mod usage;
 
 use schemars::JsonSchema;

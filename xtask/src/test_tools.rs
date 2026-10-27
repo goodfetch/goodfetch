@@ -28,13 +28,14 @@ use crate::environment::Environment;
 use crate::metadata;
 
 /// Each executable a test may run: its binary's name and its manifest entry.
-const TOOLS: [(&str, &str); 6] = [
+const TOOLS: [(&str, &str); 7] = [
     ("goodfetch-collie", "collie"),
     ("goodfetch-foxhound", "foxhound"),
     ("goodfetch-proving-ground", "proving_ground"),
     ("goodfetch-test-env", "test_env"),
     ("goodfetch-scripted-engine", "scripted_engine"),
     ("goodfetch-conformance", "conformance"),
+    ("goodfetch-stub-gateway", "stub_gateway"),
 ];
 
 /// `xtask test-tools`'s arguments.

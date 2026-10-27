@@ -25,7 +25,13 @@
 //! answers its robots.txt's head and the start of its body, the same
 //! Crawl-delay, and never the rest its length declares, over HTTP/1.1, so
 //! a reader of the whole file is still reading when its Session or Run
-//! ends.
+//! ends. A sixth, `markup.access-policy.test`, has no robots.txt and
+//! declares its AI-use signals in its documents: `/catalog/1` declares
+//! none, `/catalog/2` carries `TDMRep`'s
+//! `<meta name="tdm-reservation" content="1">`,
+//! `/catalog/3` an RSL `Link` header and `/catalog/4` an
+//! RSL `<link>` element naming `/license.xml`, an RSL license that permits
+//! `search` and prohibits `ai-all`.
 
 use std::time::Duration;
 
@@ -83,13 +89,30 @@ pub(super) const STALLED_ROBOTS_HOST: &str = "stalled-robots.access-policy.test"
 /// and which is never sent.
 const STALLED_ROBOTS_REST: &[u8] = b"# never sent\n";
 
+/// The named host whose documents declare their AI-use signals in
+/// markup.
+pub(super) const MARKUP_HOST: &str = "markup.access-policy.test";
+
+/// The RSL license [`MARKUP_HOST`]'s pages 3 and 4 name.
+const RSL_LICENSE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<rsl xmlns="https://rslstandard.org/rsl">
+  <content url="/">
+    <license>
+      <permits type="usage">search</permits>
+      <prohibits type="usage">ai-all</prohibits>
+    </license>
+  </content>
+</rsl>
+"#;
+
 /// The family's named hosts, which belong to no task.
-pub(super) const NAMED_HOSTS: [&str; 5] = [
+pub(super) const NAMED_HOSTS: [&str; 6] = [
     TOKENS_HOST,
     STAR_HOST,
     CRAWL_DELAY_HOST,
     SLOW_ROBOTS_HOST,
     STALLED_ROBOTS_HOST,
+    MARKUP_HOST,
 ];
 
 /// The robots.txt of [`CRAWL_DELAY_HOST`].
@@ -126,6 +149,30 @@ Disallow: /star/
 
 const CONTENT_SIGNAL: &str =
     "User-agent: *\nContent-Signal: search=yes, ai-input=yes, ai-train=no\nAllow: /\n";
+
+/// The answer to `request` on [`MARKUP_HOST`].
+fn markup(request: &Request) -> Answer {
+    let page = |path: &str, head: &str| {
+        Page::html(
+            200,
+            format!("<!doctype html><title>{path}</title>{head}<p>A page at {path}.</p>"),
+        )
+    };
+    Answer::Page(match request.path() {
+        "/license.xml" => Page::new(200, "application/rsl+xml", RSL_LICENSE),
+        path @ "/catalog/1" => page(path, ""),
+        path @ "/catalog/2" => page(path, "<meta name=\"tdm-reservation\" content=\"1\">"),
+        path @ "/catalog/3" => page(path, "").with(
+            "link",
+            "</license.xml>; rel=\"license\"; type=\"application/rsl+xml\"",
+        ),
+        path @ "/catalog/4" => page(
+            path,
+            "<link rel=\"license\" type=\"application/rsl+xml\" href=\"/license.xml\">",
+        ),
+        _ => Page::text(404, "not found"),
+    })
+}
 
 /// The challenge page served with `200`, as the lab's.
 const CHALLENGE: &str = "<!doctype html><html><head><title>Just a moment...</title></head><body><div id=\"challenge\">Checking your browser before accessing this site.</div></body></html>";
@@ -252,6 +299,9 @@ pub(super) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
 
 /// The answer to `request` on `host`.
 pub(super) fn answer(seed: u64, host: &str, request: &Request) -> Answer {
+    if host == MARKUP_HOST {
+        return markup(request);
+    }
     if let Some(robots) = match host {
         TOKENS_HOST => Some(TOKENS),
         STAR_HOST => Some(STAR),

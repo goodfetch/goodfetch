@@ -2,8 +2,9 @@
 //! 0093): its origin's robots.txt, read from the copy the user's runs
 //! share and its Crawl-delay recorded and waited; the refusal of a request
 //! that robots.txt disallows or whose Crawl-delay exceeds the crawl's
-//! bound; the AI-use signals of its document's response; and a handler's
-//! escaped `site_preferences_refused`.
+//! bound; the AI-use signals its host declares before it is sent and those
+//! its document's response and markup carry; and a handler's escaped
+//! `site_preferences_refused`.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -13,7 +14,10 @@ use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch, Fetched};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
-use goodfetch_fetch_tier::{FetchTiers, HttpTier, Purpose};
+use goodfetch_fetch_tier::{
+    FetchTiers, HttpTier, Purpose, SignalFiles, TDMREP_FILE, content_signals_refusing,
+    rsl_refusing, tdmrep_file_refusing,
+};
 use goodfetch_frontier::SharedRobotsTxt;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::settings::{
@@ -149,7 +153,8 @@ fn waits_out(settings: &Resolved, asked: Duration) -> bool {
 
 /// The `site_preferences.purpose` a crawl under `settings` judges the
 /// AI-use signals against: none while `site_preferences.respect_use_signals`
-/// is off (ADR 0086).
+/// is off, or when the Purpose is `search`, which is no declaration (ADR
+/// 0086).
 pub(super) fn honoured_purpose(settings: &Resolved) -> Option<Purpose> {
     if settings.boolean(SITE_PREFERENCES_RESPECT_USE_SIGNALS.name) != Some(true) {
         return None;
@@ -158,23 +163,67 @@ pub(super) fn honoured_purpose(settings: &Resolved) -> Option<Purpose> {
         .value(SITE_PREFERENCES_PURPOSE.name)
         .as_str()
         .and_then(Purpose::named)
+        .filter(|purpose| *purpose != Purpose::Search)
+}
+
+/// What the AI-use signals `leased`'s host declared before its request is
+/// sent say of it while `site_preferences.respect_use_signals` is on (ADRs
+/// 0016 and 0086): the `Content-Signal` lines of the robots.txt `read`'s
+/// groups that apply, and `TDMRep`'s well-known file, fetched on `http`
+/// once per origin for the Run through `files`. Nothing when none refuses
+/// the Run's `site_preferences.purpose`, else the attempt's answer, sent
+/// nothing.
+pub(super) async fn use_signals_declared(
+    run: &Run,
+    http: &HttpTier,
+    leased: &Leased,
+    read: Option<&Fetched>,
+    files: &SignalFiles,
+) -> Option<Answer> {
+    let settings = run.settings()?.resolved();
+    let purpose = honoured_purpose(settings)?;
+    let refused = Some(Answer::Refused(SkipReason::UseSignals));
+    if let Some(read) = read {
+        let operator_token = settings
+            .value(SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.name)
+            .as_str();
+        let signals = goodfetch_fetch_tier::content_signals(read, operator_token);
+        if content_signals_refusing(&signals, purpose).is_some() {
+            return refused;
+        }
+    }
+    let url = goodfetch_frontier::Url::parse(&leased.crawl_request.url).ok()?;
+    let location = url.join(TDMREP_FILE).ok()?;
+    let file = files
+        .read(&location, http.signal_file(run, &location))
+        .await?;
+    tdmrep_file_refusing(&file, &url, purpose).and(refused)
 }
 
 /// What the AI-use signals the response of the served page `page_id`
-/// carried say of its request while `site_preferences.respect_use_signals`
-/// is on (ADRs 0086 and 0093): nothing when none refuses the Run's
+/// carried, in its headers and its document's markup, say of its request
+/// while `site_preferences.respect_use_signals` is on (ADRs 0045, 0086 and
+/// 0093), the RSL license they name fetched on `http` once for the Run
+/// through `files`: nothing when none refuses the Run's
 /// `site_preferences.purpose`, else the attempt's answer, its handler
 /// never run.
-pub(super) fn use_signals_refusal(
+pub(super) async fn use_signals_refusal(
     run: &Run,
-    tiers: &FetchTiers,
+    (tiers, http): (&FetchTiers, &HttpTier),
     page_id: &PageId,
+    files: &SignalFiles,
 ) -> Option<Answer> {
     let purpose = honoured_purpose(run.settings()?.resolved())?;
-    tiers
-        .use_signals(page_id)
-        .refusing(purpose)
-        .map(|_| Answer::Refused(SkipReason::UseSignals))
+    let refused = Some(Answer::Refused(SkipReason::UseSignals));
+    let signals = tiers.use_signals(page_id);
+    if signals.refusing(purpose).is_some() {
+        return refused;
+    }
+    let license = signals.license()?;
+    let file = files
+        .read(&license, http.signal_file(run, &license))
+        .await?;
+    rsl_refusing(&file, purpose).and(refused)
 }
 
 /// What the robots.txt `read` for `leased`'s request says of it while

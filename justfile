@@ -857,6 +857,22 @@ rss-propose *scenarios:
     cargo run --quiet -p xtask -- rss measure {{ scenarios }} --runs 20 --tools target/rss/test-tools.json --out target/rss/propose.jsonl
     cargo run --quiet -p xtask -- rss propose --peaks target/rss/propose.jsonl
 
+# Spider's comparison (ADR 0134), a one-off on the owner's machine: Foxhound's
+# and Spider 2.53.9's crawls (its HTTP mode, xtask/compare-spider) of the
+# Proving ground's 1,000-page site, both built with the release profile
+# (`profile` changes it for a quicker try), 10 trials of each in random
+# order, each tool in a fresh process against a fresh Proving ground at 16
+# requests at once. Once every trial fetched the same pages and was served
+# the same bytes, it writes each tool's median pages per second and peak RSS
+# to target/compare-spider/report.md and report.json, `local-controlled` and
+# never published (ADR 0076); otherwise it fails naming the trial. It gates
+# nothing and is no Live check. Spider's crate is downloaded once, free.
+# Compares Foxhound's crawl with Spider's on this machine.
+compare-spider profile="release":
+    cargo run --quiet -p xtask -- test-tools --cargo-profile {{ profile }} --out "$PWD/target/compare-spider/test-tools.json"
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
+    cargo run --quiet -p xtask -- compare-spider run --tools target/compare-spider/test-tools.json --spider target/compare-spider/spider/{{ profile }}/goodfetch-compare-spider
+
 # The counted performance figures of what changed, against `base` (the merge
 # base with `origin/main` by default), with CI's thresholds (ADR 0071):
 # natively on Linux, in the pinned CI image through Docker or Podman

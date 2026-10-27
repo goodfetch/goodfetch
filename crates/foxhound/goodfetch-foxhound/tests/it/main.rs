@@ -20,6 +20,9 @@ mod code_free;
 mod completeness;
 mod content_types;
 mod crawl;
+// The crawl benchmark's scenario, which `in_memory_crawl` checks.
+#[path = "../../benches/scenarios.rs"]
+mod crawl_scenario;
 mod daemon;
 mod dataset_pages;
 mod datasets;
@@ -32,6 +35,7 @@ mod extra_loopback;
 mod fetch_tiers;
 mod frontier;
 mod governor;
+mod in_memory_crawl;
 mod journeys;
 mod kept_responses;
 mod label_pools;

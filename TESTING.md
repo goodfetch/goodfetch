@@ -1160,6 +1160,7 @@ Decided in [ADR 0071](docs/adr/0071-performance-budgets-are-counted-per-change-a
 
 - **A Performance target is measured on the owner's machine and never fails a change.** Startup to `hello` at most 10 ms (median); an idle Attached engine at most 8 MiB and an idle Daemon at most 16 MiB of resident memory, for each Product; the 1,000-page HTTP crawl at most 32 MiB at its peak, and at least as many pages per second as Spider in the same `just compare-spider` run.
 - **`just targets` writes the targets report:** each target, its measured figure and, for a miss, the gap. Each milestone's owner test links it under Reports, with `just compare-spider`'s report, labelled `local-controlled` and never published (ADR 0076).
+- **`just compare-spider` counts a figure only after its same-work check.** Foxhound and Spider (pinned, its HTTP mode) each crawl the Proving ground's 1,000-page site, `scale.test/sites/1000/1`, in 10 trials interleaved in random order, each tool in a fresh process against a fresh Proving ground, at 16 requests at once; every trial must have fetched the same pages and been served the same bytes, as the Proving ground's observations record them, or it fails naming the trial and writes no figure. It reports each tool's median pages per second and median peak RSS in `target/compare-spider/report.md`.
 - **A target is not a test.** No test asserts it, and `just compare-spider` is not a Live check.
 
 ### Counts as snapshots

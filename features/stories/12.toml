@@ -515,3 +515,12 @@ journey = false
 not_journey = "part"
 status = "active"
 product = "foxhound"
+
+[[story]]
+id = 234
+title = "As a user, I want Foxhound's build to stay under 1 MB brotli with its own initial-route ceiling, so that adding Foxhound never slows the Console's first screen (ADRs 0071, 0087)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"

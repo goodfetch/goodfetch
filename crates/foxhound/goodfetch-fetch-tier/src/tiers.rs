@@ -121,6 +121,11 @@ struct Served {
     /// The light-browser tier's Lightpanda build, prepared at its first
     /// run (ADR 0020).
     light: LightBrowser,
+    /// What every Run's HTTP tier sends its hops with in place of reqwest:
+    /// the fetch tiers' test seam (ADR 0129's primitive), which a
+    /// benchmark fills with pages served from memory (ADR 0134); `None` in
+    /// every Product.
+    transport: Option<Arc<dyn Transport>>,
 }
 
 #[derive(Default)]
@@ -443,6 +448,21 @@ impl FetchTiers {
         Self::default()
     }
 
+    /// No tier serving any page yet, every Run's HTTP tier sending its hops
+    /// with `transport` in place of reqwest: the fetch tiers' test seam,
+    /// through which a crawl is fed from memory with no network (ADRs 0071
+    /// and 0134). Its address check and egress policy still judge each URL
+    /// first, by the Run's settings; a Session holding its own local
+    /// addresses (`HttpTier::from_session`) still sends on reqwest.
+    pub fn serving(transport: Arc<dyn Transport>) -> Self {
+        Self {
+            served: Arc::new(Served {
+                transport: Some(transport),
+                ..Served::default()
+            }),
+        }
+    }
+
     /// Hands the pages that open in `hand_over`'s Run over to its attempt
     /// until the answer drops: each takes the attempt's navigation gate and
     /// lease check (the `gate` module).
@@ -566,6 +586,7 @@ impl FetchTiers {
     ///
     /// Dropping the future loses only the tier.
     pub async fn built(
+        &self,
         run: &Run,
         settings: &Resolved,
         local: Option<LocalSource>,
@@ -592,10 +613,15 @@ impl FetchTiers {
             resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,
             local,
         };
-        let transport = Reqwest::new(config.clone()).map_err(|error| error.to_string())?;
+        let reqwest = Reqwest::new(config.clone()).map_err(|error| error.to_string())?;
+        let addresses = reqwest.address_check();
+        let transport: Arc<dyn Transport> = match &self.served.transport {
+            Some(transport) => Arc::clone(transport),
+            None => Arc::new(reqwest),
+        };
         Ok(HttpTier {
-            addresses: transport.address_check(),
-            transport: Arc::new(transport),
+            addresses,
+            transport,
             egress,
             deadlines: Deadlines::of(settings),
             redundant: Arc::new(Redundant::of(settings)),

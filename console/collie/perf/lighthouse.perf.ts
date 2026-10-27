@@ -1,11 +1,12 @@
 // The Console's lab metrics for the Performance series (ADRs 0071 and 0076):
-// Lighthouse 13 driven directly against the Console Collie's executable
-// serves, signed in through the single-user link, five runs of the Runs
-// screen, their medians of LCP, CLS and TBT held against the "good" values
-// (LCP ≤ 2.5 s and CLS ≤ 0.1 from Web Vitals, TBT ≤ 200 ms from web.dev's
-// guidance). It times, so it belongs to no suite: `just console-lighthouse`
-// runs it, and appends one record, labelled with the machine it ran on, to
-// the series' file, target/perf-series/console-lighthouse.jsonl. Only the
+// Lighthouse 13 driven directly against each Product's Console, Collie's and
+// Foxhound's, each served by its own executable (ADR 0087), signed in
+// through the single-user link, five runs of the Runs screen, their medians
+// of LCP, CLS and TBT held against the "good" values (LCP ≤ 2.5 s and CLS ≤
+// 0.1 from Web Vitals, TBT ≤ 200 ms from web.dev's guidance). It times, so
+// it belongs to no suite: `just console-lighthouse` runs it, and appends one
+// record per Product, labelled with the Product and the machine it ran on,
+// to the series' file, target/perf-series/console-lighthouse.jsonl. Only the
 // owner's machine's records count for the series while there is no revenue;
 // another machine's are labelled as such, never as the reference class.
 import { execFileSync } from "node:child_process";
@@ -14,7 +15,7 @@ import { createServer } from "node:net";
 import { arch, cpus, hostname, platform, release, tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "@playwright/test";
-import { expect, test } from "@goodfetch/test-support/playwright";
+import { expect, test, type ServedDaemon } from "@goodfetch/test-support/playwright";
 import lighthouse from "lighthouse";
 
 /** How many Lighthouse runs make one record, its figures their medians (ADR 0071). */
@@ -61,9 +62,23 @@ function commit(): string {
   return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 }
 
-test("the Console's lab metrics on the Runs screen, the median of five Lighthouse runs", async ({
-  daemon,
-}) => {
+/** Each Product whose Console build is measured, on its own executable (ADR 0087). */
+const PRODUCTS = ["collie", "foxhound"] as const;
+
+for (const product of PRODUCTS) {
+  test.describe(`${product}'s Console`, () => {
+    test.use({ product });
+
+    test("its lab metrics on the Runs screen, the median of five Lighthouse runs", async ({
+      daemon,
+    }) => {
+      await measure(product, daemon);
+    });
+  });
+}
+
+/** Measures the Console `daemon` serves, `product`'s, and appends its record to the series. */
+async function measure(product: (typeof PRODUCTS)[number], daemon: ServedDaemon): Promise<void> {
   const port = await freePort();
   const profile = await mkdtemp(join(tmpdir(), "goodfetch-lighthouse-"));
   // The persistent context is the browser's default one, which the tab
@@ -112,6 +127,7 @@ test("the Console's lab metrics on the Runs screen, the median of five Lighthous
     const record = {
       at: new Date().toISOString(),
       commit: commit(),
+      product,
       lighthouse: version,
       machine: {
         host: hostname(),
@@ -137,4 +153,4 @@ test("the Console's lab metrics on the Runs screen, the median of five Lighthous
     await context.close();
     await rm(profile, { recursive: true, force: true });
   }
-});
+}

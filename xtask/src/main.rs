@@ -65,6 +65,7 @@ mod screenshots;
 mod self_hosted;
 mod size;
 mod stress;
+mod targets;
 mod telemetry;
 mod test_tools;
 mod tlc;
@@ -303,6 +304,12 @@ enum Command {
         #[command(subcommand)]
         command: stress::Command,
     },
+    /// The Performance targets report (ADR 0134): each target's figure on
+    /// this machine, met or missed, never published and gating nothing.
+    Targets {
+        #[command(subcommand)]
+        command: targets::Command,
+    },
     /// Fails on a setting that could turn telemetry on and on an analytics
     /// client in `Cargo.lock`, `uv.lock` or `pnpm-lock.yaml` (ADR 0043).
     Telemetry,
@@ -498,6 +505,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
         Command::Stress { command } => stress::run(command, environment),
+        Command::Targets { command } => targets::run(command, environment),
         Command::Telemetry => Ok(check::report(&telemetry::check(root)?)),
         Command::TestTools(arguments) => test_tools::run(&arguments, environment),
         Command::Tlc { command } => tlc::run(command, environment),

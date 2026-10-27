@@ -873,6 +873,22 @@ compare-spider profile="release":
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
     cargo run --quiet -p xtask -- compare-spider run --tools target/compare-spider/test-tools.json --spider target/compare-spider/spider/{{ profile }}/goodfetch-compare-spider
 
+# The Performance targets report (ADR 0134), on the owner's machine before
+# each owner test: each Product's release build, its startup to `hello`
+# with hyperfine (10 warm-up runs, then 100; median) and its idle Attached
+# engine's peak (median of 5 runs), with the crawl figures of the latest
+# `just compare-spider` report. Writes target/targets/report.md: each
+# target, its figure, met or missed with its gap and the optimization
+# pass's write-up from ci/performance-target-gaps.toml. Labelled
+# `local-controlled`, never published (ADR 0076); it fails on no miss.
+# Writes the Performance targets report on this machine.
+targets:
+    cargo run --quiet -p xtask -- test-tools --cargo-profile release --out "$PWD/target/targets/test-tools.json"
+    rm -f target/targets/peaks.jsonl target/targets/startup-*.json
+    cargo run --quiet -p xtask -- targets startup --tools target/targets/test-tools.json --out target/targets
+    cargo run --quiet -p xtask -- rss measure idle-attached-engine --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
+    cargo run --quiet -p xtask -- targets report --measured target/targets
+
 # The counted performance figures of what changed, against `base` (the merge
 # base with `origin/main` by default), with CI's thresholds (ADR 0071):
 # natively on Linux, in the pinned CI image through Docker or Podman

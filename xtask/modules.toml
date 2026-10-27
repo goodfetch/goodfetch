@@ -57,6 +57,7 @@ screenshots = ["check", "environment", "output", "tree"]
 self_hosted = ["check", "environment", "output", "workflow"]
 size = ["acceptance", "check", "environment", "github", "output"]
 stress = ["affected", "environment", "metadata", "output", "quarantine"]
+targets = ["environment", "output", "rss"]
 telemetry = ["check"]
 test_tools = ["console", "environment", "metadata"]
 tlc = ["check", "environment", "github", "output", "pinned"]
@@ -124,6 +125,13 @@ run = ["same_work", "trial", "trials"]
 same_work = ["trials"]
 trial = ["trials"]
 trials = []
+
+# Which of `targets`'s own modules may import which.
+[submodules.targets]
+measured = []
+report = ["measured", "startup", "target"]
+startup = ["measured"]
+target = ["measured"]
 
 # Which of `rss`'s own modules may import which.
 [submodules.rss]

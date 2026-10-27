@@ -337,6 +337,7 @@ CREATE TABLE work_items (
             depth INTEGER NOT NULL,
             status TEXT NOT NULL,
             attempts INTEGER NOT NULL,
+            retried_from INTEGER NOT NULL,
             lease_epoch INTEGER NOT NULL,
             error_code TEXT,
             domain_key TEXT,

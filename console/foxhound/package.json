@@ -18,6 +18,7 @@
     "@goodfetch/foxhound": "workspace:*",
     "@lingui/core": "6.10.0",
     "@lingui/react": "6.10.0",
+    "@tanstack/react-virtual": "3.14.13",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

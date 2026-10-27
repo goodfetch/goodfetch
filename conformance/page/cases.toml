@@ -1,4 +1,4 @@
-# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718, #859 and #709;
+# The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718, #859, #709 and #1597;
 # spec #580, tickets #783, #784, #785, #786, #787, #788 and #789): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "34"
+version = "35"
 
 [[capability]]
 name = "sessions.default"
@@ -645,6 +645,10 @@ covers = ["story:5-34", "operation:page.evaluate", "error:page_function_failed"]
 id = "an-init-script-runs-before-the-pages-scripts-on-the-next-navigation-and-in-new-frames-and-provenance-marks-it"
 covers = ["story:5-35", "operation:page.add_init_script", "operation:page.evaluate", "operation:page.reload"]
 
+[[capability.case]]
+id = "evaluate-all-hands-every-match-and-one-json-argument-and-refuses-what-evaluate-refuses"
+covers = ["story:5-34", "operation:locator.evaluate_all", "operation:page.evaluate", "error:page_value_invalid", "error:page_function_failed"]
+
 [[capability]]
 name = "waits"
 
@@ -662,7 +666,7 @@ covers = ["story:5-19", "story:5-20", "operation:page.wait_for_response", "opera
 
 [[capability.case]]
 id = "locator-and-function-waits-resolve-on-re-rendering-pages"
-covers = ["story:5-19", "operation:locator.wait_for", "operation:locator.wait_for_count", "operation:page.wait_for_function"]
+covers = ["story:5-19", "operation:locator.wait_for", "operation:locator.wait_for_count", "operation:page.wait_for_function", "operation:locator.wait_for_function"]
 
 [[capability.case]]
 id = "a-route-or-a-wait-whose-pattern-the-engine-cannot-match-is-refused-at-the-call"
@@ -670,15 +674,15 @@ covers = ["story:5-43", "error:pattern_unsupported", "operation:page.route", "op
 
 [[capability.case]]
 id = "each-wait-ends-at-timeout-wait-naming-what-it-waited-for"
-covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
 
 [[capability.case]]
 id = "a-waits-own-timeout-is-its-deadline-at-the-run-layer-and-null-is-none"
-covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
 
 [[capability.case]]
 id = "a-wait-in-flight-when-its-page-closes-raises-call-cancelled-naming-the-page"
-covers = ["story:5-19", "error:call_cancelled", "operation:page.close", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+covers = ["story:5-19", "error:call_cancelled", "operation:page.close", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
 
 [[capability]]
 name = "robots_txt"

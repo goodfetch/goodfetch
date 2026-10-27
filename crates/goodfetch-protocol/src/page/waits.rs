@@ -159,6 +159,44 @@ pub struct WaitForFunctionParams {
     pub timeout: Option<Option<u64>>,
 }
 
+/// What `locator.wait_for_function` takes: the locator, the function's
+/// source, its argument, its world, and how often it is checked.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LocatorWaitForFunctionParams {
+    /// The locator, whose one match the function takes first, resolved
+    /// again at each check.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub locator: Locator,
+    /// The page function's JavaScript source: a function, called with the
+    /// element and `arg`, or an expression, which takes neither.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub function: String,
+    /// Its one argument, JSON; absent for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub arg: Option<Value>,
+    /// Where it runs; the main world when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub world: Option<World>,
+    /// The milliseconds between two checks, at least 1; absent, about one
+    /// frame's, 16.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub polling_interval: Option<u64>,
+    /// How long the wait may take, in milliseconds, at least 1: absent for
+    /// `timeout.wait`, `null` for none, though an enclosing timeout still
+    /// applies (ADR 0080).
+    #[serde(
+        default,
+        deserialize_with = "super::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timeout: Option<Option<u64>>,
+}
+
 /// A state of the element a locator matches (Playwright's `waitFor`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -316,6 +354,22 @@ pub const PAGE_WAIT_FOR_FUNCTION: Operation = Operation {
     kind: OperationKind::Waiter,
     reach: Reach::SdkOnly,
     params: schema_of::<WaitForFunctionParams>,
+    result: schema_of::<Evaluated>,
+    events: &[],
+    cancellable: true,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `locator.wait_for_function`.
+pub const LOCATOR_WAIT_FOR_FUNCTION: Operation = Operation {
+    name: "locator.wait_for_function",
+    description: "Waits, checking from when the call arrives, until a page function called with the one element the locator matches first and its one JSON argument second answers a truthy result, and answers that result as JSON, as `page.wait_for_function` does. The locator is resolved again at each check, so a re-render that replaces its element changes nothing, and a check while none or several elements match counts as falsy. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`, and a selector the page does not parse `invalid_params`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
+    class: OperationClass::Effect,
+    kind: OperationKind::Waiter,
+    reach: Reach::SdkOnly,
+    params: schema_of::<LocatorWaitForFunctionParams>,
     result: schema_of::<Evaluated>,
     events: &[],
     cancellable: true,

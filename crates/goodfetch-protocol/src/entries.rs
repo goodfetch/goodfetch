@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 50] = [
+pub const MODULES: [&Entries; 51] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &console::ENTRIES,
@@ -53,6 +53,7 @@ pub const MODULES: [&Entries; 50] = [
     &foxhound::fetch::ENTRIES,
     &foxhound::frontier::ENTRIES,
     &foxhound::dataset::ENTRIES,
+    &foxhound::dataset_view::ENTRIES,
     &foxhound::export::ENTRIES,
     &foxhound::outcomes::ENTRIES,
     &foxhound::rejections::ENTRIES,
@@ -101,7 +102,7 @@ mod tests {
     use crate::catalog::Product;
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 87] = [
+    const COLLIE: [&str; 89] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -147,12 +148,14 @@ mod tests {
         "session.pages",
         "page.close",
         "page.evaluate",
+        "locator.evaluate_all",
         "page.add_init_script",
         "page.wait_for_url",
         "page.wait_for_request",
         "page.wait_for_response",
         "page.wait_for_load_state",
         "page.wait_for_function",
+        "locator.wait_for_function",
         "locator.wait_for",
         "locator.wait_for_count",
         "run.start",
@@ -213,6 +216,8 @@ mod tests {
                     "crawl_request.enqueue_links",
                     "crawl_request.push",
                     "run.records",
+                    "dataset.list",
+                    "dataset.page",
                     "run.export",
                     "export.save_as",
                     "export.stream",

@@ -120,7 +120,15 @@ test(
 
     await page.goto(new URL(`/runs/${CRAWL_RUN}`, daemon.url).href);
     const tabs = page.getByRole("tablist", { name: "Run views" }).getByRole("tab");
-    await expect(tabs).toHaveText(["Run", "Seeds", "Outcomes", "Failed requests", "SQL"]);
+    await expect(tabs).toHaveText([
+      "Run",
+      "Progress",
+      "Seeds",
+      "Outcomes",
+      "Failed requests",
+      "Datasets",
+      "SQL",
+    ]);
     await expect(page.getByRole("region", { name: "How it stands" })).toContainText("stopped");
     for (const name of ["Seeds", "Outcomes", "Failed requests"]) {
       await page.getByRole("tab", { name, exact: true }).click();

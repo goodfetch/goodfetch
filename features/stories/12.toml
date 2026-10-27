@@ -421,6 +421,32 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 204
+title = "As a user, I want a crawl run's page to list its Datasets with their declared schema and their committed, dropped and rejected Record counts, so that I see what the crawl kept (ADR 0103)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 205
+title = "As a user, I want Records paged by key, with filtering (the `wall` marker included), sorting and column selection done in the engine, so that a Dataset of millions of Records opens at once (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 207
+title = "As a user reading text in any script, I want each cell isolated with `dir=\"auto\"` and data kept out of browser translation, so that mixed-direction values and names read correctly (ADR 0073)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 210
 title = "As a developer, I want a read-only SQL tab over the runs I select, each run's tables registered as functions, so that I join and aggregate Records with SQL in place (ADR 0031)."
 milestone = "M1 Core"
@@ -447,10 +473,27 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 217
+title = "As a user, I want a crawl run's page to show its progress live: requests in flight with their phase, tier and attempt; why due requests wait, per reason, with the domains held, when each is next admitted and the setting behind the wait with its value and layer; each sitemap seed's progress; whether a keep-alive crawl is idle; the handlers running against their concurrency and the governor's level; and the program's status message, so that a slow crawl explains itself (ADRs 0102, 0118; ADR 0037 / RT-15)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 232
 title = "As a maintainer, I want a Stub gateway that serves Foxhound's Console build with the production headers, keeps its own index for `run.list`, starts each run's Attached engine from the executable of the Product that run gets and forwards every other operation, so that the Console is proved to need nothing beyond the catalog (ADRs 0068, 0096)."
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 233
+title = "As a user, I want a Records grid of 10,000 rows to render only the rows on screen, so that large Datasets stay smooth (ADR 0071)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
 status = "active"
 product = "foxhound"

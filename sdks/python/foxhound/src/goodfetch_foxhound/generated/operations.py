@@ -10,7 +10,7 @@ from typing import Any, cast
 from goodfetch_collie_client.generated.operations import AsyncCaller, Caller
 
 from goodfetch_collie_client.generated.models import RunParams, RunStarted
-from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetQueryParams, DatasetQueryResult, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
+from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
 
 
 def _fields(result: object) -> dict[str, Any]:
@@ -66,6 +66,20 @@ class AsyncFoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return CrawlRequestPushed.model_construct(**_fields(await self._caller.call("crawl_request.push", params)))
+
+    async def dataset_list(self, params: DatasetListParams) -> DatasetList:
+        """Lists the Datasets a crawl's Run declares, in the order declared, each with its JSON Schema, its key and how many Records the crawl committed into it, a Hook dropped and were rejected into its rejection table, read from the Run's committed state. A Run no crawl wrote declares none.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DatasetList.model_construct(**_fields(await self._caller.call("dataset.list", params)))
+
+    async def dataset_page(self, params: DatasetPageParams) -> DatasetPage:
+        """Reads one page of a Dataset's committed Records, paged by key: the Records that meet `filter` (conditions on top-level fields, and the `wall` marker a Record's Provenance carries or not), in the order of `sort` (one top-level field, Records that lack it last, then by number), each value keeping only the fields `columns` names, at most `limit`. Filtering, sorting and column selection run in the engine. A page starts after the Record `after` names, the previous page's `next`, and reads only the Records committed through `through`, the number the first page answered, so Records committed meanwhile never make a page repeat or skip one. A Dataset the crawl does not declare fails with `dataset_unknown`; a field name holding `"`, or a `limit` outside 1 to 1000, with `invalid_params`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DatasetPage.model_construct(**_fields(await self._caller.call("dataset.page", params)))
 
     async def dataset_query(self, params: DatasetQueryParams) -> DatasetQueryResult:
         """Runs one read-only SQL statement, `SELECT` or `WITH`, over the runs `runs` selects, at most 100, and answers its columns, its first rows up to `limit` (at most `dataset.query.max_rows`) and how many rows it produced. Each run's tables are table functions that take its Run ID: `records(run)` (each Dataset's committed Records), `rejected_records(run)` and `datasets(run)`, which read its run file read-only; secret fields are never columns. Any other statement, a write, `ATTACH`, `INSTALL`, `LOAD`, `COPY`, a read of a file or URL, or a run not selected fails with `query_invalid`; past `timeout.dataset_query` it fails with `deadline_exceeded`, and past `dataset.query.memory_limit` with `query_memory_exceeded`. A run that does not exist fails with `run_not_found`.
@@ -197,6 +211,20 @@ class FoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return CrawlRequestPushed.model_construct(**_fields(self._caller.call("crawl_request.push", params)))
+
+    def dataset_list(self, params: DatasetListParams) -> DatasetList:
+        """Lists the Datasets a crawl's Run declares, in the order declared, each with its JSON Schema, its key and how many Records the crawl committed into it, a Hook dropped and were rejected into its rejection table, read from the Run's committed state. A Run no crawl wrote declares none.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DatasetList.model_construct(**_fields(self._caller.call("dataset.list", params)))
+
+    def dataset_page(self, params: DatasetPageParams) -> DatasetPage:
+        """Reads one page of a Dataset's committed Records, paged by key: the Records that meet `filter` (conditions on top-level fields, and the `wall` marker a Record's Provenance carries or not), in the order of `sort` (one top-level field, Records that lack it last, then by number), each value keeping only the fields `columns` names, at most `limit`. Filtering, sorting and column selection run in the engine. A page starts after the Record `after` names, the previous page's `next`, and reads only the Records committed through `through`, the number the first page answered, so Records committed meanwhile never make a page repeat or skip one. A Dataset the crawl does not declare fails with `dataset_unknown`; a field name holding `"`, or a `limit` outside 1 to 1000, with `invalid_params`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return DatasetPage.model_construct(**_fields(self._caller.call("dataset.page", params)))
 
     def dataset_query(self, params: DatasetQueryParams) -> DatasetQueryResult:
         """Runs one read-only SQL statement, `SELECT` or `WITH`, over the runs `runs` selects, at most 100, and answers its columns, its first rows up to `limit` (at most `dataset.query.max_rows`) and how many rows it produced. Each run's tables are table functions that take its Run ID: `records(run)` (each Dataset's committed Records), `rejected_records(run)` and `datasets(run)`, which read its run file read-only; secret fields are never columns. Any other statement, a write, `ATTACH`, `INSTALL`, `LOAD`, `COPY`, a read of a file or URL, or a run not selected fails with `query_invalid`; past `timeout.dataset_query` it fails with `deadline_exceeded`, and past `dataset.query.memory_limit` with `query_memory_exceeded`. A run that does not exist fails with `run_not_found`.

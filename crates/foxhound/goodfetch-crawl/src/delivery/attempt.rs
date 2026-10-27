@@ -116,8 +116,8 @@ mod sitemap_fetch;
 
 use learning::learn;
 use site_preferences::{
-    escaped_refusal, read_robots_txt, robots_txt_ignored, robots_txt_refusal, share_robots_txt,
-    use_signals_refusal,
+    escaped_refusal, honoured_purpose, read_robots_txt, robots_txt_ignored, robots_txt_refusal,
+    share_robots_txt, use_signals_refusal,
 };
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -303,6 +303,7 @@ impl Gating {
             max_crawl_delay: settings
                 .as_ref()
                 .and_then(|settings| settings.duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)),
+            use_signals: settings.as_ref().and_then(honoured_purpose),
             lease: Arc::new(HandlerLease {
                 lease: lease.clone(),
                 run: run.clone(),

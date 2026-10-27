@@ -48,6 +48,8 @@ pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 19] = [
     "ruff-check",
 ];
 
+pub(super) mod model_defaults;
+
 const EXPERIMENTAL: &str = "Experimental: outside semver until it is promoted (ADR 0030).";
 
 pub(super) fn generate(layer: &Layer) -> Generated {

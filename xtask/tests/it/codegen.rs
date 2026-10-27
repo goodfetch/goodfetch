@@ -771,6 +771,51 @@ fn python_enum_field_defaults_to_its_member() {
     );
 }
 
+/// A field whose type is a model and whose default is an object, a
+/// tagged union's variant or a struct, defaults through a factory that
+/// constructs that model from the object, which a type checker accepts and
+/// which each instance gets afresh, never through the object's bare dict
+/// (#1002's `ExtractionField.transform`); a field typed as a map keeps its
+/// dict default.
+/// Covers: story:1-57
+#[test]
+fn python_model_field_defaults_to_a_constructed_model() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(
+        FOXHOUND,
+        "    /// How many pages to visit.\n    pub pages: u32,\n}",
+        "    /// How many pages to visit.\n    pub pages: u32,\n    \
+         /// How each page is read.\n    #[serde(default)]\n    pub mode: SampleMode,\n    \
+         /// The crawl's limits.\n    #[serde(default)]\n    pub limits: SampleLimits,\n    \
+         /// Each page's tags.\n    #[serde(default = \"tags\")]\n    \
+         pub tags: std::collections::BTreeMap<String, String>,\n}\n\n\
+         fn tags() -> std::collections::BTreeMap<String, String> {\n    \
+         std::collections::BTreeMap::from([(\"kind\".to_owned(), \"sample\".to_owned())])\n}\n\n\
+         /// How a sample crawl reads each page.\n\
+         #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]\n\
+         #[serde(tag = \"kind\", rename_all = \"snake_case\")]\n\
+         pub enum SampleMode {\n    /// Its text.\n    #[default]\n    Plain,\n    \
+         /// Its links, so deep.\n    Deep {\n        /// How deep.\n        depth: u32,\n    },\n}\n\n\
+         /// A sample crawl's limits.\n\
+         #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]\n\
+         pub struct SampleLimits {\n    /// The most pages.\n    pub pages: u32,\n}",
+    );
+
+    codegen(&workspace);
+
+    let models =
+        workspace.read_text("sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py");
+    let flat: String = models.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        flat.contains(
+            "mode: Annotated[SampleMode | None, Field(validate_default=True)] = Field( default_factory=lambda: SampleMode.model_validate({\"kind\": \"plain\"}) )"
+        ) && flat.contains(
+            "limits: Annotated[SampleLimits | None, Field(validate_default=True)] = Field( default_factory=lambda: SampleLimits.model_validate({\"pages\": 0}) )"
+        ) && flat.contains("= {\"kind\": \"sample\"}"),
+        "{models}"
+    );
+}
+
 const POLITENESS_MANIFEST: &str = "crates/foxhound/goodfetch-politeness/Cargo.toml";
 const POLITENESS_LIB: &str = "crates/foxhound/goodfetch-politeness/src/lib.rs";
 

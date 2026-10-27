@@ -127,11 +127,8 @@ pub(crate) fn probe(scenario: Option<(Scenario, Product)>, command: &[OsString])
     // A scenario measures the executable as shipped, with its own data
     // folder and its default logging.
     let home = tempfile::tempdir().context("creating the engine's data folder")?;
-    child
-        .env("GOODFETCH_HOME", home.path())
-        .env_remove("GOODFETCH_LOG")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped());
+    super::scenario::as_shipped(&mut child, home.path());
+    child.stdin(Stdio::piped()).stdout(Stdio::piped());
     peak::of(&mut child, |child| {
         let stdin = child.stdin.take().context("the engine's stdin is piped")?;
         let stdout = child

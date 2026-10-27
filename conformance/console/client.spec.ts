@@ -1,5 +1,5 @@
 // The Console's own Client as an ordinary Client (spec #592; ADRs 0068 and
-// 0069; story 12-138): `createConsoleClient` of Collie's build, the
+// 0069; story 12-138): `createConsoleClient` of the target's build, the
 // protocol code the TypeScript SDK runs, reaches the target's `/protocol`
 // with the page's sign-in, its endpoint and authentication given as
 // configuration, and passes the JSON-RPC protocol suite's cases (#172) and
@@ -85,10 +85,10 @@ test.describe("the Console's Client on its target", () => {
       expect(field(hello, "params")).toMatchObject({
         surface: "console",
         form: "catalog",
-        needs: "collie",
+        needs: daemon.product,
       });
       const version = (await command(daemon, ["--version"])).trim();
-      expect(client.engine?.product).toBe("collie");
+      expect(client.engine?.product).toBe(daemon.product);
       expect(version).toContain(client.engine?.productVersion ?? "no version");
     },
   );
@@ -118,7 +118,9 @@ test.describe("the Console's Client on its target", () => {
         "method_not_found",
       );
       // The Connection still answers.
-      await expect(client.call("engine.info", {})).resolves.toMatchObject({ product: "collie" });
+      await expect(client.call("engine.info", {})).resolves.toMatchObject({
+        product: daemon.product,
+      });
     },
   );
 
@@ -181,7 +183,9 @@ test.describe("the Console's Client on its target", () => {
 
       abort.abort();
 
-      await expect(client.call("engine.info", {})).resolves.toMatchObject({ product: "collie" });
+      await expect(client.call("engine.info", {})).resolves.toMatchObject({
+        product: daemon.product,
+      });
       expect(answersTo(carried, id)).toHaveLength(1);
       expect(client.state).toBe("connected");
     },
@@ -225,7 +229,9 @@ test.describe("the Console's Client on its target", () => {
       clients.push(second);
       await connected(second);
 
-      await expect(second.call("engine.info", {})).resolves.toMatchObject({ product: "collie" });
+      await expect(second.call("engine.info", {})).resolves.toMatchObject({
+        product: daemon.product,
+      });
       expect(await failureCode(first.call("engine.info", {}))).toBe("connection_lost");
     },
   );

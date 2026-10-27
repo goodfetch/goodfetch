@@ -62,7 +62,7 @@
 //! tier one method of [`On`], kept whole so every tier's run hands its
 //! handler the same request, response and Provenance.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use goodfetch_engine::CallContext;
@@ -98,6 +98,7 @@ use goodfetch_protocol::page::{NAVIGATION_FAILED, PageId, PageResponse};
 use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_session_pool::Effect;
+use goodfetch_session_pool::escalation::{self, Action, Met};
 use serde_json::{Map, Value};
 use tokio::sync::{Mutex, oneshot};
 
@@ -401,6 +402,9 @@ pub(super) struct Attempt {
     /// fetched it, on any tier: its domain's Politeness reads it whatever
     /// the handler made of the page (the `backoff_classes` rule).
     pub(super) document: Option<PageResponse>,
+    /// Whether a Challenge met on a tier short of the browser moved it to
+    /// the browser, which its domain then learns (`escalation`).
+    pub(super) moved: bool,
 }
 
 /// One attempt: the handler request, bounded by its lease, on the tier its
@@ -422,8 +426,10 @@ pub(super) async fn attempt(
     in_flight: SharedInFlight,
 ) -> Attempt {
     let document = Mutex::new(None);
+    let moved = OnceLock::new();
     let on = On {
         document: &document,
+        moved: &moved,
         run: &run,
         context: &context,
         leased: &leased,
@@ -495,6 +501,7 @@ pub(super) async fn attempt(
     };
     Attempt {
         document: document.into_inner(),
+        moved: moved.into_inner().is_some(),
         server,
         leased,
         _counted: counted,
@@ -543,9 +550,41 @@ struct On<'a> {
     /// that fetched it met it, which its domain's Politeness reads (the
     /// `backoff_classes` rule).
     document: &'a Mutex<Option<PageResponse>>,
+    /// Whether a Challenge met on a tier short of the browser moved the
+    /// request to the browser, set once it did.
+    moved: &'a OnceLock<()>,
 }
 
 impl On<'_> {
+    /// What the crawl does with the request, run as `choice` says, whose
+    /// Session met a block of `cause`, the Block classification's or one
+    /// the program's code named alike (`escalation`): a move to the
+    /// browser is noted, for its domain to learn.
+    fn on_block(&self, cause: BlockCause, choice: &TierChoice) -> Action {
+        let action = escalation::on_block(
+            cause,
+            Met {
+                tier: Some(choice.tier),
+                forced: choice.forced.is_some(),
+            },
+        );
+        if action == Action::MoveToBrowser {
+            // Set once: a second move says nothing more.
+            let _ = self.moved.set(());
+        }
+        action
+    }
+
+    /// Whether `answer`, a handler's on a run as `choice` says, names a
+    /// block that moves the request to the browser ([`On::on_block`]).
+    fn moves(&self, answer: &Answer, choice: &TierChoice) -> bool {
+        match answer {
+            Answer::Failed { code, details, .. } => block_cause(code, details)
+                .is_some_and(|cause| self.on_block(cause, choice) == Action::MoveToBrowser),
+            _ => false,
+        }
+    }
+
     /// The handler request of the attempt on `tier`, its page `page_id`,
     /// its request's own document answered `response`.
     fn params(
@@ -595,6 +634,14 @@ impl On<'_> {
                 self.browser(&tiering.tiers, choice, Chosen::Escalated(call))
                     .await
             }
+            // A Challenge the program's code named moves as one the rules
+            // found does.
+            None if self.moves(&run.answer, choice) => {
+                self.lease.renew(self.lease.length());
+                drop(self.lease.restage());
+                self.browser(&tiering.tiers, choice, Chosen::Escalated(BLOCKED))
+                    .await
+            }
             _ => run.answer,
         };
         (answer, merged)
@@ -626,6 +673,9 @@ impl On<'_> {
         if matches!(run.answer, Answer::LeaseEnded | Answer::ClientGone) || !run.document {
             return (run.answer, merged, None);
         }
+        // A Challenge its handler named moves the domain to the browser,
+        // where the sample's browser run then serves the request.
+        self.moves(&run.answer, &SAMPLED);
         self.lease.renew(self.lease.length());
         let cheaper = self.lease.restage();
         // Where the Run allows it, the sample runs on `light_browser` too,
@@ -798,6 +848,9 @@ impl On<'_> {
                 Vec::new(),
             ));
         }
+        if let Some(challenged) = self.challenged(tiers, &page_id, choice, how).await {
+            return challenged;
+        }
         let merged = learn(run, tiers, &page_id, leased).await;
         let encoding = tiers.encoding(&page_id);
         let certificate_exception = tiers.certificate_exception(&page_id);
@@ -861,6 +914,38 @@ impl On<'_> {
             },
             merged,
         ))
+    }
+
+    /// How the run on `choice`, its page `page_id` served, ends when the
+    /// Block classification finds a Challenge on it: under `auto` it moves
+    /// to the browser, before the Frontier learns from its page or its
+    /// handler runs, and under a forced tier it ends `blocked`
+    /// (`escalation`); `None` for any other page. Other Block causes still
+    /// reach the handler until the proxy-tier escalation ends them (#1137).
+    async fn challenged(
+        &self,
+        tiers: &FetchTiers,
+        page_id: &PageId,
+        choice: &TierChoice,
+        how: Chosen,
+    ) -> Option<Result<(HttpRun, Vec<(String, String)>), (Answer, Vec<(String, String)>)>> {
+        let (block, error) = tiers
+            .block(page_id)
+            .await
+            .filter(|(block, _)| block.checks_the_browser())?;
+        tiers.close(page_id);
+        record_tier(self.run, self.leased, self.lease, choice, how, None, None).await;
+        Some(match self.on_block(block.cause, choice) {
+            Action::MoveToBrowser => Ok((
+                escalated_unhandled(
+                    BLOCKED,
+                    "A Challenge met on a tier short of the browser moved the request there.",
+                    BLOCKED,
+                ),
+                Vec::new(),
+            )),
+            Action::Blocked => Err((failed(&error), Vec::new())),
+        })
     }
 
     /// The document of the attempt's request fetched on `http` under the

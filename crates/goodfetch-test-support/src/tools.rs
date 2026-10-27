@@ -47,6 +47,11 @@ pub struct Tools {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "PathBuf")]
     pub conformance: Option<PathBuf>,
+    /// `goodfetch-stub-gateway`, the Stub gateway the Console conformance
+    /// suite runs against (ADR 0096).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "PathBuf")]
+    pub stub_gateway: Option<PathBuf>,
 }
 
 /// One executable of the manifest.
@@ -64,6 +69,8 @@ pub enum Tool {
     ScriptedEngine,
     /// `goodfetch-conformance`.
     Conformance,
+    /// `goodfetch-stub-gateway`.
+    StubGateway,
 }
 
 impl fmt::Display for Tool {
@@ -75,6 +82,7 @@ impl fmt::Display for Tool {
             Self::TestEnv => "test_env",
             Self::ScriptedEngine => "scripted_engine",
             Self::Conformance => "conformance",
+            Self::StubGateway => "stub_gateway",
         })
     }
 }
@@ -123,6 +131,7 @@ impl Tools {
             Tool::TestEnv => &self.test_env,
             Tool::ScriptedEngine => &self.scripted_engine,
             Tool::Conformance => &self.conformance,
+            Tool::StubGateway => &self.stub_gateway,
         };
         path.as_deref().ok_or(ToolsError::Missing(tool))
     }

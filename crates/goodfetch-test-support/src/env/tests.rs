@@ -280,36 +280,33 @@ fn a_log_level_keeps_the_settings_the_test_wrote_and_its_own_settings_win() {
 
 /// An engine reading the user configuration while the test sets a log
 /// level, as each engine a test starts beside another does, reads the file
-/// before or after, never cut: it always names its `version`.
+/// before or after, never cut: a read begun before the write ends on the
+/// text it began with, and a read begun after it reads the new text whole.
+/// The read straddles the write by itself, so the test needs no race and
+/// no count of synced writes, whose time the disk's other writers set.
 #[test]
 fn a_log_level_set_while_an_engine_reads_the_user_configuration_never_cuts_it() {
     let env = test_env("env::tests::log_level_read");
-    let file = env
-        .home()
-        .join(crate::runtime_file::major_folder(env!("CARGO_PKG_VERSION")))
-        .join("configuration.toml");
-    let (done, finished) = std::sync::mpsc::channel::<()>();
+    let before = user_configuration(&env);
+    let mut reading = std::fs::File::open(
+        env.home()
+            .join(crate::runtime_file::major_folder(env!("CARGO_PKG_VERSION")))
+            .join("configuration.toml"),
+    )
+    .unwrap();
+    let mut begun = [0_u8; 10];
+    std::io::Read::read_exact(&mut reading, &mut begun).unwrap();
 
-    let cut = std::thread::scope(|scope| {
-        let file = &file;
-        let reader = scope.spawn(move || {
-            let mut cut = 0_u32;
-            while finished.try_recv().is_err() {
-                let text = std::fs::read_to_string(file).unwrap_or_default();
-                if !text.starts_with("version = ") {
-                    cut += 1;
-                }
-            }
-            cut
-        });
-        for _ in 0..2_000 {
-            env.log_level("trace");
-        }
-        done.send(()).unwrap();
-        reader.join().unwrap()
-    });
+    env.log_level("trace");
 
-    assert_eq!(cut, 0);
+    let mut read = String::from_utf8(begun.to_vec()).unwrap();
+    std::io::Read::read_to_string(&mut reading, &mut read).unwrap();
+    assert_eq!(read, before);
+    assert_eq!(
+        user_configuration(&env),
+        "version = \"0.1\"\n\n[settings]\nlog.level = \"trace\"\nconsole.address = \"127.0.0.1:0\"\n\
+         log.output = \"file\"\n"
+    );
 }
 
 /// Under `just coverage`, every executable a test starts writes its

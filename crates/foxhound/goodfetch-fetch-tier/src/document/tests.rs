@@ -1,3 +1,5 @@
+use goodfetch_frontier::trap_links::{Seen, Sight};
+
 use super::{Matched, SelectorInvalid, matched};
 
 fn element(href: Option<&str>, text: &str, attributes: &[(&str, &str)]) -> Matched {
@@ -8,7 +10,7 @@ fn element(href: Option<&str>, text: &str, attributes: &[(&str, &str)]) -> Match
             .iter()
             .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
             .collect(),
-        seen: None,
+        sight: Sight::Markup(Seen::default()),
     }
 }
 

@@ -330,6 +330,7 @@ impl StateMachineTest for Subject {
                     goodfetch_frontier::RULES_TABLES,
                     goodfetch_frontier::payload::TABLES,
                     goodfetch_frontier::sitemap::TABLES,
+                    goodfetch_frontier::trap_links::TABLES,
                 ],
                 1,
                 &owner,

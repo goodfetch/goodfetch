@@ -286,6 +286,9 @@ CREATE TABLE tier_choices (
             PRIMARY KEY (label, domain_key)
         ) STRICT;
 INSERT INTO "tier_choices" VALUES('home','shop.test','{"kind":"split","segments":[{"name":"products","matched":3,"tier":"http"},{"name":"blog","matched":0,"tier":"browser"},{"name":"mixed","matched":1,"tier":null}],"since":1790000000000}');
+CREATE TABLE trap_link_suspected (
+            work_item TEXT NOT NULL PRIMARY KEY
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE url_fragments (
             scope TEXT NOT NULL PRIMARY KEY,
             keeps INTEGER NOT NULL

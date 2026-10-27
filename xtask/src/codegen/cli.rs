@@ -1,6 +1,7 @@
-//! The namespaces of the commands `goodfetch-cli` generates from Collie's
-//! catalog, as a Rust constant in `goodfetch-cli`, which a start reads
-//! instead of walking the catalog (ADRs 0071 and 0099). On the workspace
+//! The namespaces of the commands `goodfetch-cli` generates from Foxhound's
+//! catalog, which holds Collie's, each marked by the Product whose catalog
+//! first gives it a command, as a Rust constant in `goodfetch-cli`, which a
+//! start reads instead of walking the catalog (ADRs 0071 and 0099). On the workspace
 //! `xtask` is built from, `xtask` links `goodfetch-cli` and writes what its
 //! catalog gives; another workspace, such as a test's fixture, has no
 //! `goodfetch-cli` and no such file.

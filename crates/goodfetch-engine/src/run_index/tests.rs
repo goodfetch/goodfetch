@@ -13,6 +13,7 @@ use goodfetch_protocol::formats::{Compatibility, Format, RUN_INDEX};
 use goodfetch_protocol::run::{
     Lifecycle, PointInTime, Presence, RunId, RunIndexRow, RunKind, Tags,
 };
+use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 
 use super::{rows_as, write_as};
@@ -196,7 +197,9 @@ fn each_generated_refusal_of_the_run_index_gets_its_verdict(
 /// Engines that open a new Run index at once, one starting a Run while
 /// another reads "Needs you", each open it and read or write it, however
 /// their first statements interleave: none is refused `database is locked`
-/// while the busy timeout lets them take turns.
+/// while the busy timeout lets them take turns. Its 40 new indexes lie in
+/// memory, where it was red before the fix (2367d7ee2): on a busy disk their
+/// synced creations passed the Quick kill (fix-queue 123).
 ///
 /// Covers: format:run-index
 #[test]
@@ -206,9 +209,10 @@ fn each_generated_refusal_of_the_run_index_gets_its_verdict(
 )]
 fn engines_that_open_a_new_index_at_once_each_open_it() {
     const ENGINES: usize = 8;
+    let env = TestEnv::in_memory();
     let mut refused = Vec::new();
-    for _ in 0..40 {
-        let (_folder, path) = index();
+    for round in 0..40 {
+        let path = env.folder().join(format!("run-index-{round}.sqlite"));
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(ENGINES));
         let engines: Vec<_> = (0..ENGINES)
             .map(|engine| {

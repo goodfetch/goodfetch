@@ -18,7 +18,12 @@
 //! fixture, so serving a page allocates only its head. `pages.source.toml`
 //! records the bodies' total bytes, which `xtask perf` divides the crawl's
 //! total bytes by (ADR 0134's 2× ceiling).
+#![expect(
+    clippy::disallowed_types,
+    reason = "the site's one counter of the bytes it sent, read once the crawl ended: no lock and no order to test under loom (ADR 0060)"
+)]
 
+use std::fmt::Write as _;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -65,9 +70,13 @@ struct Page {
 /// The page at `path`, `None` for a path the site does not serve.
 fn page(path: &str) -> Option<Page> {
     if path == "/" {
-        let links: String = (0..PAGES.len())
-            .map(|number| format!("<li><a href=\"/page-{number}\">Page {number}</a></li>"))
-            .collect();
+        let mut links = String::new();
+        for number in 0..PAGES.len() {
+            let _ = write!(
+                links,
+                "<li><a href=\"/page-{number}\">Page {number}</a></li>"
+            );
+        }
         return Some(Page {
             head: head("Index", &links),
             paragraphs: PAGES[0],

@@ -22,6 +22,10 @@ mod content_types;
 mod crawl;
 // The crawl benchmark's scenario, which `in_memory_crawl` checks.
 #[path = "../../benches/scenarios.rs"]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the scenario runs on the test Clock and Entropy (ADR 0059)"
+)]
 mod crawl_scenario;
 mod daemon;
 mod dataset_pages;

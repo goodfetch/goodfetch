@@ -13,6 +13,10 @@ use serde_json::Value;
 use crate::crawl_scenario::{PAGES, body_bytes, crawl};
 
 /// The total body bytes `benches/pages.source.toml` records.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the fixture's source file before the engine starts, on no async worker"
+)]
 fn recorded_body_bytes() -> u64 {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/pages.source.toml");
     let recorded: toml::Table = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();

@@ -5,6 +5,7 @@
 // attributes. A locator is `{ kind, selector }`: `css`, a CSS selector, or
 // `xpath`, an XPath 1.0 expression whose first node in document order is
 // read. A selector or expression the page refuses throws.
+/* eslint-disable unicorn/consistent-function-scoping -- CDP sends the function alone */
 // eslint-disable-next-line no-unused-vars -- `Runtime.callFunctionOn` calls it
 function fieldElements({ locators }) {
   const first = ({ kind, selector }) => {

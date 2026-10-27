@@ -84,7 +84,7 @@ fn before_unchained_after() -> impl Strategy<Value = (u64, u64, u64)> {
 /// Covers: story:4-74
 #[test]
 fn an_unchained_runs_entry_is_marked_unchained_and_hashed_alone() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = around(&env, 1, 1, 0);
 
     let stored: (String, String) = rusqlite::Connection::open(log.path())
@@ -109,7 +109,7 @@ fn an_unchained_runs_entry_is_marked_unchained_and_hashed_alone() {
 /// Covers: story:4-74
 #[test]
 fn the_switch_of_an_unchained_run_is_recorded_chained() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = around(&env, 0, 1, 0);
 
     log.record_chained(
@@ -141,7 +141,7 @@ fn the_switch_of_an_unchained_run_is_recorded_chained() {
 /// A Run chained again records chained entries.
 #[test]
 fn a_run_chained_again_records_chained_entries() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = around(&env, 0, 1, 0);
 
     let was_unchained = log.rechain(&unchained_run());
@@ -160,7 +160,7 @@ fn a_run_chained_again_records_chained_entries() {
 /// breaks the chain at the next chained entry, which was chained to it.
 #[test]
 fn a_chained_entry_turned_unchained_breaks_the_chain_at_the_next() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = around(&env, 3, 0, 0);
     let entry: String = rusqlite::Connection::open(log.path())
         .unwrap()
@@ -190,7 +190,7 @@ fn a_chained_entry_turned_unchained_breaks_the_chain_at_the_next() {
 /// Covers: story:4-72
 #[test]
 fn pruning_through_unchained_entries_leaves_an_anchor_the_rest_chains_from() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = log(&env);
     let long_ago = now() - SignedDuration::from_hours(240);
     log.record(
@@ -229,7 +229,7 @@ proptest! {
     fn the_chain_around_an_unchained_runs_entries_verifies_intact(
         (before, unchained, after) in before_unchained_after()
     ) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = around(&env, before, unchained, after);
         let marked: Vec<bool> = log
             .export()
@@ -253,7 +253,7 @@ proptest! {
     fn an_edit_after_an_unchained_runs_entries_is_reported_at_its_sequence(
         (before, unchained, after) in (0..=3_u64, 1..=3_u64, 1..=3_u64)
     ) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = around(&env, before, unchained, after);
         let edited = before + unchained + 1;
         tamper(&log)
@@ -271,7 +271,7 @@ proptest! {
     fn a_deleted_unchained_entry_is_reported_at_its_sequence(
         (before, unchained, after) in before_unchained_after()
     ) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = around(&env, before, unchained, after.max(1));
         let deleted = before + 1;
         tamper(&log)

@@ -82,7 +82,7 @@ proptest! {
     /// Covers: story:4-72, setting:audit.retention
     #[test]
     fn pruning_leaves_an_anchor_then_the_newer_entries_as_they_were((old, new) in old_and_new()) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = aged(&env, old, new);
         let before = log.export().unwrap();
         let last_pruned = hash_of(&before, old);
@@ -130,7 +130,7 @@ proptest! {
     /// Covers: story:4-72, setting:audit.retention
     #[test]
     fn a_pruned_log_verifies_intact_from_its_anchor((old, new) in old_and_new()) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = aged(&env, old, new);
 
         log.prune(DAY, None, now()).unwrap();
@@ -145,7 +145,7 @@ proptest! {
     /// Covers: story:4-72
     #[test]
     fn an_edited_entry_after_the_anchor_is_reported_at_its_sequence((old, new) in old_and_new()) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = aged(&env, old, new);
         log.prune(DAY, None, now()).unwrap();
         let edited = old + new;
@@ -164,7 +164,7 @@ proptest! {
     /// Covers: story:4-72
     #[test]
     fn an_edited_anchor_is_reported_at_its_sequence((old, new) in old_and_new()) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = aged(&env, old, new);
         log.prune(DAY, None, now()).unwrap();
         tamper(&log)
@@ -183,7 +183,7 @@ proptest! {
     /// Covers: story:4-72
     #[test]
     fn an_anchor_moved_past_an_entry_is_reported_at_its_sequence((old, new) in old_and_new()) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = aged(&env, old, new);
         log.prune(DAY, None, now()).unwrap();
         let exported = log.export().unwrap();
@@ -211,7 +211,7 @@ proptest! {
     /// Covers: story:4-72
     #[test]
     fn an_anchor_with_another_hash_is_reported((old, new) in old_and_new()) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let log = aged(&env, old, new);
         log.prune(DAY, None, now()).unwrap();
         let other = "0".repeat(64);
@@ -230,7 +230,7 @@ proptest! {
 /// Covers: story:4-72
 #[test]
 fn an_edited_anchor_in_an_export_is_reported_at_its_sequence() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = aged(&env, 2, 2);
     log.prune(DAY, None, now()).unwrap();
     let mut lines = jsonl(&log.export().unwrap());
@@ -242,7 +242,7 @@ fn an_edited_anchor_in_an_export_is_reported_at_its_sequence() {
 /// Covers: story:4-72, setting:audit.retention
 #[test]
 fn a_log_with_nothing_older_than_its_retention_is_not_pruned() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = aged(&env, 0, 3);
     let before = log.export().unwrap();
 
@@ -256,7 +256,7 @@ fn a_log_with_nothing_older_than_its_retention_is_not_pruned() {
 /// Covers: story:4-72, setting:audit.retention
 #[test]
 fn a_second_pruning_moves_the_anchor_and_the_log_verifies_from_it() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = aged(&env, 2, 1);
     log.prune(DAY, None, now()).unwrap();
     let later = now() + SignedDuration::from_hours(48);

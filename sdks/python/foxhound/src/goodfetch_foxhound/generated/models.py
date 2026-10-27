@@ -1892,9 +1892,9 @@ class ExtractionField(BaseModel):
     """What finds its element."""
     match: FieldMatch | None = None
     """The `match` that picks the text its transform reads."""
-    transform: Annotated[FieldTransform | None, Field(validate_default=True)] = {
-        "kind": "text"
-    }
+    transform: Annotated[FieldTransform | None, Field(validate_default=True)] = Field(
+        default_factory=lambda: FieldTransform.model_validate({"kind": "text"})
+    )
     """Its Value transform: `text` by default."""
 
 

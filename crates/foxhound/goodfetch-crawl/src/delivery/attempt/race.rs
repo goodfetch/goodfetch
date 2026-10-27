@@ -20,8 +20,8 @@ use serde_json::Map;
 use tokio::sync::oneshot;
 
 use super::{
-    Answer, BROWSER, On, PAGE_CHECK_FAILED, RACED, Tiering, failed, judged, learn, read_by_browser,
-    record_tier, refused_type,
+    Answer, BLOCKED, BROWSER, On, PAGE_CHECK_FAILED, RACED, Tiering, failed, judged, learn,
+    read_by_browser, record_tier, refused_type,
 };
 use crate::lease::WorkItemLease;
 use crate::tier_race::Raced;
@@ -73,7 +73,17 @@ impl On<'_> {
             let latency = run.clock().now().duration_since(started);
             // A document only a guess could read never wins: the
             // browser reads it (ADR 0119).
+            // Nor does a Challenge: the navigation meets it in the
+            // browser, and the domain learns the move (`escalation`).
+            let challenged = match tiers.block(&page_id).await {
+                Some((block, _)) if block.checks_the_browser() => {
+                    self.on_block(block.cause, &RACED);
+                    true
+                }
+                _ => false,
+            };
             let passed = tiers.escalated(&page_id).is_none()
+                && !challenged
                 && matches!(
                     judged(run, tiering, &page_id).await,
                     Some(Judged::Passed) | None
@@ -152,6 +162,12 @@ impl On<'_> {
                         self.lease.renew(self.lease.length());
                         self.lease.restage();
                         self.browser(tiers, &BROWSER, Chosen::Escalated(call)).await
+                    }
+                    None if self.moves(&answer, &RACED) => {
+                        self.lease.renew(self.lease.length());
+                        self.lease.restage();
+                        self.browser(tiers, &BROWSER, Chosen::Escalated(BLOCKED))
+                            .await
                     }
                     _ => answer,
                 };

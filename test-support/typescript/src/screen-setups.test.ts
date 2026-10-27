@@ -32,6 +32,12 @@ describe("parseScreenSetups", () => {
     });
   });
 
+  test("reads a ready element named by the text it shows, for a screen whose answer has no role", () => {
+    const setups = parseScreenSetups(`${ENTRY}ready = "text Nothing needs you now."\n`);
+
+    expect(setups.get("screen:/runs/$run")?.ready).toEqual({ text: "Nothing needs you now." });
+  });
+
   test("reads a file of comments only as no entry", () => {
     const setups = parseScreenSetups("# No screen yet.\n");
 

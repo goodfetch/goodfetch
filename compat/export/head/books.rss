@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+<title>books</title>
+<link>urn:goodfetch:dataset:books</link>
+<description>books</description>
+<item><title>Café</title><link>https://shop.test/1</link><pubDate>Fri, 2 Jan 2026 08:00:00 +0000</pubDate><guid isPermaLink="true">https://shop.test/1</guid></item>
+<item><title></title><guid isPermaLink="false">urn:goodfetch:dataset:books:2</guid></item>
+<item><title>Ünïcode</title><guid isPermaLink="false">urn:goodfetch:dataset:books:3</guid><category domain="urn:goodfetch:wall">paywall</category></item>
+</channel>
+</rss>

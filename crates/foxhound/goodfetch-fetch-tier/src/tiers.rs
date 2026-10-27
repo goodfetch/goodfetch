@@ -51,7 +51,9 @@ use goodfetch_page::page_value::{
 };
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::CLOSED;
-use goodfetch_protocol::foxhound::crawl::{CRAWL_CONTENT_TYPES, CrawlRequest};
+use goodfetch_protocol::foxhound::crawl::{
+    CRAWL_CONTENT_TYPES, CRAWL_START, CrawlRequest, FieldLocator,
+};
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_HEDGE_ENABLED, FETCH_LIGHT_BROWSER, FETCH_REDIRECT_MAX, FETCH_TIER,
     FETCH_TIER_RACE, FetchTier, REDIRECT_MAX_LIMIT,
@@ -85,7 +87,7 @@ use crate::choice::{
 };
 use crate::content_types::{Accepts, ContentTypes, is_document, typed};
 use crate::discovered_api::Plan;
-use crate::document::{self, Matched, SelectorInvalid, matched};
+use crate::document::{self, FieldElement, Matched, SelectorInvalid, matched};
 use crate::driver::{Deadlines, Hop, Transport, fetch, fetch_accepting};
 use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
@@ -362,6 +364,21 @@ pub enum Judged {
 /// What Provenance names as the cause of an escalation by the Page check,
 /// in place of a call: the setting.
 pub const PAGE_CHECK_CALL: &str = "session.page_check";
+
+/// What Provenance names as the call that escalated a code-free crawl's
+/// page to the browser by a field's `XPath` locator, which a served
+/// document does not read (ADR 0123).
+pub const XPATH_FIELD_CALL: &str = "crawl.extraction.fields";
+
+/// The first element each of a code-free crawl's field locators found in
+/// a page, in order, with the document's base URL (ADR 0123).
+#[derive(Clone, Debug)]
+pub struct FieldElements {
+    /// The document's base URL.
+    pub base_url: String,
+    /// The first element each locator found; `None` for one that found none.
+    pub elements: Vec<Option<FieldElement>>,
+}
 
 /// What the Frontier learns from a served page (ADRs 0005 and 0120).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1022,6 +1039,93 @@ impl FetchTiers {
             })
             .await;
         Some(read.map_err(LinksUnread::Selector))
+    }
+
+    /// The first element each of `locators` finds in the page `page_id`'s
+    /// document: a served page's, read on its Run's blocking owner, which
+    /// reads CSS selectors alone, an `XPath` locator escalating the page
+    /// under `auto` (refused with `browser_required` under a forced tier);
+    /// a browser page's, read by the page itself (ADR 0123). `None` when no
+    /// tier serves that page, as a closed one.
+    ///
+    /// # Errors
+    ///
+    /// The escalation's, `invalid_params` for a CSS selector the engine
+    /// does not read, and those of the browser page's read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only what it reads; the page stays open.
+    pub async fn field_elements(
+        &self,
+        page_id: &PageId,
+        locators: &[FieldLocator],
+    ) -> Option<Result<FieldElements, CallError>> {
+        let served = {
+            let pages = lock(&self.served.pages);
+            pages.open.get(page_id).map(|page| page.document.clone())
+        };
+        let Some(served) = served else {
+            return self.browser_field_elements(page_id, locators).await;
+        };
+        let mut selectors = Vec::with_capacity(locators.len());
+        for locator in locators {
+            match locator {
+                FieldLocator::Css { selector } => selectors.push(selector.clone()),
+                FieldLocator::Xpath { .. } => {
+                    return Some(Err(self.unserved(page_id, XPATH_FIELD_CALL, false)));
+                }
+            }
+        }
+        let run = served.run.clone();
+        let read = run
+            .owner()
+            .blocking(move || {
+                document::first_elements(&served.html, &selectors).map(|elements| FieldElements {
+                    base_url: served.base_url,
+                    elements,
+                })
+            })
+            .await;
+        Some(read.map_err(|invalid| {
+            CallError::protocol(ProtocolFailure::InvalidParams, invalid.to_string())
+        }))
+    }
+
+    /// The first element each of `locators` finds in the browser page
+    /// `page_id`'s document, as [`FetchTiers::field_elements`] reads them;
+    /// `None` for a page no browser holds.
+    async fn browser_field_elements(
+        &self,
+        page_id: &PageId,
+        locators: &[FieldLocator],
+    ) -> Option<Result<FieldElements, CallError>> {
+        let pages = self.served.browser.get()?;
+        let answer = match pages
+            .read(
+                page_id,
+                document::FIELDS_READ,
+                serde_json::json!({ "locators": locators }),
+                CRAWL_START.name,
+            )
+            .await
+        {
+            Ok(Some(answer)) => answer,
+            // Its document went, or the page closed: no tier serves it now.
+            Ok(None) => return None,
+            Err(error) if error.code() == CLOSED.name => return None,
+            Err(error) => return Some(Err(error)),
+        };
+        Some(
+            document::browser_fields(&answer)
+                .map(|(base_url, elements)| FieldElements { base_url, elements })
+                .ok_or_else(|| {
+                    CallError::protocol(
+                        ProtocolFailure::InternalError,
+                        "the browser page's read of a code-free crawl's fields answered no list of elements",
+                    )
+                }),
+        )
     }
 
     /// The elements `selector` matches in the browser page `page_id`'s

@@ -341,6 +341,23 @@
             },
             "type": "object"
           },
+          "export": {
+            "additionalProperties": false,
+            "properties": {
+              "json": {
+                "additionalProperties": false,
+                "properties": {
+                  "indent": {
+                    "description": "How many spaces a JSON Export indents each level by: 0, the default, writes the array and each Record's value on one line, as committed; 1 to 8 write the array one value per line and each value's members on lines of their own, indented by that many spaces per level. JSONL is one line per Record either way. A count above 8 fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
           "fetch": {
             "additionalProperties": false,
             "properties": {
@@ -1432,6 +1449,53 @@
                 },
                 "type": "object"
               },
+              "feed": {
+                "additionalProperties": false,
+                "properties": {
+                  "link": {
+                    "description": "The field of each Record that an RSS item's or an Atom entry's link is taken from: `url` by default; it is also the entry's ID in Atom and the item's `guid` in RSS. A Record without it gets no link, and in Atom an ID from the Run, the Dataset and its number. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
+                  },
+                  "published": {
+                    "description": "The field of each Record that an RSS item's `pubDate` and an Atom entry's `published` and `updated` are taken from: `published` by default, read as an RFC 3339 or RFC 2822 date and time. A Record without it, or whose value is no such date, gets no date in RSS, and in Atom the time it was committed as `updated`. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
+                  },
+                  "summary": {
+                    "description": "The field of each Record that an RSS item's `description` and an Atom entry's `summary` are taken from, as text: `summary` by default. A Record without it gets none. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
+                  },
+                  "title": {
+                    "description": "The field of each Record that an RSS item's or an Atom entry's title is taken from: `title` by default. A Record without it gets an empty title, or in RSS none where it has a summary. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "json": {
+                "additionalProperties": false,
+                "properties": {
+                  "indent": {
+                    "description": "How many spaces a JSON Export indents each level by: 0, the default, writes the array and each Record's value on one line, as committed; 1 to 8 write the array one value per line and each value's members on lines of their own, indented by that many spaces per level. JSONL is one line per Record either way. A count above 8 fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "parquet": {
+                "additionalProperties": false,
+                "properties": {
+                  "compression": {
+                    "description": "The codec a Parquet Export compresses each column's pages with: `zstd`, the default, `snappy`, or `none`. It is inside the file, which every Parquet reader decodes, apart from the Export's own `compression`. Set for the connection or the Run.",
+                    "enum": [
+                      "zstd",
+                      "snappy",
+                      "none"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
               "xlsx": {
                 "additionalProperties": false,
                 "properties": {
@@ -1445,6 +1509,20 @@
                       }
                     ],
                     "description": "The name of an XLSX Export's one sheet: none by default, which names it after the Dataset, each character a sheet name cannot hold (`:`, `\\`, `/`, `?`, `*`, `[` and `]`) written as `_` and cut to 31 characters. A name that is empty, longer than 31 characters, holds one of those characters, or starts or ends with `'` fails the Export with `setting_invalid`. Set for the connection or the Run."
+                  }
+                },
+                "type": "object"
+              },
+              "xml": {
+                "additionalProperties": false,
+                "properties": {
+                  "record": {
+                    "description": "The name of the element an XML Export writes each Record in: `record` by default. A text that is no XML name without a colon (a letter or `_`, then letters, digits, `-`, `.` and `_`) fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
+                  },
+                  "root": {
+                    "description": "The name of an XML Export's root element, which holds one element per Record: `records` by default. A text that is no XML name without a colon (a letter or `_`, then letters, digits, `-`, `.` and `_`) fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
                   }
                 },
                 "type": "object"
@@ -3931,6 +4009,53 @@
                 },
                 "type": "object"
               },
+              "feed": {
+                "additionalProperties": false,
+                "properties": {
+                  "link": {
+                    "description": "The field of each Record that an RSS item's or an Atom entry's link is taken from: `url` by default; it is also the entry's ID in Atom and the item's `guid` in RSS. A Record without it gets no link, and in Atom an ID from the Run, the Dataset and its number. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
+                  },
+                  "published": {
+                    "description": "The field of each Record that an RSS item's `pubDate` and an Atom entry's `published` and `updated` are taken from: `published` by default, read as an RFC 3339 or RFC 2822 date and time. A Record without it, or whose value is no such date, gets no date in RSS, and in Atom the time it was committed as `updated`. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
+                  },
+                  "summary": {
+                    "description": "The field of each Record that an RSS item's `description` and an Atom entry's `summary` are taken from, as text: `summary` by default. A Record without it gets none. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
+                  },
+                  "title": {
+                    "description": "The field of each Record that an RSS item's or an Atom entry's title is taken from: `title` by default. A Record without it gets an empty title, or in RSS none where it has a summary. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "json": {
+                "additionalProperties": false,
+                "properties": {
+                  "indent": {
+                    "description": "How many spaces a JSON Export indents each level by: 0, the default, writes the array and each Record's value on one line, as committed; 1 to 8 write the array one value per line and each value's members on lines of their own, indented by that many spaces per level. JSONL is one line per Record either way. A count above 8 fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "parquet": {
+                "additionalProperties": false,
+                "properties": {
+                  "compression": {
+                    "description": "The codec a Parquet Export compresses each column's pages with: `zstd`, the default, `snappy`, or `none`. It is inside the file, which every Parquet reader decodes, apart from the Export's own `compression`. Set for the connection or the Run.",
+                    "enum": [
+                      "zstd",
+                      "snappy",
+                      "none"
+                    ]
+                  }
+                },
+                "type": "object"
+              },
               "xlsx": {
                 "additionalProperties": false,
                 "properties": {
@@ -3944,6 +4069,20 @@
                       }
                     ],
                     "description": "The name of an XLSX Export's one sheet: none by default, which names it after the Dataset, each character a sheet name cannot hold (`:`, `\\`, `/`, `?`, `*`, `[` and `]`) written as `_` and cut to 31 characters. A name that is empty, longer than 31 characters, holds one of those characters, or starts or ends with `'` fails the Export with `setting_invalid`. Set for the connection or the Run."
+                  }
+                },
+                "type": "object"
+              },
+              "xml": {
+                "additionalProperties": false,
+                "properties": {
+                  "record": {
+                    "description": "The name of the element an XML Export writes each Record in: `record` by default. A text that is no XML name without a colon (a letter or `_`, then letters, digits, `-`, `.` and `_`) fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
+                  },
+                  "root": {
+                    "description": "The name of an XML Export's root element, which holds one element per Record: `records` by default. A text that is no XML name without a colon (a letter or `_`, then letters, digits, `-`, `.` and `_`) fails the Export with `setting_invalid`. Set for the connection or the Run.",
+                    "type": "string"
                   }
                 },
                 "type": "object"

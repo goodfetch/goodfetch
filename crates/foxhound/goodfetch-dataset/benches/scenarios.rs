@@ -6,7 +6,8 @@
 //! timing.
 
 use goodfetch_dataset::{
-    Columns, Committing, Datasets, ExportEncoder, ExportOptions, Query, TABLES, commit, read_values,
+    Columns, Committing, Datasets, ExportEncoder, ExportOptions, Exported, Query, TABLES, commit,
+    read_values,
 };
 use goodfetch_engine::mask::Masks;
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
@@ -81,6 +82,7 @@ pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
             certificate_exception: None,
             robots_txt: None,
             value_transforms: Vec::new(),
+            unread_fields: Vec::new(),
         };
         commit(
             &connection,
@@ -112,14 +114,23 @@ pub(crate) fn export(connection: &Connection, format: ExportFormat) -> usize {
                 dataset: "books",
                 after,
                 through: None,
+                wall: None,
             },
             PAGE,
         )
         .expect("invariant: the Records read back");
         let full = page.len() == PAGE;
-        for (number, value) in page {
-            encoder.value(&value, &mut bytes);
-            after = number;
+        for record in &page {
+            encoder.value(
+                &Exported {
+                    number: record.number,
+                    value: &record.value,
+                    wall: record.wall.as_deref(),
+                    committed_at: &record.committed_at,
+                },
+                &mut bytes,
+            );
+            after = record.number;
         }
         if !full {
             break;

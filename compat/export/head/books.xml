@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<records xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<record><in_stock>true</in_stock><price>12.5</price><published>2026-01-02T08:00:00Z</published><tags><item>roman</item><item>poche</item></tags><title>Café</title><url>https://shop.test/1</url></record>
+<record><astral>𝄞</astral><bidi>שלום ‏world‎ مرحبا ⁧עברית⁩ end</bidi><bom>﻿leads with a byte order mark</bom><nfc>café</nfc><nfd>café</nfd><tab_and_newline>one	two
+three</tab_and_newline><zero_width_joiner>a‍b</zero_width_joiner><zwj_emoji>👩‍👩‍👧</zwj_emoji></record>
+<record><field name="#wall"><kind>paywall</kind></field><in_stock>false</in_stock><price xsi:nil="true"/><tags></tags><title>Ünïcode</title></record>
+</records>

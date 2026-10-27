@@ -6318,7 +6318,87 @@
       ]
     },
     {
+      "id": "setting:export.feed.link",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:export.feed.published",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:export.feed.summary",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:export.feed.title",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:export.json.indent",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:export.parquet.compression",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:export.xlsx.sheet",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:export.xml.record",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:export.xml.root",
       "kind": "setting",
       "area": 6,
       "milestone": null,
@@ -19631,7 +19711,27 @@
       ]
     },
     {
+      "id": "story:6-274",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:6-275",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-276",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",
@@ -19652,6 +19752,16 @@
     },
     {
       "id": "story:6-278",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-279",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

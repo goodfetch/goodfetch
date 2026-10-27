@@ -34,7 +34,7 @@ use tokio::time::Instant;
 
 pub(crate) use crate::staging::SoFar;
 use crate::staging::{SetAside, Staging};
-use crate::work_items::{self, Fetched};
+use crate::work_items::{self, Fetched, FieldsRead};
 
 /// The `tracing` target of the run fencing model's transitions.
 pub(crate) const TARGET: &str = "goodfetch::lease";
@@ -300,6 +300,16 @@ impl WorkItemLease {
             .fetched(&self.0.work_item, epoch, fetched);
     }
 
+    /// Notes what its attempt read of its page's fields, which the
+    /// Provenance of the Record it commits names (ADR 0123).
+    pub(crate) fn fields_read(&self, fields: FieldsRead) {
+        let epoch = self.0.state.borrow().lease.epoch();
+        self.0
+            .leases
+            .staging
+            .fields_read(&self.0.work_item, epoch, fields);
+    }
+
     /// What its attempt staged so far, which stays staged.
     pub(crate) fn pushed(&self) -> SoFar {
         let epoch = self.0.state.borrow().lease.epoch();
@@ -379,11 +389,13 @@ impl WorkItemLease {
                 let writes = staged.admit(connection)?;
                 let files = goodfetch_engine::key_value_store::apply(connection, writes)?;
                 let fetched = staged.fetched().clone();
+                let fields = staged.fields().clone();
                 let mut records = staged.records();
                 records.append(answered);
                 let committed = work_items::Committed {
                     records: &records,
                     fetched: &fetched,
+                    fields: &fields,
                     masks: &masks,
                     ended_at: &ended_at,
                 };

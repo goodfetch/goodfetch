@@ -46,11 +46,48 @@ impl Cell {
     }
 }
 
+/// The type a typed format (Parquet, Avro, Arrow IPC) gives a column, from
+/// every value seen in it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Kind {
+    /// No value but `null` seen yet: a string column.
+    #[default]
+    Unseen,
+    /// Only `true` and `false`.
+    Boolean,
+    /// Only whole numbers a 64-bit integer holds.
+    Integer,
+    /// Only numbers, some not such whole numbers.
+    Float,
+    /// Anything else: each cell's text.
+    Text,
+}
+
+impl Kind {
+    /// The kind of a column that held this kind's values and `cell`.
+    fn with(self, cell: &Cell, value: &Value) -> Self {
+        let kind = match (cell, value) {
+            (Cell::Empty, _) => return self,
+            (Cell::Boolean(_), _) => Self::Boolean,
+            (Cell::Number(_), Value::Number(number)) if number.is_i64() => Self::Integer,
+            (Cell::Number(_), Value::Number(number)) if number.is_f64() => Self::Float,
+            _ => Self::Text,
+        };
+        match (self, kind) {
+            (Self::Unseen, kind) => kind,
+            (old, new) if old == new => old,
+            (Self::Integer | Self::Float, Self::Integer | Self::Float) => Self::Float,
+            _ => Self::Text,
+        }
+    }
+}
+
 /// The columns of a table Export, as its Records are seen.
 #[derive(Clone, Debug, Default)]
 pub struct Columns {
     nested: Nested,
     names: Vec<String>,
+    kinds: Vec<Kind>,
     index: HashMap<String, usize>,
 }
 
@@ -61,6 +98,7 @@ impl Columns {
         Self {
             nested,
             names: Vec::new(),
+            kinds: Vec::new(),
             index: HashMap::new(),
         }
     }
@@ -68,12 +106,23 @@ impl Columns {
     /// Adds the fields of the Record whose committed JSON text is `json`
     /// that no Record seen before had, after those.
     pub fn see(&mut self, json: &str) {
-        for (name, _) in self.fields(&parsed(json)) {
-            if !self.index.contains_key(&name) {
+        let record = parsed(json);
+        for (name, value) in self.fields(&record) {
+            let column = if let Some(&column) = self.index.get(&name) {
+                column
+            } else {
                 self.index.insert(name.clone(), self.names.len());
                 self.names.push(name);
-            }
+                self.kinds.push(Kind::Unseen);
+                self.names.len() - 1
+            };
+            self.kinds[column] = self.kinds[column].with(&cell(value), value);
         }
+    }
+
+    /// Each column's type, in the columns' order.
+    pub(crate) fn kinds(&self) -> &[Kind] {
+        &self.kinds
     }
 
     /// The columns' names, in first-seen order.

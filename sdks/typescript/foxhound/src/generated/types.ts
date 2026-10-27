@@ -307,19 +307,32 @@ export type EnqueuedLink =
       url: string;
     };
 /**
- * How an Export's bytes are compressed.
+ * How an Export's bytes are compressed: the whole file, once written in
+ * its format.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "ExportCompression".
  */
-export type ExportCompression = "none";
+export type ExportCompression = "none" | "gzip" | "zstd";
 /**
  * An Export's format, named, never inferred from a file name (ADR 0103).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "ExportFormat".
  */
-export type ExportFormat = "json" | "jsonl" | "csv" | "xlsx" | "html_table" | "markdown";
+export type ExportFormat =
+  | "json"
+  | "jsonl"
+  | "csv"
+  | "xlsx"
+  | "html_table"
+  | "markdown"
+  | "xml"
+  | "parquet"
+  | "avro"
+  | "arrow_ipc"
+  | "rss"
+  | "atom";
 /**
  * An Export of a Run, named by the engine when its file is whole:
  * `<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase
@@ -344,6 +357,73 @@ export type ExtractionFollow = "scope" | "sitemap" | "none";
  * via the `definition` "FetchTier".
  */
 export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
+/**
+ * What finds a field's element, named by `kind`: a CSS selector or an
+ * `XPath` expression. A page a fetch tier serves from its document reads
+ * a CSS selector; an `XPath` expression is read by the browser, to which
+ * the request escalates under `fetch.tier: auto` (`browser_required`
+ * under a forced cheaper tier).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "FieldLocator".
+ */
+export type FieldLocator =
+  | {
+      kind: "css";
+      /**
+       * The selector.
+       */
+      selector: string;
+    }
+  | {
+      kind: "xpath";
+      /**
+       * The expression.
+       */
+      selector: string;
+    };
+/**
+ * A field's Value transform (ADR 0123), named by `kind`, each
+ * locale-dependent one stating its locale, a BCP 47 tag. A `number`,
+ * `date` or `date_time` reads the machine-readable value of a `<time
+ * datetime>`, a `<data value>` or an element's `content` attribute in its
+ * invariant form (ISO 8601, a plain decimal with a dot), whatever the
+ * locale; a text printed for people, read under its locale's CLDR forms,
+ * is the Value transforms' parsers' (#844, #848), and until they land is
+ * not a value.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "FieldTransform".
+ */
+export type FieldTransform =
+  | {
+      kind: "text";
+    }
+  | {
+      kind: "number";
+      /**
+       * Its locale.
+       */
+      locale: string;
+    }
+  | {
+      kind: "date";
+      /**
+       * Its locale.
+       */
+      locale: string;
+    }
+  | {
+      kind: "date_time";
+      /**
+       * Its locale.
+       */
+      locale: string;
+      /**
+       * The time zone, an IANA name, of a text that states none.
+       */
+      time_zone?: string | null;
+    };
 /**
  * The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.
  *
@@ -448,6 +528,13 @@ export type SortDirection = "ascending" | "descending";
  */
 export type TierChosen = "forced" | "compared" | "sample" | "escalation" | "race";
 /**
+ * Why a field of a code-free crawl's Record is null.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "UnreadReason".
+ */
+export type UnreadReason = "no_element" | "no_attribute" | "no_match" | "not_parsed" | "no_time_zone";
+/**
  * One of the engine's closed list of Value transforms (ADR 0123).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -537,12 +624,22 @@ export interface CountOf {
  * `url`, whose JSON Schema is generated from `formats`, and commits one
  * Record per page fetched: the page's formats, as `page.formats` answers
  * them (its `url` the document's, after redirects), its response's
- * `status` and `fetchedAt`, when the engine read it.
+ * `status` and `fetchedAt`, when the engine read it, and its named
+ * `fields`, each read by a locator and given by a Value transform (ADR
+ * 0123).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "CrawlExtraction".
  */
 export interface CrawlExtraction {
+  /**
+   * The named fields each page's Record holds beside its formats, by
+   * name, which no format's property and neither `status` nor
+   * `fetchedAt` may take; none by default.
+   */
+  fields?: {
+    [k: string]: ExtractionField;
+  };
   /**
    * Which pages the crawl fetches beyond its seeds: `scope` by default.
    */
@@ -551,6 +648,96 @@ export interface CrawlExtraction {
    * The formats each page's Record holds, as `page.formats` takes them.
    */
   formats: FormatsRequest;
+}
+/**
+ * One named field of a code-free crawl's Records (ADR 0123): the first
+ * element its locator finds in the page, its text, its runs of white
+ * space read as one space and trimmed, or one of its attributes, an
+ * `href` or `src` resolved against the document's base URL; optionally a
+ * capture group of a regular expression over that text; then its Value
+ * transform. A field the page does not give is null, and the Record's
+ * Provenance names why (`unread_fields`).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "ExtractionField".
+ */
+export interface ExtractionField {
+  /**
+   * The attribute read in place of the element's text.
+   */
+  attribute?: string | null;
+  /**
+   * What finds its element.
+   */
+  locator:
+    | {
+        kind: "css";
+        /**
+         * The selector.
+         */
+        selector: string;
+      }
+    | {
+        kind: "xpath";
+        /**
+         * The expression.
+         */
+        selector: string;
+      };
+  /**
+   * The `match` that picks the text its transform reads.
+   */
+  match?: FieldMatch | null;
+  /**
+   * Its Value transform: `text` by default.
+   */
+  transform?:
+    | {
+        kind: "text";
+      }
+    | {
+        kind: "number";
+        /**
+         * Its locale.
+         */
+        locale: string;
+      }
+    | {
+        kind: "date";
+        /**
+         * Its locale.
+         */
+        locale: string;
+      }
+    | {
+        kind: "date_time";
+        /**
+         * Its locale.
+         */
+        locale: string;
+        /**
+         * The time zone, an IANA name, of a text that states none.
+         */
+        time_zone?: string | null;
+      };
+}
+/**
+ * The `match` before a field's transform (ADR 0123): a capture group of a
+ * regular expression, in the `regex` crate's syntax (ADR 0081), over the
+ * text read; that group's text is what the transform reads.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "FieldMatch".
+ */
+export interface FieldMatch {
+  /**
+   * The capture group, 1 by default; 0 is the whole match.
+   */
+  group?: number;
+  /**
+   * The expression's source.
+   */
+  pattern: string;
 }
 /**
  * What `crawl_request.enqueue_links` takes: every link a locator matches,
@@ -1547,6 +1734,11 @@ export interface RecordProvenance {
    */
   tier?: TierProvenance | null;
   /**
+   * Each field of a code-free crawl the page did not give, null in the
+   * Record, with why; absent where every field was read.
+   */
+  unread_fields?: UnreadField[];
+  /**
    * Each field whose value an engine Value transform gave, in the
    * order read; empty where the program parsed its own values.
    */
@@ -1623,6 +1815,28 @@ export interface TierProvenance {
    * The tier.
    */
   tier: "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
+}
+/**
+ * A field of a code-free crawl's Record that its page did not give, so
+ * the Record holds null (ADR 0123).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "UnreadField".
+ */
+export interface UnreadField {
+  /**
+   * The field, a JSON Pointer into the Record.
+   */
+  field: string;
+  /**
+   * Why.
+   */
+  reason: "no_element" | "no_attribute" | "no_match" | "not_parsed" | "no_time_zone";
+  /**
+   * The text read, where one was: the text its `match` did not match, or
+   * that its transform does not read as a value.
+   */
+  text?: string | null;
 }
 /**
  * How a Value transform gave one field of a Record (ADR 0123).
@@ -1778,7 +1992,7 @@ export interface Export {
   /**
    * Its compression.
    */
-  compression: "none";
+  compression: "none" | "gzip" | "zstd";
   /**
    * The Export, which `export.save_as` and `export.stream` take.
    */
@@ -1786,7 +2000,19 @@ export interface Export {
   /**
    * Its format.
    */
-  format: "json" | "jsonl" | "csv" | "xlsx" | "html_table" | "markdown";
+  format:
+    | "json"
+    | "jsonl"
+    | "csv"
+    | "xlsx"
+    | "html_table"
+    | "markdown"
+    | "xml"
+    | "parquet"
+    | "avro"
+    | "arrow_ipc"
+    | "rss"
+    | "atom";
   /**
    * The number of the last Record it holds, 0 when it holds none.
    */
@@ -1972,6 +2198,11 @@ export interface RecordProvenance1 {
    * chosen; none where the handler was given its request alone.
    */
   tier?: TierProvenance | null;
+  /**
+   * Each field of a code-free crawl the page did not give, null in the
+   * Record, with why; absent where every field was read.
+   */
+  unread_fields?: UnreadField[];
   /**
    * Each field whose value an engine Value transform gave, in the
    * order read; empty where the program parsed its own values.
@@ -2194,7 +2425,19 @@ export interface RunExportParams {
   /**
    * The format.
    */
-  format: "json" | "jsonl" | "csv" | "xlsx" | "html_table" | "markdown";
+  format:
+    | "json"
+    | "jsonl"
+    | "csv"
+    | "xlsx"
+    | "html_table"
+    | "markdown"
+    | "xml"
+    | "parquet"
+    | "avro"
+    | "arrow_ipc"
+    | "rss"
+    | "atom";
   /**
    * The project configuration the Client found, layer 3 (ADR 0083).
    */
@@ -2210,6 +2453,11 @@ export interface RunExportParams {
   settings?: {
     [k: string]: unknown;
   };
+  /**
+   * `true` writes only the Records whose page was read past a Wall,
+   * `false` only the others; absent, every Record (ADR 0052).
+   */
+  wall?: boolean | null;
 }
 /**
  * What `run.failed_requests` takes.
@@ -2273,6 +2521,11 @@ export interface RunRecordsParams {
    * The crawl's Run.
    */
   run_id: RunId;
+  /**
+   * `true` reads only the Records whose page was read past a Wall,
+   * `false` only the others; absent, every Record (ADR 0052).
+   */
+  wall?: boolean | null;
 }
 /**
  * What `run.rejected_records` takes.

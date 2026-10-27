@@ -10,6 +10,8 @@
 //! a hidden ad is no trap; any other invisible link, `nofollow` or not, is
 //! a trap, answered "not added" with `trap_link`.
 
+use goodfetch_engine::run_state::RunStateTables;
+use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::Value;
 
 /// The page function that reads what a person sees of each element a
@@ -59,6 +61,115 @@ impl Seen {
             cosmetic: fact("cosmetic")?,
         })
     }
+
+    /// What a served document's markup alone states of a link, from the
+    /// attributes of each of `elements`, the link first, then each element
+    /// holding it outward: a `hidden` attribute or an inline
+    /// `display: none`, an inline `visibility` other than `visible`, an
+    /// inline `opacity` of 0, `aria-hidden="true"`, and the link's own
+    /// `rel="nofollow"`. A document fetched over HTTP has no layout, so
+    /// what only layout or a style sheet decides reads as seen.
+    #[must_use]
+    pub fn in_markup<'a>(elements: impl IntoIterator<Item = &'a [(String, String)]>) -> Self {
+        let mut seen = Self::default();
+        for (at, attributes) in elements.into_iter().enumerate() {
+            let value = |name: &str| {
+                attributes
+                    .iter()
+                    .find(|(attribute, _)| attribute.eq_ignore_ascii_case(name))
+                    .map(|(_, value)| value.as_str())
+            };
+            let style = value("style").map(inline_style).unwrap_or_default();
+            let declared = |property: &str| {
+                style
+                    .iter()
+                    .find(|(name, _)| name == property)
+                    .map(|(_, value)| value.as_str())
+            };
+            seen.no_box |= value("hidden").is_some() || declared("display") == Some("none");
+            seen.visibility_hidden |=
+                declared("visibility").is_some_and(|visibility| visibility != "visible");
+            seen.transparent |= declared("opacity")
+                .and_then(|opacity| opacity.parse::<f64>().ok())
+                .is_some_and(|opacity| opacity <= 0.0);
+            seen.aria_hidden |= value("aria-hidden")
+                .is_some_and(|hidden| hidden.trim().eq_ignore_ascii_case("true"));
+            if at == 0 {
+                seen.nofollow = value("rel").is_some_and(|rel| {
+                    rel.split_ascii_whitespace()
+                        .any(|token| token.eq_ignore_ascii_case("nofollow"))
+                });
+            }
+        }
+        seen
+    }
+}
+
+/// The declarations of an inline `style` attribute, each property and
+/// value lower-cased and trimmed, `!important` dropped.
+fn inline_style(style: &str) -> Vec<(String, String)> {
+    style
+        .split(';')
+        .filter_map(|declaration| {
+            let (property, value) = declaration.split_once(':')?;
+            let value = value.trim().to_ascii_lowercase();
+            let value = value.strip_suffix("!important").unwrap_or(&value).trim();
+            Some((property.trim().to_ascii_lowercase(), value.to_owned()))
+        })
+        .collect()
+}
+
+/// What a link's facts were read from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sight {
+    /// A browser page's layout, as [`READ`] reads it: a trap [`judge`]
+    /// finds there is one.
+    Layout(Seen),
+    /// A served document's markup, as [`Seen::in_markup`] reads it, which
+    /// no layout confirms: a trap [`judge`] finds there is only suspected.
+    Markup(Seen),
+}
+
+/// The Provenance action that marks a link added though its served
+/// document's markup hides it, a suspected trap.
+pub const SUSPECTED_ACTION: &str = "trap_link_suspected";
+
+/// The table of the work items added through a link suspected a trap,
+/// which a browser tier never follows.
+pub const TABLES: RunStateTables = RunStateTables {
+    name: "goodfetch-frontier-trap-links",
+    statements: &["CREATE TABLE IF NOT EXISTS trap_link_suspected (
+            work_item TEXT NOT NULL PRIMARY KEY
+        ) STRICT, WITHOUT ROWID"],
+};
+
+/// Marks the work item `id` as added through a link suspected a trap.
+///
+/// # Errors
+///
+/// The run state's.
+pub fn suspect(connection: &Connection, id: &str) -> rusqlite::Result<()> {
+    connection.execute(
+        "INSERT OR IGNORE INTO trap_link_suspected (work_item) VALUES (?1)",
+        [id],
+    )?;
+    Ok(())
+}
+
+/// Whether the work item `id` was added through a link suspected a trap.
+///
+/// # Errors
+///
+/// The run state's.
+pub fn suspected(connection: &Connection, id: &str) -> rusqlite::Result<bool> {
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM trap_link_suspected WHERE work_item = ?1",
+            [id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
 }
 
 /// Why a link is a trap.

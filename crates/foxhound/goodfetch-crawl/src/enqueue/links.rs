@@ -10,13 +10,18 @@
 //! admitted, so a `payload_invalid` adds none; the links are staged with
 //! the attempt together, and commit or are discarded with it, as one
 //! enqueue is (ADR 0093). On the browser tier, a link a person cannot see
-//! is not added, with `trap_link` (ADR 0035; the Frontier's `trap_links`).
+//! is not added, with `trap_link` (ADR 0035; the Frontier's `trap_links`);
+//! a served document has no layout, so a link its markup hides is added,
+//! and marked as a suspected trap in its work item and in Provenance,
+//! `trap_link_suspected`: a browser tier never follows it.
 
 use goodfetch_engine::egress::Policy;
+use goodfetch_engine::run_trace;
+use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_fetch_tier::{FetchTiers, LinksUnread, ServedLinks};
 use goodfetch_frontier::payload::PayloadRules;
-use goodfetch_frontier::trap_links::{self, Trap};
+use goodfetch_frontier::trap_links::{self, Sight, Trap};
 use goodfetch_frontier::{
     Candidate, Narrowing, Patterns, Scope, Url, admit, document_base, resolve_link,
 };
@@ -210,7 +215,10 @@ pub(crate) async fn enqueue_links(
         .into_iter()
         .enumerate()
         .map(|(at, element)| Link {
-            trap: element.seen.as_ref().and_then(trap_links::judge),
+            trap: match &element.sight {
+                Sight::Layout(seen) => trap_links::judge(seen).map(Judged::Trap),
+                Sight::Markup(seen) => trap_links::judge(seen).map(Judged::Suspected),
+            },
             href: element.href,
             payload: match &params.payloads {
                 Some(payloads) => match &payloads[at] {
@@ -253,7 +261,11 @@ pub(crate) async fn enqueue_links(
         })
         .await;
     match answered {
-        Ok(Some(answered)) => answered,
+        Ok(Some(Ok(admitted))) => {
+            mark_suspected(&run, &params, &admitted.suspected).await;
+            Ok(admitted.links)
+        }
+        Ok(Some(Err(refused))) => Err(refused),
         Ok(None) => Err(attempt.ended()),
         Err(error) => Err(attempt.unavailable(error)),
     }
@@ -270,10 +282,50 @@ enum Chosen {
 /// One matched element: its `href`, if any, and what its link takes.
 struct Link {
     href: Option<String>,
-    /// Why it is a trap a person cannot see, as its browser page read it
-    /// (ADR 0035); none for one a person sees, or a served document's.
-    trap: Option<Trap>,
+    /// Why it is a trap a person cannot see, or is suspected to be one
+    /// (ADR 0035); none for one a person sees.
+    trap: Option<Judged>,
     payload: Chosen,
+}
+
+/// What `trap_links` made of a link a person may not see.
+#[derive(Clone, Copy, Debug)]
+enum Judged {
+    /// Its browser page's layout hides it: it is not added.
+    Trap(Trap),
+    /// Its served document's markup hides it, which no layout confirms: it
+    /// is added, marked as a suspected trap.
+    Suspected(Trap),
+}
+
+/// Marks in the Run's Provenance, `trap_link_suspected`, each link of
+/// `enqueued` that its served document's markup hides (ADR 0035), with
+/// the request whose page held it.
+async fn mark_suspected(
+    run: &Run,
+    params: &CrawlRequestEnqueueLinksParams,
+    suspected: &[(String, String)],
+) {
+    for (id, url) in suspected {
+        let entry = serde_json::json!({
+            "action": trap_links::SUSPECTED_ACTION,
+            "crawl_request_id": id,
+            "url": url,
+            "from": params.crawl_request_id,
+        });
+        let written =
+            run_trace::provenance(run.owner(), run.folder(), run.secrets().mask(), &entry).await;
+        if let Err(error) = written {
+            tracing::warn!(%error, "a suspected trap link's Provenance entry cannot be written");
+        }
+    }
+}
+
+/// What one call admitted: its answer, and the work items it added through
+/// a link suspected a trap, each with its URL.
+struct Admitted {
+    links: EnqueuedLinks,
+    suspected: Vec<(String, String)>,
 }
 
 /// The links of one call and what they resolve against.
@@ -295,7 +347,7 @@ fn add(
     egress: &Policy,
     params: &CrawlRequestEnqueueLinksParams,
     batch: &Batch<'_>,
-) -> Answered<EnqueuedLinks> {
+) -> Answered<Admitted> {
     let Some((url, depth)) =
         work_items::attempt(connection, &params.crawl_request_id, params.lease_epoch)?
     else {
@@ -317,13 +369,14 @@ fn add(
     let method = HttpMethod::get();
     let mut answers = Vec::with_capacity(batch.links.len());
     let mut added: u64 = 0;
+    let mut suspected = Vec::new();
     for link in batch.links {
         let answer = match (&link.href, &link.payload) {
             (None, _) => EnqueuedLink::NoLink,
-            (Some(href), _) if link.trap.is_some() => {
+            (Some(href), _) if let Some(Judged::Trap(trap)) = link.trap => {
                 tracing::debug!(
                     url = %href,
-                    trap = link.trap.map(Trap::name),
+                    trap = trap.name(),
                     "a link a person cannot see was not added"
                 );
                 EnqueuedLink::NotAdded {
@@ -369,6 +422,11 @@ fn add(
                 match enqueued {
                     Enqueued::Added { id, url } => {
                         added += 1;
+                        if let Some(Judged::Suspected(trap)) = link.trap {
+                            tracing::debug!(%url, trap = trap.name(), "a link a served document's markup hides was added, marked as a suspected trap");
+                            trap_links::suspect(connection, &id)?;
+                            suspected.push((id.clone(), url.clone()));
+                        }
                         EnqueuedLink::Added { id, url }
                     }
                     Enqueued::NotAdded { reason, url } => EnqueuedLink::NotAdded { reason, url },
@@ -377,5 +435,8 @@ fn add(
         };
         answers.push(answer);
     }
-    Ok(Some(Ok(EnqueuedLinks { links: answers })))
+    Ok(Some(Ok(Admitted {
+        links: EnqueuedLinks { links: answers },
+        suspected,
+    })))
 }

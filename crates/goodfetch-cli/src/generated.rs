@@ -32,6 +32,11 @@
 //! than `verified`. An interrupt exits with [`exit_codes::INTERRUPTED`],
 //! `SIGTERM` with [`exit_codes::TERMINATED`]. A deprecated command warns on
 //! stderr with ADR 0030's text, which its `--help` shows too.
+//!
+//! Size: one concern, a catalog entry turned into a command and its call:
+//! the schema readers that give each command its flags, its offer and its
+//! output share the entry's schemas, and splitting them would only pass
+//! those schemas between modules.
 
 use std::fmt::Write as _;
 use std::marker::PhantomData;

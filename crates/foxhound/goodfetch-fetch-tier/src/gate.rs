@@ -25,6 +25,12 @@
 //!   host whose Crawl-delay is above `site_preferences.max_crawl_delay`
 //!   with `crawl_delay`. With `site_preferences.respect_robots_txt` off,
 //!   robots.txt is neither read nor applied.
+//! - **Its document's use signals.** While
+//!   `site_preferences.respect_use_signals` is on, a main-frame document
+//!   whose response's AI-use signals (`TDMRep`'s `tdm-reservation` header,
+//!   aipref's `Content-Usage` header) refuse the Run's
+//!   `site_preferences.purpose` is refused with `use_signals`, and the page
+//!   is left on a blank document.
 //! - **The delay between starts.** The request waits until the domain's
 //!   last start, by any sharing run, is its Crawl-delay ago, and on its
 //!   own domain key, or after a robots.txt it fetched, also
@@ -77,6 +83,7 @@ use crate::content_types::ContentTypes;
 use crate::discovered_api::Capture;
 use crate::driver::{Hop, judged};
 use crate::transports::AddressCheck;
+use crate::use_signals::{Purpose, UseSignals};
 
 /// Fetches the robots.txt at a location for a Run, as the crawl's HTTP
 /// tier does (`HttpTier::robots_txt_fetch`).
@@ -120,6 +127,11 @@ pub struct HandOver {
     /// `site_preferences.max_crawl_delay`, the longest Crawl-delay waited
     /// out; none waits out none.
     pub max_crawl_delay: Option<Duration>,
+    /// The Purpose `site_preferences.purpose` declares, while
+    /// `site_preferences.respect_use_signals` is on: each document a
+    /// handler's page navigates to is judged against it by the AI-use
+    /// signals its response carries. None judges none.
+    pub use_signals: Option<Purpose>,
     /// The attempt's lease.
     pub lease: Arc<dyn LeaseCheck>,
     /// The Run's domain policy, which judges each redirect hop.
@@ -293,8 +305,20 @@ impl NavigationGate for Gate {
         })
     }
 
-    fn judge_document(&self, _response: &DocumentResponse<'_>) -> Result<(), Refusal> {
-        Ok(())
+    /// Refuses with `use_signals` a document whose response's AI-use
+    /// signals refuse the Run's Purpose, while the Run honours them
+    /// (ADRs 0016, 0086 and 0093).
+    fn judge_document(&self, response: &DocumentResponse<'_>) -> Result<(), Refusal> {
+        let Some(purpose) = self.0.use_signals else {
+            return Ok(());
+        };
+        match UseSignals::of(response.headers).refusing(purpose) {
+            Some(signal) => Err(Refusal {
+                reason: SitePreference::UseSignals,
+                message: format!("{signal} refuses the run's Purpose for {}", response.url),
+            }),
+            None => Ok(()),
+        }
     }
 }
 
@@ -547,6 +571,23 @@ pub fn crawl_delay(fetched: &Fetched, operator_token: Option<&str>) -> Option<Du
         .into_iter()
         .filter_map(robots_txt::Group::crawl_delay)
         .max()
+}
+
+/// The Content Signals the robots.txt `fetched` declares to a crawl whose
+/// `site_preferences.robots_txt_user_agent` is `operator_token`: the
+/// `Content-Signal` lines of the groups that apply, as for its rules, in
+/// file order; none with no file.
+pub fn content_signals(fetched: &Fetched, operator_token: Option<&str>) -> Vec<(String, bool)> {
+    let Fetched::File(file) = fetched else {
+        return Vec::new();
+    };
+    let operator = operator_token.and_then(|token| ProductToken::new(token).ok());
+    let mut groups = applying_groups(file, operator.as_ref());
+    groups.sort_by_key(|group| group.line());
+    groups
+        .into_iter()
+        .flat_map(|group| group.content_signals().iter().cloned())
+        .collect()
 }
 
 /// The groups of `file` that apply to a crawl whose operator token is

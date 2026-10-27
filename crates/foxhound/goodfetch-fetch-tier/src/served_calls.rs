@@ -34,7 +34,9 @@ use goodfetch_protocol::catalog::Operation;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::dialog::{DIALOG_ACCEPT, DIALOG_DISMISS, PAGE_ON_DIALOG};
 use goodfetch_protocol::page::events::{PAGE_ON, PAGE_WAIT_FOR_REQUEST_FINISHED, RESPONSE_BODY};
-use goodfetch_protocol::page::functions::{PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE};
+use goodfetch_protocol::page::functions::{
+    LOCATOR_EVALUATE_ALL, PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE,
+};
 use goodfetch_protocol::page::request::PAGE_REQUEST;
 use goodfetch_protocol::page::route::{
     PAGE_ROUTE, ROUTE_ABORT, ROUTE_CONTINUE, ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL,
@@ -43,8 +45,8 @@ use goodfetch_protocol::page::route::{
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::session_pages::{PAGE_CLOSE, SESSION_ON, SESSION_PAGES};
 use goodfetch_protocol::page::waits::{
-    LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_LOAD_STATE,
-    PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,
+    LOCATOR_WAIT_FOR, LOCATOR_WAIT_FOR_COUNT, LOCATOR_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_FUNCTION,
+    PAGE_WAIT_FOR_LOAD_STATE, PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,
 };
 use goodfetch_protocol::page::{
     LOCATOR_CLICK, LOCATOR_FILL, LOCATOR_PRESS, PAGE_BODY, PAGE_FORMATS, PAGE_GO_BACK,
@@ -52,7 +54,7 @@ use goodfetch_protocol::page::{
 };
 
 /// The row of each call the catalog's page entries hold.
-const ROWS: [(&Operation, Row); 39] = [
+const ROWS: [(&Operation, Row); 41] = [
     (&PAGE_FORMATS, Row::Read),
     (&LOCATOR_WAIT_FOR, Row::StateWait),
     (&LOCATOR_WAIT_FOR_COUNT, Row::StateWait),
@@ -72,6 +74,8 @@ const ROWS: [(&Operation, Row); 39] = [
     (&ROUTE_FETCH, Row::NetworkWait),
     (&PAGE_EVALUATE, Row::Script),
     (&PAGE_WAIT_FOR_FUNCTION, Row::Script),
+    (&LOCATOR_EVALUATE_ALL, Row::Script),
+    (&LOCATOR_WAIT_FOR_FUNCTION, Row::Script),
     (&PAGE_ADD_INIT_SCRIPT, Row::Script),
     (&LOCATOR_CLICK, Row::Gesture),
     (&LOCATOR_FILL, Row::Gesture),

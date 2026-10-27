@@ -2181,6 +2181,7 @@ dependencies = [
  "hyper-util",
  "jiff",
  "proptest",
+ "quick-xml 0.41.0",
  "rcgen",
  "reqwest",
  "rstest",

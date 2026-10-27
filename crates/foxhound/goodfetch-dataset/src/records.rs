@@ -228,26 +228,26 @@ pub fn read(
     query: Query<'_>,
     most: usize,
 ) -> rusqlite::Result<Vec<DatasetRecord>> {
-    selected(
-        connection,
-        "number, data, work_item, url, committed_at, provenance",
-        query,
-        most,
-        |row| {
-            let data: String = row.get(1)?;
-            let value = json_column(1, &data)?;
-            let provenance: String = row.get(5)?;
-            let provenance = json_column(5, &provenance)?;
-            Ok(DatasetRecord {
-                number: u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default(),
-                value,
-                request_id: row.get(2)?,
-                url: row.get(3)?,
-                committed_at: PointInTime::from_rfc3339(row.get(4)?),
-                provenance,
-            })
-        },
-    )
+    selected(connection, RECORD_COLUMNS, query, most, dataset_record)
+}
+
+/// The columns of `records` [`dataset_record`] reads, in its order.
+pub(crate) const RECORD_COLUMNS: &str = "number, data, work_item, url, committed_at, provenance";
+
+/// The Record a row of [`RECORD_COLUMNS`] holds.
+pub(crate) fn dataset_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<DatasetRecord> {
+    let data: String = row.get(1)?;
+    let value = json_column(1, &data)?;
+    let provenance: String = row.get(5)?;
+    let provenance = json_column(5, &provenance)?;
+    Ok(DatasetRecord {
+        number: u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default(),
+        value,
+        request_id: row.get(2)?,
+        url: row.get(3)?,
+        committed_at: PointInTime::from_rfc3339(row.get(4)?),
+        provenance,
+    })
 }
 
 /// The JSON text `text` of the column `column` read as `T`.

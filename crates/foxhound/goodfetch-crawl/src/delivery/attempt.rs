@@ -75,8 +75,8 @@ use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
     AddressCheck, Capture, Chosen, ContentTypes, FetchTiers, HandOver, HttpTier, Judged,
-    PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, Stop, TierChoice,
-    infer_plan, tier_serves,
+    PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, SignalFiles, Stop,
+    TierChoice, infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -99,7 +99,7 @@ use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_session_pool::Effect;
 use serde_json::{Map, Value};
-use tokio::sync::oneshot;
+use tokio::sync::{Mutex, oneshot};
 
 use crate::code_free::CodeFree;
 use crate::lease::{CommitError, SoFar, WorkItemLease};
@@ -116,8 +116,8 @@ mod sitemap_fetch;
 
 use learning::learn;
 use site_preferences::{
-    escaped_refusal, read_robots_txt, robots_txt_ignored, robots_txt_refusal, share_robots_txt,
-    use_signals_refusal,
+    escaped_refusal, honoured_purpose, read_robots_txt, robots_txt_ignored, robots_txt_refusal,
+    share_robots_txt, use_signals_declared, use_signals_refusal,
 };
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -257,6 +257,9 @@ pub(super) struct Gating {
     /// What a code-free crawl handles its requests with, in place of the
     /// program's handler; none when the program handles them.
     pub(super) code_free: Option<Arc<CodeFree>>,
+    /// The AI-use signal files the Run fetched, `TDMRep`'s well-known
+    /// file and RSL licenses, each once for all its requests.
+    pub(super) signal_files: SignalFiles,
 }
 
 impl Gating {
@@ -303,6 +306,7 @@ impl Gating {
             max_crawl_delay: settings
                 .as_ref()
                 .and_then(|settings| settings.duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)),
+            use_signals: settings.as_ref().and_then(honoured_purpose),
             lease: Arc::new(HandlerLease {
                 lease: lease.clone(),
                 run: run.clone(),
@@ -393,6 +397,10 @@ pub(super) struct Attempt {
     /// The race it was, with its browser-fetch's latency, once its
     /// document arrived.
     pub(super) raced: Option<(Raced, Duration)>,
+    /// The site's answer to its request's own document, when the engine
+    /// fetched it, on any tier: its domain's Politeness reads it whatever
+    /// the handler made of the page (the `backoff_classes` rule).
+    pub(super) document: Option<PageResponse>,
 }
 
 /// One attempt: the handler request, bounded by its lease, on the tier its
@@ -413,7 +421,9 @@ pub(super) async fn attempt(
     (tiering, gating): (Tiering, Gating),
     in_flight: SharedInFlight,
 ) -> Attempt {
+    let document = Mutex::new(None);
     let on = On {
+        document: &document,
         run: &run,
         context: &context,
         leased: &leased,
@@ -484,6 +494,7 @@ pub(super) async fn attempt(
         },
     };
     Attempt {
+        document: document.into_inner(),
         server,
         leased,
         _counted: counted,
@@ -528,6 +539,10 @@ struct On<'a> {
     lease: &'a WorkItemLease,
     gating: &'a Gating,
     in_flight: &'a SharedInFlight,
+    /// The site's answer to the request's own document, as the last run
+    /// that fetched it met it, which its domain's Politeness reads (the
+    /// `backoff_classes` rule).
+    document: &'a Mutex<Option<PageResponse>>,
 }
 
 impl On<'_> {
@@ -765,6 +780,7 @@ impl On<'_> {
             .document(tiering, http, choice, &hand_over)
             .await
             .map_err(|answer| (answer, Vec::new()))?;
+        *self.document.lock().await = tiers.response(&page_id);
         // A `discovered_api` page replays its Label's calls (ADR 0020).
         if let Some(plan) = plan {
             tiers.replay_on(&page_id, plan.clone());
@@ -884,6 +900,17 @@ impl On<'_> {
                 if robots_txt_ignored(run, leased, read.as_deref()) {
                     lease.robots_txt_ignored();
                 }
+                if let Some(refused) = use_signals_declared(
+                    run,
+                    http,
+                    leased,
+                    read.as_deref(),
+                    &self.gating.signal_files,
+                )
+                .await
+                {
+                    return Err(refused);
+                }
                 let served = if choice.tier == FetchTier::LightBrowser {
                     let identity = self.context.identity();
                     let pinned_by = PinnedBy {
@@ -917,7 +944,9 @@ impl On<'_> {
             _ = lease.ended() => Err(Answer::LeaseEnded),
         };
         let page_id = fetched?;
-        if let Some(refused) = use_signals_refusal(run, tiers, &page_id) {
+        if let Some(refused) =
+            use_signals_refusal(run, (tiers, http), &page_id, &self.gating.signal_files).await
+        {
             tiers.close(&page_id);
             return Err(refused);
         }
@@ -1003,6 +1032,7 @@ impl On<'_> {
             forced: choice.forced.clone().filter(|_| how == Chosen::AsChosen),
         };
         let encoding = read_by_browser(tiers, &page_id, navigated.response.as_ref());
+        self.document.lock().await.clone_from(&navigated.response);
         record_tier(run, leased, lease, &browser, how, encoding.clone(), None).await;
         self.in_flight
             .lock()

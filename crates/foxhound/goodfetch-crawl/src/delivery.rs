@@ -25,7 +25,12 @@
 //! failing with `blocked` for a `rate_limit` (a 429) halves its concurrency,
 //! for every sharing run (ADR 0053), as one failing with
 //! `response_unavailable` for a 502, 503 or 504 backs it off; the time a
-//! failure's `retry_after` names holds the domain until then (ADR 0118). A
+//! failure's `retry_after` names holds the domain until then (ADR 0118).
+//! The site's own answer to the request's document, which the engine
+//! fetched on any tier, does the same whatever the handler made of the
+//! page, as does a fetch the site refused, timed out or reset with
+//! `ENHANCE_YOUR_CALM` (frontier's `backoff_classes`); a proxy's own
+//! answer backs no domain off (ADR 0053). A
 //! domain the Politeness holds for want of room waits for the wake of a
 //! Permit given back. When that time is further away than the Run waits
 //! (`politeness.retry_after.max`), the request whose response asked ends
@@ -74,7 +79,7 @@ use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
     Choosing, ContentTypes, FetchTiers, HttpTier, LocalSource, PooledSession, RobotsTxtFetch,
-    SetTier, TierChoice,
+    SetTier, SignalFiles, TierChoice,
 };
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
@@ -234,6 +239,7 @@ pub(crate) async fn drive(
         latencies: tokio::sync::Mutex::new(Latencies::default()),
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
         code_free: code_free.map(std::sync::Arc::new),
+        signal_files: SignalFiles::default(),
     };
     deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
     crawls.close(run.id()).await;
@@ -535,6 +541,8 @@ struct Fetching<'a> {
     /// What a code-free crawl handles its requests with; none when its
     /// program does.
     code_free: Option<std::sync::Arc<CodeFree>>,
+    /// The AI-use signal files the Run fetched, each once.
+    signal_files: SignalFiles,
     /// The Run's domain policy, which judges each redirect hop.
     egress: std::sync::Arc<goodfetch_engine::egress::Policy>,
     /// The requests in flight, as the Run's progress shows them.
@@ -561,6 +569,7 @@ impl Fetching<'_> {
                 .settings
                 .content_types(label, &self.run_content_types),
             code_free: self.code_free.clone(),
+            signal_files: self.signal_files.clone(),
         }
     }
 
@@ -970,8 +979,14 @@ async fn settled(
     }
     let waiting = attempt.leased.waiting.clone();
     let merged = std::mem::take(&mut attempt.merged);
-    let domain = domain_ending(&attempt.answer, run.clock().now(), run.clock().wall());
     let resolved = settings.at_admission().await;
+    let domain = domain_ending(
+        &attempt.answer,
+        attempt.document.as_ref(),
+        proxied(&resolved),
+        run.clock().now(),
+        run.clock().wall(),
+    );
     pool.settle(
         &attempt.session,
         &waiting.key,

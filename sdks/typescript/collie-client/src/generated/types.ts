@@ -3576,13 +3576,101 @@ export interface Locator2 {
   selector: string;
 }
 /**
+ * What `locator.evaluate_all` takes: the locator, the function's source,
+ * its argument and its world.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LocatorEvaluateAllParams".
+ */
+export interface LocatorEvaluateAllParams {
+  /**
+   * Its one argument, JSON; absent for none.
+   */
+  arg?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The page function's JavaScript source: a function, called with the
+   * array of matches and `arg`, or an expression, which takes neither.
+   */
+  function: string;
+  locator: Locator3;
+  /**
+   * Where it runs; the main world when absent.
+   */
+  world?: World | null;
+}
+/**
+ * The locator, whose every match the function takes first.
+ */
+export interface Locator3 {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
+}
+/**
+ * What `locator.wait_for_function` takes: the locator, the function's
+ * source, its argument, its world, and how often it is checked.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LocatorWaitForFunctionParams".
+ */
+export interface LocatorWaitForFunctionParams {
+  /**
+   * Its one argument, JSON; absent for none.
+   */
+  arg?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The page function's JavaScript source: a function, called with the
+   * element and `arg`, or an expression, which takes neither.
+   */
+  function: string;
+  locator: Locator4;
+  /**
+   * The milliseconds between two checks, at least 1; absent, about one
+   * frame's, 16.
+   */
+  polling_interval?: number | null;
+  /**
+   * How long the wait may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none, though an enclosing timeout still
+   * applies (ADR 0080).
+   */
+  timeout?: number | null;
+  /**
+   * Where it runs; the main world when absent.
+   */
+  world?: World | null;
+}
+/**
+ * The locator, whose one match the function takes first, resolved
+ * again at each check.
+ */
+export interface Locator4 {
+  /**
+   * The page it looks on.
+   */
+  page_id: string;
+  /**
+   * A CSS selector, which also matches inside open shadow roots.
+   */
+  selector: string;
+}
+/**
  * What `locator.wait_for` takes: the locator and the state of its element.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "LocatorWaitForParams".
  */
 export interface LocatorWaitForParams {
-  locator: Locator3;
+  locator: Locator5;
   /**
    * The state; `visible` when absent.
    */
@@ -3597,7 +3685,7 @@ export interface LocatorWaitForParams {
 /**
  * The locator.
  */
-export interface Locator3 {
+export interface Locator5 {
   /**
    * The page it looks on.
    */
@@ -5093,12 +5181,12 @@ export interface PressParams {
    * Playwright's key names.
    */
   key: string;
-  locator: Locator4;
+  locator: Locator6;
 }
 /**
  * The locator.
  */
-export interface Locator4 {
+export interface Locator6 {
   /**
    * The page it looks on.
    */
@@ -7257,7 +7345,7 @@ export interface UserWriteParams {
  */
 export interface WaitForCountParams {
   count: Count1;
-  locator: Locator5;
+  locator: Locator7;
   /**
    * How long the wait may take, in milliseconds, at least 1: absent for
    * `timeout.wait`, `null` for none, though an enclosing timeout still
@@ -7281,7 +7369,7 @@ export interface Count1 {
 /**
  * The locator.
  */
-export interface Locator5 {
+export interface Locator7 {
   /**
    * The page it looks on.
    */

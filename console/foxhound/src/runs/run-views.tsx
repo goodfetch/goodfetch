@@ -1,6 +1,7 @@
-// Foxhound's views of a run that needs Foxhound (spec #593, story 203;
-// ADRs 0087 and 0098), which Foxhound's build entry passes the shell, so a
-// run's page shows each in a tab beside the views every run has: the
+// Foxhound's views of a run that needs Foxhound (spec #593, stories 203
+// and 217; ADRs 0087 and 0098), which Foxhound's build entry passes the
+// shell, so a run's page shows each in a tab beside the views every run
+// has: the crawl's progress, followed live (`crawl-progress.tsx`), the
 // crawl's seeds, as `run.seeds` answers them, the outcome of each crawl
 // request, as `run.outcomes` gives its first page, and the requests whose
 // latest outcome failed, as `run.failed_requests` lists them. Each view
@@ -15,6 +16,8 @@ import { msg } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { useEffect, useState, type ReactNode } from "react";
 import { callFoxhound } from "#call.ts";
+import { Datasets } from "#datasets/datasets.tsx";
+import { CrawlProgress } from "#runs/crawl-progress.tsx";
 import type { FoxhoundConsoleOperations } from "#generated/operations.ts";
 
 /** What a view read of its operation. */
@@ -192,6 +195,7 @@ function FailedRequests({ client, runId }: RunViewProps): ReactNode {
 
 /** Foxhound's views of a run that needs Foxhound, in their tabs' order. */
 export const FOXHOUND_RUN_VIEWS: readonly RunView[] = [
+  { id: "progress", name: msg`Progress`, content: (props) => <CrawlProgress {...props} /> },
   { id: "seeds", name: msg`Seeds`, content: (props) => <Seeds {...props} /> },
   { id: "outcomes", name: msg`Outcomes`, content: (props) => <Outcomes {...props} /> },
   {
@@ -199,4 +203,5 @@ export const FOXHOUND_RUN_VIEWS: readonly RunView[] = [
     name: msg`Failed requests`,
     content: (props) => <FailedRequests {...props} />,
   },
+  { id: "datasets", name: msg`Datasets`, content: (props) => <Datasets {...props} /> },
 ];

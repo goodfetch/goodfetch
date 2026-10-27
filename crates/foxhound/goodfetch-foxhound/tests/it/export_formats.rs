@@ -146,7 +146,7 @@ fn batch_rows(batches: &[RecordBatch]) -> (Vec<(String, DataType)>, Vec<Value>) 
     (columns, rows)
 }
 
-fn parquet_rows(bytes: Vec<u8>) -> (Vec<(String, DataType)>, Vec<Value>) {
+pub(crate) fn parquet_rows(bytes: Vec<u8>) -> (Vec<(String, DataType)>, Vec<Value>) {
     let batches: Vec<RecordBatch> =
         parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(bytes::Bytes::from(
             bytes,

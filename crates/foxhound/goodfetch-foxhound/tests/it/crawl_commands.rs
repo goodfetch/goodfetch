@@ -305,19 +305,16 @@ fn run_add_seeds_reads_its_seeds_from_stdin() {
         .run()
         .unwrap();
 
-    let answers: Vec<(Value, Value)> = added
+    let answers: Vec<(bool, Value)> = added
         .documents
         .iter()
         .flat_map(|batch| batch["answers"].as_array().unwrap().clone())
-        .map(|answer| (answer["added"].clone(), answer["reason"].clone()))
+        .map(|answer| (answer["added"] == true, answer["reason"].clone()))
         .collect();
     assert_eq!(
         (answers, added.output.exit, finished.exit),
         (
-            vec![
-                (json!(false), json!("duplicate")),
-                (json!(false), json!("invalid_url")),
-            ],
+            vec![(false, json!("duplicate")), (false, json!("invalid_url")),],
             Some(0),
             Some(0),
         ),

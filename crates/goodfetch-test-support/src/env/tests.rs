@@ -400,3 +400,27 @@ fn outside_nextest_a_test_leaves_no_exercise_record() {
 
     assert_eq!(record_lines(records.path()), Vec::<String>::new());
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_lazyfs_tests_folder_is_made_in_the_folder_goodfetch_lazyfs_folder_names() {
+    let parent = test_env("env::tests::lazyfs_parent");
+    let variables =
+        Variables::from_iter([("GOODFETCH_LAZYFS_FOLDER", parent.folder().to_str().unwrap())]);
+
+    let env = TestEnv::create_for_lazyfs("env::tests::lazyfs_named", &variables).unwrap();
+
+    assert_eq!(env.folder().parent(), Some(parent.folder()));
+}
+
+/// `/tmp` whatever `TMPDIR` names: the folders where the operating system
+/// lets a user mount a FUSE file system include it (Ubuntu's AppArmor
+/// profile of `fusermount3`), and a `TMPDIR` such as `/g` lies outside them.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_lazyfs_tests_folder_is_made_in_tmp_when_no_folder_is_named() {
+    let env =
+        TestEnv::create_for_lazyfs("env::tests::lazyfs_default", &Variables::default()).unwrap();
+
+    assert_eq!(env.folder().parent(), Some(Path::new("/tmp")));
+}

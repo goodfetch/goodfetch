@@ -249,6 +249,32 @@ describe("the Console's Client", () => {
   });
 
   test(
+    "closes its Connection while the page is hidden, so a hidden tab counts as no Client, and opens one once it is visible again",
+    { tags: ["story:12-6"] },
+    async () => {
+      const adapter = createProtocolAdapter();
+      const visibility = new Visibility();
+      const { client, states } = clientOf(adapter, visibility);
+      await reaches(client, "connected");
+
+      visibility.set(false);
+      await reaches(client, "read_only");
+      visibility.set(true);
+      await reaches(client, "connected");
+
+      expect(states).toEqual([
+        "reconnecting",
+        "connected",
+        "read_only",
+        "reconnecting",
+        "connected",
+      ]);
+      expect(adapter.requests.filter((request) => request.method === "hello")).toHaveLength(2);
+      client.close();
+    },
+  );
+
+  test(
     "closes a Connection that stops answering and opens another",
     { tags: ["story:12-125"] },
     async () => {

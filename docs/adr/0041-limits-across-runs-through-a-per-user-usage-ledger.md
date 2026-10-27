@@ -89,6 +89,7 @@ Comparable services cap spend in different ways:
 
   This applies ADR 0023's rule that results say what was left off.
 - **First run.** `goodfetch init` and the Console's first launch offer to set a monthly Limit for the install.
+  > Note (agent decision, pending owner review), 2026-10-27, [#830](https://github.com/goodfetch/goodfetch/issues/830): the Console makes its offer on its Overview while `usage.list` lists no install Limit: a monthly Limit on `paid_solves` in US dollars, 10 by default, its month counted in the browser's time zone, set through the person-only `usage.raise`. "Not now" is remembered in the browser (`localStorage` of the Console's origin, so per major), and the offer is not made again there; an install Limit set anywhere ends the offer on every browser.
 
 **Who sets and raises a Limit** (changes ADRs 0012 and 0036, adds to ADR 0031).
 - **Setting.** Each scope is set by its owner, within the scopes above it:

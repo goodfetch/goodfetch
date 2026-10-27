@@ -329,10 +329,12 @@ fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
 /// its handler as a page `page.formats` reads, the site seeing one request;
 /// a cut body fails its attempt and never reaches the handler, a body its
 /// connection's close delimits does, and a request the site never
-/// processed is sent once more, counted nowhere; and its redirect chains
-/// and refresh stubs are followed as the browser follows them.
+/// processed is sent once more, counted nowhere; its redirect chains
+/// and refresh stubs are followed as the browser follows them; and the
+/// requests a site's `Retry-After` past the bound held, ended `failed`, are
+/// re-admitted by `run.retry_failed` once the site is back.
 ///
-/// Covers: story:5-124, story:5-125, story:5-126, story:5-127, story:5-128
+/// Covers: story:5-124, story:5-125, story:5-126, story:5-127, story:5-128, story:6-307
 #[test]
 fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
     let env = TestEnv::new();
@@ -389,6 +391,10 @@ fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
                 ),
                 (
                     "a-redirects-retry-after-delays-its-next-hop-or-past-the-bound-fails-with-response-unavailable",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "requests-held-past-politeness-retry-after-max-end-failed-and-retry-failed-re-admits-them",
                     CaseOutcome::Passed
                 ),
                 (

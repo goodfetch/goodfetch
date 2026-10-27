@@ -5,7 +5,10 @@
 //! never reaches the handler (pitfall H15); a body its connection's close
 //! delimits reaches it whole; and a request the site never processed is
 //! sent once more on a new connection, counted as no retry and no
-//! Politeness start (pitfall H05). No Response cache or Response recording
+//! Politeness start (pitfall H05); and requests a site's `Retry-After`
+//! past `politeness.retry_after.max` held end `failed` with
+//! `response_unavailable`, which `run.retry_failed` re-admits once the site
+//! is back, in the same Run and Dataset (ADR 0102). No Response cache or Response recording
 //! exists yet, so "never cached" and the `WARC-Truncated` record join these
 //! cases with them (#793, #1291).
 
@@ -312,4 +315,163 @@ pub(super) fn resent(
         gap.is_some_and(|gap| gap < DOMAIN_DELAY_MS * 1_000 / 2),
     );
     Ok(())
+}
+
+/// `run.failed_requests`, Foxhound's.
+const RUN_FAILED_REQUESTS: &str = "run.failed_requests";
+
+/// `run.retry_failed`, Foxhound's.
+const RUN_RETRY_FAILED: &str = "run.retry_failed";
+
+/// The `Retry-After` the first `/retry-after/503/seconds` asks for, past a
+/// bound of 1 s, with a margin for the engine's clock: once it passed, the
+/// site is back.
+const SITE_BACK_AFTER: std::time::Duration = std::time::Duration::from_millis(2_500);
+
+/// `/retry-after/503/seconds` answers 503 asking for 2 s, past the crawl's
+/// `politeness.retry_after.max` of 1 s, so it ends `failed` with
+/// `response_unavailable`, not retried, and `/held/after-503`, admitted
+/// while the site's time is still ahead, ends the same way unsent, with
+/// `status` null. Once the site is back, `run.retry_failed` re-admits both
+/// in the same Run and answers 2: each is fetched and handed to the
+/// handler under its ID, commits its one Record in `pages`, and its later
+/// `succeeded` outcome supersedes its `failed` one, nothing listed failed
+/// after and no Record committed twice.
+pub(super) fn held_past_the_bound(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-fetch-edge-held-past-the-bound";
+    let settings = json!({
+        "crawl": { "retry": { "max": 1 } },
+        "politeness": {
+            "retry_after": { "max": 1_000 },
+            "backoff": { "initial": 500, "max": 1_000 },
+            "domain": { "delay": 1_000 },
+        },
+    });
+    let Some((urls, others)) = start(
+        connection,
+        site,
+        run_id,
+        &["/retry-after/503/seconds", "/held/after-503"],
+        settings.clone(),
+        checks,
+    )?
+    else {
+        return Ok(());
+    };
+    let finish = connection.request(RUN_FINISH.name, &json!({ "run_id": run_id }))?;
+    let finished = connection.answer(finish)?;
+    let held_at = std::time::Instant::now();
+    checks.check(
+        "the Run finishes `incomplete`, no handler asked",
+        finished.message["result"]["lifecycle"] == json!("finished")
+            && finished.message["result"]["completeness"] == json!("incomplete")
+            && !others
+                .iter()
+                .chain(&finished.others)
+                .any(|message| message["method"] == json!(CRAWL_REQUEST_HANDLE)),
+    );
+    let failed = failed_requests(connection, run_id)?;
+    let unavailable = |url: &str, status: &Value| {
+        failed.iter().any(|outcome| {
+            outcome["request"]["url"] == json!(url)
+                && outcome["kind"] == json!("failed")
+                && outcome["error"]["code"] == json!("response_unavailable")
+                && outcome["error"]["details"]["status"] == *status
+                && outcome["attempts"] == json!(1)
+        })
+    };
+    checks.check(
+        "the 503 past the bound and the request held meanwhile end `failed` with `response_unavailable`, not retried",
+        failed.len() == 2 && unavailable(&urls[0], &json!(503)) && unavailable(&urls[1], &Value::Null),
+    );
+    std::thread::sleep(SITE_BACK_AFTER.saturating_sub(held_at.elapsed()));
+    let settings = site.mapped(
+        &{
+            let mut settings = settings;
+            settings["fetch"] = json!({ "tier": "http" });
+            settings
+        },
+        connection.acts_for_model(),
+    );
+    let retry = connection.request(
+        RUN_RETRY_FAILED,
+        &json!({ "run_id": run_id, "settings": settings }),
+    )?;
+    let retried = connection.answer(retry)?;
+    checks.check(
+        "`run.retry_failed` re-admits both and answers 2",
+        retried.message["result"] == json!({ "readmitted": 2 }),
+    );
+    let mut queued = retried.others;
+    let mut handled = Vec::new();
+    while handled.len() < 2 {
+        let message = if queued.is_empty() {
+            connection.next_within(crate::protocol::target::DEADLINE)?
+        } else {
+            queued.remove(0)
+        };
+        if message["method"] != json!(CRAWL_REQUEST_HANDLE) {
+            continue;
+        }
+        let request = &message["params"]["crawl_request"];
+        handled.push((request["url"].clone(), request["id"].clone()));
+        connection.reply(
+            &message["id"],
+            &json!({ "records": [{ "dataset": "pages", "data": { "url": request["url"] } }] }),
+        )?;
+    }
+    let finish = connection.request(RUN_FINISH.name, &json!({ "run_id": run_id }))?;
+    let refinished = connection.answer(finish)?.message;
+    checks.check(
+        "the same Run finishes again `complete`, its two Records committed once in `pages`",
+        refinished["result"]["lifecycle"] == json!("finished")
+            && refinished["result"]["completeness"] == json!("complete")
+            && refinished["result"]["records"]
+                == json!([{ "dataset": "pages", "committed": 2, "dropped": 0, "rejected": 0 }]),
+    );
+    let id = connection.request(RUN_OUTCOMES, &json!({ "run_id": run_id }))?;
+    let outcomes = connection.answer(id)?.message;
+    let endings = |url: &str| -> Vec<(Value, Value)> {
+        outcomes["result"]["outcomes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|outcome| outcome["request"]["url"] == json!(url))
+            .map(|outcome| (outcome["kind"].clone(), outcome["request"]["id"].clone()))
+            .collect()
+    };
+    checks.check(
+        "each is handed to its handler under its ID, and its `succeeded` outcome follows its `failed` one",
+        urls.iter().all(|url| {
+            let ended = endings(url);
+            let handed = handled
+                .iter()
+                .find(|(handed, _)| handed == &json!(url))
+                .map(|(_, id)| id.clone());
+            ended.len() == 2
+                && ended[0].0 == json!("failed")
+                && ended[1].0 == json!("succeeded")
+                && ended[0].1 == ended[1].1
+                && handed.as_ref() == Some(&ended[0].1)
+        }),
+    );
+    checks.check(
+        "nothing is listed failed after",
+        failed_requests(connection, run_id)?.is_empty(),
+    );
+    Ok(())
+}
+
+/// The latest outcome of each request of `run_id` listed failed.
+fn failed_requests(connection: &mut Connection, run_id: &str) -> Result<Vec<Value>, Gone> {
+    let id = connection.request(RUN_FAILED_REQUESTS, &json!({ "run_id": run_id }))?;
+    let answer = connection.answer(id)?.message;
+    Ok(answer["result"]["requests"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default())
 }

@@ -11,7 +11,7 @@ product = "foxhound"
 
 [suite]
 name = "fetch"
-version = "5"
+version = "6"
 
 [[capability]]
 name = "fetch.tier.http"
@@ -61,6 +61,10 @@ covers = ["story:5-124", "story:6-220"]
 [[capability.case]]
 id = "a-redirects-retry-after-delays-its-next-hop-or-past-the-bound-fails-with-response-unavailable"
 covers = ["story:5-124", "setting:politeness.retry_after.max", "error:response_unavailable"]
+
+[[capability.case]]
+id = "requests-held-past-politeness-retry-after-max-end-failed-and-retry-failed-re-admits-them"
+covers = ["story:6-307", "setting:politeness.retry_after.max", "error:response_unavailable", "operation:run.retry_failed", "operation:run.failed_requests"]
 
 [[capability.case]]
 id = "a-refresh-stub-within-fetch-refresh-max-delay-hands-the-handler-its-target"

@@ -182,6 +182,10 @@ fn a_terminated_host_sees_the_fingerprint_the_build_shows_connecting_directly() 
         &proving_ground,
         &secure(&proving_ground, "fetch-edge.test", "/robots.txt"),
     );
+    // Taken before the Run starts: once its document loads, the Run reads
+    // the origin's robots.txt itself (spec #580), through the relay, and
+    // that read may arrive before the Run finishes.
+    let direct = requests_for(&proving_ground, "fetch-edge.test", "/robots.txt");
     trusting(&env, &proving_ground);
     let mut program = started(&env, &proving_ground, "relayed", &json!({}), &[]);
     let page = program.new_page("relayed");
@@ -191,7 +195,6 @@ fn a_terminated_host_sees_the_fingerprint_the_build_shows_connecting_directly() 
     );
     program.finish("relayed");
 
-    let direct = requests_for(&proving_ground, "fetch-edge.test", "/robots.txt");
     let relayed = requests_for(&proving_ground, "fetch-edge.test", "/target");
     assert_eq!(
         answer["result"]["response"]["status"],

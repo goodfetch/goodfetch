@@ -26,11 +26,41 @@ pub(crate) fn startup_file(product: Product) -> String {
     format!("startup-{}.json", product.as_str())
 }
 
-/// One timed command of a hyperfine export, in seconds.
+/// One timed command of a hyperfine export, in either of its formats.
 #[derive(Deserialize)]
-struct Timed {
+#[serde(untagged)]
+enum Timed {
+    /// hyperfine 2's (its schema 2): a summary per metric.
+    Summarized { summary: Summary },
+    /// hyperfine 1's: the wall-clock figures at the top, in seconds.
+    Flat { median: f64, times: Vec<f64> },
+}
+
+#[derive(Deserialize)]
+struct Summary {
+    time_wall_clock: Metric,
+}
+
+/// One metric's summary over the runs, in seconds for a time.
+#[derive(Deserialize)]
+struct Metric {
     median: f64,
-    times: Vec<f64>,
+    count: usize,
+}
+
+impl Timed {
+    fn startup(self) -> Startup {
+        match self {
+            Self::Summarized { summary } => Startup {
+                median_seconds: summary.time_wall_clock.median,
+                runs: summary.time_wall_clock.count,
+            },
+            Self::Flat { median, times } => Startup {
+                median_seconds: median,
+                runs: times.len(),
+            },
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -110,13 +140,7 @@ pub(crate) fn read(folder: &Path, spider: &Path, gaps: &Path) -> Result<Measured
                 .into_iter()
                 .next()
                 .with_context(|| format!("{} holds no timed command", path.display()))?;
-            startup.insert(
-                product,
-                Startup {
-                    median_seconds: timed.median,
-                    runs: timed.times.len(),
-                },
-            );
+            startup.insert(product, timed.startup());
         }
     }
     let peaks_path = folder.join(PEAKS);

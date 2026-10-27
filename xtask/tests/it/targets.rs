@@ -34,6 +34,36 @@ fn startup(workspace: &Workspace, product: &str, seconds: f64) {
     );
 }
 
+/// A hyperfine 2 export (its schema 2) of one command whose median took
+/// `seconds` over `runs` runs.
+fn startup_v2(workspace: &Workspace, product: &str, seconds: f64, runs: u32) {
+    let summary = |unit: &str, value: f64| {
+        json!({
+            "unit": unit, "count": runs, "mean": value, "stddev": 0.0,
+            "median": value, "min": value, "max": value,
+        })
+    };
+    let export = json!({
+        "schema_version": 2,
+        "metadata": { "hyperfine_version": "2.0.0" },
+        "primary_metric": "time_wall_clock",
+        "results": [{
+            "command": format!("{product} attached-engine"),
+            "name": format!("{product} attached engine to hello"),
+            "measurements": [],
+            "summary": {
+                "time_wall_clock": summary("second", seconds),
+                "time_cpu": summary("second", seconds / 2.0),
+                "memory_peak_resident": summary("byte", 30_000_000.0),
+            },
+        }],
+    });
+    workspace.write(
+        &format!("{MEASURED}/startup-{product}.json"),
+        export.to_string().as_bytes(),
+    );
+}
+
 /// Peaks of the idle Attached engine, one line per run.
 fn idle_peaks(workspace: &Workspace, peaks: &[(&str, u64)]) {
     let lines: Vec<String> = peaks
@@ -246,6 +276,27 @@ fn a_target_with_no_measurement_is_reported_as_not_measured_and_nothing_fails() 
             not_measured("idle-daemon", "foxhound"),
             not_measured("crawl-peak", "foxhound"),
             not_measured("crawl-pages-per-second", "foxhound"),
+        ]
+    );
+}
+
+#[test]
+fn startup_is_read_from_hyperfine_two_s_export_too() {
+    let workspace = Workspace::from_fixture("empty");
+    startup_v2(&workspace, "collie", 0.009, 100);
+    startup_v2(&workspace, "foxhound", 0.0112, 100);
+
+    let (outcome, report) = report(&workspace);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        [
+            row(&report, "startup-to-hello", "collie"),
+            row(&report, "startup-to-hello", "foxhound"),
+        ],
+        [
+            ("met".to_owned(), Value::Null),
+            ("missed".to_owned(), json!("1.2 ms")),
         ]
     );
 }

@@ -1,0 +1,14 @@
+# The crawl benchmark's site (TESTING.md, Fixtures and data files; ADR 0134's
+# bytes per crawled page): an index linking twelve pages of about 1 kB, 4 kB,
+# 16 kB, 64 kB, 256 kB and 1 MB, two of each, generated in memory by
+# `benches/scenarios.rs` from its literal `PAGES` and the 128-byte paragraphs
+# of `benches/fixtures/paragraphs.html`. No seed: every byte follows from the
+# literal. `xtask perf` divides `heap::crawl::in_memory_pages`'s total bytes by
+# `body-bytes` and holds the quotient at 2× or under. The integration test
+# `in_memory_crawl` checks the site sends exactly these bytes; after changing
+# the site, run it and copy the bytes its failure reports here.
+generator = "crates/foxhound/goodfetch-foxhound/benches/scenarios.rs"
+version = 1
+seed = "none: generated from the literal PAGES"
+command = "cargo nextest run -p goodfetch-foxhound -E 'test(in_memory_crawl)'"
+body-bytes = 2686101

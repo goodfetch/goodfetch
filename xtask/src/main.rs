@@ -20,6 +20,7 @@ mod check;
 mod clients;
 mod codegen;
 mod commit_messages;
+mod compare_spider;
 mod compat;
 mod console;
 mod containment;
@@ -136,6 +137,13 @@ enum Command {
         /// The recorded starting point: it and its ancestors are not judged.
         #[arg(long)]
         since: String,
+    },
+    /// Spider's comparison (ADR 0134): Foxhound's and Spider's crawls of the
+    /// Proving ground's 1,000-page site, on the owner's machine, reported
+    /// only once both did the same work.
+    CompareSpider {
+        #[command(subcommand)]
+        command: compare_spider::Command,
     },
     /// The Compatibility corpus under `compat/` (ADR 0066).
     Compat {
@@ -484,6 +492,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Repeat(arguments) => repeat::run(arguments, environment),
         Command::OrderSeed(arguments) => order_seed::run(&arguments, environment),
         Command::Results { command } => run_results(command, environment),
+        Command::CompareSpider { command } => compare_spider::run(command, environment),
         Command::Rss { command } => rss::run(command, environment),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),

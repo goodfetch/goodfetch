@@ -22,6 +22,7 @@ mod budgets;
 mod clients;
 mod codegen;
 mod commit_messages;
+mod compare_spider;
 mod compat;
 mod console;
 mod containment;

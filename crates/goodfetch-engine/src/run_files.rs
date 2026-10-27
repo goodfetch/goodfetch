@@ -23,14 +23,17 @@
 //! `.<name>.<random>.partial`, synced, then renamed over the path, so the
 //! path holds the whole file or what it held before, and a failure says
 //! whether the path (`path_not_writable`) or the storage
-//! (`file_write_failed`) failed.
+//! (`file_write_failed`) failed. [`Saving`] writes a path the same way
+//! from bytes that arrive in parts, such as the `$/chunk` notifications of
+//! an Export a CLI command receives from the Daemon.
 
 mod carry;
 mod save;
 mod store;
 
 pub(crate) use carry::{CarryError, drop_chunks, pack, unpack};
-pub(crate) use save::{SaveError, os_code, reason_of, save};
+pub use save::{SaveError, Saving};
+pub(crate) use save::{os_code, reason_of, save};
 pub use store::{FileKind, KeepError, Kept, KeptExport, Record, export_file};
 pub(crate) use store::{file, find, forget, read, record, store, store_export, unrecord};
 

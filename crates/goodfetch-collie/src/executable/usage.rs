@@ -47,6 +47,7 @@ pub(super) fn raise(
         cancellable: USAGE_RAISE.cancellable,
         follower: None,
         pager: None,
+        stopper: None,
         input: None,
     };
     let product = engine.identity().product;

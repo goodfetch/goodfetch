@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::{
-    Call, Generated, NAMESPACES, Namespace, Offer, command, duration, member, members_of, offer,
+    Call, Generated, NAMESPACES, Namespace, Offer, OwnFlags, command, duration, member, members_of,
+    offer,
 };
 use crate::engine_choice::{Choice, Lifetime};
 
@@ -294,8 +295,12 @@ fn asked(product: Product, arguments: &[&str]) -> Result<Call, clap::Error> {
     ("run.records", json!({ "run_id": "r1", "dataset": "pages", "after": 4 }))
 )]
 #[case::crawl_start(
-    &["crawl", "start", "--run-id", "r1", "--seeds", "https://example.test/"],
-    ("crawl.start", json!({ "run_id": "r1", "seeds": ["https://example.test/"] }))
+    &["crawl", "start", "https://example.test/", "--run-id", "r1"],
+    ("crawl.start", json!({
+        "run_id": "r1",
+        "seeds": [{ "url": "https://example.test/", "label": "page" }],
+        "extraction": { "formats": { "markdown": true } },
+    }))
 )]
 fn foxhounds_executable_carries_the_crawl_commands_and_collies_does_not(
     #[case] arguments: &[&str],
@@ -325,6 +330,206 @@ fn foxhounds_executable_carries_the_crawl_commands_and_collies_does_not(
 #[case::pages_with(&["run", "outcomes", "r1", "--follow"], true)]
 fn a_crawls_reads_follow_only_under_follow(#[case] arguments: &[&str], #[case] follow: bool) {
     assert_eq!(asked(Product::Foxhound, arguments).unwrap().follow, follow);
+}
+
+/// `crawl start`'s flags give the code-free crawl's seeds and its
+/// `extraction`: each URL a seed of its Label, each `--format` a format,
+/// each `--field` a named field by a CSS selector or, after `xpath:`, an
+/// `XPath` expression, and `--links` its `follow`; with neither a format
+/// nor a field, each page's Markdown.
+///
+/// Covers: story:11-1132
+#[rstest]
+#[case::urls_formats_fields_and_links(
+    &[
+        "crawl", "start", "https://a.test/", "https://b.test/",
+        "--format", "markdown", "--format", "links",
+        "--field", "title=h1", "--field", "price=xpath://span[@class='price']",
+        "--field", "name=css:.name", "--links", "none",
+    ],
+    json!({
+        "seeds": [
+            { "url": "https://a.test/", "label": "page" },
+            { "url": "https://b.test/", "label": "page" },
+        ],
+        "extraction": {
+            "formats": { "markdown": true, "links": true },
+            "follow": "none",
+            "fields": {
+                "title": { "locator": { "kind": "css", "selector": "h1" } },
+                "price": { "locator": { "kind": "xpath", "selector": "//span[@class='price']" } },
+                "name": { "locator": { "kind": "css", "selector": ".name" } },
+            },
+        },
+    })
+)]
+#[case::a_url_alone(
+    &["crawl", "start", "https://a.test/"],
+    json!({
+        "seeds": [{ "url": "https://a.test/", "label": "page" }],
+        "extraction": { "formats": { "markdown": true } },
+    })
+)]
+#[case::a_field_alone(
+    &["crawl", "start", "https://a.test/", "--field", "title=h1", "--links", "sitemap"],
+    json!({
+        "seeds": [{ "url": "https://a.test/", "label": "page" }],
+        "extraction": {
+            "formats": {},
+            "follow": "sitemap",
+            "fields": { "title": { "locator": { "kind": "css", "selector": "h1" } } },
+        },
+    })
+)]
+fn crawl_starts_flags_give_its_seeds_and_extraction(
+    #[case] arguments: &[&str],
+    #[case] params: Value,
+) {
+    let call = asked(Product::Foxhound, arguments).unwrap();
+
+    assert_eq!(Value::Object(call.params), params);
+}
+
+/// `--seeds-file` adds a seed per line, a URL or a seed as JSON, after the
+/// URLs; `--fields` reads named fields in the catalog's JSON form, which a
+/// `--field` of the same name beats.
+///
+/// Covers: story:11-1132
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test writes the files the flags read"
+)]
+fn crawl_start_reads_seeds_and_fields_from_files() {
+    let folder = tempfile::tempdir().unwrap();
+    let seeds = folder.path().join("seeds.txt");
+    std::fs::write(
+        &seeds,
+        "https://b.test/\n\n{\"url\":\"https://c.test/\",\"label\":\"page\",\"priority\":2}\n",
+    )
+    .unwrap();
+    let fields = folder.path().join("fields.json");
+    std::fs::write(
+        &fields,
+        r#"{"price":{"locator":{"kind":"css","selector":".price"},"attribute":"data-price"},"title":{"locator":{"kind":"css","selector":"h2"}}}"#,
+    )
+    .unwrap();
+
+    let call = asked(
+        Product::Foxhound,
+        &[
+            "crawl",
+            "start",
+            "https://a.test/",
+            "--seeds-file",
+            seeds.to_str().unwrap(),
+            "--fields",
+            fields.to_str().unwrap(),
+            "--field",
+            "title=h1",
+        ],
+    )
+    .unwrap();
+
+    assert_eq!(
+        (
+            call.params["seeds"].clone(),
+            call.params["extraction"].clone()
+        ),
+        (
+            json!([
+                { "url": "https://a.test/", "label": "page" },
+                { "url": "https://b.test/", "label": "page" },
+                { "url": "https://c.test/", "label": "page", "priority": 2 },
+            ]),
+            json!({
+                "formats": {},
+                "fields": {
+                    "price": {
+                        "locator": { "kind": "css", "selector": ".price" },
+                        "attribute": "data-price",
+                    },
+                    "title": { "locator": { "kind": "css", "selector": "h1" } },
+                },
+            })
+        )
+    );
+}
+
+/// What `crawl start` cannot read is a usage error before any engine call:
+/// no seed, a format `page.formats` does not take, a `--links` value
+/// `extraction.follow` does not take, a field with no name or locator, and
+/// `--require-verified` without `--follow`.
+///
+/// Covers: story:11-1132
+#[rstest]
+#[case::no_seed(&["crawl", "start", "--format", "markdown"], ErrorKind::MissingRequiredArgument)]
+#[case::unknown_format(&["crawl", "start", "https://a.test/", "--format", "pdf"], ErrorKind::InvalidValue)]
+#[case::unknown_links(&["crawl", "start", "https://a.test/", "--links", "everywhere"], ErrorKind::InvalidValue)]
+#[case::field_without_a_locator(&["crawl", "start", "https://a.test/", "--field", "title"], ErrorKind::ValueValidation)]
+#[case::field_without_a_name(&["crawl", "start", "https://a.test/", "--field", "=h1"], ErrorKind::ValueValidation)]
+#[case::require_verified_without_follow(&["crawl", "start", "https://a.test/", "--require-verified"], ErrorKind::MissingRequiredArgument)]
+fn crawl_start_refuses_what_it_cannot_read(#[case] arguments: &[&str], #[case] kind: ErrorKind) {
+    let refused = asked(Product::Foxhound, arguments).err().unwrap();
+
+    assert_eq!(refused.kind(), kind, "{refused}");
+}
+
+/// `crawl start` takes `--follow`, and under it `--require-verified`.
+///
+/// Covers: story:11-1132
+#[rstest]
+#[case::not_followed(&["crawl", "start", "https://a.test/"], (false, false))]
+#[case::followed(&["crawl", "start", "https://a.test/", "--follow"], (true, false))]
+#[case::verified(
+    &["crawl", "start", "https://a.test/", "--follow", "--require-verified"],
+    (true, true)
+)]
+fn crawl_start_follows_its_run_under_follow(
+    #[case] arguments: &[&str],
+    #[case] expected: (bool, bool),
+) {
+    let call = asked(Product::Foxhound, arguments).unwrap();
+
+    let Some(OwnFlags::CrawlStart(flags)) = call.own else {
+        panic!("crawl start takes flags of its own");
+    };
+    assert_eq!((flags.follow, flags.require_verified), expected);
+}
+
+/// `run export` takes the Dataset as its second positional argument, after
+/// the Run ID, and needs `--out`.
+///
+/// Covers: story:11-1132
+#[rstest]
+#[case::to_standard_output(
+    &["run", "export", "r1", "pages", "--format", "jsonl", "--out", "-"],
+    Ok(json!({ "run_id": "r1", "dataset": "pages", "format": "jsonl" }))
+)]
+#[case::compressed(
+    &["run", "export", "r1", "pages", "--format", "csv", "--compression", "zstd", "--out", "pages.csv.zst"],
+    Ok(json!({ "run_id": "r1", "dataset": "pages", "format": "csv", "compression": "zstd" }))
+)]
+#[case::without_out(
+    &["run", "export", "r1", "pages", "--format", "jsonl"],
+    Err(ErrorKind::MissingRequiredArgument)
+)]
+#[case::without_a_dataset(
+    &["run", "export", "r1", "--format", "jsonl", "--out", "-"],
+    Err(ErrorKind::MissingRequiredArgument)
+)]
+fn run_export_takes_its_dataset_second_and_out(
+    #[case] arguments: &[&str],
+    #[case] expected: Result<Value, ErrorKind>,
+) {
+    let asked = asked(Product::Foxhound, arguments);
+
+    assert_eq!(
+        asked
+            .map(|call| Value::Object(call.params))
+            .map_err(|refused| refused.kind()),
+        expected
+    );
 }
 
 static SPIN: Operation = operation("widget.spin", OperationKind::RoundTrip, Reach::AllSurfaces);

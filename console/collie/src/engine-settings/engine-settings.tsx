@@ -203,6 +203,7 @@ export function EngineSettingsView({
             <textarea
               id={runValuesField}
               name="run_values"
+              translate="no"
               rows={3}
               aria-describedby={runValuesHint}
               {...(runValues === undefined

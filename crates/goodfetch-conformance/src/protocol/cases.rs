@@ -56,7 +56,7 @@ use serde_json::{Value, json};
 use self::guard::Step;
 use super::connection::{Connection, Gone};
 use super::target::{DEADLINE, EngineTarget, START_DEADLINE};
-use crate::proving_ground::{ProvingGround, TaskAccount, TaskList};
+use crate::proving_ground::{ProvingGround, ProxyCredentials, TaskAccount, TaskList};
 
 /// A method no Product carries, which every target must refuse.
 const UNKNOWN_METHOD: &str = "conformance.unknown_method";
@@ -157,12 +157,16 @@ pub(crate) struct Site {
     /// Each forward proxy's address, by name, when the Proving ground
     /// serves them.
     proxies: BTreeMap<String, String>,
+    /// The credentials its proxies that ask for them take, when it serves
+    /// any.
+    proxy_credentials: Option<ProxyCredentials>,
     proving_ground: ProvingGround,
 }
 
 impl Site {
     /// The site of `task_list`, served by `proving_ground`.
     pub(crate) fn of(task_list: &TaskList, proving_ground: &ProvingGround) -> Self {
+        let fixtures = proving_ground.network_fixtures().ok().flatten();
         let address = proving_ground.address();
         let ip = address
             .rsplit_once(':')
@@ -215,12 +219,11 @@ impl Site {
             access_origin,
             port,
             resolve: Value::Object(resolve),
-            proxies: proving_ground
-                .network_fixtures()
-                .ok()
-                .flatten()
-                .map(|fixtures| fixtures.proxies)
+            proxies: fixtures
+                .as_ref()
+                .map(|fixtures| fixtures.proxies.clone())
                 .unwrap_or_default(),
+            proxy_credentials: fixtures.and_then(|fixtures| fixtures.proxy_credentials),
             proving_ground: proving_ground.clone(),
         }
     }
@@ -274,6 +277,12 @@ impl Site {
             "version = \"0.1\"\n\n[settings.egress]\nprivate_ranges = [{}]\n",
             hosts.join(", ")
         )
+    }
+
+    /// The credentials the Proving ground's proxies that ask for them
+    /// take, if it serves any.
+    pub(crate) fn proxy_credentials(&self) -> Option<&ProxyCredentials> {
+        self.proxy_credentials.as_ref()
     }
 
     /// The address of the Proving ground's forward proxy `name`, such as

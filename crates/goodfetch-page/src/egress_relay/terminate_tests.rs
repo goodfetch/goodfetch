@@ -749,7 +749,7 @@ impl Observe for Stopping {
     fn reached(&self, _: &str) {}
     fn refused(&self, _: &Refused, _: &str) {}
     fn upstream(&self, _: Met) {}
-    fn unauthenticated(&self) {}
+    fn unauthenticated(&self, _: bool) {}
     fn terminated(&self, _: &str, _: Option<&ExceptionUsed>) {}
     fn client_hello(&self, _: &str, _: ClientHello) {}
 

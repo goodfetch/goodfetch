@@ -265,6 +265,29 @@ pub struct ProxyUnavailableDetails {
     pub error: Option<String>,
 }
 
+/// The Session's loopback proxy relay that could not open (ADR 0037 /
+/// SA-22; spec #577's review, L76): the engine's own failure, never the
+/// proxy's.
+pub const PROXY_RELAY_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "proxy_relay_unavailable",
+    description: "The engine could not open the loopback relay a Session's proxy goes through, such as when the machine has no free local port: the proxy itself was never tried. The details name the proxy, never its credentials, and the local error. Retry once the machine frees ports or file descriptors.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `proxy_relay_unavailable` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProxyRelayUnavailableDetails {
+    /// The proxy, `scheme://host:port`, without its credentials.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub proxy: String,
+    /// The local error that kept the relay from opening.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub error: String,
+}
+
 /// A proxy that refused the Session's credentials (ADR 0053).
 pub const PROXY_AUTH_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "proxy_auth_failed",
@@ -703,6 +726,7 @@ pub const ENTRIES: Entries = Entries {
     handler_requests: &[],
     error_codes: &[
         PROXY_UNAVAILABLE,
+        PROXY_RELAY_UNAVAILABLE,
         PROXY_AUTH_FAILED,
         PROXY_PROVIDER_UNAVAILABLE,
     ],

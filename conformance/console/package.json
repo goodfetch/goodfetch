@@ -24,7 +24,9 @@
     "runs": [
       "goodfetch-collie",
       "goodfetch-conformance",
+      "goodfetch-foxhound",
       "goodfetch-proving-ground",
+      "goodfetch-stub-gateway",
       "goodfetch-test-support"
     ]
   }

@@ -57,33 +57,21 @@ pub(crate) fn settings_file(env: &TestEnv, proving_ground: &ProvingGround) -> Pa
     path
 }
 
-/// Starts the code-free crawl `run_id` of `seeds` with `follow: none`,
+/// Starts the code-free crawl `run_id` of `seeds` with `--links none`,
 /// each page's Markdown in its Record, through `crawl start --json`, and
-/// answers the Run ID it printed.
+/// answers the Run ID it printed, its one JSON value.
 pub(crate) fn crawl_start(env: &TestEnv, settings: &Path, run_id: &str, seeds: &[String]) -> Value {
-    let mut arguments = vec![
-        "crawl".to_owned(),
-        "start".to_owned(),
-        "--run-id".to_owned(),
-        run_id.to_owned(),
-    ];
-    for seed in seeds {
-        arguments.push("--seeds".to_owned());
-        arguments.push(json!({ "url": seed, "label": "page" }).to_string());
-    }
-    arguments.extend([
-        "--extraction".to_owned(),
-        json!({ "formats": { "markdown": true }, "follow": "none" }).to_string(),
-        "--settings".to_owned(),
-        settings.to_str().unwrap().to_owned(),
-        "--json".to_owned(),
-    ]);
     let started = cli(env, FOXHOUND)
-        .args(&arguments)
-        .json("RunStarted")
+        .args(["crawl", "start"])
+        .args(seeds)
+        .args([
+            "--run-id", run_id, "--format", "markdown", "--links", "none",
+        ])
+        .args(["--settings", settings.to_str().unwrap(), "--json"])
+        .json("RunId")
         .unwrap();
     assert_eq!(started.output.exit, Some(0), "{}", started.output);
-    started.documents[0]["run_id"].clone()
+    started.documents[0].clone()
 }
 
 /// A code-free crawl started with `crawl start`, followed with `run
@@ -122,17 +110,10 @@ fn a_code_free_crawl_started_followed_and_read_from_the_command_line() {
         .args(["run", "failed-requests", "cli-crawl", "--json"])
         .json("FailedRequests")
         .unwrap();
+    let exported = env.folder().join("pages.jsonl");
     let export = cli(&env, FOXHOUND)
-        .args([
-            "run",
-            "export",
-            "cli-crawl",
-            "--dataset",
-            "pages",
-            "--format",
-            "jsonl",
-            "--json",
-        ])
+        .args(["run", "export", "cli-crawl", "pages", "--format", "jsonl"])
+        .args(["--out", exported.to_str().unwrap(), "--json"])
         .json("Export")
         .unwrap();
 
@@ -295,11 +276,26 @@ fn protocol_counts(stderr: &str) -> String {
         })
 }
 
-/// Protocol counts (ADR 0071): the messages `crawl start`, `run outcomes
-/// --follow` of the crawl it started, once that crawl ended, and `run
-/// records` carry on their Connections to the Daemon, as snapshots.
+/// The protocol counts of a followed crawl: the progress reads, each
+/// answering a change, and so the answers, vary with how fast the crawl
+/// goes, so their counts read `N`.
+fn followed_counts(stderr: &str) -> String {
+    protocol_counts(stderr)
+        .lines()
+        .map(|line| match line.split_once(" x ") {
+            Some((_, key)) if key == "received response" || key.ends_with(" run.progress") => {
+                format!("N x {key}\n")
+            }
+            _ => format!("{line}\n"),
+        })
+        .collect()
+}
+
+/// Protocol counts (ADR 0071): the messages `crawl start --follow`, `run
+/// outcomes --follow` of the crawl it started, once that crawl ended, and
+/// `run records` carry on their Connections to the Daemon, as snapshots.
 ///
-/// Covers: story:11-1131, command:crawl.start, command:run.outcomes, command:run.records
+/// Covers: story:11-1131, story:11-1132, command:crawl.start, command:run.outcomes, command:run.records
 #[test]
 fn protocol_counts_of_crawl_start_run_outcomes_follow_and_run_records() {
     let env = TestEnv::new();
@@ -311,12 +307,8 @@ fn protocol_counts_of_crawl_start_run_outcomes_follow_and_run_records() {
     env.log_level("trace");
 
     let started = cli(&env, FOXHOUND)
-        .args(["crawl", "start", "--run-id", "counted", "--seeds"])
-        .arg(json!({ "url": index, "label": "page" }).to_string())
-        .args([
-            "--extraction",
-            r#"{"formats":{"markdown":true},"follow":"none"}"#,
-        ])
+        .args(["crawl", "start", &index, "--run-id", "counted"])
+        .args(["--links", "none", "--follow"])
         .args(["--settings", settings.to_str().unwrap()])
         .run()
         .unwrap();
@@ -338,8 +330,8 @@ fn protocol_counts_of_crawl_start_run_outcomes_follow_and_run_records() {
     insta::assert_snapshot!(
         "protocol_counts",
         format!(
-            "crawl start\n{}\nrun outcomes --follow\n{}\nrun records\n{}",
-            protocol_counts(&started.stderr),
+            "crawl start --follow\n{}\nrun outcomes --follow\n{}\nrun records\n{}",
+            followed_counts(&started.stderr),
             protocol_counts(&followed.stderr),
             protocol_counts(&records.stderr),
         )

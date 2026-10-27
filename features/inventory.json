@@ -9522,6 +9522,17 @@
       ]
     },
     {
+      "id": "story:11-1132",
+      "kind": "story",
+      "area": 11,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:11-114",
       "kind": "story",
       "area": 11,

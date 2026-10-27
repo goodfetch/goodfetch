@@ -5,7 +5,13 @@
 // signed for it, sandboxed and with no cookie of the Console's.
 import { expect, test } from "@goodfetch/test-support/conformance";
 import { httpBodyFetcher } from "@goodfetch/console/client/browser";
-import { cookieHeader, startRun, storeBody } from "./target.ts";
+import {
+  cookieHeader,
+  NOT_ON_THE_STUB_GATEWAY,
+  skipBehindGateway,
+  startRun,
+  storeBody,
+} from "./target.ts";
 
 /** A file larger than any protocol message may be: 20 MiB. */
 const LARGE = 20 * 1024 * 1024;
@@ -19,6 +25,7 @@ test(
     ],
   },
   async ({ page, context, daemon, signIn }) => {
+    skipBehindGateway(daemon, NOT_ON_THE_STUB_GATEWAY.bodies);
     await signIn.withLink(page);
     await startRun(daemon, "first");
     const bytes = new Uint8Array(LARGE).map((_, index) => index % 251);
@@ -45,6 +52,7 @@ test(
     ],
   },
   async ({ page, daemon, signIn }) => {
+    skipBehindGateway(daemon, NOT_ON_THE_STUB_GATEWAY.bodies);
     await signIn.withLink(page);
     await startRun(daemon, "first");
     const html = "<!doctype html><title>A body</title><main>A body.</main><script>1</script>";

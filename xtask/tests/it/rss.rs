@@ -410,6 +410,39 @@ fn the_idle_attached_engine_scenario_fails_on_a_child_that_does_not_accept_hello
     assert_eq!(outcome.stdout, "");
 }
 
+/// An engine stops on a Goodfetch variable it does not know, so a stray one
+/// of the shell running the check never reaches it. The child here answers
+/// `hello` only when no such variable reached it.
+#[cfg(unix)]
+#[test]
+fn the_idle_attached_engine_scenario_runs_the_engine_without_the_shell_s_goodfetch_variables() {
+    let workspace = Workspace::from_fixture("empty");
+    let engine = r#"test -z "$GOODFETCH_TEST_STRAY" || exit 3; read hello; echo '{"jsonrpc":"2.0","id":0,"result":{}}'; cat > /dev/null"#;
+
+    let outcome = workspace.xtask_with_env(
+        &[
+            "rss",
+            "probe",
+            "--scenario",
+            "idle-attached-engine",
+            "--needs",
+            "collie",
+            "--",
+            "sh",
+            "-c",
+            engine,
+        ],
+        &[("GOODFETCH_TEST_STRAY", std::ffi::OsStr::new("1"))],
+    );
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(
+        outcome.stdout.starts_with("peak-bytes="),
+        "{}",
+        outcome.stdout
+    );
+}
+
 #[test]
 fn measure_refuses_a_manifest_without_an_executable_the_scenario_runs_on() {
     let workspace = Workspace::from_fixture("empty");

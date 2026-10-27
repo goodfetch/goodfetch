@@ -8,46 +8,12 @@
 // counts, and a Dataset's Records show in the grid. A Dataset of 10,000
 // Records added to it shows in a grid that keeps only the rows on screen
 // in the DOM, page after page read by key, to its last Record.
-import { mkdir, readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { expect, test, type ServedDaemon } from "@goodfetch/test-support/playwright";
-import type { Page } from "@playwright/test";
-
-/** The corpus's run-state heads. */
-const CORPUS = new URL("../../../../compat/run-state/head/", import.meta.url);
-
-/** The Run ID the test gives the corpus's crawl. */
-const CRAWL_RUN = "copied-crawl";
+import type { DatabaseSync } from "node:sqlite";
+import { expect, test } from "@goodfetch/test-support/playwright";
+import { bodyRows, openDatasets } from "./seeded-crawl.ts";
 
 /** How many Records the large Dataset holds. */
 const ITEMS = 10_000;
-
-/** Writes the corpus's crawl head as `runId` under `folder`, ended, with `extra` run against its run file. */
-async function seeded(
-  folder: string,
-  runId: string,
-  extra: (database: DatabaseSync) => void = () => {},
-): Promise<void> {
-  const runFolder = join(folder, runId);
-  await mkdir(runFolder, { recursive: true });
-  const database = new DatabaseSync(join(runFolder, "run.sqlite"));
-  try {
-    database.exec(await readFile(new URL("crawl.sql", CORPUS), "utf8"));
-    const row = database.prepare("SELECT report FROM run").get();
-    const kept = row?.["report"];
-    let report: string | null = null;
-    if (typeof kept === "string") {
-      const parsed: Record<string, unknown> = JSON.parse(kept);
-      parsed["run_id"] = runId;
-      report = JSON.stringify(parsed);
-    }
-    database.prepare("UPDATE run SET run_id = ?, report = ?").run(runId, report);
-    extra(database);
-  } finally {
-    database.close();
-  }
-}
 
 /** Adds the Dataset `items`, declared with no schema, holding `count` Records. */
 function withItems(count: number): (database: DatabaseSync) => void {
@@ -62,42 +28,6 @@ function withItems(count: number): (database: DatabaseSync) => void {
     }
     database.exec("COMMIT");
   };
-}
-
-/** The run folders of the per-major data folder, the one that holds the Daemon's socket. */
-async function runsFolder(daemon: ServedDaemon): Promise<string> {
-  for (const entry of await readdir(daemon.home, { withFileTypes: true })) {
-    const folder = join(daemon.home, entry.name);
-    if (entry.isDirectory() && (await readdir(folder)).includes("daemon.sock")) {
-      return join(folder, "runs");
-    }
-  }
-  throw new Error("the test's home holds no per-major folder with the Daemon's socket");
-}
-
-/** Seeds the crawl, indexes it, signs in and opens its Datasets tab. */
-async function openDatasets(
-  page: Page,
-  daemon: ServedDaemon,
-  signIn: { withLink: (page: Page) => Promise<void> },
-  extra?: (database: DatabaseSync) => void,
-): Promise<void> {
-  await seeded(await runsFolder(daemon), CRAWL_RUN, extra);
-  const reindexed = await daemon.run(["runs", "reindex"]);
-  expect(reindexed.code, reindexed.stderr).toBe(0);
-  await signIn.withLink(page);
-  await page.goto(new URL(`/runs/${CRAWL_RUN}`, daemon.url).href);
-  await page.getByRole("tab", { name: "Datasets", exact: true }).click();
-}
-
-/** The text of each cell of `table`'s body rows that hold a Record. */
-async function bodyRows(page: Page, name: string): Promise<string[][]> {
-  return page
-    .getByRole("table", { name })
-    .locator("tbody tr:not([aria-hidden])")
-    .evaluateAll((rows) =>
-      rows.map((row) => [...row.querySelectorAll("th, td")].map((cell) => cell.textContent)),
-    );
 }
 
 test.use({ product: "foxhound" });

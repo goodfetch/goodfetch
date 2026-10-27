@@ -163,6 +163,8 @@ fn call(
         params: json!({}),
         cancellable: operation.cancellable,
         follower: None,
+        pager: None,
+        input: None,
     };
     let product = engine.identity().product;
     match engine_choice::call_attached(engine, dependencies, product, call) {

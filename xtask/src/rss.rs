@@ -10,11 +10,11 @@
 
 mod ceilings;
 mod measure;
-mod peak;
-mod peaks;
-mod platform;
+pub(crate) mod peak;
+pub(crate) mod peaks;
+pub(crate) mod platform;
 mod report;
-mod scenario;
+pub(crate) mod scenario;
 
 use std::path::PathBuf;
 use std::process::ExitCode;

@@ -6,15 +6,9 @@
 //! `session.source` keeps its cookies apart from the Run's pool, which the
 //! Labels that set none share; a Block cause retires its Session, whose
 //! replacement is a new Session with a context of its own (the Session
-//! ownership and proxy limit conformance cases, the Session pool's half);
-//! and under `auto` a Challenge moves its domain to the browser tier,
-//! where its next request is served in a new Session.
-#![expect(
-    clippy::disallowed_types,
-    reason = "the test's handler fetches a Proving ground page from outside the engine to name its Block cause (ADR 0060)"
-)]
+//! ownership and proxy limit conformance cases, the Session pool's half).
+//! A Challenge's move to the browser tier is `escalation`'s.
 
-use std::io::{Read as _, Write as _};
 use std::time::Duration;
 
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
@@ -241,69 +235,4 @@ fn contexts(env: &TestEnv, run_id: &str) -> Vec<&'static str> {
             },
         )
         .collect()
-}
-
-/// The Block cause the test's handler reads from outside the engine for
-/// a page it was served over HTTP: a Challenge's `cf-mitigated` header.
-fn challenged(proving_ground: &ProvingGround, url: &str) -> bool {
-    let authority_and_path = url.strip_prefix("http://").unwrap();
-    let (authority, path) = authority_and_path.split_at(authority_and_path.find('/').unwrap());
-    let mut stream = std::net::TcpStream::connect(proving_ground.address()).unwrap();
-    write!(
-        stream,
-        "GET {path} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n"
-    )
-    .unwrap();
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    response
-        .to_ascii_lowercase()
-        .contains("cf-mitigated: challenge")
-}
-
-/// Under `auto`, a Challenge on a pool Session's page retires it and moves
-/// its domain to the browser tier (ADR 0021): the domain's next request is
-/// served on the browser, in a new Session.
-///
-/// Covers: story:5-138
-#[test]
-fn a_challenge_under_auto_retires_its_session_and_serves_its_domain_on_the_browser_in_a_new_one() {
-    let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = engine(&env);
-
-    let mut seen = Vec::new();
-    let finished = crawl_declaring(
-        &mut engine,
-        "challenged",
-        &[
-            seed(&proving_ground, "/corpus/interstitial", "page"),
-            seed(&proving_ground, "/corpus/article", "page"),
-        ],
-        &json!({ "page": {} }),
-        &settings(&proving_ground, "auto"),
-        &mut |_, handle| {
-            let url = handle["crawl_request"]["url"].as_str().unwrap();
-            seen.push((handle["session"]["id"].clone(), handle["tier"].clone()));
-            if handle["tier"] == "http" && challenged(&proving_ground, url) {
-                json!({ "error": { "code": -32003, "message": "the page failed", "data": {
-                    "code": "blocked", "retryable": false, "cause": "challenge",
-                } } })
-            } else {
-                json!({ "result": { "records": [] } })
-            }
-        },
-    );
-    assert!(engine.finish());
-
-    assert_eq!(
-        (seen, &finished["result"]["lifecycle"]),
-        (
-            vec![
-                (json!("session-1"), json!("http")),
-                (json!("session-2"), json!("browser")),
-            ],
-            &json!("finished")
-        )
-    );
 }

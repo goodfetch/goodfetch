@@ -272,6 +272,9 @@ importers:
 
   conformance/console:
     devDependencies:
+      '@goodfetch/collie-client':
+        specifier: workspace:*
+        version: link:../../sdks/typescript/collie-client
       '@goodfetch/console':
         specifier: workspace:*
         version: link:../../console/collie

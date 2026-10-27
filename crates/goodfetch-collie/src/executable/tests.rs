@@ -108,7 +108,10 @@ fn the_help_of_every_command_is_rendered_from_the_command_line() {
 /// The containment check (ADRs 0090 and 0094): Foxhound's executable
 /// carries every command of Collie's unchanged, so each command path of
 /// Collie's renders the same help in Foxhound's, its executable's name
-/// aside; the snapshot is Foxhound's whole help tree.
+/// aside, a group's listing Foxhound's own commands beside Collie's (`run
+/// outcomes` in `run`); the snapshot is Foxhound's whole help tree.
+///
+/// Covers: story:11-1130
 #[test]
 fn foxhounds_help_shows_each_command_collies_carries_unchanged() {
     let (collie, foxhound) = (command(Product::Collie), command(Product::Foxhound));
@@ -116,8 +119,17 @@ fn foxhounds_help_shows_each_command_collies_carries_unchanged() {
     let changed: Vec<String> = paths(&collie)
         .into_iter()
         .filter(|path| {
-            help(&foxhound, path).replace("goodfetch-foxhound", "goodfetch-collie")
-                != help(&collie, path)
+            // A group's list aligns its commands' help to its longest name,
+            // so a line is compared with its runs of spaces as one.
+            let words = |line: &str| line.split_whitespace().collect::<Vec<_>>().join(" ");
+            let foxhounds = help(&foxhound, path).replace("goodfetch-foxhound", "goodfetch-collie");
+            let mut lines = foxhounds.lines().map(words);
+            // Each line of Collie's, in its order, with only Foxhound's own
+            // commands' lines between them.
+            !help(&collie, path)
+                .lines()
+                .map(words)
+                .all(|line| lines.any(|theirs| theirs == line))
         })
         .map(|path| path.join(" "))
         .collect();

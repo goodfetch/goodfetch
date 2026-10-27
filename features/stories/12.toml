@@ -473,6 +473,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 215
+title = "As a user, I want to keep a Dataset view offline, its Records cached encrypted under a key that expires with my sign-in, so that I can read it on a train and lose nothing to a stolen laptop (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 217
 title = "As a user, I want a crawl run's page to show its progress live: requests in flight with their phase, tier and attempt; why due requests wait, per reason, with the domains held, when each is next admitted and the setting behind the wait with its value and layer; each sitemap seed's progress; whether a keep-alive crawl is idle; the handlers running against their concurrency and the governor's level; and the program's status message, so that a slow crawl explains itself (ADRs 0102, 0118; ADR 0037 / RT-15)."
 milestone = "M1 Core"
@@ -490,6 +499,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 231
+title = "As Goodfetch Cloud, I want Foxhound's Console build to show runs of both Products' engines, Foxhound's screens only for a run on Foxhound's engine, so that one build serves every tenant's runs (ADR 0096)."
+milestone = "M1 Core"
+journey = false
+not_journey = "actor"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 232
 title = "As a maintainer, I want a Stub gateway that serves Foxhound's Console build with the production headers, keeps its own index for `run.list`, starts each run's Attached engine from the executable of the Product that run gets and forwards every other operation, so that the Console is proved to need nothing beyond the catalog (ADRs 0068, 0096)."
 milestone = "M1 Core"
@@ -501,6 +519,15 @@ product = "foxhound"
 [[story]]
 id = 233
 title = "As a user, I want a Records grid of 10,000 rows to render only the rows on screen, so that large Datasets stay smooth (ADR 0071)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 234
+title = "As a user, I want Foxhound's build to stay under 1 MB brotli with its own initial-route ceiling, so that adding Foxhound never slows the Console's first screen (ADRs 0071, 0087)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

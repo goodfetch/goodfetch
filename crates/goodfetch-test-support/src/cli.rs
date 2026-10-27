@@ -241,6 +241,41 @@ impl Cli<'_> {
         Ok(CliJson::of(output, vec![document]))
     }
 
+    /// Runs the executable as [`Cli::run`] does, then checks that its
+    /// stdout holds exactly one JSON array, each item valid against
+    /// `schema`, a type of the committed bundle's `$defs`: what a command
+    /// of a sequence prints under `--json` once its call ended, such as
+    /// `run records` (ADR 0099).
+    pub fn json_array(self, schema: &str) -> Result<CliJson, CliError> {
+        let validator = validator(schema)?;
+        let output = self.run()?;
+        let document = one_document(&output.stdout)?;
+        let items = match &document {
+            Value::Array(items) => items.as_slice(),
+            _ => std::slice::from_ref(&document),
+        };
+        let mut errors: Vec<String> = Vec::new();
+        if !document.is_array() {
+            errors.push("/: the document is no array".to_owned());
+        }
+        for (index, item) in items.iter().enumerate() {
+            errors.extend(
+                validator
+                    .iter_errors(item)
+                    .map(|error| format!("/{index}{}: {error}", error.instance_path())),
+            );
+        }
+        if !errors.is_empty() {
+            return Err(CliError::SchemaViolated {
+                schema: schema.to_owned(),
+                line: None,
+                errors,
+                document,
+            });
+        }
+        Ok(CliJson::of(output, vec![document]))
+    }
+
     /// Runs the executable as [`Cli::run`] does, then checks that each
     /// line of its stdout is one JSON document valid against `schema`, the
     /// command's declared event type, and nothing else is: JSON Lines. A

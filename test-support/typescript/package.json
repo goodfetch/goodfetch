@@ -12,6 +12,7 @@
     "./daemon-calls": "./src/daemon-calls.ts",
     "./features": "./src/features.ts",
     "./journey": "./src/journey.ts",
+    "./offline-cache": "./src/offline-cache.ts",
     "./playwright": "./src/playwright.ts",
     "./protocol-adapter": "./src/protocol-adapter.ts",
     "./protocol-contract": "./src/protocol-contract.ts",

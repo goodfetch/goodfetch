@@ -2122,7 +2122,7 @@
         "$ref": "#/$defs/RunParams"
       },
       "product": "foxhound",
-      "reach": "all_surfaces",
+      "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/CrawlRunReport"
       },

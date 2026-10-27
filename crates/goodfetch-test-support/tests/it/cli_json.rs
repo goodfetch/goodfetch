@@ -167,6 +167,46 @@ fn json_lines_rejects_a_line_of_another_type() {
     );
 }
 
+/// The two events, as one JSON array: what a command of a sequence that
+/// ended prints under `--json`.
+const EVENT_ARRAY: &str = concat!(
+    r#"[{"position":1,"event":"run.started","data":{}},"#,
+    r#"{"position":2,"event":"run.finished","data":{"pages":3}}]"#,
+    "\n",
+);
+
+#[test]
+fn json_array_accepts_one_array_whose_items_are_each_valid_against_the_type() {
+    let env = unrecorded();
+
+    let checked = printing(&env, EVENT_ARRAY)
+        .json_array("EventEnvelope")
+        .unwrap();
+
+    assert_eq!(
+        checked.documents,
+        [json!([
+            { "position": 1, "event": "run.started", "data": {} },
+            { "position": 2, "event": "run.finished", "data": { "pages": 3 } },
+        ])]
+    );
+}
+
+#[rstest]
+#[case::an_item_of_another_type(format!("[{}]\n", EXPLANATION))]
+#[case::one_item_not_in_an_array(EVENTS.lines().next().unwrap().to_owned() + "\n")]
+fn json_array_rejects_anything_but_an_array_of_the_type(#[case] stdout: String) {
+    let env = unrecorded();
+
+    let checked = printing(&env, &stdout).json_array("EventEnvelope");
+
+    let error = checked.unwrap_err();
+    assert!(
+        matches!(&error, CliError::SchemaViolated { line: None, .. }),
+        "{error}"
+    );
+}
+
 #[test]
 fn json_lines_rejects_a_stdout_with_no_line() {
     let env = unrecorded();

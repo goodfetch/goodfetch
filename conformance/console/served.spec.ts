@@ -7,7 +7,7 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "@goodfetch/test-support/conformance";
 import { operationClasses } from "@goodfetch/console/generated/operations";
-import { startRun } from "./target.ts";
+import { PRODUCT_NAME, startRun } from "./target.ts";
 
 test(
   "the-single-user-link-signs-in-and-no-cookie-is-refused",
@@ -22,7 +22,7 @@ test(
     await signIn.withLink(page);
 
     await expect(page.getByRole("main").getByRole("status")).toHaveText(
-      /^Connected to Collie \d+\.\d+\.\d+\S*\.$/,
+      new RegExp(`^Connected to ${PRODUCT_NAME[daemon.product]} \\d+\\.\\d+\\.\\d+\\S*\\.$`),
     );
     expect(new URL(page.url()).hash).toBe("");
     const cookies = await context.cookies(daemon.url);
@@ -117,7 +117,7 @@ function methodOf(payload: string | Buffer): string | undefined {
     : undefined;
 }
 
-/** Visits each screen of Collie's build, as a person moving through it. */
+/** Visits each screen both Products' builds carry, as a person moving through it. */
 async function walk(page: Page, url: string): Promise<void> {
   for (const [path, shown] of [
     ["/runs", page.getByRole("table")],

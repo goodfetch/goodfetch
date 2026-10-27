@@ -14,6 +14,7 @@ listeners.daemon_websocket = { expect = "closed" }
 listeners.exposed_daemon = { expect = "closed" }
 listeners.console = { expect = "status", status = 401 }
 listeners.content_origin = { expect = "status", status = 401 }
+listeners.proxy_relay = { expect = "challenge" }
 "#;
 
 #[test]
@@ -211,6 +212,34 @@ listeners.private_endpoint = { expect = "closed" }
     r#"{ expect = "closed" }"#,
     Rule::OriginMissingWithoutHeaderToken,
     ListenerKind::DaemonSocket
+)]
+#[case::a_challenge_from_a_listener_that_is_no_proxy(
+    "token_wrong",
+    "ops_listener",
+    r#"{ expect = "challenge" }"#,
+    Rule::TokenWrong,
+    ListenerKind::OpsListener
+)]
+#[case::a_challenge_for_a_wrong_token(
+    "token_wrong",
+    "proxy_relay",
+    r#"{ expect = "challenge" }"#,
+    Rule::TokenWrong,
+    ListenerKind::ProxyRelay
+)]
+#[case::a_closed_connection_from_a_proxy(
+    "token_wrong",
+    "proxy_relay",
+    r#"{ expect = "closed" }"#,
+    Rule::TokenWrong,
+    ListenerKind::ProxyRelay
+)]
+#[case::a_header_rule_on_a_proxy(
+    "host_foreign",
+    "proxy_relay",
+    r#"{ expect = "status", status = 403 }"#,
+    Rule::HostForeign,
+    ListenerKind::ProxyRelay
 )]
 fn a_cell_its_listener_cannot_try_fails(
     #[case] rule_name: &str,

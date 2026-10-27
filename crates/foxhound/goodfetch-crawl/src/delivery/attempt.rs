@@ -75,8 +75,8 @@ use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
     AddressCheck, Capture, Chosen, ContentTypes, FetchTiers, HandOver, HttpTier, Judged,
-    PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, Stop, TierChoice,
-    infer_plan, tier_serves,
+    PAGE_CHECK_CALL, PooledSession, ReplayPlan, Requester, RobotsTxtFetch, SignalFiles, Stop,
+    TierChoice, infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -117,7 +117,7 @@ mod sitemap_fetch;
 use learning::learn;
 use site_preferences::{
     escaped_refusal, honoured_purpose, read_robots_txt, robots_txt_ignored, robots_txt_refusal,
-    share_robots_txt, use_signals_refusal,
+    share_robots_txt, use_signals_declared, use_signals_refusal,
 };
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -257,6 +257,9 @@ pub(super) struct Gating {
     /// What a code-free crawl handles its requests with, in place of the
     /// program's handler; none when the program handles them.
     pub(super) code_free: Option<Arc<CodeFree>>,
+    /// The AI-use signal files the Run fetched, `TDMRep`'s well-known
+    /// file and RSL licenses, each once for all its requests.
+    pub(super) signal_files: SignalFiles,
 }
 
 impl Gating {
@@ -897,6 +900,17 @@ impl On<'_> {
                 if robots_txt_ignored(run, leased, read.as_deref()) {
                     lease.robots_txt_ignored();
                 }
+                if let Some(refused) = use_signals_declared(
+                    run,
+                    http,
+                    leased,
+                    read.as_deref(),
+                    &self.gating.signal_files,
+                )
+                .await
+                {
+                    return Err(refused);
+                }
                 let served = if choice.tier == FetchTier::LightBrowser {
                     let identity = self.context.identity();
                     let pinned_by = PinnedBy {
@@ -930,7 +944,9 @@ impl On<'_> {
             _ = lease.ended() => Err(Answer::LeaseEnded),
         };
         let page_id = fetched?;
-        if let Some(refused) = use_signals_refusal(run, tiers, &page_id) {
+        if let Some(refused) =
+            use_signals_refusal(run, (tiers, http), &page_id, &self.gating.signal_files).await
+        {
             tiers.close(&page_id);
             return Err(refused);
         }

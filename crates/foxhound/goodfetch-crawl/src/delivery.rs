@@ -79,7 +79,7 @@ use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
     Choosing, ContentTypes, FetchTiers, HttpTier, LocalSource, PooledSession, RobotsTxtFetch,
-    SetTier, TierChoice,
+    SetTier, SignalFiles, TierChoice,
 };
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
@@ -239,6 +239,7 @@ pub(crate) async fn drive(
         latencies: tokio::sync::Mutex::new(Latencies::default()),
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
         code_free: code_free.map(std::sync::Arc::new),
+        signal_files: SignalFiles::default(),
     };
     deliver(&run, &mut servers, &mut arrivals, &settings, &fetching).await;
     crawls.close(run.id()).await;
@@ -540,6 +541,8 @@ struct Fetching<'a> {
     /// What a code-free crawl handles its requests with; none when its
     /// program does.
     code_free: Option<std::sync::Arc<CodeFree>>,
+    /// The AI-use signal files the Run fetched, each once.
+    signal_files: SignalFiles,
     /// The Run's domain policy, which judges each redirect hop.
     egress: std::sync::Arc<goodfetch_engine::egress::Policy>,
     /// The requests in flight, as the Run's progress shows them.
@@ -566,6 +569,7 @@ impl Fetching<'_> {
                 .settings
                 .content_types(label, &self.run_content_types),
             code_free: self.code_free.clone(),
+            signal_files: self.signal_files.clone(),
         }
     }
 

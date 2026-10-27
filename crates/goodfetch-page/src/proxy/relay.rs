@@ -1,38 +1,47 @@
 //! The per-Session loopback relay (ADR 0037 / SA-22; ADR 0021): the
-//! browser connects to this loopback listener instead of the Session's
-//! proxy, and the relay opens a connection to the proxy for each of the
-//! browser's. It relays in one of two ways:
+//! browser, or the Session's egress relay in front of it, connects to this
+//! loopback HTTP proxy instead of the Session's proxy, and the relay opens
+//! a connection to the proxy for each of its client's. Only a client giving
+//! the relay's own per-Session credentials is relayed: the engine answers
+//! the browser's `Fetch.authRequired` with them, and the egress relay sends
+//! them. A client without them gets a `407` and no relayed byte, and one
+//! giving wrong ones is refused in the Audit log too, so no other local
+//! process tunnels through the user's proxy, its credentials and its
+//! metered bytes (spec #577's review, M26). It relays in one of two ways:
 //!
-//! - **SOCKS5 with credentials.** Chromium takes no SOCKS5 credentials, so
-//!   the relay asks the browser for none and authenticates each connection
-//!   upstream with the Session's username and password (RFC 1928, RFC
+//! - **To a SOCKS5 proxy.** Chromium takes no SOCKS5 credentials, so the
+//!   relay translates each `CONNECT`, and each plain request in absolute
+//!   form, into a SOCKS5 tunnel to its host's name, authenticating it with
+//!   the Session's username and password when it has them (RFC 1928, RFC
 //!   1929). The password goes only to the proxy, over the connection the
 //!   relay opens to it; it is never in the browser's arguments.
-//! - **As it is.** An HTTP or credential-free SOCKS5 proxy's connections
-//!   pass byte for byte; one the proxy does not accept is answered, for an
-//!   HTTP proxy, with the relay's own `502` whose `Proxy-Status` member is
-//!   the relay's and names `connection_refused` (RFC 9209), so it stays the
-//!   proxy's failure. The relay records whether its latest connection to
-//!   the proxy failed to open, so neither that `502` nor a tunnel it could
-//!   not open counts as the proxy refusing a request: a proxy that is down
-//!   teaches its limits nothing.
+//! - **To an HTTP proxy.** Each `CONNECT` and plain request goes on with the
+//!   proxy's own credentials in place of the relay's. A proxy that cannot
+//!   be reached is answered with the relay's own `502` whose `Proxy-Status`
+//!   member is the relay's and names `connection_refused` (RFC 9209), so it
+//!   stays the proxy's failure. The relay records whether its latest
+//!   connection to the proxy failed to open, so neither that `502` nor a
+//!   tunnel it could not open counts as the proxy refusing a request: a
+//!   proxy that is down teaches its limits nothing.
 //!
-//! A Session whose proxy a Proxy provider gave relays every connection, so
-//! every byte on its connections to the proxy, the handshakes included, is
-//! charged to its Run, under its proxy kind, before the browser or the
-//! proxy is given it ([`ProxyUsage`]); once a Limit refuses a charge, the
-//! connection closes. A connection that closes while a charge is under way,
-//! or with bytes not yet charged, as when its Run ends mid-transfer, still
-//! has them charged in full: the provider bills every byte it carried. For
-//! a hosted provider's HTTP proxy, the relay also keeps the proxy's own
-//! answer to the latest `CONNECT` it refused ([`ProviderAnswer`]), which
-//! the browser reports only as a network error, so the provider's adapter
-//! can read its failure (ADR 0127). The listener binds port 0 of loopback and reports its
-//! address (ADR 0059), and it closes, with every connection it relays, when
-//! the Session's proxy is dropped or its Run stops.
+//! A plain request's connection closes after one answer, so each carries
+//! the one request the relay authenticated. A Session whose proxy a Proxy
+//! provider gave relays every connection, so every byte on its connections
+//! to the proxy, the handshakes included, is charged to its Run, under its
+//! proxy kind, before the browser or the proxy is given it
+//! ([`ProxyUsage`]); once a Limit refuses a charge, the connection closes.
+//! A connection that closes while a charge is under way, or with bytes not
+//! yet charged, as when its Run ends mid-transfer, still has them charged
+//! in full: the provider bills every byte it carried. For a hosted
+//! provider's HTTP proxy, the relay also keeps the proxy's own answer to
+//! the latest `CONNECT` it refused ([`ProviderAnswer`]), which the browser
+//! reports only as a network error, so the provider's adapter can read its
+//! failure (ADR 0127). The listener binds port 0 of loopback and reports
+//! its address (ADR 0059), and it closes, with every connection it relays,
+//! when the Session's proxy is dropped or its Run stops.
 #![expect(
     clippy::disallowed_types,
-    reason = "the per-Session SOCKS5 relay opens its own loopback listener and its connections to the proxy, in the proxy module only, and its tasks set flags and one answer, each read alone with no lock order (ADR 0060)"
+    reason = "the per-Session proxy relay opens its own loopback listener and its connections to the proxy, in the proxy module only, and its tasks set flags and one answer, each read alone with no lock order (ADR 0060)"
 )]
 
 use std::net::{Ipv4Addr, SocketAddr};
@@ -40,21 +49,28 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use data_encoding::BASE64;
 use goodfetch_engine::clock::Clock;
-
+use goodfetch_engine::endpoint::{Refusals, new_token, same_token};
 use goodfetch_engine::runs::Run;
 use secrecy::{ExposeSecret as _, SecretString};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-use super::party::relay_unreachable;
+use super::party::{RELAY, relay_unreachable};
+use crate::egress_relay::head::{self, Head, Target, Unread};
+use crate::egress_relay::serve::socks5_request;
 use crate::proxy_provider::ProxyUsage;
 use crate::proxy_provider::failure::ProviderAnswer;
 
-/// The most bytes of a request's or an answer's head the relay reads to
-/// learn whether the proxy refused a `CONNECT`.
-const HEAD: usize = 16 * 1024;
+/// The relay's name in the endpoint table and in its refusals' Audit log
+/// entries.
+pub(crate) const LISTENER: &str = "proxy_relay";
+
+/// The username of every relay's client credentials; the password is the
+/// Session's relay's own.
+pub(crate) const USERNAME: &str = "goodfetch";
 
 /// How long the relay waits before it accepts again after an error that is
 /// not one connection's own, such as too many open files.
@@ -63,37 +79,46 @@ const ACCEPT_BACKOFF: Duration = Duration::from_millis(250);
 /// The most bytes relayed at once, in each direction.
 const CHUNK: usize = 16 * 1024;
 
+/// The answer to a client without the relay's credentials.
+const AUTHENTICATE: &[u8] = b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"goodfetch\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+/// The answer to a tunnel that opened.
+const ESTABLISHED: &[u8] = b"HTTP/1.1 200 Connection Established\r\n\r\n";
+
 /// SOCKS's version 5.
 const VERSION: u8 = 5;
 /// The method that asks for no credentials.
 const NO_AUTHENTICATION: u8 = 0;
 /// The username and password method (RFC 1929).
 const USERNAME_PASSWORD: u8 = 2;
-/// No method the relay takes.
-const NO_ACCEPTABLE_METHOD: u8 = 0xff;
 /// RFC 1929's version.
 const CREDENTIALS_VERSION: u8 = 1;
-/// The `CONNECT` command, the only one the browser sends.
-const CONNECT: u8 = 1;
-/// Replies: a general failure, a refusal by the proxy's rules, and an
-/// unsupported command.
-const GENERAL_FAILURE: u8 = 1;
-const NOT_ALLOWED: u8 = 2;
-const COMMAND_NOT_SUPPORTED: u8 = 7;
 /// The address types: IPv4, a domain name and IPv6.
 const IPV4: u8 = 1;
 const DOMAIN: u8 = 3;
 const IPV6: u8 = 4;
 
-/// How the relay relays a connection.
+/// A SOCKS5 proxy's username and password.
+pub(crate) struct Credentials {
+    pub(crate) username: String,
+    pub(crate) password: SecretString,
+}
+
+/// How the relay reaches the proxy.
 pub(crate) enum Mode {
-    /// SOCKS5, authenticating upstream with these credentials.
-    Socks5 {
-        username: String,
-        password: SecretString,
-    },
-    /// Byte for byte, to an HTTP proxy (`http`) or a SOCKS5 one.
-    AsItIs { http: bool },
+    /// A SOCKS5 proxy, authenticating with these credentials, if any.
+    Socks5 { credentials: Option<Credentials> },
+    /// An HTTP proxy, given this `Proxy-Authorization` value, if any.
+    Http { authorization: Option<SecretString> },
+}
+
+/// The `Proxy-Authorization` value of `username` and `password`'s Basic
+/// credentials (RFC 7617).
+pub(crate) fn basic(username: &str, password: &str) -> String {
+    format!(
+        "Basic {}",
+        BASE64.encode(format!("{username}:{password}").as_bytes())
+    )
 }
 
 /// Where the relay sends each connection: the proxy, how, and what its
@@ -101,6 +126,10 @@ pub(crate) enum Mode {
 struct Upstream {
     address: SocketAddr,
     mode: Mode,
+    /// The `Proxy-Authorization` value a client must give.
+    client: String,
+    /// Where it records a client's wrong credentials.
+    refusals: Refusals,
     /// Whether the proxy refused the credentials on the latest connection
     /// that reached it, which a failed request then raises as
     /// `proxy_auth_failed`.
@@ -126,22 +155,25 @@ impl Upstream {
     }
 }
 
-/// An open relay: its loopback address, closed when dropped.
+/// An open relay: its loopback address and its client credentials, closed
+/// when dropped.
 pub(crate) struct Relay {
     address: SocketAddr,
+    password: SecretString,
     upstream: Arc<Upstream>,
     _closed_when_dropped: DropGuard,
 }
 
 impl Relay {
-    /// Binds the relay on port 0 of loopback for the proxy at `proxy`, and
-    /// relays every connection the browser opens to it as a task of `run`,
-    /// as `mode` says, charging its bytes to `usage` when it has one, and
-    /// keeping an HTTP proxy's refusals of a `CONNECT` when `keeps_refusals`.
+    /// Binds the relay on port 0 of loopback for the proxy at `proxy`, with
+    /// new client credentials, and relays every connection that gives them
+    /// as a task of `run`, as `mode` says, charging its bytes to `usage`
+    /// when it has one, and keeping an HTTP proxy's refusals of a `CONNECT`
+    /// when `keeps_refusals`.
     ///
     /// # Errors
     ///
-    /// The bind's failure.
+    /// The bind's failure, or the OS generator's.
     pub(crate) async fn open(
         run: &Run,
         proxy: SocketAddr,
@@ -149,12 +181,15 @@ impl Relay {
         usage: Option<Arc<ProxyUsage>>,
         keeps_refusals: bool,
     ) -> std::io::Result<Self> {
+        let password = new_token().map_err(std::io::Error::other)?;
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let address = listener.local_addr()?;
-        let keeps_refusals = keeps_refusals && matches!(mode, Mode::AsItIs { http: true });
+        let keeps_refusals = keeps_refusals && matches!(mode, Mode::Http { .. });
         let upstream = Arc::new(Upstream {
             address: proxy,
             mode,
+            client: basic(USERNAME, &password),
+            refusals: run.refusals(),
             refused: AtomicBool::new(false),
             unreachable: AtomicBool::new(false),
             usage,
@@ -169,6 +204,7 @@ impl Relay {
         ));
         Ok(Self {
             address,
+            password: SecretString::from(password),
             upstream,
             _closed_when_dropped: stop.drop_guard(),
         })
@@ -177,6 +213,11 @@ impl Relay {
     /// Its loopback address, which the browser takes as its proxy.
     pub(crate) fn address(&self) -> SocketAddr {
         self.address
+    }
+
+    /// The credentials a client gives it: its username and password.
+    pub(crate) fn credentials(&self) -> (&'static str, &SecretString) {
+        (USERNAME, &self.password)
     }
 
     /// Whether the proxy refused the Session's credentials.
@@ -276,87 +317,124 @@ fn one_connections(error: &std::io::Error) -> bool {
     )
 }
 
-/// Relays one of the browser's connections through the proxy.
-async fn relay(browser: TcpStream, upstream: &Upstream) {
-    match &upstream.mode {
-        Mode::Socks5 { username, password } => {
-            socks5(browser, upstream, username, password).await;
+/// The relay's own answer to a request it could not take on, with
+/// `status` and the `Proxy-Status` member naming `error` (RFC 9209).
+fn failed(status: &str, error: &str) -> String {
+    format!(
+        "HTTP/1.1 {status}\r\nProxy-Status: {RELAY}; error={error}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    )
+}
+
+/// Relays one of its client's connections through the proxy, once the
+/// client gave the relay's credentials.
+async fn relay(mut client: TcpStream, upstream: &Upstream) {
+    let (head, rest) = match head::read(&mut client).await {
+        Ok(read) => read,
+        Err(Unread::Closed) => return,
+        Err(Unread::Malformed) => {
+            let _ = client
+                .write_all(failed("400 Bad Request", "http_request_error").as_bytes())
+                .await;
+            return;
         }
-        Mode::AsItIs { http } => as_it_is(browser, upstream, *http).await,
+    };
+    match head.authorization.as_deref() {
+        Some(given) if same_token(given, &upstream.client) => {}
+        given => {
+            // A client's first request carries no credentials until the
+            // relay asks for them, the browser's included: only wrong ones
+            // are a refusal.
+            if given.is_some() {
+                upstream.refusals.refused(LISTENER, "token_wrong").await;
+            }
+            let _ = client.write_all(AUTHENTICATE).await;
+            return;
+        }
+    }
+    match &upstream.mode {
+        Mode::Socks5 { credentials } => {
+            socks5(client, &head, &rest, upstream, credentials.as_ref()).await;
+        }
+        Mode::Http { authorization } => {
+            let authorization = authorization
+                .as_ref()
+                .map(secrecy::ExposeSecret::expose_secret);
+            http(client, &head, &rest, upstream, authorization).await;
+        }
     }
 }
 
-/// Relays a connection byte for byte; one the proxy does not accept is
-/// answered with the relay's `502` when the proxy is an HTTP one.
-async fn as_it_is(mut browser: TcpStream, upstream: &Upstream, http: bool) {
+/// Relays `head`'s request, and `rest` after it, through an HTTP proxy
+/// with `authorization`: a plain request in absolute form, a tunnel through
+/// the proxy's own, its answer passed back as the proxy gave it, its body
+/// left out, and kept when the proxy refused the tunnel.
+async fn http(
+    mut client: TcpStream,
+    head: &Head,
+    rest: &[u8],
+    upstream: &Upstream,
+    authorization: Option<&str>,
+) {
     let Some(proxy) = upstream.connect().await else {
-        if http {
-            let _ = browser.write_all(relay_unreachable().as_bytes()).await;
-        }
+        let _ = client.write_all(relay_unreachable().as_bytes()).await;
         return;
     };
     let mut proxy = Tallied::new(proxy, upstream.usage.clone());
-    if let Some(refusal) = &upstream.refusal
-        && heads(&mut browser, &mut proxy, refusal).await.is_err()
-    {
+    if let Target::Absolute { .. } = head.target {
+        let mut forwarded = head.forwarded(true, authorization);
+        let sent = proxy.write_all(&forwarded).await;
+        // The buffer that held the credentials is cleared before it is
+        // dropped.
+        forwarded.fill(0);
+        if sent.is_err() || !proxy.charged().await {
+            return;
+        }
+        let _ = carry(&mut client, &mut proxy, rest).await;
         return;
     }
-    let _ = pass(&mut browser, &mut proxy).await;
-}
-
-/// Relays the browser's request heads and, for each `CONNECT`, the
-/// proxy's answer head, keeping the answer in `refusal` when the proxy
-/// refused the tunnel and clearing it when it took it, until the proxy
-/// takes a tunnel, the browser sends another request, or either says
-/// nothing the relay reads as a head; then the rest passes as it is.
-async fn heads(
-    browser: &mut TcpStream,
-    proxy: &mut Tallied,
-    refusal: &Mutex<Option<ProviderAnswer>>,
-) -> std::io::Result<()> {
-    loop {
-        let request = read_head(browser).await?;
-        if request.is_empty() {
-            return Ok(());
-        }
-        proxy.write_all(&request).await?;
-        if !proxy.charged().await {
-            return Err(std::io::Error::other("a Limit refused the proxy's bytes"));
-        }
-        if !request.starts_with(b"CONNECT ") {
-            return Ok(());
-        }
-        let answer = read_head(proxy).await?;
-        if !proxy.charged().await {
-            return Err(std::io::Error::other("a Limit refused the proxy's bytes"));
-        }
-        browser.write_all(&answer).await?;
-        let Some(answer) = provider_answer(&answer) else {
-            return Ok(());
-        };
-        let took = (200..300).contains(&answer.status);
+    let authority = head.target.authority();
+    let mut request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n").into_bytes();
+    if let Some(authorization) = authorization {
+        request.extend_from_slice(b"Proxy-Authorization: ");
+        request.extend_from_slice(authorization.as_bytes());
+        request.extend_from_slice(b"\r\n");
+    }
+    request.extend_from_slice(b"\r\n");
+    let sent = proxy.write_all(&request).await;
+    request.fill(0);
+    if sent.is_err() || !proxy.charged().await {
+        return;
+    }
+    let Ok(answer) = head::answer(&mut proxy).await else {
+        let _ = client
+            .write_all(failed("502 Bad Gateway", "http_response_incomplete").as_bytes())
+            .await;
+        return;
+    };
+    if !proxy.charged().await {
+        return;
+    }
+    let took = (200..300).contains(&answer.status);
+    upstream
+        .refused
+        .store(answer.status == 407, Ordering::Relaxed);
+    if let Some(refusal) = &upstream.refusal {
         *refusal
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = (!took).then_some(answer);
-        if took {
-            return Ok(());
-        }
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = if took {
+            None
+        } else {
+            provider_answer(&answer.to_browser)
+        };
     }
-}
-
-/// Reads from `stream` until its bytes hold a head's end, it ends, or
-/// [`HEAD`] bytes: every byte read, which may run past the head.
-async fn read_head(stream: &mut (impl AsyncRead + Unpin)) -> std::io::Result<Vec<u8>> {
-    let mut head = Vec::new();
-    let mut chunk = vec![0; CHUNK];
-    while head.len() < HEAD && !head.windows(4).any(|window| window == b"\r\n\r\n") {
-        let read = stream.read(&mut chunk).await?;
-        if read == 0 {
-            break;
-        }
-        head.extend_from_slice(&chunk[..read]);
+    if !took {
+        let _ = client.write_all(&answer.to_browser).await;
+        return;
     }
-    Ok(head)
+    if client.write_all(ESTABLISHED).await.is_err() {
+        return;
+    }
+    let _ = carry(&mut client, &mut proxy, rest).await;
 }
 
 /// The proxy's answer in `bytes`, its status and headers, if they start
@@ -382,60 +460,91 @@ fn provider_answer(bytes: &[u8]) -> Option<ProviderAnswer> {
     })
 }
 
-/// Relays a SOCKS5 connection, authenticating upstream with `username` and
-/// `password`.
+/// Relays `head`'s request, and `rest` after it, through a SOCKS5 proxy, in
+/// a tunnel to its host's name authenticated with `credentials`, if any: a
+/// `CONNECT` answered as opened, a plain request sent on in origin form.
 async fn socks5(
-    mut browser: TcpStream,
+    mut client: TcpStream,
+    head: &Head,
+    rest: &[u8],
     upstream: &Upstream,
-    username: &str,
-    password: &SecretString,
+    credentials: Option<&Credentials>,
 ) {
-    if greet_browser(&mut browser).await.is_err() {
-        return;
-    }
-    let Ok(request) = read_request(&mut browser).await else {
+    let Ok(request) = socks5_request(head.target.host(), head.target.port()) else {
+        let _ = client
+            .write_all(failed("400 Bad Request", "http_request_error").as_bytes())
+            .await;
         return;
     };
-    if request[1] != CONNECT {
-        let _ = browser.write_all(&reply(COMMAND_NOT_SUPPORTED)).await;
-        return;
-    }
     // Whether the proxy refused the credentials is this connection's
     // answer, the latest, never one a connection before met.
     let Some(proxy) = upstream.connect().await else {
         upstream.refused.store(false, Ordering::Relaxed);
-        let _ = browser.write_all(&reply(GENERAL_FAILURE)).await;
+        let _ = client.write_all(relay_unreachable().as_bytes()).await;
         return;
     };
     let mut proxy = Tallied::new(proxy, upstream.usage.clone());
-    let authenticated = authenticate(&mut proxy, username, password).await;
+    let authenticated = authenticate(&mut proxy, credentials).await;
     upstream
         .refused
         .store(matches!(authenticated, Ok(false)), Ordering::Relaxed);
-    match authenticated {
-        Ok(true) => {}
-        Ok(false) => {
-            let _ = browser.write_all(&reply(NOT_ALLOWED)).await;
-            return;
-        }
-        Err(_) => {
-            let _ = browser.write_all(&reply(GENERAL_FAILURE)).await;
-            return;
-        }
+    if !matches!(authenticated, Ok(true)) || !proxy.charged().await {
+        let _ = client
+            .write_all(failed("502 Bad Gateway", "proxy_internal_error").as_bytes())
+            .await;
+        return;
     }
-    // The browser's own request goes on as it sent it, and the proxy's
-    // reply comes back as the proxy sent it.
     if proxy.write_all(&request).await.is_err() || !proxy.charged().await {
         return;
     }
-    let Ok(answered) = read_request(&mut proxy).await else {
-        let _ = browser.write_all(&reply(GENERAL_FAILURE)).await;
-        return;
-    };
-    if !proxy.charged().await || browser.write_all(&answered).await.is_err() || answered[1] != 0 {
+    let opened = read_reply(&mut proxy).await;
+    if !proxy.charged().await {
         return;
     }
-    let _ = pass(&mut browser, &mut proxy).await;
+    if !matches!(opened, Ok(true)) {
+        let _ = client
+            .write_all(failed("502 Bad Gateway", "connection_refused").as_bytes())
+            .await;
+        return;
+    }
+    let started = match head.target {
+        Target::Tunnel { .. } => client.write_all(ESTABLISHED).await,
+        Target::Absolute { .. } => proxy.write_all(&head.forwarded(false, None)).await,
+    };
+    if started.is_err() {
+        return;
+    }
+    let _ = carry(&mut client, &mut proxy, rest).await;
+}
+
+/// Reads a SOCKS5 reply: whether the proxy opened the tunnel.
+async fn read_reply(proxy: &mut (impl AsyncRead + Unpin)) -> std::io::Result<bool> {
+    let mut reply = [0; 4];
+    proxy.read_exact(&mut reply).await?;
+    if reply[0] != VERSION {
+        return Err(std::io::ErrorKind::InvalidData.into());
+    }
+    let address = match reply[3] {
+        IPV4 => 4,
+        IPV6 => 16,
+        DOMAIN => usize::from(proxy.read_u8().await?),
+        _ => return Err(std::io::ErrorKind::InvalidData.into()),
+    };
+    let mut bound = vec![0; address + 2];
+    proxy.read_exact(&mut bound).await?;
+    Ok(reply[1] == 0)
+}
+
+/// Carries `rest`, the client's bytes read past its head, to the proxy,
+/// then bytes both ways.
+async fn carry(client: &mut TcpStream, proxy: &mut Tallied, rest: &[u8]) -> std::io::Result<()> {
+    if !rest.is_empty() {
+        proxy.write_all(rest).await?;
+        if !proxy.charged().await {
+            return Err(std::io::Error::other("a Limit refused the proxy's bytes"));
+        }
+    }
+    pass(client, proxy).await
 }
 
 /// The proxy's end of a relayed connection, which tallies every byte read
@@ -568,61 +677,27 @@ async fn pass(browser: &mut TcpStream, proxy: &mut Tallied) -> std::io::Result<(
     Ok(())
 }
 
-/// Reads the browser's greeting and asks it for no credentials.
-async fn greet_browser(browser: &mut TcpStream) -> std::io::Result<()> {
-    let mut head = [0; 2];
-    browser.read_exact(&mut head).await?;
-    let mut methods = vec![0; usize::from(head[1])];
-    browser.read_exact(&mut methods).await?;
-    if head[0] != VERSION || !methods.contains(&NO_AUTHENTICATION) {
-        browser.write_all(&[VERSION, NO_ACCEPTABLE_METHOD]).await?;
-        return Err(std::io::ErrorKind::InvalidData.into());
-    }
-    browser.write_all(&[VERSION, NO_AUTHENTICATION]).await
-}
-
-/// Reads a request or a reply, which share their shape: version, command
-/// or reply, a reserved byte, then an address and a port.
-async fn read_request(stream: &mut (impl AsyncRead + Unpin)) -> std::io::Result<Vec<u8>> {
-    let mut message = vec![0; 4];
-    stream.read_exact(&mut message).await?;
-    if message[0] != VERSION {
-        return Err(std::io::ErrorKind::InvalidData.into());
-    }
-    let address = match message[3] {
-        IPV4 => 4,
-        IPV6 => 16,
-        DOMAIN => {
-            let mut length = [0; 1];
-            stream.read_exact(&mut length).await?;
-            message.push(length[0]);
-            usize::from(length[0])
-        }
-        _ => return Err(std::io::ErrorKind::InvalidData.into()),
-    };
-    let start = message.len();
-    message.resize(start + address + 2, 0);
-    stream.read_exact(&mut message[start..]).await?;
-    Ok(message)
-}
-
-/// Authenticates with the proxy as `username`: whether it took the
-/// credentials.
+/// Greets the proxy offering `credentials`' method, or none, and
+/// authenticates with them: whether it took them.
 async fn authenticate(
     proxy: &mut Tallied,
-    username: &str,
-    password: &SecretString,
+    credentials: Option<&Credentials>,
 ) -> std::io::Result<bool> {
-    proxy.write_all(&[VERSION, 1, USERNAME_PASSWORD]).await?;
+    let method = if credentials.is_some() {
+        USERNAME_PASSWORD
+    } else {
+        NO_AUTHENTICATION
+    };
+    proxy.write_all(&[VERSION, 1, method]).await?;
     let mut chosen = [0; 2];
     proxy.read_exact(&mut chosen).await?;
-    match chosen {
-        [VERSION, NO_AUTHENTICATION] => return Ok(true),
-        [VERSION, USERNAME_PASSWORD] => {}
+    let credentials = match (chosen, credentials) {
+        ([VERSION, NO_AUTHENTICATION], _) => return Ok(true),
+        ([VERSION, USERNAME_PASSWORD], Some(credentials)) => credentials,
         _ => return Ok(false),
-    }
-    let username = username.as_bytes();
-    let password = password.expose_secret().as_bytes();
+    };
+    let username = credentials.username.as_bytes();
+    let password = credentials.password.expose_secret().as_bytes();
     // The Session refuses credentials longer than RFC 1929 carries when it
     // opens; none reaches here, and none would be the proxy's refusal.
     let (Ok(username_length), Ok(password_length)) =
@@ -630,23 +705,18 @@ async fn authenticate(
     else {
         return Err(std::io::ErrorKind::InvalidInput.into());
     };
-    let mut credentials = Vec::with_capacity(3 + username.len() + password.len());
-    credentials.extend_from_slice(&[CREDENTIALS_VERSION, username_length]);
-    credentials.extend_from_slice(username);
-    credentials.push(password_length);
-    credentials.extend_from_slice(password);
-    let sent = proxy.write_all(&credentials).await;
+    let mut message = Vec::with_capacity(3 + username.len() + password.len());
+    message.extend_from_slice(&[CREDENTIALS_VERSION, username_length]);
+    message.extend_from_slice(username);
+    message.push(password_length);
+    message.extend_from_slice(password);
+    let sent = proxy.write_all(&message).await;
     // The buffer that held the password is cleared before it is dropped.
-    credentials.fill(0);
+    message.fill(0);
     sent?;
     let mut status = [0; 2];
     proxy.read_exact(&mut status).await?;
     Ok(status == [CREDENTIALS_VERSION, 0])
-}
-
-/// A reply to the browser carrying `code` and no address.
-fn reply(code: u8) -> [u8; 10] {
-    [VERSION, code, 0, IPV4, 0, 0, 0, 0, 0, 0]
 }
 
 #[cfg(test)]

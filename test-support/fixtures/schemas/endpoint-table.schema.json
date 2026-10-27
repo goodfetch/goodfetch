@@ -66,6 +66,20 @@
             "expect"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An HTTP proxy asks for credentials with a `407` (RFC 9110, section\n15.5.8), as it answers every client's first request, the browser's\nincluded, before the client learns them. No refusal, so no Audit log\nentry; no byte is relayed.",
+          "properties": {
+            "expect": {
+              "const": "challenge",
+              "type": "string"
+            }
+          },
+          "required": [
+            "expect"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -105,6 +119,11 @@
         {
           "const": "content_origin",
           "description": "The Console's content origin, which serves a Run's file only to an\naddress signed for that one file, and reads no cookie (ADR 0031;\nspec #592).",
+          "type": "string"
+        },
+        {
+          "const": "proxy_relay",
+          "description": "A Session's proxy relay (`goodfetch-page`'s `proxy::relay`): a\nloopback HTTP proxy of the Session's own, which tunnels only for the\nSession's per-Session credentials (ADR 0037 / SA-22; spec #577).",
           "type": "string"
         }
       ]

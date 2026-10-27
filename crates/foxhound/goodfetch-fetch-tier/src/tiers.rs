@@ -293,7 +293,12 @@ impl Opened {
         };
         let base_url = goodfetch_frontier::document_base(&url, base_href(&html).as_deref())
             .map_or_else(|| url.clone(), |base| base.to_string());
-        let use_signals = UseSignals::of(&fetched.headers);
+        let markup = if not_document.is_none() {
+            html.as_str()
+        } else {
+            ""
+        };
+        let use_signals = UseSignals::of(&fetched.headers).with_markup(markup, &fetched.url);
         let links = fetched
             .headers
             .into_iter()
@@ -1525,6 +1530,21 @@ impl HttpTier {
             let tier = tier.clone();
             Box::pin(async move { tier.robots_txt(&run, &location).await })
         })
+    }
+
+    /// Fetches the AI-use signal file at `url` for `run`, `TDMRep`'s
+    /// well-known file or an RSL license, as [`HttpTier::robots_txt`]
+    /// fetches robots.txt: its body, its first 500 KiB, when it answers
+    /// `2xx`; `None` otherwise.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes the fetch's connection.
+    pub async fn signal_file(&self, run: &Run, url: &Url) -> Option<Vec<u8>> {
+        match self.robots_txt(run, url).await {
+            Answer::Response { status, body } if (200..300).contains(&status) => Some(body),
+            _ => None,
+        }
     }
 
     /// Fetches the robots.txt at `location` for `run` (ADR 0086), following

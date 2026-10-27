@@ -71,16 +71,19 @@ pub(crate) fn names_an_address(host: Option<&str>) -> bool {
 
 /// Where a listener records its refusals: the user's Audit log, each entry
 /// written on the blocking policy of the engine's owner at the clock's wall
-/// time.
+/// time. A listener outside `transport`, such as a Session's proxy relay,
+/// takes its Run's ([`crate::runs::Run::refusals`]).
 #[derive(Clone)]
-pub(crate) struct Refusals {
+pub struct Refusals {
     audit: AuditLog,
     owner: Arc<TaskOwner>,
     clock: Clock,
 }
 
 impl Refusals {
-    pub(crate) fn new(audit: AuditLog, owner: Arc<TaskOwner>, clock: Clock) -> Self {
+    /// Refusals recorded in `audit`, written on `owner`'s blocking policy
+    /// at `clock`'s wall time.
+    pub fn new(audit: AuditLog, owner: Arc<TaskOwner>, clock: Clock) -> Self {
         Self {
             audit,
             owner,
@@ -94,7 +97,7 @@ impl Refusals {
     /// # Cancel safety
     ///
     /// Dropping the future may leave the entry recorded.
-    pub(crate) async fn refused(&self, listener: &'static str, reason: &'static str) {
+    pub async fn refused(&self, listener: &'static str, reason: &'static str) {
         tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a listener refused an attempt");
         let audit = self.audit.clone();
         let now = Timestamp::try_from(self.clock.wall()).unwrap_or(Timestamp::UNIX_EPOCH);

@@ -73,6 +73,7 @@ const SUMMARIES: Readonly<Record<string, MessageDescriptor>> = {
   protocol_version_unsupported: msg`The engine does not speak the protocol version the Client asked for.`,
   proxy_auth_failed: msg`The proxy refused the Session's credentials.`,
   proxy_provider_unavailable: msg`The Session's Proxy provider answered with a failure of its own, such as a spent quota or a lost sticky exit.`,
+  proxy_relay_unavailable: msg`The engine could not open the local relay to the Session's proxy.`,
   proxy_unavailable: msg`The Session's proxy could not be reached.`,
   resources_exhausted: msg`The engine ran out of memory or storage for the run.`,
   response_limit_exceeded: msg`A response passed one of the run's limits on what the engine reads, so it was not read.`,

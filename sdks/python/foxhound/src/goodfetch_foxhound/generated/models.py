@@ -398,10 +398,17 @@ class EquivalentForm(StrEnum):
 
 
 class ExportCompression(StrEnum):
-    """How an Export's bytes are compressed."""
+    """
+    How an Export's bytes are compressed: the whole file, once written in
+    its format.
+    """
 
     none = "none"
     """Not compressed."""
+    gzip = "gzip"
+    """One gzip member (RFC 1952)."""
+    zstd = "zstd"
+    """One Zstandard frame (RFC 8878)."""
 
 
 class ExportFormat(StrEnum):
@@ -431,6 +438,24 @@ class ExportFormat(StrEnum):
     One GitHub Flavored Markdown table: a header row of the fields seen,
     then one row per Record.
     """
+    xml = "xml"
+    """
+    One XML document: a root element holding one element per Record,
+    each field an element of its name.
+    """
+    parquet = "parquet"
+    """One Apache Parquet file of one column per field seen, typed."""
+    avro = "avro"
+    """
+    One Apache Avro object container file of one record per Record,
+    with one field per field seen, typed.
+    """
+    arrow_ipc = "arrow_ipc"
+    """One Apache Arrow IPC file of one column per field seen, typed."""
+    rss = "rss"
+    """One RSS 2.0 feed of one item per Record."""
+    atom = "atom"
+    """One Atom feed of one entry per Record."""
 
 
 class ExportId(RootModel[str]):
@@ -1015,6 +1040,11 @@ class RunExportParams(BaseModel):
     The Export's settings, nested by key: the run layer (ADR 0083),
     whose `export.*` keys shape its format.
     """
+    wall: bool | None = None
+    """
+    `true` writes only the Records whose page was read past a Wall,
+    `false` only the others; absent, every Record (ADR 0052).
+    """
 
 
 class RunFailedRequestsParams(BaseModel):
@@ -1069,6 +1099,11 @@ class RunRecordsParams(BaseModel):
     """The Dataset's name."""
     run_id: RunId
     """The crawl's Run."""
+    wall: bool | None = None
+    """
+    `true` reads only the Records whose page was read past a Wall,
+    `false` only the others; absent, every Record (ADR 0052).
+    """
 
 
 class RunRejectedRecordsParams(BaseModel):

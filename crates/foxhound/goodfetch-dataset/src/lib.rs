@@ -31,8 +31,13 @@ use goodfetch_engine::Contribution;
 use goodfetch_engine::run_state::RunStateTables;
 
 pub use declaration::{Datasets, Refused};
-pub use encoding::{Columns, ExportEncoder, ExportOptions, Nested, csv_delimiter, sheet_name};
-pub use records::{Checked, Committing, Query, commit, last_number, read, read_values};
+pub use encoding::{
+    Columns, Compressor, ExportEncoder, ExportOptions, Exported, FeedFields, Nested, ParquetCodec,
+    WALL_FIELD, csv_delimiter, feed_field, json_indent, sheet_name, xml_name,
+};
+pub use records::{
+    Checked, CommittedText, Committing, Query, commit, last_number, read, read_values,
+};
 pub use rejections::{Rejection, fuzz_rejection};
 pub use resume::Began;
 

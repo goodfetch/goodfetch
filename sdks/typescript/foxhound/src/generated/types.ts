@@ -307,19 +307,32 @@ export type EnqueuedLink =
       url: string;
     };
 /**
- * How an Export's bytes are compressed.
+ * How an Export's bytes are compressed: the whole file, once written in
+ * its format.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "ExportCompression".
  */
-export type ExportCompression = "none";
+export type ExportCompression = "none" | "gzip" | "zstd";
 /**
  * An Export's format, named, never inferred from a file name (ADR 0103).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "ExportFormat".
  */
-export type ExportFormat = "json" | "jsonl" | "csv" | "xlsx" | "html_table" | "markdown";
+export type ExportFormat =
+  | "json"
+  | "jsonl"
+  | "csv"
+  | "xlsx"
+  | "html_table"
+  | "markdown"
+  | "xml"
+  | "parquet"
+  | "avro"
+  | "arrow_ipc"
+  | "rss"
+  | "atom";
 /**
  * An Export of a Run, named by the engine when its file is whole:
  * `<run_id>.export-<sha256>`, the SHA-256 of its bytes in lowercase
@@ -1778,7 +1791,7 @@ export interface Export {
   /**
    * Its compression.
    */
-  compression: "none";
+  compression: "none" | "gzip" | "zstd";
   /**
    * The Export, which `export.save_as` and `export.stream` take.
    */
@@ -1786,7 +1799,19 @@ export interface Export {
   /**
    * Its format.
    */
-  format: "json" | "jsonl" | "csv" | "xlsx" | "html_table" | "markdown";
+  format:
+    | "json"
+    | "jsonl"
+    | "csv"
+    | "xlsx"
+    | "html_table"
+    | "markdown"
+    | "xml"
+    | "parquet"
+    | "avro"
+    | "arrow_ipc"
+    | "rss"
+    | "atom";
   /**
    * The number of the last Record it holds, 0 when it holds none.
    */
@@ -2182,7 +2207,19 @@ export interface RunExportParams {
   /**
    * The format.
    */
-  format: "json" | "jsonl" | "csv" | "xlsx" | "html_table" | "markdown";
+  format:
+    | "json"
+    | "jsonl"
+    | "csv"
+    | "xlsx"
+    | "html_table"
+    | "markdown"
+    | "xml"
+    | "parquet"
+    | "avro"
+    | "arrow_ipc"
+    | "rss"
+    | "atom";
   /**
    * The project configuration the Client found, layer 3 (ADR 0083).
    */
@@ -2198,6 +2235,11 @@ export interface RunExportParams {
   settings?: {
     [k: string]: unknown;
   };
+  /**
+   * `true` writes only the Records whose page was read past a Wall,
+   * `false` only the others; absent, every Record (ADR 0052).
+   */
+  wall?: boolean | null;
 }
 /**
  * What `run.failed_requests` takes.
@@ -2261,6 +2303,11 @@ export interface RunRecordsParams {
    * The crawl's Run.
    */
   run_id: RunId;
+  /**
+   * `true` reads only the Records whose page was read past a Wall,
+   * `false` only the others; absent, every Record (ADR 0052).
+   */
+  wall?: boolean | null;
 }
 /**
  * What `run.rejected_records` takes.

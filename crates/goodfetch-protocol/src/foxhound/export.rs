@@ -8,9 +8,13 @@
 //! `download.save_as` puts a Download's, and `export.stream` sends its
 //! bytes. Every text Export is UTF-8: JSON and JSONL carry no BOM, write
 //! characters as themselves and write each Record's value as it was
-//! committed. CSV, XLSX, HTML table and Markdown carry one column per field
-//! seen in any Record, in first-seen order, so a later Record's field is
-//! never dropped (pitfall D07), shaped by the `export.*` settings.
+//! committed. CSV, XLSX, HTML table, Markdown, Parquet, Avro and Arrow IPC
+//! carry one column per field seen in any Record, in first-seen order, so a
+//! later Record's field is never dropped (pitfall D07); XML, RSS and Atom
+//! write one element per Record; each is shaped by the `export.*`
+//! settings, and plain, gzip or zstd (CO-27). A Record read past a Wall
+//! carries its marker in every format, and an Export can take only those
+//! Records or only the others (ADR 0052).
 //! Foxhound's own; the two Error codes of a failed write are Collie's (ADR
 //! 0095).
 
@@ -82,6 +86,20 @@ pub enum ExportFormat {
     /// One GitHub Flavored Markdown table: a header row of the fields seen,
     /// then one row per Record.
     Markdown,
+    /// One XML document: a root element holding one element per Record,
+    /// each field an element of its name.
+    Xml,
+    /// One Apache Parquet file of one column per field seen, typed.
+    Parquet,
+    /// One Apache Avro object container file of one record per Record,
+    /// with one field per field seen, typed.
+    Avro,
+    /// One Apache Arrow IPC file of one column per field seen, typed.
+    ArrowIpc,
+    /// One RSS 2.0 feed of one item per Record.
+    Rss,
+    /// One Atom feed of one entry per Record.
+    Atom,
 }
 
 impl ExportFormat {
@@ -90,18 +108,29 @@ impl ExportFormat {
     pub fn is_table(self) -> bool {
         matches!(
             self,
-            Self::Csv | Self::Xlsx | Self::HtmlTable | Self::Markdown
+            Self::Csv
+                | Self::Xlsx
+                | Self::HtmlTable
+                | Self::Markdown
+                | Self::Parquet
+                | Self::Avro
+                | Self::ArrowIpc
         )
     }
 }
 
-/// How an Export's bytes are compressed.
+/// How an Export's bytes are compressed: the whole file, once written in
+/// its format.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExportCompression {
     /// Not compressed.
     #[default]
     None,
+    /// One gzip member (RFC 1952).
+    Gzip,
+    /// One Zstandard frame (RFC 8878).
+    Zstd,
 }
 
 /// What `run.export` takes.
@@ -121,6 +150,11 @@ pub struct RunExportParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub compression: Option<ExportCompression>,
+    /// `true` writes only the Records whose page was read past a Wall,
+    /// `false` only the others; absent, every Record (ADR 0052).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub wall: Option<bool>,
     /// The Export's settings, nested by key: the run layer (ADR 0083),
     /// whose `export.*` keys shape its format.
     #[serde(default, skip_serializing_if = "Map::is_empty")]
@@ -161,7 +195,7 @@ pub struct Export {
 /// `run.export`.
 pub const RUN_EXPORT: Operation = Operation {
     name: "run.export",
-    description: "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named (`json`, one array of the Records' values; `jsonl`, one value per line; `csv`, `xlsx`, `html_table` and `markdown`, a table of one column per field seen in any of its Records, in first-seen order, and one row per Record), UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+    description: "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named: `json`, one array of the Records' values, indented as `export.json.indent` says; `jsonl`, one value per line; `csv`, `xlsx`, `html_table` and `markdown`, a table of one column per field seen in any of its Records, in first-seen order, and one row per Record; `parquet`, `avro` and `arrow_ipc`, the same columns typed: a column whose values are all `true` or `false` is boolean, all whole numbers a 64-bit integer, all numbers a 64-bit float, and any other a string holding each cell's text, every column nullable, an Avro field's name made a valid Avro name with the field's own in its `doc`; `xml`, a root element named by `export.xml.root` holding one element per Record named by `export.xml.record`, each field an element of its name (`field` with a `name` attribute where its name is no XML name), an object's fields as elements, an array's values as `item` elements, and `null` an empty element with `xsi:nil=\"true\"`; `rss` and `atom`, a feed named after the Dataset of one item or entry per Record, its title, link, date and summary taken from the fields the `export.feed.*` settings name. Every text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves (a character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. A Record whose page was read past a Wall carries its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall` field in every format but the feeds, where it is a category of the scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes only those Records, `false` only the others. `compression` `gzip` or `zstd` compresses the whole file. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -308,6 +342,140 @@ pub const EXPORT_XLSX_SHEET: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// The longest indentation `export.json.indent` takes.
+pub const JSON_INDENT_MAX: u64 = 8;
+
+/// `export.json.indent` (spec #582, shape).
+pub const EXPORT_JSON_INDENT: Setting = Setting {
+    name: "export.json.indent",
+    description: "How many spaces a JSON Export indents each level by: 0, the default, writes the array and each Record's value on one line, as committed; 1 to 8 write the array one value per line and each value's members on lines of their own, indented by that many spaces per level. JSONL is one line per Record either way. A count above 8 fails the Export with `setting_invalid`. Set for the connection or the Run.",
+    kind: ValueKind::Count,
+    default: zero,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `export.xml.root` (spec #582, shape).
+pub const EXPORT_XML_ROOT: Setting = Setting {
+    name: "export.xml.root",
+    description: "The name of an XML Export's root element, which holds one element per Record: `records` by default. A text that is no XML name without a colon (a letter or `_`, then letters, digits, `-`, `.` and `_`) fails the Export with `setting_invalid`. Set for the connection or the Run.",
+    kind: ValueKind::Text,
+    default: records,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `export.xml.record` (spec #582, shape).
+pub const EXPORT_XML_RECORD: Setting = Setting {
+    name: "export.xml.record",
+    description: "The name of the element an XML Export writes each Record in: `record` by default. A text that is no XML name without a colon (a letter or `_`, then letters, digits, `-`, `.` and `_`) fails the Export with `setting_invalid`. Set for the connection or the Run.",
+    kind: ValueKind::Text,
+    default: record,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The values of `export.parquet.compression`.
+pub const PARQUET_COMPRESSION_VALUES: &[&str] = &["zstd", "snappy", "none"];
+
+/// `export.parquet.compression` (spec #582, shape).
+pub const EXPORT_PARQUET_COMPRESSION: Setting = Setting {
+    name: "export.parquet.compression",
+    description: "The codec a Parquet Export compresses each column's pages with: `zstd`, the default, `snappy`, or `none`. It is inside the file, which every Parquet reader decodes, apart from the Export's own `compression`. Set for the connection or the Run.",
+    kind: ValueKind::Choice(PARQUET_COMPRESSION_VALUES),
+    default: zstd,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `export.feed.title` (spec #582, shape).
+pub const EXPORT_FEED_TITLE: Setting = Setting {
+    name: "export.feed.title",
+    description: "The field of each Record that an RSS item's or an Atom entry's title is taken from: `title` by default. A Record without it gets an empty title, or in RSS none where it has a summary. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+    kind: ValueKind::Text,
+    default: title,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `export.feed.link` (spec #582, shape).
+pub const EXPORT_FEED_LINK: Setting = Setting {
+    name: "export.feed.link",
+    description: "The field of each Record that an RSS item's or an Atom entry's link is taken from: `url` by default; it is also the entry's ID in Atom and the item's `guid` in RSS. A Record without it gets no link, and in Atom an ID from the Run, the Dataset and its number. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+    kind: ValueKind::Text,
+    default: url,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `export.feed.published` (spec #582, shape).
+pub const EXPORT_FEED_PUBLISHED: Setting = Setting {
+    name: "export.feed.published",
+    description: "The field of each Record that an RSS item's `pubDate` and an Atom entry's `published` and `updated` are taken from: `published` by default, read as an RFC 3339 or RFC 2822 date and time. A Record without it, or whose value is no such date, gets no date in RSS, and in Atom the time it was committed as `updated`. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+    kind: ValueKind::Text,
+    default: published,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `export.feed.summary` (spec #582, shape).
+pub const EXPORT_FEED_SUMMARY: Setting = Setting {
+    name: "export.feed.summary",
+    description: "The field of each Record that an RSS item's `description` and an Atom entry's `summary` are taken from, as text: `summary` by default. A Record without it gets none. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+    kind: ValueKind::Text,
+    default: summary,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn zero() -> Value {
+    Value::from(0)
+}
+
+fn records() -> Value {
+    Value::from("records")
+}
+
+fn record() -> Value {
+    Value::from("record")
+}
+
+fn zstd() -> Value {
+    Value::from("zstd")
+}
+
+fn title() -> Value {
+    Value::from("title")
+}
+
+fn url() -> Value {
+    Value::from("url")
+}
+
+fn published() -> Value {
+    Value::from("published")
+}
+
+fn summary() -> Value {
+    Value::from("summary")
+}
+
 fn no() -> Value {
     Value::Bool(false)
 }
@@ -338,6 +506,14 @@ pub const ENTRIES: Entries = Entries {
         EXPORT_CSV_DELIMITER,
         EXPORT_CSV_NESTED,
         EXPORT_XLSX_SHEET,
+        EXPORT_JSON_INDENT,
+        EXPORT_XML_ROOT,
+        EXPORT_XML_RECORD,
+        EXPORT_PARQUET_COMPRESSION,
+        EXPORT_FEED_TITLE,
+        EXPORT_FEED_LINK,
+        EXPORT_FEED_PUBLISHED,
+        EXPORT_FEED_SUMMARY,
     ],
     hook_stages: &[],
     shared_type_values: &[],

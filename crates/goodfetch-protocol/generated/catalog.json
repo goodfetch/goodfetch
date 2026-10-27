@@ -3372,7 +3372,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named (`json`, one array of the Records' values; `jsonl`, one value per line; `csv`, `xlsx`, `html_table` and `markdown`, a table of one column per field seen in any of its Records, in first-seen order, and one row per Record), UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+      "description": "Writes an Export of one Dataset of a crawl's Run: the Records it committed when the call is made, in number order, in the format named: `json`, one array of the Records' values, indented as `export.json.indent` says; `jsonl`, one value per line; `csv`, `xlsx`, `html_table` and `markdown`, a table of one column per field seen in any of its Records, in first-seen order, and one row per Record; `parquet`, `avro` and `arrow_ipc`, the same columns typed: a column whose values are all `true` or `false` is boolean, all whole numbers a 64-bit integer, all numbers a 64-bit float, and any other a string holding each cell's text, every column nullable, an Avro field's name made a valid Avro name with the field's own in its `doc`; `xml`, a root element named by `export.xml.root` holding one element per Record named by `export.xml.record`, each field an element of its name (`field` with a `name` attribute where its name is no XML name), an object's fields as elements, an array's values as `item` elements, and `null` an empty element with `xsi:nil=\"true\"`; `rss` and `atom`, a feed named after the Dataset of one item or entry per Record, its title, link, date and summary taken from the fields the `export.feed.*` settings name. Every text Export is UTF-8 with no BOM unless `export.csv.bom` puts one on CSV, characters written as themselves (a character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each value as it was committed: a table cell holds a string as its text, a number, `true` or `false` as JSON writes it, nothing for `null` or a field its Record lacks, and an object or array as its JSON text, or, in CSV under `export.csv.nested: flatten`, an object's fields in dotted columns. A Record whose page was read past a Wall carries its Wall marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall` field in every format but the feeds, where it is a category of the scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true` writes only those Records, `false` only the others. `compression` `gzip` or `zstd` compresses the whole file. Its `settings` and `project` are the run layer and the project configuration its `export.*` settings resolve under; a value the format cannot take fails with `setting_invalid`. Answers the Export, with its Record count, its last Record's number, its size and its SHA-256, only once its file is whole in the Run's folder, where `export.save_as` and `export.stream` read it. Records committed after the call starts are not in it. A write the engine's storage refuses fails with `file_write_failed`, side `engine`, leaving no unfinished file, as does a call while that storage is at the `critical` level, before any byte is written. A Dataset the crawl does not declare fails with `dataset_unknown`.",
       "events": [],
       "kind": "round_trip",
       "name": "run.export",
@@ -3569,7 +3569,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+      "description": "Reads the committed Records of one Dataset of a crawl's Run in number order, from the first, or after the number `after`, which resumes a reader from the last Record it handled. Each Record goes in a `$/record` notification with its number, its value, its request's ID and URL and when it was committed, one per credit granted with `$/credit`. While the Run is live it follows the Run, sending each Record once it commits; once the Run has ended, or has no live writer, and every Record is sent, it answers how many it sent and the last one's number. Records are read from the Run's committed state on a connection of their own, so a reader that grants no credit never slows the crawl. With `wall` set to `true` it reads only the Records whose page was read past a Wall, which their Provenance marks, and with `false` only the others (ADR 0052). A Dataset the crawl does not declare fails with `dataset_unknown`.",
       "events": [],
       "kind": "sequence",
       "name": "run.records",
@@ -5132,10 +5132,143 @@
     {
       "arrived_in": "0.1",
       "authority": "every",
+      "clearable": false,
+      "default": "url",
+      "description": "The field of each Record that an RSS item's or an Atom entry's link is taken from: `url` by default; it is also the entry's ID in Atom and the item's `guid` in RSS. A Record without it gets no link, and in Atom an ID from the Run, the Dataset and its number. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+      "name": "export.feed.link",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "published",
+      "description": "The field of each Record that an RSS item's `pubDate` and an Atom entry's `published` and `updated` are taken from: `published` by default, read as an RFC 3339 or RFC 2822 date and time. A Record without it, or whose value is no such date, gets no date in RSS, and in Atom the time it was committed as `updated`. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+      "name": "export.feed.published",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "summary",
+      "description": "The field of each Record that an RSS item's `description` and an Atom entry's `summary` are taken from, as text: `summary` by default. A Record without it gets none. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+      "name": "export.feed.summary",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "title",
+      "description": "The field of each Record that an RSS item's or an Atom entry's title is taken from: `title` by default. A Record without it gets an empty title, or in RSS none where it has a summary. An empty text fails the Export with `setting_invalid`. Set for the connection or the Run.",
+      "name": "export.feed.title",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 0,
+      "description": "How many spaces a JSON Export indents each level by: 0, the default, writes the array and each Record's value on one line, as committed; 1 to 8 write the array one value per line and each value's members on lines of their own, indented by that many spaces per level. JSONL is one line per Record either way. A count above 8 fails the Export with `setting_invalid`. Set for the connection or the Run.",
+      "name": "export.json.indent",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "zstd",
+      "description": "The codec a Parquet Export compresses each column's pages with: `zstd`, the default, `snappy`, or `none`. It is inside the file, which every Parquet reader decodes, apart from the Export's own `compression`. Set for the connection or the Run.",
+      "name": "export.parquet.compression",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "zstd",
+          "snappy",
+          "none"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
       "clearable": true,
       "default": null,
       "description": "The name of an XLSX Export's one sheet: none by default, which names it after the Dataset, each character a sheet name cannot hold (`:`, `\\`, `/`, `?`, `*`, `[` and `]`) written as `_` and cut to 31 characters. A name that is empty, longer than 31 characters, holds one of those characters, or starts or ends with `'` fails the Export with `setting_invalid`. Set for the connection or the Run.",
       "name": "export.xlsx.sheet",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "record",
+      "description": "The name of the element an XML Export writes each Record in: `record` by default. A text that is no XML name without a colon (a letter or `_`, then letters, digits, `-`, `.` and `_`) fails the Export with `setting_invalid`. Set for the connection or the Run.",
+      "name": "export.xml.record",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "records",
+      "description": "The name of an XML Export's root element, which holds one element per Record: `records` by default. A text that is no XML name without a colon (a letter or `_`, then letters, digits, `-`, `.` and `_`) fails the Export with `setting_invalid`. Set for the connection or the Run.",
+      "name": "export.xml.root",
       "product": "foxhound",
       "products": [
         "foxhound"

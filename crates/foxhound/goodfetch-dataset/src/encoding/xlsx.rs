@@ -8,13 +8,13 @@
 //! stream, its entries deflated, each dated 1980-01-01 so the same Records
 //! give the same bytes, and its sheet's bytes handed on a row at a time.
 
-use std::io::{self, Write};
-use std::sync::Arc;
+use std::io::Write;
 
 use zip::write::{SimpleFileOptions, StreamWriter};
 use zip::{CompressionMethod, DateTime, ZipWriter};
 
 use super::columns::Cell;
+use super::written::Written;
 
 const CONTENT_TYPES: &str = concat!(
     r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
@@ -65,42 +65,6 @@ const SHEET_START: &str = concat!(
 );
 
 const SHEET_END: &str = "</sheetData></worksheet>";
-
-/// The ZIP's bytes as it writes them, which the encoder takes after each
-/// row. The ZIP writer owns its writer while a deflated entry is open, so
-/// the bytes are shared with it; one task writes and takes them in turn.
-#[derive(Clone, Default)]
-struct Written(Arc<Lock>);
-
-#[expect(
-    clippy::disallowed_types,
-    reason = "never contended: one task writes into it and takes from it in turn; a plain lock makes the encoder `Send`, which the Export's call needs (ADR 0060's loom has no model of it to check)"
-)]
-type Lock = std::sync::Mutex<Vec<u8>>;
-
-impl Written {
-    fn take(&self, out: &mut Vec<u8>) {
-        let mut bytes = self
-            .0
-            .lock()
-            .expect("invariant: no writer of an Export's bytes panics holding them");
-        out.append(&mut bytes);
-    }
-}
-
-impl Write for Written {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0
-            .lock()
-            .expect("invariant: no writer of an Export's bytes panics holding them")
-            .extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
 
 /// The writer of one XLSX Export.
 pub(super) struct Xlsx {

@@ -48,6 +48,17 @@ pulldown-cmark.workspace = true
 quick-xml.workspace = true
 scraper.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
+# The readers the other Exports are read back with (tests/it/export_formats.rs):
+# Arrow IPC and Parquet through arrow-rs, Avro through apache-avro, the gzip
+# and zstd forms through flate2 and zstd, XML and feeds through quick-xml.
+apache-avro.workspace = true
+arrow-array.workspace = true
+arrow-ipc.workspace = true
+arrow-schema.workspace = true
+bytes.workspace = true
+flate2.workspace = true
+parquet.workspace = true
+zstd.workspace = true
 gungraun.workspace = true
 # The refusals' messages through the executables (tests/it/daemon.rs).
 insta.workspace = true

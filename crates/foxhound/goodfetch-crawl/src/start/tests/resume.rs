@@ -36,11 +36,15 @@ fn delivered(client: &Client) -> Vec<(String, u64)> {
         .collect()
 }
 
+/// Both machines' folders lie in memory (`TestEnv::in_memory`): on a busy
+/// disk their two run files, the Checkpoint and its copy took it past half
+/// the Quick kill (fix-queue 123).
+///
 /// Covers: story:3-34, operation:run.resume
 #[test]
 fn a_crawl_resumed_elsewhere_from_its_checkpoint_redoes_only_the_work_since_and_commits_each_record_once()
  {
-    let (first, second) = (TestEnv::new(), TestEnv::new());
+    let (first, second) = (TestEnv::in_memory(), TestEnv::in_memory());
     let taken = first.folder().join("moved.sqlite");
     let location = taken.display().to_string();
     let checkpoint = location.clone();

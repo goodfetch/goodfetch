@@ -32,7 +32,7 @@ pub(super) fn joined(lines: &[String]) -> Vec<u8> {
 /// Covers: story:4-71
 #[test]
 fn an_export_holds_each_entry_with_the_hash_that_chains_it() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let log = log(&env);
     log.record(
         &Origin {
@@ -61,7 +61,7 @@ fn an_export_holds_each_entry_with_the_hash_that_chains_it() {
 /// Covers: story:4-71
 #[test]
 fn a_log_never_written_exports_nothing_and_is_not_created() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
 
     let exported = log(&env).export().unwrap();
 
@@ -78,7 +78,7 @@ proptest! {
     /// Covers: story:4-71
     #[test]
     fn an_exported_log_verifies_intact((count, _sequence) in log_and_sequence()) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let lines = jsonl(&written(&env, count).export().unwrap());
 
         prop_assert_eq!(
@@ -90,7 +90,7 @@ proptest! {
     /// Covers: story:4-71
     #[test]
     fn an_edited_line_of_an_export_is_reported_at_its_sequence((count, sequence) in log_and_sequence()) {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let mut lines = jsonl(&written(&env, count).export().unwrap());
         let index = usize::try_from(sequence - 1).unwrap();
         lines[index] = lines[index].replace("example.com", "example.org");
@@ -104,7 +104,7 @@ proptest! {
     #[test]
     fn a_deleted_line_of_an_export_is_reported_at_its_sequence((count, sequence) in log_and_sequence()) {
         prop_assume!(sequence < count);
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let mut lines = jsonl(&written(&env, count).export().unwrap());
         lines.remove(usize::try_from(sequence - 1).unwrap());
 
@@ -115,7 +115,7 @@ proptest! {
     #[test]
     fn a_reordered_pair_of_lines_is_reported_at_its_first_sequence((count, sequence) in log_and_sequence()) {
         prop_assume!(sequence < count);
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         let mut lines = jsonl(&written(&env, count).export().unwrap());
         let index = usize::try_from(sequence - 1).unwrap();
         lines.swap(index, index + 1);
@@ -128,7 +128,7 @@ proptest! {
 /// Covers: story:4-71
 #[test]
 fn a_line_that_is_no_entry_breaks_the_export_at_its_place() {
-    let env = TestEnv::new();
+    let env = TestEnv::in_memory();
     let mut lines = jsonl(&written(&env, 3).export().unwrap());
     lines[1] = "not an entry".to_owned();
 

@@ -8,6 +8,9 @@
 // screen and a few beyond, and reads the next page once its last loaded
 // rows come into view. Each cell is isolated with `dir="auto"` and kept
 // out of browser translation, so mixed-direction values read correctly.
+// With the page's offline cache, "Keep offline" keeps the view's Records
+// as the grid shows them (`kept.ts`, story 215), and a view opened with no
+// Connection shows the run's kept views until the engine answers.
 import type { RunViewProps } from "@goodfetch/console/console-build";
 import { ErrorMessage } from "@goodfetch/console/error-message";
 import type {
@@ -25,11 +28,19 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type SubmitEvent,
   type ReactNode,
   type RefObject,
 } from "react";
 import { callFoxhound } from "#call.ts";
+import {
+  isKeptViewOf,
+  keptDatasetOf,
+  keptView,
+  type KeptRecord,
+  type KeptView,
+} from "#datasets/kept.ts";
 
 /** How many Records the grid reads per page. */
 export const RECORDS_PAGE = 500;
@@ -185,7 +196,9 @@ export function RecordsControls({
     };
     const sortField = text("sort");
     const containsField = text("filter-field");
-    const contains = text("contains");
+    // Not `contains`: a control named after a form's method hides it
+    // (`form.contains`), which breaks every text search of the page above it.
+    const contains = text("contains-text");
     const wall = text("wall");
     const columns = form.getAll("column").filter((value) => typeof value === "string");
     onApply({
@@ -255,7 +268,7 @@ export function RecordsControls({
         <Trans>Contains</Trans>
         <input
           id={`${id}-contains`}
-          name="contains"
+          name="contains-text"
           type="text"
           dir="auto"
           defaultValue={query.contains?.text ?? ""}
@@ -339,7 +352,7 @@ export function RecordsGrid({
 }: {
   readonly dataset: string;
   readonly columns: readonly string[];
-  readonly records: readonly DatasetRecord[];
+  readonly records: readonly KeptRecord[];
   readonly more: boolean;
   readonly onNearEnd?: (() => void) | undefined;
 }): ReactNode {
@@ -514,9 +527,37 @@ function Records({
   const { read, readMore } = useRecords(props, dataset.name, query);
   const records = read.kind === "read" ? read.records : [];
   const fields = fieldsOf(dataset, records);
+  const columns = query.columns ?? fields;
+  const { offline, runId } = props;
+  // How many Records the browser keeps of the view, once kept offline.
+  const [kept, setKept] = useState<number | undefined>(undefined);
+  const keep = async (): Promise<void> => {
+    if (offline === undefined) {
+      return;
+    }
+    const name = keptDatasetOf(runId, dataset.name);
+    await offline.put("dataset_view", name, keptView(runId, dataset, columns, records), name);
+    setKept(records.length);
+  };
   return (
     <div className="flex flex-col gap-3">
       <RecordsControls key={dataset.name} fields={fields} query={query} onApply={setQuery} />
+      {offline !== undefined && read.kind === "read" ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" onClick={() => void keep()} className="rounded-sm border px-2 py-1">
+            <Trans>Keep offline</Trans>
+          </button>
+          {kept === undefined ? null : (
+            <output>
+              <Plural
+                value={kept}
+                one="Kept offline in this browser: # Record, readable until you sign out"
+                other="Kept offline in this browser: # Records, readable until you sign out"
+              />
+            </output>
+          )}
+        </div>
+      ) : null}
       {read.kind === "refused" ? <ErrorMessage error={read.error} /> : null}
       {read.kind === "reading" ? (
         <output className="block">
@@ -530,7 +571,7 @@ function Records({
           </output>
           <RecordsGrid
             dataset={dataset.name}
-            columns={query.columns ?? fields}
+            columns={columns}
             records={records}
             more={read.next !== undefined}
             onNearEnd={readMore}
@@ -546,6 +587,80 @@ type Listed =
   | { readonly kind: "reading" }
   | { readonly kind: "refused"; readonly error: unknown }
   | { readonly kind: "listed"; readonly datasets: readonly DatasetSummary[] };
+
+/** The views of the run the offline cache keeps, read with no Connection while the engine has not answered (`reading`). */
+function useKeptViews(
+  { client, runId, offline }: RunViewProps,
+  reading: boolean,
+): readonly KeptView[] {
+  // Whether the page has a cache and no Connection: without a cache it
+  // never changes, so a page with none renders nothing more.
+  const disconnected = useSyncExternalStore(
+    (changed) => client.watch(changed),
+    () => offline !== undefined && client.state !== "connected",
+  );
+  const wanted = reading && disconnected;
+  const [kept, setKept] = useState<readonly KeptView[]>([]);
+  useEffect(() => {
+    if (!wanted || offline === undefined) {
+      return undefined;
+    }
+    let current = true;
+    const read = async (): Promise<void> => {
+      const views = (await offline.all("dataset_view")).filter((view) => isKeptViewOf(view, runId));
+      if (current) {
+        setKept(views);
+      }
+    };
+    void read();
+    return () => {
+      current = false;
+    };
+  }, [wanted, offline, runId]);
+  return wanted ? kept : [];
+}
+
+/** The views of a run the browser keeps offline, read-only, the one chosen in its grid. */
+export function KeptViews({ views }: { readonly views: readonly KeptView[] }): ReactNode {
+  const [chosen, setChosen] = useState<string | undefined>(undefined);
+  const shown = views.find((view) => view.dataset.name === chosen) ?? views[0];
+  return (
+    <div className="flex flex-col gap-4">
+      <p>
+        <Trans>
+          This browser's offline copy of the Dataset views kept offline, as they were kept: the
+          engine is not reachable.
+        </Trans>
+      </p>
+      <DatasetList datasets={views.map((view) => view.dataset)} />
+      {shown === undefined ? null : (
+        <>
+          <label className="flex flex-col">
+            <Trans>Records of the Dataset</Trans>
+            <select
+              value={shown.dataset.name}
+              onChange={(event) => setChosen(event.target.value)}
+              className="rounded-sm border px-1"
+            >
+              {views.map((view) => (
+                <option key={view.dataset.name} value={view.dataset.name} translate="no">
+                  {view.dataset.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <RecordsGrid
+            key={shown.dataset.name}
+            dataset={shown.dataset.name}
+            columns={shown.columns}
+            records={shown.records}
+            more={false}
+          />
+        </>
+      )}
+    </div>
+  );
+}
 
 /** A crawl run's Datasets, and the Records of the one chosen, the first at the start. */
 export function Datasets(props: RunViewProps): ReactNode {
@@ -574,8 +689,12 @@ export function Datasets(props: RunViewProps): ReactNode {
     void ask();
     return () => abort.abort();
   }, [client, runId]);
+  const kept = useKeptViews(props, listed.kind === "reading");
   if (listed.kind === "refused") {
     return <ErrorMessage error={listed.error} />;
+  }
+  if (listed.kind === "reading" && kept.length > 0) {
+    return <KeptViews views={kept} />;
   }
   if (listed.kind === "reading") {
     return (

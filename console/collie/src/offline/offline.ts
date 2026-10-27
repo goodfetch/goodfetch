@@ -21,8 +21,8 @@
 /** The IndexedDB database the cache lives in, one per origin and so per major. */
 export const OFFLINE_DATABASE = "goodfetch-console-offline";
 
-/** What a row of the cache holds: a run's Run index row, a run's page, or a Record of a view kept offline (Foxhound's). */
-export type OfflineKind = "run_summary" | "run_page" | "record";
+/** What a row of the cache holds: a run's Run index row, a run's page, or a Dataset view a person kept offline (Foxhound's). */
+export type OfflineKind = "run_summary" | "run_page" | "dataset_view";
 
 /** A new cache key, and its wrapped form, which only its sign-in's cookie unwraps. */
 export interface NewOfflineKey {

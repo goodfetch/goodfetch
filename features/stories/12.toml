@@ -481,6 +481,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 219
+title = "As a user, I want a live, filterable log of request outcomes, read from committed state without slowing the crawl, each with its `attempts` and the error of each failed attempt, a `handler_failed` or `hook_failed` showing my exception's type, message and stack (none from Rust, whose type reads `BoxError` or `panic`) and, for `hook_failed`, its stage, Hook, Label and wrapped code, so that I watch failures as they happen and fix my handler (ADRs 0079, 0102, 0104, 0109, 0117)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 232
 title = "As a maintainer, I want a Stub gateway that serves Foxhound's Console build with the production headers, keeps its own index for `run.list`, starts each run's Attached engine from the executable of the Product that run gets and forwards every other operation, so that the Console is proved to need nothing beyond the catalog (ADRs 0068, 0096)."
 milestone = "M1 Core"

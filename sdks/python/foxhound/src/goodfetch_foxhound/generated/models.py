@@ -1217,6 +1217,11 @@ class RunOutcomesParams(BaseModel):
     Where to start: after this position, or `now` for the next commit
     on; absent, from the first outcome.
     """
+    codes: list[str] | None = None
+    """
+    Only outcomes of requests one of whose failed attempts failed with
+    one of these Error codes; absent, every outcome.
+    """
     kinds: list[OutcomeKind] | None = None
     """Only outcomes of these kinds; absent, every kind."""
     labels: list[str] | None = None

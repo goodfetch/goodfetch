@@ -2,10 +2,10 @@
 // and 217; ADRs 0087 and 0098), which Foxhound's build entry passes the
 // shell, so a run's page shows each in a tab beside the views every run
 // has: the crawl's progress, followed live (`crawl-progress.tsx`), the
-// crawl's seeds, as `run.seeds` answers them, the outcome of each crawl
-// request, as `run.outcomes` gives its first page, and the requests whose
-// latest outcome failed, as `run.failed_requests` lists them, and the SQL
-// tab over the runs a person selects (`#sql-tab/sql-tab.tsx`). Each view
+// crawl's seeds, as `run.seeds` answers them, the request log of each
+// crawl request's outcome, followed live (`request-log.tsx`), the requests
+// whose latest outcome failed, as `run.failed_requests` lists them, and the
+// SQL tab over the runs a person selects (`#sql-tab/sql-tab.tsx`). Each view
 // reads its operation once it shows, and shows the engine's refusal as the
 // Console shows any. A Collie run shows none of them: its page has only
 // the views every run has.
@@ -19,6 +19,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { callFoxhound } from "#call.ts";
 import { Datasets } from "#datasets/datasets.tsx";
 import { CrawlProgress } from "#runs/crawl-progress.tsx";
+import { RequestLog } from "#runs/request-log.tsx";
 import type { FoxhoundConsoleOperations } from "#generated/operations.ts";
 import { SQL_TAB_VIEW } from "#sql-tab/sql-tab.tsx";
 
@@ -29,7 +30,7 @@ type Read<Result> =
   | { readonly kind: "answered"; readonly result: Result };
 
 /** The operations a view reads, each taking only the run's Run ID. */
-type RunRead = "run.seeds" | "run.outcomes" | "run.failed_requests";
+type RunRead = "run.seeds" | "run.failed_requests";
 
 /** What `operation` answers of the run `runId`, read once the view shows. */
 function useRunRead<Name extends RunRead>(
@@ -165,21 +166,6 @@ function Seeds({ client, runId }: RunViewProps): ReactNode {
   );
 }
 
-/** The outcome of each crawl request, the first page of them. */
-function Outcomes({ client, runId }: RunViewProps): ReactNode {
-  const read = useRunRead(client, runId, "run.outcomes");
-  if (read.kind !== "answered") {
-    return <Pending read={read} />;
-  }
-  const { outcomes } = read.result;
-  return (
-    <OutcomeTable
-      caption={<Plural value={outcomes.length} one="# outcome" other="# outcomes" />}
-      outcomes={outcomes}
-    />
-  );
-}
-
 /** The requests whose latest outcome failed. */
 function FailedRequests({ client, runId }: RunViewProps): ReactNode {
   const read = useRunRead(client, runId, "run.failed_requests");
@@ -199,7 +185,7 @@ function FailedRequests({ client, runId }: RunViewProps): ReactNode {
 export const FOXHOUND_RUN_VIEWS: readonly RunView[] = [
   { id: "progress", name: msg`Progress`, content: (props) => <CrawlProgress {...props} /> },
   { id: "seeds", name: msg`Seeds`, content: (props) => <Seeds {...props} /> },
-  { id: "outcomes", name: msg`Outcomes`, content: (props) => <Outcomes {...props} /> },
+  { id: "outcomes", name: msg`Outcomes`, content: (props) => <RequestLog {...props} /> },
   {
     id: "failed-requests",
     name: msg`Failed requests`,

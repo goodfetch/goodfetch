@@ -2537,6 +2537,11 @@ export interface RunOutcomesParams {
    */
   after?: OutcomesAfter | null;
   /**
+   * Only outcomes of requests one of whose failed attempts failed with
+   * one of these Error codes; absent, every outcome.
+   */
+  codes?: string[] | null;
+  /**
    * Only outcomes of these kinds; absent, every kind.
    */
   kinds?: OutcomeKind[] | null;

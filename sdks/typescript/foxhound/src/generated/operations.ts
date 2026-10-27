@@ -172,7 +172,7 @@ export class FoxhoundOperations {
   }
 
   /**
-   * Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: "now"` from the next commit. Its filters, `kinds` and `labels`, run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.
+   * Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: "now"` from the next commit. Its filters, `kinds`, `labels` and `codes` (an Error code any of the request's failed attempts failed with), run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.
    *
    * @experimental
    */

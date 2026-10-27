@@ -62,6 +62,29 @@ export async function callDaemon(
   }
 }
 
+/**
+ * A failure a request handler throws to answer the engine's request with an
+ * Error code, as an SDK answers a handler's own exception: `handler_failed`
+ * with the exception's type, message and stack in its `details`, say.
+ */
+export class EngineRequestFailure extends Error {
+  readonly code: string;
+  readonly retryable: boolean;
+  readonly details: Readonly<Record<string, unknown>>;
+
+  constructor(
+    code: string,
+    message: string,
+    details: Readonly<Record<string, unknown>> = {},
+    retryable = false,
+  ) {
+    super(message);
+    this.code = code;
+    this.retryable = retryable;
+    this.details = details;
+  }
+}
+
 /** How a Connection answers a request the engine sends it, such as a crawl's `crawl_request.handle`. */
 export type EngineRequestHandler = (params: unknown) => unknown;
 
@@ -76,8 +99,9 @@ export interface DaemonConnection {
 /**
  * Opens a Connection to the Daemon over its socket, as an SDK of `needs`
  * does, after `hello`, answering each request the engine sends with the
- * result of `handlers`' function for its method; one with no function is
- * refused with `method_not_found`. It stays open until `close`.
+ * result of `handlers`' function for its method, or with the Error code of
+ * the `EngineRequestFailure` it throws; one with no function is refused
+ * with `method_not_found`. It stays open until `close`.
  */
 export async function connectDaemon(
   daemon: ServedDaemon,
@@ -120,7 +144,23 @@ export async function connectDaemon(
       }
       const { id } = message;
       const answer = async (): Promise<void> => {
-        write({ jsonrpc: "2.0", id, result: await handler(params) });
+        try {
+          write({ jsonrpc: "2.0", id, result: await handler(params) });
+        } catch (error) {
+          if (!(error instanceof EngineRequestFailure)) {
+            throw error;
+          }
+          write({
+            jsonrpc: "2.0",
+            id,
+            error: {
+              code: -32000,
+              message: error.message,
+              // The protocol flattens an Error code's details into `data`, beside its code.
+              data: { ...error.details, code: error.code, retryable: error.retryable },
+            },
+          });
+        }
       };
       void answer();
       return;

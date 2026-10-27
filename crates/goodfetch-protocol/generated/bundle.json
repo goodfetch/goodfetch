@@ -12197,6 +12197,17 @@
           "arrived_in": "0.1",
           "description": "Where to start: after this position, or `now` for the next commit\non; absent, from the first outcome."
         },
+        "codes": {
+          "arrived_in": "0.1",
+          "description": "Only outcomes of requests one of whose failed attempts failed with\none of these Error codes; absent, every outcome.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "kinds": {
           "arrived_in": "0.1",
           "description": "Only outcomes of these kinds; absent, every kind.",

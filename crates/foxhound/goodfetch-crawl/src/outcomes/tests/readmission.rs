@@ -205,7 +205,7 @@ proptest! {
         let readmitted = work_items::readmit(&connection, true).unwrap();
         end_each(&connection, |_| First::Succeeds);
 
-        let all = page(&connection, 0, &Filter { kinds: None, labels: None }).unwrap();
+        let all = page(&connection, 0, &Filter { kinds: None, labels: None, codes: None }).unwrap();
         let latest_of = |id: &String| {
             all.outcomes
                 .iter()

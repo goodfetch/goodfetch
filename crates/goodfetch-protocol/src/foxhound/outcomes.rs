@@ -254,6 +254,11 @@ pub struct RunOutcomesParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub labels: Option<Vec<String>>,
+    /// Only outcomes of requests one of whose failed attempts failed with
+    /// one of these Error codes; absent, every outcome.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub codes: Option<Vec<String>>,
     /// Where to start: after this position, or `now` for the next commit
     /// on; absent, from the first outcome.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -300,7 +305,7 @@ pub struct FailedRequests {
 /// `run.outcomes`.
 pub const RUN_OUTCOMES: Operation = Operation {
     name: "run.outcomes",
-    description: "Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: \"now\"` from the next commit. Its filters, `kinds` and `labels`, run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.",
+    description: "Reads a crawl's outcomes from its committed state, in commit order: from the first, after a position, or with `after: \"now\"` from the next commit. Its filters, `kinds`, `labels` and `codes` (an Error code any of the request's failed attempts failed with), run in the engine. While the Run is live and nothing new matches, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and nothing more matches. A reader never slows the Run. A request `run.retry_failed` re-admits ends again, and its later outcome supersedes the earlier one by `request.id`.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,

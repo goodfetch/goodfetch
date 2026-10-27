@@ -137,6 +137,7 @@ fn summary_lists_each_ceiling_with_its_derived_head_figure() {
     | size-limit/collie-console | brotli | — | ≤ 1000.00 kB | not run yet |
     | size-limit/collie-console-initial-route | brotli | — | ≤ 139.78 kB | not run yet |
     | size-limit/foxhound-console | brotli | — | ≤ 1000.00 kB | not run yet |
+    | size-limit/foxhound-console-initial-route | brotli | — | ≤ 161.18 kB | not run yet |
     | goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls | heap-bytes-per-url | 7.43 bytes | ≤ 8 bytes | within |
     | goodfetch-foxhound/heap::crawl::in_memory_pages | bytes-per-body-byte | 1.24× | ≤ 2× | within |
 

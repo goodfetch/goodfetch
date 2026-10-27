@@ -324,15 +324,21 @@ fn console_build_of_exactly_1_mb_brotli_passes() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
-/// Collie's initial route (what loads before the Runs screen's first
-/// render) has the ceiling the owner approved: 1.25 times the first build's
-/// 111,823 bytes, rounded up (ADR 0071).
+/// Each Product's initial route (what loads before the Runs screen's first
+/// render) has the ceiling the owner approved: 1.25 times its first build's
+/// measure, rounded up (ADR 0071, as amended by ADR 0087): Collie's 111,823
+/// bytes (#937), Foxhound's 128,939 (#1235).
 #[rstest]
-#[case::at_its_ceiling(139_779, false)]
-#[case::a_byte_over_it(139_780, true)]
-fn console_initial_route_over_its_ceiling_is_noted(#[case] head: u64, #[case] over: bool) {
+#[case::collie_at_its_ceiling("collie-console-initial-route", 139_779, false)]
+#[case::collie_a_byte_over_it("collie-console-initial-route", 139_780, true)]
+#[case::foxhound_at_its_ceiling("foxhound-console-initial-route", 161_174, false)]
+#[case::foxhound_a_byte_over_it("foxhound-console-initial-route", 161_175, true)]
+fn console_initial_route_over_its_ceiling_is_noted(
+    #[case] entry: &str,
+    #[case] head: u64,
+    #[case] over: bool,
+) {
     let workspace = Workspace::from_fixture("empty");
-    let entry = "collie-console-initial-route";
     write_bundles(&workspace, &[(entry, head)], &[(entry, head)]);
 
     let outcome = compare(&workspace, &BUNDLES);
@@ -340,7 +346,7 @@ fn console_initial_route_over_its_ceiling_is_noted(#[case] head: u64, #[case] ov
     let expected = if over {
         vec![finding(
             "over-ceiling",
-            "size-limit/collie-console-initial-route brotli",
+            &format!("size-limit/{entry} brotli"),
         )]
     } else {
         vec![]

@@ -13155,7 +13155,40 @@
       ]
     },
     {
+      "id": "story:14-13",
+      "kind": "story",
+      "area": 14,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:14-14",
+      "kind": "story",
+      "area": 14,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:14-15",
+      "kind": "story",
+      "area": 14,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:14-16",
       "kind": "story",
       "area": 14,
       "milestone": "M1 Core",
@@ -13188,7 +13221,40 @@
       ]
     },
     {
+      "id": "story:14-20",
+      "kind": "story",
+      "area": 14,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:14-21",
+      "kind": "story",
+      "area": 14,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:14-73",
+      "kind": "story",
+      "area": 14,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:14-75",
       "kind": "story",
       "area": 14,
       "milestone": "M1 Core",

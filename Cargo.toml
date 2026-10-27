@@ -134,6 +134,8 @@ goodfetch-cli = { path = "crates/goodfetch-cli" }
 # The Clean-up rules and their matching (spec #577, ADR 0047).
 goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
+# The conformance harness; the Stub gateway's tests run its gateway cases.
+goodfetch-conformance = { path = "crates/goodfetch-conformance" }
 # Foxhound's crawl; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-crawl = { path = "crates/foxhound/goodfetch-crawl" }
 goodfetch-dataset = { path = "crates/foxhound/goodfetch-dataset" }

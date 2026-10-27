@@ -85,6 +85,29 @@ Decided in [ADR 0094](docs/adr/0094-both-products-are-released-and-signed-togeth
   4. each Collie Journey's `cli` variant also runs on Foxhound's executable, as `J-NNN@foxhound-cli` ([Journeys](#journeys)).
 - **A conformance suite runs on the smallest Product that carries its contract:** browser conformance and the Plugin kinds Collie carries on Collie's executable, Sinks and Fetch backends on Foxhound's. Of the [Session ownership and proxy limit cases](#sdks), those on a Session a program or an Agent opened and on a Collie Run's proxy limits run on Collie's, and the one on a crawl's Session pool on Foxhound's.
 
+### The Cloud-readiness conformance suite
+
+Decided in [ADR 0068](docs/adr/0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md) and [ADR 0096](docs/adr/0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md) (spec #586). Every contract Goodfetch Cloud relies on is a case of this suite, `conformance/cloud-readiness/cases.toml`, with the messages it expects; no prose document stands beside it, and a new cloud-facing contract lands with its case, and its line below, in the same pull request. `goodfetch-conformance` runs it against two kinds of target, each capability naming its kind (`target`), and writes one `conformance` document per target:
+
+- **A gateway, reached by address** (`GatewayTarget`: its origin and the token a Client signs in with, swapped at `POST /sign-in` for the cookie its `/protocol` WebSocket takes): the Stub gateway here, Goodfetch Cloud's gateway from its private repository, the cases unchanged (`GatewaySuite::embedded`, `run_gateway_suite`). Each case opens its own Connections as the Clients it names, a Collie or Foxhound Client (surface `rust`) or the Console, and tells which engine a run landed on from what that engine answers a Foxhound Client's `run.seeds`: an answer from Foxhound's, `not_in_product` naming Collie as the run's Product with no install in its `fix` from Collie's, which words it so only behind the gateway's mark (ADR 0095). `goodfetch-stub-gateway`'s `tests/it` runs it against the Stub gateway, keeping `conformance-cloud-readiness-gateway.json`.
+- **An engine driven as a gateway drives one:** its cases join with their tickets.
+
+The gateway cases, with their `covers`:
+
+- `a-collie-client-and-a-foxhound-client-are-each-answered-as-their-product` (`story:14-14`, `story:14-15`): a Collie Client's `hello` is answered as Collie; a Foxhound Client's as Foxhound, or with `not_in_product` by a gateway that runs no Foxhound engine (the Stub gateway given no `--foxhound`).
+- `a-collie-clients-run-lands-on-collies-engine` (`story:14-14`): ADR 0096's row for a Client, needing Collie.
+- `a-foxhound-clients-run-lands-on-foxhounds-engine` (`story:14-15`): the same row, needing Foxhound.
+- `a-console-run-naming-nothing-only-foxhound-carries-lands-on-collies-engine` (`story:14-17`): the row for the Console with no Recipe, a target naming nothing of Foxhound's.
+- `a-console-crawl-start-lands-on-foxhounds-engine` (`story:14-17`): the same row, a target naming an operation only Foxhound carries.
+- `a-console-run-setting-a-crawl-key-lands-on-foxhounds-engine` (`story:14-17`): the same row, a setting key only Foxhound carries, which Foxhound's engine answers with `setting_not_applicable` on a run that is no crawl.
+- `a-start-naming-a-known-run-id-goes-to-that-runs-engine` (`story:14-17`): a start naming a Run ID the gateway's index holds stays on that run's engine.
+- `a-collie-programs-raw-crawl-start-answers-not-in-product-naming-the-runs-product` (`story:14-16`): a Collie Client's `crawl.start` answers `not_in_product` from Collie's engine, naming the run's Product and no install.
+- `a-collie-programs-crawl-setting-answers-not-in-product-naming-the-runs-product` (`story:14-16`): the same for a crawl setting key in a Collie Client's `run.start`.
+- `a-collie-client-reads-a-foxhound-run-it-did-not-start` (`story:14-20`): a Collie Client reads a Foxhound Client's run's `run.usage`, and its `run.seeds` answers `not_in_product`, as a Collie engine answers it.
+- `a-foxhound-clients-call-a-collie-runs-engine-lacks-answers-not-in-product` (`story:14-20`): a Foxhound Client's `run.seeds` on a Collie Client's run answers `not_in_product` from Collie's engine.
+
+The routing table's Recipe rows (a Recipe that names Foxhound, a Recipe that names Collie held to Collie) join once a start carries a Recipe's manifest.
+
 ## Writing a test
 
 - **One behaviour per test, through the interface.** Several assertions are fine when they check that one behaviour.

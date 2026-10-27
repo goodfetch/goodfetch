@@ -30,43 +30,52 @@ use tungstenite::{Message, WebSocket};
 const GATEWAY: &str = env!("CARGO_BIN_EXE_goodfetch-stub-gateway");
 
 /// The sign-in token the gateway is configured with.
-const TOKEN: &str = "stub-gateway-sign-in";
+pub(crate) const TOKEN: &str = "stub-gateway-sign-in";
 
 /// This commit's Product version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// A started gateway and the addresses its ready file reports.
-struct Gateway {
+pub(crate) struct Gateway {
     process: Process,
-    console: String,
+    pub(crate) console: String,
     content: String,
 }
 
 impl Gateway {
     /// Starts the gateway on port 0 with this commit's executables and
     /// Foxhound's Console build, once it reports its addresses.
-    fn start(env: &TestEnv) -> Self {
+    pub(crate) fn start(env: &TestEnv) -> Self {
+        Self::launch(env, true)
+    }
+
+    /// The same, given no Foxhound executable, so it runs Collie's engine
+    /// alone.
+    pub(crate) fn start_without_foxhound(env: &TestEnv) -> Self {
+        Self::launch(env, false)
+    }
+
+    fn launch(env: &TestEnv, foxhound: bool) -> Self {
         let tools = tools().unwrap();
         let token_file = env.folder().join("token");
         std::fs::write(&token_file, format!("{TOKEN}\n")).unwrap();
         let ready = env.folder().join("ready.json");
-        let process = env
-            .spawn(
-                env.process_command(GATEWAY)
-                    .arg("--console-build")
-                    .arg(foxhounds_console_build())
-                    .arg("--collie")
-                    .arg(tools.collie.unwrap())
-                    .arg("--foxhound")
-                    .arg(tools.foxhound.unwrap())
-                    .arg("--token-file")
-                    .arg(&token_file)
-                    .arg("--state")
-                    .arg(env.folder().join("gateway"))
-                    .arg("--ready")
-                    .arg(&ready),
-            )
-            .unwrap();
+        let mut command = env.process_command(GATEWAY);
+        command
+            .arg("--console-build")
+            .arg(foxhounds_console_build())
+            .arg("--collie")
+            .arg(tools.collie.unwrap())
+            .arg("--token-file")
+            .arg(&token_file)
+            .arg("--state")
+            .arg(env.folder().join("gateway"))
+            .arg("--ready")
+            .arg(&ready);
+        if foxhound {
+            command.arg("--foxhound").arg(tools.foxhound.unwrap());
+        }
+        let process = env.spawn(&mut command).unwrap();
         let reported = wait_for(&ready);
         Self {
             process,
@@ -76,7 +85,7 @@ impl Gateway {
     }
 
     /// The cookie a sign-in with the configured token gives.
-    fn signed_in(&self) -> String {
+    pub(crate) fn signed_in(&self) -> String {
         let response = ureq::post(format!("{}/sign-in", self.console))
             .header("Origin", &self.console)
             .send(TOKEN)

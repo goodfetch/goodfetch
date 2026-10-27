@@ -46,9 +46,11 @@ struct Arguments {
     /// Collie's executable, which runs each run that gets Collie.
     #[arg(long)]
     collie: PathBuf,
-    /// Foxhound's executable, which runs each run that gets Foxhound.
+    /// Foxhound's executable, which runs each run that gets Foxhound;
+    /// without it, the gateway refuses a Foxhound Client at `hello` with
+    /// `not_in_product`.
     #[arg(long)]
-    foxhound: PathBuf,
+    foxhound: Option<PathBuf>,
     /// The file holding the sign-in token a browser swaps for its cookie.
     #[arg(long)]
     token_file: PathBuf,

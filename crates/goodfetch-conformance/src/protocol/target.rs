@@ -7,6 +7,10 @@
 //! gives, at most [`START_DEADLINE`], so a target that stays silent fails
 //! its case instead of holding the harness.
 //!
+//! A gateway (ADR 0096) is reached by address instead: the harness signs in
+//! at its `POST /sign-in` with the gateway's token, swapped for a cookie, and
+//! opens the WebSocket at `/protocol` with it, one JSON-RPC message a frame.
+//!
 //! The harness is a Client of the target and runs outside any engine, so the
 //! Simulation never runs this module: it opens the Daemon's socket itself and
 //! reads each stream on a thread of its own, which ends when the stream does
@@ -27,8 +31,11 @@ use std::net::{Shutdown, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdout, Command, Stdio};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::time::Duration;
+
+use tungstenite::client::IntoClientRequest as _;
+use tungstenite::{Message, WebSocket};
 
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile};
 
@@ -98,6 +105,14 @@ pub enum StartError {
         /// What it did instead.
         reason: String,
     },
+    /// The gateway refused the sign-in or the WebSocket.
+    #[error("the gateway at {address} took no Connection: {reason}")]
+    Gateway {
+        /// Its address.
+        address: String,
+        /// Why.
+        reason: String,
+    },
     /// The Daemon's endpoint took no connection.
     #[error("the Daemon at {endpoint} took no connection: {source}")]
     Connect {
@@ -134,6 +149,8 @@ enum Link {
     Tcp(TcpStream),
     #[cfg(unix)]
     Unix(UnixStream),
+    /// A gateway's WebSocket, written by the thread that holds it.
+    WebSocket(Option<Sender<String>>),
 }
 
 /// What waiting for a line gave.
@@ -230,6 +247,54 @@ impl Started {
         Ok(started)
     }
 
+    /// Opens a Connection to the gateway at `address`, its origin such as
+    /// `http://127.0.0.1:4100`, signed in with `token`, before any `hello`.
+    pub(crate) fn gateway(address: &str, token: &str) -> Result<Self, StartError> {
+        let refused = |reason: String| StartError::Gateway {
+            address: address.to_owned(),
+            reason,
+        };
+        let signed_in = ureq::post(format!("{address}/sign-in"))
+            .header("Origin", address)
+            .send(token)
+            .map_err(|error| refused(format!("the sign-in failed: {error}")))?;
+        let cookie = signed_in
+            .headers()
+            .get("set-cookie")
+            .and_then(|cookie| cookie.to_str().ok())
+            .and_then(|cookie| cookie.split(';').next())
+            .ok_or_else(|| refused("the sign-in set no cookie".to_owned()))?
+            .to_owned();
+        let authority = address
+            .split_once("://")
+            .map_or(address, |(_, authority)| authority);
+        let mut request = format!("ws://{authority}/protocol")
+            .into_client_request()
+            .map_err(|error| refused(error.to_string()))?;
+        for (name, value) in [("Origin", address), ("Cookie", cookie.as_str())] {
+            let value = value
+                .parse()
+                .map_err(|_| refused(format!("`{name}` is no header value")))?;
+            request.headers_mut().insert(name, value);
+        }
+        let stream = TcpStream::connect(authority).map_err(|error| refused(error.to_string()))?;
+        let (socket, _) =
+            tungstenite::client(request, stream).map_err(|error| refused(error.to_string()))?;
+        socket
+            .get_ref()
+            .set_read_timeout(Some(POLL))
+            .map_err(|error| refused(error.to_string()))?;
+        let (outgoing, sending) = mpsc::channel();
+        Ok(Self {
+            child: None,
+            link: Link::WebSocket(Some(outgoing)),
+            lines: relay_socket(socket, sending),
+            exited: None,
+            token: Some(token.to_owned()),
+            endpoint: None,
+        })
+    }
+
     /// Opens a further Connection to the same target, before any `hello`:
     /// a process of its own for an Attached engine, and the same Daemon's
     /// endpoint for a Daemon.
@@ -262,6 +327,10 @@ impl Started {
             Link::Tcp(stream) => write(stream),
             #[cfg(unix)]
             Link::Unix(stream) => write(stream),
+            Link::WebSocket(Some(socket)) => socket
+                .send(String::from_utf8_lossy(line).into_owned())
+                .map_err(|_| io::Error::from(io::ErrorKind::BrokenPipe)),
+            Link::WebSocket(None) => Err(io::Error::from(io::ErrorKind::BrokenPipe)),
         }
     }
 
@@ -305,6 +374,7 @@ impl Started {
             Link::Tcp(stream) => drop(stream.shutdown(Shutdown::Both)),
             #[cfg(unix)]
             Link::Unix(stream) => drop(stream.shutdown(Shutdown::Both)),
+            Link::WebSocket(socket) => drop(socket.take()),
         }
     }
 }
@@ -343,6 +413,58 @@ fn connect(endpoint: &DaemonEndpoint) -> Result<(Link, Box<dyn Read + Send>), St
         #[cfg(not(unix))]
         DaemonEndpoint::Unix(_) => Err(connect_error(io::Error::from(io::ErrorKind::Unsupported))),
     }
+}
+
+/// How long the thread that holds a gateway's WebSocket waits for a frame
+/// before it sends what the harness wrote meanwhile.
+const POLL: Duration = Duration::from_millis(20);
+
+/// Starts the thread that holds a gateway's WebSocket: it sends each message
+/// `sending` gives and hands on each text frame it reads as a line, until
+/// either side ends.
+fn relay_socket(mut socket: WebSocket<TcpStream>, sending: Receiver<String>) -> Receiver<Line> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        loop {
+            match sending.try_recv() {
+                Ok(text) => {
+                    if let Err(error) = socket.send(Message::text(text)) {
+                        let _ = sender.send(Err(io::Error::other(error.to_string())));
+                        return;
+                    }
+                    continue;
+                }
+                Err(TryRecvError::Disconnected) => {
+                    let _ = socket.close(None);
+                    let _ = socket.flush();
+                    return;
+                }
+                Err(TryRecvError::Empty) => {}
+            }
+            match socket.read() {
+                Ok(Message::Text(text)) => {
+                    if sender.send(Ok(text.to_string())).is_err() {
+                        return;
+                    }
+                }
+                Ok(Message::Close(_)) => return,
+                Ok(_) => {}
+                Err(tungstenite::Error::Io(error))
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) => {}
+                Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => {
+                    return;
+                }
+                Err(error) => {
+                    let _ = sender.send(Err(io::Error::other(error.to_string())));
+                    return;
+                }
+            }
+        }
+    });
+    receiver
 }
 
 /// Starts the thread that reads `stream` a line at a time, until it ends

@@ -15,7 +15,12 @@
 //! of what a crawl committed, `run outcomes` or `run rejected-records`,
 //! follows them page after page under `--follow`, one JSON object per
 //! line, until the Run ends; and
-//! `run add-seeds` reads its seeds from stdin, one per line.
+//! `run add-seeds` reads its seeds from stdin, one per line. Two of its
+//! commands take flags of their own in place of some params: `crawl start
+//! <url>…`, which builds the code-free crawl's `extraction` and seeds from
+//! them and follows its Run under `--follow` ([`crawl_start`]), and `run
+//! export <run> <dataset> --out <path|->`, which writes the Export's file
+//! ([`run_export`]).
 //!
 //! A command calls its operation on the engine [`engine_choice`] gives it
 //! and prints the result: an opener prints the new value's ID, any other
@@ -58,11 +63,67 @@ use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value};
 
 use crate::engine_choice::{
-    self, Answer, Choice, CommandCall, Daemons, EngineChoice, Follower, Input, Lifetime, Pager,
+    self, Answer, Choice, CommandCall, Daemons, EngineChoice, Follower, Input, Lifetime, Next,
+    Pager,
 };
 use crate::output::{ColourFlag, Human};
 use crate::settings_flags::{self, SettingsFlags};
 use crate::{exit_codes, output};
+
+mod crawl_start;
+mod run_export;
+
+/// A command whose flags the CLI writes by hand in place of some of its
+/// operation's params, beside the flags generated for the others.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Own {
+    /// `crawl start <url>…` ([`crawl_start`]).
+    CrawlStart,
+    /// `run export <run> <dataset> --out <path|->` ([`run_export`]).
+    RunExport,
+}
+
+impl Own {
+    /// `operation`'s, when its command takes flags of its own.
+    fn of(operation: &Operation) -> Option<Self> {
+        match operation.name {
+            crawl_start::OPERATION => Some(Self::CrawlStart),
+            run_export::OPERATION => Some(Self::RunExport),
+            _ => None,
+        }
+    }
+
+    /// The params its own flags give, which get no generated flag.
+    fn replaces(self) -> &'static [&'static str] {
+        match self {
+            Self::CrawlStart => crawl_start::REPLACES,
+            Self::RunExport => run_export::REPLACES,
+        }
+    }
+
+    /// `command` with its own flags.
+    fn args(self, command: Command, operation: &Operation) -> Command {
+        match self {
+            Self::CrawlStart => crawl_start::args(command, operation),
+            Self::RunExport => run_export::args(command, operation),
+        }
+    }
+
+    /// What its own flags gave in the parse `matches`: the params they
+    /// give, added to `params`, and what its call does with the rest.
+    fn read(self, matches: &ArgMatches, params: &mut Map<String, Value>) -> OwnFlags {
+        match self {
+            Self::CrawlStart => OwnFlags::CrawlStart(crawl_start::Flags::read(matches, params)),
+            Self::RunExport => OwnFlags::RunExport(run_export::Flags::read(matches, params)),
+        }
+    }
+}
+
+/// What a command's own flags gave beside its params.
+enum OwnFlags {
+    CrawlStart(crawl_start::Flags),
+    RunExport(run_export::Flags),
+}
 
 /// The Product whose catalog the commands of a hand-written group's
 /// namespace come from ([`Joining`]): Collie's, since Foxhound adds no
@@ -474,12 +535,18 @@ fn command(operation: &'static Operation) -> Command {
         }
         Some(Offer::Command) | None => "Prints the result as JSON",
     };
-    let command = parameters(operation)
-        .into_iter()
-        .fold(command, |command, parameter| match parameter.form {
+    let own = Own::of(operation);
+    let command = generated_parameters(operation, own).fold(command, |command, parameter| {
+        match parameter.form {
             Form::Settings => SettingsFlags::augment_args(command),
             _ => command.arg(parameter.arg()),
-        })
+        }
+    });
+    let command = match own {
+        Some(own) => own.args(command, operation),
+        None => command,
+    };
+    let command = command
         .arg(
             Arg::new(JSON)
                 .long(JSON)
@@ -697,6 +764,18 @@ fn parameters(operation: &Operation) -> Vec<Parameter> {
     parameters
 }
 
+/// The params of `operation` its command takes as generated flags: all
+/// but those its own flags give.
+fn generated_parameters(
+    operation: &Operation,
+    own: Option<Own>,
+) -> impl Iterator<Item = Parameter> {
+    let replaced = own.map_or(&[][..], Own::replaces);
+    parameters(operation)
+        .into_iter()
+        .filter(move |parameter| !replaced.contains(&parameter.name.as_str()))
+}
+
 /// Whether `operation` answers a Run report, by which its command exits.
 fn answers_a_run_report(operation: &Operation) -> bool {
     let mut generator = SchemaSettings::draft2020_12().into_generator();
@@ -764,19 +843,22 @@ pub struct Call {
     report: Option<bool>,
     /// The engine `--attached` or `--daemon` asks for.
     choice: Choice,
+    /// What its command's own flags gave, when it takes some.
+    own: Option<OwnFlags>,
 }
 
 impl Call {
     /// The call of `operation` that its command's parse `matches` gives, on
     /// `product`'s executable.
     fn of(product: Product, operation: &'static Operation, matches: &ArgMatches) -> Self {
-        let params = parameters(operation)
-            .into_iter()
+        let own = Own::of(operation);
+        let mut params = generated_parameters(operation, own)
             .filter_map(|parameter| {
                 let value = parameter.value(matches)?;
                 Some((parameter.name, value))
             })
             .collect();
+        let own = own.map(|own| own.read(matches, &mut params));
         let follows = matches!(
             offer(operation),
             Some(Offer::Follow | Offer::Committed | Offer::Pages)
@@ -795,6 +877,18 @@ impl Call {
             } else {
                 Choice::Auto
             },
+            own,
+        }
+    }
+
+    /// The engine its call runs on: as its command line and its value
+    /// choose, its refusals warned of through `warn`.
+    fn reach<'a>(&self, daemons: &'a dyn Daemons, warn: &'a dyn Fn(&str)) -> EngineChoice<'a> {
+        EngineChoice {
+            choice: self.choice,
+            lifetime: self.lifetime(),
+            daemons,
+            warn,
         }
     }
 
@@ -828,6 +922,15 @@ impl Call {
         if let Some(deprecated) = self.operation.deprecated {
             human.warning(&format!("`{words}`: {}", deprecation(deprecated)));
         }
+        match self.own.take() {
+            Some(OwnFlags::CrawlStart(flags)) => {
+                return crawl_start::run(&self, &flags, engine, dependencies, daemons, human);
+            }
+            Some(OwnFlags::RunExport(flags)) => {
+                return run_export::run(&self, &flags, engine, dependencies, daemons, human);
+            }
+            None => {}
+        }
         let json = self.json;
         let offered = offer(self.operation);
         let params = Value::Object(std::mem::take(&mut self.params));
@@ -859,7 +962,12 @@ impl Call {
                 return None;
             }
             asked[AFTER] = page[NEXT].clone();
-            Some(asked.clone())
+            Some(Next {
+                method: self.operation.name,
+                params: asked.clone(),
+                cancellable: self.operation.cancellable,
+                followed: false,
+            })
         };
         let pager: Option<Pager<'_>> =
             (offered == Some(Offer::Pages) && self.follow).then_some(&mut next_page);
@@ -880,18 +988,14 @@ impl Call {
             follower,
             pager,
             input,
+            stopper: None,
         };
         // A followed call prints as it runs, so only a call that prints at
         // its end shows its words as progress until then.
         let prints_at_its_end = !self.follow && offered != Some(Offer::Input);
         let progress = prints_at_its_end.then(|| human.progress(&words));
         let warn = |text: &str| human.warning(text);
-        let reach = EngineChoice {
-            choice: self.choice,
-            lifetime: self.lifetime(),
-            daemons,
-            warn: &warn,
-        };
+        let reach = self.reach(daemons, &warn);
         let answer = engine_choice::call(engine, dependencies, self.product, &reach, call);
         drop(progress);
         match answer {

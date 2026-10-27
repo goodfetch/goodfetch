@@ -21,8 +21,10 @@
 //! A followed call is granted credits as what it sends is printed (ADR
 //! 0024). An interrupt (`SIGINT`, Ctrl-C, or `CTRL_BREAK_EVENT` on Windows)
 //! or `SIGTERM` sends a cancellable call's `$/cancel` and waits for the
-//! engine to stop its work; a second one, or one during a call that cannot
-//! be cancelled, ends the command at once (ADRs 0069, 0080 and 0093).
+//! engine to stop its work, or, for a command that stops what it started,
+//! such as a followed crawl, makes the call that stops it and waits for its
+//! answer; a second one, or one during a call that cannot be cancelled,
+//! ends the command at once (ADRs 0069, 0080 and 0093).
 #![expect(
     clippy::disallowed_methods,
     reason = "the CLI builds its runtime before and outside any async worker, as main does (ADR 0060)"
@@ -141,10 +143,28 @@ pub struct EngineChoice<'a> {
 /// params, and answers how many credits printing it used.
 pub type Follower<'a> = &'a mut dyn FnMut(&str, &Value) -> u32;
 
-/// Receives each answer of a call that answers page by page, and answers
-/// the params of the call for the next page, or `None` when the answer is
-/// the last.
-pub type Pager<'a> = &'a mut dyn FnMut(&Value) -> Option<Value>;
+/// Receives each answer of a command's calls, and answers the call the
+/// command makes next on the same Connection, such as the next page of a
+/// call that answers page by page, or `None` when the answer is the last.
+pub type Pager<'a> = &'a mut dyn FnMut(&Value) -> Option<Next>;
+
+/// Answers, at the command's first interrupt, the call that stops what it
+/// started in place of `$/cancel`, such as a crawl's `run.stop`, which
+/// checkpoints its Run; `None` to cancel as any call is.
+pub type Stopper<'a> = &'a mut dyn FnMut() -> Option<Next>;
+
+/// A call a command makes after another on the same Connection.
+pub struct Next {
+    /// The operation.
+    pub method: &'static str,
+    /// Its params.
+    pub params: Value,
+    /// Whether `$/cancel` stops it.
+    pub cancellable: bool,
+    /// Whether it is a sequence whose notifications the command's follower
+    /// receives, granted credits as it uses them.
+    pub followed: bool,
+}
 
 /// The stream of values a call takes from the Client (ADR 0024): each
 /// `$/credit` the engine grants the call is answered by one notification
@@ -172,11 +192,14 @@ pub struct CommandCall<'a> {
     /// For a sequence, what receives what it sends, granted credits as it
     /// uses them.
     pub follower: Option<Follower<'a>>,
-    /// For a call that answers page by page under `--follow`, what asks
-    /// for the next page.
+    /// For a command that makes more than one call, such as one that asks
+    /// for page after page under `--follow`, what asks for the next.
     pub pager: Option<Pager<'a>>,
     /// For a call that takes a stream of values, where they come from.
     pub input: Option<Input<'a>>,
+    /// For a command that stops what it started at its first interrupt,
+    /// the call that stops it.
+    pub stopper: Option<Stopper<'a>>,
 }
 
 /// How a call ended.
@@ -483,26 +506,50 @@ impl Link {
     }
 
     /// Makes the call on the opened Connection and reads its answer; for a
-    /// call that answers page by page, calls again for each next page the
-    /// pager asks for, and answers the last page.
+    /// command that makes more than one call, makes each next call the
+    /// pager asks for, and answers the last one's answer. At its first
+    /// interrupt, a command whose stopper gives a call makes it and ends
+    /// once it is answered; any other cancels its call when it can.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one loop reads every message of the command's calls; splitting it would pass its state between functions"
+    )]
     async fn call(&mut self, mut call: CommandCall<'_>) -> Answer {
         let interrupt = interrupted();
         tokio::pin!(interrupt);
         let mut id = CALL_ID;
+        let mut method = call.method;
+        let mut cancellable = call.cancellable;
         let params = std::mem::take(&mut call.params);
-        if !self.send(&request(id, call.method, params)).await {
-            return closed(call.method);
+        if !self.send(&request(id, method, params)).await {
+            return closed(method);
         }
-        // A call that takes a stream grants the credits itself.
-        let credited = call.follower.is_some() && call.input.is_none();
+        // A call that takes a stream grants the credits itself, and a
+        // command that makes more than one call credits only those its
+        // pager says are followed.
+        let mut credited = call.follower.is_some() && call.input.is_none() && call.pager.is_none();
         if credited && !self.credit(id, CREDITS).await {
-            return closed(call.method);
+            return closed(method);
         }
         let mut cancelled = None;
+        // The stopping call, once the first interrupt made one.
+        let mut stopping: Option<(i64, Interrupt)> = None;
         loop {
             tokio::select! {
                 interrupt_now = &mut interrupt => {
-                    if !call.cancellable || cancelled.is_some() {
+                    if cancelled.is_some() || stopping.is_some() {
+                        return Answer::Interrupted(interrupt_now);
+                    }
+                    if let Some(stop) = call.stopper.as_mut().and_then(|stopper| stopper()) {
+                        let stop_id = id + 1;
+                        if !self.send(&request(stop_id, stop.method, stop.params)).await {
+                            return Answer::Interrupted(interrupt_now);
+                        }
+                        stopping = Some((stop_id, interrupt_now));
+                        interrupt.set(interrupted());
+                        continue;
+                    }
+                    if !cancellable {
                         return Answer::Interrupted(interrupt_now);
                     }
                     let cancel = notification(CANCEL, &CancelParams { id: RequestId::Number(id) });
@@ -513,7 +560,18 @@ impl Link {
                     interrupt.set(interrupted());
                 }
                 message = self.next() => match message {
-                    None => return closed(call.method),
+                    None => return closed(method),
+                    // The stopping call's answer, whatever it is, ends the
+                    // command as interrupted.
+                    Some(Message::Response(response)) if stopping.is_some_and(|(stop_id, _)| response.id == RequestId::Number(stop_id)) => {
+                        return Answer::Interrupted(stopping.map_or(Interrupt::Interrupted, |(_, interrupt)| interrupt));
+                    }
+                    Some(Message::Error(failure)) if stopping.is_some_and(|(stop_id, _)| failure.id == Some(RequestId::Number(stop_id))) => {
+                        return Answer::Interrupted(stopping.map_or(Interrupt::Interrupted, |(_, interrupt)| interrupt));
+                    }
+                    // While it stops, the command's own calls are no longer
+                    // read.
+                    Some(_) if stopping.is_some() => {}
                     Some(Message::Response(response)) if response.id == RequestId::Number(id) => {
                         if let Some(interrupt) = cancelled {
                             return Answer::Interrupted(interrupt);
@@ -523,8 +581,14 @@ impl Link {
                             return Answer::Result(response.result);
                         };
                         id += 1;
-                        if !self.send(&request(id, call.method, next)).await {
-                            return closed(call.method);
+                        method = next.method;
+                        cancellable = next.cancellable;
+                        if !self.send(&request(id, method, next.params)).await {
+                            return closed(method);
+                        }
+                        credited = next.followed && call.follower.is_some();
+                        if credited && !self.credit(id, CREDITS).await {
+                            return closed(method);
                         }
                     }
                     Some(Message::Error(failure)) if failure.id == Some(RequestId::Number(id)) => {
@@ -545,14 +609,14 @@ impl Link {
                             batch.insert(input.field.to_owned(), Value::Array(values));
                             batch.insert("end".to_owned(), Value::Bool(end));
                             if !self.send(&notification(input.method, &batch)).await {
-                                return closed(call.method);
+                                return closed(method);
                             }
                             continue;
                         }
                         let Some(follower) = call.follower.as_mut() else { continue };
                         let used = follower(&sent.method, &params);
                         if credited && used > 0 && !self.credit(id, used).await {
-                            return closed(call.method);
+                            return closed(method);
                         }
                     }
                     Some(_) => {}

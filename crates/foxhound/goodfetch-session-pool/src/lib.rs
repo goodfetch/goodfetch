@@ -10,6 +10,7 @@
 //! crate under `crates/foxhound/`, since only Foxhound links it (STYLE.md,
 //! reason 2).
 
+pub mod escalation;
 mod labels;
 mod pool;
 mod settings;

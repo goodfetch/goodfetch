@@ -377,6 +377,14 @@ impl SessionPool {
         self.released(&session.id);
     }
 
+    /// Learns that a Challenge met on a tier short of the browser moved a
+    /// request of `domain_key` to the browser tier, in the same Session
+    /// ([`crate::escalation`]): the domain's later requests start there
+    /// under `fetch.tier: auto`, and a resumed crawl keeps it.
+    pub fn moved_to_browser(&mut self, domain_key: &str) {
+        self.move_to_browser(domain_key);
+    }
+
     /// Whether a Challenge moved `domain_key` to the browser tier, where
     /// its requests are served under `fetch.tier: auto` (ADR 0021).
     pub fn browser(&self, domain_key: &str) -> bool {

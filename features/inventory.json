@@ -12989,6 +12989,16 @@
       ]
     },
     {
+      "id": "story:12-231",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:12-232",
       "kind": "story",
       "area": 12,
@@ -13000,6 +13010,16 @@
     },
     {
       "id": "story:12-233",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-234",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",

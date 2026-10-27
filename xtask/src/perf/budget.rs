@@ -56,6 +56,13 @@ const CONSOLE_CEILING_BYTES: u64 = 1_000_000;
 /// up, the ceiling the owner approved (#937).
 const COLLIE_INITIAL_ROUTE_CEILING_BYTES: u64 = 139_779;
 
+/// ADRs 0071 and 0087: Foxhound's Console's initial route (the page, its
+/// entry script, its stylesheet and Foxhound's English catalog, which the
+/// entry awaits before the first render) stays under 1.25 times the first
+/// build's 128,939 bytes brotli, rounded up, the ceiling the owner approved
+/// (#1235).
+const FOXHOUND_INITIAL_ROUTE_CEILING_BYTES: u64 = 161_174;
+
 /// ADR 0134: at most 8 heap bytes per URL in the Frontier.
 const FRONTIER_BYTES_PER_URL: u64 = 8;
 
@@ -106,7 +113,7 @@ impl Ceiling {
 
 /// The fixed ceilings of ADRs 0071, 0087 and 0134. Each starts when its benchmark
 /// or entry first runs.
-pub(crate) const FIXED_CEILINGS: [Ceiling; 5] = [
+pub(crate) const FIXED_CEILINGS: [Ceiling; 6] = [
     Ceiling::Figure {
         subject: "size-limit/collie-console",
         figure: Figure::Brotli,
@@ -121,6 +128,11 @@ pub(crate) const FIXED_CEILINGS: [Ceiling; 5] = [
         subject: "size-limit/foxhound-console",
         figure: Figure::Brotli,
         max: CONSOLE_CEILING_BYTES,
+    },
+    Ceiling::Figure {
+        subject: "size-limit/foxhound-console-initial-route",
+        figure: Figure::Brotli,
+        max: FOXHOUND_INITIAL_ROUTE_CEILING_BYTES,
     },
     Ceiling::PerUrl {
         subject: "goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls",

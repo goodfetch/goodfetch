@@ -3,14 +3,16 @@
 # its target, by capability, with the Features each case covers (ADR 0072).
 # Each case is a test of this folder titled with its ID and annotated with
 # its capability; the Playwright reporter writes one `conformance` document
-# per target. Collie's Daemon serving Collie's build is the target here;
-# the Stub gateway's cases and its routing are Foxhound's (spec #593), and
-# step-up's join with the step-up ticket. Bump the version whenever a case
-# changes.
+# per target. Its targets: Collie's Daemon serving Collie's build, every
+# case but Foxhound's screens and routing; Foxhound's Daemon serving
+# Foxhound's build, Foxhound's screens; and the Stub gateway, the whole
+# suite (spec #593). Step-up's join with the step-up ticket, and the
+# routing of a Recipe's run with a start that carries its manifest (#1691).
+# Bump the version whenever a case changes.
 
 [suite]
 name = "console"
-version = "1"
+version = "2"
 
 [[capability]]
 name = "runs.list"
@@ -132,3 +134,33 @@ covers = ["story:12-138"]
 [[capability.case]]
 id = "connect-after-close"
 covers = ["story:12-138"]
+
+# Foxhound's build: Foxhound's views of a run only for a run on Foxhound's
+# engine (ADR 0096).
+[[capability]]
+name = "foxhound-screens"
+
+[[capability.case]]
+id = "foxhounds-screens-show-only-for-a-run-on-foxhounds-engine"
+covers = ["story:12-231", "story:12-203"]
+
+# A gateway's routing of each run to the engine of its Product (ADR 0096;
+# TESTING.md, The Console conformance suite).
+[[capability]]
+name = "routing"
+
+[[capability.case]]
+id = "a-collie-clients-run-lands-on-collies-engine-and-its-crawl-start-answers-not-in-product"
+covers = ["story:12-231", "story:12-232"]
+
+[[capability.case]]
+id = "a-foxhound-clients-run-lands-on-foxhounds-engine"
+covers = ["story:12-231", "story:12-232"]
+
+[[capability.case]]
+id = "a-run-the-console-starts-lands-by-what-its-target-names"
+covers = ["story:12-231", "story:12-232"]
+
+[[capability.case]]
+id = "a-foxhound-only-call-on-a-run-of-collies-engine-answers-not-in-product-naming-its-product"
+covers = ["story:12-231", "story:12-232"]

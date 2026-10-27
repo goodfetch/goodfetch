@@ -1,25 +1,200 @@
 // What the Console conformance cases ask of their target beside the page
-// (ADRs 0031 and 0068): its executable's commands in the test's home, a
-// Run's stored file, the page's WebSocket carried through the test as a
-// network or a proxy carries it, and the Console's own Client reaching the
-// target's endpoint with the page's sign-in, as configuration.
+// (ADRs 0031, 0068 and 0096): a run started and finished there (on a
+// Daemon, with its executable's commands in the test's home; behind a
+// gateway, with the protocol's, as the Console starts one), a Run's stored
+// file, the page's WebSocket carried through the test as a network or a
+// proxy carries it, and the Console's own Client reaching the target's
+// endpoint with the page's sign-in, as configuration.
 import { createHash } from "node:crypto";
 import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BrowserContext, Page, WebSocketRoute } from "@playwright/test";
-import { expect } from "@goodfetch/test-support/conformance";
+import { expect, test } from "@goodfetch/test-support/conformance";
 import { command } from "@goodfetch/test-support/daemon-calls";
 import type { ServedDaemon } from "@goodfetch/test-support/playwright";
 import { WebSocket } from "ws";
+import { PRODUCT_VERSION } from "@goodfetch/collie-client/browser";
+import { PROTOCOL_VERSION } from "@goodfetch/collie-client/generated";
 import { createConsoleClient, type ConsoleClient, type Transport } from "@goodfetch/console/client";
 
 /** The banner of a page with no Connection to its engine. */
 export const BANNER =
   "No connection to the engine: this page is read-only until the Console reconnects, which it does by itself.";
 
-/** Starts the Run `runId` in the test's home with the executable's `run start`. */
+/** What a case needs that the Stub gateway does not serve yet, each its reason to skip there. */
+export const NOT_ON_THE_STUB_GATEWAY = {
+  fanIn:
+    "the Stub gateway sends a subscription naming no run only one engine's events, not every engine's in one order",
+  restart: "the Stub gateway cannot be restarted on its port under a page",
+  sizeCapped: "the Stub gateway's engines are not on the test's size-capped filesystem",
+  bodies: "the Stub gateway serves no `/bodies/` and no content origin of a Run's files",
+  eventStream: "the Stub gateway serves no Server-Sent Events plus `POST` fallback",
+} as const;
+
+/** Skips the running case behind a gateway, for what it needs there that is `why`. */
+export function skipBehindGateway(daemon: ServedDaemon, why: string): void {
+  test.skip(daemon.gateway !== undefined, why);
+}
+
+/** Each Product's name, as the Console shows it. */
+export const PRODUCT_NAME = { collie: "Collie", foxhound: "Foxhound" } as const;
+
+/**
+ * Starts the Run `runId` on the test's target: with the executable's `run
+ * start` in the test's home, or behind a gateway with `run.start` as the
+ * Console sends it, which the gateway puts on an engine of the Product the
+ * start names.
+ */
 export async function startRun(daemon: ServedDaemon, runId: string): Promise<void> {
-  await command(daemon, ["run", "start", "--run-id", runId]);
+  if (daemon.gateway === undefined) {
+    await command(daemon, ["run", "start", "--run-id", runId]);
+    return;
+  }
+  const console = await ProgramConnection.open(daemon, asConsole(daemon));
+  try {
+    await console.start("run.start", { run_id: runId });
+  } finally {
+    console.close();
+  }
+}
+
+/** Finishes the Run `runId` on the test's target, reached as `startRun` reaches it. */
+export async function finishRun(daemon: ServedDaemon, runId: string): Promise<void> {
+  if (daemon.gateway === undefined) {
+    await daemon.run(["run", "finish", runId]);
+    return;
+  }
+  const console = await ProgramConnection.open(daemon, asConsole(daemon));
+  try {
+    await console.call("run.finish", { run_id: runId });
+  } finally {
+    console.close();
+  }
+}
+
+/** Who a program's Connection says it is in its `hello`. */
+export interface Speaking {
+  /** Its surface: `console` for the Console, `sdk_typescript` for a Client program. */
+  readonly surface: "console" | "sdk_typescript";
+  /** The Product it needs. */
+  readonly needs: "collie" | "foxhound";
+}
+
+/** The Console of the target's build, as its `hello` names it. */
+export function asConsole(daemon: ServedDaemon): Speaking {
+  return { surface: "console", needs: daemon.product };
+}
+
+/** The cookie a program gets from a gateway for its token at `POST /sign-in`. */
+async function gatewayCookie(daemon: ServedDaemon): Promise<string> {
+  const token = daemon.gateway?.token;
+  if (token === undefined) {
+    throw new Error("invariant: only a gateway signs a program in with its token");
+  }
+  const answer = await fetch(new URL("/sign-in", daemon.url), { method: "POST", body: token });
+  const cookie = answer.headers.get("set-cookie")?.split(";")[0];
+  if (answer.status !== 204 || cookie === undefined) {
+    throw new Error(`the gateway's sign-in answered ${String(answer.status)}`);
+  }
+  return cookie;
+}
+
+/**
+ * A Connection of the test's own to a gateway's `/protocol`, signed in with
+ * the gateway's token: JSON-RPC over its WebSocket, as a Client program or
+ * the Console speaks it, each answer the whole reply.
+ */
+export class ProgramConnection {
+  /** Its `hello`'s whole reply. */
+  readonly hello: unknown;
+  readonly #socket: WebSocket;
+  readonly #waiting: Map<number, (reply: unknown) => void>;
+  #next = 1;
+
+  private constructor(
+    socket: WebSocket,
+    hello: unknown,
+    waiting: Map<number, (reply: unknown) => void>,
+  ) {
+    this.#socket = socket;
+    this.hello = hello;
+    this.#waiting = waiting;
+  }
+
+  /**
+   * Opens one as `speaking`, once its `hello` is answered, signed in with
+   * `cookie`, else with the gateway's token.
+   */
+  static async open(
+    daemon: ServedDaemon,
+    speaking: Speaking,
+    cookie?: string,
+  ): Promise<ProgramConnection> {
+    const origin = new URL(daemon.url).origin;
+    const url = new URL("/protocol", origin);
+    url.protocol = "ws:";
+    const socket = new WebSocket(url, {
+      headers: { Cookie: cookie ?? (await gatewayCookie(daemon)), Origin: origin },
+    });
+    const waiting = new Map<number, (reply: unknown) => void>();
+    const { promise: helloed, resolve } = Promise.withResolvers<unknown>();
+    waiting.set(0, resolve);
+    socket.on("message", (data, binary) => {
+      if (binary) {
+        return;
+      }
+      const text = new TextDecoder().decode(Array.isArray(data) ? Buffer.concat(data) : data);
+      const reply: unknown = JSON.parse(text);
+      const id = field(reply, "id");
+      if (typeof id === "number") {
+        waiting.get(id)?.(reply);
+        waiting.delete(id);
+      }
+    });
+    await new Promise<void>((opened, failed) => {
+      socket.once("open", () => opened());
+      socket.once("error", failed);
+    });
+    socket.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 0,
+        method: "hello",
+        params: {
+          protocol_version: PROTOCOL_VERSION,
+          surface: speaking.surface,
+          needs: speaking.needs,
+          product_version: PRODUCT_VERSION,
+        },
+      }),
+    );
+    return new ProgramConnection(socket, await helloed, waiting);
+  }
+
+  /** Calls `method` with `params`: its whole reply, its `result` or its `error`. */
+  async call(method: string, params: unknown): Promise<unknown> {
+    const id = this.#next;
+    this.#next += 1;
+    const { promise, resolve } = Promise.withResolvers<unknown>();
+    this.#waiting.set(id, resolve);
+    this.#socket.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+    return promise;
+  }
+
+  /** Calls a start and answers the Run ID its result names. */
+  async start(method: string, params: unknown): Promise<string> {
+    const answer = await this.call(method, params);
+    const runId = field(field(answer, "result"), "run_id");
+    if (typeof runId !== "string") {
+      throw new Error(`${method} started no run: ${JSON.stringify(answer)}`);
+    }
+    return runId;
+  }
+
+  /** Closes its WebSocket. */
+  close(): void {
+    this.#socket.close();
+  }
 }
 
 /** The field `name` of `value`, if it is an object that has one. */
@@ -204,8 +379,21 @@ export async function storeBody(
   bytes: Uint8Array,
 ): Promise<string> {
   const id = createHash("sha256").update(bytes).digest("hex");
-  for (const major of await readdir(daemon.home)) {
-    const folder = join(daemon.home, major, "runs", runId);
+  // Behind a gateway, each engine has a home of its own.
+  const engines = daemon.gateway?.engines;
+  const homes =
+    engines === undefined
+      ? [daemon.home]
+      : (await readdir(engines)).map((engine) => join(engines, engine));
+  const majors = (
+    await Promise.all(
+      homes.map(async (home) =>
+        (await readdir(home).catch(() => [])).map((major) => join(home, major)),
+      ),
+    )
+  ).flat();
+  for (const major of majors) {
+    const folder = join(major, "runs", runId);
     const exists = await access(folder).then(
       () => true,
       () => false,
@@ -216,7 +404,7 @@ export async function storeBody(
       return `${runId}/${id}`;
     }
   }
-  throw new Error(`the test's home holds no Run ${runId}`);
+  throw new Error(`no home of the test's target holds a Run ${runId}`);
 }
 
 /** The `Cookie` header the context sends to the Console. */
@@ -280,7 +468,7 @@ export function signedInTransport(
   };
 }
 
-/** The Console's own Client of Collie's build, on the target's endpoint with the page's sign-in. */
+/** The Console's own Client of the target's build, on the target's endpoint with the page's sign-in. */
 export function consoleClient(
   daemon: ServedDaemon,
   cookie: string,
@@ -292,7 +480,7 @@ export function consoleClient(
       throw new Error("no case of the Client reads a body");
     },
     visibility: { visible: true, watch: () => () => undefined },
-    product: "collie",
+    product: daemon.product,
   });
 }
 

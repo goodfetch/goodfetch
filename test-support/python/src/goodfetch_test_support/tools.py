@@ -27,6 +27,7 @@ class Tool(StrEnum):
     TEST_ENV = "test_env"
     SCRIPTED_ENGINE = "scripted_engine"
     CONFORMANCE = "conformance"
+    STUB_GATEWAY = "stub_gateway"
 
 
 class ToolsError(Exception):

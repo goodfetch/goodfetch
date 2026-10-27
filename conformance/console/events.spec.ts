@@ -13,9 +13,13 @@ import {
   BANNER,
   Carrier,
   field,
+  finishRun,
   listed,
   openRuns,
+  PRODUCT_NAME,
+  NOT_ON_THE_STUB_GATEWAY,
   restartedOnItsPort,
+  skipBehindGateway,
   startRun,
 } from "./target.ts";
 
@@ -33,7 +37,7 @@ test(
   async ({ page, daemon, signIn }) => {
     await startRun(daemon, "running");
     await startRun(daemon, "finished");
-    await daemon.run(["run", "finish", "finished"]);
+    await finishRun(daemon, "finished");
     await signIn.withLink(page);
 
     await page.goto(new URL("/runs", daemon.url).href);
@@ -51,6 +55,7 @@ test(
     ],
   },
   async ({ page, daemon, signIn }) => {
+    skipBehindGateway(daemon, NOT_ON_THE_STUB_GATEWAY.fanIn);
     const carrier = await Carrier.on(page);
     await signIn.withLink(page);
     const first = await openRuns(page, daemon, carrier);
@@ -83,6 +88,7 @@ test(
     ],
   },
   async ({ page, daemon, signIn, failOnErrors }) => {
+    skipBehindGateway(daemon, NOT_ON_THE_STUB_GATEWAY.restart);
     const carrier = await Carrier.on(page);
     // While the Daemon is stopped, a refused WebSocket turns the Client to
     // Server-Sent Events, which the test cannot read: refusing them keeps
@@ -128,6 +134,7 @@ test(
     ],
   },
   async ({ page, daemon, signIn }) => {
+    skipBehindGateway(daemon, NOT_ON_THE_STUB_GATEWAY.fanIn);
     const runs = ["run-1", "run-2", "run-3", "run-4", "run-5", "run-6"];
     const carrier = await Carrier.on(page);
     await signIn.withLink(page);
@@ -136,7 +143,7 @@ test(
 
     await Promise.all(runs.map(async (runId) => startRun(daemon, runId)));
     for (const runId of runs) {
-      await daemon.run(["run", "finish", runId]);
+      await finishRun(daemon, runId);
     }
 
     await expect.poll(() => listed(page)).toEqual(runs.map((runId) => `${runId}: finished`));
@@ -195,6 +202,7 @@ test(
     ],
   },
   async ({ page, daemon, signIn, failOnErrors }) => {
+    skipBehindGateway(daemon, NOT_ON_THE_STUB_GATEWAY.eventStream);
     await page.routeWebSocket(/\/protocol$/, (route) => void route.close());
     const posted: { url: string; csrf: string | undefined }[] = [];
     page.on("request", (request) => {
@@ -204,7 +212,9 @@ test(
     });
 
     await signIn.withLink(page);
-    await expect(page.getByRole("main").getByRole("status")).toHaveText(/^Connected to Collie /);
+    await expect(page.getByRole("main").getByRole("status")).toHaveText(
+      new RegExp(`^Connected to ${PRODUCT_NAME[daemon.product]} `),
+    );
     await page.goto(new URL("/runs", daemon.url).href);
     await startRun(daemon, "first");
     await expect.poll(() => listed(page)).toEqual(["first: running"]);

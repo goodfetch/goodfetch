@@ -23,6 +23,7 @@ Until M1's optimization pass, a figure past its threshold or over its ceiling is
 | size-limit/collie-console | brotli | 1000.40 kB | ≤ 1000.00 kB | over its ceiling |
 | size-limit/collie-console-initial-route | brotli | — | ≤ 139.78 kB | not run yet |
 | size-limit/foxhound-console | brotli | — | ≤ 1000.00 kB | not run yet |
+| size-limit/foxhound-console-initial-route | brotli | — | ≤ 161.18 kB | not run yet |
 | goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls | heap-bytes-per-url | — | ≤ 8 bytes | not run yet |
 | goodfetch-foxhound/heap::crawl::in_memory_pages | bytes-per-body-byte | — | ≤ 2× | not run yet |
 

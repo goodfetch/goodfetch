@@ -81,6 +81,7 @@ pub fn contribution() -> Contribution {
         .with_run_state_tables(queues::TABLES)
         .with_run_state_tables(seeds::TABLES)
         .with_run_state_tables(sitemap::TABLES)
+        .with_run_state_tables(trap_links::TABLES)
         .with_run_state_tables(identity::TABLES)
         .with_run_state_tables(scope::TABLES)
         .with_run_state_tables(bounds::TABLES)

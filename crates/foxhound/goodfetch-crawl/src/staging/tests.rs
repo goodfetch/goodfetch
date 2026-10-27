@@ -36,6 +36,7 @@ fn leased() -> Connection {
         .chain(goodfetch_frontier::RULES_TABLES.statements)
         .chain(goodfetch_frontier::payload::TABLES.statements)
         .chain(goodfetch_frontier::sitemap::TABLES.statements)
+        .chain(goodfetch_frontier::trap_links::TABLES.statements)
     {
         connection.execute(statement, []).unwrap();
     }

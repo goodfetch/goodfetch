@@ -38,6 +38,7 @@ use encoding_rs::Encoding;
 use goodfetch_engine::dns::ResolverConfiguration;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::home::Home;
+use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
@@ -45,6 +46,7 @@ use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionKind, ExceptionUsed, PinBook, trusted_cas,
 };
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
+use goodfetch_page::blocks::Block;
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, Reader,
     ServedDocument,
@@ -68,7 +70,8 @@ use goodfetch_protocol::foxhound::provenance::{
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{
-    BodyHandle, FormatsRequest, Navigated, PageFormats, PageId, PageResponse, SessionId,
+    BLOCKED, BlockedDetails, BodyHandle, FormatsRequest, Navigated, PageFormats, PageId,
+    PageResponse, SessionId,
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::page_check::PageCheck;
@@ -1213,6 +1216,36 @@ impl FetchTiers {
         })
     }
 
+    /// The Block cause of the served page `page_id`'s document, as the
+    /// Product's Block classification tells it (ADR 0035), with the
+    /// `blocked` its crawl request ends with when nothing moves it: the
+    /// rules a browser page's navigation is judged by, so a crawl's HTTP
+    /// tiers meet the blocks its browser does (spec #600). `None` for a
+    /// document no rule classifies, a page holding no document, one closed,
+    /// or before the engine's pages were handed over.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the verdict; the page stays open.
+    pub async fn block(&self, page_id: &PageId) -> Option<(Block, CallError)> {
+        let page = self.served_page(page_id)?;
+        if page.not_document.is_some() {
+            return None;
+        }
+        let pages = Arc::clone(self.served.browser.get()?);
+        let response = page.own.map(|(response, _)| response)?;
+        let run = page.document.run.clone();
+        let received = run.clock().wall();
+        let (block, response) = run
+            .owner()
+            .blocking(move || {
+                let block = pages.classify(&response, &page.document.html);
+                block.map(|block| (block, response))
+            })
+            .await?;
+        Some((block, blocked(block, &response, received)))
+    }
+
     /// The formats `request` names of the page `page_id`, served or a
     /// browser's, as `page.formats` answers them: what a code-free crawl
     /// reads of each page (ADR 0103). `None` before the engine's pages were
@@ -1976,4 +2009,41 @@ fn exceptions_of(run: &Run, settings: &Resolved) -> CertificateExceptions {
         tracing::warn!(%error, "`tls.accept_invalid_certs` names no host, so it makes no exception");
         CertificateExceptions::default()
     })
+}
+
+/// The `blocked` a crawl request whose document `response` answered,
+/// received at `received`, ends with for `block`: its cause, URL, status
+/// and the time the site's `Retry-After` asks for (ADR 0079).
+fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTime) -> CallError {
+    let retry_after = response
+        .headers
+        .get("retry-after")
+        .map(|value| {
+            retry_after::read(
+                value,
+                response.headers.get("date").map(String::as_str),
+                received,
+            )
+        })
+        .and_then(|asked| match asked {
+            RetryAfter::Until(until) => jiff::Timestamp::try_from(until).ok(),
+            RetryAfter::NoWait | RetryAfter::Unparsable => None,
+        });
+    CallError::new(
+        &BLOCKED,
+        format!(
+            "The document of `{}`, answered with {}, is a block, `{}`: {} (rule `{}`). Its fetch tier is forced, so the request is not moved to the browser.",
+            response.url,
+            response.status,
+            block.cause.as_str(),
+            block.cause.description(),
+            block.rule,
+        ),
+        &BlockedDetails {
+            cause: block.cause,
+            url: response.url.clone(),
+            status: response.status,
+            retry_after,
+        },
+    )
 }

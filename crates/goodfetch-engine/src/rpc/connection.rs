@@ -70,6 +70,7 @@ use crate::endpoint::{REFUSAL_TARGET, same_token};
 use crate::events::{Credits, Events};
 use crate::log::{ConnectionLog, LogEvents};
 use crate::mask::{Masks, Scope};
+use crate::people::SignInDriver;
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
@@ -117,8 +118,10 @@ pub(crate) struct Dispatch {
 /// carry and what its reply tells.
 pub(crate) enum Access {
     /// An Attached engine's stdio, or an in-process Connection: no token;
-    /// its reply names the engine's private endpoint, when it has one.
-    Attached(Option<PrivateEndpoint>),
+    /// its reply names the engine's private endpoint, when it has one, and
+    /// the sign-in link of the Console it serves for its script, when it
+    /// serves one.
+    Attached(Option<PrivateEndpoint>, Option<String>),
     /// A Daemon's listener: its token, and what else the Daemon gives.
     Daemon(Arc<dyn DaemonSide>),
     /// An Exposed Daemon's address (ADR 0049): a Daemon's listener that
@@ -127,17 +130,27 @@ pub(crate) enum Access {
     Exposed(Arc<dyn DaemonSide>, Arc<Authorities>),
     /// An Attached engine's private endpoint: its token.
     PrivateEndpoint(Arc<str>),
-    /// The Console's WebSocket on its own origin (ADR 0031): a Daemon's
-    /// Connection whose sign-in cookie its handshake carried, so its
-    /// `hello` carries no token.
-    Console(Arc<dyn DaemonSide>),
+    /// The Console's WebSocket on its own origin (ADR 0031): a Connection
+    /// whose sign-in cookie its handshake carried, so its `hello` carries
+    /// no token; the Daemon's, or none on an Attached engine serving its
+    /// script's own Console, and the sign-in driver its refusals are
+    /// recorded through.
+    Console(ConsoleSide),
+}
+
+/// What a Console's Connection reaches beside the engine: the Daemon that
+/// serves the Console, or none on an Attached engine serving its script's
+/// own, and the Console's sign-in driver, which records its refusals.
+pub(crate) struct ConsoleSide {
+    pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
+    pub(crate) sign_ins: SignInDriver,
 }
 
 impl Access {
     /// The token its `hello` must carry, if any.
     fn token(&self) -> Option<&str> {
         match self {
-            Self::Attached(_) | Self::Console(_) => None,
+            Self::Attached(..) | Self::Console(..) => None,
             Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(daemon.token()),
             Self::PrivateEndpoint(token) => Some(token),
         }
@@ -146,10 +159,9 @@ impl Access {
     /// The Daemon it reaches, if any.
     fn daemon(&self) -> Option<Arc<dyn DaemonSide>> {
         match self {
-            Self::Daemon(daemon) | Self::Exposed(daemon, _) | Self::Console(daemon) => {
-                Some(Arc::clone(daemon))
-            }
-            Self::Attached(_) | Self::PrivateEndpoint(_) => None,
+            Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(Arc::clone(daemon)),
+            Self::Console(side) => side.daemon.clone(),
+            Self::Attached(..) | Self::PrivateEndpoint(_) => None,
         }
     }
 
@@ -157,11 +169,11 @@ impl Access {
     /// Connection of newline-delimited JSON-RPC.
     fn listener(&self) -> &'static str {
         match self {
-            Self::Attached(_) => "stdio",
+            Self::Attached(..) => "stdio",
             Self::Daemon(_) => "daemon_socket",
             Self::Exposed(..) => "exposed_daemon",
             Self::PrivateEndpoint(_) => "private_endpoint",
-            Self::Console(_) => CONSOLE_LISTENER,
+            Self::Console(..) => CONSOLE_LISTENER,
         }
     }
 
@@ -169,7 +181,7 @@ impl Access {
     /// no `hello` is closed unanswered on a listener a Client proves
     /// itself to.
     fn guarded(&self) -> bool {
-        self.token().is_some() || matches!(self, Self::Console(_))
+        self.token().is_some() || matches!(self, Self::Console(..))
     }
 }
 
@@ -341,7 +353,7 @@ pub(crate) async fn serve_console(
     owner: &TaskOwner,
     runs: Runs,
     events: Events,
-    daemon: Arc<dyn DaemonSide>,
+    side: ConsoleSide,
     clock: Clock,
 ) {
     let (reading, writing) = match console {
@@ -365,7 +377,7 @@ pub(crate) async fn serve_console(
         owner,
         runs,
         events,
-        Access::Console(daemon),
+        Access::Console(side),
         clock,
     )
     .await;
@@ -882,11 +894,12 @@ impl Session<'_> {
                 }
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface));
                 self.behind_gateway = accepted.behind_gateway;
-                if let Access::Attached(private_endpoint) = &self.access {
+                if let Access::Attached(private_endpoint, console_link) = &self.access {
                     accepted
                         .result
                         .private_endpoint
                         .clone_from(private_endpoint);
+                    accepted.result.console_link.clone_from(console_link);
                 }
                 let result = serde_json::to_value(accepted.result)
                     .expect("invariant: a `hello` reply encodes");
@@ -1158,9 +1171,7 @@ impl Session<'_> {
     /// sign-in driver, as the Console's.
     async fn refused(&self, reason: &'static str) {
         let listener = self.listener;
-        if let Access::Console(daemon) = &self.access
-            && let Some(sign_ins) = daemon.sign_ins()
-        {
+        if let Access::Console(ConsoleSide { sign_ins, .. }) = &self.access {
             tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a Connection that did not open with `hello` was closed");
             sign_ins.refused(listener, reason).await;
         } else {

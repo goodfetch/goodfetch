@@ -52,7 +52,7 @@ fn default_of_this_version() -> serde_json::Value {
 /// `console.address` (ADR 0031): where the Daemon serves the Console.
 pub const ADDRESS: Setting = Setting {
     name: "console.address",
-    description: "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
+    description: "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only. An Attached engine serves no Console unless the script that starts it asks for one at an address of its own, which `hello` answers with the Console's sign-in link.",
     kind: ValueKind::Text,
     default: default_of_this_version,
     clearable: false,
@@ -84,6 +84,19 @@ pub const CONTENT_ADDRESS: Setting = Setting {
 pub const CONTENT_PUBLIC_URL: Setting = Setting {
     name: "console.content_public_url",
     description: "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only.",
+    kind: ValueKind::Text,
+    default: none,
+    clearable: true,
+    authority: Authority::Machine,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `console.public_url` (ADR 0031): the address links to the Console
+/// name, such as an Exposed Daemon's TLS address behind a proxy.
+pub const PUBLIC_URL: Setting = Setting {
+    name: "console.public_url",
+    description: "The address links to the Console name, such as `https://console.example.com`: the links in Notifications and a run's `console_url`. None by default: the Console's own address. A link never carries a token or a cookie, so a forwarded one grants nothing. Set in user configuration or an Operator policy only.",
     kind: ValueKind::Text,
     default: none,
     clearable: true,
@@ -178,7 +191,13 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[CONSOLE_PORT_IN_USE],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[ADDRESS, CONTENT_ADDRESS, CONTENT_PUBLIC_URL, OFFLINE_CACHE],
+    settings: &[
+        ADDRESS,
+        CONTENT_ADDRESS,
+        CONTENT_PUBLIC_URL,
+        OFFLINE_CACHE,
+        PUBLIC_URL,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

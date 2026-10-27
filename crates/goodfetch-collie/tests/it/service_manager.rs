@@ -167,6 +167,41 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
     );
 }
 
+/// With the service installed, the service manager also listens on the
+/// Console's address, a port `daemon install` chose for the test home's
+/// port 0: the first request to the Console there starts the Daemon, which
+/// answers it with the Console's page, so a bookmark always works.
+///
+/// Covers: story:12-7, command:daemon.install, command:daemon.status
+#[cfg(unix)]
+#[test]
+fn the_first_request_to_the_consoles_address_starts_the_daemon() {
+    let env = TestEnv::new();
+    let _removes = RemovesTheService(&env);
+    let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
+    let console = installed["service"]["console"]
+        .as_str()
+        .expect("the service listens on the Console's address")
+        .to_owned();
+    let before = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
+
+    let page = crate::sign_in::agent()
+        .get(format!("http://{console}/"))
+        .call()
+        .unwrap();
+
+    let after = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
+    assert_eq!(
+        (
+            before["pid"].clone(),
+            page.status().as_u16(),
+            after["pid"].is_u64(),
+            after["console_url"].clone(),
+        ),
+        (Value::Null, 200, true, json!(format!("http://{console}/")),)
+    );
+}
+
 /// A rotation stops the Daemon that took the old token: a Client with the
 /// old token is closed unanswered, and one with the new token starts the
 /// next Daemon.

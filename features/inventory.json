@@ -6093,6 +6093,17 @@
       ]
     },
     {
+      "id": "setting:console.public_url",
+      "kind": "setting",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:console.sign_in.idle_expiry",
       "kind": "setting",
       "area": 12,
@@ -13257,7 +13268,62 @@
       ]
     },
     {
+      "id": "story:12-4",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:12-5",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-6",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-7",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-8",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-9",
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",

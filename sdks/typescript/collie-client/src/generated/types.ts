@@ -2996,6 +2996,13 @@ export interface HelloParams {
  */
 export interface HelloResult {
   /**
+   * The sign-in link of the Console an Attached engine serves for its
+   * script, which asked for one with a Console address, reported to the
+   * Client of its stdio alone: `<url>#token=<token>`, whose fragment the
+   * page swaps once for its cookie (ADRs 0024 and 0031).
+   */
+  console_link?: string | null;
+  /**
    * The engine process, new each time an engine starts: the positions
    * of its events count within it, so a Client that meets a new one
    * resyncs (ADR 0031).

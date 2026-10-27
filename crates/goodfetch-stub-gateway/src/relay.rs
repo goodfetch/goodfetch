@@ -320,6 +320,7 @@ where
         product_version: version(),
         engine_instance: instance.clone(),
         private_endpoint: None,
+        console_link: None,
     };
     let reply = json!({"jsonrpc": "2.0", "id": id, "result": result});
     outgoing.send(reply.to_string()).await.ok()?;

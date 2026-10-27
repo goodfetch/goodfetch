@@ -56,6 +56,7 @@ fn request<'a>(
         executable: Path::new(COPY),
         build: "1.4.0-0123456789abcdef",
         socket: Some(Path::new(SOCKET)),
+        console: Some(std::net::SocketAddr::from(([127, 0, 0, 1], 7801))),
         environment,
         launchd_domain: Some("gui/501"),
     }

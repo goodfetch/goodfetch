@@ -5821,6 +5821,14 @@
     "HelloResult": {
       "description": "What an engine answers to a `hello` it accepts.",
       "properties": {
+        "console_link": {
+          "arrived_in": "0.1",
+          "description": "The sign-in link of the Console an Attached engine serves for its\nscript, which asked for one with a Console address, reported to the\nClient of its stdio alone: `<url>#token=<token>`, whose fragment the\npage swaps once for its cookie (ADRs 0024 and 0031).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "engine_instance": {
           "$ref": "#/$defs/EngineInstance",
           "arrived_in": "0.1",
@@ -6177,6 +6185,14 @@
       "additionalProperties": false,
       "description": "The per-user service of one major that `daemon install` registered,\nrecorded in `daemon-service.json` in the major's per-major folder (ADRs\n0024, 0031 and 0098): what starts the major's pick, from which versioned\ncopy, and the socket its service manager listens on for it.",
       "properties": {
+        "console": {
+          "arrived_in": "0.1",
+          "description": "The Console's `host:port` the service manager also listens on, so\nthe first visit to the Console starts the Daemon (ADR 0031); `None`\nwithout socket activation.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "executable": {
           "arrived_in": "0.1",
           "description": "The versioned copy in the Browser cache that the service starts,\nwhich starts its major's pick.",
@@ -17878,7 +17894,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "address": {
-                    "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
+                    "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only. An Attached engine serves no Console unless the script that starts it asks for one at an address of its own, which `hello` answers with the Console's sign-in link.",
                     "type": "string"
                   },
                   "content_address": {
@@ -17906,6 +17922,17 @@
                   "offline_cache": {
                     "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
                     "type": "boolean"
+                  },
+                  "public_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The address links to the Console name, such as `https://console.example.com`: the links in Notifications and a run's `console_url`. None by default: the Console's own address. A link never carries a token or a cookie, so a forwarded one grants nothing. Set in user configuration or an Operator policy only."
                   },
                   "sign_in": {
                     "additionalProperties": false,
@@ -20465,7 +20492,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "address": {
-                    "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
+                    "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only. An Attached engine serves no Console unless the script that starts it asks for one at an address of its own, which `hello` answers with the Console's sign-in link.",
                     "type": "string"
                   },
                   "content_address": {
@@ -20493,6 +20520,17 @@
                   "offline_cache": {
                     "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
                     "type": "boolean"
+                  },
+                  "public_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The address links to the Console name, such as `https://console.example.com`: the links in Notifications and a run's `console_url`. None by default: the Console's own address. A link never carries a token or a cookie, so a forwarded one grants nothing. Set in user configuration or an Operator policy only."
                   },
                   "sign_in": {
                     "additionalProperties": false,
@@ -23068,7 +23106,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "address": {
-                    "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
+                    "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only. An Attached engine serves no Console unless the script that starts it asks for one at an address of its own, which `hello` answers with the Console's sign-in link.",
                     "type": "string"
                   },
                   "content_address": {
@@ -23096,6 +23134,17 @@
                   "offline_cache": {
                     "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
                     "type": "boolean"
+                  },
+                  "public_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The address links to the Console name, such as `https://console.example.com`: the links in Notifications and a run's `console_url`. None by default: the Console's own address. A link never carries a token or a cookie, so a forwarded one grants nothing. Set in user configuration or an Operator policy only."
                   },
                   "sign_in": {
                     "additionalProperties": false,

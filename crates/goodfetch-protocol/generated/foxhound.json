@@ -18114,7 +18114,7 @@
       "authority": "machine",
       "clearable": false,
       "default": "127.0.0.1:7700",
-      "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only.",
+      "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only. An Attached engine serves no Console unless the script that starts it asks for one at an address of its own, which `hello` answers with the Console's sign-in link.",
       "name": "console.address",
       "product": "collie",
       "products": [
@@ -18174,6 +18174,23 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "description": "The address links to the Console name, such as `https://console.example.com`: the links in Notifications and a run's `console_url`. None by default: the Console's own address. A link never carries a token or a cookie, so a forwarded one grants nothing. Set in user configuration or an Operator policy only.",
+      "name": "console.public_url",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "string"
       },
       "weakens": false
     },

@@ -41,6 +41,10 @@ pub use wake::{WakeListener, is_gone, listen_wakes, wake};
 /// Daemon, which it asks launchd for.
 pub const LAUNCHD_SOCKETS: &str = "Listeners";
 
+/// The name of the socket a launch agent's `Sockets` defines for the
+/// Console's address, which the Daemon asks launchd for (ADR 0031).
+pub const LAUNCHD_CONSOLE_SOCKET: &str = "Console";
+
 /// How many bytes an in-memory Connection buffers in each direction before
 /// its writer waits.
 const IN_MEMORY_BUFFER: usize = 64 * 1024;
@@ -269,6 +273,63 @@ fn activated_os(
         DaemonListener(Listening::Unix(listener)),
         DaemonEndpoint::Unix(path),
     )))
+}
+
+/// `address` with a port the OS has free now in place of port 0, for a
+/// listener another process opens later, as a service manager listening on
+/// the Console's address for the Daemon it starts (ADR 0031); `address`
+/// itself when it names a port.
+///
+/// # Errors
+///
+/// When the OS refuses to listen on `address`'s host.
+pub fn free_port(address: std::net::SocketAddr) -> io::Result<std::net::SocketAddr> {
+    if address.port() != 0 {
+        return Ok(address);
+    }
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the transport module is the one place that opens sockets (ADR 0060)"
+    )]
+    let probe = std::net::TcpListener::bind(address)?;
+    probe.local_addr()
+}
+
+/// The Console's listener a service manager handed this process, which it
+/// started at the first connection to the Console's address (ADR 0031): the
+/// second socket systemd passes, or launchd's [`LAUNCHD_CONSOLE_SOCKET`];
+/// `None` when it handed over none. Taken once.
+///
+/// # Errors
+///
+/// When the OS refuses the handed-over socket.
+pub fn activated_console(
+    environment: &BTreeMap<OsString, OsString>,
+) -> io::Result<Option<ConsoleListener>> {
+    #[cfg(unix)]
+    {
+        let Some(descriptor) = activation::take_console(environment, LAUNCHD_CONSOLE_SOCKET)?
+        else {
+            return Ok(None);
+        };
+        #[expect(
+            clippy::disallowed_types,
+            reason = "the transport module is the one place that opens sockets (ADR 0060)"
+        )]
+        let listener = std::net::TcpListener::from(descriptor);
+        listener.set_nonblocking(true)?;
+        #[expect(
+            clippy::disallowed_types,
+            reason = "the transport module is the one place that opens sockets (ADR 0060)"
+        )]
+        let listener = tokio::net::TcpListener::from_std(listener)?;
+        Ok(Some(ConsoleListener(listener)))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = environment;
+        Ok(None)
+    }
 }
 
 #[cfg(unix)]

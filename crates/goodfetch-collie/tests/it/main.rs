@@ -31,6 +31,7 @@ mod client_conformance;
 mod commands;
 mod config;
 mod console;
+mod console_life;
 mod content_origin;
 mod daemon;
 mod daemon_commands;

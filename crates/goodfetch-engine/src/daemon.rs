@@ -107,7 +107,8 @@ pub struct Drain {
     pub grace: Duration,
 }
 
-/// A Daemon's Console, as its starter set it up (ADR 0031).
+/// A Daemon's Console, or the one an Attached engine serves for its
+/// script, as its starter set it up (ADR 0031).
 pub enum DaemonConsole {
     /// The Console's listener, bound at `console.address`, and the URL it
     /// is reached at.
@@ -116,6 +117,9 @@ pub enum DaemonConsole {
         listener: ConsoleListener,
         /// Its URL, such as `http://127.0.0.1:7801/`.
         url: String,
+        /// `console.public_url`: the address links to it name instead of
+        /// `url`, when set.
+        public_url: Option<String>,
         /// How long its sign-ins last and how often an address may try.
         sign_in: SignInPolicy,
         /// Its content origin, or none when it did not start.
@@ -635,13 +639,20 @@ fn serve_connection(
                     .await;
                 }
                 Arriving::Console(console) => {
+                    let Some(sign_ins) = side.sign_ins() else {
+                        // Only a Console's server opens one, and it has a driver.
+                        return;
+                    };
                     rpc::serve_console(
                         dispatch,
                         console,
                         &its_owner,
                         runs.clone(),
                         events,
-                        side,
+                        rpc::ConsoleSide {
+                            daemon: Some(side),
+                            sign_ins,
+                        },
                         clock,
                     )
                     .await;

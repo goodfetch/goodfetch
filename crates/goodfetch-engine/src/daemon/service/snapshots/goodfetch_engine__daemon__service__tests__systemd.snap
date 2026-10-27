@@ -8,6 +8,7 @@ Description=Goodfetch's Daemon of major 1, for /Users/ada/Goodfetch é home
 
 [Socket]
 ListenStream=/Users/ada/Goodfetch é home/1/daemon.sock
+ListenStream=127.0.0.1:7801
 SocketMode=0600
 Accept=no
 RemoveOnStop=yes

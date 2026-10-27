@@ -306,6 +306,13 @@ pub struct HelloResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub private_endpoint: Option<PrivateEndpoint>,
+    /// The sign-in link of the Console an Attached engine serves for its
+    /// script, which asked for one with a Console address, reported to the
+    /// Client of its stdio alone: `<url>#token=<token>`, whose fragment the
+    /// page swaps once for its cookie (ADRs 0024 and 0031).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub console_link: Option<String>,
 }
 
 /// Where a Daemon or an Attached engine's private endpoint listens (ADR

@@ -25,10 +25,9 @@
 //! A Run's files are fetched by handle: `GET /bodies/<run_id>/<body>`
 //! answers a signed-in request with the file's bytes, as an attachment no
 //! browser shows on the Console's origin, and `GET /content-address/
-//! <run_id>/<body>?type=<shown>` answers it with the file's address on the
-//! content origin (`content`), signed for that one file and valid 5
-//! minutes, where it is shown in a sandboxed frame. The Console's policy
-//! lets it frame and show images from that origin alone.
+//! <run_id>/<body>?type=<shown>` with the file's address on the content
+//! origin (`content`), signed for that file and valid 5 minutes, shown in
+//! a sandboxed frame; the Console's policy frames that origin alone.
 
 use std::convert::Infallible;
 use std::net::IpAddr;
@@ -60,6 +59,7 @@ use crate::transport::{ConsoleListener, ConsoleStream};
 
 mod content;
 mod event_stream;
+pub mod links;
 mod offline_key;
 
 use content::{Asked, CONTENT_LISTENER, Content};

@@ -316,6 +316,7 @@ fn the_installed_service_is_recorded_until_it_is_forgotten() {
         manager: ServiceManager::Systemd,
         name: "goodfetch-daemon-1-0123abcd".to_owned(),
         socket: Some(env.home().join("1").join("daemon.sock")),
+        console: Some("127.0.0.1:7801".to_owned()),
         executable: env.home().join("copy"),
         files: vec![env.home().join("unit.socket")],
     };

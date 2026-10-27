@@ -47,6 +47,7 @@ pub(crate) enum Case {
     HopsGoThroughTheFrontier,
     RefusedHopsEndSkipped,
     RedirectRetryAfter,
+    HeldPastTheBoundAreRetried,
     RefreshStubs,
 }
 
@@ -87,6 +88,9 @@ impl Case {
             "a-redirects-retry-after-delays-its-next-hop-or-past-the-bound-fails-with-response-unavailable" => {
                 Some(Self::RedirectRetryAfter)
             }
+            "requests-held-past-politeness-retry-after-max-end-failed-and-retry-failed-re-admits-them" => {
+                Some(Self::HeldPastTheBoundAreRetried)
+            }
             "a-refresh-stub-within-fetch-refresh-max-delay-hands-the-handler-its-target" => {
                 Some(Self::RefreshStubs)
             }
@@ -113,6 +117,7 @@ impl Case {
             Self::HopsGoThroughTheFrontier => chain::frontier_hops(connection, site, checks),
             Self::RefusedHopsEndSkipped => chain::refused_hops(connection, site, checks),
             Self::RedirectRetryAfter => chain::redirect_retry_after(connection, site, checks),
+            Self::HeldPastTheBoundAreRetried => edge::held_past_the_bound(connection, site, checks),
             Self::RefreshStubs => chain::refresh_stubs(connection, site, checks),
         }
     }

@@ -10,7 +10,7 @@ from typing import Any, cast
 from goodfetch_collie_client.generated.operations import AsyncCaller, Caller
 
 from goodfetch_collie_client.generated.models import RunParams, RunStarted
-from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
+from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult
 
 
 def _fields(result: object) -> dict[str, Any]:
@@ -150,6 +150,13 @@ class AsyncFoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RejectedRecords.model_construct(**_fields(await self._caller.call("run.rejected_records", params)))
+
+    async def run_retry_failed(self, params: RunRetryFailedParams) -> RetriedFailed:
+        """Re-admits, in the same Run and its Datasets, every request of a crawl whose latest outcome is `failed`, and with `blocked` also `blocked`: exactly those `run.failed_requests` lists with the same option. Each keeps its ID, Label, Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A skip is a decision and is never re-admitted. It answers how many it re-admitted, 0 when there was nothing to retry. On a crawl this engine runs, the requests join its work at once; on an ended Run with requests to retry, the Run returns to `running` under `settings`, as a resume does, its Verdict and Completeness given anew when it ends, and the calling Connection serves its handlers. A Run with no writer that has not ended fails with `run_interrupted`: resume it first.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RetriedFailed.model_construct(**_fields(await self._caller.call("run.retry_failed", params)))
 
     async def run_seeds(self, params: RunSeedsParams) -> RunSeeds:
         """Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds.
@@ -295,6 +302,13 @@ class FoxhoundOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return RejectedRecords.model_construct(**_fields(self._caller.call("run.rejected_records", params)))
+
+    def run_retry_failed(self, params: RunRetryFailedParams) -> RetriedFailed:
+        """Re-admits, in the same Run and its Datasets, every request of a crawl whose latest outcome is `failed`, and with `blocked` also `blocked`: exactly those `run.failed_requests` lists with the same option. Each keeps its ID, Label, Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A skip is a decision and is never re-admitted. It answers how many it re-admitted, 0 when there was nothing to retry. On a crawl this engine runs, the requests join its work at once; on an ended Run with requests to retry, the Run returns to `running` under `settings`, as a resume does, its Verdict and Completeness given anew when it ends, and the calling Connection serves its handlers. A Run with no writer that has not ended fails with `run_interrupted`: resume it first.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return RetriedFailed.model_construct(**_fields(self._caller.call("run.retry_failed", params)))
 
     def run_seeds(self, params: RunSeedsParams) -> RunSeeds:
         """Lists each seed's answer, in the order the crawl's start gave them, as the Frontier answered it when the Run began: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`, since nothing gives it a base. So a crawl that does nothing says why. Read from the Run's committed state, so it works on a Run no program holds.

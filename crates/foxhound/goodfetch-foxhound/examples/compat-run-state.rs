@@ -381,8 +381,8 @@ fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
         let answer = sitemap::admit_seed(connection, &policy, seed, |url| {
             connection.query_row(
                 "INSERT INTO work_items
-                     (id, position, url, method, label, depth, status, attempts, lease_epoch, domain_key, priority)
-                 SELECT CAST(next AS TEXT), next, ?1, 'GET', '', 0, ?2, 1, 1, 'maps.test', 0
+                     (id, position, url, method, label, depth, status, attempts, retried_from, lease_epoch, domain_key, priority)
+                 SELECT CAST(next AS TEXT), next, ?1, 'GET', '', 0, ?2, 1, 0, 1, 'maps.test', 0
                  FROM (SELECT coalesce(max(position), 0) + 1 AS next FROM work_items)
                  RETURNING id",
                 [url.as_str(), status],

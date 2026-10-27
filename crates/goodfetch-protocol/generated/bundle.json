@@ -11167,6 +11167,22 @@
       ],
       "type": "object"
     },
+    "RetriedFailed": {
+      "description": "What `run.retry_failed` answers.",
+      "properties": {
+        "readmitted": {
+          "arrived_in": "0.1",
+          "description": "How many requests it re-admitted: 0 says there was nothing to retry.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "readmitted"
+      ],
+      "type": "object"
+    },
     "RobotsTxtMark": {
       "description": "What a Record's Provenance says of the robots.txt of its page's origin\n(ADR 0086).",
       "oneOf": [
@@ -12751,6 +12767,49 @@
           "additionalProperties": true,
           "arrived_in": "0.1",
           "description": "The Run's settings from the resume on, nested by key: the run layer\n(ADRs 0083 and 0102).",
+          "type": "object"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunRetryFailedParams": {
+      "additionalProperties": false,
+      "description": "What `run.retry_failed` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "blocked": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Also the requests whose latest outcome is `blocked`.",
+          "type": "boolean"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083),\nread as `settings` is."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Run's settings from the retry on, nested by key, as a resume\ntakes them: read only when the retry returns an ended Run to\n`running` (ADRs 0083 and 0102).",
           "type": "object"
         }
       },

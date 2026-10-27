@@ -6,7 +6,11 @@
 //! a reader that stops reading never slows the crawl; its filters run in
 //! the engine. `run.failed_requests` reads the requests whose latest
 //! outcome is `failed` (with `blocked`, also `blocked`): exactly those
-//! `run.retry_failed` re-admits with the same option. Foxhound's own.
+//! `run.retry_failed` re-admits with the same option. `run.retry_failed`
+//! re-admits them in the same Run and its Datasets, each keeping its ID,
+//! Label, Payload and depth with a fresh `crawl.retry.max`, and answers how
+//! many; on an ended Run it returns the Run to `running` first (ADR 0102).
+//! Foxhound's own.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -17,6 +21,7 @@ use crate::catalog::{
     Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Stability, schema_of,
 };
 use crate::run::{PointInTime, RunId};
+use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -302,6 +307,38 @@ pub struct FailedRequests {
     pub requests: Vec<CrawlRequestOutcome>,
 }
 
+/// What `run.retry_failed` takes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunRetryFailedParams {
+    /// The crawl's Run.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// Also the requests whose latest outcome is `blocked`.
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub blocked: bool,
+    /// The Run's settings from the retry on, nested by key, as a resume
+    /// takes them: read only when the retry returns an ended Run to
+    /// `running` (ADRs 0083 and 0102).
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: Map<String, Value>,
+    /// The project configuration the Client found, layer 3 (ADR 0083),
+    /// read as `settings` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub project: Option<ProjectSettings>,
+}
+
+/// What `run.retry_failed` answers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RetriedFailed {
+    /// How many requests it re-admitted: 0 says there was nothing to retry.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub readmitted: u64,
+}
+
 /// `run.outcomes`.
 pub const RUN_OUTCOMES: Operation = Operation {
     name: "run.outcomes",
@@ -334,10 +371,26 @@ pub const RUN_FAILED_REQUESTS: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// `run.retry_failed`.
+pub const RUN_RETRY_FAILED: Operation = Operation {
+    name: "run.retry_failed",
+    description: "Re-admits, in the same Run and its Datasets, every request of a crawl whose latest outcome is `failed`, and with `blocked` also `blocked`: exactly those `run.failed_requests` lists with the same option. Each keeps its ID, Label, Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A skip is a decision and is never re-admitted. It answers how many it re-admitted, 0 when there was nothing to retry. On a crawl this engine runs, the requests join its work at once; on an ended Run with requests to retry, the Run returns to `running` under `settings`, as a resume does, its Verdict and Completeness given anew when it ends, and the calling Connection serves its handlers. A Run with no writer that has not ended fails with `run_interrupted`: resume it first.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<RunRetryFailedParams>,
+    result: schema_of::<RetriedFailed>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[RUN_OUTCOMES, RUN_FAILED_REQUESTS],
+    operations: &[RUN_OUTCOMES, RUN_FAILED_REQUESTS, RUN_RETRY_FAILED],
     events: &[],
     handler_requests: &[],
     error_codes: &[],

@@ -1136,6 +1136,16 @@ class ResponseOrigin(RootModel[ResponseOrigin1 | ResponseOrigin2]):
     """What answered a Record's request in place of the network."""
 
 
+class RetriedFailed(BaseModel):
+    """What `run.retry_failed` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    readmitted: Annotated[int, Field(ge=0)]
+    """How many requests it re-admitted: 0 says there was nothing to retry."""
+
+
 class RobotsTxtMark(StrEnum):
     """
     What a Record's Provenance says of the robots.txt of its page's origin
@@ -1272,6 +1282,30 @@ class RunRejectedRecordsParams(BaseModel):
     """The Dataset whose rejection table to read."""
     run_id: RunId
     """The crawl's Run."""
+
+
+class RunRetryFailedParams(BaseModel):
+    """What `run.retry_failed` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    blocked: bool | None = False
+    """Also the requests whose latest outcome is `blocked`."""
+    project: ProjectSettings | None = None
+    """
+    The project configuration the Client found, layer 3 (ADR 0083),
+    read as `settings` is.
+    """
+    run_id: RunId
+    """The crawl's Run."""
+    settings: dict[str, Any] | None = None
+    """
+    The Run's settings from the retry on, nested by key, as a resume
+    takes them: read only when the retry returns an ended Run to
+    `running` (ADRs 0083 and 0102).
+    """
 
 
 class RunSeedsAdded(BaseModel):

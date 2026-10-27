@@ -500,31 +500,32 @@ CREATE TABLE work_items (
             depth INTEGER NOT NULL,
             status TEXT NOT NULL,
             attempts INTEGER NOT NULL,
+            retried_from INTEGER NOT NULL,
             lease_epoch INTEGER NOT NULL,
             error_code TEXT,
             domain_key TEXT,
             priority INTEGER NOT NULL,
             forefront INTEGER
         ) STRICT;
-INSERT INTO "work_items" VALUES('1',1,'https://shop.test/','GET',NULL,'home',0,'succeeded',1,1,NULL,'shop.test',0,NULL);
-INSERT INTO "work_items" VALUES('2',2,'https://shop.test/broken','GET',NULL,'product',0,'failed',1,1,'deadline_exceeded','shop.test',0,NULL);
-INSERT INTO "work_items" VALUES('3',3,'https://api.test/search','POST',X'7B2270616765223A317D','home',0,'succeeded',1,1,NULL,'api.test',0,NULL);
-INSERT INTO "work_items" VALUES('4',4,'https://guarded.test/','GET',NULL,'guarded',0,'blocked',1,1,NULL,'guarded.test',0,NULL);
-INSERT INTO "work_items" VALUES('5',5,'https://list.test/items?n=1','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('6',6,'https://list.test/items?n=1&ref=a','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('7',7,'https://list.test/items?n=2','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('8',8,'https://list.test/items?n=2&ref=b','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('9',9,'https://list.test/items?n=3','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('10',10,'https://list.test/items?n=3&ref=c','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('11',11,'https://list.test/rows?offset=0','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('12',12,'https://list.test/rows?offset=20','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('13',13,'https://list.test/rows?offset=40','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('14',14,'https://shop.test/pages/1','GET',NULL,'home',0,'succeeded',1,1,NULL,'shop.test',0,NULL);
-INSERT INTO "work_items" VALUES('15',15,'https://list.test/guide','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('16',16,'https://list.test/guide/','GET',NULL,'listed',0,'failed',1,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('17',17,'https://maps.test/sitemap.xml','GET',NULL,'',0,'succeeded',1,1,NULL,'maps.test',0,NULL);
-INSERT INTO "work_items" VALUES('18',18,'https://maps.test/missing.xml','GET',NULL,'',0,'failed',1,1,NULL,'maps.test',0,NULL);
-INSERT INTO "work_items" VALUES('19',19,'https://outlet.test/sale','GET',NULL,'home',1,'succeeded',1,1,NULL,'outlet.test',0,19);
+INSERT INTO "work_items" VALUES('1',1,'https://shop.test/','GET',NULL,'home',0,'succeeded',1,0,1,NULL,'shop.test',0,NULL);
+INSERT INTO "work_items" VALUES('2',2,'https://shop.test/broken','GET',NULL,'product',0,'failed',1,0,1,'deadline_exceeded','shop.test',0,NULL);
+INSERT INTO "work_items" VALUES('3',3,'https://api.test/search','POST',X'7B2270616765223A317D','home',0,'succeeded',1,0,1,NULL,'api.test',0,NULL);
+INSERT INTO "work_items" VALUES('4',4,'https://guarded.test/','GET',NULL,'guarded',0,'blocked',1,0,1,NULL,'guarded.test',0,NULL);
+INSERT INTO "work_items" VALUES('5',5,'https://list.test/items?n=1','GET',NULL,'listed',0,'failed',1,0,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('6',6,'https://list.test/items?n=1&ref=a','GET',NULL,'listed',0,'failed',1,0,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('7',7,'https://list.test/items?n=2','GET',NULL,'listed',0,'failed',1,0,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('8',8,'https://list.test/items?n=2&ref=b','GET',NULL,'listed',0,'failed',1,0,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('9',9,'https://list.test/items?n=3','GET',NULL,'listed',0,'failed',1,0,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('10',10,'https://list.test/items?n=3&ref=c','GET',NULL,'listed',0,'failed',1,0,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('11',11,'https://list.test/rows?offset=0','GET',NULL,'listed',0,'failed',1,0,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('12',12,'https://list.test/rows?offset=20','GET',NULL,'listed',0,'failed',1,0,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('13',13,'https://list.test/rows?offset=40','GET',NULL,'listed',0,'failed',1,0,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('14',14,'https://shop.test/pages/1','GET',NULL,'home',0,'succeeded',1,0,1,NULL,'shop.test',0,NULL);
+INSERT INTO "work_items" VALUES('15',15,'https://list.test/guide','GET',NULL,'listed',0,'failed',1,0,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('16',16,'https://list.test/guide/','GET',NULL,'listed',0,'failed',1,0,1,'deadline_exceeded','list.test',0,NULL);
+INSERT INTO "work_items" VALUES('17',17,'https://maps.test/sitemap.xml','GET',NULL,'',0,'succeeded',1,0,1,NULL,'maps.test',0,NULL);
+INSERT INTO "work_items" VALUES('18',18,'https://maps.test/missing.xml','GET',NULL,'',0,'failed',1,0,1,NULL,'maps.test',0,NULL);
+INSERT INTO "work_items" VALUES('19',19,'https://outlet.test/sale','GET',NULL,'home',1,'succeeded',1,0,1,NULL,'outlet.test',0,19);
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (pool, position)
             WHERE retired_because IS NULL;

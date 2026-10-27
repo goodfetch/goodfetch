@@ -51,6 +51,7 @@ mod provenance;
 mod records;
 mod redundant_requests;
 mod rejections;
+mod retry_failed;
 mod robots_txt;
 mod sample_comparison;
 mod scope;

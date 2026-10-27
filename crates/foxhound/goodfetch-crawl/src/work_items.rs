@@ -61,6 +61,7 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
             depth INTEGER NOT NULL,
             status TEXT NOT NULL,
             attempts INTEGER NOT NULL,
+            retried_from INTEGER NOT NULL,
             lease_epoch INTEGER NOT NULL,
             error_code TEXT,
             domain_key TEXT,
@@ -108,8 +109,13 @@ const BLOCKED: &str = "blocked";
 pub(crate) struct Leased {
     /// The work item as its handler receives it.
     pub(crate) crawl_request: CrawlRequest,
-    /// Which attempt this is, from 1.
+    /// Which attempt this is, from 1: attempts count on across a
+    /// re-admission.
     pub(crate) attempt: u32,
+    /// Which attempt this is since its latest admission, from 1, which
+    /// `crawl.retry.max` bounds: a re-admission gives a fresh budget
+    /// (ADR 0102).
+    pub(crate) tries: u32,
     /// The lease's epoch.
     pub(crate) lease_epoch: u64,
     /// Its domain key and priority, under which it waits again on a retry.
@@ -411,8 +417,8 @@ pub(crate) fn add(
     let position = integer(positions.take(url.as_str()));
     connection.query_row(
         "INSERT INTO work_items
-             (id, position, url, method, body, label, depth, status, attempts, lease_epoch, priority, forefront)
-         VALUES (CAST(?1 AS TEXT), ?1, ?2, ?3, ?4, ?5, ?6, 'pending', 0, 0, ?7, CASE WHEN ?8 THEN ?1 END)
+             (id, position, url, method, body, label, depth, status, attempts, retried_from, lease_epoch, priority, forefront)
+         VALUES (CAST(?1 AS TEXT), ?1, ?2, ?3, ?4, ?5, ?6, 'pending', 0, 0, 0, ?7, CASE WHEN ?8 THEN ?1 END)
          RETURNING id",
         (
             position,
@@ -544,7 +550,7 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
         "UPDATE work_items SET status = 'leased', attempts = attempts + 1, lease_epoch = lease_epoch + 1
          WHERE id = ?1 AND status = 'pending'
          RETURNING id, url, label, attempts, lease_epoch, domain_key, priority, position,
-             forefront IS NOT NULL, method, body",
+             forefront IS NOT NULL, method, body, attempts - retried_from",
     )?;
     let mut leased = Vec::with_capacity(ids.len());
     for id in ids {
@@ -566,6 +572,7 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
                         body: row.get::<_, Option<Vec<u8>>>(10)?.map(HttpBody::new),
                     },
                     attempt: row.get(3)?,
+                    tries: row.get(11)?,
                     lease_epoch: u64::try_from(row.get::<_, i64>(4)?).unwrap_or_default(),
                     waiting: Waiting {
                         id: row.get(0)?,
@@ -927,18 +934,38 @@ pub(crate) fn readmitted(blocked: bool) -> &'static [&'static str] {
     }
 }
 
+/// How many work items [`readmit`] would re-admit with `blocked` now: none
+/// in a run file no crawl wrote.
+pub(crate) fn readmittable(connection: &Connection, blocked: bool) -> rusqlite::Result<u64> {
+    let crawled = connection
+        .query_row(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'work_items'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !crawled {
+        return Ok(0);
+    }
+    let statuses = serde_json::to_string(readmitted(blocked)).expect("invariant: names encode");
+    connection.query_row(
+        "SELECT COUNT(*) FROM work_items WHERE status IN (SELECT value FROM json_each(?1))",
+        [statuses],
+        |row| Ok(u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default()),
+    )
+}
+
 /// Re-admits every work item [`readmitted`] names, which ends again with a
-/// new outcome, and answers their IDs, in order. `run.retry_failed`'s
-/// re-admission, whose operation area 6 adds.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "`run.retry_failed` (#1005) calls it")
-)]
+/// new outcome, and answers their IDs, in order: `run.retry_failed`'s
+/// re-admission. Each keeps its ID, Label, Payload and depth, and its
+/// attempts count on from where they are, with a fresh `crawl.retry.max`
+/// from there (ADR 0102).
 pub(crate) fn readmit(connection: &Connection, blocked: bool) -> rusqlite::Result<Vec<String>> {
     let statuses = serde_json::to_string(readmitted(blocked)).expect("invariant: names encode");
     let mut ids = connection
         .prepare(
-            "UPDATE work_items SET status = 'pending', error_code = NULL
+            "UPDATE work_items SET status = 'pending', error_code = NULL, retried_from = attempts
              WHERE status IN (SELECT value FROM json_each(?1))
              RETURNING id, position",
         )?
@@ -993,7 +1020,7 @@ pub(crate) fn left(connection: &Connection) -> rusqlite::Result<u64> {
 /// Settles every work item still leased when its engine stopped without
 /// settling it, on a resume: its attempt counted, with the Error code
 /// `error_code`, it returns to pending while it has retries left of
-/// `retry_max`, and fails otherwise (ADR 0102).
+/// `retry_max` since its latest admission, and fails otherwise (ADR 0102).
 pub(crate) fn recover_leases(
     connection: &Connection,
     error_code: &str,
@@ -1001,7 +1028,7 @@ pub(crate) fn recover_leases(
 ) -> rusqlite::Result<()> {
     connection.execute(
         "UPDATE work_items SET error_code = ?1,
-             status = CASE WHEN attempts <= ?2 THEN ?3 ELSE ?4 END
+             status = CASE WHEN attempts - retried_from <= ?2 THEN ?3 ELSE ?4 END
          WHERE status = ?5",
         (error_code, i64::from(retry_max), PENDING, FAILED, LEASED),
     )?;

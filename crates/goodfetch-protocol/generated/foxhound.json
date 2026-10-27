@@ -8785,6 +8785,22 @@
       ],
       "type": "object"
     },
+    "RetriedFailed": {
+      "description": "What `run.retry_failed` answers.",
+      "properties": {
+        "readmitted": {
+          "arrived_in": "0.1",
+          "description": "How many requests it re-admitted: 0 says there was nothing to retry.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "readmitted"
+      ],
+      "type": "object"
+    },
     "RobotsTxtMark": {
       "description": "What a Record's Provenance says of the robots.txt of its page's origin\n(ADR 0086).",
       "oneOf": [
@@ -10312,6 +10328,49 @@
           "additionalProperties": true,
           "arrived_in": "0.1",
           "description": "The Run's settings from the resume on, nested by key: the run layer\n(ADRs 0083 and 0102).",
+          "type": "object"
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunRetryFailedParams": {
+      "additionalProperties": false,
+      "description": "What `run.retry_failed` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "blocked": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Also the requests whose latest outcome is `blocked`.",
+          "type": "boolean"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083),\nread as `settings` is."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Run's settings from the retry on, nested by key, as a resume\ntakes them: read only when the retry returns an ended Run to\n`running` (ADRs 0083 and 0102).",
           "type": "object"
         }
       },
@@ -17341,6 +17400,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Re-admits, in the same Run and its Datasets, every request of a crawl whose latest outcome is `failed`, and with `blocked` also `blocked`: exactly those `run.failed_requests` lists with the same option. Each keeps its ID, Label, Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A skip is a decision and is never re-admitted. It answers how many it re-admitted, 0 when there was nothing to retry. On a crawl this engine runs, the requests join its work at once; on an ended Run with requests to retry, the Run returns to `running` under `settings`, as a resume does, its Verdict and Completeness given anew when it ends, and the calling Connection serves its handlers. A Run with no writer that has not ended fails with `run_interrupted`: resume it first.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "run.retry_failed",
+      "params": {
+        "$ref": "#/$defs/RunRetryFailedParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RetriedFailed"
       },
       "stability": "experimental"
     },

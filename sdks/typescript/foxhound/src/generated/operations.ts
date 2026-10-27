@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated";
-import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
 
 /** The params and result of each of Foxhound's operations. */
 export interface FoxhoundOperationTypes {
@@ -24,6 +24,7 @@ export interface FoxhoundOperationTypes {
   "run.outcomes": { params: RunOutcomesParams; result: CrawlRequestOutcomes };
   "run.records": { params: RunRecordsParams; result: RecordsRead };
   "run.rejected_records": { params: RunRejectedRecordsParams; result: RejectedRecords };
+  "run.retry_failed": { params: RunRetryFailedParams; result: RetriedFailed };
   "run.seeds": { params: RunSeedsParams; result: RunSeeds };
   "sample.crawl": { params: SampleCrawlParams; result: SampleCrawlResult };
 }
@@ -196,6 +197,15 @@ export class FoxhoundOperations {
    */
   runRejectedRecords(params: RunRejectedRecordsParams, options: CallOptions = {}): Promise<RejectedRecords> {
     return this.#caller.call("run.rejected_records", params, options);
+  }
+
+  /**
+   * Re-admits, in the same Run and its Datasets, every request of a crawl whose latest outcome is `failed`, and with `blocked` also `blocked`: exactly those `run.failed_requests` lists with the same option. Each keeps its ID, Label, Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A skip is a decision and is never re-admitted. It answers how many it re-admitted, 0 when there was nothing to retry. On a crawl this engine runs, the requests join its work at once; on an ended Run with requests to retry, the Run returns to `running` under `settings`, as a resume does, its Verdict and Completeness given anew when it ends, and the calling Connection serves its handlers. A Run with no writer that has not ended fails with `run_interrupted`: resume it first.
+   *
+   * @experimental
+   */
+  runRetryFailed(params: RunRetryFailedParams): Promise<RetriedFailed> {
+    return this.#caller.call("run.retry_failed", params, {});
   }
 
   /**

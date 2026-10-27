@@ -503,7 +503,7 @@ pub fn run_error(error: RunError, identity: &Identity) -> CallError {
 }
 
 /// The Error code a Run's failure answers with, for a call of `operation`.
-fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -> CallError {
+pub fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -> CallError {
     match error {
         RunError::NotFound(run_id) => CallError::new(
             &RUN_NOT_FOUND,
@@ -942,6 +942,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             checkpoint_interval: checkpoint_interval(settings.resolved()),
             timeout: settings.resolved().duration(TIMEOUT_RUN.name),
             settings: Some(settings.clone()),
+            retry_failed: false,
         })
         .await
         .map_err(|error| run_error_of(error, context.identity(), RUN_RESUME.name))?;

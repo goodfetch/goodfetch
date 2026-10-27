@@ -2404,6 +2404,18 @@ export interface RequestSeed1 {
   url: string;
 }
 /**
+ * What `run.retry_failed` answers.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RetriedFailed".
+ */
+export interface RetriedFailed {
+  /**
+   * How many requests it re-admitted: 0 says there was nothing to retry.
+   */
+  readmitted: number;
+}
+/**
  * What `run.add_seed` takes: one seed for a running crawl.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -2601,6 +2613,35 @@ export interface RunRejectedRecordsParams {
    * The crawl's Run.
    */
   run_id: RunId;
+}
+/**
+ * What `run.retry_failed` takes.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RunRetryFailedParams".
+ */
+export interface RunRetryFailedParams {
+  /**
+   * Also the requests whose latest outcome is `blocked`.
+   */
+  blocked?: boolean;
+  /**
+   * The project configuration the Client found, layer 3 (ADR 0083),
+   * read as `settings` is.
+   */
+  project?: ProjectSettings | null;
+  /**
+   * The crawl's Run.
+   */
+  run_id: RunId;
+  /**
+   * The Run's settings from the retry on, nested by key, as a resume
+   * takes them: read only when the retry returns an ended Run to
+   * `running` (ADRs 0083 and 0102).
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `run.seeds` answers.

@@ -5,10 +5,16 @@
 //! never reaches the handler (pitfall H15); a body its connection's close
 //! delimits reaches it whole; and a request the site never processed is
 //! sent once more on a new connection, counted as no retry and no
-//! Politeness start (pitfall H05). No Response cache or Response recording
+//! Politeness start (pitfall H05); and requests a site's `Retry-After`
+//! past `politeness.retry_after.max` held end `failed` with
+//! `response_unavailable`, which `run.retry_failed` re-admits once the site
+//! is back, in the same Run and Dataset (ADR 0102). No Response cache or Response recording
 //! exists yet, so "never cached" and the `WARC-Truncated` record join these
 //! cases with them (#793, #1291).
 
+use std::time::Duration;
+
+use goodfetch_protocol::catalog::ErrorGroup;
 use serde_json::{Value, json};
 
 use super::{CRAWL_REQUEST_HANDLE, CRAWL_START, Checks, Connection, Gone, Site};
@@ -54,6 +60,18 @@ fn start(
     site: &Site,
     run_id: &str,
     paths: &[&str],
+    settings: Value,
+    checks: &mut Checks,
+) -> Result<Option<Started>, Gone> {
+    start_declaring(connection, site, (run_id, &[]), paths, settings, checks)
+}
+
+/// [`start`], the crawl declaring the Datasets `datasets` beside `run_id`.
+fn start_declaring(
+    connection: &mut Connection,
+    site: &Site,
+    (run_id, datasets): (&str, &[&str]),
+    paths: &[&str],
     mut settings: Value,
     checks: &mut Checks,
 ) -> Result<Option<Started>, Gone> {
@@ -74,10 +92,14 @@ fn start(
         .iter()
         .map(|url| json!({ "url": url, "label": "page" }))
         .collect();
-    let id = connection.request(
-        CRAWL_START,
-        &json!({ "run_id": run_id, "seeds": seeds, "settings": settings }),
-    )?;
+    let mut params = json!({ "run_id": run_id, "seeds": seeds, "settings": settings });
+    if !datasets.is_empty() {
+        params["datasets"] = datasets
+            .iter()
+            .map(|name| json!({ "name": name }))
+            .collect();
+    }
+    let id = connection.request(CRAWL_START, &params)?;
     let answer = connection.answer(id)?;
     checks.check(
         "`crawl.start` starts a new Run",
@@ -312,4 +334,299 @@ pub(super) fn resent(
         gap.is_some_and(|gap| gap < DOMAIN_DELAY_MS * 1_000 / 2),
     );
     Ok(())
+}
+
+/// `run.failed_requests`, Foxhound's.
+const RUN_FAILED_REQUESTS: &str = "run.failed_requests";
+
+/// `run.retry_failed`, Foxhound's.
+const RUN_RETRY_FAILED: &str = "run.retry_failed";
+
+/// `/retry-after/503/seconds` answers 503 asking for 2 s, past the crawl's
+/// `politeness.retry_after.max` of 1 s: its handler, the harness, fails
+/// with `response_unavailable` naming the status and the time asked, as an
+/// SDK's handler does, so it ends `failed`, not retried, and
+/// `/held/after-503`, admitted while the site's time is still ahead, ends
+/// the same way unsent, with `status` null, no handler asked. Once the site
+/// is back, `run.retry_failed` re-admits both in the same Run and answers
+/// 2: each is fetched and handed to the handler under its ID, commits its
+/// one Record in `pages`, and its later `succeeded` outcome follows its
+/// `failed` one, nothing listed failed after and no Record committed twice.
+pub(super) fn held_past_the_bound(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-fetch-edge-held-past-the-bound";
+    let settings = json!({
+        "crawl": { "retry": { "max": 1 }, "handler": { "concurrency": 1 } },
+        "politeness": {
+            "retry_after": { "max": 1_000 },
+            "backoff": { "initial": 500, "max": 1_000 },
+        },
+    });
+    let Some((urls, others)) = start_declaring(
+        connection,
+        site,
+        (run_id, &["pages"]),
+        &["/retry-after/503/seconds", "/held/after-503"],
+        settings.clone(),
+        checks,
+    )?
+    else {
+        return Ok(());
+    };
+    let mut handled = Vec::new();
+    let finished = served(connection, others, RUN_FINISH.name, run_id, &mut handled)?;
+    checks.check(
+        "the Run finishes `incomplete`, its handler asked for the 503 alone",
+        finished["result"]["lifecycle"] == json!("finished")
+            && finished["result"]["completeness"] == json!("incomplete")
+            && handled.len() == 1
+            && handled[0].0 == json!(urls[0]),
+    );
+    let failed = failed_requests(connection, run_id)?;
+    let unavailable = |url: &str, status: &Value| {
+        failed.iter().any(|outcome| {
+            outcome["request"]["url"] == json!(url)
+                && outcome["kind"] == json!("failed")
+                && outcome["error"]["code"] == json!("response_unavailable")
+                && outcome["error"]["details"]["status"] == *status
+                && outcome["error"]["details"]["retry_after"].is_string()
+                && outcome["attempts"] == json!(1)
+        })
+    };
+    checks.check(
+        "the 503 past the bound and the request held meanwhile end `failed` with `response_unavailable`, not retried",
+        failed.len() == 2
+            && unavailable(&urls[0], &json!(503))
+            && unavailable(&urls[1], &Value::Null),
+    );
+    wait_until_back(&failed);
+    let mut settings = settings;
+    settings["fetch"] = json!({ "tier": "http" });
+    let settings = site.mapped(&settings, connection.acts_for_model());
+    let retry = connection.request(
+        RUN_RETRY_FAILED,
+        &json!({ "run_id": run_id, "settings": settings }),
+    )?;
+    let retried = connection.answer(retry)?;
+    checks.check(
+        "`run.retry_failed` re-admits both and answers 2",
+        retried.message["result"] == json!({ "readmitted": 2 }),
+    );
+    handled.clear();
+    let refinished = served(
+        connection,
+        retried.others,
+        RUN_FINISH.name,
+        run_id,
+        &mut handled,
+    )?;
+    checks.check(
+        "the same Run finishes again `complete`, its two Records committed once in `pages`",
+        refinished["result"]["lifecycle"] == json!("finished")
+            && refinished["result"]["completeness"] == json!("complete")
+            && refinished["result"]["records"]
+                == json!([{ "dataset": "pages", "committed": 2, "dropped": 0, "rejected": 0 }]),
+    );
+    let id = connection.request(RUN_OUTCOMES, &json!({ "run_id": run_id }))?;
+    let outcomes = connection.answer(id)?.message;
+    checks.check(
+        "each is handed to its handler under its ID, and its `succeeded` outcome follows its `failed` one",
+        superseded(&outcomes, &urls, &handled),
+    );
+    checks.check(
+        "nothing is listed failed after",
+        failed_requests(connection, run_id)?.is_empty(),
+    );
+    Ok(())
+}
+
+/// Waits until the latest time any of the `failed` outcomes' sites asked
+/// for has passed: the site is back.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the synchronous harness waits on its own thread, outside any async worker, for the site's wall-clock time"
+)]
+fn wait_until_back(failed: &[Value]) {
+    let asked = failed
+        .iter()
+        .filter_map(|outcome| outcome["error"]["details"]["retry_after"].as_str())
+        .filter_map(unix_seconds_of)
+        .max();
+    if let Some(asked) = asked {
+        let back = std::time::UNIX_EPOCH + Duration::from_secs(asked + 1);
+        if let Ok(wait) = back.duration_since(std::time::SystemTime::now()) {
+            std::thread::sleep(wait);
+        }
+    }
+}
+
+/// Whether each of `urls` ended `failed` then `succeeded` in `outcomes`
+/// under one ID, the one its handler was handed in `handled`.
+fn superseded(outcomes: &Value, urls: &[String], handled: &[(Value, Value)]) -> bool {
+    let endings = |url: &str| -> Vec<(Value, Value)> {
+        outcomes["result"]["outcomes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|outcome| outcome["request"]["url"] == json!(url))
+            .map(|outcome| (outcome["kind"].clone(), outcome["request"]["id"].clone()))
+            .collect()
+    };
+    handled.len() == urls.len()
+        && urls.iter().all(|url| {
+            let ended = endings(url);
+            let given = handled
+                .iter()
+                .find(|(handed, _)| handed == &json!(url))
+                .map(|(_, id)| id.clone());
+            ended.len() == 2
+                && ended[0].0 == json!("failed")
+                && ended[1].0 == json!("succeeded")
+                && ended[0].1 == ended[1].1
+                && given.as_ref() == Some(&ended[0].1)
+        })
+}
+
+/// Calls `method` on the Run `run_id` and serves its crawl requests until
+/// it answers, `queued` first: a 503 asking for a time fails its attempt
+/// with `response_unavailable` naming the status and that time, as an
+/// SDK's handler does, and any other page commits one Record of `pages`.
+/// Each request handed is noted in `handled` with its crawl request's ID.
+fn served(
+    connection: &mut Connection,
+    mut queued: Vec<Value>,
+    method: &str,
+    run_id: &str,
+    handled: &mut Vec<(Value, Value)>,
+) -> Result<Value, Gone> {
+    let id = connection.request(method, &json!({ "run_id": run_id }))?;
+    loop {
+        let message = if queued.is_empty() {
+            connection.next_within(crate::protocol::target::DEADLINE * 2)?
+        } else {
+            queued.remove(0)
+        };
+        if message["id"] == json!(id) && message.get("method").is_none() {
+            return Ok(message);
+        }
+        if message["method"] != json!(CRAWL_REQUEST_HANDLE) {
+            continue;
+        }
+        let params = &message["params"];
+        let request = &params["crawl_request"];
+        handled.push((request["url"].clone(), request["id"].clone()));
+        let response = &params["response"];
+        let asked = response["headers"]["date"]
+            .as_str()
+            .and_then(unix_seconds_of_http_date)
+            .zip(
+                response["headers"]["retry-after"]
+                    .as_str()
+                    .and_then(|seconds| seconds.parse::<u64>().ok()),
+            );
+        match asked {
+            Some((date, seconds)) if response["status"] == json!(503) => {
+                connection.fail_with(
+                    &message["id"],
+                    ErrorGroup::Page,
+                    "response_unavailable",
+                    "the site is failing for now",
+                    &json!({ "status": 503, "retry_after": rfc3339(date + seconds) }),
+                )?;
+            }
+            _ => connection.reply(
+                &message["id"],
+                &json!({ "records": [{ "dataset": "pages", "data": { "url": request["url"] } }] }),
+            )?,
+        }
+    }
+}
+
+/// The latest outcome of each request of `run_id` listed failed.
+fn failed_requests(connection: &mut Connection, run_id: &str) -> Result<Vec<Value>, Gone> {
+    let id = connection.request(RUN_FAILED_REQUESTS, &json!({ "run_id": run_id }))?;
+    let answer = connection.answer(id)?.message;
+    Ok(answer["result"]["requests"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// Days since 1970-01-01 of a proleptic Gregorian date (Hinnant's
+/// `days_from_civil`).
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let of_era = year - era * 400;
+    let of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let of_cycle = of_era * 365 + of_era / 4 - of_era / 100 + of_year;
+    era * 146_097 + of_cycle - 719_468
+}
+
+/// The date of `days` since 1970-01-01 (Hinnant's `civil_from_days`).
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let days = days + 719_468;
+    let era = days.div_euclid(146_097);
+    let of_era = days - era * 146_097;
+    let of_cycle = (of_era - of_era / 1_460 + of_era / 36_524 - of_era / 146_096) / 365;
+    let of_year = of_era - (365 * of_cycle + of_cycle / 4 - of_cycle / 100);
+    let shifted = (5 * of_year + 2) / 153;
+    let day = of_year - (153 * shifted + 2) / 5 + 1;
+    let month = if shifted < 10 {
+        shifted + 3
+    } else {
+        shifted - 9
+    };
+    let year = of_cycle + era * 400 + i64::from(month <= 2);
+    (year, month, day)
+}
+
+/// Seconds since the Unix epoch of `year`-`month`-`day` at `time`
+/// (`HH:MM:SS`).
+fn unix_seconds(year: i64, month: i64, day: i64, time: &str) -> Option<u64> {
+    let mut parts = time.split(':').map(|part| part.parse::<i64>().ok());
+    let (hours, minutes, seconds) = (parts.next()??, parts.next()??, parts.next()??);
+    u64::try_from(
+        days_from_civil(year, month, day) * 86_400 + hours * 3_600 + minutes * 60 + seconds,
+    )
+    .ok()
+}
+
+/// Seconds since the Unix epoch of an IMF-fixdate, such as a `Date`
+/// header's `Tue, 27 Oct 2026 00:30:09 GMT` (RFC 9110, §5.6.7).
+fn unix_seconds_of_http_date(date: &str) -> Option<u64> {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let mut fields = date.split_whitespace().skip(1);
+    let day = fields.next()?.parse().ok()?;
+    let month = fields.next()?;
+    let month = MONTHS.iter().position(|name| *name == month)?;
+    let year = fields.next()?.parse().ok()?;
+    unix_seconds(year, i64::try_from(month).ok()? + 1, day, fields.next()?)
+}
+
+/// Seconds since the Unix epoch of an RFC 3339 time in UTC, such as
+/// `2026-10-27T00:30:11Z` or with a fraction of a second, which is cut.
+fn unix_seconds_of(time: &str) -> Option<u64> {
+    let (date, clock) = time.strip_suffix('Z')?.split_once('T')?;
+    let mut date = date.split('-').map(|part| part.parse::<i64>().ok());
+    let (year, month, day) = (date.next()??, date.next()??, date.next()??);
+    unix_seconds(year, month, day, clock.split('.').next()?)
+}
+
+/// `seconds` since the Unix epoch as an RFC 3339 time in UTC.
+fn rfc3339(seconds: u64) -> String {
+    let seconds = i64::try_from(seconds).unwrap_or(i64::MAX);
+    let (year, month, day) = civil_from_days(seconds.div_euclid(86_400));
+    let of_day = seconds.rem_euclid(86_400);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        of_day / 3_600,
+        of_day % 3_600 / 60,
+        of_day % 60
+    )
 }

@@ -3624,6 +3624,16 @@
       ]
     },
     {
+      "id": "operation:run.retry_failed",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:run.seeds",
       "kind": "operation",
       "area": 6,
@@ -19992,6 +20002,26 @@
     },
     {
       "id": "story:6-304",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-306",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-307",
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",

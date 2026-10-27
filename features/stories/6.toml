@@ -1195,6 +1195,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 306
+title = "As a crawl developer, I want `run.retryFailed({ blocked })` to re-admit every request whose latest outcome is `failed` (and `blocked` when asked), each keeping its ID, Label, Payload and depth with a fresh `crawl.retry.max`, and answer how many, so that I retry failures in the same Run and Dataset (ADR 0102; golden scenario 07)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 307
+title = "As a crawl developer, I want requests a `Retry-After` past `politeness.retry_after.max` held ended `failed` with `response_unavailable`, so that `retryFailed` re-admits them once the site is back (ADR 0118)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 309
 title = "As a crawl developer, I want Completeness `incomplete` for a depth, request or path-budget cutoff, a Model allowance skip or a stop, and `unverified` for offset pagination, a learned trap, a URL cap, or pages left at `payment_required` or `consent_required`, each reason named in the report with its count, so that a crawl never reads as complete when it is not (ADRs 0005, 0045, 0048, 0107, 0120; pain 10)."
 milestone = "M1 Core"

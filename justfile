@@ -865,9 +865,10 @@ perf base="":
     ci/perf.sh {{ base }}
 
 # The Console's lab metrics for the Performance series (ADRs 0071 and 0076):
-# Lighthouse 13 against the Console of Collie's `ci`-profile executable, the
-# median of 5 runs, appended to target/perf-series/console-lighthouse.jsonl
-# with the machine it ran on. On the owner's machine, set
+# Lighthouse 13 against each Product's Console, served by its `ci`-profile
+# executable, Collie's then Foxhound's, the median of 5 runs each, appended
+# to target/perf-series/console-lighthouse.jsonl with the Product and the
+# machine it ran on. On the owner's machine, set
 # GOODFETCH_PERF_MACHINE to its label; it times, so no suite runs it.
 console-lighthouse:
     {{ just_executable() }} console-build

@@ -105,6 +105,12 @@ pub struct CrawlRequestEnqueueLinksParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub exclude: Vec<String>,
+    /// At most this many links are added; once they are, each later
+    /// element whose link the Frontier would judge is not added, with
+    /// `link_limit`. None for no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: Option<u64>,
     /// Their priority among the requests of their domain, as
     /// `crawl_request.enqueue`'s; 0 by default.
     #[serde(default)]
@@ -172,7 +178,7 @@ pub const CRAWL_REQUEST_LINKS: Operation = Operation {
 /// `crawl_request.enqueue_links`.
 pub const CRAWL_REQUEST_ENQUEUE_LINKS: Operation = Operation {
     name: "crawl_request.enqueue_links",
-    description: "Adds every link a locator matches on the page a handler's attempt was given, a handler context's `enqueueLinks`, each a `GET` of its `href` resolved against the document's base URL (its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself), its query percent-encoded in the document's encoding as a browser encodes it, and answers each matched element in document order: added, with its crawl request's ID and URL; not added, with its reason, as `crawl_request.enqueue` answers; `no_link` for an element without an `href`; or `skipped_by_payload` for one whose entry in `payloads` is `null`. Every link takes `payload`, or its own entry of `payloads`, the program's Payload function's answers for the elements `crawl_request.links` read; a Payload that does not fit its Label fails the call with `payload_invalid` and adds none. `include` and `exclude` only narrow the crawl's scope; a pattern the engine cannot match fails with `pattern_unsupported`. A page no fetch tier serves fails with `closed`, and an attempt whose lease no longer holds with `attempt_ended`.",
+    description: "Adds every link a locator matches on the page a handler's attempt was given, a handler context's `enqueueLinks`, each a `GET` of its `href` resolved against the document's base URL (its `<base href>`, resolved against the URL the document was reached at after its redirects, or that URL itself), its query percent-encoded in the document's encoding as a browser encodes it, and answers each matched element in document order: added, with its crawl request's ID and URL; not added, with its reason, as `crawl_request.enqueue` answers; `no_link` for an element without an `href`; or `skipped_by_payload` for one whose entry in `payloads` is `null`. Every link takes `payload`, or its own entry of `payloads`, the program's Payload function's answers for the elements `crawl_request.links` read; a Payload that does not fit its Label fails the call with `payload_invalid` and adds none. `limit` adds at most that many links: once they are added, each later element whose link the Frontier would judge is not added, with `link_limit`. `include` and `exclude` only narrow the crawl's scope; a pattern the engine cannot match fails with `pattern_unsupported`. A page no fetch tier serves fails with `closed`, and an attempt whose lease no longer holds with `attempt_ended`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::SdkOnly,

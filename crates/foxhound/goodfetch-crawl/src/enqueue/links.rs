@@ -5,7 +5,8 @@
 //! candidate, resolved against the document's base URL with its query in
 //! the document's encoding, under the call's own `include` and `exclude`,
 //! and answers each element: added, not added with its reason, `no_link`
-//! or `skipped_by_payload`. Every Payload is checked before any link is
+//! or `skipped_by_payload`. Once the call's `limit` links are added, each
+//! later link the Frontier would judge is not added, with `link_limit`. Every Payload is checked before any link is
 //! admitted, so a `payload_invalid` adds none; the links are staged with
 //! the attempt together, and commit or are discarded with it, as one
 //! enqueue is (ADR 0093). On the browser tier, a link a person cannot see
@@ -315,6 +316,7 @@ fn add(
     let keeps_fragment = Fragments::read(connection)?.keeps(&params.label);
     let method = HttpMethod::get();
     let mut answers = Vec::with_capacity(batch.links.len());
+    let mut added: u64 = 0;
     for link in batch.links {
         let answer = match (&link.href, &link.payload) {
             (None, _) => EnqueuedLink::NoLink,
@@ -330,6 +332,14 @@ fn add(
                 }
             }
             (Some(href), Chosen::Skipped) => EnqueuedLink::SkippedByPayload { url: href.clone() },
+            (Some(href), Chosen::Payload(_))
+                if params.limit.is_some_and(|limit| added >= limit) =>
+            {
+                EnqueuedLink::NotAdded {
+                    reason: NotAddedReason::LinkLimit,
+                    url: href.clone(),
+                }
+            }
             (Some(href), Chosen::Payload(payload)) => {
                 let candidate = Candidate::Href {
                     href,
@@ -357,7 +367,10 @@ fn add(
                     )
                 })?;
                 match enqueued {
-                    Enqueued::Added { id, url } => EnqueuedLink::Added { id, url },
+                    Enqueued::Added { id, url } => {
+                        added += 1;
+                        EnqueuedLink::Added { id, url }
+                    }
                     Enqueued::NotAdded { reason, url } => EnqueuedLink::NotAdded { reason, url },
                 }
             }

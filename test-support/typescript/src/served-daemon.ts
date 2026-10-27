@@ -22,7 +22,7 @@ import type { ProcessRecord } from "./process-record.ts";
 import type { Product } from "./product-env.ts";
 import type { ProvingGroundDescription } from "./proving-ground.ts";
 import { sizeCapped, type SizeCapped } from "./size-capped.ts";
-import { readTools, startTestEnv, toolPath } from "./test-env.ts";
+import { readTools, startTestEnv, toolPath, type Tools } from "./test-env.ts";
 
 /** What a Console is served beside. */
 export interface ConsoleStart {
@@ -35,6 +35,22 @@ export interface ConsoleStart {
   readonly oidc: OidcClient;
   /** Runs the Daemon's executable with `args` in the test's home and cleared environment. */
   cli(args: readonly string[]): Promise<CliOutput>;
+  /** The record a process the server starts joins. */
+  readonly processes: ProcessRecord;
+  /** The commit's executables, from the test tool manifest. */
+  readonly tools: Tools;
+  /** The test's cleared environment. */
+  readonly env: Readonly<Record<string, string>>;
+}
+
+/** What a gateway serving the Console gives a test beside its page (ADR 0096). */
+export interface GatewayAccess {
+  /** The token a program signs in with at `POST /sign-in`, swapped for the gateway's cookie. */
+  readonly token: string;
+  /** The content origin's URL. */
+  readonly content: string;
+  /** The folder holding each of its engines' Goodfetch home. */
+  readonly engines: string;
 }
 
 /** A Console being served. */
@@ -47,6 +63,8 @@ export interface ServedConsole {
   readonly singleSignOn: string;
   /** An address that answers 2xx to a signed-in request and 401 otherwise. */
   readonly session: string;
+  /** What the gateway that serves it gives, when a gateway does; the Daemon's own Console has none. */
+  readonly gateway?: GatewayAccess | undefined;
   /** Stops serving. */
   close(): Promise<void>;
 }
@@ -204,6 +222,9 @@ export async function startServedDaemon(start: ServedDaemonStart): Promise<Start
       daemon: description,
       oidc: start.oidc,
       cli: run,
+      processes: start.processes,
+      tools: testEnv.description.tools,
+      env,
     });
   } catch (error) {
     await closeTestEnv();
@@ -225,6 +246,7 @@ export async function startServedDaemon(start: ServedDaemonStart): Promise<Start
       signInLink: () => served.signInLink(),
       singleSignOn: served.singleSignOn,
       session: served.session,
+      gateway: served.gateway,
     },
     close: async () => {
       try {

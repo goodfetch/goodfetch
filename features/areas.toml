@@ -1295,6 +1295,11 @@ prefix = "run.add_seed"
 
 [[area]]
 number = 6
+kind = "operation"
+prefix = "run.retry_failed"
+
+[[area]]
+number = 6
 kind = "error"
 prefix = "attempt_ended"
 

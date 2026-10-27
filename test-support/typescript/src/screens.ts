@@ -4,29 +4,39 @@
 // opens its screen on its own Daemon, run by the executable of the screen's
 // Product (Collie's for a screen both Products carry, Foxhound's for
 // Foxhound's screens, ADR 0094), at the route and in the sign-in state area
-// 12 gives it in `console/screens.toml`, runs `keyboardWalk`, whose stops
+// 12 gives it in `console/screens.toml`, waits for the element the screen
+// shows once it has read what it shows, which that file names too (the
+// Console renders only once its sign-in and offline cache are open, and
+// reads from the engine after that, so a walk started at the page's load
+// event would walk an empty page, or one whose actions are still
+// disabled), runs `keyboardWalk`, whose stops
 // must be the walk recorded there (`keyboard_walk_changed`), and never none
 // (`keyboard_walk_empty`), then `focusChecks`, then `reflow` (no sideways
 // scroll at 320 × 256 CSS pixels) and, since every case prefers reduced
 // motion, `noRunningAnimations` after the walk's actions, and ends with the
 // axe fixture's pass, whose `wcag22aa` tag checks target size.
 //
-// A screen without a route, a sign-in state or a walk fails its case by name
-// with `screen_setup_missing`; it is never skipped. A setup whose screen the
+// A screen without a route, a sign-in state, a walk or a ready element
+// fails its case by name with `screen_setup_missing`; it is never skipped. A setup whose screen the
 // inventory does not list fails by its Feature (`screen_setup_orphaned`),
 // and a Console with routes whose inventory names no screen fails as a case
 // of its own (`screens_missing`), so no screen drops out unseen. The cases declare no Feature:
 // they check how a screen is built, not the outcome its Feature names.
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { TestSupportError } from "./errors.ts";
 import { readScreens, type Screen } from "./features.ts";
 import { focusChecks, keyboardWalk } from "./focus.ts";
 import { test } from "./playwright.ts";
 import { noRunningAnimations } from "./reduced-motion.ts";
 import { reflow } from "./reflow.ts";
-import { readScreenSetups, SCREEN_SETUPS_FILE, type ScreenSetup } from "./screen-setups.ts";
+import {
+  type ReadyElement,
+  readScreenSetups,
+  SCREEN_SETUPS_FILE,
+  type ScreenSetup,
+} from "./screen-setups.ts";
 
 export {
   type ReadyElement,
@@ -73,6 +83,21 @@ export function testEachScreen(root: string): void {
   }
 }
 
+/** A ready element as its setup writes it. */
+function describeReady(ready: ReadyElement): string {
+  return "text" in ready ? `text ${ready.text}` : `${ready.role} ${ready.name}`;
+}
+
+/** Where `page` shows `ready`: by its role and accessible name, or by its whole text. */
+function readyLocator(page: Page, ready: ReadyElement): Locator {
+  if ("text" in ready) {
+    return page.getByText(ready.text, { exact: true });
+  }
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the setup names an ARIA role; a misspelt one finds nothing, and the wait fails naming it.
+  const role = ready.role as Parameters<Page["getByRole"]>[0];
+  return page.getByRole(role, { name: ready.name, exact: true });
+}
+
 /** The route lists the Console's packages commit, `console/<package>/routes.json`, from which `screen:` Features come. */
 function consoleRouteLists(root: string): string[] {
   const folder = join(root, "console");
@@ -89,11 +114,18 @@ function caseOf(screen: Screen, setup: ScreenSetup | undefined): void {
   const route = setup?.route;
   const signInState = setup?.signIn;
   const walk = setup?.walk;
-  if (route === undefined || signInState === undefined || walk === undefined) {
+  const ready = setup?.ready;
+  if (
+    route === undefined ||
+    signInState === undefined ||
+    walk === undefined ||
+    ready === undefined
+  ) {
     const missing = [
       ...(route === undefined ? ["no route"] : []),
       ...(signInState === undefined ? ["no sign-in state"] : []),
       ...(walk === undefined ? ["no keyboard walk"] : []),
+      ...(ready === undefined ? ["no ready element"] : []),
     ];
     const listed =
       missing.length === 1
@@ -102,7 +134,7 @@ function caseOf(screen: Screen, setup: ScreenSetup | undefined): void {
     test(screen.feature, () => {
       throw new TestSupportError(
         "screen_setup_missing",
-        `${screen.feature} has ${listed} in ${SCREEN_SETUPS_FILE}, where area 12 gives each screen all three`,
+        `${screen.feature} has ${listed} in ${SCREEN_SETUPS_FILE}, where area 12 gives each screen all four`,
       );
     });
     return;
@@ -119,17 +151,8 @@ function caseOf(screen: Screen, setup: ScreenSetup | undefined): void {
         `${screen.feature}'s route ${route} answered ${answer} on ${daemon.product}'s executable, ${signInState}`,
       );
     }
-    const ready = setup?.ready;
-    if (ready !== undefined) {
-      await test.step(`ready: ${ready.role} ${ready.name}`, () =>
-        page
-          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the setup names an ARIA role; a misspelt one finds nothing, and the wait fails naming it.
-          .getByRole(ready.role as Parameters<Page["getByRole"]>[0], {
-            name: ready.name,
-            exact: true,
-          })
-          .waitFor({ state: "visible" }));
-    }
+    await test.step(`ready: ${describeReady(ready)}`, () =>
+      readyLocator(page, ready).waitFor({ state: "visible" }));
     const stops = await test.step("keyboardWalk", () => keyboardWalk(page));
     await testInfo.attach("keyboard-walk", {
       body: JSON.stringify(stops, null, 2),

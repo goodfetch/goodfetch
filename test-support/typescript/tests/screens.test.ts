@@ -135,6 +135,9 @@ function arrayOf(value: unknown, key: string): unknown[] {
 const CLEAN_WALK =
   'walk = ["link Docs", "button Actions", "button Settings", "textbox Email", "button Save"]';
 
+/** An element the `keyboard-clean` fixture page shows from the start, as its ready element. */
+const CLEAN_READY = 'ready = "button Save"';
+
 describe("testEachScreen", () => {
   test("gives two screens two named cases, each on its Product's executable in its sign-in state", async ({
     processes,
@@ -143,7 +146,7 @@ describe("testEachScreen", () => {
       {
         feature: "screen:/runs",
         products: ["collie", "foxhound"],
-        setup: `route = "/runs"\nsign_in = "signed-in"\n${CLEAN_WALK}`,
+        setup: `route = "/runs"\nsign_in = "signed-in"\n${CLEAN_WALK}\n${CLEAN_READY}`,
         served: {
           route: "/runs",
           screen: { page: "keyboard-clean", product: "collie", signedIn: true },
@@ -152,7 +155,7 @@ describe("testEachScreen", () => {
       {
         feature: "screen:/crawls/$crawl",
         products: ["foxhound"],
-        setup: `route = "/crawls/c-1"\nsign_in = "signed-out"\n${CLEAN_WALK}`,
+        setup: `route = "/crawls/c-1"\nsign_in = "signed-out"\n${CLEAN_WALK}\n${CLEAN_READY}`,
         served: {
           route: "/crawls/c-1",
           screen: { page: "keyboard-clean", product: "foxhound", signedIn: false },
@@ -173,7 +176,7 @@ describe("testEachScreen", () => {
       {
         feature: "screen:/trap",
         products: ["collie", "foxhound"],
-        setup: `route = "/trap"\nsign_in = "signed-out"\n${CLEAN_WALK}`,
+        setup: `route = "/trap"\nsign_in = "signed-out"\n${CLEAN_WALK}\nready = "button First"`,
         served: {
           route: "/trap",
           screen: { page: "keyboard-trap", product: "collie", signedIn: false },
@@ -182,7 +185,8 @@ describe("testEachScreen", () => {
       {
         feature: "screen:/inaccessible",
         products: ["collie", "foxhound"],
-        setup: 'route = "/inaccessible"\nsign_in = "signed-out"\nwalk = ["link Top"]',
+        setup:
+          'route = "/inaccessible"\nsign_in = "signed-out"\nwalk = ["link Top"]\nready = "link Top"',
         served: {
           route: "/inaccessible",
           screen: { page: "inaccessible", product: "collie", signedIn: false },
@@ -191,13 +195,19 @@ describe("testEachScreen", () => {
       {
         feature: "screen:/no-route",
         products: ["collie", "foxhound"],
-        setup: `sign_in = "signed-in"\n${CLEAN_WALK}`,
+        setup: `sign_in = "signed-in"\n${CLEAN_WALK}\n${CLEAN_READY}`,
         served: undefined,
       },
       {
         feature: "screen:/no-sign-in",
         products: ["collie", "foxhound"],
-        setup: `route = "/no-sign-in"\n${CLEAN_WALK}`,
+        setup: `route = "/no-sign-in"\n${CLEAN_WALK}\n${CLEAN_READY}`,
+        served: undefined,
+      },
+      {
+        feature: "screen:/no-ready",
+        products: ["collie", "foxhound"],
+        setup: `route = "/no-ready"\nsign_in = "signed-in"\n${CLEAN_WALK}`,
         served: undefined,
       },
       {
@@ -211,6 +221,7 @@ describe("testEachScreen", () => {
     expect(cases.map(({ title, status }) => ({ title, status }))).toEqual([
       { title: "screen:/inaccessible", status: "failed" },
       { title: "screen:/no-entry", status: "failed" },
+      { title: "screen:/no-ready", status: "failed" },
       { title: "screen:/no-route", status: "failed" },
       { title: "screen:/no-sign-in", status: "failed" },
       { title: "screen:/trap", status: "failed" },
@@ -222,7 +233,8 @@ describe("testEachScreen", () => {
     for (const [screen, missing] of [
       ["screen:/no-route", "no route"],
       ["screen:/no-sign-in", "no sign-in state"],
-      ["screen:/no-entry", "no route, no sign-in state and no keyboard walk"],
+      ["screen:/no-ready", "no ready element"],
+      ["screen:/no-entry", "no route, no sign-in state, no keyboard walk and no ready element"],
     ] as const) {
       expect(errors[screen]).toContain("(screen_setup_missing)");
       expect(errors[screen]).toContain(`${screen} has ${missing}`);
@@ -237,7 +249,7 @@ describe("testEachScreen", () => {
         feature: "screen:/moved",
         products: ["collie", "foxhound"],
         setup:
-          'route = "/moved"\nsign_in = "signed-out"\nwalk = ["button Actions", "link Docs", "button Settings", "textbox Email", "button Save"]',
+          'route = "/moved"\nsign_in = "signed-out"\nwalk = ["button Actions", "link Docs", "button Settings", "textbox Email", "button Save"]\nready = "button Save"',
         served: {
           route: "/moved",
           screen: { page: "keyboard-clean", product: "collie", signedIn: false },
@@ -246,7 +258,7 @@ describe("testEachScreen", () => {
       {
         feature: "screen:/empty",
         products: ["collie", "foxhound"],
-        setup: 'route = "/empty"\nsign_in = "signed-out"\nwalk = []',
+        setup: 'route = "/empty"\nsign_in = "signed-out"\nwalk = []\nready = "heading Accessible"',
         served: {
           route: "/empty",
           screen: { page: "accessible", product: "collie", signedIn: false },
@@ -266,7 +278,7 @@ describe("testEachScreen", () => {
   test("fails the case of a screen that scrolls sideways at 320 CSS pixels, or keeps an animation running under reduced motion", async ({
     processes,
   }) => {
-    const walk = 'walk = ["button Refresh"]';
+    const walk = 'walk = ["button Refresh"]\nready = "button Refresh"';
     const cases = await runScreens(processes, [
       {
         feature: "screen:/wide",
@@ -297,7 +309,7 @@ describe("testEachScreen", () => {
     expect(errors["screen:/spinning"]).toContain("(animations_running)");
   });
 
-  test("walks a screen once it shows the element its setup names as ready", async ({
+  test("walks a screen once it shows the element its setup names as ready, by its role and name or by its text", async ({
     processes,
   }) => {
     const cases = await runScreens(processes, [
@@ -311,9 +323,22 @@ describe("testEachScreen", () => {
           screen: { page: "screen-late", product: "collie", signedIn: false },
         },
       },
+      {
+        feature: "screen:/late-text",
+        products: ["collie", "foxhound"],
+        setup:
+          'route = "/late-text"\nsign_in = "signed-out"\nready = "text Late"\nwalk = ["button Early", "button Late"]',
+        served: {
+          route: "/late-text",
+          screen: { page: "screen-late", product: "collie", signedIn: false },
+        },
+      },
     ]);
 
-    expect(cases).toEqual([{ title: "screen:/late", status: "passed", error: "" }]);
+    expect(cases).toEqual([
+      { title: "screen:/late", status: "passed", error: "" },
+      { title: "screen:/late-text", status: "passed", error: "" },
+    ]);
   });
 
   test("fails by name a setup whose screen the inventory does not list", async ({ processes }) => {

@@ -17,7 +17,9 @@ use goodfetch_protocol::result_document::{
     CapabilityResult, CaseOutcome, ConformanceDocument, LoadedDocument, Outcome, ResultDocument,
     TargetIdentity, read,
 };
-use goodfetch_test_support::{ATTACHED_RECORD, ATTACHED_SCRIPT, TestEnv, Tool, tools};
+use goodfetch_test_support::{
+    ATTACHED_RECORD, ATTACHED_SCRIPT, TestEnv, Tool, browser_cache_in_home, tools,
+};
 use serde_json::{Value, json};
 
 use crate::proving_ground::LocalCopy;
@@ -480,7 +482,11 @@ enum Layout {
 /// discarded Run's planted Secret canaries, a token, a password and the
 /// Session cookie a login set, are found nowhere in the Goodfetch home, and
 /// a later Run under its Run ID finds none of its state and is sent none of
-/// its cookies.
+/// its cookies. The cookie case's browser runs from the pinned build laid
+/// out in the home's own Browser cache, which the search takes in as a
+/// person's home holds it; `egress.offline` refuses a download of it, so a
+/// missing build fails at once rather than fetching some 150 MB within the
+/// harness's wait for `run.new_page` (fix-queue 124).
 ///
 /// Covers: story:3-39, operation:run.discard
 #[rstest::rstest]
@@ -492,9 +498,12 @@ fn the_reset_gate_is_proved_against_collie_in_either_layout(
     #[case] layout: Layout,
 ) {
     let env = TestEnv::new();
+    browser_cache_in_home(&env).unwrap();
+    let mut settings = String::from("egress.offline = true\n");
     if let Layout::PerInstall = layout {
-        env.user_configuration("run_state.layout = \"per_install\"\n");
+        settings.push_str("run_state.layout = \"per_install\"\n");
     }
+    env.user_configuration(&settings);
     let copy = LocalCopy::start(&env, env.seed());
     let proving_ground = ProvingGround::local(copy.address());
     let target = target(&env, Tool::Collie, mode);

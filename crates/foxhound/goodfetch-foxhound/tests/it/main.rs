@@ -33,6 +33,7 @@ mod datasets;
 mod decoding;
 mod discovered_api;
 mod enqueue_links;
+mod escalation;
 mod export_formats;
 mod exports;
 mod extra_loopback;

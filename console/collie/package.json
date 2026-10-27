@@ -14,6 +14,7 @@
     "./client": "./src/client/client.ts",
     "./client/browser": "./src/client/browser.ts",
     "./generated/operations": "./src/generated/operations.ts",
+    "./generated/foxhound": "./src/generated/foxhound.ts",
     "./error-message": "./src/errors/error-message.tsx",
     "./form": "./src/form.tsx",
     "./format": "./src/format.ts",

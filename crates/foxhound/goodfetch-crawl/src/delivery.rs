@@ -987,6 +987,9 @@ async fn settled(
         run.clock().now(),
         run.clock().wall(),
     );
+    if attempt.moved {
+        pool.moved_to_browser(&waiting.key);
+    }
     pool.settle(
         &attempt.session,
         &waiting.key,

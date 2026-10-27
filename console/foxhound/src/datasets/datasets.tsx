@@ -196,7 +196,9 @@ export function RecordsControls({
     };
     const sortField = text("sort");
     const containsField = text("filter-field");
-    const contains = text("contains");
+    // Not `contains`: a control named after a form's method hides it
+    // (`form.contains`), which breaks every text search of the page above it.
+    const contains = text("contains-text");
     const wall = text("wall");
     const columns = form.getAll("column").filter((value) => typeof value === "string");
     onApply({
@@ -266,7 +268,7 @@ export function RecordsControls({
         <Trans>Contains</Trans>
         <input
           id={`${id}-contains`}
-          name="contains"
+          name="contains-text"
           type="text"
           dir="auto"
           defaultValue={query.contains?.text ?? ""}

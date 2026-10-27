@@ -6,8 +6,9 @@
 //! own Error code, never `navigation_failed`; two Sessions of one Run reach
 //! the site each through its own proxy; a proxy on a page or a request is
 //! refused; `proxy.server`'s URL takes neither `socks4` nor credentials;
-//! and a Client acting for a model sets no proxy, on a Run, a Session or
-//! the project configuration it sends.
+//! a SOCKS5 proxy's credentials reach it through the Session's loopback
+//! relay; and a Client acting for a model sets no proxy, on a Run, a
+//! Session or the project configuration it sends.
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
@@ -20,6 +21,7 @@ use goodfetch_protocol::settings::{SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_
 use serde_json::{Value, json};
 
 use super::{Checks, Site, finish_run, new_page, refused_as, start_run};
+use crate::protocol::PROXY_PASSWORD_VARIABLE;
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::hello_as;
 use crate::protocol::target::EngineTarget;
@@ -31,6 +33,7 @@ pub(crate) enum Case {
     OwnProxies,
     NonePerPage,
     ServerUrl,
+    Socks5Relay,
     NoneByAModel,
 }
 
@@ -42,6 +45,7 @@ impl Case {
             "two-sessions-of-a-run-reach-the-site-each-through-its-own-proxy" => Self::OwnProxies,
             "a-proxy-per-page-or-per-request-is-refused" => Self::NonePerPage,
             "socks4-and-credentials-in-the-proxy-url-are-setting-invalid" => Self::ServerUrl,
+            "the-socks5-proxy-credentials-reach-it-through-the-sessions-relay" => Self::Socks5Relay,
             "a-client-acting-for-a-model-sets-no-proxy" => Self::NoneByAModel,
             _ => return None,
         })
@@ -60,6 +64,7 @@ impl Case {
             Self::OwnProxies => own_proxies(connection, site, checks),
             Self::NonePerPage => none_per_page(connection, site, checks),
             Self::ServerUrl => server_url(connection, site, checks),
+            Self::Socks5Relay => socks5_relay(connection, site, checks),
             Self::NoneByAModel => none_by_a_model(connection, target, site, checks),
         }
     }
@@ -165,6 +170,70 @@ fn relays(site: &Site) -> Vec<(Value, String)> {
             Some((relay["proxy"].clone(), mark))
         })
         .collect()
+}
+
+/// A Session whose `proxy.server` is the Proving ground's `socks5` proxy,
+/// with its username and the password the harness gave the target, loads
+/// a page: Chromium gives a SOCKS5 proxy no credentials, so they reach it
+/// through the Session's loopback relay, which the proxy's record shows
+/// relaying with the Session's username (ADR 0037 / SA-22).
+fn socks5_relay(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+    let address = site.proxy("socks5");
+    let credentials = site.proxy_credentials();
+    checks.check(
+        "the Proving ground serves its `socks5` proxy and the credentials it takes",
+        address.is_some() && credentials.is_some(),
+    );
+    let (Some(address), Some(credentials)) = (address, credentials) else {
+        return Ok(());
+    };
+    let run_id = "conformance-proxy-socks5-relay";
+    start_run(
+        connection,
+        site,
+        run_id,
+        &json!({ "proxy": {
+            "server": format!("socks5://{address}"),
+            "username": credentials.username,
+            "password": format!("env:{PROXY_PASSWORD_VARIABLE}"),
+        } }),
+        checks,
+    )?;
+    let page = new_page(connection, run_id, checks)?;
+    let url = site
+        .named_url("scope.test", "/storage?mark=socks5-relay")
+        .unwrap_or_default();
+    let status = match page {
+        Some(page) => call(
+            connection,
+            PAGE_GOTO.name,
+            &json!({ "page_id": page.page_id, "url": url }),
+        )?["result"]["response"]["status"]
+            .clone(),
+        None => Value::Null,
+    };
+    finish_run(connection, run_id)?;
+    checks.check(
+        "a page loads through the SOCKS5 proxy with credentials",
+        status == json!(200),
+    );
+    let relayed = site
+        .proving_ground
+        .observations()
+        .ok()
+        .and_then(|observations| observations["relays"].as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .any(|relay| {
+            relay["proxy"] == json!("socks5")
+                && relay["username"] == json!(credentials.username)
+                && relay["outcome"] == json!("relayed")
+        });
+    checks.check(
+        "the SOCKS5 proxy relayed the Session's connection under its username",
+        relayed,
+    );
+    Ok(())
 }
 
 /// The Run's default Session through `open` and a Session of its own

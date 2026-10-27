@@ -66,6 +66,19 @@ pub struct NetworkFixtures {
     /// Each forward proxy's address (`host:port`), by name: `open`,
     /// `refusing_tunnels`, `down`, `socks5` and one per proxy kind.
     pub proxies: std::collections::BTreeMap<String, String>,
+    /// The credentials its proxies that ask for them take, when it serves
+    /// any.
+    #[serde(default)]
+    pub proxy_credentials: Option<ProxyCredentials>,
+}
+
+/// The username and password a local copy's proxies take.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct ProxyCredentials {
+    /// The username.
+    pub username: String,
+    /// The password.
+    pub password: String,
 }
 
 /// A Secret canary the Proving ground planted (ADR 0067): its value, the

@@ -1,6 +1,6 @@
 //! Fixture listeners for the endpoint runner's tests: a JSON-RPC stream
-//! listener, a WebSocket listener, an HTTP ops listener and a signed-address
-//! listener, each strict (it refuses every row as
+//! listener, a WebSocket listener, an HTTP ops listener, a signed-address
+//! listener and an HTTP proxy, each strict (it refuses every row as
 //! the table says and records each refusal in its own Audit log, a channel),
 //! permissive (it accepts everything) or refusing everything.
 
@@ -376,4 +376,59 @@ fn serve_signed(
         body.len()
     );
     let _ = reader.get_mut().write_all(response.as_bytes());
+}
+
+/// The username of a fixture HTTP proxy's credentials, whose password is
+/// [`TOKEN`].
+pub(super) const PROXY_USERNAME: &str = "goodfetch";
+
+/// Starts an HTTP proxy on loopback TCP, which tunnels only for the
+/// credentials of [`PROXY_USERNAME`] and [`TOKEN`] and asks a client
+/// without credentials for them.
+pub(super) fn http_proxy(behaviour: Behaviour) -> (SocketAddr, AuditLog) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (sender, log) = mpsc::channel();
+    std::thread::spawn(move || {
+        for connection in listener.incoming() {
+            serve_proxy(connection.unwrap(), behaviour, &sender);
+        }
+    });
+    (address, AuditLog(log))
+}
+
+fn serve_proxy(stream: TcpStream, behaviour: Behaviour, audit: &Sender<Reason>) {
+    let mut reader = BufReader::new(stream);
+    let mut authorization = None;
+    let mut line = String::new();
+    while reader.read_line(&mut line).unwrap_or(0) > 0 && line != "\r\n" {
+        if let Some((name, value)) = line.trim_end().split_once(':')
+            && name.eq_ignore_ascii_case("proxy-authorization")
+        {
+            authorization = Some(value.trim().to_owned());
+        }
+        line.clear();
+    }
+    let valid = format!(
+        "Basic {}",
+        data_encoding::BASE64.encode(format!("{PROXY_USERNAME}:{TOKEN}").as_bytes())
+    );
+    let tunnels = match behaviour {
+        Behaviour::Permissive => true,
+        Behaviour::RefuseAll => false,
+        Behaviour::Strict => match authorization {
+            Some(given) if given == valid => true,
+            Some(_) => {
+                audit.send(Reason::TokenRefused).unwrap();
+                false
+            }
+            None => false,
+        },
+    };
+    let answer: &[u8] = if tunnels {
+        b"HTTP/1.1 200 Connection Established\r\n\r\n"
+    } else {
+        b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"fixture\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    };
+    let _ = reader.get_mut().write_all(answer);
 }

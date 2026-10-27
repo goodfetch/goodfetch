@@ -606,12 +606,18 @@ fn leaks_of(
 /// Covers: story:5-88, setting:proxy.server, setting:proxy.username, setting:proxy.password
 #[cfg(unix)]
 #[rstest]
-#[case::socks5("socks5", false)]
-#[case::socks5h("socks5h", false)]
-#[case::socks5h_named_by_network_resolve("socks5h", true)]
+#[case::socks5("socks5", false, true)]
+#[case::socks5h("socks5h", false, true)]
+#[case::socks5h_named_by_network_resolve("socks5h", true, true)]
+/// The browser itself is the relay's client, given its credentials at
+/// `Fetch.authRequired`, with no egress relay in front of it.
+///
+/// Covers: setting:security.raw_cdp_egress_proxy
+#[case::socks5_with_the_egress_relay_off("socks5", false, false)]
 fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_relay_alone(
     #[case] scheme: &str,
     #[case] named: bool,
+    #[case] egress_relay: bool,
 ) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
@@ -647,13 +653,23 @@ fn the_credentials_of_a_socks5_proxy_reach_it_through_the_sessions_loopback_rela
             .unwrap();
         proxy["server"] = json!(format!("{scheme}://{name}:{port}"));
     }
-    let mut engine = started_through(
+    let mut settings = serde_json::Map::new();
+    settings.insert("proxy".to_owned(), proxy);
+    if !egress_relay {
+        settings.insert(
+            "security".to_owned(),
+            json!({ "raw_cdp_egress_proxy": false }),
+        );
+    }
+    let mut engine = crate::page::started_with(
         &env,
         &cache,
         &proving_ground,
         "relayed",
-        proxy,
-        &credentials.password,
+        &settings,
+        |command| {
+            command.env(PASSWORD_VARIABLE, &credentials.password);
+        },
     );
 
     let page = opened(&call(

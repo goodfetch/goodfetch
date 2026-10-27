@@ -180,7 +180,7 @@ struct Told {
     terminated: Mutex<Vec<(String, Option<ExceptionUsed>)>>,
     stopped: Mutex<Vec<(String, Stop)>>,
     met: Mutex<Vec<Met>>,
-    unauthenticated: Mutex<usize>,
+    unauthenticated: Mutex<Vec<bool>>,
     unreached: Mutex<Vec<(String, Unreached)>>,
     client_hellos: Mutex<Vec<(String, ClientHello)>>,
 }
@@ -206,8 +206,8 @@ impl Observe for Told {
         self.met.lock().unwrap().push(met);
     }
 
-    fn unauthenticated(&self) {
-        *self.unauthenticated.lock().unwrap() += 1;
+    fn unauthenticated(&self, given: bool) {
+        self.unauthenticated.lock().unwrap().push(given);
     }
 
     fn terminated(&self, host: &str, used: Option<&ExceptionUsed>) {
@@ -316,7 +316,9 @@ fn a_client_without_the_sessions_credentials_gets_a_407_and_no_relayed_byte(
         )
     );
     assert!(refused.contains("Proxy-Authenticate: Basic"), "{refused}");
-    assert_eq!(*told.unauthenticated.lock().unwrap(), 1);
+    // Only wrong credentials are a refusal: every client's first request
+    // carries none until the relay asks.
+    assert_eq!(*told.unauthenticated.lock().unwrap(), vec![given.is_some()]);
     assert!(opened.ends_with("ok"), "{opened}");
     assert!(matches!(relayed, Served::Relayed { .. }), "{relayed:?}");
     assert_eq!(

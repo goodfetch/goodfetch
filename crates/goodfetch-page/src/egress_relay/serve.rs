@@ -121,8 +121,8 @@ pub(crate) trait Observe: Sync {
     fn refused(&self, refused: &Refused, method: &str);
     /// A connection met the upstream proxy as `met`.
     fn upstream(&self, met: Met);
-    /// A client gave no credentials, or wrong ones.
-    fn unauthenticated(&self);
+    /// A client gave no credentials, or wrong ones when `given`.
+    fn unauthenticated(&self, given: bool);
     /// The relay terminated a connection to `host` and relayed it, through
     /// `used` when an exception let it pass (ADR 0042).
     fn terminated(&self, host: &str, used: Option<&ExceptionUsed>);
@@ -205,7 +205,7 @@ where
     };
     let given = head.authorization.as_deref().unwrap_or_default();
     if !same_token(given, &relaying.authorization) {
-        observe.unauthenticated();
+        observe.unauthenticated(head.authorization.is_some());
         let _ = browser.write_all(AUTHENTICATE).await;
         return Served::Unauthenticated;
     }
@@ -497,7 +497,31 @@ async fn socks5_connect(
     if chosen != [VERSION, 0] {
         return Err(io::ErrorKind::PermissionDenied.into());
     }
-    let mut request = vec![VERSION, 1, 0];
+    proxy.write_all(&socks5_request(host, port)?).await?;
+    let mut reply = [0; 4];
+    proxy.read_exact(&mut reply).await?;
+    if reply[0] != VERSION || reply[1] != 0 {
+        return Err(io::ErrorKind::ConnectionRefused.into());
+    }
+    let address = match reply[3] {
+        1 => 4,
+        4 => 16,
+        3 => usize::from(proxy.read_u8().await?),
+        _ => return Err(io::ErrorKind::InvalidData.into()),
+    };
+    let mut bound = vec![0; address + 2];
+    proxy.read_exact(&mut bound).await?;
+    Ok(())
+}
+
+/// A SOCKS5 `CONNECT` request to `host`, an address or a name, on `port`
+/// (RFC 1928, section 4).
+///
+/// # Errors
+///
+/// `InvalidInput` for a name longer than SOCKS5 carries.
+pub(crate) fn socks5_request(host: &str, port: u16) -> io::Result<Vec<u8>> {
+    let mut request = vec![5, 1, 0];
     match host.parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V4(address)) => {
             request.push(1);
@@ -514,21 +538,7 @@ async fn socks5_connect(
         }
     }
     request.extend_from_slice(&port.to_be_bytes());
-    proxy.write_all(&request).await?;
-    let mut reply = [0; 4];
-    proxy.read_exact(&mut reply).await?;
-    if reply[0] != VERSION || reply[1] != 0 {
-        return Err(io::ErrorKind::ConnectionRefused.into());
-    }
-    let address = match reply[3] {
-        1 => 4,
-        4 => 16,
-        3 => usize::from(proxy.read_u8().await?),
-        _ => return Err(io::ErrorKind::InvalidData.into()),
-    };
-    let mut bound = vec![0; address + 2];
-    proxy.read_exact(&mut bound).await?;
-    Ok(())
+    Ok(request)
 }
 
 /// Passes the bytes of `head`'s connection both ways, `rest` first, as they

@@ -6,7 +6,8 @@
 //! request never has one of its own. An HTTP or HTTPS proxy's credentials
 //! answer the browser's `Fetch.authRequired`; a SOCKS5 proxy's, which
 //! Chromium cannot give, go through the loopback [`relay`] the Session
-//! opens. [`party`] tells the proxy's own failures from the site's, and
+//! opens, an HTTP proxy of its own whose per-Session credentials answer it
+//! instead. [`party`] tells the proxy's own failures from the site's, and
 //! [`limits`] holds each navigation through the proxy to its limits, shared
 //! by every run of the user (ADRs 0053 and 0088).
 //!
@@ -38,9 +39,10 @@ use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::page::proxy::{
     CountryCode, PROXY_AUTH_FAILED, PROXY_BYPASS, PROXY_COUNTRY, PROXY_KIND, PROXY_PASSWORD,
-    PROXY_PROVIDER, PROXY_PROVIDERS, PROXY_SERVER, PROXY_STICKY_LIFETIME, PROXY_UNAVAILABLE,
-    PROXY_USERNAME, ProxyAuthFailedDetails, ProxyKind, ProxyProviderConfiguration, ProxyScheme,
-    ProxyServer, ProxyUnavailableDetails,
+    PROXY_PROVIDER, PROXY_PROVIDERS, PROXY_RELAY_UNAVAILABLE, PROXY_SERVER, PROXY_STICKY_LIFETIME,
+    PROXY_UNAVAILABLE, PROXY_USERNAME, ProxyAuthFailedDetails, ProxyKind,
+    ProxyProviderConfiguration, ProxyRelayUnavailableDetails, ProxyScheme, ProxyServer,
+    ProxyUnavailableDetails,
 };
 use goodfetch_protocol::politeness::POLITENESS_PROXY_CONCURRENCY;
 use goodfetch_protocol::settings::{NETWORK_RESOLVE, SETTING_INVALID, SettingInvalidDetails};
@@ -50,7 +52,7 @@ use self::limits::ProxyLimits;
 pub(crate) use self::limits::{ProxyPermit, TABLES};
 pub use self::party::{Answer, Party, party};
 pub(crate) use self::party::{PROXY_STATUS, proxy_error, refusal};
-use self::relay::{Mode, Relay};
+use self::relay::{Credentials, Mode, Relay, basic};
 use crate::egress_relay::serve::{Met, Upstream};
 use crate::egress_relay::{Chain, Latest};
 use crate::proxy_provider::failure::{ProviderAnswer, ProviderFailure};
@@ -264,8 +266,8 @@ fn adapter(
     })
 }
 
-/// How the relay relays the proxy a Proxy provider chose: SOCKS5 with its
-/// credentials, or as it is.
+/// How the relay reaches the proxy a Proxy provider chose: SOCKS5 or HTTP,
+/// with its credentials.
 ///
 /// # Errors
 ///
@@ -279,11 +281,19 @@ fn provided_mode(
         (Some(username), true) => {
             fits_socks5(settings, Some(PROXY_PROVIDERS.name), username, password)?;
             Mode::Socks5 {
-                username: username.clone(),
-                password: password.cloned().unwrap_or_else(|| SecretString::from("")),
+                credentials: Some(Credentials {
+                    username: username.clone(),
+                    password: password.cloned().unwrap_or_else(|| SecretString::from("")),
+                }),
             }
         }
-        (_, socks) => Mode::AsItIs { http: !socks },
+        (None, true) => Mode::Socks5 { credentials: None },
+        (username, false) => Mode::Http {
+            authorization: username.as_deref().map(|username| {
+                let password = password.map_or("", |password| password.expose_secret());
+                SecretString::from(basic(username, password))
+            }),
+        },
     })
 }
 
@@ -375,12 +385,14 @@ impl SessionProxy {
                 let address = address_of(&server, settings).await?;
                 let password = password.clone().unwrap_or_else(|| SecretString::from(""));
                 let mode = Mode::Socks5 {
-                    username: username.clone(),
-                    password,
+                    credentials: Some(Credentials {
+                        username: username.clone(),
+                        password,
+                    }),
                 };
                 let relay = Relay::open(run, address, mode, None, false)
                     .await
-                    .map_err(|error| unavailable(&server, None, &error.to_string()))?;
+                    .map_err(|error| relay_unavailable(&server, &error))?;
                 Some(relay)
             }
             _ => None,
@@ -471,7 +483,7 @@ impl SessionProxy {
             translation.is_some(),
         )
         .await
-        .map_err(|error| unavailable(&chosen.server, None, &error.to_string()))?;
+        .map_err(|error| relay_unavailable(&chosen.server, &error))?;
         let limits = ProxyLimits::open(settings, run, &chosen.server, chosen.username.as_deref())
             .await
             .map_err(|reason| invalid(settings, POLITENESS_PROXY_CONCURRENCY.name, reason))?;
@@ -524,17 +536,12 @@ impl SessionProxy {
         self.limits.as_ref()?.take().await
     }
 
-    /// The `proxyServer` the browser context takes: the relay's address for
-    /// a SOCKS5 proxy with credentials, and Chromium's `socks5` for
+    /// The `proxyServer` the browser context takes: the relay's address, an
+    /// HTTP proxy, when the Session has one, and Chromium's `socks5` for
     /// `socks5h`, whose SOCKS5 proxies resolve every name they are given.
     pub(crate) fn browser_server(&self) -> String {
         if let Some(relay) = &self.relay {
-            let scheme = if self.server.scheme.is_socks() {
-                "socks5"
-            } else {
-                "http"
-            };
-            return format!("{scheme}://{}", relay.address());
+            return format!("http://{}", relay.address());
         }
         match self.server.scheme {
             ProxyScheme::Socks5h => ProxyServer {
@@ -571,14 +578,20 @@ impl SessionProxy {
     }
 
     /// Whether the browser asks the engine for this proxy's credentials:
-    /// an HTTP or HTTPS proxy's, whose 407 then reaches the engine.
+    /// the relay's, or an HTTP or HTTPS proxy's, whose 407 then reaches the
+    /// engine.
     pub(crate) fn answers_authentication(&self) -> bool {
-        !self.server.scheme.is_socks()
+        self.relay.is_some() || !self.server.scheme.is_socks()
     }
 
     /// The credentials the engine answers the proxy's 407 with, if it has
-    /// any.
+    /// any: the relay's own when the Session has one, which gives the
+    /// proxy's itself.
     pub(crate) fn credentials(&self) -> Option<(&str, Option<&SecretString>)> {
+        if let Some(relay) = &self.relay {
+            let (username, password) = relay.credentials();
+            return Some((username, Some(password)));
+        }
         self.username
             .as_deref()
             .map(|username| (username, self.password.as_ref()))
@@ -706,12 +719,8 @@ impl SessionProxy {
         };
         if let Some(relay) = &self.relay {
             let address = relay.address();
-            let upstream = if self.server.scheme.is_socks() {
-                Upstream::Socks5
-            } else {
-                Upstream::Http {
-                    authorization: authorization(),
-                }
+            let upstream = Upstream::Http {
+                authorization: authorization(),
             };
             return Some(self.chained(upstream, (address.ip().to_string(), address.port())));
         }
@@ -762,6 +771,19 @@ async fn address_of(server: &ProxyServer, settings: &Resolved) -> Result<SocketA
     Ok(*addresses
         .first()
         .expect("invariant: a lookup that answered has an address"))
+}
+
+/// `proxy_relay_unavailable` for the relay to `server`, which could not
+/// open for `error`: the engine's own failure, never the proxy's.
+fn relay_unavailable(server: &ProxyServer, error: &std::io::Error) -> CallError {
+    CallError::new(
+        &PROXY_RELAY_UNAVAILABLE,
+        format!("the loopback relay to the proxy {server} could not open: {error}"),
+        &ProxyRelayUnavailableDetails {
+            proxy: server.to_string(),
+            error: error.to_string(),
+        },
+    )
 }
 
 /// `proxy_unavailable` for `server`, met by a request to `url`, or by the

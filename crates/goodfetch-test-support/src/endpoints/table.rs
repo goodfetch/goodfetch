@@ -50,11 +50,15 @@ pub enum ListenerKind {
     /// address signed for that one file, and reads no cookie (ADR 0031;
     /// spec #592).
     ContentOrigin,
+    /// A Session's proxy relay (`goodfetch-page`'s `proxy::relay`): a
+    /// loopback HTTP proxy of the Session's own, which tunnels only for the
+    /// Session's per-Session credentials (ADR 0037 / SA-22; spec #577).
+    ProxyRelay,
 }
 
 impl ListenerKind {
     /// Every listener, each of which must have a row.
-    pub(super) const ALL: [Self; 7] = [
+    pub(super) const ALL: [Self; 8] = [
         Self::DaemonSocket,
         Self::PrivateEndpoint,
         Self::OpsListener,
@@ -62,6 +66,7 @@ impl ListenerKind {
         Self::ExposedDaemon,
         Self::Console,
         Self::ContentOrigin,
+        Self::ProxyRelay,
     ];
 
     /// How the runner reaches this listener.
@@ -83,6 +88,7 @@ impl ListenerKind {
                 },
             },
             Self::ContentOrigin => Transport::SignedAddress,
+            Self::ProxyRelay => Transport::HttpProxy,
         }
     }
 }
@@ -110,6 +116,9 @@ pub(super) enum Transport {
     /// HTTP/1.1 `GET`s whose path and query, an address signed for one
     /// file, are the only credential (spec #592).
     SignedAddress,
+    /// An HTTP proxy's `CONNECT`, with the token as the password of its
+    /// `Proxy-Authorization: Basic` credentials (RFC 9110, section 11.7.1).
+    HttpProxy,
 }
 
 /// The HTTP routes of a listener whose sign-ins are cookies (spec #592).
@@ -194,6 +203,7 @@ impl Rule {
             Transport::WebSocket | Transport::SignedInWebSocket { .. }
         );
         let sign_ins = matches!(transport, Transport::SignedInWebSocket { .. });
+        let proxy = transport == Transport::HttpProxy;
         match self {
             Self::TokenMissing
             | Self::TokenWrong
@@ -205,7 +215,7 @@ impl Rule {
             Self::TokenInQueryString | Self::OriginMissing => http || websocket,
             Self::HostForeign | Self::OriginForeign => http || websocket || signed,
             Self::ProbesAnswerStatusOnly | Self::OriginMissingWithoutHeaderToken => http,
-            Self::HelloNotFirst => !http && !signed,
+            Self::HelloNotFirst => !http && !signed && !proxy,
             Self::TokenForAnotherFile => signed,
         }
     }
@@ -219,7 +229,8 @@ impl Rule {
             Transport::JsonRpcStream
             | Transport::Http { .. }
             | Transport::WebSocket
-            | Transport::SignedAddress => matches!(
+            | Transport::SignedAddress
+            | Transport::HttpProxy => matches!(
                 self,
                 Self::HostForeign | Self::OriginForeign | Self::OriginMissing
             ),
@@ -249,6 +260,11 @@ pub enum Expected {
     /// An HTTP listener accepts the request, as it does the valid one, with
     /// a 2xx. No refusal, so no Audit log entry.
     Accepted,
+    /// An HTTP proxy asks for credentials with a `407` (RFC 9110, section
+    /// 15.5.8), as it answers every client's first request, the browser's
+    /// included, before the client learns them. No refusal, so no Audit log
+    /// entry; no byte is relayed.
+    Challenge,
 }
 
 impl Expected {
@@ -256,14 +272,17 @@ impl Expected {
     pub(super) fn is_refusal(self) -> bool {
         match self {
             Self::Closed | Self::Status { .. } => true,
-            Self::StatusOnly | Self::Accepted => false,
+            Self::StatusOnly | Self::Accepted | Self::Challenge => false,
         }
     }
 
     /// Whether a listener reached over `transport` can give this answer to
     /// `rule`'s attempt.
     fn fits(self, rule: Rule, transport: Transport) -> bool {
-        let http = matches!(transport, Transport::Http { .. } | Transport::SignedAddress);
+        let http = matches!(
+            transport,
+            Transport::Http { .. } | Transport::SignedAddress | Transport::HttpProxy
+        );
         let websocket = matches!(
             transport,
             Transport::WebSocket | Transport::SignedInWebSocket { .. }
@@ -283,6 +302,7 @@ impl Expected {
                 Self::Accepted => {
                     matches!(transport, Transport::Http { .. }) && rule == Rule::OriginMissing
                 }
+                Self::Challenge => transport == Transport::HttpProxy && rule == Rule::TokenMissing,
             }
     }
 }

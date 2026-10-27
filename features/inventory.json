@@ -1506,6 +1506,17 @@
       ]
     },
     {
+      "id": "error:proxy_relay_unavailable",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:proxy_unavailable",
       "kind": "error",
       "area": 5,

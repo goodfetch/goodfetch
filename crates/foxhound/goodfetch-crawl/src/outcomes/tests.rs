@@ -158,6 +158,12 @@ fn every_ending_of_a_crawl_is_read_in_commit_order_with_its_attempts_and_records
 #[case::kinds(json!({ "kinds": ["failed", "blocked"] }), vec![failed_c(), blocked_e()])]
 #[case::labels(json!({ "labels": ["list"] }), vec![failed_c(), blocked_e()])]
 #[case::kinds_and_labels(json!({ "kinds": ["succeeded", "skipped"], "labels": ["page"] }), vec![succeeded_a(), succeeded_b(), skipped_d()])]
+/// Covers: story:12-219
+#[case::codes_of_the_last_attempt(json!({ "codes": ["handler_failed"] }), vec![failed_c()])]
+/// Covers: story:12-219
+#[case::codes_of_an_earlier_attempt(json!({ "codes": ["retry_requested", "lease_lost"] }), vec![succeeded_b()])]
+/// Covers: story:12-219
+#[case::codes_and_kinds(json!({ "codes": ["retry_requested"], "kinds": ["failed"] }), Vec::new())]
 #[case::after_a_position(json!({ "after": 3 }), vec![skipped_d(), blocked_e()])]
 #[case::after_now(json!({ "after": "now" }), Vec::new())]
 fn a_filtered_read_holds_only_the_outcomes_its_filters_take(

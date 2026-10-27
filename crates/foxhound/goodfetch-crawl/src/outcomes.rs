@@ -32,6 +32,7 @@ pub(crate) fn handlers() -> [Handler; 2] {
 struct Filter {
     kinds: Option<String>,
     labels: Option<String>,
+    codes: Option<String>,
 }
 
 impl Filter {
@@ -48,6 +49,10 @@ impl Filter {
                 .labels
                 .as_ref()
                 .map(|labels| names(labels.iter().map(String::as_str).collect())),
+            codes: params
+                .codes
+                .as_ref()
+                .map(|codes| names(codes.iter().map(String::as_str).collect())),
         }
     }
 }
@@ -171,6 +176,10 @@ fn page(connection: &Connection, after: u64, filter: &Filter) -> rusqlite::Resul
              WHERE position > ?1 AND position <= ?2
                AND (?3 IS NULL OR kind IN (SELECT value FROM json_each(?3)))
                AND (?4 IS NULL OR label IN (SELECT value FROM json_each(?4)))
+               AND (?6 IS NULL OR EXISTS (
+                 SELECT 1 FROM json_each(outcome, '$.errors') AS error
+                 WHERE json_extract(error.value, '$.code') IN (SELECT value FROM json_each(?6))
+               ))
              ORDER BY position LIMIT ?5",
         )?
         .query_map(
@@ -180,6 +189,7 @@ fn page(connection: &Connection, after: u64, filter: &Filter) -> rusqlite::Resul
                 filter.kinds.as_deref(),
                 filter.labels.as_deref(),
                 integer(u64::try_from(OUTCOMES_PAGE).unwrap_or(u64::MAX)),
+                filter.codes.as_deref(),
             ),
             |row| row.get::<_, String>(0),
         )?

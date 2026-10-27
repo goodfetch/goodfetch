@@ -86,10 +86,40 @@ impl TestEnv {
             .unwrap_or_else(|error| panic!("the test's TestEnv cannot start: {error}"))
     }
 
+    /// The running test's setup as [`TestEnv::new`] makes it, its folder on
+    /// a memory file system where the OS keeps one at a known place
+    /// (`/dev/shm` on Linux), else in the temporary folder as `new`'s: for
+    /// an in-process test of a store, whose synced writes and new files
+    /// then wait for no disk, however busy other writers keep it
+    /// (fix-queue 123). A test that starts a browser or an engine keeps
+    /// [`TestEnv::new`]: its copies would sit in memory.
+    ///
+    /// # Panics
+    ///
+    /// As [`TestEnv::new`].
+    pub fn in_memory() -> Self {
+        Self::create_in(
+            &current_test(),
+            &Variables::from_process(),
+            memory_folder().as_deref(),
+        )
+        .unwrap_or_else(|error| panic!("the test's TestEnv cannot start: {error}"))
+    }
+
     /// The setup of the test with this full name, from these variables.
     /// Prints `goodfetch-test-seed=<n>` to stderr once the seed is known,
     /// before anything else, so a test killed on a timeout still shows it.
     pub fn create(test: &str, variables: &Variables) -> Result<Self, TestEnvError> {
+        Self::create_in(test, variables, None)
+    }
+
+    /// As [`TestEnv::create`], its folder in `root`, or in the temporary
+    /// folder when none.
+    fn create_in(
+        test: &str,
+        variables: &Variables,
+        root: Option<&Path>,
+    ) -> Result<Self, TestEnvError> {
         let seed = variables.seed(test)?;
         #[expect(
             clippy::print_stderr,
@@ -99,9 +129,13 @@ impl TestEnv {
             eprintln!("goodfetch-test-seed={seed}");
         }
         let suite = variables.suite()?;
-        let folder = tempfile::Builder::new()
-            .prefix(&format!("{} é ", folder_name(test)))
-            .tempdir()?;
+        let prefix = format!("{} é ", folder_name(test));
+        let mut builder = tempfile::Builder::new();
+        builder.prefix(&prefix);
+        let folder = match root {
+            Some(root) => builder.tempdir_in(root)?,
+            None => builder.tempdir()?,
+        };
         let root = folder.path();
         let home = root.join("home");
         let crash_dumps = home.join(crash_dumps::FOLDER);
@@ -413,6 +447,13 @@ fn remove_socket_folders_outside(home: &Path) {
 /// applied, run in the test's folder.
 pub fn command(env: &TestEnv, program: impl AsRef<OsStr>) -> assert_cmd::Command {
     assert_cmd::Command::from_std(env.process_command(program))
+}
+
+/// The memory file system an in-memory setup's folder lies in, where the
+/// OS keeps one at a known place: `/dev/shm` on Linux.
+fn memory_folder() -> Option<PathBuf> {
+    let shm = Path::new("/dev/shm");
+    (cfg!(target_os = "linux") && shm.is_dir()).then(|| shm.to_path_buf())
 }
 
 /// The test's name as a folder name every OS accepts.

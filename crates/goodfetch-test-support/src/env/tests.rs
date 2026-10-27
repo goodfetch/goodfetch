@@ -29,6 +29,41 @@ fn folder_name_holds_a_space_and_a_non_ascii_letter() {
     assert!(name.starts_with("env-tests-folder_name é "), "{name}");
 }
 
+/// On Linux an in-memory setup's folder, under the usual name, lies on a
+/// memory file system, so a store test's synced writes and new files wait
+/// for no disk however busy it is (fix-queue 123).
+#[cfg(target_os = "linux")]
+#[test]
+fn an_in_memory_setup_keeps_its_folder_on_a_memory_file_system() {
+    let env = TestEnv::in_memory();
+
+    let name = env.folder().file_name().unwrap().to_str().unwrap();
+
+    assert_eq!(
+        (file_system_of(env.folder()), name.contains(" é ")),
+        ("tmpfs".to_owned(), true),
+        "{name}"
+    );
+}
+
+/// The type of the file system `path` lies on: that of the longest mount
+/// point above it in `/proc/self/mounts`.
+#[cfg(target_os = "linux")]
+fn file_system_of(path: &Path) -> String {
+    let mounts = std::fs::read_to_string("/proc/self/mounts").unwrap();
+    mounts
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split(' ');
+            let point = fields.nth(1)?.replace("\\040", " ");
+            Some((std::path::PathBuf::from(point), fields.next()?.to_owned()))
+        })
+        .filter(|(point, _)| path.starts_with(point))
+        .max_by_key(|(point, _)| point.as_os_str().len())
+        .map(|(_, kind)| kind)
+        .unwrap()
+}
+
 /// The cleared map's variables, in order: those of every OS, and on Windows
 /// those a process needs to start.
 #[cfg(not(windows))]

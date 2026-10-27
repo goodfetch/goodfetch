@@ -9,7 +9,8 @@
 )]
 
 use std::io::{BufRead as _, BufReader, Write as _};
-use std::process::{ChildStdin, ChildStdout};
+use std::path::Path;
+use std::process::{ChildStdin, ChildStdout, Command};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
@@ -78,9 +79,22 @@ impl Scenario {
     }
 }
 
-/// Opens with `hello`, checks the engine accepted it, idles, and ends the
-/// input.
-fn idle_attached_engine(needs: Product, mut stdin: ChildStdin, stdout: ChildStdout) -> Result<()> {
+/// Runs the engine `command` starts as shipped: with `home` as its data
+/// folder and no other Goodfetch variable of this process's environment,
+/// since an engine stops on one it does not know and logs at its default
+/// level without `GOODFETCH_LOG`.
+pub(crate) fn as_shipped(command: &mut Command, home: &Path) {
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("GOODFETCH_") {
+            command.env_remove(name);
+        }
+    }
+    command.env("GOODFETCH_HOME", home);
+}
+
+/// The `hello` line a Client needing `needs` opens with, as the engine
+/// reads it from its input.
+pub(crate) fn hello_line(needs: Product) -> Result<Vec<u8>> {
     let hello = Message::Request(Request {
         jsonrpc: Version,
         id: RequestId::Number(0),
@@ -98,7 +112,15 @@ fn idle_attached_engine(needs: Product, mut stdin: ChildStdin, stdout: ChildStdo
     });
     let mut line = serde_json::to_vec(&hello)?;
     line.push(b'\n');
-    stdin.write_all(&line).context("sending hello")?;
+    Ok(line)
+}
+
+/// Opens with `hello`, checks the engine accepted it, idles, and ends the
+/// input.
+fn idle_attached_engine(needs: Product, mut stdin: ChildStdin, stdout: ChildStdout) -> Result<()> {
+    stdin
+        .write_all(&hello_line(needs)?)
+        .context("sending hello")?;
     stdin.flush().context("sending hello")?;
     let mut stdout = BufReader::new(stdout);
     let mut reply = String::new();

@@ -14,12 +14,14 @@
     "./client": "./src/client/client.ts",
     "./client/browser": "./src/client/browser.ts",
     "./generated/operations": "./src/generated/operations.ts",
+    "./generated/foxhound": "./src/generated/foxhound.ts",
     "./error-message": "./src/errors/error-message.tsx",
     "./form": "./src/form.tsx",
     "./format": "./src/format.ts",
     "./settings-layers": "./src/settings-layers.ts",
     "./styles.css": "./src/styles.css",
-    "./i18n": "./src/i18n.tsx"
+    "./i18n": "./src/i18n.tsx",
+    "./offline": "./src/offline/offline.ts"
   },
   "scripts": {
     "build": "vite build",

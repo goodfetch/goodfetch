@@ -89,5 +89,10 @@ required-features = ["executable"]
 name = "startup"
 harness = false
 
+# ADR 0134: the bytes a crawled page allocates, a crawl fed from memory.
+[[bench]]
+name = "heap"
+harness = false
+
 [lints]
 workspace = true

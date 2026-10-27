@@ -46,6 +46,8 @@ pub(super) fn raise(
         params: serde_json::to_value(params).expect("invariant: the params serialize"),
         cancellable: USAGE_RAISE.cancellable,
         follower: None,
+        pager: None,
+        input: None,
     };
     let product = engine.identity().product;
     match engine_choice::call_attached(engine, dependencies, product, call) {

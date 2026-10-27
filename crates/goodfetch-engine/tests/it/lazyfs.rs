@@ -24,7 +24,7 @@ use serde_json::json;
 /// that names the last of them was synced before `record` answered.
 #[test]
 fn an_audit_log_recorded_on_a_mounted_home_verifies_intact_after_clear_cache() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     let home = Home::new(env.home().to_path_buf());
     let mounted = LazyFs::mount(&env, env.home()).unwrap();
     let origin = Origin {
@@ -64,7 +64,7 @@ fn an_audit_log_recorded_on_a_mounted_home_verifies_intact_after_clear_cache() {
 /// file, which the next sign-in would replace and so sign everyone out.
 #[test]
 fn a_console_key_rotated_on_a_mounted_home_survives_clear_cache() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     let home = Home::new(env.home().to_path_buf());
     let mounted = LazyFs::mount(&env, env.home()).unwrap();
     let key = ConsoleKey::at(home.console_key());

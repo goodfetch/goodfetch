@@ -141,7 +141,27 @@ pub struct EngineChoice<'a> {
 /// params, and answers how many credits printing it used.
 pub type Follower<'a> = &'a mut dyn FnMut(&str, &Value) -> u32;
 
-/// The one call a command makes.
+/// Receives each answer of a call that answers page by page, and answers
+/// the params of the call for the next page, or `None` when the answer is
+/// the last.
+pub type Pager<'a> = &'a mut dyn FnMut(&Value) -> Option<Value>;
+
+/// The stream of values a call takes from the Client (ADR 0024): each
+/// `$/credit` the engine grants the call is answered by one notification
+/// `method` listing up to that many values in `field`, `end` set with the
+/// last.
+pub struct Input<'a> {
+    /// The notification that carries the values, such as `$/seeds`.
+    pub method: &'a str,
+    /// The field of it that lists them.
+    pub field: &'a str,
+    /// Gives at most as many values as it is passed, and whether they are
+    /// the last.
+    pub next: &'a mut dyn FnMut(u32) -> (Vec<Value>, bool),
+}
+
+/// The one call a command makes, or, for a call that answers page by page,
+/// the calls of its pages, on one Connection.
 pub struct CommandCall<'a> {
     /// The operation.
     pub method: &'a str,
@@ -149,8 +169,14 @@ pub struct CommandCall<'a> {
     pub params: Value,
     /// Whether `$/cancel` stops it.
     pub cancellable: bool,
-    /// For a sequence run with `--follow`, what prints what it sends.
+    /// For a sequence, what receives what it sends, granted credits as it
+    /// uses them.
     pub follower: Option<Follower<'a>>,
+    /// For a call that answers page by page under `--follow`, what asks
+    /// for the next page.
+    pub pager: Option<Pager<'a>>,
+    /// For a call that takes a stream of values, where they come from.
+    pub input: Option<Input<'a>>,
 }
 
 /// How a call ended.
@@ -456,15 +482,20 @@ impl Link {
         }
     }
 
-    /// Makes the one call on the opened Connection and reads its answer.
+    /// Makes the call on the opened Connection and reads its answer; for a
+    /// call that answers page by page, calls again for each next page the
+    /// pager asks for, and answers the last page.
     async fn call(&mut self, mut call: CommandCall<'_>) -> Answer {
         let interrupt = interrupted();
         tokio::pin!(interrupt);
+        let mut id = CALL_ID;
         let params = std::mem::take(&mut call.params);
-        if !self.send(&request(CALL_ID, call.method, params)).await {
+        if !self.send(&request(id, call.method, params)).await {
             return closed(call.method);
         }
-        if call.follower.is_some() && !self.credit(CREDITS).await {
+        // A call that takes a stream grants the credits itself.
+        let credited = call.follower.is_some() && call.input.is_none();
+        if credited && !self.credit(id, CREDITS).await {
             return closed(call.method);
         }
         let mut cancelled = None;
@@ -474,7 +505,7 @@ impl Link {
                     if !call.cancellable || cancelled.is_some() {
                         return Answer::Interrupted(interrupt_now);
                     }
-                    let cancel = notification(CANCEL, &CancelParams { id: RequestId::Number(CALL_ID) });
+                    let cancel = notification(CANCEL, &CancelParams { id: RequestId::Number(id) });
                     if !self.send(&cancel).await {
                         return Answer::Interrupted(interrupt_now);
                     }
@@ -483,20 +514,44 @@ impl Link {
                 }
                 message = self.next() => match message {
                     None => return closed(call.method),
-                    Some(Message::Response(response)) if response.id == RequestId::Number(CALL_ID) => {
-                        return cancelled.map_or(Answer::Result(response.result), Answer::Interrupted);
+                    Some(Message::Response(response)) if response.id == RequestId::Number(id) => {
+                        if let Some(interrupt) = cancelled {
+                            return Answer::Interrupted(interrupt);
+                        }
+                        let next = call.pager.as_mut().and_then(|pager| pager(&response.result));
+                        let Some(next) = next else {
+                            return Answer::Result(response.result);
+                        };
+                        id += 1;
+                        if !self.send(&request(id, call.method, next)).await {
+                            return closed(call.method);
+                        }
                     }
-                    Some(Message::Error(failure)) if failure.id == Some(RequestId::Number(CALL_ID)) => {
+                    Some(Message::Error(failure)) if failure.id == Some(RequestId::Number(id)) => {
                         return cancelled.map_or(Answer::Error(failure.error), Answer::Interrupted);
                     }
                     Some(Message::Notification(sent)) => {
-                        let Some(follower) = call.follower.as_mut() else { continue };
                         let params = sent.params.unwrap_or(Value::Null);
-                        if params["id"] != CALL_ID {
+                        if params["id"] != id {
                             continue;
                         }
+                        if let Some(input) = call.input.as_mut()
+                            && sent.method == CREDIT
+                        {
+                            let credits = params["credits"].as_u64().unwrap_or(0);
+                            let (values, end) = (input.next)(u32::try_from(credits).unwrap_or(u32::MAX));
+                            let mut batch = Map::new();
+                            batch.insert("id".to_owned(), Value::from(id));
+                            batch.insert(input.field.to_owned(), Value::Array(values));
+                            batch.insert("end".to_owned(), Value::Bool(end));
+                            if !self.send(&notification(input.method, &batch)).await {
+                                return closed(call.method);
+                            }
+                            continue;
+                        }
+                        let Some(follower) = call.follower.as_mut() else { continue };
                         let used = follower(&sent.method, &params);
-                        if used > 0 && !self.credit(used).await {
+                        if credited && used > 0 && !self.credit(id, used).await {
                             return closed(call.method);
                         }
                     }
@@ -506,9 +561,9 @@ impl Link {
         }
     }
 
-    /// Grants the call `credits` more events or chunks.
-    async fn credit(&mut self, credits: u32) -> bool {
-        let id = RequestId::Number(CALL_ID);
+    /// Grants the call `id` `credits` more events or chunks.
+    async fn credit(&mut self, id: i64, credits: u32) -> bool {
+        let id = RequestId::Number(id);
         self.send(&notification(CREDIT, &CreditParams { id, credits }))
             .await
     }
@@ -516,6 +571,7 @@ impl Link {
     /// Writes `message` as one line; `false` when the engine is gone.
     async fn send(&mut self, message: &impl Serialize) -> bool {
         let mut line = serde_json::to_vec(message).expect("invariant: a message encodes");
+        record_wire(SENT, &line);
         line.push(b'\n');
         self.writer.write_all(&line).await.is_ok() && self.writer.flush().await.is_ok()
     }
@@ -526,10 +582,50 @@ impl Link {
         loop {
             let line = self.lines.next_line().await.ok()??;
             if let Ok(message) = serde_json::from_str(&line) {
+                record_wire(RECEIVED, line.as_bytes());
                 return Some(message);
             }
         }
     }
+}
+
+/// The `tracing` target of the records of the messages a command's
+/// Connection carries, from which a test counts them (ADR 0071's protocol
+/// counts).
+pub const WIRE_TARGET: &str = "goodfetch::cli::wire";
+
+/// The direction of a message the command sent.
+const SENT: &str = "sent";
+
+/// The direction of a message the command received.
+const RECEIVED: &str = "received";
+
+/// Records one message of the Connection, at `trace`: its direction, its
+/// kind (`request`, `notification`, `response` or `error`), its method
+/// when it has one, and its bytes. It never records the message's content,
+/// which may hold the Daemon's token.
+fn record_wire(direction: &str, line: &[u8]) {
+    if !tracing::enabled!(target: WIRE_TARGET, tracing::Level::TRACE) {
+        return;
+    }
+    let Ok(message) = serde_json::from_slice::<Value>(line) else {
+        return;
+    };
+    let method = message["method"].as_str().unwrap_or_default();
+    let kind = match (method.is_empty(), message.get("id").is_some()) {
+        (false, true) => "request",
+        (false, false) => "notification",
+        (true, _) if message.get("error").is_some() => "error",
+        (true, _) => "response",
+    };
+    tracing::trace!(
+        target: WIRE_TARGET,
+        direction,
+        kind,
+        method,
+        bytes = line.len(),
+        "message"
+    );
 }
 
 /// Resolves when the command is interrupted (`SIGINT`, or Ctrl-C and

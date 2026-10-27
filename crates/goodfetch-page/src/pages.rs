@@ -93,7 +93,7 @@ use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
 use serde_json::Value;
 
-use crate::blocks::{BlockClassifier, NoBlocks};
+use crate::blocks::{Block, BlockClassifier, NoBlocks};
 use crate::browser_fetch;
 use crate::dialogs::{self, Dialogs};
 use crate::driver::{Destination, SerializedDocument};
@@ -958,6 +958,10 @@ impl BrowserPages for Opener {
             page_id: page_id.clone(),
             formats: request,
         }))
+    }
+
+    fn classify(&self, response: &PageResponse, markup: &str) -> Option<Block> {
+        self.pages.blocks.classify(response, markup)
     }
 }
 

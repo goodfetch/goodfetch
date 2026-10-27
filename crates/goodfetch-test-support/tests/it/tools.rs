@@ -34,6 +34,7 @@ fn a_missing_manifest_fails_naming_just_test() {
 #[case::foxhound(Tool::Foxhound)]
 #[case::proving_ground(Tool::ProvingGround)]
 #[case::conformance(Tool::Conformance)]
+#[case::stub_gateway(Tool::StubGateway)]
 fn a_missing_entry_fails_naming_just_test(#[case] tool: Tool) {
     let env = TestEnv::new();
     let manifest = env.folder().join("tools.json");

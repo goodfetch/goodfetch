@@ -43,12 +43,13 @@ pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_protocol::page::{
-    FormatsRequest, Navigated, PageFormats, PageId, SessionId, SitePreference,
+    FormatsRequest, Navigated, PageFormats, PageId, PageResponse, SessionId, SitePreference,
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::session_source::SessionSource;
 
+use crate::blocks::Block;
 use crate::url_pattern::UrlPattern;
 
 /// A boxed future of [`BrowserPages`]'s.
@@ -171,6 +172,14 @@ pub trait BrowserPages: Send + Sync {
         page_id: &'a PageId,
         request: FormatsRequest,
     ) -> Opening<'a, Result<PageFormats, CallError>>;
+
+    /// The Block cause of a document a fetch tier served, which `response`
+    /// answered with the markup `markup`, as the Product's Block
+    /// classification tells it (ADR 0035): the rules a browser page's
+    /// navigation is judged by, so a crawl's HTTP tiers meet the same
+    /// blocks as its browser (spec #600). None for a document no rule
+    /// classifies.
+    fn classify(&self, response: &PageResponse, markup: &str) -> Option<Block>;
 }
 
 /// A request a Product sends from inside a Session's browser through

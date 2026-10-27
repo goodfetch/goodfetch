@@ -857,6 +857,38 @@ rss-propose *scenarios:
     cargo run --quiet -p xtask -- rss measure {{ scenarios }} --runs 20 --tools target/rss/test-tools.json --out target/rss/propose.jsonl
     cargo run --quiet -p xtask -- rss propose --peaks target/rss/propose.jsonl
 
+# Spider's comparison (ADR 0134), a one-off on the owner's machine: Foxhound's
+# and Spider 2.53.9's crawls (its HTTP mode, xtask/compare-spider) of the
+# Proving ground's 1,000-page site, both built with the release profile
+# (`profile` changes it for a quicker try), 10 trials of each in random
+# order, each tool in a fresh process against a fresh Proving ground at 16
+# requests at once. Once every trial fetched the same pages and was served
+# the same bytes, it writes each tool's median pages per second and peak RSS
+# to target/compare-spider/report.md and report.json, `local-controlled` and
+# never published (ADR 0076); otherwise it fails naming the trial. It gates
+# nothing and is no Live check. Spider's crate is downloaded once, free.
+# Compares Foxhound's crawl with Spider's on this machine.
+compare-spider profile="release":
+    cargo run --quiet -p xtask -- test-tools --cargo-profile {{ profile }} --out "$PWD/target/compare-spider/test-tools.json"
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
+    cargo run --quiet -p xtask -- compare-spider run --tools target/compare-spider/test-tools.json --spider target/compare-spider/spider/{{ profile }}/goodfetch-compare-spider
+
+# The Performance targets report (ADR 0134), on the owner's machine before
+# each owner test: each Product's release build, its startup to `hello`
+# with hyperfine (10 warm-up runs, then 100; median) and its idle Attached
+# engine's peak (median of 5 runs), with the crawl figures of the latest
+# `just compare-spider` report. Writes target/targets/report.md: each
+# target, its figure, met or missed with its gap and the optimization
+# pass's write-up from ci/performance-target-gaps.toml. Labelled
+# `local-controlled`, never published (ADR 0076); it fails on no miss.
+# Writes the Performance targets report on this machine.
+targets:
+    cargo run --quiet -p xtask -- test-tools --cargo-profile release --out "$PWD/target/targets/test-tools.json"
+    rm -f target/targets/peaks.jsonl target/targets/startup-*.json
+    cargo run --quiet -p xtask -- targets startup --tools target/targets/test-tools.json --out target/targets
+    cargo run --quiet -p xtask -- rss measure idle-attached-engine --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
+    cargo run --quiet -p xtask -- targets report --measured target/targets
+
 # The counted performance figures of what changed, against `base` (the merge
 # base with `origin/main` by default), with CI's thresholds (ADR 0071):
 # natively on Linux, in the pinned CI image through Docker or Podman
@@ -865,9 +897,10 @@ perf base="":
     ci/perf.sh {{ base }}
 
 # The Console's lab metrics for the Performance series (ADRs 0071 and 0076):
-# Lighthouse 13 against the Console of Collie's `ci`-profile executable, the
-# median of 5 runs, appended to target/perf-series/console-lighthouse.jsonl
-# with the machine it ran on. On the owner's machine, set
+# Lighthouse 13 against each Product's Console, served by its `ci`-profile
+# executable, Collie's then Foxhound's, the median of 5 runs each, appended
+# to target/perf-series/console-lighthouse.jsonl with the Product and the
+# machine it ran on. On the owner's machine, set
 # GOODFETCH_PERF_MACHINE to its label; it times, so no suite runs it.
 console-lighthouse:
     {{ just_executable() }} console-build

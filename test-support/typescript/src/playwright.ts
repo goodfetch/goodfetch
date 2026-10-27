@@ -108,6 +108,7 @@ export {
   executableConsole,
   startServedDaemon,
   type ConsoleServer,
+  type GatewayAccess,
   type ConsoleStart,
   type ServedConsole,
   type ServedDaemon,
@@ -115,6 +116,7 @@ export {
   type StartedServedDaemon,
 } from "./served-daemon.ts";
 export { signInTo, type SignIn } from "./sign-in.ts";
+export { FOXHOUND_CONSOLE_BUILD, stubGatewayConsole } from "./stub-gateway.ts";
 
 /** The options of test support's Playwright `test`, which a project or `test.use` sets. */
 export interface ServedOptions {

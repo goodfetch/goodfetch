@@ -8,7 +8,7 @@ use goodfetch_dataset::Datasets;
 use goodfetch_protocol::foxhound::crawl::{CrawlExtraction, PushedRecord, Seed};
 use goodfetch_protocol::page::PageFormats;
 use goodfetch_protocol::run::PointInTime;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::{dataset, declare_into, record_of, sitemap_seeds};
 
@@ -36,7 +36,7 @@ fn pushed(data: Value) -> Vec<PushedRecord> {
 #[test]
 fn the_pages_schema_is_generated_from_the_formats_request_and_a_pages_record_holds_to_it() {
     let extraction = extraction(json!({ "formats": { "markdown": true, "links": true } }));
-    let declared = dataset(&extraction.formats);
+    let declared = dataset(&extraction);
     let datasets = Datasets::declare(std::slice::from_ref(&declared)).unwrap();
     let page = formats(json!({
         "url": "http://site.test/a",
@@ -46,7 +46,7 @@ fn the_pages_schema_is_generated_from_the_formats_request_and_a_pages_record_hol
         "links": [{ "url": "http://site.test/b", "href": "/b", "text": "B", "rel": [] }],
     }));
     let at = PointInTime::from_rfc3339("2026-10-26T10:00:00Z".to_owned());
-    let record = record_of(&page, Some(200), &at);
+    let record = record_of(&page, Some(200), &at, Map::new());
     let mut without_links = record.clone();
     without_links.as_object_mut().unwrap().remove("links");
     let mut with_html = record.clone();
@@ -132,4 +132,82 @@ fn follow_sitemap_seeds_each_seed_sites_robots_txt_once() {
             json!([]),
         )
     );
+}
+
+/// A field takes its transform's type, or null, in the schema of `pages`,
+/// which requires it: a Record holding each field's value, or null, holds
+/// to it, while one missing a field, or holding a text where a number is
+/// typed, is refused.
+///
+/// Covers: story:6-304
+#[test]
+fn the_pages_schema_holds_each_fields_type() {
+    let extraction = extraction(json!({
+        "formats": { "markdown": true },
+        "fields": {
+            "name": { "locator": { "kind": "css", "selector": "h1" } },
+            "price": {
+                "locator": { "kind": "css", "selector": ".price" },
+                "transform": { "kind": "number", "locale": "de-DE" },
+            },
+        },
+    }));
+    let declared = dataset(&extraction);
+    let datasets = Datasets::declare(std::slice::from_ref(&declared)).unwrap();
+    let page = formats(json!({
+        "url": "http://site.test/a",
+        "base_url": "http://site.test/a",
+        "main_content": "found",
+        "markdown": "# A",
+    }));
+    let at = PointInTime::from_rfc3339("2026-10-26T10:00:00Z".to_owned());
+    let with = |name: Value, price: Value| {
+        let mut fields = Map::new();
+        fields.insert("name".to_owned(), name);
+        fields.insert("price".to_owned(), price);
+        record_of(&page, Some(200), &at, fields)
+    };
+    let mut without_price = with(json!("Delta kite"), json!(1099.98));
+    without_price.as_object_mut().unwrap().remove("price");
+
+    assert_eq!(
+        (
+            declared.schema.as_ref().unwrap()["properties"]["price"].clone(),
+            datasets
+                .check(pushed(with(json!("Delta kite"), json!(1099.98))))
+                .is_ok(),
+            datasets
+                .check(pushed(with(Value::Null, Value::Null)))
+                .is_ok(),
+            datasets.check(pushed(without_price)).is_ok(),
+            datasets
+                .check(pushed(with(json!("Delta kite"), json!("1099.98"))))
+                .is_ok(),
+        ),
+        (
+            json!({ "type": ["number", "null"] }),
+            true,
+            true,
+            false,
+            false
+        )
+    );
+}
+
+/// The start refuses with `invalid_params` a field whose name a format's
+/// property, `status` or `fetchedAt` takes, and a field the engine could
+/// never read.
+///
+/// Covers: story:6-304
+#[rstest::rstest]
+#[case::a_formats_property(json!({ "url": { "locator": { "kind": "css", "selector": "a" } } }))]
+#[case::status(json!({ "status": { "locator": { "kind": "css", "selector": "p" } } }))]
+#[case::fetched_at(json!({ "fetchedAt": { "locator": { "kind": "css", "selector": "p" } } }))]
+#[case::an_unreadable_field(json!({ "name": { "locator": { "kind": "css", "selector": "h1[" } } }))]
+fn the_start_refuses_a_field_it_cannot_hold_or_read(#[case] fields: Value) {
+    let extraction = extraction(json!({ "formats": { "markdown": true }, "fields": fields }));
+
+    let refused = declare_into(&extraction, &mut BTreeMap::new(), &mut Vec::new());
+
+    assert_eq!(refused.map_err(|error| error.code()), Err("invalid_params"));
 }

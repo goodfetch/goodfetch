@@ -82,6 +82,7 @@ pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
             certificate_exception: None,
             robots_txt: None,
             value_transforms: Vec::new(),
+            unread_fields: Vec::new(),
         };
         commit(
             &connection,

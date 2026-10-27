@@ -2913,6 +2913,21 @@ class UncertainEffect(BaseModel):
     """Since when it is uncertain."""
 
 
+class UnreadReason(StrEnum):
+    """Why a field of a code-free crawl's Record is null."""
+
+    no_element = "no_element"
+    """Its locator found no element."""
+    no_attribute = "no_attribute"
+    """Its element has no such attribute."""
+    no_match = "no_match"
+    """Its `match` did not match the text, or its group took no part."""
+    not_parsed = "not_parsed"
+    """Its transform does not read the text as a value."""
+    no_time_zone = "no_time_zone"
+    """A `date_time` whose text states no offset, with no `time_zone`."""
+
+
 class Unready(StrEnum):
     """
     Why a Daemon cannot take a new Run now, as its ops listener's
@@ -5282,6 +5297,26 @@ class TransformProvenance(BaseModel):
     """The transform."""
 
 
+class UnreadField(BaseModel):
+    """
+    A field of a code-free crawl's Record that its page did not give, so
+    the Record holds null (ADR 0123).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    field: str
+    """The field, a JSON Pointer into the Record."""
+    reason: UnreadReason
+    """Why."""
+    text: str | None = None
+    """
+    The text read, where one was: the text its `match` did not match, or
+    that its transform does not read as a value.
+    """
+
+
 class UsageRaiseParams(BaseModel):
     """
     What `usage.raise` takes: a Limit a person sets, which replaces every
@@ -5779,6 +5814,11 @@ class RecordProvenance(BaseModel):
     """
     The tier that fetched that request's document, and how it was
     chosen; none where the handler was given its request alone.
+    """
+    unread_fields: list[UnreadField] | None = None
+    """
+    Each field of a code-free crawl the page did not give, null in the
+    Record, with why; absent where every field was read.
     """
     value_transforms: Annotated[
         list[TransformProvenance] | None, Field(validate_default=True)

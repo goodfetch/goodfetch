@@ -42,7 +42,7 @@ use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 
-use crate::work_items::{Fetched, Positions};
+use crate::work_items::{Fetched, FieldsRead, Positions};
 
 /// An admission through the Frontier that an attempt staged, run again at
 /// each later staging of the attempt and at its commit.
@@ -68,6 +68,7 @@ struct Entry {
     records: Checked,
     writes: Vec<StagedWrite>,
     fetched: Fetched,
+    fields: FieldsRead,
     /// How many declared Effects' bodies run in it.
     effects: u32,
 }
@@ -99,6 +100,7 @@ pub(crate) struct Staged {
     records: Checked,
     writes: Vec<StagedWrite>,
     fetched: Fetched,
+    fields: FieldsRead,
 }
 
 impl Staged {
@@ -117,6 +119,11 @@ impl Staged {
     /// How the attempt's run fetched its document.
     pub(crate) fn fetched(&self) -> &Fetched {
         &self.fetched
+    }
+
+    /// What the attempt read of its page's fields.
+    pub(crate) fn fields(&self) -> &FieldsRead {
+        &self.fields
     }
 
     /// The Records the attempt pushed, in order.
@@ -200,6 +207,7 @@ impl Staging {
                 records: entry.records,
                 writes: entry.writes,
                 fetched: entry.fetched,
+                fields: entry.fields,
             })
             .unwrap_or_default()
     }
@@ -215,6 +223,15 @@ impl Staging {
                 robots_txt,
                 ..fetched
             };
+        }
+    }
+
+    /// Notes what the attempt of `work_item` under `lease_epoch` read of
+    /// its page's fields, in place of what an earlier run of it noted;
+    /// nothing once the attempt ended.
+    pub(crate) fn fields_read(&self, work_item: &str, lease_epoch: u64, fields: FieldsRead) {
+        if let Some(entry) = self.entries().get_mut(&(work_item.to_owned(), lease_epoch)) {
+            entry.fields = fields;
         }
     }
 

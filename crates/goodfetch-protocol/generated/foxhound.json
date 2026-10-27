@@ -1271,8 +1271,16 @@
     },
     "CrawlExtraction": {
       "additionalProperties": false,
-      "description": "What a crawl with no handler reads from each page it fetches (spec\n#582's code-free crawls; ADR 0103): the engine declares the Label\n[`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by\n`url`, whose JSON Schema is generated from `formats`, and commits one\nRecord per page fetched: the page's formats, as `page.formats` answers\nthem (its `url` the document's, after redirects), its response's\n`status` and `fetchedAt`, when the engine read it.",
+      "description": "What a crawl with no handler reads from each page it fetches (spec\n#582's code-free crawls; ADR 0103): the engine declares the Label\n[`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by\n`url`, whose JSON Schema is generated from `formats`, and commits one\nRecord per page fetched: the page's formats, as `page.formats` answers\nthem (its `url` the document's, after redirects), its response's\n`status` and `fetchedAt`, when the engine read it, and its named\n`fields`, each read by a locator and given by a Value transform (ADR\n0123).",
       "properties": {
+        "fields": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ExtractionField"
+          },
+          "arrived_in": "0.1",
+          "description": "The named fields each page's Record holds beside its formats, by\nname, which no format's property and neither `status` nor\n`fetchedAt` may take; none by default.",
+          "type": "object"
+        },
         "follow": {
           "$ref": "#/$defs/ExtractionFollow",
           "arrived_in": "0.1",
@@ -3892,6 +3900,49 @@
       ],
       "type": "object"
     },
+    "ExtractionField": {
+      "additionalProperties": false,
+      "description": "One named field of a code-free crawl's Records (ADR 0123): the first\nelement its locator finds in the page, its text, its runs of white\nspace read as one space and trimmed, or one of its attributes, an\n`href` or `src` resolved against the document's base URL; optionally a\ncapture group of a regular expression over that text; then its Value\ntransform. A field the page does not give is null, and the Record's\nProvenance names why (`unread_fields`).",
+      "properties": {
+        "attribute": {
+          "arrived_in": "0.1",
+          "description": "The attribute read in place of the element's text.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "locator": {
+          "$ref": "#/$defs/FieldLocator",
+          "arrived_in": "0.1",
+          "description": "What finds its element."
+        },
+        "match": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FieldMatch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The `match` that picks the text its transform reads."
+        },
+        "transform": {
+          "$ref": "#/$defs/FieldTransform",
+          "arrived_in": "0.1",
+          "default": {
+            "kind": "text"
+          },
+          "description": "Its Value transform: `text` by default."
+        }
+      },
+      "required": [
+        "locator"
+      ],
+      "type": "object"
+    },
     "ExtractionFollow": {
       "description": "Which pages a code-free crawl fetches beyond its seeds.",
       "oneOf": [
@@ -4011,6 +4062,161 @@
         "field"
       ],
       "type": "object"
+    },
+    "FieldLocator": {
+      "description": "What finds a field's element, named by `kind`: a CSS selector or an\n`XPath` expression. A page a fetch tier serves from its document reads\na CSS selector; an `XPath` expression is read by the browser, to which\nthe request escalates under `fetch.tier: auto` (`browser_required`\nunder a forced cheaper tier).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A CSS selector.",
+          "properties": {
+            "kind": {
+              "const": "css",
+              "type": "string"
+            },
+            "selector": {
+              "arrived_in": "0.1",
+              "description": "The selector.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An `XPath` 1.0 expression.",
+          "properties": {
+            "kind": {
+              "const": "xpath",
+              "type": "string"
+            },
+            "selector": {
+              "arrived_in": "0.1",
+              "description": "The expression.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FieldMatch": {
+      "additionalProperties": false,
+      "description": "The `match` before a field's transform (ADR 0123): a capture group of a\nregular expression, in the `regex` crate's syntax (ADR 0081), over the\ntext read; that group's text is what the transform reads.",
+      "properties": {
+        "group": {
+          "arrived_in": "0.1",
+          "default": 1,
+          "description": "The capture group, 1 by default; 0 is the whole match.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pattern": {
+          "arrived_in": "0.1",
+          "description": "The expression's source.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    },
+    "FieldTransform": {
+      "description": "A field's Value transform (ADR 0123), named by `kind`, each\nlocale-dependent one stating its locale, a BCP 47 tag. A `number`,\n`date` or `date_time` reads the machine-readable value of a `<time\ndatetime>`, a `<data value>` or an element's `content` attribute in its\ninvariant form (ISO 8601, a plain decimal with a dot), whatever the\nlocale; a text printed for people, read under its locale's CLDR forms,\nis the Value transforms' parsers' (#844, #848), and until they land is\nnot a value.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The text read: a string.",
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An integer or decimal: a JSON number, never through a float, so a\ndecimal a JSON number cannot hold exactly is not a value.",
+          "properties": {
+            "kind": {
+              "const": "number",
+              "type": "string"
+            },
+            "locale": {
+              "arrived_in": "0.1",
+              "description": "Its locale.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "locale"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A date: `YYYY-MM-DD`.",
+          "properties": {
+            "kind": {
+              "const": "date",
+              "type": "string"
+            },
+            "locale": {
+              "arrived_in": "0.1",
+              "description": "Its locale.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "locale"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A date and time: RFC 3339 with its offset, the one the text states,\nelse `time_zone`'s at that time; one stating neither is not a value.",
+          "properties": {
+            "kind": {
+              "const": "date_time",
+              "type": "string"
+            },
+            "locale": {
+              "arrived_in": "0.1",
+              "description": "Its locale.",
+              "type": "string"
+            },
+            "time_zone": {
+              "arrived_in": "0.1",
+              "description": "The time zone, an IANA name, of a text that states none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "locale"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "FillParams": {
       "additionalProperties": false,
@@ -7925,6 +8131,14 @@
           ],
           "arrived_in": "0.1",
           "description": "The tier that fetched that request's document, and how it was\nchosen; none where the handler was given its request alone."
+        },
+        "unread_fields": {
+          "arrived_in": "0.1",
+          "description": "Each field of a code-free crawl the page did not give, null in the\nRecord, with why; absent where every field was read.",
+          "items": {
+            "$ref": "#/$defs/UnreadField"
+          },
+          "type": "array"
         },
         "value_transforms": {
           "arrived_in": "0.1",
@@ -12394,6 +12608,64 @@
         "since"
       ],
       "type": "object"
+    },
+    "UnreadField": {
+      "description": "A field of a code-free crawl's Record that its page did not give, so\nthe Record holds null (ADR 0123).",
+      "properties": {
+        "field": {
+          "arrived_in": "0.1",
+          "description": "The field, a JSON Pointer into the Record.",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/UnreadReason",
+          "arrived_in": "0.1",
+          "description": "Why."
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The text read, where one was: the text its `match` did not match, or\nthat its transform does not read as a value.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "field",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "UnreadReason": {
+      "description": "Why a field of a code-free crawl's Record is null.",
+      "oneOf": [
+        {
+          "const": "no_element",
+          "description": "Its locator found no element.",
+          "type": "string"
+        },
+        {
+          "const": "no_attribute",
+          "description": "Its element has no such attribute.",
+          "type": "string"
+        },
+        {
+          "const": "no_match",
+          "description": "Its `match` did not match the text, or its group took no part.",
+          "type": "string"
+        },
+        {
+          "const": "not_parsed",
+          "description": "Its transform does not read the text as a value.",
+          "type": "string"
+        },
+        {
+          "const": "no_time_zone",
+          "description": "A `date_time` whose text states no offset, with no `time_zone`.",
+          "type": "string"
+        }
+      ]
     },
     "Unready": {
       "description": "Why a Daemon cannot take a new Run now, as its ops listener's\n`/readyz` and `daemon health` check it (ADR 0050).",

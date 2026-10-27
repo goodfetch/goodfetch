@@ -980,6 +980,13 @@ export type Tags2 = Tag[];
  */
 export type TierChosen = "forced" | "compared" | "sample" | "escalation" | "race";
 /**
+ * Why a field of a code-free crawl's Record is null.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UnreadReason".
+ */
+export type UnreadReason = "no_element" | "no_attribute" | "no_match" | "not_parsed" | "no_time_zone";
+/**
  * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
  * one, or a regular expression in the `regex` crate's syntax. A predicate
  * runs in the program, which routes every URL and falls back for the
@@ -2139,6 +2146,11 @@ export interface RecordProvenance {
    */
   tier?: TierProvenance | null;
   /**
+   * Each field of a code-free crawl the page did not give, null in the
+   * Record, with why; absent where every field was read.
+   */
+  unread_fields?: UnreadField[];
+  /**
    * Each field whose value an engine Value transform gave, in the
    * order read; empty where the program parsed its own values.
    */
@@ -2215,6 +2227,28 @@ export interface TierProvenance {
    * The tier.
    */
   tier: "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
+}
+/**
+ * A field of a code-free crawl's Record that its page did not give, so
+ * the Record holds null (ADR 0123).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UnreadField".
+ */
+export interface UnreadField {
+  /**
+   * The field, a JSON Pointer into the Record.
+   */
+  field: string;
+  /**
+   * Why.
+   */
+  reason: "no_element" | "no_attribute" | "no_match" | "not_parsed" | "no_time_zone";
+  /**
+   * The text read, where one was: the text its `match` did not match, or
+   * that its transform does not read as a value.
+   */
+  text?: string | null;
 }
 /**
  * How a Value transform gave one field of a Record (ADR 0123).
@@ -5275,6 +5309,11 @@ export interface RecordProvenance1 {
    * chosen; none where the handler was given its request alone.
    */
   tier?: TierProvenance | null;
+  /**
+   * Each field of a code-free crawl the page did not give, null in the
+   * Record, with why; absent where every field was read.
+   */
+  unread_fields?: UnreadField[];
   /**
    * Each field whose value an engine Value transform gave, in the
    * order read; empty where the program parsed its own values.

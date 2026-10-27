@@ -1,36 +1,36 @@
 {
   "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py": {
-    "input": "d56d2693672b687f7b726437494236c1a856d6bd05a982f618d91e2de9e3437d",
-    "output": "03281be55fea82edd8113cff4502ff4b746dea70d7a3a10fb64929489dc543b7",
+    "input": "1fac60e22b9ba9c0fc37efba28eadedf4ab8f63c760d71bff939fe63941ddcfd",
+    "output": "83cf015dc3c5e4ac9f4710849838c6deaa2dd7ec9cca79ea8e5150ca4c826b14",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
     }
   },
   "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py": {
-    "input": "eb40c135add11506267d4f7c6f2595defbadf87be63a7bdf8ffcda93cd0a585a",
-    "output": "4a032a2082a99583198da6300d9964a2aec5d0a074c3ac3e656d1827e32fd08d",
+    "input": "a785a2be2823e58241d8f9b7abf11f54032c6c4fff531392675ee0cc807e731c",
+    "output": "131b1ef337d8ed0e40e7505e5ddf210602fcde6d96da961150a1ee58aa9cbefe",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
     }
   },
   "sdks/typescript/collie-client/src/generated/types.ts": {
-    "input": "17c7469a08b441b376d0a9464d5b88be2dae4ba749cf5f8dad9179c7326d96e7",
-    "output": "216037666f3ad3af691a1ed064f68c63b2ca4c671d86f184360b2458fd8c7c8c",
+    "input": "4993142811974fb2fbcb72ee29ab4849f121dd0ee375e4c6e0a9edbff45d4ef1",
+    "output": "427ae455ce9aa802c0cd076eeadb4aa12f58f99e8f48f7c160c17a1c70ba3875",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }
   },
   "sdks/typescript/foxhound/src/generated/types.ts": {
-    "input": "2a946472db79f758d7ec84f5e37ad2dff73ac4c551fb88453f7e485dd04d9fbf",
-    "output": "cd719ad3d5fe08f1d3781be799775bebe66270ff3e22b49bdaf42a5649bac3b4",
+    "input": "78354ccbbf59f184517161b0a366320bd79d834a4fe7e0835c5144148f4347a8",
+    "output": "43eccc602bbe41d5c7bd3081059913a8d2c8090bad4e7a4c834382da3805bd98",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }
   },
   "test-support/python/src/goodfetch_test_support/generated/result_document.py": {
-    "input": "1d38910169c01ed5570b987a4f5b74e8ab0d3bfbaa42dfc70271b63a489bc940",
+    "input": "b9f66555781eda64605539f1f7d03f06c69aaa847c57fdcda3814863692d9e25",
     "output": "47c0860918773a4fbfea4198bf297f2a834f1d3e9b63a5f7cbe6e135631e180a",
     "tools": {
       "datamodel-code-generator": "0.86.0",

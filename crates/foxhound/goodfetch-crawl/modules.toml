@@ -1,6 +1,6 @@
 # Which of goodfetch-crawl's top-level modules may import which (ADR 0126).
 [modules]
-code_free = ["enqueue", "serving"]
+code_free = ["enqueue", "serving", "work_items"]
 completeness = ["report", "work_items"]
 dataset_list = ["report"]
 delivery = ["code_free", "completeness", "labels", "lease", "policy", "progress", "serving", "tier_choice", "tier_race", "work_items"]
@@ -31,3 +31,6 @@ politeness = ["attempt"]
 
 [submodules.tier_choice]
 weighing = []
+
+[submodules.code_free]
+fields = []

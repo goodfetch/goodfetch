@@ -1249,7 +1249,10 @@ async fn handled(
         return tokio::select! {
             biased;
             handled = code_free.handled(params, context, run.point_in_time()) => match handled {
-                Ok(handled) => Answer::Handled(handled),
+                Ok((handled, fields)) => {
+                    lease.fields_read(fields);
+                    Answer::Handled(handled)
+                }
                 Err(error) => failed(&error),
             },
             _ = lease.ended() => Answer::LeaseEnded,

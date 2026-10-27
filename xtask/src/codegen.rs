@@ -218,9 +218,14 @@ impl External {
             Generator::Json2ts => &JSON2TS_OPTIONS,
             Generator::DatamodelCodegen => &python::DATAMODEL_CODEGEN_OPTIONS,
         };
+        let rewrites: &[&str] = match self.generator {
+            Generator::Json2ts => &[],
+            Generator::DatamodelCodegen => &[python::model_defaults::REWRITE],
+        };
         let mut recipe = self.input.clone();
         for part in options
             .iter()
+            .chain(rewrites)
             .copied()
             .chain([self.header.as_str(), &self.prefix])
         {
@@ -609,11 +614,61 @@ fn run_generator(
             String::from_utf8_lossy(&result.stderr)
         );
     }
-    let generated = std::fs::read(&output)
+    let mut generated = std::fs::read(&output)
         .with_context(|| format!("reading what the generator of {} wrote", external.output))?;
+    if let Generator::DatamodelCodegen = external.generator {
+        let text = String::from_utf8(generated)
+            .with_context(|| format!("reading {}'s generated text", external.output))?;
+        generated = match python::model_defaults::rewrite(&text) {
+            Some(rewritten) => {
+                ruff_format(&generators.datamodel_codegen, root, scratch, &rewritten)
+                    .with_context(|| format!("formatting {} again", external.output))?
+            }
+            None => text.into_bytes(),
+        };
+    }
     let mut contents = external.prefix.clone().into_bytes();
     contents.extend_from_slice(&generated);
     Ok(contents)
+}
+
+/// `text`, Python, formatted by the ruff beside `datamodel_codegen`, run in
+/// `scratch` as `datamodel-code-generator` runs it, so its settings are the
+/// same.
+fn ruff_format(
+    datamodel_codegen: &Path,
+    root: &Path,
+    scratch: &Path,
+    text: &str,
+) -> Result<Vec<u8>> {
+    use std::io::Write as _;
+    let ruff = std::path::absolute(root.join(datamodel_codegen.with_file_name("ruff")))?;
+    let mut child = Command::new(&ruff)
+        .args(["format", "--stdin-filename", "models.py", "-"])
+        .current_dir(scratch)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .with_context(|| {
+            format!(
+                "running {}; install the tools with `uv sync`",
+                ruff.display()
+            )
+        })?;
+    child
+        .stdin
+        .take()
+        .context("ruff's standard input")?
+        .write_all(text.as_bytes())?;
+    let result = child.wait_with_output()?;
+    if !result.status.success() {
+        bail!(
+            "ruff format failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    Ok(result.stdout)
 }
 
 /// `xtask codegen`'s arguments.

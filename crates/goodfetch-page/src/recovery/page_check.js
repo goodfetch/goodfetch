@@ -3,7 +3,9 @@
 // reaches: whether each of `matches`, a CSS selector, an XPath expression
 // or a text, finds anything, `null` for a selector or an expression the
 // document refuses; and whether the document shows one password field that
-// takes no new password, the built-in detector's sign of a login form. A
+// takes no new password, the built-in detector's sign of a login form; and
+// the `content` of each robots `meta` element, which says whether the
+// document is marked `noindex` (ADR 0035). A
 // text matches the body's text with runs of white space read as one space.
 // eslint-disable-next-line no-unused-vars -- `Runtime.callFunctionOn` calls it
 function pageCheck(argument) {
@@ -43,5 +45,8 @@ function pageCheck(argument) {
       box.height > 0 &&
       getComputedStyle(password).visibility === "visible" &&
       password.autocomplete !== "new-password",
+    robots: [...document.querySelectorAll("meta[name]")]
+      .filter((meta) => meta.name.toLowerCase() === "robots")
+      .map((meta) => meta.content),
   };
 }

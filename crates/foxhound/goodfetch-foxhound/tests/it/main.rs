@@ -72,6 +72,7 @@ mod served_calls;
 mod service_manager;
 mod session_pool;
 mod sitemap;
+mod soak;
 mod sql_tab;
 mod staging;
 mod tier_race;

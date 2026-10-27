@@ -1088,6 +1088,10 @@ impl On<'_> {
             ended_at: None,
         };
         let (run, leased, lease) = (self.run, self.leased, self.lease);
+        if let Some(decoy) = reached_through_trap(leased) {
+            tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a page reached through a suspected trap link is a decoy on the browser tier");
+            return ended(decoy);
+        }
         let mut hand_over = self
             .gating
             .hand_over(run, leased, lease, self.in_flight)
@@ -1278,14 +1282,70 @@ async fn address_check(run: &Run, http: &HttpTier, leased: &Leased) -> Result<()
     })
 }
 
-/// An attempt that ended with `error` before its handler was asked.
+/// An attempt that ended with `error` before its handler was asked; a
+/// page marked `noindex` that failed its Page check is a decoy instead
+/// (ADR 0035).
 fn failed(error: &CallError) -> Answer {
+    let details = error.details().cloned().unwrap_or_default();
+    if error.code() == PAGE_CHECK_FAILED
+        && details.get("noindex").and_then(Value::as_bool) == Some(true)
+    {
+        let url = details
+            .get("url")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let status = details
+            .get("status")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        return decoy(
+            format!(
+                "The page `{url}`, answered with {status}, is marked `noindex` and failed its Page check: a decoy, which is never retried, escalated or followed."
+            ),
+            url,
+            status,
+        );
+    }
     Answer::Failed {
         code: error.code().to_owned(),
         retryable: error.retryable(),
         message: error.message().to_owned(),
-        details: error.details().cloned().unwrap_or_default(),
+        details,
     }
+}
+
+/// The ending of a request whose page is a decoy (ADR 0035): `blocked`
+/// with `decoy`, its document at `url` answered with `status`, which ends
+/// it at once, with none of its links followed.
+fn decoy(message: String, url: &str, status: u64) -> Answer {
+    let mut details = Map::new();
+    details.insert("cause".to_owned(), serde_json::json!(BlockCause::Decoy));
+    details.insert("url".to_owned(), Value::from(url));
+    details.insert("status".to_owned(), Value::from(status));
+    details.insert("retry_after".to_owned(), Value::Null);
+    Answer::Failed {
+        code: BLOCKED.to_owned(),
+        retryable: false,
+        message,
+        details,
+    }
+}
+
+/// The ending of `leased`'s request on a browser tier when it was added
+/// through a link its served document's markup hides (ADR 0035): a
+/// browser tier never follows a link a person cannot see, so its page,
+/// never fetched, is a decoy.
+fn reached_through_trap(leased: &Leased) -> Option<Answer> {
+    leased.trap_link_suspected.then(|| {
+        let url = &leased.crawl_request.url;
+        decoy(
+            format!(
+                "The page `{url}` was reached through a link its page's markup hides from people, a trap: a browser never follows one, so it is a decoy, never fetched."
+            ),
+            url,
+            0,
+        )
+    })
 }
 
 /// Records in the Run's Provenance the tier `choice` names for `leased`'s

@@ -35,13 +35,13 @@ const PAGES: u64 = 200;
 const STALLED_READS: usize = 64;
 
 /// One Client's Connection to the Daemon.
-struct Connection {
+pub(crate) struct Connection {
     reader: BufReader<Box<dyn Read>>,
     writer: Box<dyn Write>,
 }
 
 impl Connection {
-    fn open(daemon: &Daemon) -> Self {
+    pub(crate) fn open(daemon: &Daemon) -> Self {
         let description = daemon.description();
         let (reader, writer): (Box<dyn Read>, Box<dyn Write>) =
             if cfg!(windows) || !Path::new(&description.socket).is_absolute() {
@@ -66,14 +66,14 @@ impl Connection {
         connection
     }
 
-    fn send(&mut self, message: &Value) {
+    pub(crate) fn send(&mut self, message: &Value) {
         let mut line = serde_json::to_vec(message).unwrap();
         line.push(b'\n');
         self.writer.write_all(&line).unwrap();
         self.writer.flush().unwrap();
     }
 
-    fn next(&mut self) -> Value {
+    pub(crate) fn next(&mut self) -> Value {
         let mut line = String::new();
         assert_ne!(
             self.reader.read_line(&mut line).unwrap(),
@@ -85,7 +85,7 @@ impl Connection {
 
     /// Sends the call `id` and answers each handler request with `handler`
     /// until its reply comes.
-    fn call(
+    pub(crate) fn call(
         &mut self,
         id: &str,
         method: &str,

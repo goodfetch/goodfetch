@@ -212,6 +212,28 @@ impl Connection {
         }))
     }
 
+    /// Answers the engine's request `id` with a failure of the Error code
+    /// `code` in `group`, retryable as `group` is, carrying `details`, as a
+    /// handler that raised an engine error does.
+    pub(crate) fn fail_with(
+        &mut self,
+        id: &Value,
+        group: ErrorGroup,
+        code: &str,
+        message: &str,
+        details: &Value,
+    ) -> Result<(), Gone> {
+        let mut data = json!({ "code": code, "retryable": true });
+        if let (Some(data), Some(details)) = (data.as_object_mut(), details.as_object()) {
+            data.extend(details.clone());
+        }
+        self.send(&json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": { "code": group.json_rpc_class(), "message": message, "data": data },
+        }))
+    }
+
     /// Opens a further Connection to the same target, before any `hello`,
     /// its messages kept apart from this one's.
     pub(crate) fn another(&self, target: &EngineTarget) -> Result<Self, StartError> {

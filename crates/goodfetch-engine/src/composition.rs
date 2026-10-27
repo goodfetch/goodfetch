@@ -392,7 +392,7 @@ impl CallContext {
     }
 
     /// The driver of Runs of `kind`, when the composition has one.
-    pub(crate) fn driver(&self, kind: RunKind) -> Option<Driver> {
+    pub fn driver(&self, kind: RunKind) -> Option<Driver> {
         self.connection.drivers.get(&kind).cloned()
     }
 

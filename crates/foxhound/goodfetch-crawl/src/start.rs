@@ -54,6 +54,7 @@ use crate::outcomes;
 use crate::policy::domain_policy;
 use crate::push;
 use crate::redeclare::Redeclared;
+use crate::retry;
 use crate::seeding;
 use crate::servable;
 use crate::serving::Crawls;
@@ -62,7 +63,7 @@ use crate::work_items;
 
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
 /// a handler's enqueue and push, the seeds added to a running crawl, the reads of
-/// its outcomes, the work items', Records' and outcomes' tables of every
+/// its outcomes, the re-admission of its failures, the work items', Records' and outcomes' tables of every
 /// run file, and the driver a resumed crawl starts again with. Its crawl
 /// requests are fetched on the tiers of `tiers` (spec #579), the value
 /// Foxhound's composition also hands Collie's pages.
@@ -72,6 +73,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let serving = crawls.clone();
     let enqueuing = crawls.clone();
     let pushing = crawls.clone();
+    let retrying = crawls.clone();
     let resuming = crawls.clone();
     let redeclared = Redeclared::default();
     let redeclaring = redeclared.clone();
@@ -99,6 +101,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
         .with_handler(add_seeds)
         .with_handler(read_outcomes)
         .with_handler(read_failed_requests)
+        .with_handler(retry::handler(retrying))
         .with_handler(crate::dataset_list::handler())
         .with_run_state_tables(work_items::TABLES)
         .with_run_state_tables(labels::TABLES)

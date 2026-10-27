@@ -1320,8 +1320,7 @@ async fn settle(
         answer,
         ..
     } = attempt;
-    let failure =
-        |failure, retryable| retried_or_failed(policy, leased.attempt, failure, retryable);
+    let failure = |failure, retryable| retried_or_failed(policy, leased.tries, failure, retryable);
     let unsuccessful = match answer {
         Answer::Handled(CrawlRequestHandled {
             skipped: Some(skip),
@@ -1331,7 +1330,7 @@ async fn settle(
             message: Some(skip.message),
         },
         Answer::Refused(reason) => refused(reason),
-        Answer::RobotsTxtUnreachable(message) if policy.may_retry(leased.attempt) => {
+        Answer::RobotsTxtUnreachable(message) if policy.may_retry(leased.tries) => {
             Unsuccessful::Retried(Failure::new(SITE_PREFERENCES_REFUSED.name, &message))
         }
         Answer::RobotsTxtUnreachable(_) => refused(SkipReason::RobotsTxt),
@@ -1502,7 +1501,8 @@ fn refused(reason: SkipReason) -> Unsuccessful {
     }
 }
 
-/// How `failure` on a work item's `attempt`th attempt ends it under
+/// How `failure` on a work item's `attempt`th attempt since its latest
+/// admission ends it under
 /// `policy`: retried while it is `retryable` and retries are left, failed
 /// otherwise; a handler's own failure is retryable only as
 /// `crawl.retry.handler_failed` says.

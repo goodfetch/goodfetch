@@ -33,6 +33,7 @@ mod progress;
 mod push;
 mod redeclare;
 mod report;
+mod retry;
 mod seeding;
 mod servable;
 mod serving;

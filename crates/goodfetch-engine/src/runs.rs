@@ -334,6 +334,10 @@ pub struct Resume {
     pub timeout: Option<Duration>,
     /// Its resolved settings, which its pages and Sessions open under.
     pub settings: Option<RunSettings>,
+    /// Whether `run.retry_failed` reopens it, the Run's event
+    /// `RetryFailed`, which also returns a `finished` Run to `running`,
+    /// rather than a resume (ADR 0102).
+    pub retry_failed: bool,
 }
 
 /// What a resume found.
@@ -4782,6 +4786,7 @@ impl Registry {
             checkpoint_interval,
             timeout,
             settings,
+            retry_failed,
         } = resume;
         // A Run this engine writes is answered as it is.
         if let Some(live) = self.live.get(&run_id) {
@@ -4797,7 +4802,12 @@ impl Registry {
             .await?;
         let folder = self.folder(&run_id);
         self.may_resume(&run_id, &held, &folder).await?;
-        let lifecycle = match lifecycle::apply(held.lifecycle, RunEvent::Resume) {
+        let event = if retry_failed {
+            RunEvent::RetryFailed
+        } else {
+            RunEvent::Resume
+        };
+        let lifecycle = match lifecycle::apply(held.lifecycle, event) {
             Ok(Next::To(next)) => next,
             Ok(Next::Unchanged) => {
                 return Ok(Resumed::Existing(RunStarted {

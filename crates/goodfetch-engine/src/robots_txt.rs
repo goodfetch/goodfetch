@@ -8,7 +8,8 @@
 //! mark, as lines ended by LF, CRLF or CR, each `key: value` with its key
 //! in any case, a `#` starting a comment. A run of `User-agent` lines opens
 //! a group, and its rules and Crawl-delay belong to it until the next
-//! `User-agent` line after them; a rule before any `User-agent` line, an
+//! `User-agent` line after them, as do its `Content-Signal` lines
+//! (Cloudflare's Content Signals Policy); a rule before any `User-agent` line, an
 //! unknown key and a line with no colon are ignored, and a Sitemap line
 //! belongs to the file. Matching follows RFC 9309 §2.2.2: a rule matches a
 //! target it is a prefix of, `*` matching any octets and a final `$` the
@@ -67,6 +68,7 @@ pub struct Group {
     user_agents: Vec<String>,
     rules: Vec<Rule>,
     crawl_delay: Option<Duration>,
+    content_signals: Vec<(String, bool)>,
     line: usize,
 }
 
@@ -84,6 +86,12 @@ impl Group {
     /// Its first Crawl-delay that reads as a number of seconds.
     pub fn crawl_delay(&self) -> Option<Duration> {
         self.crawl_delay
+    }
+
+    /// Its `Content-Signal` lines' signals, each name in lowercase with
+    /// `true` for `yes` and `false` for `no`, in file order.
+    pub fn content_signals(&self) -> &[(String, bool)] {
+        &self.content_signals
     }
 
     /// The line of its first `User-agent` line, from 1.
@@ -190,6 +198,7 @@ pub fn parse(bytes: &[u8]) -> RobotsTxt {
                         user_agents: Vec::new(),
                         rules: Vec::new(),
                         crawl_delay: None,
+                        content_signals: Vec::new(),
                         line: number,
                     });
                     agents_open = true;
@@ -231,11 +240,31 @@ pub fn parse(bytes: &[u8]) -> RobotsTxt {
                     group.crawl_delay = seconds(value);
                 }
             }
+            "content-signal" => {
+                agents_open = false;
+                if let Some(group) = file.groups.last_mut() {
+                    group.content_signals.extend(content_signals(value));
+                }
+            }
             "sitemap" if !value.is_empty() => file.sitemaps.push(value.to_owned()),
             _ => {}
         }
     }
     file
+}
+
+/// The signals of a `Content-Signal` line's `value`: each `name=yes` or
+/// `name=no`, its name in lowercase; any other member says nothing.
+fn content_signals(value: &str) -> impl Iterator<Item = (String, bool)> + '_ {
+    value.split(',').filter_map(|member| {
+        let (name, preference) = member.split_once('=')?;
+        let allowed = match preference.trim().to_ascii_lowercase().as_str() {
+            "yes" => true,
+            "no" => false,
+            _ => return None,
+        };
+        Some((name.trim().to_ascii_lowercase(), allowed))
+    })
 }
 
 /// Whether `rules` let a crawler request `target`, a URL's path and query

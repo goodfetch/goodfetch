@@ -244,8 +244,16 @@ pub enum ProtocolSuiteError {
     Write(#[from] WriteError),
 }
 
+/// The variable of the target's environment that holds the password of the
+/// Proving ground's proxies, when it serves them: the harness sets it, so a
+/// case's Session names it through the `env:` Secret provider. It is no
+/// `GOODFETCH_` variable, a name the engine refuses unless it deploys it.
+pub const PROXY_PASSWORD_VARIABLE: &str = "PROVING_GROUND_PROXY_PASSWORD";
+
 /// Runs `suite` against `target` and the running `proving_ground`, and
-/// returns its result document.
+/// returns its result document. The target starts with
+/// [`PROXY_PASSWORD_VARIABLE`] added to its environment when the Proving
+/// ground's proxies take credentials.
 ///
 /// # Errors
 ///
@@ -259,6 +267,17 @@ pub fn run_protocol_suite(
 ) -> Result<ConformanceDocument, ProtocolSuiteError> {
     let task_list = proving_ground.task_list()?;
     let reached = Site::of(&task_list, proving_ground);
+    // The harness gives the target the password of the Proving ground's
+    // proxies, which a case's Session reads through the `env:` Secret
+    // provider, as a program's own environment would hold it.
+    let mut given = target.clone();
+    if let Some(credentials) = reached.proxy_credentials() {
+        given.environment.insert(
+            PROXY_PASSWORD_VARIABLE.to_owned(),
+            credentials.password.clone(),
+        );
+    }
+    let target = &given;
     let mut connection = Connection::new(target::Started::start(target)?);
     let hello = match hello(&mut connection, suite.product) {
         Ok(hello) => hello,

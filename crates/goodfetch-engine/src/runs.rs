@@ -1630,6 +1630,12 @@ impl Run {
         self.runs.audit().clone()
     }
 
+    /// Where a listener it opens records its refusals: the user's Audit
+    /// log (`endpoint`).
+    pub fn refusals(&self) -> Refusals {
+        self.runs.refusals()
+    }
+
     /// The person it acts for, whose partition of the user's stores it
     /// reads: the OS user until accounts exist (ADR 0102).
     pub fn person(&self) -> &'static str {

@@ -11,7 +11,7 @@ use goodfetch_protocol::page::proxy::{PROXY_PASSWORD, PROXY_USERNAME, ProxyServe
 use rstest::rstest;
 use secrecy::SecretString;
 
-use super::{Answer, Party, SessionProxy, party, too_long_for_socks5};
+use super::{Answer, Party, SessionProxy, party, relay_unavailable, too_long_for_socks5};
 
 /// A Session's proxy at `server`, with `bypass`, and no relay or limits.
 fn proxy(server: &str, bypass: Option<&str>) -> SessionProxy {
@@ -113,5 +113,28 @@ fn credentials_longer_than_socks5_carries_name_their_setting(
     assert_eq!(
         too_long_for_socks5(&"u".repeat(username), Some(&password)),
         expected
+    );
+}
+
+/// Covers: story:5-88, error:proxy_relay_unavailable
+#[test]
+fn a_relay_that_cannot_open_raises_the_engines_own_code_never_the_proxy_code() {
+    let server = ProxyServer::parse("socks5://exit.example:1080").unwrap();
+    // Too many open files: the machine's failure, before any proxy.
+    let error = std::io::Error::from_raw_os_error(24);
+
+    let raised = relay_unavailable(&server, &error);
+
+    assert_eq!(
+        (
+            raised.code(),
+            raised.retryable(),
+            raised.details().map(|details| details["proxy"].clone())
+        ),
+        (
+            "proxy_relay_unavailable",
+            true,
+            Some(serde_json::json!("socks5://exit.example:1080"))
+        )
     );
 }

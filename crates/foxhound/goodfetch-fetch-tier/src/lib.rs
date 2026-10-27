@@ -57,7 +57,7 @@ pub use document::{Matched, SelectorInvalid};
 pub use driver::{
     Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch, met,
 };
-pub use gate::{HandOver, RobotsTxtFetch, crawl_delay, disallowing};
+pub use gate::{HandOver, RobotsTxtFetch, content_signals, crawl_delay, disallowing};
 pub use goodfetch_page::page_value::PooledSession;
 pub use http_profile::HttpProfile;
 pub use light_browser::{
@@ -75,4 +75,7 @@ pub use tiers::{
 pub use transports::{
     AddressCheck, LocalSource, Reqwest, TransportConfig, TransportUnavailable, Wreq,
 };
-pub use use_signals::{Purpose, UseSignals};
+pub use use_signals::{
+    Purpose, SignalFiles, TDMREP_FILE, UseSignals, content_signals_refusing, rsl_refusing,
+    tdmrep_file_refusing,
+};

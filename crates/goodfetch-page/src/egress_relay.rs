@@ -611,13 +611,22 @@ impl Observe for Record {
         }
     }
 
-    fn unauthenticated(&self) {
-        tracing::warn!(
-            target: REFUSAL_TARGET,
-            listener = "egress_relay",
-            reason = "token_wrong",
-            "a connection to a Session's egress relay gave no credentials, or wrong ones, and was refused"
-        );
+    fn unauthenticated(&self, given: bool) {
+        // Every client's first request, the browser's included, carries no
+        // credentials until the relay asks for them: only wrong ones are a
+        // refusal, recorded in the Audit log.
+        if !given {
+            tracing::debug!(
+                target: REFUSAL_TARGET,
+                listener = "egress_relay",
+                "a connection to a Session's egress relay gave no credentials and was asked for them"
+            );
+            return;
+        }
+        let refusals = self.run.refusals();
+        self.run.spawn(async move {
+            refusals.refused("egress_relay", "token_wrong").await;
+        });
     }
 }
 

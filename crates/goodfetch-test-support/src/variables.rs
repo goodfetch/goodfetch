@@ -25,6 +25,11 @@ pub const TOOLS_VARIABLE: &str = "GOODFETCH_TEST_TOOLS";
 /// (ADR 0060).
 pub const LAZYFS_VARIABLE: &str = "GOODFETCH_LAZYFS";
 
+/// The folder each LazyFS test's folder is made in, in place of `/tmp`
+/// (`TestEnv::for_lazyfs`): one where the operating system lets the user
+/// mount a FUSE file system, with a short path for the home's Unix sockets.
+pub const LAZYFS_FOLDER_VARIABLE: &str = "GOODFETCH_LAZYFS_FOLDER";
+
 /// The executable a skew run of `just journeys --engine <path>` drives
 /// (ADR 0066): when it is set, every Journey variant runs it in place of the
 /// executable its test passes.
@@ -86,6 +91,7 @@ impl Variables {
             SUITE_VARIABLE,
             TOOLS_VARIABLE,
             LAZYFS_VARIABLE,
+            LAZYFS_FOLDER_VARIABLE,
             RESULT_DOCUMENTS_VARIABLE,
             ENGINE_VARIABLE,
             RECORDS_VARIABLE,

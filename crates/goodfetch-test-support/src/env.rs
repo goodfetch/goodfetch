@@ -23,6 +23,8 @@ use crate::process::{Process, ProcessTracker, ProcessesAlive};
 use crate::runtime_file::{
     DaemonEndpoint, RUNTIME_FILE, RuntimeFile, SOCKET_FOLDER_PREFIX, major_folder,
 };
+#[cfg(target_os = "linux")]
+use crate::variables::LAZYFS_FOLDER_VARIABLE;
 use crate::variables::{
     COVERAGE_VARIABLE, SeedError, Suite, SuiteError, Variables, WINDOWS_VARIABLES, current_test,
 };
@@ -43,6 +45,17 @@ fn log_level() -> String {
 
 /// How long a folder name keeps the test's name.
 const NAME_LENGTH: usize = 64;
+
+/// Where a LazyFS test's folder is made unless [`LAZYFS_FOLDER_VARIABLE`]
+/// names another folder. A FUSE mount is refused outside the folders the
+/// operating system lets a user mount in: Ubuntu's AppArmor profile of
+/// `fusermount3` allows only `$HOME`, `/mnt`, `/run/user/<uid>`, `/media` and
+/// `/tmp`, so a `TMPDIR` elsewhere, such as the local gate's `/g`, cannot
+/// hold the mount. `/tmp` is in that list and on every Linux, and short
+/// enough that `<home>/0.0/daemon.sock` stays within the engine's 103-byte
+/// limit for a Unix socket's path (the OS's is 108).
+#[cfg(target_os = "linux")]
+const LAZYFS_PARENT: &str = "/tmp";
 
 /// The settings every test's user configuration starts with: the Console
 /// of every Daemon the test starts listens on a port the OS chooses, never
@@ -90,6 +103,39 @@ impl TestEnv {
     /// Prints `goodfetch-test-seed=<n>` to stderr once the seed is known,
     /// before anything else, so a test killed on a timeout still shows it.
     pub fn create(test: &str, variables: &Variables) -> Result<Self, TestEnvError> {
+        Self::create_in(test, variables, None)
+    }
+
+    /// The running test's setup for a LazyFS mount of its folders
+    /// ([`crate::LazyFs`]): its folder made in [`LAZYFS_FOLDER_VARIABLE`]'s
+    /// folder, or in `/tmp`, whatever `TMPDIR` names.
+    ///
+    /// # Panics
+    ///
+    /// If its folder cannot be made or a variable cannot be read.
+    #[cfg(target_os = "linux")]
+    pub fn for_lazyfs() -> Self {
+        Self::create_for_lazyfs(&current_test(), &Variables::from_process())
+            .unwrap_or_else(|error| panic!("the test's TestEnv cannot start: {error}"))
+    }
+
+    /// [`TestEnv::for_lazyfs`] of the test with this full name, from these
+    /// variables.
+    #[cfg(target_os = "linux")]
+    pub fn create_for_lazyfs(test: &str, variables: &Variables) -> Result<Self, TestEnvError> {
+        let parent = variables
+            .get(LAZYFS_FOLDER_VARIABLE)
+            .unwrap_or(LAZYFS_PARENT);
+        Self::create_in(test, variables, Some(Path::new(parent)))
+    }
+
+    /// [`TestEnv::create`], its folder made in `parent`, or in the
+    /// operating system's temporary folder (`TMPDIR`) when it is `None`.
+    fn create_in(
+        test: &str,
+        variables: &Variables,
+        parent: Option<&Path>,
+    ) -> Result<Self, TestEnvError> {
         let seed = variables.seed(test)?;
         #[expect(
             clippy::print_stderr,
@@ -99,9 +145,13 @@ impl TestEnv {
             eprintln!("goodfetch-test-seed={seed}");
         }
         let suite = variables.suite()?;
-        let folder = tempfile::Builder::new()
-            .prefix(&format!("{} é ", folder_name(test)))
-            .tempdir()?;
+        let prefix = format!("{} é ", folder_name(test));
+        let mut builder = tempfile::Builder::new();
+        builder.prefix(&prefix);
+        let folder = match parent {
+            Some(parent) => builder.tempdir_in(parent)?,
+            None => builder.tempdir()?,
+        };
         let root = folder.path();
         let home = root.join("home");
         let crash_dumps = home.join(crash_dumps::FOLDER);

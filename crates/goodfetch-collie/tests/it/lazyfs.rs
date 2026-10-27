@@ -20,7 +20,7 @@ use crate::run::call;
 
 #[test]
 fn a_run_acknowledged_before_a_power_cut_is_intact_and_taken_back_after_it() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     let home = LazyFs::mount(&env, env.home()).unwrap();
     let mut engine = Attached::start(&env);
     engine.send(&hello("collie", "0.1"));
@@ -90,7 +90,7 @@ fn a_run_acknowledged_before_a_power_cut_is_intact_and_taken_back_after_it() {
 /// Covers: story:3-27, setting:run_state.durability
 #[test]
 fn a_power_cut_in_fast_durability_leaves_a_run_file_that_passes_its_integrity_check() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     env.user_configuration("run_state.durability = \"fast\"\n");
     let home = LazyFs::mount(&env, env.home()).unwrap();
     let mut engine = Attached::start(&env);
@@ -133,7 +133,7 @@ fn a_power_cut_in_fast_durability_leaves_a_run_file_that_passes_its_integrity_ch
     reason = "the test reads the user configuration back as a reboot would, outside any async worker"
 )]
 fn a_consent_domain_allowed_before_a_power_cut_is_still_allowed_after_it() {
-    let env = TestEnv::new();
+    let env = TestEnv::for_lazyfs();
     let file = env.home().join("0.0").join("configuration.toml");
     let home = LazyFs::mount(&env, env.home()).unwrap();
     let mut engine = Attached::start(&env);

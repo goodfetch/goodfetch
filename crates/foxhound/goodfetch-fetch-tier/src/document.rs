@@ -2,14 +2,15 @@
 //! decoded as the `charset` module's order reads it (ADR 0119): a locator
 //! matches its CSS selector in the parsed document, each element read as
 //! an `enqueueLinks` Payload function reads it: its `href` as written, its
-//! text and its attributes. On the browser tier, the page itself reads
-//! them, with what a person sees of each (the Frontier's `trap_links`).
+//! text and its attributes, with what its markup and its holders' state
+//! of whether a person sees it (the Frontier's `trap_links`). On the
+//! browser tier, the page itself reads them, with what its layout shows.
 //! A code-free crawl's fields (ADR 0123) read the first element each
 //! field's locator finds, alike: its tag name, text and attributes; on the
 //! browser tier the page reads them with [`FIELDS_READ`], CSS selectors and
 //! `XPath` expressions alike.
 
-use goodfetch_frontier::trap_links::Seen;
+use goodfetch_frontier::trap_links::{Seen, Sight};
 use serde_json::Value;
 
 /// One element a locator matched.
@@ -21,9 +22,9 @@ pub struct Matched {
     pub text: String,
     /// Its attributes, in document order.
     pub attributes: Vec<(String, String)>,
-    /// What a person sees of it, as a browser page read it; `None` from a
-    /// served document, which has no layout.
-    pub seen: Option<Seen>,
+    /// What a person sees of it: as a browser page's layout shows it, or
+    /// as a served document's markup states it.
+    pub sight: Sight,
 }
 
 /// The first element a code-free crawl's field's locator found in a page
@@ -62,22 +63,38 @@ pub(crate) fn matched(html: &str, selector: &str) -> Result<Vec<Matched>, Select
     Ok(selection
         .nodes()
         .iter()
-        .map(|node| Matched {
-            href: node.attr("href").map(|href| href.to_string()),
-            text: node.text().to_string(),
-            attributes: node
-                .attrs()
-                .iter()
-                .map(|attribute| {
-                    (
-                        attribute.name.local.to_string(),
-                        attribute.value.to_string(),
-                    )
-                })
-                .collect(),
-            seen: None,
+        .map(|node| {
+            // The element, then each element holding it outward.
+            let held_by: Vec<Vec<(String, String)>> = node
+                .ancestors_it(None)
+                .map(|holder| attributes(&holder))
+                .collect();
+            let own = attributes(node);
+            let markup = Seen::in_markup(
+                std::iter::once(own.as_slice()).chain(held_by.iter().map(Vec::as_slice)),
+            );
+            Matched {
+                href: node.attr("href").map(|href| href.to_string()),
+                text: node.text().to_string(),
+                attributes: own,
+                sight: Sight::Markup(markup),
+            }
         })
         .collect())
+}
+
+/// The attributes of `element`, in document order.
+fn attributes(element: &dom_query::NodeRef<'_>) -> Vec<(String, String)> {
+    element
+        .attrs()
+        .iter()
+        .map(|attribute| {
+            (
+                attribute.name.local.to_string(),
+                attribute.value.to_string(),
+            )
+        })
+        .collect()
 }
 
 /// The first element of `html` that each of `selectors`, CSS selectors,
@@ -181,7 +198,7 @@ pub(crate) fn browser_matched(answer: &Value) -> Option<(String, String, String,
                         Some((at(0)?, at(1)?))
                     })
                     .collect::<Option<_>>()?,
-                seen: Some(Seen::read(element.get("seen")?)?),
+                sight: Sight::Layout(Seen::read(element.get("seen")?)?),
             })
         })
         .collect::<Option<_>>()?;

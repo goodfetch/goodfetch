@@ -14,6 +14,8 @@
 //! 0128): a crash loses the Run's engine and a resume takes its writer
 //! role again. 16 cases in the Quick suite and 256 in the Pre-merge suite
 //! (`proptest_config`).
+//! Each case's folder lies in memory (`TestEnv::in_memory`): on a busy
+//! disk its files' syncs took it near the Quick kill (fix-queue 123).
 
 use std::path::PathBuf;
 
@@ -258,7 +260,7 @@ impl StateMachineTest for Subject {
     type Reference = Reference;
 
     fn init_test(_: &Reference) -> Self {
-        let env = TestEnv::new();
+        let env = TestEnv::in_memory();
         // Each case's folder has a name of its own; the VFS takes it, since
         // every case of the test registers one in the same process.
         let folder = env

@@ -66,6 +66,10 @@ pub fn peak_resident_bytes() -> io::Result<u64> {
 ///
 /// When the process is gone or the OS refuses to read it.
 #[cfg(target_os = "linux")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test reads another process's status file outside any async worker"
+)]
 pub fn peak_resident_bytes_of(process: u32) -> io::Result<u64> {
     let status = std::fs::read_to_string(format!("/proc/{process}/status"))?;
     let kib = status

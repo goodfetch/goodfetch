@@ -41,6 +41,10 @@ fn the_peak_of_a_process_named_by_its_pid_keeps_memory_touched_and_freed_since()
 /// nothing.
 #[cfg(unix)]
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test starts a child and waits for it to settle outside any async worker"
+)]
 fn the_peak_of_another_process_is_its_own() {
     let touched = vec![1_u8; usize::try_from(256 * MIB).unwrap()];
     drop(black_box(touched));

@@ -183,6 +183,82 @@ fn a_code_free_crawl_started_followed_and_read_from_the_command_line() {
     );
 }
 
+/// The other reads of a crawl that ended, and `run retry-failed`, each
+/// under `--json`: its seeds, its rejected Records, its Datasets, a page
+/// of one, an SQL query over it and a retry with nothing to retry, each
+/// one JSON value of the bundle's type.
+///
+/// Covers: story:11-1131, command:run.seeds, command:run.rejected-records, command:run.retry-failed, command:dataset.list, command:dataset.page, command:dataset.query
+#[test]
+fn a_crawls_other_commands_each_print_one_value_of_their_type() {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _stops = StopsTheDaemon(&env);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let settings = settings_file(&env, &proving_ground);
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    crawl_start(&env, &settings, "read", std::slice::from_ref(&index));
+    // The crawl has ended once its last ending is read.
+    let _ = cli(&env, FOXHOUND)
+        .args(["run", "outcomes", "read", "--follow", "--json"])
+        .run()
+        .unwrap();
+
+    let commands: [(&[&str], &str); 6] = [
+        (&["run", "seeds", "read"], "RunSeeds"),
+        (
+            &["run", "rejected-records", "read", "--dataset", "pages"],
+            "RejectedRecords",
+        ),
+        (&["run", "retry-failed", "read"], "RetriedFailed"),
+        (&["dataset", "list", "--run-id", "read"], "DatasetList"),
+        (
+            &["dataset", "page", "--run-id", "read", "--dataset", "pages"],
+            "DatasetPage",
+        ),
+        (
+            &[
+                "dataset",
+                "query",
+                "--runs",
+                "read",
+                "--sql",
+                "SELECT count(*) AS records FROM records('read')",
+            ],
+            "DatasetQueryResult",
+        ),
+    ];
+    let printed: Vec<(String, Option<i32>, Value)> = commands
+        .iter()
+        .map(|(arguments, schema)| {
+            let checked = cli(&env, FOXHOUND)
+                .args(*arguments)
+                .arg("--json")
+                .json(schema)
+                .unwrap_or_else(|error| panic!("{arguments:?}: {error}"));
+            (
+                arguments[..2].join(" "),
+                checked.output.exit,
+                checked.documents[0].clone(),
+            )
+        })
+        .collect();
+
+    let exits: Vec<(String, Option<i32>)> = printed
+        .iter()
+        .map(|(command, exit, _)| (command.clone(), *exit))
+        .collect();
+    let expected: Vec<(String, Option<i32>)> = commands
+        .iter()
+        .map(|(arguments, _)| (arguments[..2].join(" "), Some(0)))
+        .collect();
+    assert_eq!(
+        (exits, printed[2].2.clone()),
+        (expected, json!({ "readmitted": 0 })),
+        "{printed:?}"
+    );
+}
+
 /// The messages a command's Connection carried, from its `trace` records
 /// on stderr: one line per direction, kind and method, with how many, in
 /// the order each first came.
@@ -273,9 +349,9 @@ fn protocol_counts_of_crawl_start_run_outcomes_follow_and_run_records() {
 /// `run add-seeds` reads one seed per line from stdin, a URL or a seed as
 /// JSON, and prints the engine's answer to each batch as one JSON object
 /// per line under `--json`, into a running crawl that `crawl.keep_alive`
-/// keeps open.
+/// keeps open; `run add-seed` adds one seed and prints its answer.
 ///
-/// Covers: story:11-1130, command:run.add-seeds
+/// Covers: story:11-1130, command:run.add-seeds, command:run.add-seed
 #[test]
 fn run_add_seeds_reads_its_seeds_from_stdin() {
     let env = TestEnv::new();
@@ -300,6 +376,12 @@ fn run_add_seeds_reads_its_seeds_from_stdin() {
         ))
         .json_lines("EnqueuedBatch")
         .unwrap();
+    let one = cli(&env, FOXHOUND)
+        .args(["run", "add-seed", "seeded", "--seed"])
+        .arg(json!({ "url": index, "label": "page" }).to_string())
+        .arg("--json")
+        .json("Enqueued")
+        .unwrap();
     let finished = cli(&env, FOXHOUND)
         .args(["run", "finish", "seeded", "--json"])
         .run()
@@ -312,11 +394,15 @@ fn run_add_seeds_reads_its_seeds_from_stdin() {
         .map(|answer| (answer["added"] == true, answer["reason"].clone()))
         .collect();
     assert_eq!(
-        (answers, added.output.exit, finished.exit),
         (
-            vec![(false, json!("duplicate")), (false, json!("invalid_url")),],
-            Some(0),
-            Some(0),
+            answers,
+            one.documents[0]["reason"].clone(),
+            [added.output.exit, one.output.exit, finished.exit],
+        ),
+        (
+            vec![(false, json!("duplicate")), (false, json!("invalid_url"))],
+            json!("duplicate"),
+            [Some(0); 3],
         ),
         "{}",
         added.output

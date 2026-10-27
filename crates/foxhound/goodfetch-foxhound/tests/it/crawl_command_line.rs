@@ -293,10 +293,12 @@ fn run_export_writes_its_file_at_the_path_or_on_standard_output() {
 /// `path_not_writable`, and to a full filesystem `14`,
 /// `file_write_failed`, each leaving the path as it was.
 ///
-/// Covers: story:11-1132, command:run.export, exit:path_not_writable, exit:file_write_failed
+/// Covers: story:11-1132, command:run.export
 #[cfg(target_os = "linux")]
 #[rstest]
+/// Covers: exit:path_not_writable
 #[case::path_through_a_file(false, Some(13), "path_not_writable")]
+/// Covers: exit:file_write_failed
 #[case::full_filesystem(true, Some(14), "file_write_failed")]
 fn run_export_refuses_a_path_it_cannot_write_whole(
     #[case] full: bool,

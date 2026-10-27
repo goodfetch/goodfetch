@@ -123,10 +123,20 @@ fn each_command_only_foxhound_carries_is_not_in_product_and_exits_10() {
         let words = name.split('.').map(spelled).collect();
         ((*name).to_owned(), words)
     });
-    let commands = foxhound_names::COMMANDS.iter().map(|path| {
-        let words = path.split('.').map(str::to_owned).collect();
-        ((*path).to_owned(), words)
-    });
+    // A command generated from an operation is that operation's row, and
+    // the refusal names the operation.
+    let generated = |path: &str| {
+        foxhound_names::OPERATIONS
+            .iter()
+            .any(|name| name.split('.').map(spelled).collect::<Vec<_>>().join(".") == path)
+    };
+    let commands = foxhound_names::COMMANDS
+        .iter()
+        .filter(|path| !generated(path))
+        .map(|path| {
+            let words = path.split('.').map(str::to_owned).collect();
+            ((*path).to_owned(), words)
+        });
 
     refused_rows(
         &env,

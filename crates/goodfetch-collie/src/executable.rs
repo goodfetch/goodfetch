@@ -818,7 +818,7 @@ fn command_line(product: Product) -> (clap::Command, Generated) {
         .name(binary)
         .bin_name(binary)
         .about(about);
-    let generated = Generated::beside(&hand_written);
+    let generated = Generated::beside(product, &hand_written);
     (generated.add_to(hand_written), generated)
 }
 

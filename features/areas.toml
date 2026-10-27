@@ -1261,6 +1261,17 @@ number = 11
 kind = "command"
 prefix = "key-value-store."
 
+# Foxhound's crawl commands beside Collie's (#1512).
+[[area]]
+number = 11
+kind = "command"
+prefix = "crawl."
+
+[[area]]
+number = 11
+kind = "command"
+prefix = "dataset."
+
 # Area 8, Stealth and Challenge solving (specs #599 and #600): every Block
 # cause, the closed list both Products share (#849).
 [[area]]

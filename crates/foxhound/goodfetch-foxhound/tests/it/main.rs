@@ -16,10 +16,12 @@ mod bounds;
 mod browser;
 mod browser_fetch;
 mod certificates;
+mod client_conformance;
 mod code_free;
 mod completeness;
 mod content_types;
 mod crawl;
+mod crawl_commands;
 // The crawl benchmark's scenario, which `in_memory_crawl` checks.
 #[path = "../../benches/scenarios.rs"]
 #[expect(

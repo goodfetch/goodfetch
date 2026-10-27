@@ -1,0 +1,20 @@
+---
+source: crates/foxhound/goodfetch-foxhound/tests/it/crawl_commands.rs
+expression: "format!(\"crawl start\\n{}\\nrun outcomes --follow\\n{}\\nrun records\\n{}\",\nprotocol_counts(&started.stderr), protocol_counts(&followed.stderr),\nprotocol_counts(&records.stderr),)"
+---
+crawl start
+1 x sent request hello
+2 x received response
+1 x sent request crawl.start
+
+run outcomes --follow
+1 x sent request hello
+2 x received response
+1 x sent request run.outcomes
+
+run records
+1 x sent request hello
+2 x received response
+1 x sent request run.records
+2 x sent notification $/credit
+1 x received notification $/record

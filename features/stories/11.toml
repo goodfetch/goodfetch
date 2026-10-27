@@ -2351,3 +2351,18 @@ milestone = "M2 Client surfaces"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 1130
+title = "As a developer, I want `goodfetch-foxhound` to carry every command of Collie's unchanged, with the same flags, `--json` output and exit codes, and to add Foxhound's generated commands (a code-free crawl started with `catalog-run start` of kind `crawl`, outcomes and failed requests as `--follow` NDJSON, Records, rejected Records, Exports), so that a script moves between Products by changing the executable (ADRs 0095, 0099; SDK-05)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 1131
+title = "As a developer, I want a crawl command's `--json` to print one JSON value of `goodfetch-protocol`'s type, value-bound commands taking the Run ID as their first positional argument, and `--follow` to print one object per line, so that a script reads a crawl without parsing prose (ADRs 0069, 0099)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

@@ -22,6 +22,7 @@ fn a_query_reads_the_records_run_records_reads() {
             dataset: "books",
             after: 0,
             through: None,
+            wall: None,
         },
         100,
     )

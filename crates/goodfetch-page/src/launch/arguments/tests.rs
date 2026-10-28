@@ -326,3 +326,15 @@ fn a_run_with_a_relay_authority_trusts_it_by_its_key_hash_alone() {
         )
     );
 }
+
+/// On Linux the browser's character type is UTF-8 whatever the host's
+/// locale, so a Browser data folder whose path is not ASCII opens and
+/// closes in time under `LANG=C` or a locale the system lacks (fix-queue
+/// 127).
+#[cfg(target_os = "linux")]
+#[test]
+fn every_linux_launch_gives_the_browser_a_utf8_character_type_whatever_the_hosts_locale() {
+    let built = arguments(&launch(true, None));
+
+    assert_eq!(built.environment, [("LC_ALL", "C.UTF-8")]);
+}

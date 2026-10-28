@@ -507,10 +507,13 @@ fn bound() -> Contribution {
                                 r#"INSERT INTO tier_choices (label, domain_key, unit) VALUES ('home', 'shop.test', '{"kind":"split","segments":[{"name":"products","matched":3,"tier":"http"},{"name":"blog","matched":0,"tier":"browser"},{"name":"mixed","matched":1,"tier":null}],"since":1790000000000}')"#,
                                 [],
                             )
-                            .map(drop)
+                            .map(drop)?;
+                        // A request added through a link its served
+                        // document's markup hides (#1153).
+                        goodfetch_frontier::trap_links::suspect(connection, "2")
                     })
                     .await
-                    .expect("the Sessions and a tier choice are kept");
+                    .expect("the Sessions, a tier choice and a suspected trap link are kept");
             }
             Ok::<Value, CallError>(json!({ "run_id": "paused" }))
         },

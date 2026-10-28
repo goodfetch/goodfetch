@@ -25,6 +25,7 @@ mod guard;
 mod hiding;
 mod interception;
 mod launch;
+pub mod noindex;
 mod page_events;
 mod page_functions;
 pub mod page_value;

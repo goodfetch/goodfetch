@@ -374,6 +374,11 @@ pub struct PageCheckFailedDetails {
     /// Its HTTP status.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub status: u16,
+    /// Whether the document is marked `noindex`, by a `noindex` or `none`
+    /// directive in its `X-Robots-Tag` header or a robots `meta` element:
+    /// a crawl takes such a page for a decoy (ADR 0035).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub noindex: bool,
 }
 
 /// What `logged_out` details.

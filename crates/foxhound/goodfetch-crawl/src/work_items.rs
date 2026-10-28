@@ -30,7 +30,7 @@ use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::RunStateTables;
-use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit, payload, sitemap};
+use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit, payload, sitemap, trap_links};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
@@ -122,6 +122,10 @@ pub(crate) struct Leased {
     pub(crate) waiting: Waiting,
     /// Whether it is a sitemap's fetch, which runs no handler (ADR 0093).
     pub(crate) sitemap: bool,
+    /// Whether it was added through a link its served document's markup
+    /// hides, a suspected trap, which a browser tier never follows (ADR
+    /// 0035).
+    pub(crate) trap_link_suspected: bool,
 }
 
 /// What an attempt that committed no Record failed with.
@@ -582,12 +586,14 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
                         forefront: row.get(8)?,
                     },
                     sitemap: false,
+                    trap_link_suspected: false,
                 })
             })
             .optional()?;
         if let Some(mut row) = row {
             row.crawl_request.payload = payload::of_request(connection, &row.crawl_request.id)?;
             row.sitemap = sitemap::is_fetch(connection, &row.crawl_request.id)?;
+            row.trap_link_suspected = trap_links::suspected(connection, &row.crawl_request.id)?;
             leased.push(row);
         }
     }

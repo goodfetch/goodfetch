@@ -108,6 +108,11 @@ const WRITERS: &[(&str, usize, &str)] = &[
         "holds no value: a sitemap seed's sitemaps (URLs, the seed's rules), their entries' counts by reason, and each it could not read with the engine's own error code, status and message, no handler's",
     ),
     (
+        "crates/foxhound/goodfetch-frontier/src/trap_links.rs",
+        1,
+        "holds no value: the IDs of the work items added through a link suspected a trap",
+    ),
+    (
         "crates/foxhound/goodfetch-session-pool/src/store.rs",
         3,
         "holds no value: Session pool entries: identities, counts and local-address positions, and the address blocks blocked on a domain, settings by reference",

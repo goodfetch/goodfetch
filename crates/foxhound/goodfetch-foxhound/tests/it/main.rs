@@ -21,6 +21,7 @@ mod code_free;
 mod completeness;
 mod content_types;
 mod crawl;
+mod crawl_command_line;
 mod crawl_commands;
 // The crawl benchmark's scenario, which `in_memory_crawl` checks.
 #[path = "../../benches/scenarios.rs"]
@@ -71,6 +72,7 @@ mod served_calls;
 mod service_manager;
 mod session_pool;
 mod sitemap;
+mod soak;
 mod sql_tab;
 mod staging;
 mod tier_race;

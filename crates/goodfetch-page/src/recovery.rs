@@ -38,6 +38,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::driver::PageDriver;
+use crate::noindex;
 use crate::trace;
 use crate::url_pattern::UrlPattern;
 
@@ -132,6 +133,9 @@ struct Read {
     found: Vec<Option<bool>>,
     /// Whether it shows one password field that takes no new password.
     password: bool,
+    /// The `content` of each of its robots `meta` elements.
+    #[serde(default)]
+    robots: Vec<String>,
 }
 
 /// Judges the document `response` answered for `judging`'s navigation:
@@ -191,6 +195,11 @@ async fn by_page_check(
     }
     let expected = expected_page.as_ref().map(&mut matches).transpose()?;
     if expected == Some(false) {
+        let robots = if in_document.is_empty() {
+            self::read(judging, &[]).await?.robots
+        } else {
+            read.robots
+        };
         return Err(CallError::new(
             &PAGE_CHECK_FAILED,
             format!(
@@ -200,6 +209,7 @@ async fn by_page_check(
             &PageCheckFailedDetails {
                 url: response.url.clone(),
                 status: response.status,
+                noindex: noindex::marked(&response.headers, &robots),
             },
         ));
     }

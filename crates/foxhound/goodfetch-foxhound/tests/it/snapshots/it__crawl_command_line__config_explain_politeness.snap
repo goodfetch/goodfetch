@@ -1,0 +1,156 @@
+---
+source: crates/foxhound/goodfetch-foxhound/tests/it/crawl_command_line.rs
+expression: "serde_json::to_string_pretty(&explained.documents[0]).unwrap()"
+---
+{
+  "files": [
+    {
+      "found": false,
+      "layer": "operator_policy",
+      "path": "[FOLDER]/home/0.0/operator-policy.toml"
+    },
+    {
+      "found": true,
+      "layer": "user_configuration",
+      "path": "[FOLDER]/home/0.0/configuration.toml"
+    }
+  ],
+  "settings": [
+    {
+      "applied": true,
+      "key": "politeness.backoff.enabled",
+      "layer": "default",
+      "products": [
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": true,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "politeness.backoff.initial",
+      "layer": "default",
+      "products": [
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 2000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "politeness.backoff.max",
+      "layer": "default",
+      "products": [
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 60000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "politeness.domain.adaptive_delay",
+      "layer": "default",
+      "products": [
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": false,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "politeness.domain.burst",
+      "layer": "default",
+      "products": [
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 1,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "politeness.domain.concurrency",
+      "layer": "run",
+      "origin": "flag",
+      "products": [
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 2,
+      "weakens": true
+    },
+    {
+      "applied": true,
+      "key": "politeness.domain.delay",
+      "layer": "user_configuration",
+      "products": [
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 2000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "politeness.domain.rate",
+      "layer": "default",
+      "products": [
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": null,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "politeness.proxy.concurrency",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": null,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "politeness.proxy.rate",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": null,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "politeness.retry_after.max",
+      "layer": "default",
+      "products": [
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 900000,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "politeness.sharing",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": "shared",
+      "weakens": false
+    }
+  ]
+}

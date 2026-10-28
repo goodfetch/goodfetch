@@ -1,11 +1,11 @@
 //! J-002, "Crawl a site over HTTP to Markdown and export its Dataset as
 //! JSON, CSV and Parquet", on the `cli` surface (ADRs 0063 and 0099;
-//! ticket #1512): a person runs Foxhound's shipped executable, starts a
-//! code-free crawl of the Proving ground's catalog with `crawl start`,
-//! reading each page's Markdown and each product's `id`, `name` and
-//! `price`, follows its Records with `run records --follow`, and exports
-//! its Dataset with `run export`, all through the Daemon of the variant's
-//! home.
+//! tickets #1512 and #1513): a person runs Foxhound's shipped executable,
+//! starts a code-free crawl of the Proving ground's catalog with `crawl
+//! start`, reading each page's Markdown and, from a `--fields` file, each
+//! product's `id`, `name` and `price`, follows its Records with `run
+//! records --follow`, and exports its Dataset with `run export --out` into
+//! files of their own, all through the Daemon of the variant's home.
 #![expect(
     clippy::disallowed_methods,
     reason = "the person's steps write the settings file and read the Exports' files"
@@ -29,34 +29,27 @@ const RUN: &str = "catalog";
 /// The fields each product's Record holds, read from its product page.
 const PRODUCT_FIELDS: [&str; 3] = ["id", "name", "price"];
 
-/// What the crawl reads from each page: its Markdown, and each product's
-/// fields, by CSS selector, the price from its machine-readable attribute.
-fn extraction() -> Value {
+/// The named fields the crawl reads from each page beside its Markdown,
+/// as `--fields` takes them: each product's, by CSS selector, the price
+/// from its machine-readable attribute.
+fn fields_read() -> Value {
     json!({
-        "formats": { "markdown": true },
-        "follow": "scope",
-        "fields": {
-            "id": { "locator": { "kind": "css", "selector": "article.product .id" } },
-            "name": { "locator": { "kind": "css", "selector": "article.product .name" } },
-            "price": {
-                "locator": { "kind": "css", "selector": "article.product .price" },
-                "attribute": "data-price",
-            },
+        "id": { "locator": { "kind": "css", "selector": "article.product .id" } },
+        "name": { "locator": { "kind": "css", "selector": "article.product .name" } },
+        "price": {
+            "locator": { "kind": "css", "selector": "article.product .price" },
+            "attribute": "data-price",
         },
     })
 }
 
-/// The Export file of `export`, a `run export` answer, in the Run folder
-/// of the variant's home.
-fn export_file(home: &Path, export: &Value) -> PathBuf {
-    home.join("0.0")
-        .join("runs")
-        .join(RUN)
-        .join("exports")
-        .join(export["sha256"].as_str().unwrap())
+/// The file `run export --out` writes the Export of `format` to, in the
+/// person's folder.
+fn export_file(folder: &Path, format: &str) -> PathBuf {
+    folder.join(format!("catalog.{format}"))
 }
 
-/// Covers: story:11-1130, row:SA-01, row:CO-18, row:CO-25, row:CO-27, row:CO-29, story:1-1, story:1-2, story:1-3
+/// Covers: story:11-1130, story:11-1132, row:SA-01, row:CO-18, row:CO-25, row:CO-27, row:CO-29, story:1-1, story:1-2, story:1-3
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -86,14 +79,16 @@ fn cli() {
             let proving_ground = run.proving_ground().expect("J-002 has a Proving ground");
             let settings = settings_file(run.env(), proving_ground);
             let start = proving_ground.start_url("catalog/1").unwrap();
+            let fields = run.env().folder().join("fields.json");
+            std::fs::write(&fields, fields_read().to_string()).unwrap();
             let started = command_line(run.env(), run.engine())
-                .args(["crawl", "start", "--run-id", RUN, "--seeds"])
-                .arg(json!({ "url": start, "label": "page" }).to_string())
-                .args(["--extraction", &extraction().to_string()])
+                .args(["crawl", "start", &start, "--run-id", RUN])
+                .args(["--format", "markdown", "--links", "scope"])
+                .args(["--fields", fields.to_str().unwrap()])
                 .args(["--settings", settings.to_str().unwrap(), "--json"])
-                .json("RunStarted")
+                .json("RunId")
                 .unwrap();
-            assert_eq!(started.documents[0]["run_id"], RUN, "{}", started.output);
+            assert_eq!(started.documents[0], RUN, "{}", started.output);
         },
     );
     run.step("Read the crawl's Records as they arrive", |run| {
@@ -124,17 +119,10 @@ fn cli() {
         "Export the crawl's Dataset as JSON, as CSV and as Parquet",
         |run| {
             for format in ["json", "csv", "parquet"] {
+                let out = export_file(run.env().folder(), format);
                 let export = command_line(run.env(), run.engine())
-                    .args([
-                        "run",
-                        "export",
-                        RUN,
-                        "--dataset",
-                        "pages",
-                        "--format",
-                        format,
-                        "--json",
-                    ])
+                    .args(["run", "export", RUN, "pages", "--format", format])
+                    .args(["--out", out.to_str().unwrap(), "--json"])
                     .json("Export")
                     .unwrap();
                 exports.push((format.to_owned(), export.documents[0].clone()));
@@ -230,10 +218,11 @@ fn cli() {
                 .iter()
                 .flat_map(|value| value.as_object().unwrap().keys().cloned())
                 .collect();
-            let home = run.env().home();
+            let folder = run.env().folder();
             let mut held = Vec::new();
             for (format, export) in &exports {
-                let bytes = std::fs::read(export_file(home, export)).unwrap();
+                let bytes = std::fs::read(export_file(folder, format)).unwrap();
+                assert_eq!(json!(bytes.len()), export["size"], "{format}");
                 let (count, columns): (usize, BTreeSet<String>) = match format.as_str() {
                     "json" => {
                         let exported: Vec<Value> = serde_json::from_slice(&bytes).unwrap();

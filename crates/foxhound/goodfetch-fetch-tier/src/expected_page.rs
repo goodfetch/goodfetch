@@ -13,6 +13,8 @@
 //! naming one, like a pattern or a selector this tier cannot read, leaves
 //! the page unjudged, for the browser to judge.
 
+use std::collections::BTreeMap;
+
 use goodfetch_engine::CallError;
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::page::{
@@ -67,9 +69,35 @@ fn found(matcher: &PageMatch, url: &str, html: &str) -> Option<bool> {
     }
 }
 
+/// Whether the document `html`, answered with `headers`, is marked
+/// `noindex` (ADR 0035).
+pub(crate) fn noindex(headers: &BTreeMap<String, String>, html: &str) -> bool {
+    goodfetch_page::noindex::marked(headers, &robots(html))
+}
+
+/// The `content` of each robots `meta` element of `html`.
+fn robots(html: &str) -> Vec<String> {
+    let document = dom_query::Document::from(html);
+    document
+        .select("meta[name]")
+        .nodes()
+        .iter()
+        .filter(|meta| {
+            meta.attr("name")
+                .is_some_and(|name| name.eq_ignore_ascii_case("robots"))
+        })
+        .map(|meta| {
+            meta.attr("content")
+                .map(|content| content.to_string())
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
 /// `page_check_failed` for the document reached at `url` with `status`,
-/// neither its Label's expected page nor its login page.
-pub(crate) fn failed(url: &str, status: u16) -> CallError {
+/// neither its Label's expected page nor its login page, marked `noindex`
+/// or not.
+pub(crate) fn failed(url: &str, status: u16, noindex: bool) -> CallError {
     CallError::new(
         &PAGE_CHECK_FAILED,
         format!(
@@ -79,6 +107,7 @@ pub(crate) fn failed(url: &str, status: u16) -> CallError {
         &PageCheckFailedDetails {
             url: url.to_owned(),
             status,
+            noindex,
         },
     )
 }

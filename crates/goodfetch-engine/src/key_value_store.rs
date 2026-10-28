@@ -34,7 +34,6 @@ use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::Value;
 
 use crate::composition::{CallContext, CallError, Handler};
-use crate::rpc::notification_line;
 use crate::run::{run_error, through_owner};
 use crate::run_files::{self, FileKind};
 use crate::run_state::{RunStateError, RunStateTables};
@@ -773,15 +772,17 @@ async fn handle_keys(
             .map_err(failed)?;
         let last = page.len() < KEYS_PAGE;
         for key in page {
-            let _ = stream.credits.spend(1).await;
-            let line = notification_line(
-                KEY,
-                &KeyValueStoreKey {
-                    id: stream.id.clone(),
-                    key: key.clone(),
-                },
-            );
-            if stream.outgoing.send(line).await.is_err() {
+            let _ = stream.spend(1).await;
+            let sent = stream
+                .notify(
+                    KEY,
+                    &KeyValueStoreKey {
+                        id: stream.id().clone(),
+                        key: key.clone(),
+                    },
+                )
+                .await;
+            if !sent {
                 return Ok(KeyValueStoreKeysEnded { count });
             }
             count += 1;

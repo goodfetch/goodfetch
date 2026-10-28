@@ -89,12 +89,18 @@ fn record_event(event: &str) {
 
 /// The line of the notification `method` with `params`.
 pub(crate) fn notification_line(method: &str, params: &impl serde::Serialize) -> Vec<u8> {
+    notification_value_line(
+        method,
+        serde_json::to_value(params).expect("invariant: a notification's params encode"),
+    )
+}
+
+/// The line of the notification `method` with `params`, already a value.
+pub(crate) fn notification_value_line(method: &str, params: Value) -> Vec<u8> {
     line(&Notification {
         jsonrpc: Version,
         method: method.to_owned(),
-        params: Some(
-            serde_json::to_value(params).expect("invariant: a notification's params encode"),
-        ),
+        params: Some(params),
     })
 }
 

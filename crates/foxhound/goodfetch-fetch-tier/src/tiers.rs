@@ -498,8 +498,9 @@ impl FetchTiers {
     ///
     /// # Errors
     ///
-    /// `capability_unavailable` for `discovered_api`, `browser_fetch` and
-    /// `light_browser`; `setting_invalid`
+    /// `capability_unavailable` for `discovered_api`, which replays a plan
+    /// only a browser sample gives, and for `light_browser` where
+    /// `fetch.light_browser` does not allow it; `setting_invalid`
     /// for a Run's `fetch.encoding` that is no WHATWG Encoding label, its
     /// `crawl.content_types` that is no list of media ranges (ADR 0119)
     /// and a `fetch.redirect.max` outside 1 to 19 (ADR 0118);
@@ -535,8 +536,10 @@ impl FetchTiers {
             .map(|(label, tier)| (tier, SettingsLayer::Run, Some(label)));
         let light = Self::light_allowed(settings);
         for (tier, layer, label) in run.into_iter().chain(by_label) {
-            if matches!(tier, FetchTier::Http | FetchTier::Browser)
-                || (tier == FetchTier::LightBrowser && light)
+            if matches!(
+                tier,
+                FetchTier::Http | FetchTier::BrowserFetch | FetchTier::Browser
+            ) || (tier == FetchTier::LightBrowser && light)
             {
                 continue;
             }
@@ -551,7 +554,7 @@ impl FetchTiers {
             return Err(CallError::new(
                 &CAPABILITY_UNAVAILABLE,
                 format!(
-                    "This engine fetches no crawl request on the `{name}` tier, which `fetch.tier` forces in {set}: set `fetch.tier` to `auto`, `http` or `browser`."
+                    "This engine fetches no crawl request on the `{name}` tier, which `fetch.tier` forces in {set}: set `fetch.tier` to `auto`, `http`, `browser_fetch` or `browser`."
                 ),
                 &CapabilityUnavailableDetails {
                     key: FETCH_TIER.name.to_owned(),

@@ -403,6 +403,56 @@ fn reach_over_tls(
     tiers
 }
 
+/// `fetch.tier: browser_fetch` forces the HTTP tier sent from inside the
+/// Session's browser: the handler is given the `browser_fetch` tier, and
+/// its `page.request` shows the site the browser's TLS `ClientHello`, the
+/// one a `browser` run's navigation shows.
+///
+/// Covers: story:5-121, setting:fetch.tier, operation:page.request
+#[test]
+fn a_forced_browser_fetch_tier_sends_from_inside_the_sessions_browser() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let https_url = proving_ground
+        .url(HOST, "/corpus/article?n=2")
+        .replacen("http://", "https://", 1);
+
+    let forced = reach_over_tls(
+        &mut engine,
+        &proving_ground,
+        "forced",
+        "browser_fetch",
+        &https_url,
+    );
+    let seen = handshakes_so_far(&proving_ground);
+    let browser = reach_over_tls(
+        &mut engine,
+        &proving_ground,
+        "browser",
+        "browser",
+        &https_url,
+    );
+    assert!(engine.finish());
+
+    let browsers = handshakes(&proving_ground, HOST, seen);
+    let all = handshakes(&proving_ground, HOST, 0);
+    let forced_handshakes = &all[..all.len() - browsers.len()];
+    assert_eq!(
+        (forced, browser),
+        (vec![json!("browser_fetch")], vec![json!("browser")])
+    );
+    assert!(
+        !forced_handshakes.is_empty()
+            && !browsers.is_empty()
+            && forced_handshakes
+                .iter()
+                .chain(&browsers)
+                .all(|ja4| ja4 == &browsers[0]),
+        "browser-fetch {forced_handshakes:?}, the browser {browsers:?}"
+    );
+}
+
 /// Under `auto`, the Session's `http` run and its `browser` run show the
 /// site one TLS `ClientHello`, the browser's, since its HTTP goes through
 /// browser-fetch; a Session forced onto `http`, which never moves, shows

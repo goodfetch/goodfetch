@@ -38,8 +38,9 @@ Runs as an Attached engine over stdio, which stops at the end of its input: what
 Usage: goodfetch-collie attached-engine [OPTIONS]
 
 Options:
-      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help          Print help
+      --console-address <ADDRESS>  Serves the engine's own Console at this `host:port` while it runs, as a script that wants no Daemon asks (ADR 0031); its `hello` answers the Console's sign-in link. Port 0 takes a free port. None by default: an Attached engine serves no Console
+      --color <WHEN>               When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                       Print help
 
 $ goodfetch-collie browser --help
 Manages the browser builds this version pins in the Browser cache

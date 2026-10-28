@@ -25,6 +25,8 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::attached::{Attached, hello};
+use crate::daemon::{StopsTheDaemon, short_idle};
+use crate::engine_choice::{On, daemon_dispatched};
 use crate::run::call;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -86,6 +88,58 @@ fn audit_verify_finds_a_log_written_through_record_intact() {
             json!({ "intact": true, "entries": 3 }),
             json!({ "intact": true, "entries": 3 })
         )
+    );
+}
+
+/// `audit verify` and `audit export` read the log on the engine their
+/// flags choose: an Attached engine in their process under `--attached`,
+/// the Daemon of the major, which they start, under `--daemon`; either
+/// prints the same (ticket #1183).
+///
+/// Covers: story:4-70, story:4-71, story:11-199
+#[rstest]
+/// Covers: command:audit.verify
+#[case::verify_attached("verify", On::Attached, json!([{ "intact": true, "entries": 2 }]))]
+/// Covers: command:audit.verify
+#[case::verify_daemon("verify", On::Daemon, json!([{ "intact": true, "entries": 2 }]))]
+/// Covers: command:audit.export
+#[case::export_attached("export", On::Attached, json!([1, 2]))]
+/// Covers: command:audit.export
+#[case::export_daemon("export", On::Daemon, json!([1, 2]))]
+fn audit_verify_and_export_run_on_the_engine_their_flags_choose(
+    #[case] command: &str,
+    #[case] on: On,
+    #[case] printed: Value,
+) {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    written(&env, 2);
+
+    let output = cli(&env, COLLIE)
+        .args(["audit", command, "--json", on.flag()])
+        .run()
+        .unwrap();
+
+    // An export prints one line per entry, whose sequences both engines
+    // must agree on; a verification prints its one result.
+    let lines = output
+        .stdout
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap());
+    let shown: Value = if command == "export" {
+        lines.map(|entry| entry["sequence"].clone()).collect()
+    } else {
+        lines.collect()
+    };
+    assert_eq!(
+        (
+            output.exit,
+            shown,
+            daemon_dispatched(&env, &format!("audit.{command}")),
+        ),
+        (Some(0), printed, on == On::Daemon),
+        "{output}"
     );
 }
 

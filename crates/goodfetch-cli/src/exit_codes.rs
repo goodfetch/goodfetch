@@ -7,6 +7,7 @@
 
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::cli;
+use goodfetch_protocol::connection::PROTOCOL_VERSION_UNSUPPORTED;
 use goodfetch_protocol::entries::MODULES;
 use goodfetch_protocol::run::{Lifecycle, RunReport, Verdict};
 
@@ -20,6 +21,15 @@ pub const INTERRUPTED: u8 = cli::INTERRUPTED.code;
 /// A command ended by `SIGTERM`, its call cancelled when it could be: the
 /// shell's `128 + 15`.
 pub const TERMINATED: u8 = cli::TERMINATED.code;
+
+/// The exit code of a command a Daemon refused at `hello` by Product or by
+/// protocol version, while it could not hand over, under `--daemon` or any
+/// other Client that never falls back to an Attached engine: the
+/// `protocol_version_unsupported` row, `11`, for both, since the same
+/// `daemon restart` in the refusal's `fix` ends both (ticket #1183).
+pub const DAEMON_REFUSED: u8 = PROTOCOL_VERSION_UNSUPPORTED
+    .exit_code
+    .expect("invariant: protocol_version_unsupported has its own row");
 
 /// The exit code of a command that failed with the Error code `code` of
 /// `group`: the code's own row of the table, or its group's.

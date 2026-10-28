@@ -1,8 +1,9 @@
 //! `xtask targets` (ADR 0134): the Performance targets report each
 //! milestone's owner test links. `startup` times each Product's Attached
 //! engine from its start to its answer to `hello` with hyperfine; `just
-//! targets` then measures each idle peak with `xtask rss measure`; `report`
-//! reads those and the latest `just compare-spider` report and gives each
+//! targets` then measures the idle Attached engine's, the idle Daemon's
+//! and the crawl's peaks with `xtask rss measure`; `report` reads those and
+//! the latest `just compare-spider` report's pages per second and gives each
 //! target its figure: met at or under it, missed over it with the gap and
 //! the optimization pass's write-up, or not measured. It runs on the
 //! owner's machine, is labelled `local-controlled` and never published (ADR
@@ -50,7 +51,7 @@ pub(crate) struct StartupArguments {
 #[derive(Args)]
 pub(crate) struct ReportArguments {
     /// The folder `startup` and `xtask rss measure` wrote to: hyperfine's
-    /// `startup-<product>.json` exports and the idle peaks, `peaks.jsonl`.
+    /// `startup-<product>.json` exports and the scenarios' peaks, `peaks.jsonl`.
     #[arg(long)]
     measured: PathBuf,
     /// The latest `just compare-spider` report, its `report.json`.

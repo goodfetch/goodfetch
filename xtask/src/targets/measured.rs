@@ -1,5 +1,5 @@
 //! What `report` reads: hyperfine's export of each Product's startup, the
-//! idle peaks `xtask rss measure` wrote, the latest `just compare-spider`
+//! peaks `xtask rss measure` wrote, the latest `just compare-spider`
 //! report and the optimization pass's write-ups. A missing file is a
 //! figure not measured yet, never an error.
 #![expect(
@@ -18,7 +18,7 @@ use serde::de::DeserializeOwned;
 use crate::rss::peaks::{self, Peak};
 use crate::rss::scenario::Scenario;
 
-/// The idle peaks file in the measured folder.
+/// The peaks file in the measured folder.
 pub(crate) const PEAKS: &str = "peaks.jsonl";
 
 /// hyperfine's export of one Product's startup, in the measured folder.
@@ -74,11 +74,11 @@ pub(crate) struct Startup {
     pub(crate) runs: usize,
 }
 
-/// One tool's medians in a `just compare-spider` report.
+/// One tool's median pages per second in a `just compare-spider` report;
+/// the crawl's peak is the resident-memory check's `crawl` scenario's.
 #[derive(Deserialize)]
 pub(crate) struct CrawlFigures {
     pub(crate) pages_per_second: f64,
-    pub(crate) peak_bytes: u64,
 }
 
 #[derive(Deserialize)]
@@ -111,11 +111,11 @@ pub(crate) struct Measured {
 }
 
 impl Measured {
-    /// The idle Attached engine's peaks of `product`, in bytes.
-    pub(crate) fn idle_peaks(&self, product: Product) -> Vec<u64> {
+    /// The peaks of `scenario` on `product`, in bytes.
+    pub(crate) fn peaks(&self, scenario: Scenario, product: Product) -> Vec<u64> {
         self.peaks
             .iter()
-            .filter(|peak| peak.product == product && peak.scenario == Scenario::IdleAttachedEngine)
+            .filter(|peak| peak.product == product && peak.scenario == scenario)
             .map(|peak| peak.bytes)
             .collect()
     }

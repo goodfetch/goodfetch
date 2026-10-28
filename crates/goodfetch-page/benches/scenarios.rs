@@ -360,11 +360,15 @@ const RELAY_AUTHORIZATION: &str = "Basic Z29vZGZldGNoOnNlc3Npb24tc2VjcmV0";
 const SITE_ADDRESS: std::net::IpAddr =
     std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 31, 196, 7));
 
+/// The most far ends of connections a relay scenario leaves unread: each
+/// reads the one connection it opens before it opens the next.
+const UNREAD_FAR_ENDS: usize = 4;
+
 /// The network beyond the relay: every name resolves to [`SITE_ADDRESS`],
 /// an address to itself, and
 /// each connection's far end goes to the scenario, which reads it.
 struct InMemory {
-    far_ends: tokio::sync::mpsc::UnboundedSender<DuplexStream>,
+    far_ends: tokio::sync::mpsc::Sender<DuplexStream>,
 }
 
 impl serve::Network for InMemory {
@@ -386,8 +390,12 @@ impl serve::Network for InMemory {
         _: std::net::SocketAddr,
     ) -> impl Future<Output = std::io::Result<DuplexStream>> + Send {
         let (near, far) = tokio::io::duplex(1 << 16);
-        let _ = self.far_ends.send(far);
-        std::future::ready(Ok(near))
+        std::future::ready(match self.far_ends.try_send(far) {
+            Ok(()) => Ok(near),
+            Err(_) => Err(std::io::Error::other(
+                "the scenario has not read the far ends of its earlier connections",
+            )),
+        })
     }
 
     fn connect_upstream(&self) -> impl Future<Output = std::io::Result<DuplexStream>> + Send {
@@ -431,7 +439,7 @@ fn relaying() -> serve::Relaying {
 async fn relayed_connection(
     relaying: &serve::Relaying,
     network: &InMemory,
-    far_ends: &mut tokio::sync::mpsc::UnboundedReceiver<DuplexStream>,
+    far_ends: &mut tokio::sync::mpsc::Receiver<DuplexStream>,
     sent: usize,
 ) -> usize {
     let (mut browser, relayed) = tokio::io::duplex(1 << 16);
@@ -491,7 +499,7 @@ async fn relayed_connection(
 pub(crate) fn relay_connections(count: usize) -> usize {
     let relaying = relaying();
     runtime().block_on(async {
-        let (sender, mut far_ends) = tokio::sync::mpsc::unbounded_channel();
+        let (sender, mut far_ends) = tokio::sync::mpsc::channel(UNREAD_FAR_ENDS);
         let network = InMemory { far_ends: sender };
         let mut opened = 0;
         for _ in 0..count {
@@ -507,7 +515,7 @@ pub(crate) fn relay_connections(count: usize) -> usize {
 pub(crate) fn relay_tunnel(mebibytes: usize) -> usize {
     let relaying = relaying();
     runtime().block_on(async {
-        let (sender, mut far_ends) = tokio::sync::mpsc::unbounded_channel();
+        let (sender, mut far_ends) = tokio::sync::mpsc::channel(UNREAD_FAR_ENDS);
         let network = InMemory { far_ends: sender };
         relayed_connection(&relaying, &network, &mut far_ends, mebibytes << 20).await
     })
@@ -624,7 +632,7 @@ async fn tls_site(stream: DuplexStream, (certificate, key): &(Vec<u8>, Vec<u8>))
 async fn terminated_connection(
     fixture: &Terminated,
     network: &InMemory,
-    far_ends: &mut tokio::sync::mpsc::UnboundedReceiver<DuplexStream>,
+    far_ends: &mut tokio::sync::mpsc::Receiver<DuplexStream>,
     sent: usize,
 ) -> usize {
     let (mut browser, relayed) = tokio::io::duplex(1 << 16);
@@ -689,7 +697,7 @@ async fn terminated_connection(
 /// many opened.
 pub(crate) fn relay_terminated_connections(count: usize, fixture: &Terminated) -> usize {
     runtime().block_on(async {
-        let (sender, mut far_ends) = tokio::sync::mpsc::unbounded_channel();
+        let (sender, mut far_ends) = tokio::sync::mpsc::channel(UNREAD_FAR_ENDS);
         let network = InMemory { far_ends: sender };
         let mut opened = 0;
         for _ in 0..count {
@@ -704,7 +712,7 @@ pub(crate) fn relay_terminated_connections(count: usize, fixture: &Terminated) -
 /// the bytes the site read.
 pub(crate) fn relay_terminated_tunnel(mebibytes: usize, fixture: &Terminated) -> usize {
     runtime().block_on(async {
-        let (sender, mut far_ends) = tokio::sync::mpsc::unbounded_channel();
+        let (sender, mut far_ends) = tokio::sync::mpsc::channel(UNREAD_FAR_ENDS);
         let network = InMemory { far_ends: sender };
         terminated_connection(fixture, &network, &mut far_ends, mebibytes << 20).await
     })

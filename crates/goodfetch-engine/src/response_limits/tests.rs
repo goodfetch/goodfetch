@@ -100,6 +100,33 @@ fn the_limits_are_read_from_a_runs_settings() {
     );
 }
 
+/// A JSON depth past the 1024 levels the parser fits on a thread's stack is
+/// refused when it is set, so `config explain` never shows a limit the
+/// engine does not apply; 1024 itself is taken.
+///
+/// Covers: setting:network.max_json_depth, error:setting_invalid
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+fn a_json_depth_past_one_thousand_twenty_four_is_setting_invalid() {
+    let read = |depth: u64| {
+        let Value::Object(given) = json!({ "network": { "max_json_depth": depth } }) else {
+            unreachable!("a JSON object");
+        };
+        Values::read(SettingsLayer::Run, &given, Product::Collie).map(|_| ())
+    };
+
+    let refused = read(1025).unwrap_err();
+
+    assert_eq!(
+        (refused.code(), read(1024).is_ok()),
+        ("setting_invalid", true),
+        "{refused}"
+    );
+}
+
 #[test]
 fn a_plain_body_within_the_size_is_read_whole() {
     let body = b"<html>a page</html>".repeat(100);

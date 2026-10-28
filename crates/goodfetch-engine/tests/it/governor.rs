@@ -341,6 +341,37 @@ fn at_critical_idle_browsers_close_then_the_largest_is_recycled_skipping_held_on
     assert_eq!(shed, [vec![70, 71], vec![70, 71, 72], vec![70, 71, 72]]);
 }
 
+/// Each sample says what the browsers it counts use, each measured with
+/// its descendants and summed across Runs, which
+/// `goodfetch.browser.memory` records; a browser that drops is no longer
+/// counted at the next sample.
+///
+/// Covers: story:3-103
+#[test]
+fn each_sample_sums_what_the_browsers_it_counts_use() {
+    let env = TestEnv::new();
+    env.user_configuration(SAMPLED);
+    let proc = Proc::new();
+    proc.file("self/smaps_rollup", &rollup(100 * MIB));
+    for (process, footprint) in [(70, 10), (71, 30)] {
+        proc.file(&format!("{process}/smaps_rollup"), &rollup(footprint * MIB));
+    }
+
+    let used = governed(&env, &proc, async |governor| {
+        let (first, second) = (governor.join(100), governor.join(100));
+        let kept = first.browser(70);
+        let dropped = second.browser(71);
+        let mut samples = Samples::of(&governor);
+        let both = samples.next().await.memory.browsers;
+        drop(dropped);
+        let one = samples.next().await.memory.browsers;
+        drop(kept);
+        (both, one)
+    });
+
+    assert_eq!(used, (40 * MIB, 10 * MIB));
+}
+
 /// The Run, of `runs` by their names, the last resort stops.
 fn pick(runs: Vec<(&'static str, &RunShare)>) -> Option<&'static str> {
     last_resort_run(runs.into_iter().map(|(name, run)| (name, run.weight())))

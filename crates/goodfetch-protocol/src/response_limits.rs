@@ -26,6 +26,11 @@ pub const DEFAULT_MAX_DECOMPRESSION_RATIO: u64 = 100;
 /// `network.max_json_depth`'s default.
 pub const DEFAULT_MAX_JSON_DEPTH: u64 = 128;
 
+/// The deepest `network.max_json_depth` takes, so a deeper one is
+/// `setting_invalid` rather than a limit the engine would not apply: past
+/// it the engine's parser, which recurses, might not fit a thread's stack.
+pub const MAX_JSON_DEPTH_CEILING: u64 = 1024;
+
 /// The decoded size past which `network.max_decompression_ratio` applies:
 /// 1 MiB.
 pub const RATIO_APPLIES_PAST: u64 = 1024 * 1024;
@@ -69,8 +74,8 @@ pub const NETWORK_MAX_DECOMPRESSION_RATIO: Setting = Setting {
 /// `network.max_json_depth` (SC-05).
 pub const NETWORK_MAX_JSON_DEPTH: Setting = Setting {
     name: "network.max_json_depth",
-    description: "The deepest nesting of arrays and objects in JSON the engine parses from outside. 128 by default, and at most 1024 whatever it says; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
-    kind: ValueKind::Count,
+    description: "The deepest nesting of arrays and objects in JSON the engine parses from outside, from 0 to 1024: 128 by default; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+    kind: ValueKind::CountUpTo(MAX_JSON_DEPTH_CEILING),
     default: one_hundred_twenty_eight,
     clearable: false,
     authority: Authority::Every,

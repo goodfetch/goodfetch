@@ -87,16 +87,54 @@ pub const POLITENESS_WEAKENED: SharedTypeValue = SharedTypeValue {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Politeness or Site-preferences key whose pressing-harder values
+/// Foxhound's composition records as [`POLITENESS_WEAKENED`], with the
+/// built-in default ADR 0086 measures them against.
+#[derive(Clone, Copy)]
+pub struct PressingHarder {
+    /// The key.
+    pub setting: &'static Setting,
+    /// ADR 0086's built-in default: the catalog's, but for the per-domain
+    /// concurrency and delay, which hold none until the fetch tiers set 1
+    /// and 1 s.
+    pub built_in: fn() -> Value,
+}
+
+fn one_second() -> Value {
+    json!(1_000)
+}
+
 /// The Politeness and Site-preferences keys whose pressing-harder values
 /// Foxhound's composition records as [`POLITENESS_WEAKENED`] (ADR 0086).
-pub const PRESSING_HARDER: [&Setting; 7] = [
-    &POLITENESS_DOMAIN_CONCURRENCY,
-    &POLITENESS_DOMAIN_DELAY,
-    &POLITENESS_BACKOFF_ENABLED,
-    &POLITENESS_BACKOFF_INITIAL,
-    &POLITENESS_BACKOFF_MAX,
-    &SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
-    &SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
+pub const PRESSING_HARDER: [PressingHarder; 7] = [
+    PressingHarder {
+        setting: &POLITENESS_DOMAIN_CONCURRENCY,
+        built_in: one,
+    },
+    PressingHarder {
+        setting: &POLITENESS_DOMAIN_DELAY,
+        built_in: one_second,
+    },
+    PressingHarder {
+        setting: &POLITENESS_BACKOFF_ENABLED,
+        built_in: POLITENESS_BACKOFF_ENABLED.default,
+    },
+    PressingHarder {
+        setting: &POLITENESS_BACKOFF_INITIAL,
+        built_in: POLITENESS_BACKOFF_INITIAL.default,
+    },
+    PressingHarder {
+        setting: &POLITENESS_BACKOFF_MAX,
+        built_in: POLITENESS_BACKOFF_MAX.default,
+    },
+    PressingHarder {
+        setting: &SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
+        built_in: SITE_PREFERENCES_RESPECT_ROBOTS_TXT.default,
+    },
+    PressingHarder {
+        setting: &SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
+        built_in: SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT.default,
+    },
 ];
 
 /// `paid_fetch.domains` (ADR 0045).

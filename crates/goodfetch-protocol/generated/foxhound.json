@@ -4890,6 +4890,18 @@
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
         },
+        "attempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyValueStoreAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The crawl attempt whose handler's `ctx.run` sets the bytes: the\nwrite is staged with the attempt and commits with it, a kept file\nwritten only then, or is discarded with it (ADR 0093). Absent, the\nbytes are committed at once."
+        },
         "content": {
           "$ref": "#/$defs/KeyValueStoreContent",
           "arrived_in": "0.1",
@@ -5830,6 +5842,13 @@
           "arrived_in": "0.1",
           "description": "What set it."
         },
+        "browsers": {
+          "arrived_in": "0.1",
+          "description": "What the browsers it counts use, in bytes, each process with its\ndescendants (PSS on Linux), summed; part of `used`, 0 with none.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "host": {
           "$ref": "#/$defs/GovernorLevel",
           "arrived_in": "0.1",
@@ -5847,6 +5866,7 @@
         "allowance",
         "allowance_source",
         "used",
+        "browsers",
         "host"
       ],
       "type": "object"
@@ -13841,7 +13861,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "Chromium's sandbox cannot start on this host, where a fix exists, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.",
+      "description": "Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -15367,6 +15387,36 @@
   "metrics": [
     {
       "arrived_in": "0.1",
+      "description": "The memory the browsers the Resource governor counts used at its last sample, each process with its descendants, PSS on Linux, summed over every browser; 0 with none (ADR 0040).",
+      "instrument": "gauge",
+      "labels": [],
+      "name": "goodfetch.browser.memory",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "By"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The browsers the Daemon's Runs' pools recycled, by why: `pages`, after `governor.browser.recycle_pages`; `memory`, past `governor.browser.memory_cap`; `idle`, past `governor.browser.recycle_idle` with no open page; `shed`, by the Resource governor at critical (ADR 0040).",
+      "instrument": "counter",
+      "labels": [
+        {
+          "name": "reason",
+          "values": [
+            "pages",
+            "memory",
+            "idle",
+            "shed"
+          ]
+        }
+      ],
+      "name": "goodfetch.browser.recycled",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{browser}"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The browsers the Daemon's Runs launched that run now, by kind: the pinned Chrome for Testing, or the distribution's Chromium where no build is made.",
       "instrument": "up_down_counter",
       "labels": [
@@ -15615,6 +15665,16 @@
       "name": "goodfetch.work_item.leased",
       "product": "foxhound",
       "stability": "stable",
+      "unit": "{work_item}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawls' work items waiting in their per-domain queues to be admitted, each queue holding at most 64; those still in the Frontier past that bound are not counted.",
+      "instrument": "up_down_counter",
+      "labels": [],
+      "name": "goodfetch.work_item.queued",
+      "product": "foxhound",
+      "stability": "experimental",
       "unit": "{work_item}"
     },
     {
@@ -19923,7 +19983,7 @@
       "authority": "every",
       "clearable": false,
       "default": 128,
-      "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside. 128 by default, and at most 1024 whatever it says; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+      "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside, from 0 to 1024: 128 by default; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
       "name": "network.max_json_depth",
       "product": "collie",
       "products": [
@@ -19931,6 +19991,7 @@
         "foxhound"
       ],
       "value": {
+        "maximum": 1024,
         "minimum": 0,
         "type": "integer"
       },

@@ -98,6 +98,31 @@ pub const BROWSER_RUNNING: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
+/// `goodfetch.browser.recycled`: the browsers the Runs' pools recycled.
+pub const BROWSER_RECYCLED: Metric = Metric {
+    name: "goodfetch.browser.recycled",
+    description: "The browsers the Daemon's Runs' pools recycled, by why: `pages`, after `governor.browser.recycle_pages`; `memory`, past `governor.browser.memory_cap`; `idle`, past `governor.browser.recycle_idle` with no open page; `shed`, by the Resource governor at critical (ADR 0040).",
+    instrument: Instrument::Counter,
+    unit: "{browser}",
+    labels: &[MetricLabel {
+        name: "reason",
+        values: &["pages", "memory", "idle", "shed"],
+    }],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `goodfetch.browser.memory`: what the Runs' browsers use.
+pub const BROWSER_MEMORY: Metric = Metric {
+    name: "goodfetch.browser.memory",
+    description: "The memory the browsers the Resource governor counts used at its last sample, each process with its descendants, PSS on Linux, summed over every browser; 0 with none (ADR 0040).",
+    instrument: Instrument::Gauge,
+    unit: "By",
+    labels: &[],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `goodfetch.client.connected`: the connected Clients.
 pub const CLIENT_CONNECTED: Metric = Metric {
     name: "goodfetch.client.connected",
@@ -145,6 +170,8 @@ pub const ENTRIES: Entries = Entries {
         RUN_ACTIVE,
         RUN_ENDED,
         BROWSER_RUNNING,
+        BROWSER_RECYCLED,
+        BROWSER_MEMORY,
         CLIENT_CONNECTED,
         DAEMON_DRAINING,
     ],

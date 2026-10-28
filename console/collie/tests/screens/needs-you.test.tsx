@@ -142,6 +142,36 @@ test(
 );
 
 test(
+  "the list orders items by the time their since names, not by its text, as the engine does",
+  { tags: ["story:12-23", "screen:/needs-you"] },
+  async () => {
+    const adapter = consoleAdapter();
+    const fraction: NeedsYouItem = {
+      ...STOPPED,
+      id: "run_stopped_by_storage:fraction",
+      since: "2026-10-24T09:00:00.5Z",
+      run: "fraction",
+      summary: "The Run fraction stopped.",
+    };
+    const offset: NeedsYouItem = {
+      ...STOPPED,
+      id: "run_stopped_by_storage:offset",
+      since: "2026-10-24T10:30:00+02:00",
+      run: "offset",
+      summary: "The Run offset stopped.",
+    };
+    adapter.answer("needs_you.list", { items: [fraction, LOW, offset] });
+    const client = clientOf(adapter);
+    await shown(client);
+
+    await expect.poll(() => items().elements().length).toBe(3);
+    await expect.element(items().nth(0)).toMatchTextContent("offset");
+    await expect.element(items().nth(2)).toMatchTextContent("fraction");
+    client.close();
+  },
+);
+
+test(
   "a person dismisses a stopped run, and the change the engine publishes takes it off the list",
   { tags: ["story:12-32", "screen:/needs-you"] },
   async () => {

@@ -74,6 +74,7 @@ use goodfetch_engine::local_addresses::{
     BlockSizes, LocalAddresses, Rotation, SessionAddresses, System, Unavailable,
 };
 use goodfetch_engine::mask::Scope;
+use goodfetch_engine::metrics::Level;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
@@ -85,7 +86,7 @@ use goodfetch_frontier::Bounds;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED,
-    HANDLER_LOST, LEASE_LOST, WORK_ITEM_RETRIED,
+    HANDLER_LOST, LEASE_LOST, WORK_ITEM_QUEUED, WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_SAMPLE_COUNT, FETCH_SAMPLE_REFRESH_AFTER, FETCH_TIER_RACE, FetchTier,
@@ -291,7 +292,7 @@ async fn deliver(
     let Some((mut admission, mut pool)) = opened(run, settings).await else {
         return;
     };
-    let mut wakes = admission.wakes();
+    let (mut wakes, mut queued) = (admission.wakes(), run.metrics().level(&WORK_ITEM_QUEUED));
     let mut attempts: JoinSet<Attempt> = JoinSet::new();
     let mut stop: Option<StopReason> = None;
     loop {
@@ -354,7 +355,7 @@ async fn deliver(
             .then(|| admission.ready_at(run.clock().now()))
             .flatten();
         let waits = [stop.is_some(), free, starved];
-        show(run, &admission, &resolved, servers, waits);
+        show(run, (&admission, &mut queued), &resolved, servers, waits);
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => {
@@ -389,10 +390,11 @@ async fn deliver(
 
 /// Sets the crawl's live parts of its Run's progress (ADR 0102) as its
 /// `servers` stand, given whether it stops, whether a serving Connection
-/// has room and whether the governor starves it.
+/// has room and whether the governor starves it, and its count in
+/// `goodfetch.work_item.queued` as its admission's queues stand.
 fn show(
     run: &Run,
-    admission: &Admission,
+    (admission, count): (&Admission, &mut Level),
     resolved: &Resolved,
     servers: &mut [Serving],
     [stopping, free, starved]: [bool; 3],
@@ -401,7 +403,10 @@ fn show(
     let handlers = servers.iter().map(|server| server.in_flight).sum();
     let room = progress::room(stopping || !serving, free, starved);
     let concurrency = CrawlPolicy::of(resolved).handler_concurrency;
-    progress::show(run, admission, resolved, room, (handlers, concurrency));
+    let now = run.clock().now();
+    let queued = admission.queued(now);
+    count.set(admission.waiting());
+    progress::show(run, (&queued, now), resolved, room, (handlers, concurrency));
 }
 
 /// The ending of a crawl whose state or admission failed with `error`:

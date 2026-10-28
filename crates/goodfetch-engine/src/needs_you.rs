@@ -339,6 +339,35 @@ async fn watch_source(
     }
 }
 
+/// Where an item stands in the list: the longest waiting first, by the
+/// time its `since` names rather than its text, since sources write
+/// fractions of a second and offsets differently; a `since` that does not
+/// parse after every one that does; then by ID.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Waited<'a> {
+    unknown: bool,
+    since: Option<jiff::Timestamp>,
+    id: &'a str,
+}
+
+impl<'a> Waited<'a> {
+    /// The place of `item`.
+    fn of(item: &'a NeedsYouItem) -> Self {
+        Self::new(item.since.as_str(), &item.id)
+    }
+
+    /// The place of the item `id` waiting since `since`, as a cursor
+    /// names it.
+    fn new(since: &str, id: &'a str) -> Self {
+        let since = since.parse::<jiff::Timestamp>().ok();
+        Self {
+            unknown: since.is_none(),
+            since,
+            id,
+        }
+    }
+}
+
 /// An item as the list holds it, with the source it came from.
 #[derive(Clone)]
 struct Listed {
@@ -516,6 +545,7 @@ impl Driver {
             .map(|cursor| {
                 cursor
                     .split_once(' ')
+                    .map(|(since, id)| Waited::new(since, id))
                     .ok_or_else(|| NeedsYouError::Cursor(cursor.to_owned()))
             })
             .transpose()?;
@@ -529,13 +559,9 @@ impl Driver {
                     .as_ref()
                     .is_none_or(|kinds| kinds.contains(&item.kind))
             })
-            .filter(|item| {
-                after.is_none_or(|after| (item.since.as_str(), item.id.as_str()) > after)
-            })
+            .filter(|item| after.is_none_or(|after| Waited::of(item) > after))
             .collect();
-        items.sort_by(|left, right| {
-            (left.since.as_str(), &left.id).cmp(&(right.since.as_str(), &right.id))
-        });
+        items.sort_by_key(|&item| Waited::of(item));
         let more = items.len() > PAGE;
         items.truncate(PAGE);
         let next = more

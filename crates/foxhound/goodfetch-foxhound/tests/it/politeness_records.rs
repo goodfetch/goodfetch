@@ -133,8 +133,8 @@ fn weakened_politeness(report: &Value) -> Vec<Value> {
 ///
 /// Covers: story:4-117, setting:politeness.domain.concurrency, setting:politeness.domain.delay, setting:politeness.backoff.enabled, setting:politeness.backoff.initial, setting:politeness.backoff.max, setting:site_preferences.respect_robots_txt, setting:site_preferences.robots_txt_user_agent
 #[rstest]
-#[case::concurrency_above_one(json!({ "politeness": { "domain": { "concurrency": 2 } } }), "politeness.domain.concurrency", json!(2), Value::Null)]
-#[case::delay_below_a_second(json!({ "politeness": { "domain": { "delay": 500 } } }), "politeness.domain.delay", json!(500), Value::Null)]
+#[case::concurrency_above_one(json!({ "politeness": { "domain": { "concurrency": 2 } } }), "politeness.domain.concurrency", json!(2), json!(1))]
+#[case::delay_below_a_second(json!({ "politeness": { "domain": { "delay": 500 } } }), "politeness.domain.delay", json!(500), json!(1_000))]
 #[case::backoff_off(json!({ "politeness": { "backoff": { "enabled": false } } }), "politeness.backoff.enabled", json!(false), json!(true))]
 #[case::backoff_initial_shortened(json!({ "politeness": { "backoff": { "initial": 1_000 } } }), "politeness.backoff.initial", json!(1_000), json!(2_000))]
 #[case::backoff_max_shortened(json!({ "politeness": { "backoff": { "max": 30_000 } } }), "politeness.backoff.max", json!(30_000), json!(60_000))]
@@ -238,7 +238,7 @@ fn a_value_from_user_configuration_is_recorded_with_its_layer() {
         vec![json!([
             "configured",
             layer,
-            { "setting": "politeness.domain.concurrency", "value": 3, "default": null },
+            { "setting": "politeness.domain.concurrency", "value": 3, "default": 1 },
         ])],
         "{report}"
     );

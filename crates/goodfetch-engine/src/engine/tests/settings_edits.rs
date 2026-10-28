@@ -170,6 +170,46 @@ fn a_policy_write_with_a_stale_digest_is_a_policy_conflict_and_changes_nothing()
     );
 }
 
+/// The same write sent again against the digest first read, as a Client
+/// resends an idempotent write after its Connection dropped before the
+/// reply came, answers as written: its changes hold in the file, which it
+/// leaves as it is, so the person is not told nothing was written, and the
+/// Audit log records the one write that was made.
+///
+/// Covers: story:12-96, operation:config.policy_write
+#[test]
+fn a_policy_write_sent_again_after_it_was_made_answers_as_written() {
+    let env = TestEnv::new();
+    write(&env, "operator-policy.toml", POLICY);
+
+    let [first, again] = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            opened(&mut client, "console", "collie").await;
+            let read = call(&mut client, 1, "config.policy_read", json!({})).await;
+            let params = json!({
+                "digest": read["result"]["digest"],
+                "changes": [{ "table": "cap", "key": "timeout.run", "value": 600_000 }],
+            });
+            let first = call(&mut client, 2, "config.policy_write", params.clone()).await;
+            let again = call(&mut client, 3, "config.policy_write", params).await;
+            [first, again]
+        },
+    );
+
+    let written = std::fs::read_to_string(file(&env, "operator-policy.toml")).unwrap();
+    assert_eq!(
+        (
+            &again["result"]["digest"],
+            recorded(&env, "operator_policy_written").len(),
+            written.contains("run = 600000"),
+        ),
+        (&first["result"]["digest"], 1, true),
+        "{again}"
+    );
+}
+
 /// A user-level value written from the Console takes effect: `config.explain`
 /// shows it set by user configuration, and the Audit log records it; a
 /// value an Operator policy locks is refused with `setting_locked` and

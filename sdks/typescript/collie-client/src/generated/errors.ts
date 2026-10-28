@@ -208,7 +208,7 @@ export class BrowserNotInstalledError extends UnavailableError {
 }
 
 /**
- * Chromium's sandbox cannot start on this host, where a fix exists, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.
+ * Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.
  */
 export class BrowserSandboxUnavailableError extends UnavailableError {
   constructor(message: string, fields: ErrorFields = {}) {

@@ -33,6 +33,7 @@ use std::convert::Infallible;
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use goodfetch_protocol::console::OFFLINE_CACHE;
 use goodfetch_protocol::run::RunId;
 
 use http_body_util::{BodyExt as _, Either, Full, Limited};
@@ -54,6 +55,7 @@ use crate::people::{SignInDriver, SignInFailure, SignInRefused, sign_in_id};
 use crate::rpc::event_stream::EventStreamBody;
 use crate::rpc::{Authorities, CONSOLE_LISTENER, ConsoleConnection, ConsoleSocket, Refusal};
 use crate::runs::Runs;
+use crate::settings::{Layers, resolve};
 use crate::tasks::TaskOwner;
 use crate::transport::{ConsoleListener, ConsoleStream};
 
@@ -141,8 +143,6 @@ pub(crate) struct Served {
     pub(crate) clock: Clock,
     /// The content origin, if it started.
     pub(crate) content: Option<ContentOrigin>,
-    /// `console.offline_cache`: whether the page may cache run summaries.
-    pub(crate) offline_cache: bool,
 }
 
 /// Which of its origins a connection of the Console reached.
@@ -172,8 +172,6 @@ struct Site {
     content: Option<Content>,
     /// The Console's policy, which names the content origin.
     policy: HeaderValue,
-    /// `console.offline_cache`.
-    offline_cache: bool,
 }
 
 /// Serves the Console `served` describes until `owner` stops, each
@@ -193,7 +191,6 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
         runs,
         clock,
         content,
-        offline_cache,
     } = served;
     let address = match listener.local_address() {
         Ok(address) => address,
@@ -220,7 +217,6 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
         content,
         policy: HeaderValue::from_str(&policy)
             .expect("invariant: the Console's policy is header text"),
-        offline_cache,
     });
     if let Some(listener) = content_listener {
         owner.spawn(accept(
@@ -639,6 +635,37 @@ impl Site {
         }
     }
 
+    /// `console.offline_cache` from the machine's layers as they are now,
+    /// so that a change takes effect at the next request with no restart
+    /// (ADR 0031); on, its built-in value, when they cannot be read, as the
+    /// warning logged says.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future changes nothing.
+    async fn offline_cache(&self) -> bool {
+        let settings = self.runs.settings();
+        let product = settings.product();
+        let read = settings.machine().await.and_then(|machine| {
+            resolve(
+                &Layers {
+                    operator_policy: machine.operator_policy,
+                    user_configuration: machine.user_configuration,
+                    ..Layers::default()
+                },
+                product,
+                product,
+            )
+        });
+        match read {
+            Ok(resolved) => resolved.value(OFFLINE_CACHE.name).as_bool().unwrap_or(true),
+            Err(error) => {
+                tracing::warn!(%error, "`console.offline_cache` cannot be read: the Console takes its built-in value, on");
+                true
+            }
+        }
+    }
+
     /// `GET /session`: for a signed-in request, `200` with the sign-in's
     /// CSRF token and whether `console.offline_cache` is on,
     /// `{"csrf_token": "…", "offline_cache": true}`, which only the
@@ -658,7 +685,7 @@ impl Site {
         if method == Method::GET {
             let body = serde_json::json!({
                 "csrf_token": csrf_token,
-                "offline_cache": self.offline_cache,
+                "offline_cache": self.offline_cache().await,
             })
             .to_string();
             *response.body_mut() = Full::new(Bytes::from(body));

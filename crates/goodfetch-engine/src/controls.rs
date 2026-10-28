@@ -22,7 +22,7 @@ use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::security::SECURITY_AUDIT_CHAIN;
 use goodfetch_protocol::settings::WeakenedSetting;
 use jiff::Timestamp;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::audit::{AuditError, AuditLog, Origin};
 use crate::settings::Resolved;
@@ -33,7 +33,10 @@ enum Recorded {
     /// As a security control switched off.
     Switch,
     /// As this Audit log kind, with the value's built-in default.
-    As(&'static SharedTypeValue),
+    As {
+        kind: &'static SharedTypeValue,
+        built_in: fn() -> Value,
+    },
 }
 
 /// A registered key.
@@ -47,7 +50,7 @@ impl std::fmt::Debug for Control {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let recorded = match self.recorded {
             Recorded::Switch => SECURITY_SWITCH_TURNED_OFF.name,
-            Recorded::As(kind) => kind.name,
+            Recorded::As { kind, .. } => kind.name,
         };
         formatter
             .debug_struct("Control")
@@ -71,10 +74,15 @@ impl Controls {
     }
 
     /// The same, recording a value of `setting` that weakens as `kind`, with
-    /// the value, its built-in default and the layer that set it.
+    /// the value, its built-in default `built_in` and the layer that set it.
     #[must_use]
-    pub fn with_recorded(self, setting: &'static Setting, kind: &'static SharedTypeValue) -> Self {
-        self.registering(setting, Recorded::As(kind))
+    pub fn with_recorded(
+        self,
+        setting: &'static Setting,
+        kind: &'static SharedTypeValue,
+        built_in: fn() -> Value,
+    ) -> Self {
+        self.registering(setting, Recorded::As { kind, built_in })
     }
 
     fn registering(mut self, setting: &'static Setting, recorded: Recorded) -> Self {
@@ -158,11 +166,11 @@ impl SwitchedOff {
                 continue;
             }
             if let Some(Control {
-                setting,
-                recorded: Recorded::As(kind),
+                recorded: Recorded::As { kind, built_in },
+                ..
             }) = control
             {
-                let default = (setting.default)();
+                let default = built_in();
                 tracing::warn!(
                     run_id = %run_id,
                     setting = %switched.key,

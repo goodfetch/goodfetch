@@ -476,6 +476,7 @@ impl Pool {
             ?footprint,
             "a browser of the Run is recycled"
         );
+        self.shared.run.metrics().browser_recycled(why.as_str());
         pooled.stage = Stage::Retiring;
         self.settle(&mut browsers, number);
         true
@@ -604,6 +605,7 @@ impl Pool {
                 browser = number,
                 "memory is critical: the governor recycles a browser of the Run"
             );
+            self.shared.run.metrics().browser_recycled("shed");
             pooled.stage = Stage::Retiring;
         }
         self.settle(&mut browsers, number);
@@ -623,6 +625,7 @@ impl Pool {
                 ?idle,
                 "an idle browser of the Run is recycled"
             );
+            self.shared.run.metrics().browser_recycled("idle");
             pooled.stage = Stage::Retiring;
         }
         self.settle(&mut browsers, number);

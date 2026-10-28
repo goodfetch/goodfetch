@@ -419,6 +419,10 @@ pub struct MemoryReading {
     /// pages its browsers share count once.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub used: u64,
+    /// What the browsers it counts use, in bytes, each process with its
+    /// descendants (PSS on Linux), summed; part of `used`, 0 with none.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub browsers: u64,
     /// The host's own memory pressure: PSI and `MemAvailable` on Linux,
     /// the memory-pressure level on macOS, the low-memory notification on
     /// Windows.

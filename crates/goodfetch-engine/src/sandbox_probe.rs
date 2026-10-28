@@ -17,8 +17,9 @@
 //!   Fargate, Azure Container Apps): `security.browser_sandbox` is off by
 //!   default on this host, which every Run then reports as a switched-off
 //!   control (one Audit log entry, `weakened`, one warning);
-//! - any other refusal: the launch goes on, logged, and the browser's own
-//!   start says what it lacks.
+//! - any other refusal: browser runs are refused with
+//!   `browser_sandbox_unavailable`, environment `unknown`, whose message
+//!   names what the probe met.
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -187,7 +188,8 @@ fn log(probed: &Probed) {
             platform.as_str()
         ),
         Probed::Unknown { failure } => tracing::warn!(
-            "the probe of Chromium's sandbox failed, and the browser will try to start it itself: {failure}"
+            environment = serde_name(SandboxEnvironment::Unknown),
+            "Chromium's sandbox cannot start on this host, for a reason the probe does not recognise, so browser runs are refused: {failure}"
         ),
     }
 }
@@ -215,14 +217,15 @@ pub fn host_defaults(defaults: HostDefaults, probed: &Probed) -> HostDefaults {
 
 impl Probed {
     /// The refusal of a browser launch with the sandbox on, where the probe
-    /// refused it.
+    /// refused it, whether or not it recognised why.
     pub fn refusal(&self) -> Option<CallError> {
         match self {
             Self::Refused {
                 environment,
                 failure,
             } => Some(refused(*environment, failure, None)),
-            _ => None,
+            Self::Unknown { failure } => Some(refused(SandboxEnvironment::Unknown, failure, None)),
+            Self::Starts | Self::Restricted | Self::NoSandbox(_) => None,
         }
     }
 }
@@ -273,6 +276,7 @@ fn serde_name(environment: SandboxEnvironment) -> &'static str {
         SandboxEnvironment::DockerDefaultSeccomp => "docker_default_seccomp",
         SandboxEnvironment::KubernetesRuntimeDefault => "kubernetes_runtime_default",
         SandboxEnvironment::ApparmorUserns => "apparmor_userns",
+        SandboxEnvironment::Unknown => "unknown",
     }
 }
 
@@ -293,6 +297,9 @@ fn fix(environment: SandboxEnvironment, executable: Option<&std::path::Path>) ->
                 || "the browser".to_owned(),
                 |executable| format!("`{}`", executable.display())
             )
+        ),
+        SandboxEnvironment::Unknown => format!(
+            "This host refuses the user namespace Chromium's sandbox starts in, for a reason the probe does not recognise: check that `unshare --user --map-root-user true` works for this user (`user.max_user_namespaces` above 0, no seccomp or LSM rule refusing `CLONE_NEWUSER`), {off}."
         ),
     }
 }

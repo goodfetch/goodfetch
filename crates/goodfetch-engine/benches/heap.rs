@@ -44,6 +44,21 @@ fn egress_judge(input: (goodfetch_engine::egress::Policy, Vec<String>)) -> usize
 }
 
 #[library_benchmark]
+#[bench::thousand_entries_hundred_ranges(scenarios::egress_policy_with_private_ranges(1000, 100))]
+fn egress_judge_private_ranges(
+    input: (
+        goodfetch_engine::egress::Policy,
+        Vec<(String, Vec<std::net::SocketAddr>)>,
+    ),
+) -> usize {
+    let (policy, requests) = input;
+    black_box(scenarios::judge_all_with_addresses(
+        black_box(&policy),
+        black_box(&requests),
+    ))
+}
+
+#[library_benchmark]
 #[bench::fifty_values_one_mib(
     args = (50, 1 << 20),
     setup = scenarios::mask_input
@@ -70,6 +85,7 @@ library_benchmark_group!(
         dispatch,
         run_state_writes,
         egress_judge,
+        egress_judge_private_ranges,
         mask_stream
     ]
 );

@@ -55,6 +55,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::Instrument as _;
 
+use goodfetch_protocol::audit::{Actor, CERTIFICATE_EXCEPTIONS_USED};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::checkpoint::{
     RUN_ABORTING, RUN_CHECKPOINTING, RUN_MIGRATING, RUN_STOPPING, RunAborting, RunBinding,
@@ -83,7 +84,7 @@ use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
 use secrecy::SecretString;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -96,8 +97,8 @@ pub use self::report::ReportPart;
 pub use self::writer::{Writer, test_writer};
 
 use self::folder::{
-    Found, RunRow, canonical_inputs, input_differences, point_in_time, read_found, read_report,
-    text, write_end,
+    Found, RunRow, canonical_inputs, input_differences, masked_tags, point_in_time, read_found,
+    read_report, text, write_end,
 };
 use self::lifecycle::{InvalidRunTransition, Next, RunEvent};
 use self::progress::{Progress, Progressing};
@@ -108,7 +109,7 @@ use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
 use crate::CallError;
 use crate::admission::{Admission, Gates};
-use crate::audit::{AuditEvents, AuditLog};
+use crate::audit::{AuditEvents, AuditLog, Origin};
 use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::clock::Clock;
@@ -959,6 +960,7 @@ enum Command {
         oneshot::Sender<Result<Option<StoredKey>, RunError>>,
     ),
     Machine(oneshot::Sender<Result<String, RunError>>),
+    GenerateId(oneshot::Sender<RunId>),
     SafeStop(RunId, StoppedBy, oneshot::Sender<Result<Waiting, RunError>>),
     Reader(RunId, oneshot::Sender<RunReader>),
     Progress(RunId, oneshot::Sender<Followed>),
@@ -2204,6 +2206,12 @@ impl Runs {
         self.secrets.audit()
     }
 
+    /// The OS user's name, from the engine's environment map: the person
+    /// of a single-user install.
+    pub(crate) fn person(&self) -> String {
+        crate::people::os_user(self.secrets.environment())
+    }
+
     /// Where this engine's listeners record their refusals: the user's
     /// Audit log (`endpoint`).
     pub(crate) fn refusals(&self) -> Refusals {
@@ -2319,14 +2327,23 @@ impl Runs {
     /// [`Runs::start`] once its Clean-up rules are chosen: a new Run whose
     /// settings switch a control off reports each switch once (ADR 0016),
     /// and with `security.audit_chain` off its entries, from its key's use
-    /// on, are written unchained; a start that answers an existing Run, or
-    /// fails, reports nothing.
-    async fn start_chosen(&self, start: Start) -> Result<Started, StartError> {
+    /// on, are written unchained, a start with no Run ID of its own taking
+    /// its generated one first so that its key's use names it; a start that
+    /// answers an existing Run, or fails, reports nothing.
+    async fn start_chosen(&self, mut start: Start) -> Result<Started, StartError> {
         let switched = start
             .settings
             .as_ref()
             .map(|settings| self.controls.switched_off(settings.resolved()))
             .unwrap_or_default();
+        if start.run_id.is_none() && switched.unchains() {
+            let (answer, answered) = oneshot::channel();
+            self.commands
+                .send(Command::GenerateId(answer))
+                .await
+                .map_err(|_| StartError::Stopped)?;
+            start.run_id = Some(answered.await.map_err(|_| StartError::Stopped)?);
+        }
         let audit = self.audit().clone();
         let chosen = start.run_id.clone().filter(|_| switched.unchains());
         let newly_unchained = chosen.clone().is_some_and(|run_id| audit.unchain(run_id));
@@ -2642,6 +2659,24 @@ impl Runs {
     ///
     /// Dropping the future after the resume was sent still resumes the Run.
     pub async fn resume(&self, resume: Resume) -> Result<Resumed, RunError> {
+        // With `security.audit_chain` off, the resumed Run's entries, from
+        // its key's use on, are written unchained (ADR 0016); a resume
+        // that takes no epoch chains them again.
+        let unchains = resume
+            .settings
+            .as_ref()
+            .is_some_and(|settings| self.controls.switched_off(settings.resolved()).unchains());
+        let (audit, run_id) = (self.audit().clone(), resume.run_id.clone());
+        let newly_unchained = unchains && audit.unchain(run_id.clone());
+        let resumed = self.resume_unchained(resume).await;
+        if newly_unchained && !matches!(resumed, Ok(Resumed::New { .. })) {
+            audit.rechain(&run_id);
+        }
+        resumed
+    }
+
+    /// [`Runs::resume`] once its entries' chaining is set.
+    async fn resume_unchained(&self, resume: Resume) -> Result<Resumed, RunError> {
         let secrets = run_secrets(&self.secrets, resume.settings.as_ref());
         let unwrapped = self.unwrapped_key(&resume, &secrets).await?;
         let (stored, key) = match unwrapped {
@@ -3441,6 +3476,7 @@ impl Registry {
                 Command::Stop(run_id, reason, location, answer) => {
                     let _ = answer.send(self.stop(&run_id, reason, location).await);
                 }
+                Command::GenerateId(answer) => _ = answer.send(self.generated_id()),
                 Command::StoredKey(run_id, checkpoint, answer) => {
                     let _ = answer.send(self.stored_key(&run_id, checkpoint.as_deref()).await);
                 }
@@ -4000,7 +4036,7 @@ impl Registry {
 
     async fn start(
         &mut self,
-        start: Start,
+        mut start: Start,
         secrets: RunSecrets,
         connection: Option<ConnectionId>,
         link: &Link,
@@ -4009,7 +4045,15 @@ impl Registry {
             Some(run_id) => run_id.clone(),
             None => self.generated_id(),
         };
-        let inputs = canonical_inputs(&start.inputs);
+        // Its tags and inputs pass through the `Mask` before run state and
+        // the Run index keep them (spec #564), as every writer does.
+        let given = canonical_inputs(&start.inputs);
+        let mut kept = start.inputs.clone();
+        for value in kept.values_mut() {
+            self.setup.masks.apply_value(value, Scope::Kept);
+        }
+        let inputs = canonical_inputs(&kept);
+        start.tags = masked_tags(&self.setup.masks, &start.tags);
         if let Some(found) = self.existing(&run_id).await? {
             let mut differences = Vec::new();
             if found.needs != start.needs {
@@ -4021,7 +4065,15 @@ impl Registry {
             if found.caller != CALLER {
                 differences.push(StartInput::Caller);
             }
-            differences.extend(input_differences(&found.inputs, &inputs));
+            // A value that left the masks since the Run kept its inputs
+            // masked is no difference: an input differs when it differs
+            // both masked and as given.
+            let unmasked = input_differences(&found.inputs, &given);
+            differences.extend(
+                input_differences(&found.inputs, &inputs)
+                    .into_iter()
+                    .filter(|input| unmasked.contains(input)),
+            );
             if !differences.is_empty() {
                 return Err(StartError::Conflict {
                     run_id,
@@ -5330,6 +5382,44 @@ async fn given_back(run: &Run, writer: &TaskOwner) -> Vec<AppliedLimit> {
         })
 }
 
+/// Records the certificate exceptions `run` used in the Audit log, once as
+/// it ends, by host and kind with the key each presented (ADR 0042):
+/// nothing when it reached no host through one. A failure to record is
+/// logged, and the Run ends all the same.
+async fn exceptions_used(run: &Run, writer: &TaskOwner, clock: Clock) {
+    let used = run.secrets().exception_hosts().used().await;
+    if used.is_empty() {
+        return;
+    }
+    let hosts: Vec<Value> = used
+        .into_iter()
+        .map(|(host, key, kind)| {
+            json!({ "host": host, "kind": kind.as_str(), "spki_sha256": key.to_string() })
+        })
+        .collect();
+    let origin = Origin {
+        actor: Actor::Engine,
+        surface: None,
+        layer: None,
+        run_id: Some(run.id.clone()),
+    };
+    let audit = run.runs.audit().clone();
+    let now = jiff::Timestamp::try_from(clock.wall()).unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+    let recorded = writer
+        .blocking(move || {
+            audit.record(
+                &origin,
+                &CERTIFICATE_EXCEPTIONS_USED,
+                json!({ "hosts": hosts }),
+                now,
+            )
+        })
+        .await;
+    if let Err(error) = recorded {
+        tracing::warn!(run_id = %run.id, %error, "the Audit log cannot record the certificate exceptions the Run used");
+    }
+}
+
 /// Where a stopping Run's Checkpoint goes, and what writes it.
 struct CheckpointTo {
     destination: PathBuf,
@@ -5480,6 +5570,7 @@ impl Closing {
             End::Stopped(reason) => (Some(reason), None, Vec::new()),
         };
         let limits = given_back(&run, &writer).await;
+        exceptions_used(&run, &writer, clock).await;
         let facts = EndFacts {
             run_id: run.id.clone(),
             lifecycle,

@@ -773,6 +773,18 @@ pub const WORK_ITEM_LEASED: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
+/// `goodfetch.work_item.queued`: the crawls' work items waiting in their
+/// per-domain queues (ADR 0050).
+pub const WORK_ITEM_QUEUED: Metric = Metric {
+    name: "goodfetch.work_item.queued",
+    description: "The crawls' work items waiting in their per-domain queues to be admitted, each queue holding at most 64; those still in the Frontier past that bound are not counted.",
+    instrument: Instrument::UpDownCounter,
+    unit: "{work_item}",
+    labels: &[],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `goodfetch.work_item.retried`: the attempts that ended to be tried
 /// again (ADR 0050).
 pub const WORK_ITEM_RETRIED: Metric = Metric {
@@ -802,7 +814,7 @@ pub const ENTRIES: Entries = Entries {
         EFFECT_STAGING_REFUSED,
     ],
     plugin_kinds: &[],
-    metrics: &[WORK_ITEM_LEASED, WORK_ITEM_RETRIED],
+    metrics: &[WORK_ITEM_QUEUED, WORK_ITEM_LEASED, WORK_ITEM_RETRIED],
     settings: &[
         TIMEOUT_HANDLER,
         CRAWL_HANDLE_STATUSES,

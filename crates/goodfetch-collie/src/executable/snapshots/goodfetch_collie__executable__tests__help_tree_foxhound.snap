@@ -1308,6 +1308,7 @@ Commits bytes with their content type for a key in a live Run's Key-value store,
 Usage: goodfetch-foxhound key-value-store set-bytes [OPTIONS] --content <CONTENT> --content-type <CONTENT_TYPE> --key <KEY> --run-id <RUN_ID>
 
 Options:
+      --attempt <ATTEMPT>            The crawl attempt whose handler's `ctx.run` sets the bytes: the write is staged with the attempt and commits with it, a kept file written only then, or is discarded with it (ADR 0093). Absent, the bytes are committed at once
       --content <CONTENT>            The bytes, in Base64
       --content-type <CONTENT_TYPE>  Their content type, such as `image/png`
       --key <KEY>                    The key

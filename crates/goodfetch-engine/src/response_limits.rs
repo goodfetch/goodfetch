@@ -29,8 +29,9 @@ use std::io::{self, Write};
 
 use goodfetch_protocol::response_limits::{
     DEFAULT_MAX_BODY_SIZE, DEFAULT_MAX_DECOMPRESSION_RATIO, DEFAULT_MAX_JSON_DEPTH, LimitSetting,
-    NETWORK_MAX_BODY_SIZE, NETWORK_MAX_DECOMPRESSION_RATIO, NETWORK_MAX_JSON_DEPTH,
-    RATIO_APPLIES_PAST, RESPONSE_LIMIT_EXCEEDED, ResponseLimitExceededDetails,
+    MAX_JSON_DEPTH_CEILING, NETWORK_MAX_BODY_SIZE, NETWORK_MAX_DECOMPRESSION_RATIO,
+    NETWORK_MAX_JSON_DEPTH, RATIO_APPLIES_PAST, RESPONSE_LIMIT_EXCEEDED,
+    ResponseLimitExceededDetails,
 };
 
 use crate::composition::CallError;
@@ -44,10 +45,10 @@ const ZSTD_WINDOW_LOG_FLOOR: u32 = 23;
 /// hosts.
 const ZSTD_WINDOW_LOG_CEILING: u32 = 31;
 
-/// The deepest JSON the engine parses, whatever `network.max_json_depth`
-/// says: past it the parser, which recurses, might not fit a thread's
-/// stack.
-pub const JSON_DEPTH_CEILING: u64 = 1024;
+/// The deepest JSON the engine parses, whatever a [`Limits`] built in code
+/// says: the most `network.max_json_depth` takes, past which the parser,
+/// which recurses, might not fit a thread's stack.
+pub const JSON_DEPTH_CEILING: u64 = MAX_JSON_DEPTH_CEILING;
 
 /// The bytes a Brotli decoder writes out at once.
 const BROTLI_BUFFER: usize = 32 * 1024;

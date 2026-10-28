@@ -10,7 +10,7 @@ use std::path::Path;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::{
-    Lifecycle, PointInTime, RunId, RunKind, RunReport, StartInput, Tags,
+    Lifecycle, MAX_TAG_CHARACTERS, PointInTime, RunId, RunKind, RunReport, StartInput, Tags,
 };
 use goodfetch_protocol::settings::WeakenedSetting;
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
@@ -19,6 +19,7 @@ use serde_json::{Map, Value};
 use super::CALLER;
 use crate::clock::Clock;
 use crate::durable;
+use crate::mask::{Masks, Scope};
 
 /// The Run's own row, written once when it begins.
 pub(super) struct RunRow {
@@ -105,6 +106,21 @@ pub(super) fn canonical_inputs(inputs: &BTreeMap<StartInput, Value>) -> String {
         .map(|(input, value)| (text(input), value.clone()))
         .collect();
     Value::Object(object).to_string()
+}
+
+/// `tags` with every value `masks` keeps masked replaced by its `%name%`
+/// (spec #564), a tag the replacement lengthens past
+/// [`MAX_TAG_CHARACTERS`] cut there, which leaves no value whole.
+pub(super) fn masked_tags(masks: &Masks, tags: &Tags) -> Tags {
+    let masked: Vec<Value> = tags
+        .iter()
+        .map(|tag| {
+            let masked = masks.apply(tag.as_str(), Scope::Kept);
+            Value::String(masked.chars().take(MAX_TAG_CHARACTERS).collect())
+        })
+        .collect();
+    serde_json::from_value(Value::Array(masked))
+        .expect("invariant: as many tags, none longer than a tag holds")
 }
 
 /// Each input whose value differs between two canonical inputs.

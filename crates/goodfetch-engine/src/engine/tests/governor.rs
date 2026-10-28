@@ -145,12 +145,16 @@ fn a_subscription_that_asks_takes_the_governors_samples_and_no_other_does() {
     );
 }
 
-/// Every series of `registry` under `goodfetch_governor_`.
+/// Every series of `registry` under `goodfetch_governor_`, and
+/// `goodfetch_browser_memory_bytes`.
 fn governor_series(registry: &prometheus::Registry) -> BTreeSet<String> {
     registry
         .gather()
         .iter()
-        .filter(|family| family.name().starts_with("goodfetch_governor_"))
+        .filter(|family| {
+            family.name().starts_with("goodfetch_governor_")
+                || family.name() == "goodfetch_browser_memory_bytes"
+        })
         .flat_map(|family| {
             family.get_metric().iter().map(move |metric| {
                 let labels: Vec<String> = metric
@@ -170,9 +174,9 @@ fn governor_series(registry: &prometheus::Registry) -> BTreeSet<String> {
 }
 
 /// Each sample records every kind's target, the reading that holds the
-/// governor above normal and its saturation, the highest share of a
-/// kind's target in use: under memory pressure, each target halved and
-/// the source is memory.
+/// governor above normal, its saturation, the highest share of a kind's
+/// target in use, and what its browsers use, none here: under memory
+/// pressure, each target halved and the source is memory.
 ///
 /// Covers: story:3-53
 #[test]
@@ -206,6 +210,7 @@ fn each_sample_records_the_targets_the_pressure_source_and_the_saturation() {
         series,
         BTreeSet::from(
             [
+                "goodfetch_browser_memory_bytes{} 0",
                 r#"goodfetch_governor_pressure_source_ratio{source="cpu"} 0"#,
                 r#"goodfetch_governor_pressure_source_ratio{source="host_memory"} 0"#,
                 r#"goodfetch_governor_pressure_source_ratio{source="memory"} 1"#,

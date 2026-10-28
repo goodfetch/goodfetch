@@ -190,6 +190,8 @@ Crawlee 4, unreleased, now keeps the same request manager across repeated `run()
 
 > Note (agent decision, pending owner review), 2026-10-23, [#697](https://github.com/goodfetch/goodfetch/issues/697): `run_ended` is raised by `run.new_page` and `run.new_session` for a Run whose committed state says it ended `finished`; a Run `stopped` or `failed` is interrupted, and new work on it raises `run_not_found` until a start resumes it.
 
+> Note (agent decision, pending owner review), 2026-10-28, step 7 review finding 213-misc-2 ([#1547](https://github.com/goodfetch/goodfetch/issues/1547)): `key_value_store.keys` reads committed run state and is not forwarded to the owning engine, while `get` and `get_bytes` are: the owner's forwarding answers one reply, and `keys` streams its keys under credits, which a forward would have to relay. Every write but an attempt's staged one commits at once, and staged keys are visible only within their attempt, so committed state lists what the owner would. Forwarding it needs a streaming read through the Forwarder.
+
 > Note (agent decision, accepted by the owner on 2026-10-21; [#219](https://github.com/goodfetch/goodfetch/issues/219)): two codes join this table for the writer lock of ADR 0031. `run_busy` (`RefusedError`, retryable) answers an action that takes a Run's writer role, `run.abort` of a Run whose engine died, when the lock stayed held through every retry and the owner the Run index names did not take the action. `run_not_owned` (`RefusedError`, not retryable) answers a forwarded action that reached an engine that does not own the Run. A start of a Run another writer holds still answers as this table says.
 
 ## Considered Options

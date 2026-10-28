@@ -291,6 +291,62 @@ fn no_session_cookie_is_sent_to_a_host_reached_through_an_exception() {
     );
 }
 
+/// The exception host's own host-only cookie is a Session cookie too: the
+/// engine cannot tell one set through the exception from one the Session
+/// held before (an imported Session, a sign-in made while the certificate
+/// was valid, a `__Host-` cookie), so a cookie set by the host over plain
+/// `http:` keeps its `https:` navigation from leaving, as the engine's own
+/// client sends no cookie under an exception (ADR 0042). No request
+/// reaches the host over TLS.
+///
+/// Covers: story:4-38, error:secret_input_refused
+#[test]
+fn the_exception_hosts_own_host_only_cookie_is_withheld_too() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let host = "expired.certificates.test";
+    let exceptions = json!({ "tls": { "accept_invalid_certs": { (host): null } } });
+    let mut program = started(&env, &proving_ground, "host-only", &exceptions, &[]);
+    let page = program.new_page("host-only");
+    let plain = format!("http://{host}:{}/", proving_ground.address().port());
+
+    let opened = reached(&program.goto(&page, &plain));
+    let set = program.call(
+        "page.evaluate",
+        &json!({ "page_id": page, "function": "() => { document.cookie = 'login=h0st; Path=/'; return document.cookie; }" }),
+    );
+    let (code, details) = error(&program.goto(&page, &secure(&proving_ground, host, "/")));
+    program.finish("host-only");
+
+    assert_eq!(
+        (opened, &set["result"]["value"]),
+        (json!(200), &json!("login=h0st")),
+        "{set}"
+    );
+    assert_eq!(
+        (code, &details["reason"], &details["placeholder"]),
+        (
+            json!("secret_input_refused"),
+            &json!("invalid_certificate_exception"),
+            &json!("login")
+        ),
+        "{details}"
+    );
+    let over_tls: Vec<Value> = proving_ground
+        .received_requests()
+        .unwrap()
+        .every()
+        .filter(|request| {
+            request["host"]
+                .as_str()
+                .is_some_and(|received| received.starts_with(host))
+                && !request["tls"].is_null()
+        })
+        .map(|request| request["target"].clone())
+        .collect();
+    assert_eq!(over_tls, Vec::<Value>::new());
+}
+
 /// A host the relay only tunnels, its certificate refused by Chromium
 /// itself, is `certificate_invalid` too, and the site sees one TLS
 /// fingerprint, the browser's (ADR 0042): the relay's own look at the

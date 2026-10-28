@@ -15,7 +15,7 @@
 use std::net::SocketAddr;
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::egress::Policy;
+use goodfetch_engine::egress::{EndpointPolicy, Policy};
 use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::http_client::{
     Failure, FetchError, PageTraffic, Resolve, UpstreamProxy, Waiter,
@@ -53,6 +53,7 @@ fn proxy(proving_ground: &ProvingGround, name: &str) -> UpstreamProxy {
     UpstreamProxy {
         host: address.ip().to_string(),
         port: address.port(),
+        policy: EndpointPolicy::default(),
     }
 }
 
@@ -159,6 +160,58 @@ fn through_the_proxy_a_name_that_resolves_privately_is_refused_before_the_proxy_
     assert_eq!(proxy_connections(&observations, "open"), 1);
     assert_eq!(relay_targets(&observations), [control_url]);
     assert_eq!(target_connections(&observations), 1);
+}
+
+/// The proxy's own address is judged as an Operator-configured endpoint's
+/// before the engine connects to it (ADR 0017; finding 564-2): the Proving
+/// ground's proxy listens on loopback, so it is refused under
+/// `egress.no_private_endpoints`, its listener accepting no connection,
+/// while with the setting off it relays the request (positive control).
+///
+/// Covers: story:4-16, error:egress_refused, setting:egress.no_private_endpoints
+#[test]
+fn the_proxys_own_address_is_held_by_no_private_endpoints_before_any_connection() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let public = target(&proving_ground);
+    let resolve = Resolve::new().with("scope.test", vec![public.ip()]);
+    let url = format!("http://scope.test:{}/reached", public.port());
+    let through = |policy| {
+        let proxy = UpstreamProxy {
+            policy,
+            ..proxy(&proving_ground, "open")
+        };
+        let traffic = traffic(
+            &proving_ground,
+            resolve.clone(),
+            &["scope.test".to_owned()],
+            Some(proxy.clone()),
+        );
+        let fetched = fetch(&traffic, &url);
+        (proxy, fetched)
+    };
+
+    let (configured, held) = through(EndpointPolicy::new(true));
+    let refusals = proxy_connections(&proving_ground.observations().unwrap(), "open");
+    let (_, reached) = through(EndpointPolicy::default());
+
+    let details = |fetched: Result<u16, FetchError>| match fetched {
+        Err(FetchError::Refused(refused)) => Some(refused.details()),
+        _ => None,
+    };
+    let refused = |proxy: &UpstreamProxy, setting: &str| {
+        Some(EgressRefusedDetails {
+            url: proxy.to_string(),
+            rule: EgressRule::PrivateAddress,
+            address: Some(proxy.host.clone()),
+            setting: Some(setting.to_owned()),
+        })
+    };
+    assert_eq!(
+        (details(held), refusals),
+        (refused(&configured, "egress.no_private_endpoints"), 0)
+    );
+    assert_eq!(reached.unwrap(), 200);
 }
 
 /// The SSRF table's thin runner on the engine's HTTP client through the

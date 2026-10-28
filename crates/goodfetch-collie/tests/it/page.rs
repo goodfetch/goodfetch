@@ -96,7 +96,12 @@ pub(crate) fn started_after<'env>(
         .collect();
     let mut settings = settings.clone();
     allow_private(&mut settings, resolve.keys());
-    settings.insert("network".to_owned(), json!({ "resolve": resolve }));
+    settings
+        .entry("network")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .expect("a test's `network` settings are a table")
+        .insert("resolve".to_owned(), Value::Object(resolve));
     let started = call(
         &mut engine,
         1,

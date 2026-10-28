@@ -37,7 +37,9 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, duplex};
 
 use super::authority::Authority;
 use super::client_hello::{self, ClientHello};
-use super::serve::{Met, Network, Observe, Relaying, Resolved, Served, Unreached, Upstream, serve};
+use super::serve::{
+    Met, Network, Observe, ProxyRefused, Relaying, Resolved, Served, Unreached, Upstream, serve,
+};
 use super::terminate::{Stop, Terminating};
 
 /// The address that stands for a public one.
@@ -72,6 +74,8 @@ enum Far {
     /// An upstream proxy that answers its first head with `answer`, then
     /// acts as the site.
     Proxy { answer: &'static str },
+    /// An upstream proxy whose own address the egress policy refuses.
+    RefusedProxy(Refused),
 }
 
 /// The network beyond the relay: names through the Scripted resolver or
@@ -169,6 +173,12 @@ impl Network for Scripted {
     }
 
     async fn connect_upstream(&self) -> io::Result<DuplexStream> {
+        if let Far::RefusedProxy(refused) = &self.far {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                ProxyRefused(refused.clone()),
+            ));
+        }
         Ok(self.open(None))
     }
 }
@@ -513,6 +523,63 @@ fn an_upstream_proxy_answering_407_reaches_the_browser_and_marks_the_credentials
         )
     );
     assert_eq!(*told.met.lock().unwrap(), vec![Met::CredentialsRefused]);
+}
+
+/// An upstream proxy whose own address the egress policy refuses carries
+/// nothing (ADR 0017; step 7 finding 564-2): the tunnel gets the relay's
+/// `403`, the Session is told the refusal, naming the proxy's address and
+/// the setting, and no connection opens.
+///
+/// Covers: story:4-16, error:egress_refused, setting:egress.no_private_endpoints
+#[test]
+fn an_upstream_proxy_whose_own_address_is_refused_carries_nothing() {
+    let resolver = ScriptedResolver::new([goodfetch_test_support::Lookup::new(
+        "public.ssrf.test",
+        [PUBLIC],
+    )]);
+    let refused = Refused {
+        url: "http://127.0.0.1:3128".to_owned(),
+        rule: EgressRule::PrivateAddress,
+        address: Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+        setting: Some("egress.no_private_endpoints"),
+    };
+    let network = Scripted::new(Some(&resolver), Far::RefusedProxy(refused));
+    let told = Told::default();
+    let relaying = relaying(
+        every_host(),
+        Upstream::Http {
+            authorization: None,
+        },
+    );
+
+    let (answer, served) = goodfetch_test_support::runtime().block_on(through(
+        &connect("public.ssrf.test:443"),
+        GET,
+        &relaying,
+        &network,
+        &told,
+    ));
+
+    let told = told.refused.lock().unwrap();
+    assert_eq!(
+        (
+            answer.lines().next(),
+            served,
+            network.connections(),
+            told.iter()
+                .map(|(refused, _)| (refused.address, refused.setting))
+                .collect::<Vec<_>>(),
+        ),
+        (
+            Some("HTTP/1.1 403 Forbidden"),
+            Served::Refused,
+            vec![],
+            vec![(
+                Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+                Some("egress.no_private_endpoints")
+            )],
+        )
+    );
 }
 
 /// The domain policy holds a connection no interception sees, such as a
@@ -1042,6 +1109,7 @@ fn bound_network(case: &SsrfCase, dns: &goodfetch_engine::dns::Dns) -> super::Tc
             })
             .collect(),
         upstream: None,
+        judged: None,
         local: Some(goodfetch_engine::http_client::LocalBinding::new(
             goodfetch_engine::local_addresses::SessionAddresses {
                 ipv4: Some(Ipv4Addr::LOCALHOST),

@@ -167,7 +167,7 @@ not_run.rebinding = "As for `chromium_navigation`: every kind's connection goes 
 not_run.upstream_proxy = "Every kind's connection reaches the upstream proxy only through the Session's egress relay, whose runner holds the proxy path; the `chromium_navigation` layer drives it end to end."
 
 [layers.borrowed_browser]
-summary = "A Borrowed browser (ADR 0056) through Collie's executable: a test-started Chrome with a debugging port that the engine holds to the policy by interception alone, resolving each host itself; each case as the program's navigation, at the stand-in's port, a case's lookups as the Run's `network.resolve` mapping."
+summary = "A Borrowed browser (ADR 0056) through Collie's executable: a test-started Chrome with a debugging port that the engine holds to the policy by interception alone, resolving each host itself; each case as the program's navigation, at the stand-in's port, a case's lookups as the Run's `network.resolve` mapping; a redirect case as the stand-in's page answering with its redirect, each hop judged by interception as the browser follows it."
 runners = [
     { test = "crates/goodfetch-collie/tests/it/borrowed_browser.rs::every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception", families = [
         "borrowed_browser",
@@ -176,8 +176,10 @@ runners = [
         "special_purpose_block",
         "mixed_answers",
     ] },
+    { test = "crates/goodfetch-collie/tests/it/borrowed_browser.rs::every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_a_borrowed_browser", families = [
+        "redirect",
+    ] },
 ]
-not_run.redirect = "Interception judges each hop of a Borrowed browser's navigation as the `chromium_navigation` layer's redirect runner shows of interception; the Borrowed browser's own runner drives no redirect page yet."
 not_run.rebinding = "The browser resolves names itself, so a rebinding answer reaches it: the gap a Borrowed Session's Provenance records (ADR 0056)."
 not_run.upstream_proxy = "A Borrowed browser is someone's running browser, whose proxy the engine does not set."
 

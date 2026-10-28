@@ -454,12 +454,21 @@ impl ProxyUsage {
         if bytes == 0 {
             return true;
         }
-        let mut tally = self.tally.lock().await;
-        let (bytes, owed) = tally.add(bytes);
-        let price = match (owed, tally.currency()) {
-            (Some(owed), Some(currency)) if owed > 0 => Some((currency, owed)),
-            _ => None,
+        // The tally counts the bytes and what they owe under its lock, which
+        // is let go before the charge is awaited (STYLE.md: no lock across
+        // an `.await`); charges add up whatever order they land in.
+        let (bytes, price) = {
+            let mut tally = self.tally.lock().await;
+            let (bytes, owed) = tally.add(bytes);
+            let price = match (owed, tally.currency()) {
+                (Some(owed), Some(currency)) if owed > 0 => Some((currency.to_owned(), owed)),
+                _ => None,
+            };
+            (bytes, price)
         };
+        let price = price
+            .as_ref()
+            .map(|(currency, owed)| (currency.as_str(), *owed));
         match self
             .run
             .charge_part(PROXY_BYTES, self.kind.as_str(), bytes, price)

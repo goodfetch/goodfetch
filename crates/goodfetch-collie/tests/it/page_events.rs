@@ -471,6 +471,59 @@ fn a_kept_body_reads_whole_a_dropped_one_is_unavailable_and_a_cut_one_is_truncat
     );
 }
 
+/// A response's body is one the engine itself reads (ticket #644): past
+/// the Run's `network.max_body_size`, `response.body` raises
+/// `response_limit_exceeded` naming the URL, the setting and its value,
+/// for a kept body as for one read on demand; under the default limit the
+/// same bodies read whole, as the test above shows.
+/// Covers: operation:response.body, error:response_limit_exceeded, setting:network.max_body_size
+#[test]
+fn a_body_past_network_max_body_size_raises_response_limit_exceeded() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut settings = Map::new();
+    settings.insert("network".to_owned(), json!({ "max_body_size": 16 }));
+    let (mut exchange, page) = page_of(&env, &proving_ground, "limited", &settings);
+    let url = proving_ground.url("access.test", "/page-events");
+
+    let waiting = exchange.request(
+        "page.wait_for_request_finished",
+        &json!({ "page_id": page, "url": { "kind": "glob", "pattern": "**/page-events/data.json" } }),
+    );
+    let went = exchange.call("page.goto", &json!({ "page_id": page, "url": url }));
+    let finished = exchange.answer(waiting);
+    let document = exchange.call(
+        "response.body",
+        &json!({ "page_id": page, "request_id": went["result"]["response"]["request_id"] }),
+    );
+    let kept = exchange.call(
+        "response.body",
+        &json!({ "page_id": page, "request_id": finished["result"]["request"]["request_id"] }),
+    );
+    let _ = exchange.call("run.finish", &json!({ "run_id": "limited" }));
+    let _ = exchange.engine.finish();
+
+    let refusal = |answer: &Value| {
+        let data = &answer["error"]["data"];
+        (
+            data["code"].clone(),
+            data["setting"].clone(),
+            data["limit"].clone(),
+        )
+    };
+    let expected = (
+        json!("response_limit_exceeded"),
+        json!("network.max_body_size"),
+        json!(16),
+    );
+    assert_eq!(
+        (refusal(&document), refusal(&kept)),
+        (expected.clone(), expected),
+        "{document} {kept}"
+    );
+    assert_eq!(document["error"]["data"]["url"], json!(url), "{document}");
+}
+
 /// The lines of the Run trace's request log.
 fn request_log(env: &TestEnv, run_id: &str) -> Vec<Value> {
     let file = env

@@ -125,6 +125,7 @@ fn upstream(address: SocketAddr, mode: Mode, password: &str, refusals: Refusals)
         refusals,
         refused: AtomicBool::new(false),
         unreachable: AtomicBool::new(false),
+        answered: AtomicBool::new(false),
         usage: None,
         refusal: None,
     }

@@ -23,6 +23,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::{self, Policy, Refused, RequestKind};
 use goodfetch_engine::http_client::{self, Resolve};
+use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::CLOSED;
@@ -637,15 +638,42 @@ impl PageContext {
         }
     }
 
-    /// The response a `fetch` got, its body read.
+    /// The response a `fetch` got, its body read once the Run's limits
+    /// allow it (ticket #644): a `Content-Length` past
+    /// `network.max_body_size`, with no content coding, is refused before
+    /// the body is read, and the decoded body is judged once read.
+    ///
+    /// # Errors
+    ///
+    /// `response_limit_exceeded` naming the limit the body passed.
     async fn fetched(&self, paused: &fetch::RequestPausedEvent) -> Result<Reply, CallError> {
-        let body = BASE64.encode(&self.body(&paused.request_id).await);
-        let headers = paused
+        let headers: BTreeMap<String, String> = paused
             .response_headers
             .iter()
             .flatten()
             .map(|header| (header.name.to_ascii_lowercase(), header.value.clone()))
             .collect();
+        let limits = self
+            .run
+            .settings()
+            .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+        let url = &paused.request.url;
+        let declared = headers
+            .get("content-length")
+            .and_then(|length| length.trim().parse::<u64>().ok());
+        let coded = headers
+            .get("content-encoding")
+            .is_some_and(|coding| !coding.trim().eq_ignore_ascii_case("identity"));
+        if let Some(length) = declared.filter(|_| !coded) {
+            limits
+                .judge_decoded(url, length, None)
+                .map_err(|exceeded| exceeded.error())?;
+        }
+        let read = self.body(&paused.request_id).await;
+        limits
+            .judge_decoded(url, u64::try_from(read.len()).unwrap_or(u64::MAX), declared)
+            .map_err(|exceeded| exceeded.error())?;
+        let body = BASE64.encode(&read);
         Ok(Reply::Fetched(RouteFetched {
             status: paused
                 .response_status_code
@@ -893,9 +921,13 @@ impl PageContext {
     }
 
     /// `secret_input_refused` when the browser would send `url`'s request,
-    /// over TLS, a cookie of the Session's to a host its egress relay
-    /// terminates for an invalid-certificate exception: a cookie its own
-    /// host set alone goes back to it, as the site's own state.
+    /// over TLS, any cookie of the Session's to a host its egress relay
+    /// terminates for an invalid-certificate exception, the host's own
+    /// host-only cookies included: the engine cannot tell one the host set
+    /// through the exception from one the Session already held, so none
+    /// goes, as the engine's own client sends none (ADR 0042). `closed`
+    /// when the browser does not say which cookies it would send, so no
+    /// request leaves unchecked.
     async fn cookies_withheld(&self, url: &str) -> Option<CallError> {
         let relay = self.driver.relay()?;
         let parsed = url::Url::parse(url).ok()?;
@@ -914,14 +946,12 @@ impl PageContext {
             Err(failure) => {
                 tracing::debug!(
                     ?failure,
-                    "the browser named no cookies, so the request goes without a check"
+                    "the browser named no cookies, so the request to a terminated host is failed"
                 );
-                return None;
+                return Some(gone(url));
             }
         };
-        let session = cookies.into_iter().find(|cookie| {
-            cookie.domain.trim_start_matches('.') != host || cookie.domain.starts_with('.')
-        })?;
+        let session = cookies.into_iter().next()?;
         Some(CallError::new(
             &SECRET_INPUT_REFUSED,
             format!(

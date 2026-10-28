@@ -24,6 +24,7 @@ use sha2::{Digest as _, Sha256};
 use tokio::io::AsyncWriteExt as _;
 
 use crate::clock::Clock;
+use crate::egress::EndpointPolicy;
 use crate::happy_eyeballs::Delays;
 use crate::http_client::{self, Resolve, Server};
 use crate::settings::Resolved;
@@ -202,6 +203,10 @@ pub struct Fetching {
     pub clock: Clock,
     /// `resolver.resolution_delay` and `resolver.attempt_delay`.
     pub delays: Delays,
+    /// What the Operator policy lets a Clean-up rules source reach, an
+    /// Operator-configured endpoint (ADRs 0017 and 0047):
+    /// `egress.no_private_endpoints`.
+    pub endpoints: EndpointPolicy,
 }
 
 impl Fetching {
@@ -214,12 +219,14 @@ impl Fetching {
             trusted_certificates: Vec::new(),
             clock,
             delays: Delays::BUILT_IN,
+            endpoints: EndpointPolicy::default(),
         }
     }
 
     /// What a download may do under a Run's resolved `settings`, on
-    /// `clock`: `egress.offline`, `network.resolve` and the resolver's
-    /// delays, with no extra certificate authority.
+    /// `clock`: `egress.offline`, `network.resolve`, the resolver's delays
+    /// and `egress.no_private_endpoints`, with no extra certificate
+    /// authority.
     pub fn of(settings: &Resolved, clock: Clock) -> Self {
         Self {
             offline: settings
@@ -233,6 +240,7 @@ impl Fetching {
                     mapping.with(host, addresses)
                 }),
             delays: Delays::of(settings),
+            endpoints: EndpointPolicy::of(settings),
             ..Self::new(clock)
         }
     }

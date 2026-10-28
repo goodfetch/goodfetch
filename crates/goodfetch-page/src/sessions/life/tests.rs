@@ -45,6 +45,11 @@ fn page() -> PageLife {
     PageLife::new(PageId("page-1".to_owned()), None)
 }
 
+/// Where `life`'s page is, as its state watch holds it.
+fn state_of(life: &PageLife) -> PageState {
+    *life.shared.state.borrow()
+}
+
 /// A lease check whose lease ended, as a crawl handler's past its work
 /// item's lease.
 #[derive(Debug)]
@@ -167,7 +172,7 @@ fn a_call_its_lease_withheld_moves_its_page_to_closing() {
         (
             raised(&answered.expect_err("the call is withheld")),
             raised(&later.expect_err("the later call is refused")),
-            life.state(),
+            state_of(&life),
             closing,
         ),
         (
@@ -192,7 +197,7 @@ fn a_failed_call_under_a_lease_that_holds_leaves_its_page_open() {
     }));
 
     assert_eq!(
-        (answered.map_err(|error| error.code()), life.state()),
+        (answered.map_err(|error| error.code()), state_of(&life)),
         (Err("page_crashed"), PageState::Open)
     );
 }
@@ -288,7 +293,7 @@ fn a_second_ending_of_a_page_does_what_its_table_says(
 
     let effect = life.end(&second).expect("the second ending is allowed");
 
-    assert_eq!((effect, life.state()), expected);
+    assert_eq!((effect, state_of(&life)), expected);
 }
 
 /// A call on a Session still opening waits for the open, then runs, or

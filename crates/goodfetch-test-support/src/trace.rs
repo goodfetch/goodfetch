@@ -5,10 +5,12 @@
 //! and the engine's outcome records (each Error code a Run recorded and no
 //! reply carries) as JSON lines into the running test's exercise record,
 //! which ADR 0072's audit reads for an in-process test over the in-memory
-//! transport. `logged` captures what `tracing` wrote while a closure ran.
+//! transport. `logged` captures what `tracing` wrote while a closure ran,
+//! and [`CapturedLog`] is the writer it captures into, which a test hands
+//! to [`subscriber_writing_to`] to read what that subscriber wrote.
 #![expect(
     clippy::disallowed_types,
-    reason = "a `tracing` writer cannot await: one Mutex guards the bytes `logged` captured, with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
+    reason = "a `tracing` writer cannot await: one Mutex guards the bytes a `CapturedLog` captured, with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
 )]
 
 use std::fmt;
@@ -88,7 +90,7 @@ where
 /// colour, beside `work`'s answer: the bytes a test searches for what no
 /// log line may hold, such as a party's own text.
 pub fn logged<T>(work: impl FnOnce() -> T) -> (T, Vec<u8>) {
-    let captured = Captured::default();
+    let captured = CapturedLog::default();
     let writer = captured.clone();
     let subscriber = tracing_subscriber::fmt()
         .with_writer(move || writer.clone())
@@ -96,21 +98,27 @@ pub fn logged<T>(work: impl FnOnce() -> T) -> (T, Vec<u8>) {
         .with_ansi(false)
         .finish();
     let answer = tracing::subscriber::with_default(subscriber, work);
-    let bytes = captured.bytes().clone();
-    (answer, bytes)
+    (answer, captured.written())
 }
 
-/// The bytes [`logged`]'s subscriber wrote, shared by its writers.
+/// A `tracing` writer that keeps the bytes a subscriber wrote, shared by
+/// its clones: [`logged`]'s, and one a test hands to
+/// [`subscriber_writing_to`] as `move || writer.clone()`.
 #[derive(Clone, Default)]
-struct Captured(Arc<Mutex<Vec<u8>>>);
+pub struct CapturedLog(Arc<Mutex<Vec<u8>>>);
 
-impl Captured {
+impl CapturedLog {
+    /// What was written so far.
+    pub fn written(&self) -> Vec<u8> {
+        self.bytes().clone()
+    }
+
     fn bytes(&self) -> MutexGuard<'_, Vec<u8>> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
-impl io::Write for Captured {
+impl io::Write for CapturedLog {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.bytes().extend_from_slice(bytes);
         Ok(bytes.len())

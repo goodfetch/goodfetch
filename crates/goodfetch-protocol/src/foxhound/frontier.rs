@@ -262,6 +262,9 @@ pub enum NotAddedReason {
     /// On the browser tier, its link is one a person cannot see, a
     /// `nofollow` one among them: a trap a crawl never enters (ADR 0035).
     TrapLink,
+    /// The `enqueueLinks` call that matched it already added its `limit`
+    /// links (ADR 0093).
+    LinkLimit,
 }
 
 /// The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a

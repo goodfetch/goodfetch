@@ -298,6 +298,82 @@ fn one_payload_takes_every_link_include_narrows_and_a_bad_call_adds_nothing() {
     );
 }
 
+/// `limit: 1` adds at most one link: once `/answers/1` is added, each
+/// later element whose link the Frontier would have judged is not added,
+/// with `link_limit`, and the Proving ground receives no request for it;
+/// the anchor without a link stays `no_link` and the link its Payload
+/// function skipped `skipped_by_payload`, the program's own answers.
+/// `limit: 0` adds none.
+///
+/// Covers: story:6-232, operation:crawl_request.enqueue_links
+#[test]
+fn limit_adds_at_most_that_many_links_and_answers_each_link_past_it() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let seeds = [json!({ "url": proving_ground.url("links.test", "/answers/"), "label": "index" })];
+    let mut engine = Attached::start(&env);
+
+    let mut answered = Vec::new();
+    let report = crawl_with(
+        &mut engine,
+        "limit",
+        &seeds,
+        &served(&proving_ground, &["links.test"]),
+        &mut |inside: &mut Inside<'_>, handle: &Value| {
+            if handle["crawl_request"]["label"] == "index" {
+                let mut payloads = vec![json!({}); 8];
+                payloads[6] = Value::Null;
+                for limit in [0, 1] {
+                    answered.push(enqueue_links(
+                        inside,
+                        handle,
+                        "ul.links a",
+                        &json!({ "label": "page", "payloads": payloads, "limit": limit }),
+                    ));
+                }
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let observations = proving_ground.observations().unwrap();
+    assert!(engine.finish());
+
+    let past = |url: &str| json!({ "kind": "not_added", "reason": "link_limit", "url": url });
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            answered,
+            targets(&observations, "links.test"),
+        ),
+        (
+            &json!("finished"),
+            vec![
+                json!({ "links": [
+                    past("/answers/1"),
+                    past("/answers/1#top"),
+                    { "kind": "no_link" },
+                    past("mailto:shop@links.test"),
+                    past("http://elsewhere.test/"),
+                    past("http://[::1/"),
+                    { "kind": "skipped_by_payload", "url": "2" },
+                    past("3"),
+                ] }),
+                json!({ "links": [
+                    { "kind": "added", "id": "2", "url": proving_ground.url("links.test", "/answers/1") },
+                    past("/answers/1#top"),
+                    { "kind": "no_link" },
+                    past("mailto:shop@links.test"),
+                    past("http://elsewhere.test/"),
+                    past("http://[::1/"),
+                    { "kind": "skipped_by_payload", "url": "2" },
+                    past("3"),
+                ] }),
+            ],
+            vec!["/answers/".to_owned(), "/answers/1".to_owned()],
+        )
+    );
+}
+
 /// A `Shift_JIS` page's link `search?q=日本&k=한` is fetched with its query
 /// in `Shift_JIS`, 한 as its percent-encoded character reference: the bytes a
 /// browser sends (ADR 0120).

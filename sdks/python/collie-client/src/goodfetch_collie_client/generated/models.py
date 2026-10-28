@@ -1272,6 +1272,11 @@ class NotAddedReason(StrEnum):
     On the browser tier, its link is one a person cannot see, a
     `nofollow` one among them: a trap a crawl never enters (ADR 0035).
     """
+    link_limit = "link_limit"
+    """
+    The `enqueueLinks` call that matched it already added its `limit`
+    links (ADR 0093).
+    """
 
 
 class NothingDone3(BaseModel):

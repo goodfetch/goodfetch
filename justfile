@@ -681,6 +681,8 @@ stress base="" since="" *within:
     echo "$selection"
     # The JUnit files an earlier step of the job wrote stay where they are.
     mkdir -p target/junit
+    # What a red run's crates are judged by in the gate's record (ADR 0135).
+    printf '%s\n' "$selection" > target/stress-selection.tsv
     earlier=$(mktemp -d)
     find target/junit -maxdepth 1 -name '*.xml' -exec mv {} "$earlier/" \;
     status=0
@@ -1320,10 +1322,12 @@ _gate-plan:
       --environment "$variables" ${GOODFETCH_GATE_FULL:+--full}
 
 # Records a gate step's result (`pass` or `fail`) for the head the plan was
-# made for, which must still be checked out on a clean tree (ADR 0135).
-_gate-record head step status:
+# made for, which must still be checked out on a clean tree (ADR 0135); a
+# failed step run per member's `evidence` (`--junit`, `--selection`) records
+# each crate that passed in full green.
+_gate-record head step status *evidence:
     cargo run --quiet -p xtask -- gate record --records target/gate-runs --head {{ head }} \
-      --now "$(date +%s)" --step {{ step }} --status {{ status }}
+      --now "$(date +%s)" --step {{ step }} --status {{ status }} {{ evidence }}
 
 # Starts and checks the real OS services the tests use (ci/os-services.sh),
 # which `just pre-merge` runs first on a Linux host.

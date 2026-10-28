@@ -621,6 +621,43 @@ fn a_failed_step_is_recorded_as_failed(#[case] call: &str, #[case] step: &str) {
     );
 }
 
+/// A failed Quick suite or stress run hands `xtask gate record` the files
+/// its crates' results are read from, and runs with none of them left from
+/// an earlier run (the test-gate audit's option 4).
+#[rstest]
+#[case::quick(
+    "_suite quick all",
+    "quick fail --junit target/nextest/quick/junit.xml",
+    "target/nextest/quick/junit.xml"
+)]
+#[case::stress(
+    "stress",
+    "stress fail --selection target/stress-selection.tsv",
+    "target/junit/repeat-20/nextest-ci.xml"
+)]
+fn a_failed_step_run_per_member_is_recorded_with_its_own_evidence(
+    #[case] call: &str,
+    #[case] recorded: &str,
+    #[case] earlier: &str,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("plan"), "previous\tnone\nhead\tplanned\n").unwrap();
+    std::fs::write(stand_in.join("failing"), call).unwrap();
+    workspace.write(earlier, b"an earlier run's");
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, Some(3), "{}", run.stderr);
+    assert!(
+        run.gate
+            .contains(&format!("_gate-record planned {recorded}")),
+        "{:?}",
+        run.gate
+    );
+    assert!(!workspace.path().join(earlier).exists());
+}
+
 /// A step beside the host's that ended before a host step failed keeps its
 /// result, so the next run reuses it where the change since does not reach
 /// it (the test-gate audit's option 3).

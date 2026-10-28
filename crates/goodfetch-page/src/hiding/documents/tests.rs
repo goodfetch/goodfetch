@@ -254,3 +254,30 @@ fn a_rule_of_the_runner_the_guard_lifts_stays_out_of_its_documents_sheet() {
         )
     );
 }
+
+/// The order of a document's last refresh goes with the document: a page
+/// whose frames come and go keeps no order of a frame that detached, nor
+/// of a target that went, and a frame's later refresh still wins over an
+/// earlier one.
+#[test]
+fn a_detached_documents_refresh_order_goes_with_it() {
+    let mut documents = Documents::default();
+    let main = key("page", "main");
+    for frame in 0..100 {
+        let child = key("page", &format!("child-{frame}"));
+        assert!(documents.ordered(&child, Part::Hiding, frame));
+        documents.forget_frame(&child.0, &child.1);
+    }
+    let target = key("child", "child-main");
+    assert!(documents.ordered(&target, Part::Hiding, 100));
+    documents.forget_session(&target.0);
+    let (later, earlier) = (
+        documents.ordered(&main, Part::Hiding, 102),
+        documents.ordered(&main, Part::Hiding, 101),
+    );
+
+    assert_eq!(
+        (later, earlier, documents.orders.keys().collect::<Vec<_>>()),
+        (true, false, vec![&(main.clone(), Part::Hiding)])
+    );
+}

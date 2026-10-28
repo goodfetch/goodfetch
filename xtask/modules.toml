@@ -136,12 +136,13 @@ target = ["measured"]
 # Which of `rss`'s own modules may import which.
 [submodules.rss]
 ceilings = ["peaks", "platform", "scenario"]
-measure = ["peak", "peaks", "platform", "scenario"]
+crawl = []
+measure = ["crawl", "peak", "peaks", "platform", "scenario"]
 peak = []
 peaks = ["platform", "scenario"]
 platform = []
 report = ["ceilings", "peaks", "platform", "scenario"]
-scenario = []
+scenario = ["crawl"]
 
 # Which of `perf`'s own modules may import which.
 [submodules.perf]

@@ -149,6 +149,12 @@ class CrawlRequestEnqueueLinksParams(BaseModel):
     """Their Label."""
     lease_epoch: Annotated[int, Field(ge=0)]
     """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+    limit: Annotated[int | None, Field(ge=0)] = None
+    """
+    At most this many links are added; once they are, each later
+    element whose link the Frontier would judge is not added, with
+    `link_limit`. None for no limit.
+    """
     locator: Locator
     """The locator, on the page `crawl_request.handle` gave."""
     payload: Any | None = None
@@ -874,6 +880,11 @@ class NotAddedReason(StrEnum):
     """
     On the browser tier, its link is one a person cannot see, a
     `nofollow` one among them: a trap a crawl never enters (ADR 0035).
+    """
+    link_limit = "link_limit"
+    """
+    The `enqueueLinks` call that matched it already added its `limit`
+    links (ADR 0093).
     """
 
 

@@ -345,6 +345,7 @@ impl CodeFree {
                     payloads: None,
                     include: Vec::new(),
                     exclude: Vec::new(),
+                    limit: None,
                     priority: 0,
                 },
                 context.clone(),

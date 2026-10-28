@@ -247,7 +247,8 @@ export type Enqueued =
         | "path_budget"
         | "trap_path"
         | "no_rule"
-        | "trap_link";
+        | "trap_link"
+        | "link_limit";
       /**
        * Its URL as it was given.
        */
@@ -290,7 +291,8 @@ export type EnqueuedLink =
         | "path_budget"
         | "trap_path"
         | "no_rule"
-        | "trap_link";
+        | "trap_link"
+        | "link_limit";
       /**
        * Its `href`, as written.
        */
@@ -458,7 +460,8 @@ export type NotAddedReason =
   | "path_budget"
   | "trap_path"
   | "no_rule"
-  | "trap_link";
+  | "trap_link"
+  | "link_limit";
 /**
  * The word `now`: from the next commit on.
  *
@@ -769,6 +772,12 @@ export interface CrawlRequestEnqueueLinksParams {
    * The attempt's lease epoch, as `crawl_request.handle` gave it.
    */
   lease_epoch: number;
+  /**
+   * At most this many links are added; once they are, each later
+   * element whose link the Frontier would judge is not added, with
+   * `link_limit`. None for no limit.
+   */
+  limit?: number | null;
   /**
    * The locator, on the page `crawl_request.handle` gave.
    */

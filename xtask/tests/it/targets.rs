@@ -1,7 +1,8 @@
 //! The Performance targets report (ADR 0134): `xtask targets report` reads
 //! what `just targets` measured on the owner's machine, each Product's
-//! startup to `hello` as hyperfine exports it and each idle peak as `xtask
-//! rss measure` writes it, and the latest `just compare-spider` report, and
+//! startup to `hello` as hyperfine exports it and each resident-memory
+//! scenario's peaks as `xtask rss measure` writes them, and the latest `just
+//! compare-spider` report's pages per second, and
 //! gives each target its figure and verdict: met at or under its target,
 //! missed over it with the gap and the optimization pass's write-up, or not
 //! measured. It never fails on a miss. Measurements are fixtures here.
@@ -64,15 +65,15 @@ fn startup_v2(workspace: &Workspace, product: &str, seconds: f64, runs: u32) {
     );
 }
 
-/// Peaks of the idle Attached engine, one line per run.
-fn idle_peaks(workspace: &Workspace, peaks: &[(&str, u64)]) {
+/// Peaks of the resident-memory check's scenarios, one line per run.
+fn peaks(workspace: &Workspace, peaks: &[(&str, &str, u64)]) {
     let lines: Vec<String> = peaks
         .iter()
-        .map(|(product, bytes)| {
+        .map(|(product, scenario, bytes)| {
             json!({
                 "product": product,
                 "platform": "macos-arm64",
-                "scenario": "idle-attached-engine",
+                "scenario": scenario,
                 "bytes": bytes,
             })
             .to_string()
@@ -146,17 +147,24 @@ fn a_figure_over_its_target_is_missed_with_its_gap_and_one_at_or_under_is_met() 
     let workspace = Workspace::from_fixture("empty");
     startup(&workspace, "collie", 0.010);
     startup(&workspace, "foxhound", 0.0125);
-    // Foxhound's median of 7, 9 and 10 MiB is 9 MiB.
-    idle_peaks(
+    // Foxhound's median of 7, 9 and 10 MiB is 9 MiB; each scenario's
+    // figure is the median of its own peaks only.
+    peaks(
         &workspace,
         &[
-            ("collie", 8 * MIB),
-            ("foxhound", 7 * MIB),
-            ("foxhound", 10 * MIB),
-            ("foxhound", 9 * MIB),
+            ("collie", "idle-attached-engine", 8 * MIB),
+            ("foxhound", "idle-attached-engine", 7 * MIB),
+            ("foxhound", "idle-attached-engine", 10 * MIB),
+            ("foxhound", "idle-attached-engine", 9 * MIB),
+            ("collie", "idle-daemon", 16 * MIB),
+            ("foxhound", "idle-daemon", 18 * MIB),
+            ("foxhound", "crawl", 33 * MIB),
+            ("foxhound", "crawl", 34 * MIB),
+            ("foxhound", "crawl", 32 * MIB),
         ],
     );
-    spider_report(&workspace, (30.0, 33 * MIB), (40.0, 25 * MIB));
+    // The crawl's peak is the resident-memory check's, not compare-spider's.
+    spider_report(&workspace, (30.0, 20 * MIB), (40.0, 25 * MIB));
 
     let (outcome, report) = report(&workspace);
 
@@ -169,6 +177,8 @@ fn a_figure_over_its_target_is_missed_with_its_gap_and_one_at_or_under_is_met() 
             row(&report, "startup-to-hello", "foxhound"),
             row(&report, "idle-attached-engine", "collie"),
             row(&report, "idle-attached-engine", "foxhound"),
+            row(&report, "idle-daemon", "collie"),
+            row(&report, "idle-daemon", "foxhound"),
             row(&report, "crawl-peak", "foxhound"),
             row(&report, "crawl-pages-per-second", "foxhound"),
         ],
@@ -177,6 +187,8 @@ fn a_figure_over_its_target_is_missed_with_its_gap_and_one_at_or_under_is_met() 
             ("missed".to_owned(), json!("2.5 ms")),
             ("met".to_owned(), Value::Null),
             ("missed".to_owned(), json!("1.0 MiB")),
+            ("met".to_owned(), Value::Null),
+            ("missed".to_owned(), json!("2.0 MiB")),
             ("missed".to_owned(), json!("1.0 MiB")),
             ("missed".to_owned(), json!("10.0 pages per second")),
         ]
@@ -186,7 +198,8 @@ fn a_figure_over_its_target_is_missed_with_its_gap_and_one_at_or_under_is_met() 
 #[test]
 fn as_many_pages_per_second_as_spider_meets_its_target() {
     let workspace = Workspace::from_fixture("empty");
-    spider_report(&workspace, (40.0, 32 * MIB), (40.0, 25 * MIB));
+    peaks(&workspace, &[("foxhound", "crawl", 32 * MIB)]);
+    spider_report(&workspace, (40.0, 40 * MIB), (40.0, 25 * MIB));
 
     let (outcome, report) = report(&workspace);
 

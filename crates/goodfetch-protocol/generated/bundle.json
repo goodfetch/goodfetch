@@ -2097,6 +2097,16 @@
           "minimum": 0,
           "type": "integer"
         },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "At most this many links are added; once they are, each later\nelement whose link the Frontier would judge is not added, with\n`link_limit`. None for no limit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "locator": {
           "$ref": "#/$defs/Locator",
           "arrived_in": "0.1",
@@ -8449,6 +8459,11 @@
         {
           "const": "trap_link",
           "description": "On the browser tier, its link is one a person cannot see, a\n`nofollow` one among them: a trap a crawl never enters (ADR 0035).",
+          "type": "string"
+        },
+        {
+          "const": "link_limit",
+          "description": "The `enqueueLinks` call that matched it already added its `limit`\nlinks (ADR 0093).",
           "type": "string"
         }
       ]

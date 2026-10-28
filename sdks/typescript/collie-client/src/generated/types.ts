@@ -302,7 +302,8 @@ export type Enqueued =
         | "path_budget"
         | "trap_path"
         | "no_rule"
-        | "trap_link";
+        | "trap_link"
+        | "link_limit";
       /**
        * Its URL as it was given.
        */
@@ -626,7 +627,8 @@ export type NotAddedReason =
   | "path_budget"
   | "trap_path"
   | "no_rule"
-  | "trap_link";
+  | "trap_link"
+  | "link_limit";
 /**
  * Why a call that ends a Run did nothing (ADR 0102's G1).
  *

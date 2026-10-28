@@ -13,18 +13,14 @@ const MIB: u64 = 1024 * 1024;
 
 /// Startup to `hello` of each Product's Attached engine, median (ADR 0134).
 pub(crate) const STARTUP_TO_HELLO_SECONDS: f64 = 0.010;
-/// Idle resident memory of a Daemon with no run, each Product (ADR 0134).
-pub(crate) const IDLE_DAEMON_BYTES: u64 = 16 * MIB;
-/// Peak resident memory of Foxhound's 1,000-page HTTP crawl at M1's
-/// concurrency (ADR 0134).
-pub(crate) const CRAWL_PEAK_BYTES: u64 = 32 * MIB;
 
 /// A Performance target.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Target {
     StartupToHello,
-    /// Its value is the resident-memory check's own target for the
-    /// scenario, [`Scenario::target_bytes`].
+    /// The resident-memory targets: each one's value is the check's own
+    /// target for its scenario, [`Scenario::target_bytes`], and its figure
+    /// the median of that scenario's peaks.
     IdleAttachedEngine,
     IdleDaemon,
     CrawlPeak,
@@ -57,14 +53,22 @@ impl Target {
         }
     }
 
+    /// The resident-memory check's scenario that measures it, if one does.
+    fn scenario(self) -> Option<Scenario> {
+        match self {
+            Self::IdleAttachedEngine => Some(Scenario::IdleAttachedEngine),
+            Self::IdleDaemon => Some(Scenario::IdleDaemon),
+            Self::CrawlPeak => Some(Scenario::Crawl),
+            Self::StartupToHello | Self::CrawlPagesPerSecond => None,
+        }
+    }
+
     /// Its value, as the report states it before a figure is measured.
     fn stated(self) -> String {
-        match self {
-            Self::StartupToHello => milliseconds(STARTUP_TO_HELLO_SECONDS),
-            Self::IdleAttachedEngine => mebibytes(Scenario::IdleAttachedEngine.target_bytes()),
-            Self::IdleDaemon => mebibytes(IDLE_DAEMON_BYTES),
-            Self::CrawlPeak => mebibytes(CRAWL_PEAK_BYTES),
-            Self::CrawlPagesPerSecond => "at least Spider's".to_owned(),
+        match (self, self.scenario()) {
+            (_, Some(scenario)) => mebibytes(scenario.target_bytes()),
+            (Self::StartupToHello, None) => milliseconds(STARTUP_TO_HELLO_SECONDS),
+            (_, None) => "at least Spider's".to_owned(),
         }
     }
 
@@ -203,34 +207,29 @@ fn figure(target: Target, product: Product, measured: &Measured) -> (Option<Figu
             ),
             None => (None, "no hyperfine export; run `just targets`".to_owned()),
         },
-        Target::IdleAttachedEngine => {
-            let peaks = measured.idle_peaks(product);
+        Target::IdleAttachedEngine | Target::IdleDaemon | Target::CrawlPeak => {
+            let Some(scenario) = target.scenario() else {
+                return (None, "no scenario measures it".to_owned());
+            };
+            let peaks = measured.peaks(scenario, product);
             let runs = peaks.len();
             match median(peaks) {
                 Some(bytes) => (
                     Some(Figure::Bytes {
                         figure: bytes,
-                        target: Scenario::IdleAttachedEngine.target_bytes(),
+                        target: scenario.target_bytes(),
                     }),
-                    format!("`xtask rss measure`, median of {runs} runs"),
+                    format!(
+                        "`xtask rss measure {}`, median of {runs} runs",
+                        scenario.name()
+                    ),
                 ),
-                None => (None, "no idle peak; run `just targets`".to_owned()),
+                None => (
+                    None,
+                    format!("no {} peak; run `just targets`", scenario.name()),
+                ),
             }
         }
-        Target::IdleDaemon => (
-            None,
-            "the resident-memory check has no idle-Daemon scenario yet".to_owned(),
-        ),
-        Target::CrawlPeak => match &measured.spider {
-            Some(report) => (
-                Some(Figure::Bytes {
-                    figure: report.tools.foxhound.peak_bytes,
-                    target: CRAWL_PEAK_BYTES,
-                }),
-                spider_source(&report.commit),
-            ),
-            None => (None, "no `just compare-spider` report yet".to_owned()),
-        },
         Target::CrawlPagesPerSecond => match &measured.spider {
             Some(report) => (
                 Some(Figure::PagesPerSecond {

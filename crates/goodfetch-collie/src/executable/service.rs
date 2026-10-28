@@ -22,6 +22,7 @@
     reason = "the CLI writes the service's files and runs its service manager before and outside any async worker (ADR 0060)"
 )]
 
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 
@@ -30,12 +31,15 @@ use goodfetch_engine::daemon::service::{
     self, ManagerCommand, ServiceRequest, activates_sockets, manager_of_this_os,
 };
 use goodfetch_engine::installed::fingerprint;
+use goodfetch_engine::transport;
+use goodfetch_protocol::console::{ADDRESS as CONSOLE_ADDRESS, default_address};
 use goodfetch_protocol::daemon::{
     DaemonStopping, DaemonUninstallOutput, HttpListenerToken, InstalledService, ServiceManager,
     TokenRotated,
 };
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 
+use super::browsers;
 use super::daemon::{Failure, Machine};
 use goodfetch_cli::output;
 
@@ -186,6 +190,10 @@ fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonSt
     } else {
         None
     };
+    let console = match &socket {
+        Some(_) => console_address(machine),
+        None => None,
+    };
     let domain = launchd_domain(machine, manager)?;
     let plan = service::plan(&ServiceRequest {
         manager,
@@ -194,6 +202,7 @@ fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonSt
         executable: &copy.executable,
         build: &copy.id.build,
         socket: socket.as_deref(),
+        console,
         environment: machine.environment,
         launchd_domain: domain.as_deref(),
     })
@@ -216,6 +225,37 @@ fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonSt
         return Err(failure);
     }
     Ok((plan.service, stopped))
+}
+
+/// The Console's address the service manager listens on for the Daemon
+/// it starts (ADR 0031): `console.address` from the machine's layers, else
+/// its default, port 0 replaced by a port free now, since the service
+/// manager listens there before any Daemon reports where it is; none, and
+/// the Console's address left to the Daemon, when it is no `host:port` or
+/// no port is free.
+fn console_address(machine: &Machine<'_>) -> Option<SocketAddr> {
+    let identity = machine.identity;
+    let configured =
+        browsers::machine_settings(machine.home, identity.product, &identity.product_version)
+            .ok()
+            .and_then(|settings| {
+                settings
+                    .value(CONSOLE_ADDRESS.name)
+                    .as_str()
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| default_address(&identity.product_version).to_string());
+    let Ok(address) = configured.parse::<SocketAddr>() else {
+        tracing::warn!(address = %configured, "`console.address` is no `host:port`, so the first visit to the Console does not start the Daemon");
+        return None;
+    };
+    match transport::free_port(address) {
+        Ok(address) => Some(address),
+        Err(error) => {
+            tracing::warn!(%error, %address, "no port is free for the Console, so the first visit to the Console does not start the Daemon");
+            None
+        }
+    }
 }
 
 fn uninstalled(machine: &Machine<'_>) -> Result<DaemonUninstallOutput, Failure> {

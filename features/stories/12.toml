@@ -40,6 +40,45 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 4
+title = "As a developer who wants no Daemon, I want my script's Attached engine to serve its own Console when the script asks for it, so that I can watch one script with nothing left running afterwards (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 6
+title = "As a user, I want a visible Console tab to keep the Daemon from stopping idle and a hidden one not to, so that the Daemon never stops while I look at it and never runs for a forgotten tab (ADR 0031)."
+milestone = "M1 Core"
+journey = true
+status = "active"
+
+[[story]]
+id = 7
+title = "As a user whose Daemon is installed with socket activation, I want the first visit to the Console to start the Daemon, so that a bookmark always works (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 8
+title = "As a user, I want the Console's first launch to offer a monthly Limit for the install, so that spending is capped from day one (ADR 0041)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 9
+title = "As a user, I want links in Notifications to point at the Console address I set and carry no credential, so that a forwarded message grants nothing (ADR 0031)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 10
 title = "As a user, I want the Runs screen to list every run of my user and major from the Run index, whichever engine or Product ran it, so that one place shows all my work (ADRs 0031, 0098; ADR 0037 / CN-03)."
 milestone = "M1 Core"

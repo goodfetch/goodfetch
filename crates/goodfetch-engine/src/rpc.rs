@@ -39,7 +39,9 @@ use crate::composition::{CallContext, CallError, Handler};
 use crate::product::{Identity, Requested};
 
 pub use connection::CONSOLE_LISTENER;
-pub(crate) use connection::{Access, ConsoleConnection, Dispatch, serve, serve_console};
+pub(crate) use connection::{
+    Access, ConsoleConnection, ConsoleSide, Dispatch, serve, serve_console,
+};
 pub use websocket::Authorities;
 pub(crate) use websocket::{ConsoleSocket, Refusal};
 

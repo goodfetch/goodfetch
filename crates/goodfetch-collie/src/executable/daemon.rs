@@ -77,7 +77,7 @@ mod launched;
 mod reaper;
 
 use launched::launch;
-pub(super) use launched::launched;
+pub(super) use launched::{launched, start_console};
 
 /// `daemon run`, the foreground Daemon (ADR 0049); on Linux, under its
 /// reaper unless `reaped` says it runs under it already.

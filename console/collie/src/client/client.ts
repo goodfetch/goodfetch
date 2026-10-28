@@ -19,7 +19,9 @@
 // Connection, while a read or idempotent write waits for the next (ADR
 // 0079). The Client is `reconnecting` while it opens a Connection,
 // `read_only` while it waits to try again or for the page to be visible,
-// and `connected` once `hello` is answered.
+// and `connected` once `hello` is answered. It closes its Connection while
+// the page is hidden, so a hidden tab never keeps a Daemon from stopping
+// idle (ADR 0031), and opens one once the page is visible again.
 import {
   Channel,
   PRODUCT_VERSION,
@@ -417,8 +419,17 @@ class Client implements ConsoleClient {
 
   constructor(options: ConsoleClientOptions) {
     this.#options = options;
+    // A hidden page holds no Connection, so a forgotten tab counts as no
+    // Client and the Daemon may stop idle; a visible one holds one, which
+    // keeps the Daemon running while someone looks (ADR 0031).
     this.#stopWatching = options.visibility.watch(() => {
-      if (options.visibility.visible && this.#state === "read_only" && this.#retry === undefined) {
+      if (!options.visibility.visible) {
+        clearTimeout(this.#retry);
+        this.#retry = undefined;
+        this.#opened?.connection.close();
+        return;
+      }
+      if (this.#state === "read_only" && this.#retry === undefined) {
         this.#connect();
       }
     });

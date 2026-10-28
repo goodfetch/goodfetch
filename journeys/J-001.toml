@@ -8,7 +8,7 @@ its idle time, so that it costs nothing when unused."""
 area = 3
 product = "collie"
 status = "active"
-covers = ["row:CN-03", "story:3-18"]
+covers = ["row:CN-03", "story:3-18", "story:12-1", "story:12-6"]
 
 [surfaces]
 cli = "M1"

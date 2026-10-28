@@ -79,6 +79,7 @@ function foxhoundEngine(): ProtocolAdapter {
   adapter.answer("run.progress", (params) => progressOf(params.run_id));
   adapter.answer("run.usage", USAGE);
   adapter.answer("run.list", { runs: rows });
+  adapter.answer("usage.list", { limits: [] });
   adapter.answer("run.report", (params) => ({
     run_id: params.run_id,
     lifecycle: "finished",

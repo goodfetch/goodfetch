@@ -12,6 +12,7 @@ const visible: PageVisibility = { visible: true, watch: () => () => {} };
 test("the shell's first screen names the Product, then Collie, and the engine it reached", async () => {
   const adapter = createProtocolAdapter();
   adapter.answer("needs_you.list", { items: [] });
+  adapter.answer("usage.list", { limits: [] });
   const client = createConsoleClient({
     transport: adapter.transport,
     bodyFetcher: adapter.bodyFetcher,

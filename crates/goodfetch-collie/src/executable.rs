@@ -57,6 +57,7 @@ use goodfetch_engine::audit::AuditEvents;
 use goodfetch_engine::browser_cache::BROWSERS_PATH_VARIABLE;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::crash_report;
+use goodfetch_engine::daemon::DaemonConsole;
 use goodfetch_engine::entropy::{Entropy, NoSeed};
 use goodfetch_engine::governor::System;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -126,6 +127,12 @@ enum Command {
     /// input: what an SDK starts.
     #[command(hide = true)]
     AttachedEngine {
+        /// Serves the engine's own Console at this `host:port` while it
+        /// runs, as a script that wants no Daemon asks (ADR 0031); its
+        /// `hello` answers the Console's sign-in link. Port 0 takes a free
+        /// port. None by default: an Attached engine serves no Console.
+        #[arg(long, value_name = "ADDRESS")]
+        console_address: Option<String>,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -611,7 +618,9 @@ fn run(
         Parsed::HandWritten(command) => command,
     };
     match command {
-        Command::AttachedEngine { .. } => run_attached(engine, dependencies, &machine),
+        Command::AttachedEngine {
+            console_address, ..
+        } => run_attached(engine, dependencies, &machine, console_address.as_deref()),
         Command::Browser {
             command: BrowserCommand::Install { json },
             ..
@@ -826,6 +835,7 @@ fn run_attached(
     engine: &Engine,
     dependencies: Dependencies,
     machine: &daemon::Machine<'_>,
+    console_address: Option<&str>,
 ) -> ExitCode {
     let identity = engine.identity();
     let settings = browsers::machine_settings(
@@ -853,18 +863,26 @@ fn run_attached(
         .build()
         .expect("invariant: the OS gives the runtime its threads");
     let served = runtime.block_on(async {
-        match daemon {
-            Some((endpoint, token)) => match transport::connect_daemon(&endpoint).await {
+        if let Some((endpoint, token)) = daemon {
+            return match transport::connect_daemon(&endpoint).await {
                 Ok(connection) => Engine::relay_attached(Network::Os, connection, token)
                     .await
                     .map_err(|error| error.to_string()),
                 Err(error) => Err(format!("the Daemon at {endpoint} does not answer: {error}")),
-            },
-            None => engine
-                .run_attached(Network::Os, dependencies)
-                .await
-                .map_err(|error| error.to_string()),
+            };
         }
+        // `console.address` has no value on an Attached engine but the one
+        // its script gives for its run (ADR 0031).
+        let console = match console_address {
+            Some(address) if engine.serves_console() => {
+                daemon::start_console(address, settings.as_ref()).await.0
+            }
+            Some(_) | None => DaemonConsole::Absent,
+        };
+        engine
+            .run_attached_with_console(Network::Os, dependencies, console)
+            .await
+            .map_err(|error| error.to_string())
     });
     // Tokio's stdin reads on a blocking thread that only new input wakes, so
     // the runtime is not waited for once the Connection has closed.

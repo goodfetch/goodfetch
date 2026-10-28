@@ -228,7 +228,7 @@ impl Engine {
             owner,
             runs,
             events,
-            Access::Attached(None),
+            Access::Attached(None, None),
             clock,
         )
         .await;
@@ -252,67 +252,25 @@ impl Engine {
         let clock = dependencies.clock;
         let home = dependencies.home.clone();
         let person = os_user(&dependencies.environment);
-        let console_url = match (&self.console, &options.console) {
-            (Some(_), DaemonConsole::Listening { url, .. }) => Some(url.clone()),
-            _ => None,
-        };
         let (runs, events) = self.start_runs(
             dependencies,
             &owner,
             Some(RunOwner::Daemon(options.endpoint.clone())),
             options.install.take(),
-            console_url,
+            self.console_links(&options.console),
         );
-        let (opened_connections, console_connections) =
-            tokio::sync::mpsc::channel(CONSOLE_CONNECTIONS);
-        let (console, sign_ins) = match (
-            self.console,
-            std::mem::replace(&mut options.console, DaemonConsole::Absent),
-        ) {
-            (
-                Some(build),
-                DaemonConsole::Listening {
-                    listener,
-                    url,
-                    sign_in,
-                    content,
-                    offline_cache,
-                },
-            ) => {
-                let sign_ins = SignInDriver::new(SignIns {
-                    link: SingleUserLink::new(options.token.clone()),
-                    person,
-                    store: AccountsStore::at(home.accounts_store(&self.identity().product_version)),
-                    key: ConsoleKey::at(home.console_key()),
-                    audit: runs.audit().clone(),
-                    policy: sign_in,
-                    clock,
-                    owner: Arc::new(owner.child()),
-                });
-                owner.spawn(console::serve(
-                    console::Served {
-                        build,
-                        listener,
-                        sign_ins: sign_ins.clone(),
-                        cookie: format!(
-                            "goodfetch_console_{}",
-                            major_name(&self.identity().product_version)
-                        ),
-                        connections: opened_connections,
-                        runs: runs.clone(),
-                        clock,
-                        content,
-                        offline_cache,
-                    },
-                    owner.child(),
-                ));
-                (ConsoleState::Serving(url), Some(sign_ins))
-            }
-            (_, DaemonConsole::Failed(failure)) => (ConsoleState::Failed(failure), None),
-            (None, DaemonConsole::Listening { .. }) | (_, DaemonConsole::Absent) => {
-                (ConsoleState::Absent, None)
-            }
+        let opening = ConsoleOpening {
+            token: options.token.clone(),
+            home: &home,
+            person,
+            runs: &runs,
+            clock,
+            owner: &owner,
         };
+        let (console, sign_ins, console_connections) = self.open_console(
+            std::mem::replace(&mut options.console, DaemonConsole::Absent),
+            opening,
+        );
         let ended = daemon::serve(
             daemon::Serving {
                 dispatch: Arc::clone(&self.dispatch),
@@ -493,14 +451,37 @@ impl Engine {
     /// Dropping the future cancels nothing it started; run it to its end.
     pub async fn run_attached(
         &self,
+        network: Network,
+        dependencies: Dependencies,
+    ) -> Result<(), TransportError> {
+        self.run_attached_with_console(network, dependencies, DaemonConsole::Absent)
+            .await
+    }
+
+    /// Runs as an Attached engine, as [`Engine::run_attached`] does, that
+    /// also serves `console`, the Console its script asked for with an
+    /// address of its own (ADR 0031): its stdio's `hello` answers the
+    /// Console's sign-in link, under a per-launch token, and the Console
+    /// stops listening when the engine stops, so nothing listens once the
+    /// script has ended. An engine whose composition carries no Console
+    /// build serves none.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future cancels nothing it started; run it to its end.
+    pub async fn run_attached_with_console(
+        &self,
         mut network: Network,
         dependencies: Dependencies,
+        console: DaemonConsole,
     ) -> Result<(), TransportError> {
         let on_the_os = matches!(network, Network::Os);
         let parent = on_the_os.then(ParentWatch::start);
         let connection = network.attached_connection().await?;
         let owner = TaskOwner::root(dependencies.blocking);
         let clock = dependencies.clock;
+        let home = dependencies.home.clone();
+        let person = os_user(&dependencies.environment);
         let private = if on_the_os {
             private_endpoint(network, &owner).await
         } else {
@@ -513,17 +494,33 @@ impl Engine {
                 .as_ref()
                 .map(|(_, endpoint, _)| RunOwner::Attached(endpoint.clone())),
             None,
-            None,
+            self.console_links(&console),
         );
         let connection_owner = owner.child();
         let reported = private.as_ref().map(|(_, endpoint, _)| endpoint.clone());
+        // The private endpoint's and the Console's Connections, which the
+        // stdio Connection does not wait for.
+        let accepting = owner.child();
+        let console_link = self.serve_scripts_console(
+            console,
+            ConsoleOpening {
+                token: String::new(),
+                home: &home,
+                person,
+                runs: &runs,
+                clock,
+                owner: &owner,
+            },
+            &accepting,
+            &events,
+        );
         let stdio = rpc::serve(
             Arc::clone(&self.dispatch),
             connection,
             &connection_owner,
             runs.clone(),
             events.clone(),
-            Access::Attached(reported),
+            Access::Attached(reported, console_link),
             clock,
         );
         let gone = async {
@@ -532,7 +529,6 @@ impl Engine {
                 None => std::future::pending().await,
             }
         };
-        let accepting = owner.child();
         let mut private_files = None;
         if let Some((listener, _, files)) = private {
             accepting.spawn(serve_private_endpoint(
@@ -564,6 +560,199 @@ impl Engine {
         owner.stop().await;
         drop(private_files);
         Ok(())
+    }
+}
+
+/// What opening a Console takes beside the Console its starter set up.
+struct ConsoleOpening<'a> {
+    /// The token its single-user sign-in link carries.
+    token: String,
+    home: &'a Home,
+    /// The OS user its single-user sign-in names.
+    person: String,
+    runs: &'a Runs,
+    clock: Clock,
+    owner: &'a TaskOwner,
+}
+
+impl Engine {
+    /// The address links to `console` name (ADR 0031): its
+    /// `console.public_url` when set, else its own URL; none when the
+    /// engine serves no Console.
+    fn console_links(&self, console: &DaemonConsole) -> Option<String> {
+        match (&self.console, console) {
+            (
+                Some(_),
+                DaemonConsole::Listening {
+                    url, public_url, ..
+                },
+            ) => Some(console::links::link_base(url, public_url.as_deref())),
+            _ => None,
+        }
+    }
+
+    /// Serves an Attached engine's own `console`, its pages' Connections
+    /// tasks of `connections` reaching the engine's Runs, under a sign-in
+    /// token of this launch: its sign-in link, `<url>#token=<token>`; none
+    /// when it serves no Console.
+    fn serve_scripts_console(
+        &self,
+        console: DaemonConsole,
+        opening: ConsoleOpening<'_>,
+        connections: &TaskOwner,
+        events: &Events,
+    ) -> Option<String> {
+        if self.console.is_none() || !matches!(console, DaemonConsole::Listening { .. }) {
+            return None;
+        }
+        let token = match crate::endpoint::new_token() {
+            Ok(token) => token,
+            Err(error) => {
+                tracing::error!(%error, "the OS generator gave no sign-in token, so the script's Console does not start");
+                return None;
+            }
+        };
+        let runs = opening.runs.clone();
+        let clock = opening.clock;
+        let opening = ConsoleOpening {
+            token: token.clone(),
+            ..opening
+        };
+        match self.open_console(console, opening) {
+            (ConsoleState::Serving(url), Some(sign_ins), opened) => {
+                connections.spawn(serve_attached_console(
+                    Arc::clone(&self.dispatch),
+                    opened,
+                    sign_ins,
+                    connections.child(),
+                    runs,
+                    events.clone(),
+                    clock,
+                ));
+                Some(format!("{url}#token={token}"))
+            }
+            _ => None,
+        }
+    }
+
+    /// Serves `console` with this engine's Console build, its tasks those
+    /// of `opening`'s owner: where it is, its sign-in driver, and the
+    /// Connections its pages open; or why it serves none.
+    fn open_console(
+        &self,
+        console: DaemonConsole,
+        opening: ConsoleOpening<'_>,
+    ) -> (
+        ConsoleState,
+        Option<SignInDriver>,
+        tokio::sync::mpsc::Receiver<rpc::ConsoleConnection>,
+    ) {
+        let (opened_connections, console_connections) =
+            tokio::sync::mpsc::channel(CONSOLE_CONNECTIONS);
+        let ConsoleOpening {
+            token,
+            home,
+            person,
+            runs,
+            clock,
+            owner,
+        } = opening;
+        let (state, sign_ins) = match (self.console, console) {
+            (
+                Some(build),
+                DaemonConsole::Listening {
+                    listener,
+                    url,
+                    public_url: _,
+                    sign_in,
+                    content,
+                    offline_cache,
+                },
+            ) => {
+                let sign_ins = SignInDriver::new(SignIns {
+                    link: SingleUserLink::new(token),
+                    person,
+                    store: AccountsStore::at(home.accounts_store(&self.identity().product_version)),
+                    key: ConsoleKey::at(home.console_key()),
+                    audit: runs.audit().clone(),
+                    policy: sign_in,
+                    clock,
+                    owner: Arc::new(owner.child()),
+                });
+                owner.spawn(console::serve(
+                    console::Served {
+                        build,
+                        listener,
+                        sign_ins: sign_ins.clone(),
+                        cookie: format!(
+                            "goodfetch_console_{}",
+                            major_name(&self.identity().product_version)
+                        ),
+                        connections: opened_connections,
+                        runs: runs.clone(),
+                        clock,
+                        content,
+                        offline_cache,
+                    },
+                    owner.child(),
+                ));
+                (ConsoleState::Serving(url), Some(sign_ins))
+            }
+            (_, DaemonConsole::Failed(failure)) => (ConsoleState::Failed(failure), None),
+            (None, DaemonConsole::Listening { .. }) | (_, DaemonConsole::Absent) => {
+                (ConsoleState::Absent, None)
+            }
+        };
+        (state, sign_ins, console_connections)
+    }
+}
+
+/// Serves each Connection the pages of an Attached engine's own Console
+/// open, every one a task of `owner`, reaching the engine's Runs: no
+/// Daemon answers them, and their Runs end with the engine's.
+async fn serve_attached_console(
+    dispatch: Arc<Dispatch>,
+    mut connections: tokio::sync::mpsc::Receiver<rpc::ConsoleConnection>,
+    sign_ins: SignInDriver,
+    owner: TaskOwner,
+    runs: Runs,
+    events: Events,
+    clock: Clock,
+) {
+    let stopped = owner.token().clone();
+    loop {
+        let connection = tokio::select! {
+            biased;
+            () = stopped.cancelled() => return,
+            next = connections.recv() => match next {
+                Some(connection) => connection,
+                // The Console's server stopped.
+                None => return,
+            },
+        };
+        let (dispatch, sign_ins, runs, events) = (
+            Arc::clone(&dispatch),
+            sign_ins.clone(),
+            runs.clone(),
+            events.clone(),
+        );
+        let its_owner = owner.child();
+        let closed = its_owner.token().clone();
+        owner.spawn(async move {
+            let side = rpc::ConsoleSide {
+                daemon: None,
+                sign_ins,
+            };
+            let served =
+                rpc::serve_console(dispatch, connection, &its_owner, runs, events, side, clock);
+            // The engine's stop closes the Console's Connections with it.
+            tokio::select! {
+                biased;
+                () = closed.cancelled() => {}
+                () = served => {}
+            }
+            its_owner.stop().await;
+        });
     }
 }
 

@@ -385,6 +385,12 @@ pub struct InstalledService {
     /// activation (Windows).
     #[schemars(with = "Option<String>", extend("arrived_in" = "0.1"))]
     pub socket: Option<PathBuf>,
+    /// The Console's `host:port` the service manager also listens on, so
+    /// the first visit to the Console starts the Daemon (ADR 0031); `None`
+    /// without socket activation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub console: Option<String>,
     /// The versioned copy in the Browser cache that the service starts,
     /// which starts its major's pick.
     #[schemars(with = "String", extend("arrived_in" = "0.1"))]

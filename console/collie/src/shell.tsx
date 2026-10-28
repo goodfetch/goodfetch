@@ -4,7 +4,8 @@
 // opened at. Its first screen, at `/`, names the build's Product,
 // "Goodfetch Collie" or "Goodfetch Foxhound", then calls it "Collie" or
 // "Foxhound", and says which engine its Client reached, by Product
-// and version, or that the page is not signed in; the Runs screen lists
+// and version, or that the page is not signed in, and offers a monthly
+// Limit for the install while none holds (ADR 0041); the Runs screen lists
 // the runs, and a run's page, at `/runs/<run-id>`, one of them. Each
 // screen's route is plain data (`routes.ts`, ADR 0072), its `$` segments
 // the screen's parameters, and the page's title names it; a screen that
@@ -31,6 +32,7 @@ import type { OfflineCache } from "#offline/offline.ts";
 import { ENGINE_SETTINGS, NEEDS_YOU, RUN, RUNS, paramsOf, type RouteParams } from "#routes.ts";
 import { RunPage } from "#runs/run-page.tsx";
 import { Runs } from "#runs/runs.tsx";
+import { InstallLimitOffer } from "#usage/install-limit-offer.tsx";
 
 /** What the shell shows the Console's link to its engine with. */
 export interface ShellProps {
@@ -266,6 +268,7 @@ function Overview({
       <output className="block">
         {client === undefined ? <NotSignedIn product={product} /> : <Engine client={client} />}
       </output>
+      {client === undefined ? null : <InstallLimitOffer client={client} />}
     </>
   );
 }

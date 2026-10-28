@@ -3989,6 +3989,13 @@ class HelloResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    console_link: str | None = None
+    """
+    The sign-in link of the Console an Attached engine serves for its
+    script, which asked for one with a Console address, reported to the
+    Client of its stdio alone: `<url>#token=<token>`, whose fragment the
+    page swaps once for its cookie (ADRs 0024 and 0031).
+    """
     engine_instance: EngineInstance
     """
     The engine process, new each time an engine starts: the positions

@@ -32,13 +32,15 @@ use goodfetch_engine::ops::Ops;
 use goodfetch_engine::people::SignInPolicy;
 use goodfetch_engine::run_state::install::InstallDatabase;
 use goodfetch_engine::settings::Resolved;
-use goodfetch_engine::transport::{DaemonListener, Network, listen_console};
+use goodfetch_engine::transport::{
+    ConsoleListener, DaemonListener, Network, activated_console, listen_console,
+};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::console::{
     ADDRESS as CONSOLE_ADDRESS, CONSOLE_PORT_IN_USE, CONTENT_ADDRESS, CONTENT_PUBLIC_URL,
-    ConsoleFailure, ConsoleState, OFFLINE_CACHE, default_address,
+    ConsoleFailure, ConsoleState, OFFLINE_CACHE, PUBLIC_URL, default_address,
 };
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, IDLE_TIMEOUT};
 use goodfetch_protocol::people::{SIGN_IN_IDLE_EXPIRY, SIGN_IN_RATE};
@@ -180,7 +182,7 @@ pub(in crate::executable) fn launched(
         let (listener, endpoint, token, activated) =
             take_listener(machine, &files, &socket, service).await?;
         let (console, console_state) = if engine.serves_console() {
-            start_console(&console_address, settings.as_ref()).await
+            console_of_launch(machine, activated, &console_address, settings.as_ref()).await
         } else {
             (DaemonConsole::Absent, ConsoleState::Absent)
         };
@@ -308,6 +310,14 @@ fn content_settings(settings: Option<&Resolved>) -> ContentSettings {
     }
 }
 
+/// `console.public_url`, from user configuration and the Operator
+/// policy: the address links to the Console name, when set.
+fn public_url(settings: Option<&Resolved>) -> Option<String> {
+    settings
+        .and_then(|settings| settings.value(PUBLIC_URL.name).as_str().map(str::to_owned))
+        .filter(|value| !value.is_empty())
+}
+
 /// Whether `url` is a bare `http` or `https` origin, with at most one
 /// closing slash: a host of ASCII letters, digits, hyphens and dots, or a
 /// bracketed IPv6 address, and an optional port. The Console's policy
@@ -415,23 +425,10 @@ async fn start_content(console: SocketAddr, settings: &ContentSettings) -> Optio
 /// sign-in policy and its content origin from `settings`; or, when the address is no `host:port` or another
 /// program holds its port, why it did not start, which fails only the
 /// Console, never the Daemon's protocol.
-async fn start_console(
+pub(in crate::executable) async fn start_console(
     address: &str,
     settings: Option<&Resolved>,
 ) -> (DaemonConsole, ConsoleState) {
-    let sign_in = sign_in_policy(settings);
-    let failed = |failure: ConsoleFailure| {
-        tracing::error!(
-            code = failure.code.as_str(),
-            "{} {}",
-            failure.message,
-            failure.fix
-        );
-        (
-            DaemonConsole::Failed(failure.clone()),
-            ConsoleState::Failed(failure),
-        )
-    };
     let Ok(parsed) = address.parse::<SocketAddr>() else {
         return failed(ConsoleFailure {
             code: SETTING_INVALID.name.to_owned(),
@@ -440,28 +437,7 @@ async fn start_console(
         });
     };
     match listen_console(parsed).await {
-        Ok(listener) => match listener.local_address() {
-            Ok(bound) => {
-                let url = format!("http://{bound}/");
-                tracing::info!(%url, "the Console serves");
-                let content = start_content(bound, &content_settings(settings)).await;
-                (
-                    DaemonConsole::Listening {
-                        listener,
-                        url: url.clone(),
-                        sign_in,
-                        content,
-                        offline_cache: offline_cache(settings),
-                    },
-                    ConsoleState::Serving(url),
-                )
-            }
-            Err(error) => failed(ConsoleFailure {
-                code: SETTING_INVALID.name.to_owned(),
-                message: format!("The Console's listener at {address} has no address: {error}."),
-                fix: "Set `console.address` to another address, then run `daemon restart`.".to_owned(),
-            }),
-        },
+        Ok(listener) => console_on(listener, address, settings).await,
         Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => failed(ConsoleFailure {
             code: CONSOLE_PORT_IN_USE.name.to_owned(),
             message: format!("Another program holds {address}, so the Console did not start; the Daemon still serves its Clients."),
@@ -472,6 +448,75 @@ async fn start_console(
             message: format!("The Console cannot listen at {address}: {error}."),
             fix: "Set `console.address` to an address this machine has and a port it may take, then run `daemon restart`.".to_owned(),
         }),
+    }
+}
+
+/// The Console served on `listener`, bound at `address`, with its sign-in
+/// policy and its content origin from `settings`, or why it is not.
+async fn console_on(
+    listener: ConsoleListener,
+    address: &str,
+    settings: Option<&Resolved>,
+) -> (DaemonConsole, ConsoleState) {
+    match listener.local_address() {
+        Ok(bound) => {
+            let url = format!("http://{bound}/");
+            tracing::info!(%url, "the Console serves");
+            let content = start_content(bound, &content_settings(settings)).await;
+            (
+                DaemonConsole::Listening {
+                    listener,
+                    url: url.clone(),
+                    public_url: public_url(settings),
+                    sign_in: sign_in_policy(settings),
+                    content,
+                    offline_cache: offline_cache(settings),
+                },
+                ConsoleState::Serving(url),
+            )
+        }
+        Err(error) => failed(ConsoleFailure {
+            code: SETTING_INVALID.name.to_owned(),
+            message: format!("The Console's listener at {address} has no address: {error}."),
+            fix: "Set `console.address` to another address, then run `daemon restart`.".to_owned(),
+        }),
+    }
+}
+
+/// The Console that did not start, as `failure` says, logged.
+fn failed(failure: ConsoleFailure) -> (DaemonConsole, ConsoleState) {
+    tracing::error!(
+        code = failure.code.as_str(),
+        "{} {}",
+        failure.message,
+        failure.fix
+    );
+    (
+        DaemonConsole::Failed(failure.clone()),
+        ConsoleState::Failed(failure),
+    )
+}
+
+/// The Daemon's Console, on the listener the service manager handed over
+/// when it started this Daemon at a first visit to the Console (ADR
+/// 0031), else at `address`.
+async fn console_of_launch(
+    machine: &Machine<'_>,
+    activated: bool,
+    address: &str,
+    settings: Option<&Resolved>,
+) -> (DaemonConsole, ConsoleState) {
+    let handed = if activated {
+        activated_console(machine.environment).unwrap_or_else(|error| {
+            tracing::warn!(%error, "the service manager's Console socket cannot be taken, so the Console listens itself");
+            None
+        })
+    } else {
+        None
+    };
+    match handed {
+        Some(listener) => console_on(listener, address, settings).await,
+        None => start_console(address, settings).await,
     }
 }
 

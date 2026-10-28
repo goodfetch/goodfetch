@@ -25,7 +25,9 @@ fn plan(choices: &mut TierChoices, label: &str, path: &str) -> AttemptPlan {
 
 /// The plan of a request of `label` at `path` on [`KEY`] at `now`.
 fn plan_at(choices: &mut TierChoices, label: &str, path: &str, now: u64) -> AttemptPlan {
-    choices.serve_attempt(label, KEY, &format!("http://tiers.test{path}"), now)
+    choices
+        .serve_attempt(label, KEY, &format!("http://tiers.test{path}"), now)
+        .0
 }
 
 /// Classifies the sample of a request of `label` at `path`, as matched or
@@ -264,6 +266,44 @@ fn a_choice_is_sampled_again_after_its_requests_or_its_time_whichever_comes_firs
                 }),
             ]
         )
+    );
+}
+
+/// A resumed crawl goes on counting the requests a choice served: the count
+/// is kept in the run file beside the moment the choice was made, so a
+/// crawl resumed more often than `fetch.sample.refresh_after`'s requests is
+/// still sampled again after them.
+///
+/// Covers: story:5-114, story:6-257
+#[test]
+fn a_resumed_crawl_goes_on_counting_the_requests_a_choice_served() {
+    let sampling = Sampling {
+        count: SAMPLES,
+        requests: 2,
+        after_ms: 60_000,
+    };
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in TABLES.statements {
+        connection.execute_batch(statement).unwrap();
+    }
+    let mut choices = TierChoices::default().sampled_as(sampling);
+    for page in 1..=SAMPLES {
+        sample(&mut choices, "static", &format!("/products/{page}"), true);
+    }
+    let before = tier(&mut choices, "static", "/products/4");
+    for (label, key, unit) in choices.units() {
+        record(&connection, label, key, unit).unwrap();
+    }
+
+    let mut resumed = read(&connection).unwrap().sampled_as(sampling);
+    let after = [
+        tier(&mut resumed, "static", "/products/5"),
+        tier(&mut resumed, "static", "/products/6"),
+    ];
+
+    assert_eq!(
+        (before, after),
+        (Some(FetchTier::Http), [Some(FetchTier::Http), None])
     );
 }
 

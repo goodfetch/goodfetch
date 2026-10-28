@@ -12,7 +12,8 @@
 # (ci/linux.sh), which on a Linux host run among the host's tests, after the
 # OS-service setup below; `just visual`, the visual projects in the pinned Playwright
 # image (ci/visual/container.sh). The suite waits for each and fails when one
-# fails, and stops them when a host step fails first. The host's checks that
+# fails, and stops them when a host step fails first, keeping the result of
+# each that had already ended for the gate's record. The host's checks that
 # take seconds and judge the whole change (sign-offs, commit messages, the SDK
 # crates' features, advisories, secrets in commits, the fuzz targets, the
 # proofs) run before the suites; the stress
@@ -93,17 +94,44 @@ pids=()
 # `just` passes a stop on to its recipe's shell alone, and `just perf`'s
 # `xtask perf build` and its `cargo bench` outlived it.
 beside() {
+  [[ -n $ended ]] || ended=$(mktemp -d)
   set -m
-  timed "$1" just "$1" > >(awk -v mark="[$1] " '{ print mark $0; fflush() }') 2>&1 &
+  timed "$1" beside_step "$1" > >(awk -v mark="[$1] " '{ print mark $0; fflush() }') 2>&1 &
   set +m
   names+=("$1")
   pids+=("$!")
 }
-# At the end, stops the process groups of the steps still running beside,
-# releases the gate's records, then lists what this host skipped.
-# `kill` signals each group it is given, even past one that has ended.
+# A step beside the host's notes its exit status in `ended` once it has
+# ended, before its end is logged, so a host step that fails first cannot
+# lose the result of a step beside that had finished.
+ended=""
+# shellcheck disable=SC2329 # called through timed
+beside_step() {
+  local status=0
+  just "$1" || status=$?
+  echo "$status" >"$ended/$1"
+  return "$status"
+}
+# At the end, stops the process groups of the steps still running beside
+# and records each step beside that had already ended, releases the gate's
+# records, then lists what this host skipped. A step stopped while it ran
+# records nothing, so the next run reruns it. `kill` signals each group it
+# is given, even past one that has ended.
 lock=""
-trap '[[ ${#pids[@]} -eq 0 ]] || kill -TERM -- "${pids[@]/#/-}" 2>/dev/null || true; [[ -z $lock ]] || rm -rf "$lock"; just _skips-report' EXIT
+# shellcheck disable=SC2329 # called through the EXIT trap
+on_exit() {
+  if [[ ${#pids[@]} -gt 0 ]]; then
+    kill -TERM -- "${pids[@]/#/-}" 2>/dev/null || true
+    local name
+    for name in "${names[@]}"; do
+      if [[ -f $ended/$name ]]; then record "$name" "$(cat "$ended/$name")" || true; fi
+    done
+  fi
+  [[ -z $ended ]] || rm -rf "$ended"
+  [[ -z $lock ]] || rm -rf "$lock"
+  just _skips-report
+}
+trap on_exit EXIT
 
 # A whole-workspace gate run that narrows what runs or swaps the
 # executables under test would record results a normal run then reuses, so

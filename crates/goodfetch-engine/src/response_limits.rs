@@ -107,6 +107,13 @@ impl Limits {
             .map_or(Ok(()), |setting| Err(self.exceeded(url, setting)))
     }
 
+    /// The refusal of `url`'s body as past `network.max_body_size`, for a
+    /// body known to be past it before its bytes were counted, such as one
+    /// a browser answers in a message longer than the connection reads.
+    pub fn past_the_size(&self, url: &str) -> LimitExceeded {
+        self.exceeded(url, LimitSetting::MaxBodySize)
+    }
+
     /// The setting `decoded` bytes from `received` pass, if any.
     fn passed(&self, decoded: u64, received: Option<u64>) -> Option<LimitSetting> {
         if decoded > self.max_body_size {

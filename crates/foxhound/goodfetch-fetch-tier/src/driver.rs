@@ -311,6 +311,20 @@ pub fn met(status: u16, headers: &[(String, String)], forwarded: bool) -> Met<'_
 }
 
 impl TransportFailure {
+    /// The failure as a hop to `url` reports it: an egress refusal names
+    /// the hop's URL, whatever URL the library's error carried; any other
+    /// failure stays as it is. Every transport's translation ends here
+    /// (ADR 0129).
+    pub(crate) fn of_hop(self, url: &Url) -> Self {
+        match self {
+            Self::Egress(refused) => Self::Egress(Refused {
+                url: url.to_string(),
+                ..refused
+            }),
+            failure => failure,
+        }
+    }
+
     /// What a hop that failed so met, as the backoff classes read it: its
     /// network error, Chrome's name for it, the proxy's own for a tunnel
     /// the proxy refused, asked credentials for or never opened.

@@ -70,7 +70,7 @@
 //! each is read only by its `send`, so they stay one concern.
 
 use std::cell::Cell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::error::Error;
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
@@ -195,8 +195,8 @@ pub enum TransportUnavailable {
 #[derive(Clone, Debug)]
 pub struct Reqwest {
     /// The clients of each listed domain of `tls.client_certificates`,
-    /// the domain's certificate presented, and under `None` those of every
-    /// other host, presenting none. Clones share them.
+    /// the domain's certificate presented, and those of every other host,
+    /// presenting none. Clones share them.
     scopes: Scopes,
     http1_origins: Http1Origins,
     /// The resolver of its address check, reaching every family the
@@ -235,16 +235,27 @@ struct Bound {
     http1: Clients,
 }
 
-/// The clients of each client-certificate scope, by its listed domain.
+/// A client-certificate scope: a domain `tls.client_certificates` lists,
+/// whose hosts present its certificate, or every other host, presenting
+/// none.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Scope {
+    /// The hosts no listed domain covers.
+    Unscoped,
+    /// The hosts of this listed domain.
+    Listed(String),
+}
+
+/// The clients of each client-certificate scope.
 #[derive(Clone, Debug, Default)]
 #[expect(
     clippy::disallowed_types,
     reason = "the map is read or written in one step, never across an `.await` or another lock, so there is no lock order to test under loom (ADR 0060)"
 )]
-struct Scopes(Arc<std::sync::Mutex<BTreeMap<Option<String>, Arc<ScopeClients>>>>);
+struct Scopes(Arc<std::sync::Mutex<BTreeMap<Scope, Arc<ScopeClients>>>>);
 
 impl Scopes {
-    fn scopes(&self) -> std::sync::MutexGuard<'_, BTreeMap<Option<String>, Arc<ScopeClients>>> {
+    fn scopes(&self) -> std::sync::MutexGuard<'_, BTreeMap<Scope, Arc<ScopeClients>>> {
         self.0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -307,7 +318,10 @@ impl Reqwest {
             proxy: config.proxy.clone(),
         };
         let unscoped = transport.scope_clients(None)?;
-        transport.scopes.scopes().insert(None, Arc::new(unscoped));
+        transport
+            .scopes
+            .scopes()
+            .insert(Scope::Unscoped, Arc::new(unscoped));
         Ok(transport)
     }
 
@@ -382,9 +396,10 @@ impl Reqwest {
         let scope = self
             .client_certificates
             .as_ref()
-            .and_then(|certificates| certificates.scope_of(host));
+            .and_then(|certificates| certificates.scope_of(host))
+            .map_or(Scope::Unscoped, Scope::Listed);
         let client = match (&scope, &self.client_certificates) {
-            (Some(_), Some(certificates)) => certificates
+            (Scope::Listed(_), Some(certificates)) => certificates
                 .for_host(host)
                 .await
                 .map_err(|failure| client_certificate_failure(&failure))?,
@@ -618,7 +633,7 @@ impl Transport for Reqwest {
                     let unscoped = self
                         .scopes
                         .scopes()
-                        .get(&None)
+                        .get(&Scope::Unscoped)
                         .cloned()
                         .expect("invariant: the transport builds its unscoped clients");
                     self.send_on(&unscoped, hop, reuse)
@@ -674,6 +689,11 @@ where
     }
 }
 
+/// How many origins [`Http1Origins`] remembers: past it, the one that
+/// answered `HTTP_1_1_REQUIRED` longest ago is forgotten, and its next
+/// request costs one resend on HTTP/1.1 (ADR 0118).
+const HTTP1_ORIGINS: usize = 256;
+
 /// The origins that answered `HTTP_1_1_REQUIRED`, which keep HTTP/1.1 for
 /// the transport's life (ADR 0118). Clones share them.
 #[derive(Clone, Debug, Default)]
@@ -681,21 +701,41 @@ where
     clippy::disallowed_types,
     reason = "the set is read or written in one step, never across an `.await` or another lock, so there is no lock order to test under loom (ADR 0060)"
 )]
-struct Http1Origins(Arc<std::sync::Mutex<BTreeSet<String>>>);
+struct Http1Origins(Arc<std::sync::Mutex<Remembered>>);
+
+/// The origins [`Http1Origins`] remembers, and the order they came in.
+#[derive(Debug, Default)]
+struct Remembered {
+    origins: BTreeSet<String>,
+    order: VecDeque<String>,
+}
 
 impl Http1Origins {
-    fn origins(&self) -> std::sync::MutexGuard<'_, BTreeSet<String>> {
+    fn remembered(&self) -> std::sync::MutexGuard<'_, Remembered> {
         self.0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn contains(&self, url: &Url) -> bool {
-        self.origins().contains(&url.origin().ascii_serialization())
+        self.remembered()
+            .origins
+            .contains(&url.origin().ascii_serialization())
     }
 
     fn insert(&self, url: &Url) {
-        self.origins().insert(url.origin().ascii_serialization());
+        let origin = url.origin().ascii_serialization();
+        let mut remembered = self.remembered();
+        if remembered.origins.contains(&origin) {
+            return;
+        }
+        if remembered.order.len() == HTTP1_ORIGINS
+            && let Some(oldest) = remembered.order.pop_front()
+        {
+            remembered.origins.remove(&oldest);
+        }
+        remembered.origins.insert(origin.clone());
+        remembered.order.push_back(origin);
     }
 }
 
@@ -716,15 +756,9 @@ impl Body for ReqwestBody {
     }
 }
 
-/// `error`'s failure, an egress refusal naming the hop's URL.
+/// `error`'s failure, as a hop to `url` reports it.
 fn failure_of(error: &reqwest::Error, url: &Url) -> TransportFailure {
-    match classify(error) {
-        TransportFailure::Egress(refused) => TransportFailure::Egress(Refused {
-            url: url.to_string(),
-            ..refused
-        }),
-        failure => failure,
-    }
+    classify(error).of_hop(url)
 }
 
 /// Why the transport's resolver gave no address.

@@ -53,6 +53,13 @@ pub(crate) fn mounted_home(env: &TestEnv, size: u64, program: &str) -> Command {
     mounted_keeping(env, env.home(), size, program, LOG_FOLDER)
 }
 
+/// A command that runs `program` with a tmpfs of `size` bytes over the
+/// test's `folder`, which holds what the folder held, in a user and mount
+/// namespace of its own.
+pub(crate) fn mounted(env: &TestEnv, folder: &Path, size: u64, program: &str) -> Command {
+    mounted_keeping(env, folder, size, program, "")
+}
+
 fn mounted_keeping(env: &TestEnv, folder: &Path, size: u64, program: &str, kept: &str) -> Command {
     let unshare = if Path::new(TEST_UNSHARE).exists() {
         TEST_UNSHARE

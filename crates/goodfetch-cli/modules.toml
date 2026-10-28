@@ -6,3 +6,8 @@ generated = ["engine_choice", "exit_codes", "output", "settings_flags"]
 other_product = ["exit_codes", "output"]
 output = []
 settings_flags = []
+
+# Which of `generated`'s own modules may import which.
+[submodules.generated]
+crawl_start = []
+run_export = []

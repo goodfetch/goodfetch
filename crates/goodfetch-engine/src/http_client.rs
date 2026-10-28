@@ -404,6 +404,9 @@ pub struct UpstreamProxy {
     pub host: String,
     /// Its port.
     pub port: u16,
+    /// How its own addresses are judged: as an Operator-configured
+    /// endpoint's, under `egress.no_private_endpoints` (ADR 0017).
+    pub policy: EndpointPolicy,
 }
 
 impl std::fmt::Display for UpstreamProxy {
@@ -550,6 +553,14 @@ impl PageTraffic {
                     .addresses(&proxy_server)
                     .await
                     .map_err(|_| FetchError::Failed(Failure::Proxy(ProxyFailure::Unreachable)))?;
+                if let Err(refused) =
+                    egress::judge_endpoint_addresses(&proxy.to_string(), &at, proxy.policy)
+                {
+                    if let Waiter::Nobody(log) = waiter {
+                        record_unwaited(log, &refused).await;
+                    }
+                    return Err(FetchError::Refused(refused));
+                }
                 Via::Proxy {
                     port: proxy_server.port,
                     host: &proxy.host,

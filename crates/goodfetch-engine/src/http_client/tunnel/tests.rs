@@ -9,6 +9,7 @@
 use rstest::rstest;
 
 use super::{ProxyFailure, Unrecognized, answered};
+use crate::egress::EndpointPolicy;
 use crate::http_client::UpstreamProxy;
 
 /// A failure's Error code, as the call that waited answers with it.
@@ -16,6 +17,7 @@ fn code(failure: &ProxyFailure) -> String {
     let proxy = UpstreamProxy {
         host: "proxy.test".to_owned(),
         port: 3128,
+        policy: EndpointPolicy::default(),
     };
     failure
         .error(&proxy, "https://site.test/")

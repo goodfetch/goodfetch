@@ -275,9 +275,15 @@ fn ean_checks(digits: &[u32]) -> bool {
     let sum: u32 = digits
         .iter()
         .enumerate()
-        .map(|(place, digit)| if place % 2 == 0 { *digit } else { digit * 3 })
+        .map(|(place, digit)| {
+            if place.is_multiple_of(2) {
+                *digit
+            } else {
+                digit * 3
+            }
+        })
         .sum();
-    sum % 10 == 0
+    sum.is_multiple_of(10)
 }
 
 /// Whether the 10 digits `digits` end on their ISBN-10 check digit.
@@ -287,7 +293,7 @@ fn isbn_10_checks(digits: &[u32]) -> bool {
         .zip((1..=10).rev())
         .map(|(digit, weight)| digit * weight)
         .sum();
-    sum % 11 == 0
+    sum.is_multiple_of(11)
 }
 
 /// Whether `span` is a date written with digits alone: a year of four

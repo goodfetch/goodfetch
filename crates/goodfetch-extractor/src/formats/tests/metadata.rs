@@ -253,18 +253,17 @@ fn shared_containers(levels: usize, width: usize, names: usize) -> String {
         .map(|name| format!("n{name}"))
         .collect::<Vec<_>>()
         .join(" ");
-    let mut html = String::from(r#"<div itemscope itemref="c0"></div>"#);
-    for level in 0..levels {
-        html.push_str(&format!(r#"<div id="c{level}">"#));
-        for _ in 0..width {
-            html.push_str(&format!(
-                r#"<div itemprop="{names}" itemscope itemref="c{}"></div>"#,
-                level + 1
-            ));
-        }
-        html.push_str("</div>");
-    }
-    html
+    let item = |level: usize| {
+        format!(
+            r#"<div itemprop="{names}" itemscope itemref="c{}"></div>"#,
+            level + 1
+        )
+    };
+    let containers = (0..levels)
+        .map(|level| format!(r#"<div id="c{level}">{}</div>"#, item(level).repeat(width)))
+        .collect::<Vec<_>>()
+        .concat();
+    format!(r#"<div itemscope itemref="c0"></div>{containers}"#)
 }
 
 /// What a reading wrote: its values other than `"ERROR"`, nested items

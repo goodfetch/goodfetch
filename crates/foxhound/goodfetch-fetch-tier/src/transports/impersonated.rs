@@ -24,6 +24,13 @@
 //! takes the exception's decision and connects again, or ends it with
 //! `certificate_changed`.
 //!
+//! **Client certificates:** its clients present none yet, so a hop to a
+//! host a domain of `tls.client_certificates` covers is refused before it
+//! connects, with `capability_unavailable` naming the setting, rather than
+//! sent without the certificate the site asks for (step 7 review, finding
+//! 563-565-3; the build that presents them goes with the `stealth`
+//! Sessions that send through `wreq`).
+//!
 //! **Translation point (ADR 0127):** [`classify`] is where `wreq`'s,
 //! `wreq-proto`'s, `http2`'s, BoringSSL's and the OS's failures, and a
 //! proxy's answer to the tunnel request, become a [`TransportFailure`].
@@ -39,8 +46,14 @@ use std::error::Error;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use goodfetch_engine::tls::{Decision, Examiner, Presented, SharedTrust, Verdict};
-use goodfetch_protocol::tls::CertificateFailure;
+use goodfetch_engine::CallError;
+use goodfetch_engine::tls::{
+    ClientCertificates, Decision, Examiner, Presented, SharedTrust, Verdict,
+};
+use goodfetch_protocol::settings::{
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SettingsLayer,
+};
+use goodfetch_protocol::tls::{CertificateFailure, TLS_CLIENT_CERTIFICATES};
 use http_body_util::BodyExt as _;
 use url::Url;
 
@@ -48,7 +61,7 @@ use super::{
     AddressCheck, CONNECTED, DECISIONS, Http1Origins, MarkConnects, Resolver, TransportConfig,
     TransportUnavailable,
 };
-use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
+use crate::driver::{Body, CallFailure, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
 use crate::http_profile::HttpProfile;
 
 /// `wreq`, the transport of HTTP-only `stealth` Sessions.
@@ -65,6 +78,9 @@ pub struct Wreq {
     /// The verdicts that verification left for the transport.
     verdicts: Verdicts,
     resolver: Arc<Resolver>,
+    /// The client certificates of `tls.client_certificates`, which its
+    /// clients cannot present yet: a hop to a host they cover is refused.
+    client_certificates: Option<ClientCertificates>,
 }
 
 impl std::fmt::Debug for Wreq {
@@ -110,6 +126,7 @@ impl Wreq {
             Arc::new(config.trust.examiner()),
             verdicts.clone(),
         );
+        let client_certificates = config.client_certificates.clone();
         let mut any = Scopes::new();
         let mut http1 = Scopes::new();
         for scope in config.trust.scopes() {
@@ -174,6 +191,7 @@ impl Wreq {
             decision,
             verdicts,
             resolver,
+            client_certificates,
         })
     }
 
@@ -251,6 +269,9 @@ impl Wreq {
     /// handshake stopped for the exception's decision, which
     /// [`SharedTrust::decide_presented`] then took.
     async fn send_to(&self, host: &str, hop: &Hop, reuse: Reuse) -> Result<Sent, TransportFailure> {
+        if let Some(unpresented) = self.unpresented(host) {
+            return Err(unpresented);
+        }
         self.decision
             .before(host)
             .await
@@ -278,6 +299,28 @@ impl Wreq {
             }
         }
         Err(TransportFailure::Tls)
+    }
+
+    /// The refusal of a hop to `host` when a domain of
+    /// `tls.client_certificates` covers it: its clients would connect
+    /// without the certificate the setting lists for it.
+    fn unpresented(&self, host: &str) -> Option<TransportFailure> {
+        let certificates = self.client_certificates.as_ref()?;
+        let domain = certificates.scope_of(host)?;
+        Some(TransportFailure::ClientCertificate(CallFailure(
+            CallError::new(
+                &CAPABILITY_UNAVAILABLE,
+                format!(
+                    "`tls.client_certificates` lists a client certificate for `{domain}`, which a `stealth` Session's HTTP transport cannot present yet, so the request to `{host}` was not sent."
+                ),
+                &CapabilityUnavailableDetails {
+                    key: TLS_CLIENT_CERTIFICATES.name.to_owned(),
+                    layer: certificates.layer().unwrap_or(SettingsLayer::Run),
+                    kind: "stealth_client_certificate".to_owned(),
+                    fix: "an `identified` Session for the domain".to_owned(),
+                },
+            ),
+        )))
     }
 
     /// Sends `hop` once: its answer, or its failure and, when its handshake

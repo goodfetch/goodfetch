@@ -178,6 +178,10 @@ impl On<'_> {
                     return (refused, Vec::new());
                 }
                 let encoding = read_by_browser(tiers, &page_id, response.as_ref());
+                let certificate_exception = match &response {
+                    Some(response) => tiers.browser_exception(&page_id, &response.url).await,
+                    None => None,
+                };
                 record_tier(
                     run,
                     leased,
@@ -185,7 +189,7 @@ impl On<'_> {
                     &BROWSER,
                     Chosen::Raced,
                     encoding,
-                    None,
+                    certificate_exception,
                 )
                 .await;
                 let answer = self.handle(&page_id, FetchTier::Browser, response).await;

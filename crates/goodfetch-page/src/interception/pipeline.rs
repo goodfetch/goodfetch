@@ -1440,7 +1440,7 @@ impl PageContext {
             headers: &headers,
             body,
         };
-        let refusal = gate.judge_document(&response).err()?;
+        let refusal = gate.judge_document(&response).await.err()?;
         let error = site_preferences_refused(&paused.request.url, &refusal);
         let page = carried.and_then(|state| state.navigating.as_ref().map(|page| (state, page)));
         let (state, driver, refusals) = match page {

@@ -38,13 +38,17 @@ fn trusting(proving_ground: &ProvingGround) -> String {
     )
 }
 
-/// The settings of a crawl on the `http` tier, robots.txt unread, with
+/// The settings of a crawl on `tier`, robots.txt unread, with
 /// `tls.accept_invalid_certs`.
-fn crawl_settings(proving_ground: &ProvingGround, accept_invalid_certs: &Value) -> Value {
+fn crawl_settings(
+    proving_ground: &ProvingGround,
+    tier: &str,
+    accept_invalid_certs: &Value,
+) -> Value {
     settings(
         proving_ground,
         &json!({
-            "fetch": { "tier": "http" },
+            "fetch": { "tier": tier },
             "politeness": { "domain": { "delay": 0 } },
             "site_preferences": { "respect_robots_txt": false },
             "tls": { "accept_invalid_certs": accept_invalid_certs },
@@ -52,14 +56,29 @@ fn crawl_settings(proving_ground: &ProvingGround, accept_invalid_certs: &Value) 
     )
 }
 
-/// Crawls the expired host and the verified one as the Run `run_id` under
-/// `accept_invalid_certs`, each handled request pushing one Record naming
-/// its URL: the Run's outcomes, by URL, as their kind, attempts and error
-/// codes, and its Records' Provenance marks, by URL.
+/// Crawls the expired host and the verified one as the Run `run_id` on the
+/// `http` tier under `accept_invalid_certs`, each handled request pushing
+/// one Record naming its URL: the Run's outcomes, by URL, as their kind,
+/// attempts and error codes, and its Records' Provenance marks, by URL.
 fn crawled(
     engine: &mut Attached,
     proving_ground: &ProvingGround,
     run_id: &str,
+    accept_invalid_certs: &Value,
+) -> (Vec<Value>, Vec<Value>) {
+    crawled_on(
+        engine,
+        proving_ground,
+        (run_id, "http"),
+        accept_invalid_certs,
+    )
+}
+
+/// [`crawled`] on `tier`.
+fn crawled_on(
+    engine: &mut Attached,
+    proving_ground: &ProvingGround,
+    (run_id, tier): (&str, &str),
     accept_invalid_certs: &Value,
 ) -> (Vec<Value>, Vec<Value>) {
     let seeds: Vec<Value> = [EXPIRED, VERIFIED]
@@ -71,7 +90,7 @@ fn crawled(
         &json!({
             "run_id": run_id,
             "seeds": seeds,
-            "settings": crawl_settings(proving_ground, accept_invalid_certs),
+            "settings": crawl_settings(proving_ground, tier, accept_invalid_certs),
             "datasets": [{ "name": "pages" }],
         }),
         &mut |inside, handle| {
@@ -197,5 +216,61 @@ fn an_invalid_certificate_fails_its_request_unretried_and_its_exception_marks_th
     assert_eq!(
         verified_record,
         &json!({ "url": verified, "certificate_exception": null })
+    );
+}
+
+/// Story 4-106 on the `browser` tier: the Session's egress relay terminates
+/// the expired host's connections under its domain's exception, and the
+/// Record its page gave is marked in Provenance with the exception and the
+/// key it pinned, as on `http`; the verified host's Record, terminated for
+/// its trusted authority with no exception, carries no mark.
+///
+/// Covers: story:4-106, setting:tls.accept_invalid_certs, setting:fetch.tier
+#[test]
+fn a_browser_page_fetched_under_an_exception_marks_its_records() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    env.user_configuration(&trusting(&proving_ground));
+    let mut engine = crate::fetch_tiers::engine(&env);
+    let (expired, verified) = (
+        https(&proving_ground, EXPIRED),
+        https(&proving_ground, VERIFIED),
+    );
+
+    let (outcomes, records) = crawled_on(
+        &mut engine,
+        &proving_ground,
+        ("browser-excepted", "browser"),
+        &json!({ "certificates.test": null }),
+    );
+    assert!(engine.finish());
+
+    assert_eq!(
+        outcomes,
+        vec![
+            json!({ "url": expired, "kind": "succeeded", "attempts": 1, "errors": [] }),
+            json!({ "url": verified, "kind": "succeeded", "attempts": 1, "errors": [] }),
+        ]
+    );
+    let [expired_record, verified_record] = records.as_slice() else {
+        panic!("one Record for each request: {records:?}");
+    };
+    let mark = &expired_record["certificate_exception"];
+    assert_eq!(
+        (
+            &expired_record["url"],
+            &mark["kind"],
+            mark["spki_sha256"]
+                .as_str()
+                .is_some_and(|key| key.starts_with("sha256/") && key.len() == 51),
+            verified_record,
+        ),
+        (
+            &json!(expired),
+            &json!("trust_on_first_use"),
+            true,
+            &json!({ "url": verified, "certificate_exception": null }),
+        ),
+        "{mark}"
     );
 }

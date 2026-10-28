@@ -131,8 +131,6 @@ pub(crate) enum Weighed {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct TierChoices {
     units: BTreeMap<(String, String), Unit>,
-    /// The requests each learned choice served since it was made.
-    served: BTreeMap<(String, String), u64>,
     sampling: Sampling,
 }
 
@@ -148,25 +146,40 @@ pub(crate) enum Unit {
         plan: Option<ReplayPlan>,
     },
     /// One tier for every request, chosen at `since` (milliseconds since
-    /// the Unix epoch), with the plan `discovered_api` replays.
+    /// the Unix epoch), having `served` requests since, with the plan
+    /// `discovered_api` replays.
     Learned {
         tier: FetchTier,
         since: u64,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        served: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         plan: Option<ReplayPlan>,
     },
     /// A tier per path segment, in the order the segments came, chosen at
-    /// `since`, with the plan `discovered_api` replays; any other segment
-    /// takes `browser`.
+    /// `since`, having `served` requests since, with the plan
+    /// `discovered_api` replays; any other segment takes `browser`.
     Split {
         segments: Vec<Segment>,
         since: u64,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        served: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         plan: Option<ReplayPlan>,
     },
     /// `browser` for every request, never sampled again: a browser sample
     /// showed a consent wall (ADR 0048).
     Walled,
+}
+
+/// Whether a choice served no request yet, its count then left out of
+/// the run file.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes the field by reference"
+)]
+fn is_zero(served: &u64) -> bool {
+    *served == 0
 }
 
 /// One classified sample.
@@ -270,37 +283,41 @@ impl TierChoices {
     /// runs under `auto` at `now` (milliseconds since the Unix epoch): a
     /// choice that served its requests or outlived its time is sampled
     /// again, and each request a choice serves counts toward its refresh.
+    /// Answers the plan, and the unit whose count it moved, for the run
+    /// file, so a resumed crawl goes on counting.
     pub(crate) fn serve_attempt(
         &mut self,
         label: &str,
         domain_key: &str,
         url: &str,
         now: u64,
-    ) -> AttemptPlan {
+    ) -> (AttemptPlan, Option<&Unit>) {
         let segment = segment(url);
         let id = (label.to_owned(), domain_key.to_owned());
-        let served = self.served.get(&id).copied().unwrap_or_default();
         if self
             .units
             .get(&id)
-            .is_some_and(|unit| unit.stale(served, now, self.sampling))
+            .is_some_and(|unit| unit.stale(now, self.sampling))
         {
             self.units.remove(&id);
-            self.served.remove(&id);
         }
-        match self
+        let plan = match self
             .units
             .get(&id)
             .map_or(Some(Plan::Sample), |unit| unit.plan(&segment))
         {
-            Some(Plan::Sample) | None => AttemptPlan::Sample(Sampled {
-                label: label.to_owned(),
-                domain_key: domain_key.to_owned(),
-                segment,
-            }),
+            Some(Plan::Sample) | None => {
+                return (
+                    AttemptPlan::Sample(Sampled {
+                        label: label.to_owned(),
+                        domain_key: domain_key.to_owned(),
+                        segment,
+                    }),
+                    None,
+                );
+            }
             Some(Plan::On(FetchTier::DiscoveredApi)) => {
                 let plan = self.units.get(&id).and_then(Unit::replay_plan).cloned();
-                *self.served.entry(id).or_default() += 1;
                 // A unit holds a plan once one of its samples matched on
                 // `discovered_api`; one without stays on the browser.
                 plan.map_or(
@@ -311,11 +328,13 @@ impl TierChoices {
                     AttemptPlan::Replayed,
                 )
             }
-            Some(Plan::On(tier)) => {
-                *self.served.entry(id).or_default() += 1;
-                AttemptPlan::On(TierChoice { tier, forced: None })
-            }
-        }
+            Some(Plan::On(tier)) => AttemptPlan::On(TierChoice { tier, forced: None }),
+        };
+        let unit = self.units.get_mut(&id).map(|unit| {
+            unit.count_served();
+            &*unit
+        });
+        (plan, unit)
     }
 
     /// Takes the sample `sampled`, as the weighing judged its runs at
@@ -355,7 +374,6 @@ impl TierChoices {
         let id = (label.to_owned(), domain_key.to_owned());
         if self.units.get(&id) != Some(&Unit::Walled) {
             self.units.remove(&id);
-            self.served.remove(&id);
         }
     }
 }
@@ -379,14 +397,23 @@ impl Unit {
         }
     }
 
-    /// Whether the choice it holds, having served `served` requests, is
-    /// to be sampled again at `now`.
-    fn stale(&self, served: u64, now: u64, sampling: Sampling) -> bool {
+    /// Whether the choice it holds is to be sampled again at `now`, having
+    /// served its requests or outlived its time.
+    fn stale(&self, now: u64, sampling: Sampling) -> bool {
         match self {
-            Self::Learned { since, .. } | Self::Split { since, .. } => {
-                served >= sampling.requests || now.saturating_sub(*since) >= sampling.after_ms
+            Self::Learned { since, served, .. } | Self::Split { since, served, .. } => {
+                *served >= sampling.requests || now.saturating_sub(*since) >= sampling.after_ms
             }
             Self::Sampling { .. } | Self::Walled => false,
+        }
+    }
+
+    /// Counts one more request its choice served; a unit still sampling, or
+    /// walled, counts none.
+    fn count_served(&mut self) {
+        match self {
+            Self::Learned { served, .. } | Self::Split { served, .. } => *served += 1,
+            Self::Sampling { .. } | Self::Walled => {}
         }
     }
 
@@ -470,6 +497,7 @@ impl Unit {
             return Self::Learned {
                 tier,
                 since: now,
+                served: 0,
                 plan,
             };
         }
@@ -484,12 +512,14 @@ impl Unit {
             Self::Split {
                 segments,
                 since: now,
+                served: 0,
                 plan,
             }
         } else {
             Self::Learned {
                 tier: FetchTier::Browser,
                 since: now,
+                served: 0,
                 plan: None,
             }
         }
@@ -568,9 +598,9 @@ pub(crate) fn record(
     Ok(())
 }
 
-/// What the Run's Labels learned, as [`record`] kept it; a row that no
-/// longer reads is left out, its Label sampled again. Each choice counts
-/// the requests it serves anew.
+/// What the Run's Labels learned, as [`record`] kept it, each choice with
+/// the requests it served so far; a row that no longer reads is left out,
+/// its Label sampled again.
 ///
 /// # Errors
 ///

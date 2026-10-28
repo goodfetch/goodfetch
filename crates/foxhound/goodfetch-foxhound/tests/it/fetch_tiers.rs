@@ -474,6 +474,188 @@ fn page_request_on_a_document_tier_goes_through_the_gate_and_never_escalates() {
     );
 }
 
+/// The `fetch-edge` family's host, whose `/redirect/cross-origin` answers
+/// a 302 to `/target` on [`EDGE_OTHER_HOST`], another origin.
+const EDGE_HOST: &str = "fetch-edge.test";
+
+/// The `fetch-edge` family's HTTP/1.1 host: another origin than
+/// [`EDGE_HOST`].
+const EDGE_OTHER_HOST: &str = "h1.fetch-edge.test";
+
+/// The requests `proving_ground` received for `path` on `host`.
+fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<Value> {
+    proving_ground
+        .received_requests()
+        .unwrap()
+        .of_the_case()
+        .filter(|request| {
+            request["host"]
+                .as_str()
+                .is_some_and(|seen| seen.split(':').next() == Some(host))
+                && request["target"] == path
+        })
+        .cloned()
+        .collect()
+}
+
+/// The method of `request` and whether it carried each header of `names`.
+fn carried(request: &Value, names: &[&str]) -> (Value, Vec<bool>) {
+    let headers = request["headers"].as_array().cloned().unwrap_or_default();
+    (
+        request["method"].clone(),
+        names
+            .iter()
+            .map(|name| {
+                headers.iter().any(|pair| {
+                    pair[0]
+                        .as_str()
+                        .is_some_and(|seen| seen.eq_ignore_ascii_case(name))
+                })
+            })
+            .collect(),
+    )
+}
+
+/// A `page.request` from a page the `http` tier serves follows its
+/// redirects with Fetch's header rules, as the crawl request's own chain
+/// does (ADR 0118): a `POST` a 302 turns into a `GET` arrives without its
+/// body's headers, and `Authorization` is removed once the chain reaches
+/// another origin, while a hop on the same origin keeps it.
+///
+/// Covers: story:5-124, operation:page.request
+#[test]
+fn page_request_on_a_document_tier_drops_authorization_across_origins_and_body_headers_after_a_get()
+{
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    env.user_configuration(&format!(
+        "tls.trusted_cas.\"{EDGE_HOST}\" = ['{}']\n",
+        proving_ground.description().ca.display()
+    ));
+    let mut engine = engine(&env);
+    let https = |path: &str| {
+        proving_ground
+            .url(EDGE_HOST, path)
+            .replacen("http://", "https://", 1)
+    };
+    let seed = proving_ground.url(STATIC_HOST, STATIC_PATH);
+    let sent = |url: String| {
+        json!({
+            "url": url,
+            "method": "POST",
+            "headers": {
+                "Authorization": "Bearer test-token",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            "post_data": "cT0x",
+        })
+    };
+
+    let mut statuses = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        "tiers-request-redirects",
+        &[json!({ "url": seed, "label": "page" })],
+        &json!({ "page": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "http" },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+        &mut |inside, handle| {
+            for url in [https("/redirect/cross-origin"), https("/redirect/302")] {
+                let mut params = sent(url);
+                params["page_id"] = handle["page_id"].clone();
+                let got = inside.call("page.request", &params);
+                statuses.push(got["result"]["status"].clone());
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+
+    let names = ["authorization", "content-type", "content-length"];
+    let reached = |host: &str| {
+        requests_for(&proving_ground, host, "/target")
+            .iter()
+            .map(|request| carried(request, &names))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        (statuses, reached(EDGE_OTHER_HOST), reached(EDGE_HOST)),
+        (
+            vec![json!(200), json!(200)],
+            vec![(json!("GET"), vec![false, false, false])],
+            vec![(json!("GET"), vec![true, false, false])],
+        )
+    );
+}
+
+/// A `page.request` from a page the `http` tier serves holds its
+/// attempt's lease while it waits for its permit (ADR 0093): the wait,
+/// its domain's delay between starts, lasts longer than the lease was
+/// granted for, the lease is renewed through it, and the request is sent
+/// and answered while the attempt still holds its lease, which then
+/// commits, never timed out.
+///
+/// The lease is the 1 s handler timeout plus its 10 s margin, and the
+/// delay 12 s, in real time: a test of the binary sets short durations
+/// through settings (TESTING.md, "Time").
+///
+/// Covers: story:5-135, setting:timeout.handler, setting:politeness.domain.delay, operation:page.request
+#[test]
+fn a_served_pages_request_waiting_for_its_permit_holds_its_attempts_lease() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let url = |path: &str| proving_ground.url(STATIC_HOST, path);
+
+    let mut statuses = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        "tiers-lease",
+        &[json!({ "url": url(STATIC_PATH), "label": "page" })],
+        &json!({ "page": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "http" },
+                // A lease of 1 s plus the 10 s margin, shorter than the
+                // delay.
+                "timeout": { "handler": 1_000 },
+                "politeness": { "domain": { "delay": 12_000 } },
+                "crawl": { "retry": { "max": 0 } },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+        &mut |inside, handle| {
+            let got = inside.call(
+                "page.request",
+                &json!({ "page_id": handle["page_id"], "url": url("/catalog/2") }),
+            );
+            statuses.push(got["result"]["status"].clone());
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let ended = outcomes(&mut engine, "tiers-lease");
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            statuses,
+            ended,
+            requests_for(&proving_ground, STATIC_HOST, "/catalog/2").len(),
+        ),
+        (
+            vec![json!(200)],
+            vec![(url(STATIC_PATH), json!("succeeded"), Value::Null)],
+            1,
+        )
+    );
+}
+
 /// The `tiers` family's host: static listings at `/products/<n>`,
 /// script-rendered ones at `/blog/<n>`, and `/mixed/<n>` one or the other
 /// by the parity of `n`.

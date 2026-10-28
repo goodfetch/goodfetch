@@ -1123,9 +1123,9 @@ fn an_operator_policy_loosened_cap_applies_to_a_new_crawl_only() {
 #[rstest::rstest]
 /// Covers: error:capability_unavailable
 #[case::by_the_run(
-    json!({ "fetch": { "tier": "browser_fetch" } }),
+    json!({ "fetch": { "tier": "discovered_api" } }),
     json!({}),
-    json!(["capability_unavailable", "fetch.tier", "browser_fetch"])
+    json!(["capability_unavailable", "fetch.tier", "discovered_api"])
 )]
 /// The light-browser tier is built, but only a Run that switches
 /// `fetch.light_browser` on takes it (ADR 0020).

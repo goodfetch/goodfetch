@@ -583,13 +583,16 @@ impl Fetching<'_> {
     /// Challenge moved there, `to_browser` (ADR 0021), else, when the Run
     /// races its tiers, as a race timed by its Label on its domain's
     /// browser-fetch latencies, else as its Label on its domain learned,
-    /// and what it fetches its document with.
+    /// and what it fetches its document with. Each request a learned choice
+    /// serves is counted in `run`'s file.
     async fn served(
         &self,
+        run: &Run,
         leased: &Leased,
         (to_browser, local): (bool, Local),
-        (second_copies, now): (&SecondCopies, u64),
+        second_copies: &SecondCopies,
     ) -> Tiering {
+        let now = wall_ms(run);
         let request = &leased.crawl_request;
         // A sitemap's fetch runs no handler and takes no tier choice: its
         // attempt fetches it on the Run's HTTP tier.
@@ -608,12 +611,7 @@ impl Fetching<'_> {
                 forced: None,
             }),
             Choosing::Alone | Choosing::Engine if self.races && !to_browser && !leased.sitemap => {
-                let learned = self.choices.lock().await.serve_attempt(
-                    &request.label,
-                    &leased.waiting.key,
-                    &request.url,
-                    now,
-                );
+                let learned = self.learned(run, leased, now).await;
                 AttemptPlan::Race(Raced {
                     label: request.label.clone(),
                     domain_key: leased.waiting.key.clone(),
@@ -637,12 +635,7 @@ impl Fetching<'_> {
                 tier: FetchTier::Browser,
                 forced: None,
             }),
-            Choosing::Engine => self.choices.lock().await.serve_attempt(
-                &request.label,
-                &leased.waiting.key,
-                &request.url,
-                now,
-            ),
+            Choosing::Engine => self.learned(run, leased, now).await,
         };
         let http = self.session_tier(local);
         Tiering::of(
@@ -652,6 +645,30 @@ impl Fetching<'_> {
             self.labels.settings.page_check(&request.label).cloned(),
             second_copies,
         )
+    }
+
+    /// How `leased`'s attempt runs at `now` as its Label on its domain
+    /// learned, its choice's count of requests served written into `run`'s
+    /// file, so a resumed crawl goes on counting toward its refresh.
+    async fn learned(&self, run: &Run, leased: &Leased, now: u64) -> AttemptPlan {
+        let request = &leased.crawl_request;
+        let (plan, counted) = {
+            let mut choices = self.choices.lock().await;
+            let (plan, unit) =
+                choices.serve_attempt(&request.label, &leased.waiting.key, &request.url, now);
+            (plan, unit.cloned())
+        };
+        if let Some(unit) = counted {
+            let (label, key) = (request.label.clone(), leased.waiting.key.clone());
+            if let Err(error) = run
+                .state()
+                .write(move |connection| tier_choice::record(connection, &label, &key, &unit))
+                .await
+            {
+                tracing::warn!(%error, run_id = %run.id(), "a Label's count of requests served was not written; a resumed crawl counts from the last one written");
+            }
+        }
+        plan
     }
 
     /// The Run's HTTP tier as a Session holding `local` sends on it (ADR
@@ -807,17 +824,12 @@ async fn lease_to_servers(
                 policy.lease_length(),
             );
             server.in_flight += 1;
-            let tiering = pooled
-                .fetching
-                .served(
-                    &leased,
-                    (to_browser, local),
-                    (&admission.second_copies(), wall_ms(run)),
-                )
+            let copies = admission.second_copies();
+            let fetching = &pooled.fetching;
+            let tiering = fetching
+                .served(run, &leased, (to_browser, local), &copies)
                 .await;
-            let gating = pooled
-                .fetching
-                .gating(&leased.crawl_request.label, &admission.second_copies());
+            let gating = fetching.gating(&leased.crawl_request.label, &copies);
             let fetches = tiering.tier().or(leased.sitemap.then_some(FetchTier::Http));
             pooled.fetching.in_flight.lock().await.began(
                 run,

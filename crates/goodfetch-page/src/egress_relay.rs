@@ -53,7 +53,7 @@ pub(crate) mod head;
 pub(crate) mod serve;
 pub(crate) mod terminate;
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -320,7 +320,7 @@ impl EgressRelay {
         let address = listener.local_addr()?;
         let record = Arc::new(Record {
             address,
-            terminated: Mutex::new(BTreeSet::new()),
+            terminated: Mutex::new(BTreeMap::new()),
             run: run.clone(),
             log: Arc::new(RequestLog::new(
                 run.owner().child(),
@@ -406,6 +406,14 @@ impl EgressRelay {
             }),
             certificate @ Refusal::Certificate(_) => certificate,
         })
+    }
+
+    /// The invalid-certificate exception the relay terminated `host`'s
+    /// connections under (ADR 0042): none for a host it never terminated,
+    /// or one it terminated with no exception, such as a host of
+    /// `tls.trusted_cas`.
+    pub(crate) fn exception(&self, host: &str) -> Option<ExceptionUsed> {
+        lock(&self.record.terminated).get(host).cloned().flatten()
     }
 
     /// Whether the relay terminates `host`'s connections: its domain is
@@ -523,8 +531,9 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 struct Record {
     /// The relay's own address, which names its Session in Provenance.
     address: SocketAddr,
-    /// The hosts it terminated, each recorded once.
-    terminated: Mutex<BTreeSet<String>>,
+    /// The hosts it terminated, each recorded once with the
+    /// invalid-certificate exception its first connection passed under.
+    terminated: Mutex<BTreeMap<String, Option<ExceptionUsed>>>,
     run: Run,
     log: Arc<RequestLog>,
     /// Tells the Session's upstream proxy what a connection to it met.
@@ -561,8 +570,12 @@ impl Observe for Record {
     }
 
     fn terminated(&self, host: &str, used: Option<&ExceptionUsed>) {
-        if !lock(&self.terminated).insert(host.to_owned()) {
-            return;
+        {
+            let mut terminated = lock(&self.terminated);
+            if terminated.contains_key(host) {
+                return;
+            }
+            terminated.insert(host.to_owned(), used.cloned());
         }
         let exception = used.map(|used| match used.kind {
             ExceptionKind::TrustOnFirstUse => "trust_on_first_use",

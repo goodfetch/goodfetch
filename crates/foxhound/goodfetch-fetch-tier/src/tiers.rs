@@ -246,6 +246,9 @@ struct ServedPage {
     /// The invalid-certificate exception its document's host was reached
     /// through (ADR 0042).
     certificate_exception: Option<CertificateExceptionMark>,
+    /// What the attempt it belongs to handed over: the navigation gate and
+    /// the lease its navigations and `page.request`s go through.
+    hand_over: Arc<HandOver>,
 }
 
 /// A document a fetch answered, read as a served page holds it: its text,
@@ -495,8 +498,9 @@ impl FetchTiers {
     ///
     /// # Errors
     ///
-    /// `capability_unavailable` for `discovered_api`, `browser_fetch` and
-    /// `light_browser`; `setting_invalid`
+    /// `capability_unavailable` for `discovered_api`, which replays a plan
+    /// only a browser sample gives, and for `light_browser` where
+    /// `fetch.light_browser` does not allow it; `setting_invalid`
     /// for a Run's `fetch.encoding` that is no WHATWG Encoding label, its
     /// `crawl.content_types` that is no list of media ranges (ADR 0119)
     /// and a `fetch.redirect.max` outside 1 to 19 (ADR 0118);
@@ -532,8 +536,10 @@ impl FetchTiers {
             .map(|(label, tier)| (tier, SettingsLayer::Run, Some(label)));
         let light = Self::light_allowed(settings);
         for (tier, layer, label) in run.into_iter().chain(by_label) {
-            if matches!(tier, FetchTier::Http | FetchTier::Browser)
-                || (tier == FetchTier::LightBrowser && light)
+            if matches!(
+                tier,
+                FetchTier::Http | FetchTier::BrowserFetch | FetchTier::Browser
+            ) || (tier == FetchTier::LightBrowser && light)
             {
                 continue;
             }
@@ -548,7 +554,7 @@ impl FetchTiers {
             return Err(CallError::new(
                 &CAPABILITY_UNAVAILABLE,
                 format!(
-                    "This engine fetches no crawl request on the `{name}` tier, which `fetch.tier` forces in {set}: set `fetch.tier` to `auto`, `http` or `browser`."
+                    "This engine fetches no crawl request on the `{name}` tier, which `fetch.tier` forces in {set}: set `fetch.tier` to `auto`, `http`, `browser_fetch` or `browser`."
                 ),
                 &CapabilityUnavailableDetails {
                     key: FETCH_TIER.name.to_owned(),
@@ -750,12 +756,12 @@ impl FetchTiers {
                 ),
             }));
         }
-        self.open_served(tier, run, choice, fetched, hand_over.encoding)
+        self.open_served(tier, run, choice, fetched, (hand_over, hand_over.encoding))
     }
 
     /// Opens a page served from `fetched` on `tier` for `run`, its calls
-    /// served as `choice` says, its document read with `forced` from
-    /// `fetch.encoding`.
+    /// served as `choice` says and gated by `hand_over`, the attempt's, its
+    /// document read with `forced` from `fetch.encoding`.
     ///
     /// # Errors
     ///
@@ -768,7 +774,7 @@ impl FetchTiers {
         run: &Run,
         choice: &TierChoice,
         fetched: crate::driver::Fetched,
-        forced: Option<&'static Encoding>,
+        (hand_over, forced): (&Arc<HandOver>, Option<&'static Encoding>),
     ) -> Result<PageId, Stop> {
         let status = fetched.status;
         let (url, headers, body) = (
@@ -816,6 +822,7 @@ impl FetchTiers {
                 read: opened.read,
                 own: Some((response, body)),
                 certificate_exception,
+                hand_over: Arc::clone(hand_over),
             },
         );
         pages.opened(&page_id, opened);
@@ -907,7 +914,7 @@ impl FetchTiers {
             // exception is taken on this tier.
             certificate_exception: None,
         };
-        self.open_served(tier, run, choice, fetched, None)
+        self.open_served(tier, run, choice, fetched, (hand_over, None))
     }
 
     /// Whether a Run's resolved `settings` let its crawl take the
@@ -1370,6 +1377,25 @@ impl FetchTiers {
             ));
         };
         pages.open(run_id, pooled, url, context).await
+    }
+
+    /// The invalid-certificate exception the browser page `page_id`
+    /// reached the host of `url`, its document's, through, as its Records'
+    /// Provenance marks it (ADR 0042): the one its Session's egress relay
+    /// terminated that host's connections under; none without one.
+    pub async fn browser_exception(
+        &self,
+        page_id: &PageId,
+        url: &str,
+    ) -> Option<CertificateExceptionMark> {
+        let pages = self.served.browser.get()?;
+        let url = Url::parse(url).ok()?;
+        let host = url.host_str()?;
+        pages
+            .certificate_exception(page_id, host)
+            .await
+            .as_ref()
+            .map(mark)
     }
 
     /// Retires the browser context of the Session `pooled` of the Run

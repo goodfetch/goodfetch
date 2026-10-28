@@ -131,7 +131,7 @@ pub(super) async fn replay(
             post_data: None,
             max_redirects: Some(0),
         };
-        let Ok(fetched) = sent(tiers, page_id, page, &params).await else {
+        let Ok(fetched) = sent(page, &params).await else {
             break;
         };
         let json = (200..300)

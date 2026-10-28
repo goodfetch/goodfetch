@@ -3317,7 +3317,7 @@ async fn wait_for(mut report: watch::Receiver<Option<Ended>>) -> Result<RunRepor
         .await
         .map_err(|_| RunError::Stopped)?;
     match ended.clone().expect("invariant: the wait ends on an end") {
-        Ended::Report(report) => Ok(*report),
+        Ended::Report(report) | Ended::Unwritten(report) => Ok(*report),
         Ended::Unrecorded(exhausted) => Err(RunError::ResourcesExhausted(exhausted)),
     }
 }
@@ -3328,8 +3328,36 @@ async fn wait_for(mut report: watch::Receiver<Option<Ended>>) -> Result<RunRepor
 enum Ended {
     /// Its end and its report are in its run file.
     Report(Box<RunReport>),
+    /// Its end could not be written to its run file for another reason
+    /// than its storage: this report, with nothing read from its state, is
+    /// the only one there is.
+    Unwritten(Box<RunReport>),
     /// The commit recording its stop met a full disk or an I/O error.
     Unrecorded(Box<StorageExhausted>),
+}
+
+/// What the registry keeps of a Run this engine ended: never a report its
+/// run file holds, which a read takes from there, so a Daemon that runs Run
+/// after Run holds none of their reports, with their settings explained,
+/// for its life (#1729). Read back, a report lacks its settings, which
+/// never reach a run file (ADR 0102's note).
+#[derive(Debug)]
+enum EndedHere {
+    /// Its report is in its run file. A read of it adds the last
+    /// Checkpoint this engine wrote of it, which its run file cannot name.
+    InRunFile { checkpoint: Option<Checkpoint> },
+    /// Its end could not be written to its run file: this is its report.
+    Unwritten(Box<RunReport>),
+}
+
+impl Ended {
+    /// Its report, unless its stop went unrecorded.
+    fn report(&self) -> Option<&RunReport> {
+        match self {
+            Self::Report(report) | Self::Unwritten(report) => Some(report),
+            Self::Unrecorded(_) => None,
+        }
+    }
 }
 
 /// What the registry keeps of a live Run; its [`Run`] goes to its end once
@@ -3375,7 +3403,8 @@ struct Registry {
     /// Where readers of run state run their blocking reads.
     readers: Arc<TaskOwner>,
     live: BTreeMap<RunId, Live>,
-    ended: BTreeMap<RunId, RunReport>,
+    /// The Runs this engine ended.
+    ended: BTreeMap<RunId, EndedHere>,
     runs: mpsc::WeakSender<Command>,
     /// What its Runs charge against.
     limits: Arc<Limits>,
@@ -3850,21 +3879,26 @@ impl Registry {
             } = live;
             drop(lock);
             progress.change(|progressing| {
-                if let Ended::Report(report) = &ended {
+                if let Some(report) = ended.report() {
                     progressing.lifecycle = report.lifecycle;
                     progressing.stop_reason.clone_from(&report.stop_reason);
                 }
                 progressing.writer = RunWriter::Absent;
                 progressing.last = true;
             });
-            if let Ended::Report(report) = &ended {
+            if let Some(report) = ended.report() {
                 self.setup.metrics.run_ended(kind, report);
             }
             waiters.send_replace(Some(ended.clone()));
         }
         match ended {
             Ended::Report(report) => {
-                self.ended.insert(run_id, *report);
+                let checkpoint = report.checkpoint;
+                self.ended
+                    .insert(run_id, EndedHere::InRunFile { checkpoint });
+            }
+            Ended::Unwritten(report) => {
+                self.ended.insert(run_id, EndedHere::Unwritten(report));
             }
             Ended::Unrecorded(exhausted) => {
                 self.unrecorded.insert(run_id, exhausted);
@@ -4653,14 +4687,17 @@ impl Registry {
         Ok(receiver)
     }
 
-    /// The report of a Run this engine ended, or whose state its folder
-    /// holds.
+    /// The report of a Run whose state its folder holds, with the last
+    /// Checkpoint this engine wrote of it when this engine ended it, or the
+    /// report of one this engine ended without writing its end.
     async fn report_of(&self, run_id: &RunId) -> Result<watch::Receiver<Option<Ended>>, RunError> {
-        if let Some(report) = self.ended.get(run_id) {
-            return Ok(
-                watch::Sender::new(Some(Ended::Report(Box::new(report.clone())))).subscribe(),
-            );
-        }
+        let checkpoint = match self.ended.get(run_id) {
+            Some(EndedHere::Unwritten(report)) => {
+                return Ok(watch::Sender::new(Some(Ended::Unwritten(report.clone()))).subscribe());
+            }
+            Some(EndedHere::InRunFile { checkpoint }) => checkpoint.clone(),
+            None => None,
+        };
         if let Some(exhausted) = self.unrecorded.get(run_id) {
             return Ok(watch::Sender::new(Some(Ended::Unrecorded(exhausted.clone()))).subscribe());
         }
@@ -4671,7 +4708,10 @@ impl Registry {
             .blocking(move || read_report(&file, vfs.as_deref()))
             .await;
         match report {
-            Ok(Some(report)) => {
+            Ok(Some(mut report)) => {
+                if checkpoint.is_some() {
+                    report.checkpoint = checkpoint;
+                }
                 Ok(watch::Sender::new(Some(Ended::Report(Box::new(report)))).subscribe())
             }
             Ok(None) | Err(_) => Err(RunError::NotFound(run_id.clone())),
@@ -4689,7 +4729,7 @@ impl Registry {
             return Ok(answered);
         }
         let mut report = answered.borrow().clone();
-        if let Some(Ended::Report(report)) = &mut report {
+        if let Some(Ended::Report(report) | Ended::Unwritten(report)) = &mut report {
             report.nothing_done = Some(NothingDone::AlreadyEnded {
                 ended_at: report.ended_at.clone(),
             });
@@ -5485,18 +5525,14 @@ impl Recording {
     /// was, as after a crash (ADR 0122).
     async fn end(self, closing: Closing) {
         let run_id = closing.run.id.clone();
-        let report = match closing.end().await {
-            Ended::Report(report) => *report,
-            unrecorded @ Ended::Unrecorded(_) => {
-                if let Some(registry) = self.registry.upgrade() {
-                    let _ = registry
-                        .send(Command::Ended(run_id, Box::new(unrecorded)))
-                        .await;
-                }
-                return;
+        let ended = closing.end().await;
+        let Some(report) = ended.report() else {
+            if let Some(registry) = self.registry.upgrade() {
+                let _ = registry.send(Command::Ended(run_id, Box::new(ended))).await;
             }
+            return;
         };
-        let ended = RunIndexRow {
+        let row = RunIndexRow {
             lifecycle: report.lifecycle,
             verdict: Some(report.verdict),
             completeness: Some(report.completeness),
@@ -5506,7 +5542,7 @@ impl Recording {
             replayed: report.replayed(),
             ..self.row
         };
-        if let Err(error) = run_index::write(&self.index, &self.version, &ended) {
+        if let Err(error) = run_index::write(&self.index, &self.version, &row) {
             tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
         }
         self.events
@@ -5518,12 +5554,7 @@ impl Recording {
             })
             .await;
         if let Some(registry) = self.registry.upgrade() {
-            let _ = registry
-                .send(Command::Ended(
-                    run_id,
-                    Box::new(Ended::Report(Box::new(report))),
-                ))
-                .await;
+            let _ = registry.send(Command::Ended(run_id, Box::new(ended))).await;
         }
     }
 }
@@ -5616,8 +5647,9 @@ impl Closing {
             })
             .await;
         let written = ended.is_ok();
-        let mut report = match ended {
-            Ok(report) => report,
+        // A report its run file holds, or the bare one, the only one there is.
+        let (mut report, kept): (_, fn(Box<RunReport>) -> Ended) = match ended {
+            Ok(report) => (report, Ended::Report),
             Err(RunStateError::Storage { message, .. }) => {
                 tracing::warn!(%message, run_id = %run_id, "the Run's stop was not recorded: its run file met a full disk or an I/O error, and it is left interrupted");
                 drop(state);
@@ -5628,7 +5660,7 @@ impl Closing {
             }
             Err(error) => {
                 tracing::warn!(%error, "the Run's end was not written to its run state");
-                bare
+                (bare, Ended::Unwritten)
             }
         };
         report.checkpoint = last_checkpoint;
@@ -5656,7 +5688,7 @@ impl Closing {
         drop(state);
         writer.wait().await;
         drop(lock);
-        Ended::Report(Box::new(report))
+        kept(Box::new(report))
     }
 }
 

@@ -92,9 +92,15 @@ journey(
         ),
       );
       await menu.getByRole("link", { name: "Runs" }).click();
-      offlineCopy = await page
-        .getByText("This browser's offline copy", { exact: false })
-        .isVisible();
+      // The Runs screen reads the offline cache after it opens, so the copy
+      // shows a moment later: the step waits for it, and records a screen
+      // that never shows it for the check to fail.
+      offlineCopy = await expect(page.getByText("This browser's offline copy", { exact: false }))
+        .toBeVisible()
+        .then(
+          () => true,
+          () => false,
+        );
       await page.getByRole("link", { name: RUN_ID }).click();
       await expect.poll(async () => (await facts(page))["Lifecycle"]).toBe("running");
       offlineFacts = await facts(page);

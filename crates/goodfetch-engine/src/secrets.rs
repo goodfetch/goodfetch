@@ -24,7 +24,7 @@ mod secretfile;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -282,6 +282,9 @@ struct Shared {
     /// engine makes its own key-encryption key.
     keychain: Keychain,
     secret_files: PathBuf,
+    /// The file whose lock the engine holds while it makes its own key in
+    /// the OS keychain.
+    key_lock: PathBuf,
     /// Each engine-owned key-encryption key ([`ENGINE_KEYS`]) once this
     /// driver made it or found it made: the first caller makes it, and
     /// every later or concurrent one waits for that making, so the engine
@@ -312,6 +315,7 @@ impl Secrets {
     ) -> Self {
         let keychain = carried.keychain.clone();
         let secret_files = carried.home.secret_files();
+        let key_lock = carried.home.engine_key_lock();
         let mut providers = BTreeMap::new();
         let environment_map = carried.environment.clone();
         providers.insert(
@@ -341,6 +345,7 @@ impl Secrets {
             clock,
             keychain,
             secret_files,
+            key_lock,
             made: Arc::default(),
             masks: Masks::new(),
         }))
@@ -358,7 +363,10 @@ impl Secrets {
     /// key, unless it holds a value already: only for the items the engine
     /// owns, `run_state.key_reference`'s defaults ([`is_engine_key`]), in
     /// the OS keychain or the encrypted local file, whose identity it makes
-    /// too. The key is 32 bytes from the OS generator, in Base64.
+    /// too. The key is 32 bytes from the OS generator, in Base64. In the
+    /// keychain the item is read and stored under the home's
+    /// `engine-key.lock`, so two engines making it at once store one key,
+    /// which both then read.
     ///
     /// # Errors
     ///
@@ -416,6 +424,23 @@ impl Secrets {
                 .rest()
                 .split_once('/')
                 .expect("invariant: a `keychain:` reference parses as service/account");
+            // The item is read, then stored where it is missing, under a
+            // lock every engine of the user takes, so of two engines making
+            // it at once the second reads the first's key and stores none.
+            let path = self.0.key_lock.clone();
+            let _lock = self
+                .0
+                .owner
+                .blocking(move || lock_exclusive(&path))
+                .await
+                .map_err(|error| {
+                    unavailable(ProviderFailure::Refused {
+                        fix: format!(
+                            "The engine cannot lock `{}` while it makes its key-encryption key ({error}); check that the Goodfetch home is writable.",
+                            self.0.key_lock.display()
+                        ),
+                    })
+                })?;
             match self
                 .0
                 .keychain
@@ -808,6 +833,26 @@ fn failure_of(failure: ProviderFailure, reference: &SecretReference) -> (SecretF
             "Answer the reference from the program's `resolveSecret`.".to_owned(),
         ),
     }
+}
+
+/// The exclusive lock on the file at `path`, made if it is missing, once
+/// no other process holds it. Blocking: it runs on the tasks module's
+/// blocking policy.
+fn lock_exclusive(path: &Path) -> std::io::Result<std::fs::File> {
+    if let Some(folder) = path.parent() {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "it runs on the tasks module's blocking policy"
+        )]
+        std::fs::create_dir_all(folder)?;
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)?;
+    file.lock()?;
+    Ok(file)
 }
 
 /// Whether `one` and `other` are the same value, in time that depends only

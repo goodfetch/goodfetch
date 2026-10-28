@@ -73,6 +73,7 @@ impl SecretProvider for Hanging {
 
 mod files;
 mod keychain;
+mod racing;
 mod translations;
 
 fn driver(env: &TestEnv, variables: &[(&str, &str)]) -> Secrets {

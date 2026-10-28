@@ -47,7 +47,7 @@ use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_protocol::tls::CertificateFailure;
 use url::{Host, Url};
 
-use crate::content_types::{Accepts, typed};
+use crate::content_types::{Accepts, declared, typed};
 use crate::decoding::{self, Bound, DecodingFailed};
 use crate::sniffing::MAX_BYTES_TO_SNIFF;
 
@@ -622,11 +622,14 @@ async fn fetch_on(
             .within(clock, "first_byte", answer(transport, hop, reuse))
             .await?
             .map_err(|failure| failure.error(url))?;
-        let declared = sent
-            .headers
-            .iter()
-            .find(|(name, _)| name == "content-type")
-            .map(|(_, value)| value.clone());
+        // A type that names none counts as none, so the body is sniffed.
+        let declared = declared(
+            sent.headers
+                .iter()
+                .find(|(name, _)| name == "content-type")
+                .map(|(_, value)| value.as_str()),
+        )
+        .map(str::to_owned);
         // A type the head names is judged before any byte of the body is
         // read: the body is dropped unread, its connection with it.
         if let (Some(accepts), Some(declared)) = (accepts, &declared)

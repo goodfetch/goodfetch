@@ -37,10 +37,12 @@ fn pdf() -> Vec<u8> {
     bytes
 }
 
-/// A transport whose one answer is a `200` naming no type, its body
-/// `chunks` and then, unless `ends`, nothing more ever.
+/// A transport whose one answer is a `200` naming no type, or
+/// `content_type` when given, its body `chunks` and then, unless `ends`,
+/// nothing more ever.
 struct Untyped {
     encoding: Option<&'static str>,
+    content_type: Option<&'static str>,
     chunks: Vec<Bytes>,
     ends: bool,
 }
@@ -72,6 +74,10 @@ impl Transport for Untyped {
                     .encoding
                     .map(|coding| ("content-encoding".to_owned(), coding.to_owned()))
                     .into_iter()
+                    .chain(
+                        self.content_type
+                            .map(|value| ("content-type".to_owned(), value.to_owned())),
+                    )
                     .collect(),
                 body: Box::new(Chunks {
                     chunks: self.chunks.iter().cloned().collect(),
@@ -110,6 +116,7 @@ fn judged(fetched: &Result<Fetched, goodfetch_engine::CallError>) -> Option<(Opt
 async fn an_untyped_body_the_label_refuses_is_left_unread_past_its_first_kilobyte() {
     let transport = Untyped {
         encoding: None,
+        content_type: None,
         chunks: vec![Bytes::from(pdf())],
         ends: false,
     };
@@ -127,6 +134,7 @@ async fn an_untyped_body_is_judged_on_its_decoded_bytes() {
     let (first, rest) = gzipped.split_at(gzipped.len() / 2);
     let transport = Untyped {
         encoding: Some("gzip"),
+        content_type: None,
         chunks: vec![Bytes::copy_from_slice(first), Bytes::copy_from_slice(rest)],
         ends: false,
     };
@@ -142,6 +150,7 @@ async fn an_untyped_body_the_label_takes_is_read_whole() {
     html.resize(3_000, b'a');
     let transport = Untyped {
         encoding: None,
+        content_type: None,
         chunks: html.chunks(700).map(Bytes::copy_from_slice).collect(),
         ends: true,
     };
@@ -156,6 +165,7 @@ async fn an_untyped_body_shorter_than_a_kilobyte_is_judged_whole_at_its_end() {
     let html = b"<!DOCTYPE html><p>short</p>".to_vec();
     let transport = Untyped {
         encoding: None,
+        content_type: None,
         chunks: vec![Bytes::from(html.clone())],
         ends: true,
     };
@@ -163,4 +173,39 @@ async fn an_untyped_body_shorter_than_a_kilobyte_is_judged_whole_at_its_end() {
     let fetched = fetched(&transport).await;
 
     assert_eq!(judged(&fetched), Some((None, html.len())));
+}
+
+/// A `Content-Type` that names no type counts as none (ADR 0119; the WHATWG
+/// MIME Sniffing standard, section 7): its head refuses nothing, and the
+/// type the sniffer gives its body decides, a PDF refused and an HTML page
+/// read whole.
+#[rstest::rstest]
+#[case::any("*/*")]
+#[case::unknown_unknown("unknown/unknown")]
+#[case::application_unknown("application/unknown")]
+#[case::empty("")]
+#[case::no_slash("html")]
+#[tokio::test(start_paused = true)]
+async fn a_content_type_naming_no_type_is_sniffed(#[case] content_type: &'static str) {
+    let mut html = b"<!DOCTYPE html><p>".to_vec();
+    html.resize(1_500, b'a');
+    let page = Untyped {
+        encoding: None,
+        content_type: Some(content_type),
+        chunks: vec![Bytes::from(html)],
+        ends: true,
+    };
+    let document = Untyped {
+        encoding: None,
+        content_type: Some(content_type),
+        chunks: vec![Bytes::from(pdf())],
+        ends: false,
+    };
+
+    let (page, document) = (fetched(&page).await, fetched(&document).await);
+
+    assert_eq!(
+        (judged(&page), judged(&document)),
+        (Some((None, 1_500)), Some((Some("application/pdf"), 0)))
+    );
 }

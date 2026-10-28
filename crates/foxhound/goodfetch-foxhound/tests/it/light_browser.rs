@@ -8,7 +8,9 @@
 //! pixels stays on the browser; and a call the tier cannot serve
 //! escalates under `auto` and fails with `browser_required` under a
 //! forced tier. The tier table cases on this tier (spec #582) take each
-//! row's call in turn, forced and under `auto`.
+//! row's call in turn, forced and under `auto`. Lightpanda's bridge sends
+//! past any proxy, so a Run that sets one and allows the tier fails its
+//! start, nothing reaching the site (#1640).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -566,5 +568,89 @@ fn under_auto_a_call_the_light_browser_cannot_serve_escalates_its_request_once()
     assert_eq!(
         (seen, not_once, lines.get(9..).map(<[String]>::to_vec)),
         (expected_seen, Vec::<&Value>::new(), Some(expected_lines))
+    );
+}
+
+/// A Run that allows the light-browser tier and sets a proxy fails its
+/// start with `capability_unavailable` naming `fetch.light_browser`:
+/// Lightpanda's bridge connects to sites directly, so its requests would
+/// show the site the machine's own address the proxy hides (#1640). The
+/// site receives no request from Lightpanda, through the proxy or not.
+///
+/// Covers: setting:fetch.light_browser, setting:proxy.server, error:capability_unavailable
+#[test]
+fn a_run_allowing_the_light_browser_beside_a_proxy_fails_its_start() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let proxy = format!(
+        "http://{}",
+        proving_ground.description().fixtures.proxies["open"]
+    );
+    let mut params = json!({
+        "run_id": "light-proxied",
+        "seeds": seeds(&proving_ground, &[("/blog/1", "listing")]),
+        "labels": { "listing": {} },
+        "settings": settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "light_browser", "light_browser": true },
+                "proxy": { "server": proxy },
+            }),
+        ),
+    });
+    params["settings"]["crawl"]["handler"] = json!({ "concurrency": 1 });
+
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": params,
+    }));
+    let refused = loop {
+        let message = engine
+            .next()
+            .expect("the engine closed before the Run ended");
+        if message["method"] == "crawl_request.handle" {
+            engine.send(&json!({
+                "jsonrpc": "2.0", "id": message["id"], "result": { "records": [] },
+            }));
+        } else if message["id"] == "start" {
+            if message.get("error").is_some() {
+                break message["error"]["data"].clone();
+            }
+            engine.send(&json!({
+                "jsonrpc": "2.0", "id": "finish", "method": "run.finish",
+                "params": { "run_id": "light-proxied" },
+            }));
+        } else if message["id"] == "finish" {
+            break Value::Null;
+        }
+    };
+    let observations = proving_ground.observations().unwrap();
+    assert!(engine.finish());
+
+    let from_lightpanda = proving_ground
+        .received_requests()
+        .unwrap()
+        .every()
+        .filter(|request| request.to_string().contains("Lightpanda/"))
+        .count();
+    let relayed = observations["relays"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|relay| {
+            relay["target"]
+                .as_str()
+                .is_some_and(|target| target.contains(HOST))
+        })
+        .count();
+    assert_eq!(
+        (&refused["code"], &refused["key"], from_lightpanda, relayed,),
+        (
+            &json!("capability_unavailable"),
+            &json!("fetch.light_browser"),
+            0,
+            0
+        ),
+        "the requests Lightpanda sent reached the site past the proxy when the start was not refused"
     );
 }

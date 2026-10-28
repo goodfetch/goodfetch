@@ -70,7 +70,9 @@ use goodfetch_protocol::foxhound::provenance::{
 use goodfetch_protocol::foxhound::provenance::{
     EncodingProvenance, EncodingSource, ForcedBy, TierChosen, TierProvenance,
 };
+use goodfetch_protocol::foxhound::session_pool::SESSION_POOL_MAX_SIZE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::page::proxy::{PROXY_KIND, PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::page::{
     BLOCKED, BlockedDetails, BodyHandle, FormatsRequest, Navigated, PageFormats, PageId,
     PageResponse, SessionId,
@@ -104,6 +106,8 @@ use crate::use_signals::UseSignals;
 mod calls;
 mod reading;
 mod sitemap;
+#[cfg(test)]
+mod tests;
 
 /// Foxhound's fetch tiers: the pages they serve, which Collie's page
 /// crate reads through it as its [`HandlerPages`] seam, and
@@ -222,7 +226,7 @@ pub struct ServedLinks {
 /// and the bodies of the responses its `page.request`s got.
 #[derive(Clone)]
 struct ServedPage {
-    document: ServedDocument,
+    document: Arc<ServedDocument>,
     /// The status its document was answered with.
     status: u16,
     http: HttpTier,
@@ -256,7 +260,7 @@ struct ServedPage {
 /// A document a fetch answered, read as a served page holds it: its text,
 /// its encoding, its `Link` header fields and its AI-use signals.
 struct Opened {
-    document: ServedDocument,
+    document: Arc<ServedDocument>,
     /// The response's type when it is no HTML or XHTML document, its page
     /// then holding none (ADR 0119).
     not_document: Option<String>,
@@ -325,13 +329,13 @@ impl Opened {
             .filter(|(name, _)| name == "link")
             .collect();
         Self {
-            document: ServedDocument {
+            document: Arc::new(ServedDocument {
                 run: run.clone(),
                 url,
                 base_url,
                 html,
                 extractor,
-            },
+            }),
             not_document,
             encoding,
             read,
@@ -414,6 +418,48 @@ pub struct Signed {
 /// `layer`, or by `label`, where `settings` do not allow the tier: naming
 /// `fetch.light_browser` while it is off, else this platform, for which
 /// Lightpanda builds nothing (ADRs 0020 and 0093).
+/// The `proxy.*` keys that send a Run's Sessions through a proxy.
+const PROXY_KEYS: [&str; 3] = [PROXY_SERVER.name, PROXY_PROVIDER.name, PROXY_KIND.name];
+
+/// Refuses a Run that allows the light-browser tier beside a proxy: the
+/// light-browser bridge connects to sites directly, so Lightpanda's
+/// requests would show them the machine's own address the proxy hides,
+/// until #1640 chains the bridge through the Session's proxy.
+///
+/// # Errors
+///
+/// `capability_unavailable` naming `fetch.light_browser`.
+fn refuse_light_beside_a_proxy(settings: &Resolved) -> Result<(), CallError> {
+    let Some(allowed) = settings
+        .get(FETCH_LIGHT_BROWSER.name)
+        .filter(|effective| effective.value == serde_json::Value::Bool(true))
+    else {
+        return Ok(());
+    };
+    let Some((key, proxied)) = PROXY_KEYS.iter().find_map(|key| {
+        settings
+            .get(key)
+            .filter(|effective| !effective.value.is_null())
+            .map(|effective| (*key, effective))
+    }) else {
+        return Ok(());
+    };
+    Err(CallError::new(
+        &CAPABILITY_UNAVAILABLE,
+        format!(
+            "`fetch.light_browser` allows the `light_browser` tier in {}, whose requests Lightpanda sends past the Run's proxy, which `{key}` sets in {}: switch `fetch.light_browser` off, or unset `{key}`.",
+            allowed.layer.as_str(),
+            proxied.layer.as_str()
+        ),
+        &CapabilityUnavailableDetails {
+            key: FETCH_LIGHT_BROWSER.name.to_owned(),
+            layer: allowed.layer,
+            kind: FetchTier::LightBrowser.as_str().to_owned(),
+            fix: "`fetch.light_browser: false`".to_owned(),
+        },
+    ))
+}
+
 fn light_unavailable(settings: &Resolved, layer: SettingsLayer, label: Option<&str>) -> CallError {
     let set = label.map_or_else(
         || layer.as_str().to_owned(),
@@ -507,8 +553,10 @@ impl FetchTiers {
     /// # Errors
     ///
     /// `capability_unavailable` for `discovered_api`, which replays a plan
-    /// only a browser sample gives, and for `light_browser` where
-    /// `fetch.light_browser` does not allow it; `setting_invalid`
+    /// only a browser sample gives, for `light_browser` where
+    /// `fetch.light_browser` does not allow it, and naming
+    /// `fetch.light_browser` when it allows the tier beside a proxy, which
+    /// Lightpanda's requests would leave past (#1640); `setting_invalid`
     /// for a Run's `fetch.encoding` that is no WHATWG Encoding label, its
     /// `crawl.content_types` that is no list of media ranges (ADR 0119)
     /// and a `fetch.redirect.max` outside 1 to 19 (ADR 0118);
@@ -518,6 +566,7 @@ impl FetchTiers {
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_HEDGE_ENABLED)?;
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_TIER_RACE)?;
         refuse_redirect_max(settings)?;
+        refuse_light_beside_a_proxy(settings)?;
         if let Some(effective) = settings.get(FETCH_ENCODING.name) {
             crate::choice::encoding("the Run", &effective.value)?;
         }
@@ -643,10 +692,13 @@ impl FetchTiers {
             bounds: FetchBounds::of(settings),
             redundant: Arc::new(Redundant::of(settings)),
             following: Following::of(settings),
-            sessions: Arc::new(SessionTransports {
+            sessions: Arc::new(SessionTransports::new(
                 config,
-                built: Mutex::new(BTreeMap::new()),
-            }),
+                settings
+                    .count(SESSION_POOL_MAX_SIZE.name)
+                    .and_then(|size| usize::try_from(size).ok())
+                    .unwrap_or(usize::MAX),
+            )),
         })
     }
 
@@ -820,7 +872,7 @@ impl FetchTiers {
             ServedPage {
                 history: vec![opened.document.url.clone()],
                 at: 0,
-                document: opened.document.clone(),
+                document: Arc::clone(&opened.document),
                 status,
                 http: tier.clone(),
                 choice: choice.clone(),
@@ -1064,7 +1116,7 @@ impl FetchTiers {
                     .get(page_id)
                     .copied()
                     .unwrap_or(encoding_rs::UTF_8);
-                (page.document.clone(), encoding)
+                (Arc::clone(&page.document), encoding)
             })
         };
         let Some((served, encoding)) = opened else {
@@ -1076,8 +1128,8 @@ impl FetchTiers {
             .owner()
             .blocking(move || {
                 matched(&served.html, &selector).map(|elements| ServedLinks {
-                    url: served.url,
-                    base_url: served.base_url,
+                    url: served.url.clone(),
+                    base_url: served.base_url.clone(),
                     encoding,
                     elements,
                 })
@@ -1108,7 +1160,10 @@ impl FetchTiers {
     ) -> Option<Result<FieldElements, CallError>> {
         let served = {
             let pages = lock(&self.served.pages);
-            pages.open.get(page_id).map(|page| page.document.clone())
+            pages
+                .open
+                .get(page_id)
+                .map(|page| Arc::clone(&page.document))
         };
         let Some(served) = served else {
             return self.browser_field_elements(page_id, locators).await;
@@ -1127,7 +1182,7 @@ impl FetchTiers {
             .owner()
             .blocking(move || {
                 document::first_elements(&served.html, &selectors).map(|elements| FieldElements {
-                    base_url: served.base_url,
+                    base_url: served.base_url.clone(),
                     elements,
                 })
             })
@@ -1540,7 +1595,7 @@ impl FetchTiers {
                 }
             }
         }
-        page.document = opened.document.clone();
+        page.document = Arc::clone(&opened.document);
         page.not_document.clone_from(&opened.not_document);
         page.read = opened.read;
         pages.opened(page_id, opened);
@@ -1626,7 +1681,7 @@ impl HandlerPages for FetchTiers {
         lock(&self.served.pages)
             .open
             .get(page_id)
-            .map(|page| page.document.clone())
+            .map(|page| ServedDocument::clone(&page.document))
     }
 
     fn call(
@@ -1670,18 +1725,75 @@ pub struct HttpTier {
 
 /// The reqwest transport of each local source a Session of the Run sends
 /// from (ADR 0044), built on its first use, so the hops of Sessions that
-/// share one share its connections.
+/// share one share its connections. It keeps those of the sources used
+/// last, as many as the pool keeps Sessions open (`session.pool.max_size`),
+/// so a Run whose Sessions each take their own address, as a prefix's
+/// positions give them, holds no transport of a Session long closed
+/// (STYLE.md, bounded memory); a source used again past them is built
+/// again.
 struct SessionTransports {
     /// The Run's transport configuration, its `local` replaced for each.
     config: TransportConfig,
-    built: Mutex<BTreeMap<LocalSource, (Arc<Reqwest>, AddressCheck)>>,
+    /// The most transports kept.
+    most: usize,
+    built: Mutex<Built>,
+}
+
+/// The transports a Run's sources built, each with when it was last used.
+#[derive(Default)]
+struct Built {
+    transports: BTreeMap<LocalSource, ((Arc<Reqwest>, AddressCheck), u64)>,
+    /// How many times a transport was taken, which orders them by use.
+    uses: u64,
 }
 
 impl SessionTransports {
-    fn built(&self) -> MutexGuard<'_, BTreeMap<LocalSource, (Arc<Reqwest>, AddressCheck)>> {
-        self.built
+    fn new(config: TransportConfig, most: usize) -> Self {
+        Self {
+            config,
+            most: most.max(1),
+            built: Mutex::new(Built::default()),
+        }
+    }
+
+    /// The transport of `local`, built when no transport of it is kept,
+    /// the one used longest ago dropped when the kept ones are as many as
+    /// the pool's Sessions.
+    ///
+    /// # Errors
+    ///
+    /// A message when its transport cannot be built.
+    fn of(&self, local: &LocalSource) -> Result<(Arc<Reqwest>, AddressCheck), String> {
+        let mut built = self
+            .built
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        built.uses += 1;
+        let now = built.uses;
+        if let Some((transport, used)) = built.transports.get_mut(local) {
+            *used = now;
+            return Ok(transport.clone());
+        }
+        let transport = Reqwest::new(TransportConfig {
+            local: Some(local.clone()),
+            ..self.config.clone()
+        })
+        .map_err(|error| error.to_string())?;
+        let addresses = transport.address_check();
+        let transport = (Arc::new(transport), addresses);
+        if built.transports.len() >= self.most
+            && let Some(oldest) = built
+                .transports
+                .iter()
+                .min_by_key(|(_, (_, used))| *used)
+                .map(|(source, _)| source.clone())
+        {
+            built.transports.remove(&oldest);
+        }
+        built
+            .transports
+            .insert(local.clone(), (transport.clone(), now));
+        Ok(transport)
     }
 }
 
@@ -1704,20 +1816,7 @@ impl HttpTier {
         if self.sessions.config.local.as_ref() == Some(local) {
             return Ok(self.clone());
         }
-        let mut built = self.sessions.built();
-        let (transport, addresses) = if let Some(transport) = built.get(local) {
-            transport.clone()
-        } else {
-            let transport = Reqwest::new(TransportConfig {
-                local: Some(local.clone()),
-                ..self.sessions.config.clone()
-            })
-            .map_err(|error| error.to_string())?;
-            let addresses = transport.address_check();
-            let transport = (Arc::new(transport), addresses);
-            built.insert(local.clone(), transport.clone());
-            transport
-        };
+        let (transport, addresses) = self.sessions.of(local)?;
         Ok(HttpTier {
             transport,
             addresses,

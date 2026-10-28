@@ -151,6 +151,11 @@ impl ClientCertificates {
         self.entry_of(host).map(|(domain, _)| domain.to_owned())
     }
 
+    /// The settings layer `tls.client_certificates` came from, if one did.
+    pub fn layer(&self) -> Option<SettingsLayer> {
+        self.layer
+    }
+
     /// The client certificate a handshake with `host` presents, loaded now
     /// if no handshake has: none when no listed domain covers the host.
     ///

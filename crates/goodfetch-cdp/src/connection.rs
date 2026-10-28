@@ -4,6 +4,8 @@
 //! of one target's session (CDP's flat sessions, `Target.attachToTarget`
 //! with `flatten`). When the browser closes its end, every command in
 //! flight fails with [`Failure::Disconnected`] and every subscription ends.
+//! An answer longer than one message the framing reads fails its own
+//! command alone, with [`Failure::TooLarge`], and the connection goes on.
 //!
 //! Nothing waits on the driver without a bound: a command's whole wait,
 //! for the driver and for its answer, is under its timeout, a subscription
@@ -25,7 +27,7 @@ use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::failure::{Failure, PartyText, Refusal};
-use crate::framing::{Framer, FramingError, frame};
+use crate::framing::{Framer, FramingError, MAX_FRAME, frame};
 
 /// How many requests wait for the driver before their senders wait.
 const REQUESTS: usize = 64;
@@ -131,8 +133,6 @@ pub enum Ended {
     Dropped,
     /// Reading or writing the pipe failed.
     Broken(std::io::ErrorKind),
-    /// The browser sent a message past the framing's limit.
-    TooLarge,
 }
 
 /// The connection's actor: run it as a task of the browser's owner.
@@ -141,6 +141,8 @@ pub struct Driver<R, W> {
     writer: W,
     requests: mpsc::Receiver<Request>,
     subscribers: Shared,
+    /// The longest message it reads: [`MAX_FRAME`].
+    frame_limit: usize,
 }
 
 impl Connection {
@@ -163,6 +165,7 @@ impl Connection {
                 writer,
                 requests: receiver,
                 subscribers,
+                frame_limit: MAX_FRAME,
             },
         )
     }
@@ -269,6 +272,13 @@ where
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
+    /// The driver, reading messages of at most `limit` bytes.
+    #[cfg(test)]
+    fn with_frame_limit(mut self, limit: usize) -> Self {
+        self.frame_limit = limit;
+        self
+    }
+
     /// Runs the connection until the browser closes it or every handle is
     /// dropped, and says which.
     ///
@@ -277,7 +287,7 @@ where
     /// Dropping the future closes the client's end: the commands in flight
     /// get no answer.
     pub async fn run(mut self) -> Ended {
-        let mut framer = Framer::default();
+        let mut framer = Framer::with_limit(self.frame_limit);
         let mut pending: BTreeMap<u64, Pending> = BTreeMap::new();
         let mut next_id: u64 = 1;
         let mut buffer = vec![0; READ];
@@ -306,19 +316,14 @@ where
                         Ok(count) => framer.push(&buffer[..count]),
                         Err(error) => break Ended::Broken(error.kind()),
                     }
-                    let mut too_large = false;
                     loop {
                         match framer.next_frame() {
                             Ok(Some(bytes)) => dispatch(&bytes, &mut pending, &self.subscribers),
                             Ok(None) => break,
-                            Err(FramingError::TooLarge) => {
-                                too_large = true;
-                                break;
+                            Err(FramingError::TooLarge { answering }) => {
+                                dropped(answering, &mut pending);
                             }
                         }
-                    }
-                    if too_large {
-                        break Ended::TooLarge;
                     }
                 }
             }
@@ -330,6 +335,23 @@ where
         subscribers.ended = true;
         subscribers.list.clear();
         ended
+    }
+}
+
+/// Fails the command `answering` names, whose answer was past the framing's
+/// limit and was dropped; a message that answers none, an event, is lost.
+fn dropped(answering: Option<u64>, pending: &mut BTreeMap<u64, Pending>) {
+    match answering.and_then(|id| pending.remove(&id)) {
+        Some(Pending { method, answer, .. }) => {
+            tracing::warn!(
+                method,
+                "the browser's answer was past the framing's limit and was dropped"
+            );
+            let _ = answer.send(Err(Failure::TooLarge { method }));
+        }
+        None => {
+            tracing::warn!("the browser sent a message past the framing's limit, which was dropped")
+        }
     }
 }
 

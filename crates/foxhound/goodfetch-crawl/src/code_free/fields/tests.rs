@@ -40,9 +40,10 @@ fn unread(value: Value) -> Option<UnreadField> {
 /// read as one space, or an attribute, an `href` resolved against the
 /// base URL; a `match` picks a group of that text; `number`, `date` and
 /// `date_time` read a machine-readable value in its invariant form,
-/// whatever the locale, and a `date_time` stating no offset takes its
-/// `time_zone`'s; each gives its value, and Provenance names each
-/// transform with the text it read, its locale and its zone.
+/// whatever the locale, else the text as the field's locale prints it, and
+/// a `date_time` stating no offset takes its `time_zone`'s; each gives its
+/// value, and Provenance names each transform with the text it read, its
+/// locale and its zone.
 #[rstest]
 #[case::text_with_its_white_space_collapsed(
     json!({ "locator": { "kind": "css", "selector": "h1" } }),
@@ -89,6 +90,24 @@ fn unread(value: Value) -> Option<UnreadField> {
     json!("2026-02-01T10:00:00+01:00"),
     json!([{ "field": "/name", "text": "2026-02-01T10:00", "transform": "date_time", "locale": "de-DE", "time_zone": "Europe/Berlin" }]),
 )]
+#[case::a_number_printed_under_de_de(
+    json!({ "locator": { "kind": "css", "selector": ".price" }, "transform": { "kind": "number", "locale": "de-DE" } }),
+    element("span", "1.099,98\u{a0}€", &[]),
+    json!(1099.98),
+    json!([{ "field": "/name", "text": "1.099,98 €", "transform": "number", "locale": "de-DE" }]),
+)]
+#[case::a_date_printed_under_de_de(
+    json!({ "locator": { "kind": "css", "selector": ".published" }, "transform": { "kind": "date", "locale": "de-DE" } }),
+    element("p", "1. Februar 2026", &[]),
+    json!("2026-02-01"),
+    json!([{ "field": "/name", "text": "1. Februar 2026", "transform": "date", "locale": "de-DE" }]),
+)]
+#[case::a_date_time_printed_under_en_us_takes_its_time_zones_offset(
+    json!({ "locator": { "kind": "css", "selector": ".at" }, "transform": { "kind": "date_time", "locale": "en-US", "time_zone": "America/New_York" } }),
+    element("p", "Feb 1, 2026, 3:05 PM", &[]),
+    json!("2026-02-01T15:05:00-05:00"),
+    json!([{ "field": "/name", "text": "Feb 1, 2026, 3:05 PM", "transform": "date_time", "locale": "en-US", "time_zone": "America/New_York" }]),
+)]
 #[case::a_date_time_keeps_the_offset_its_text_states(
     json!({ "locator": { "kind": "css", "selector": "time" }, "transform": { "kind": "date_time", "locale": "en-IN", "time_zone": "Europe/Berlin" } }),
     element("time", "1 Feb 2026, 10:00 IST", &[("datetime", "2026-02-01T10:00:00+05:30")]),
@@ -111,10 +130,10 @@ fn a_field_gives_its_transforms_value_and_provenance_names_each_transform(
 
 /// A field its page does not give is null, never an error, and
 /// Provenance names why, with the text where one was read: no element, no
-/// such attribute, a `match` that did not match, a text printed for people
-/// (the locale's parsers are #844's and #848's), a decimal a JSON number
+/// such attribute, a `match` that did not match, a number printed in
+/// another locale's form than the field's, a decimal a JSON number
 /// cannot hold exactly, an impossible date, and a `date_time` stating no
-/// offset with no `time_zone`.
+/// offset with no `time_zone`, printed or not.
 #[rstest]
 #[case::no_element(
     json!({ "locator": { "kind": "css", "selector": ".discount" } }),
@@ -131,10 +150,15 @@ fn a_field_gives_its_transforms_value_and_provenance_names_each_transform(
     Some(element("p", "Ref. DK-0042", &[])),
     json!({ "field": "/name", "reason": "no_match", "text": "Ref. DK-0042" }),
 )]
-#[case::a_printed_number(
+#[case::a_number_printed_in_another_locales_form(
     json!({ "locator": { "kind": "css", "selector": ".price" }, "transform": { "kind": "number", "locale": "de-DE" } }),
-    Some(element("span", "1.099,98\u{a0}€", &[])),
-    json!({ "field": "/name", "reason": "not_parsed", "text": "1.099,98 €" }),
+    Some(element("span", "1,099.98\u{a0}€", &[])),
+    json!({ "field": "/name", "reason": "not_parsed", "text": "1,099.98 €" }),
+)]
+#[case::a_printed_date_time_with_no_zone_anywhere(
+    json!({ "locator": { "kind": "css", "selector": ".at" }, "transform": { "kind": "date_time", "locale": "en-US" } }),
+    Some(element("p", "Feb 1, 2026, 3:05 PM", &[])),
+    json!({ "field": "/name", "reason": "no_time_zone", "text": "Feb 1, 2026, 3:05 PM" }),
 )]
 #[case::a_decimal_no_json_number_holds_exactly(
     json!({ "locator": { "kind": "css", "selector": "data" }, "transform": { "kind": "number", "locale": "en-US" } }),

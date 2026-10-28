@@ -12,9 +12,12 @@
 //! `<time datetime>`, a `<data value>` or an element's `content`
 //! attribute, or one of those attributes named) in its invariant form,
 //! whatever the locale, as ADR 0123 has them preferred. A text printed for
-//! people is read under its locale's CLDR forms by the Value transforms'
-//! parsers, `goodfetch-value-transform` (#844, #848); until they land it is
-//! not a value, and the field is null with `not_parsed`.
+//! people is read under the field's locale's CLDR forms ([`printed`]): a
+//! number in its digits, separators and grouping, a date or a date and
+//! time in one of its short, medium or long forms; any other text is not a
+//! value, and the field is null with `not_parsed`. A currency amount and a
+//! relative time (`currency`, `relative_time`) are the Value transforms'
+//! parsers' (#844, #848).
 
 use goodfetch_fetch_tier::{FieldElement, check_selector};
 use goodfetch_frontier::Url;
@@ -28,6 +31,8 @@ use jiff::fmt::temporal::Pieces;
 use jiff::tz::TimeZone;
 use regex::Regex;
 use serde_json::{Number, Value, json};
+
+mod printed;
 
 /// The attributes whose value is machine-readable, read in its invariant
 /// form: `<time datetime>`, `<data value>` and any element's `content`.
@@ -230,20 +235,32 @@ fn typed(
         FieldTransform::Number { locale } => {
             named.transform = ValueTransform::Number;
             named.locale = Some(locale.clone());
-            invariant.then(|| number(&named.text)).flatten()
+            if invariant {
+                number(&named.text)
+            } else {
+                printed::number(&named.text, locale).and_then(|read| number(&read))
+            }
         }
         FieldTransform::Date { locale } => {
             named.transform = ValueTransform::Date;
             named.locale = Some(locale.clone());
-            invariant.then(|| date(&named.text)).flatten()
+            if invariant {
+                date(&named.text)
+            } else {
+                printed::date(&named.text, locale).map(Value::String)
+            }
         }
         FieldTransform::DateTime { locale, time_zone } => {
             named.transform = ValueTransform::DateTime;
             named.locale = Some(locale.clone());
-            if !invariant {
-                return Err(UnreadReason::NotParsed);
-            }
-            match date_time(&named.text, time_zone.as_deref()) {
+            let read = if invariant {
+                date_time(&named.text, time_zone.as_deref())
+            } else {
+                printed::date_time(&named.text, locale).map_or(DateTime::NotParsed, |civil| {
+                    zoned(civil, None, time_zone.as_deref())
+                })
+            };
+            match read {
                 DateTime::Given { value, zoned } => {
                     if zoned {
                         named.time_zone.clone_from(time_zone);
@@ -385,7 +402,18 @@ fn date_time(text: &str, time_zone: Option<&str>) -> DateTime {
         return DateTime::NotParsed;
     }
     let civil = pieces.date().to_datetime(time);
-    let (zone, zoned) = match (pieces.to_numeric_offset(), time_zone) {
+    zoned(civil, pieces.to_numeric_offset(), time_zone)
+}
+
+/// The RFC 3339 date-time of `civil`, with `offset` when its text states
+/// one, else `time_zone`'s at that time (a gap or overlap resolved as
+/// Temporal's `compatible` does).
+fn zoned(
+    civil: jiff::civil::DateTime,
+    offset: Option<jiff::tz::Offset>,
+    time_zone: Option<&str>,
+) -> DateTime {
+    let (zone, zoned) = match (offset, time_zone) {
         (Some(offset), _) => (TimeZone::fixed(offset), false),
         (None, Some(name)) => match TimeZone::get(name) {
             Ok(zone) => (zone, true),

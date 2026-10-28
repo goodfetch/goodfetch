@@ -164,19 +164,50 @@ fn read_link(
     false
 }
 
-/// Reads the e-mail addresses and telephone numbers `text` writes.
+/// Reads the e-mail addresses and telephone numbers `text` writes: a
+/// number with its country code, or national in the document's region, is
+/// one when libphonenumber finds it valid, and gets its E.164; with
+/// neither, no country is guessed, so any span written as a number is
+/// one, with no E.164, unless it is a date.
 fn read_text(text: &str, region: Option<Id>, found: &mut Found) {
     for address in emails(text) {
         found.email(address, address);
     }
     for number in numbers(text) {
-        let international = number.starts_with('+');
-        if (international || region.is_some())
-            && let Some(e164) = e164(number, region)
-        {
-            found.phone(number, number, Some(e164));
+        if number.starts_with('+') || region.is_some() {
+            if let Some(e164) = e164(number, region) {
+                found.phone(number, number, Some(e164));
+            }
+        } else if !is_date(number) {
+            found.phone(number, number, None);
         }
     }
+}
+
+/// Whether `span` is a date written with digits alone: a year of four
+/// digits, a month and a day, in either order, joined by one hyphen or
+/// dot each (`2026-10-26`, `26.10.2026`).
+fn is_date(span: &str) -> bool {
+    let Some(separator) = span.chars().find(|character| !character.is_ascii_digit()) else {
+        return false;
+    };
+    let parts: Vec<&str> = span.split(separator).collect();
+    let [first, second, third] = parts.as_slice() else {
+        return false;
+    };
+    let number = |part: &str, length: std::ops::RangeInclusive<usize>| {
+        (length.contains(&part.len()) && part.chars().all(|character| character.is_ascii_digit()))
+            .then(|| part.parse::<u16>().ok())
+            .flatten()
+    };
+    let month_and_day = |month: &str, day: &str| {
+        number(month, 1..=2).is_some_and(|month| (1..=12).contains(&month))
+            && number(day, 1..=2).is_some_and(|day| (1..=31).contains(&day))
+    };
+    matches!(separator, '-' | '.')
+        && ((number(first, 4..=4).is_some() && month_and_day(second, third))
+            || (number(third, 4..=4).is_some()
+                && (month_and_day(second, first) || month_and_day(first, second))))
 }
 
 /// `href` after `scheme`, ASCII case aside.

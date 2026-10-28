@@ -3,8 +3,9 @@
 //! canonical URL, language, Open Graph and Twitter tags, JSON-LD blocks and
 //! microdata items, and the e-mail addresses, telephone numbers and social
 //! profiles, each judged by the oracle; a number with no country code on a
-//! page whose language tag has no region gets `e164: null`, and one on a
-//! page whose tag has a region gets it (G1).
+//! page whose language tag has no region gets `e164: null`, from a `tel:`
+//! link or from text, and one on a page whose tag has a region gets it
+//! (G1).
 
 use goodfetch_protocol::journey::TaskId;
 use goodfetch_protocol::page::{PAGE_FORMATS, PageFormats, PageId, Phone};
@@ -137,9 +138,9 @@ fn phones(
         .unwrap_or_default())
 }
 
-/// On `/structured/no-region` (`lang="en"`), the `tel:` link without its
-/// country code has `e164: null` and its national number in text is no
-/// number; on `/structured/region` (`lang="fr-FR"`), the national number
+/// On `/structured/no-region` (`lang="en"`), the `tel:` link and the
+/// national number in text, without their country code, have
+/// `e164: null`; on `/structured/region` (`lang="fr-FR"`), the national number
 /// in text gets its E.164.
 fn no_country_is_guessed(
     connection: &mut Connection,
@@ -161,12 +162,14 @@ fn no_country_is_guessed(
         )?;
         checks.check(
             format!(
-                "with no region in the language tag, the `tel:` link without its country code has `e164: null` and the national number in text is none ({no_region:?})"
+                "with no region in the language tag, the `tel:` link and the national number in text, without their country code, have `e164: null` ({no_region:?})"
             ),
             no_region
                 .iter()
                 .any(|phone| phone.value == "02070313000" && phone.e164.is_none())
-                && !no_region.iter().any(|phone| phone.value == "020 7031 3001"),
+                && no_region
+                    .iter()
+                    .any(|phone| phone.value == "020 7031 3001" && phone.e164.is_none()),
         );
         let region = phones(
             connection,

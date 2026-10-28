@@ -20,6 +20,10 @@
 //! which is also where `run_state.key_reference`'s default falls back to
 //! ([`host_defaults`]). Each is a translation point (ADR 0127): what its
 //! party answers becomes a [`ProviderFailure`] there and nowhere else.
+//!
+//! Size: one driver, the resolution's checks, reuse, retry, Audit record
+//! and hold, kept with the engine key's making that resolves through them;
+//! the providers live in their own modules.
 
 mod environment;
 mod keychain;

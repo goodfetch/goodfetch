@@ -250,13 +250,20 @@
         },
         {
           "additionalProperties": false,
-          "description": "A response body larger than the engine reads, uncompressed.",
+          "description": "A response body that decodes to more than the engine reads, within\nthe decompression ratio when it is coded.",
           "properties": {
             "bytes": {
-              "description": "Its length.",
+              "description": "Its length once decoded.",
               "format": "uint64",
               "minimum": 0,
               "type": "integer"
+            },
+            "content_encodings": {
+              "description": "Its `Content-Encoding` codings, in the order they were applied;\nnone when it is sent uncoded.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             },
             "kind": {
               "const": "oversized_body",

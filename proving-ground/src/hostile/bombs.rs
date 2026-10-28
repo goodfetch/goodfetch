@@ -53,7 +53,7 @@ const _: () = assert!(EXPANDED_BYTES > 1024 * 1024);
 /// 3.1.1.2.3): 128 KiB, the frame's window.
 const ZSTD_BLOCK_MAXIMUM: u32 = 128 * 1024;
 
-/// The zstd frame's Window_Descriptor (RFC 8878, section 3.1.1.1.2): a
+/// The zstd frame's `Window_Descriptor` (RFC 8878, section 3.1.1.1.2): a
 /// window of 2^17 bytes, [`ZSTD_BLOCK_MAXIMUM`].
 const ZSTD_WINDOW_DESCRIPTOR: u8 = (17 - 10) << 3;
 

@@ -46,6 +46,7 @@ use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionKind, ExceptionUsed, PinBook, trusted_cas,
 };
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
+use goodfetch_extractor::BuiltIn;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, Reader,
@@ -246,6 +247,9 @@ struct ServedPage {
     /// The invalid-certificate exception its document's host was reached
     /// through (ADR 0042).
     certificate_exception: Option<CertificateExceptionMark>,
+    /// What the attempt it belongs to handed over: the navigation gate and
+    /// the lease its navigations and `page.request`s go through.
+    hand_over: Arc<HandOver>,
 }
 
 /// A document a fetch answered, read as a served page holds it: its text,
@@ -265,12 +269,17 @@ struct Opened {
 }
 
 impl Opened {
-    /// The document `fetched` answered for `run`, decoded in the encoding
-    /// ADR 0119's order finds, `forced` being `fetch.encoding`'s: a
+    /// The document `fetched` answered for `run`, its formats read with
+    /// `extractor`, its Label's `content.extractor`, decoded in the
+    /// encoding ADR 0119's order finds, `forced` being `fetch.encoding`'s: a
     /// response with no `Content-Type` is typed as Chromium's MIME sniffer
     /// types it, and one of a type that is no HTML or XHTML holds no
     /// document.
-    fn of(run: &Run, fetched: crate::driver::Fetched, forced: Option<&'static Encoding>) -> Self {
+    fn of(
+        run: &Run,
+        fetched: crate::driver::Fetched,
+        (forced, extractor): (Option<&'static Encoding>, Option<BuiltIn>),
+    ) -> Self {
         let url = fetched.url.to_string();
         let header = fetched
             .headers
@@ -320,6 +329,7 @@ impl Opened {
                 url,
                 base_url,
                 html,
+                extractor,
             },
             not_document,
             encoding,
@@ -495,8 +505,9 @@ impl FetchTiers {
     ///
     /// # Errors
     ///
-    /// `capability_unavailable` for `discovered_api`, `browser_fetch` and
-    /// `light_browser`; `setting_invalid`
+    /// `capability_unavailable` for `discovered_api`, which replays a plan
+    /// only a browser sample gives, and for `light_browser` where
+    /// `fetch.light_browser` does not allow it; `setting_invalid`
     /// for a Run's `fetch.encoding` that is no WHATWG Encoding label, its
     /// `crawl.content_types` that is no list of media ranges (ADR 0119)
     /// and a `fetch.redirect.max` outside 1 to 19 (ADR 0118);
@@ -532,8 +543,10 @@ impl FetchTiers {
             .map(|(label, tier)| (tier, SettingsLayer::Run, Some(label)));
         let light = Self::light_allowed(settings);
         for (tier, layer, label) in run.into_iter().chain(by_label) {
-            if matches!(tier, FetchTier::Http | FetchTier::Browser)
-                || (tier == FetchTier::LightBrowser && light)
+            if matches!(
+                tier,
+                FetchTier::Http | FetchTier::BrowserFetch | FetchTier::Browser
+            ) || (tier == FetchTier::LightBrowser && light)
             {
                 continue;
             }
@@ -548,7 +561,7 @@ impl FetchTiers {
             return Err(CallError::new(
                 &CAPABILITY_UNAVAILABLE,
                 format!(
-                    "This engine fetches no crawl request on the `{name}` tier, which `fetch.tier` forces in {set}: set `fetch.tier` to `auto`, `http` or `browser`."
+                    "This engine fetches no crawl request on the `{name}` tier, which `fetch.tier` forces in {set}: set `fetch.tier` to `auto`, `http`, `browser_fetch` or `browser`."
                 ),
                 &CapabilityUnavailableDetails {
                     key: FETCH_TIER.name.to_owned(),
@@ -750,12 +763,13 @@ impl FetchTiers {
                 ),
             }));
         }
-        self.open_served(tier, run, choice, fetched, hand_over.encoding)
+        self.open_served(tier, run, choice, fetched, (hand_over, hand_over.encoding))
     }
 
     /// Opens a page served from `fetched` on `tier` for `run`, its calls
-    /// served as `choice` says, its document read with `forced` from
-    /// `fetch.encoding`.
+    /// served as `choice` says and gated by `hand_over`, the attempt's, its
+    /// document read with `forced` from `fetch.encoding` and its formats
+    /// with the hand-over's extractor, its Label's `content.extractor`.
     ///
     /// # Errors
     ///
@@ -768,16 +782,16 @@ impl FetchTiers {
         run: &Run,
         choice: &TierChoice,
         fetched: crate::driver::Fetched,
-        forced: Option<&'static Encoding>,
+        (hand_over, forced): (&Arc<HandOver>, Option<&'static Encoding>),
     ) -> Result<PageId, Stop> {
         let status = fetched.status;
         let (url, headers, body) = (
             fetched.url.clone(),
             fetched.headers.clone(),
-            Bytes::from(fetched.body.clone()),
+            fetched.body.clone(),
         );
         let certificate_exception = fetched.certificate_exception.as_ref().map(mark);
-        let opened = Opened::of(run, fetched, forced);
+        let opened = Opened::of(run, fetched, (forced, hand_over.extractor));
         // A document only a guess could read is never served: under a
         // forced tier it fails, and under `auto` its page escalates before
         // its handler runs (ADR 0119). A page holding no document is never
@@ -816,6 +830,7 @@ impl FetchTiers {
                 read: opened.read,
                 own: Some((response, body)),
                 certificate_exception,
+                hand_over: Arc::clone(hand_over),
             },
         );
         pages.opened(&page_id, opened);
@@ -900,14 +915,14 @@ impl FetchTiers {
             url: rendered.url,
             status: rendered.status,
             headers,
-            body: rendered.html.into_bytes(),
+            body: rendered.html.into_bytes().into(),
             unaccepted: None,
             // Lightpanda makes its own TLS connections through the bridge,
             // which relays them unread: no `tls.accept_invalid_certs`
             // exception is taken on this tier.
             certificate_exception: None,
         };
-        self.open_served(tier, run, choice, fetched, None)
+        self.open_served(tier, run, choice, fetched, (hand_over, None))
     }
 
     /// Whether a Run's resolved `settings` let its crawl take the
@@ -1372,6 +1387,25 @@ impl FetchTiers {
         pages.open(run_id, pooled, url, context).await
     }
 
+    /// The invalid-certificate exception the browser page `page_id`
+    /// reached the host of `url`, its document's, through, as its Records'
+    /// Provenance marks it (ADR 0042): the one its Session's egress relay
+    /// terminated that host's connections under; none without one.
+    pub async fn browser_exception(
+        &self,
+        page_id: &PageId,
+        url: &str,
+    ) -> Option<CertificateExceptionMark> {
+        let pages = self.served.browser.get()?;
+        let url = Url::parse(url).ok()?;
+        let host = url.host_str()?;
+        pages
+            .certificate_exception(page_id, host)
+            .await
+            .as_ref()
+            .map(mark)
+    }
+
     /// Retires the browser context of the Session `pooled` of the Run
     /// `run_id`'s Session pool, once the pool retired that Session and no
     /// attempt holds it: its pages close, and the pool's replacement opens
@@ -1546,9 +1580,10 @@ impl HandlerPages for FetchTiers {
             .map(|(_, hand_over)| Arc::clone(hand_over));
         match handed {
             Some(hand_over) => {
-                let page_check = hand_over.page_check.clone();
+                let (page_check, extractor) = (hand_over.page_check.clone(), hand_over.extractor);
                 PageValue::new(Gate::new(Arc::clone(&hand_over)), Lease::new(hand_over))
                     .with_page_check(page_check)
+                    .with_extractor(extractor)
             }
             None => ProgramPages.value(run, session),
         }

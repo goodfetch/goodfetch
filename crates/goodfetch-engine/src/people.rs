@@ -43,6 +43,7 @@ use tokio::time::Instant;
 
 use crate::audit::{AuditLog, Origin};
 use crate::clock::Clock;
+use crate::endpoint::same_token;
 use crate::tasks::TaskOwner;
 
 pub use key::{ConsoleKey, KeyError};
@@ -105,7 +106,7 @@ impl SingleUserLink {
     fn verify(&self, token: &str) -> Result<Principal, SignInRefused> {
         if token.is_empty() {
             Err(SignInRefused::TokenMissing)
-        } else if same_secret(token, &self.token) {
+        } else if same_token(token, &self.token) {
             Ok(Principal::OsUser)
         } else {
             Err(SignInRefused::TokenWrong)
@@ -376,7 +377,7 @@ impl SignInDriver {
     pub async fn csrf_checked(&self, cookie: &str, token: &str) -> bool {
         self.csrf_token(cookie)
             .await
-            .is_some_and(|expected| !token.is_empty() && same_secret(token, &expected))
+            .is_some_and(|expected| !token.is_empty() && same_token(token, &expected))
     }
 
     /// The offline cache key of the sign-in `cookie` carries (ADR 0031): with
@@ -619,7 +620,7 @@ impl Inner {
                 return None;
             }
         };
-        if !same_secret(&mac(&key, b"sign-in", cookie), &row.verifier) {
+        if !same_token(&mac(&key, b"sign-in", cookie), &row.verifier) {
             return None;
         }
         let now = self.now();
@@ -693,20 +694,6 @@ fn mac(key: &[u8], purpose: &[u8], value: &str) -> String {
     mac.update(b"\0");
     mac.update(value.as_bytes());
     data_encoding::HEXLOWER.encode(&mac.finalize().into_bytes())
-}
-
-/// Whether two secrets are equal, in time that depends only on their
-/// lengths.
-fn same_secret(given: &str, expected: &str) -> bool {
-    let (given, expected) = (given.as_bytes(), expected.as_bytes());
-    given.len() == expected.len()
-        && given
-            .iter()
-            .zip(expected)
-            .fold(0_u8, |difference, (left, right)| {
-                difference | (left ^ right)
-            })
-            == 0
 }
 
 /// `bytes` bytes of the OS generator, in hex.

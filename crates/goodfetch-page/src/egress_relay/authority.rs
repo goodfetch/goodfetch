@@ -94,12 +94,6 @@ impl Authority {
         &self.spki_sha256
     }
 
-    /// Its own certificate, in DER.
-    #[cfg(test)]
-    pub(crate) fn certificate(&self) -> &[u8] {
-        &self.certificate
-    }
-
     /// The leaf it signs for `host`, made on first use. It signs for any
     /// host, but a host outside its domains fails every verifier that
     /// reads its name constraints.

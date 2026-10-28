@@ -31,6 +31,7 @@ use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use goodfetch_engine::CallError;
+use goodfetch_engine::egress::{self, EndpointPolicy};
 use goodfetch_engine::http_client::{self, Resolve};
 use goodfetch_engine::run::secret_error;
 use goodfetch_engine::runs::Run;
@@ -87,6 +88,9 @@ pub(crate) struct SessionProxy {
     /// the proxy: whether it failed to open, and whether the proxy refused
     /// the credentials.
     through_relay: Latest,
+    /// How the proxy's own addresses are judged: as an Operator-configured
+    /// endpoint's, under `egress.no_private_endpoints` (ADR 0017).
+    judged: EndpointPolicy,
 }
 
 /// The proxy a Proxy provider gave a Session, for its life.
@@ -357,6 +361,8 @@ impl SessionProxy {
         };
         let server = ProxyServer::parse(&server)
             .expect("invariant: `proxy.server`'s value was checked against its kind");
+        let judged = EndpointPolicy::of(settings);
+        judge_at_open(&server, settings, judged).await?;
         let password = match (&username, reference) {
             (None, Some(_)) => return Err(needs(PROXY_PASSWORD.name, PROXY_USERNAME.name)),
             (_, None) => None,
@@ -409,6 +415,7 @@ impl SessionProxy {
             provided: None,
             limits,
             through_relay: Latest::default(),
+            judged,
         }))
     }
 
@@ -472,6 +479,8 @@ impl SessionProxy {
             }
             _ => None,
         };
+        let judged = EndpointPolicy::of(settings);
+        judge_at_open(&chosen.server, settings, judged).await?;
         let address = address_of(&chosen.server, settings).await?;
         let mode = provided_mode(settings, &chosen, password.as_ref())?;
         let usage = Arc::new(ProxyUsage::new(run.clone(), chosen.kind, price));
@@ -506,6 +515,7 @@ impl SessionProxy {
                 warned: Mutex::new(false),
             }),
             through_relay: Latest::default(),
+            judged,
         })
     }
 
@@ -678,12 +688,32 @@ impl SessionProxy {
     /// A response to `url` through the proxy, carrying the `Proxy-Status`
     /// field `proxy_status`: one the proxy forwarded itself only for an
     /// `http:` URL sent to an HTTP or HTTPS proxy and not around it, the
-    /// one case where the proxy's own member can be in the field.
+    /// one case where the proxy's own member can be in the field; and,
+    /// through a SOCKS5 proxy, one the Session's own relay answered for a
+    /// proxy it could not use, which the relay recorded, so a site's own
+    /// `Proxy-Status` naming the relay is still the site's.
     pub(crate) fn response<'a>(&self, url: &str, proxy_status: Option<&'a str>) -> Answer<'a> {
         let plain = url::Url::parse(url).is_ok_and(|url| url.scheme() == "http");
+        let proxied = plain && !self.bypasses(url);
+        let socks = self.server.scheme.is_socks();
+        let relays = socks
+            && proxy_status.is_some_and(party::relays)
+            && (self.relay.as_ref().is_some_and(Relay::answered) || self.through_relay.answered());
         Answer::Response {
             proxy_status,
-            forwarded: plain && !self.server.scheme.is_socks() && !self.bypasses(url),
+            forwarded: proxied && (!socks || relays),
+        }
+    }
+
+    /// The Error code a navigation to `url` raises whose response is the
+    /// proxy's own, naming `error`: `proxy_auth_failed` when a SOCKS5
+    /// proxy refused the Session's credentials on the latest connection,
+    /// `proxy_unavailable` otherwise.
+    pub(crate) fn answered(&self, url: &str, error: &str) -> CallError {
+        if self.server.scheme.is_socks() && self.refused_credentials() {
+            self.auth_failed(url)
+        } else {
+            self.unavailable(url, error)
         }
     }
 
@@ -743,6 +773,9 @@ impl SessionProxy {
             address,
             bypasses: Box::new(move |url| bypassing.bypasses(url)),
             met: Box::new(move |met| meeting.met_through_relay(met)),
+            // The loopback relay's own address is no proxy's: the
+            // Session's open judged the proxy behind it.
+            judged: self.relay.is_none().then_some(self.judged),
         }
     }
 
@@ -771,6 +804,34 @@ async fn address_of(server: &ProxyServer, settings: &Resolved) -> Result<SocketA
     Ok(*addresses
         .first()
         .expect("invariant: a lookup that answered has an address"))
+}
+
+/// Judges the addresses `server`'s host resolves to now under `judged`,
+/// before the Session opens: a browser that reaches the proxy itself, and
+/// the loopback relay, which connects to the address found then, meet no
+/// other check. A host with no address is left to the connection, which
+/// fails as the proxy's.
+///
+/// # Errors
+///
+/// `egress_refused` naming the proxy, its address and
+/// `egress.no_private_endpoints`.
+async fn judge_at_open(
+    server: &ProxyServer,
+    settings: &Resolved,
+    judged: EndpointPolicy,
+) -> Result<(), CallError> {
+    let mapping = settings
+        .hosts(NETWORK_RESOLVE.name)
+        .into_iter()
+        .fold(Resolve::new(), |mapping, (host, addresses)| {
+            mapping.with(host, addresses)
+        });
+    let Ok(addresses) = http_client::lookup(&server.host, server.port, &mapping).await else {
+        return Ok(());
+    };
+    egress::judge_endpoint_addresses(&server.to_string(), &addresses, judged)
+        .map_err(|refused| refused.error())
 }
 
 /// `proxy_relay_unavailable` for the relay to `server`, which could not

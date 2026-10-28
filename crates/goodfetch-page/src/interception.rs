@@ -158,6 +158,18 @@ struct Shared {
     /// The domains each live Run learned blocking off for, while any of its
     /// pages holds them.
     learned: Mutex<BTreeMap<RunId, Weak<Learned>>>,
+    /// The cosmetic rules each live Run's served documents are read with,
+    /// held until the Run ends: a Run whose pages a fetch tier serves may
+    /// hold no Session that keeps its Filter lists loaded, and without
+    /// this each served document would compile them again.
+    served: Mutex<BTreeMap<RunId, ServedCosmetic>>,
+}
+
+/// The cosmetic rules of one live Run's served documents, made once.
+struct ServedCosmetic {
+    /// Cancelled once the Run ends.
+    live: tokio_util::sync::CancellationToken,
+    cosmetic: Arc<tokio::sync::OnceCell<Option<Cosmetic>>>,
 }
 
 impl Shared {
@@ -347,6 +359,22 @@ pub(crate) struct Cosmetic {
     pub(crate) choices: Choices,
 }
 
+impl Cosmetic {
+    /// The cosmetic rules of step 4's `blocking`, its Filter lists of the
+    /// version `version`, when any list is on.
+    fn of(blocking: &steps::Blocking, version: Option<String>) -> Option<Self> {
+        blocking
+            .lists
+            .as_ref()
+            .zip(version)
+            .map(|(lists, version)| Self {
+                lists: Arc::clone(lists),
+                version,
+                choices: blocking.choices.clone(),
+            })
+    }
+}
+
 /// What a page's Session chose of the Clean-up rules beside its requests'
 /// blocking: its cosmetic rules, and its `live_view.hiding`.
 pub(crate) struct PageCleanUp {
@@ -464,15 +492,7 @@ impl Interception {
             .then(|| clean_up::effective(resolved, own, BROWSER_BLOCK_RESOURCES.name).to_string());
         let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
         let clean_up = PageCleanUp {
-            cosmetic: blocking
-                .lists
-                .as_ref()
-                .zip(version)
-                .map(|(lists, version)| Cosmetic {
-                    lists: Arc::clone(lists),
-                    version,
-                    choices: blocking.choices.clone(),
-                }),
+            cosmetic: Cosmetic::of(&blocking, version),
             live_hiding: clean_up::live_hiding(resolved, own),
         };
         if let Some(blocked) = blocked {
@@ -781,6 +801,38 @@ impl Interception {
     pub(crate) fn cosmetic(&self, page_id: &PageId) -> Option<Cosmetic> {
         let state = lock(&self.shared.tables).pages.get(page_id).cloned()?;
         state.cosmetic.clone()
+    }
+
+    /// The cosmetic rules a document a fetch tier served `run` is read with,
+    /// as in every tier, HTTP included (ADR 0047): those of the Run's
+    /// Filter lists, when any is on, of the version it holds to.
+    ///
+    /// They are made on the Run's first served document and held until the
+    /// Run ends, so its Filter lists are compiled once for it.
+    pub(crate) async fn served_cosmetic(&self, run: &Run) -> Option<Cosmetic> {
+        let cell = {
+            let mut served = lock(&self.shared.served);
+            served.retain(|_, held| !held.live.is_cancelled());
+            Arc::clone(
+                &served
+                    .entry(run.id().clone())
+                    .or_insert_with(|| ServedCosmetic {
+                        live: run.cancellation().clone(),
+                        cosmetic: Arc::default(),
+                    })
+                    .cosmetic,
+            )
+        };
+        cell.get_or_init(|| async {
+            let choices = clean_up::choices(
+                run.settings().map(RunSettings::resolved),
+                &Values::default(),
+            );
+            let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
+            Cosmetic::of(&blocking, version)
+        })
+        .await
+        .clone()
     }
 
     /// Warns `run`, once for the Session `session`, that its

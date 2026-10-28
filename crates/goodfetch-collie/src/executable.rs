@@ -48,6 +48,7 @@ use std::process::ExitCode;
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use daemon_command::{DaemonCommand, daemon_command};
+use goodfetch_cli::engine_choice::EngineFlags;
 use goodfetch_cli::exit_codes;
 use goodfetch_cli::generated::{Call, Generated, Joined, Joining};
 use goodfetch_cli::output::{self, ColourChoice, ColourFlag, Human};
@@ -255,6 +256,8 @@ enum OwnUsageCommand {
         /// Usage kind, or millionths of the currency.
         #[arg(long)]
         amount: u64,
+        #[command(flatten)]
+        engine: EngineFlags,
     },
 }
 
@@ -700,6 +703,7 @@ fn usage_command(
         currency,
         period,
         amount,
+        engine: flags,
     } = command;
     let params = goodfetch_protocol::usage::UsageRaiseParams {
         scope,
@@ -709,7 +713,13 @@ fn usage_command(
         period,
         amount,
     };
-    usage::raise(engine, dependencies, &params, human)
+    usage::raise(
+        engine,
+        dependencies,
+        (machine, flags.choice()),
+        &params,
+        human,
+    )
 }
 
 /// Warns when the Usage ledger sits on a temporary filesystem, where it is

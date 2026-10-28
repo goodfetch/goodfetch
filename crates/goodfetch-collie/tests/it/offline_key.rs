@@ -174,3 +174,27 @@ fn with_console_offline_cache_off_no_offline_key_is_given() {
     assert_eq!(session(&url, &own)["offline_cache"], json!(false));
     assert_eq!(given, (404, Value::Null));
 }
+
+/// `console.offline_cache` switched off while the Daemon runs takes effect
+/// at the next request, with no restart: `GET /session` says so, and no
+/// key is given any more.
+///
+/// Covers: story:12-126, setting:console.offline_cache
+#[test]
+fn console_offline_cache_switched_off_while_the_daemon_runs_takes_effect_at_once() {
+    let env = TestEnv::new();
+    env.user_configuration("console.address = \"127.0.0.1:0\"\n");
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let url = started(&env);
+    let own = cookie(&env, &url);
+    let csrf = csrf_of(&url, &own);
+    let before = session(&url, &own)["offline_cache"].clone();
+
+    env.user_configuration("console.address = \"127.0.0.1:0\"\nconsole.offline_cache = false\n");
+    let given = offline_key(&url, Some(&own), Some(&csrf), origin(&url), &json!({}));
+
+    assert_eq!(
+        (before, session(&url, &own)["offline_cache"].clone(), given),
+        (json!(true), json!(false), (404, Value::Null))
+    );
+}

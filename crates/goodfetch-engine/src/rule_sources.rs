@@ -3,16 +3,20 @@
 //! destination, and the Filter lists' own URLs, which `upstream` does. Each
 //! is an HTTPS GET through the engine's HTTP client with the pinned
 //! downloads' user agent, which names no version, and no cookie or
-//! identifier; `egress.offline` refuses it before it connects. A redirect is
+//! identifier; `egress.offline` refuses it before it connects. A source is an
+//! Operator-configured endpoint (ADR 0017), so `egress.no_private_endpoints`
+//! refuses one that resolves to a private address. A redirect is
 //! followed to another `https` URL, at most [`MAX_REDIRECTS`] times, and the
 //! request's own headers, such as a registry's token, go only to the host
 //! they were meant for. The body is read whole, up to the caller's limit.
 
+use goodfetch_protocol::egress::ConfiguredKind;
 use http_body_util::Empty;
 use hyper::body::Bytes;
 use hyper::{Request, StatusCode, Uri};
 
-use crate::http_client::{self, Network, Server};
+use crate::egress::Refused;
+use crate::http_client::{self, ConfiguredEndpoint, EndpointFailure};
 use crate::pinned_download::{Fetching, USER_AGENT};
 use crate::tls::Trust;
 
@@ -42,6 +46,10 @@ pub enum SourceFailure {
     /// The URL is no `https` URL with a host.
     #[error("`{0}` is no https URL")]
     NotHttps(String),
+    /// The egress policy refused it before it connected: an address
+    /// `egress.no_private_endpoints` refuses.
+    #[error("{0}")]
+    Refused(Refused),
     /// No answer, a connection that broke, or a certificate that failed.
     #[error("{host} did not answer")]
     Network {
@@ -164,37 +172,30 @@ async fn send(
     let failed = || SourceFailure::Network {
         host: host.to_owned(),
     };
-    let authority = uri.authority().map_or_else(
-        || host.to_owned(),
-        |authority| authority.as_str().to_owned(),
-    );
-    let path = uri
-        .path_and_query()
-        .map_or("/", |path| path.as_str())
-        .to_owned();
-    let mut request = Request::get(path)
-        .header(hyper::header::HOST, authority)
-        .header(hyper::header::USER_AGENT, USER_AGENT);
+    let mut request = Request::get(uri.clone()).header(hyper::header::USER_AGENT, USER_AGENT);
     for (name, value) in headers {
         request = request.header(*name, value.as_str());
     }
     let request = request.body(Empty::<Bytes>::new()).map_err(|_| failed())?;
     let trust = Trust::endpoint(&fetching.trusted_certificates);
-    let network = Network {
-        exceptions: None,
-        client_certificates: None,
+    // A source is an Operator-configured endpoint (ADRs 0017 and 0047):
+    // `egress.no_private_endpoints` judges where it resolves.
+    let endpoint = ConfiguredEndpoint {
+        kind: ConfiguredKind::CleanUpRulesSource,
+        policy: fetching.endpoints,
         resolve: &fetching.resolve,
         trust: &trust,
         clock: fetching.clock,
         delays: fetching.delays,
-        local: None,
     };
-    let server = Server {
-        host,
-        port: uri.port_u16().unwrap_or(443),
-        plain: false,
-    };
-    http_client::send(&server, request, &network)
+    endpoint
+        .send(request)
         .await
-        .map_err(|_| failed())
+        .map_err(|failure| match failure {
+            EndpointFailure::Refused(refused) => SourceFailure::Refused(refused),
+            EndpointFailure::Failed(_) => failed(),
+        })
 }
+
+#[cfg(test)]
+mod tests;

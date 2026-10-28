@@ -16,7 +16,7 @@ use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
 
-use super::{Inodes, Reading};
+use super::{FilesystemInodes, FilesystemReading};
 
 /// The device of the filesystem holding `folder`, which exists.
 pub(super) fn device(folder: &Path) -> Option<u64> {
@@ -26,7 +26,7 @@ pub(super) fn device(folder: &Path) -> Option<u64> {
 }
 
 /// What the filesystem holding `folder`, which exists, reads.
-pub(super) fn read(folder: &Path) -> Option<Reading> {
+pub(super) fn read(folder: &Path) -> Option<FilesystemReading> {
     let path = CString::new(folder.as_os_str().as_bytes()).ok()?;
     let mut found = std::mem::MaybeUninit::<libc::statvfs>::zeroed();
     // SAFETY: `path` is a NUL-terminated string and `found` a writable
@@ -39,10 +39,10 @@ pub(super) fn read(folder: &Path) -> Option<Reading> {
     let found = unsafe { found.assume_init() };
     let unit = wide(found.f_frsize);
     let total = wide(found.f_files);
-    Some(Reading {
+    Some(FilesystemReading {
         size: wide(found.f_blocks).saturating_mul(unit),
         free: wide(found.f_bavail).saturating_mul(unit),
-        inodes: (total > 0).then(|| Inodes {
+        inodes: (total > 0).then(|| FilesystemInodes {
             total,
             free: wide(found.f_favail),
         }),

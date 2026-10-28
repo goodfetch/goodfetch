@@ -45,7 +45,7 @@ impl Site {
         if let Err(reason) = self.csrf_checked(request.headers(), &cookie).await {
             return self.refused(reason, StatusCode::FORBIDDEN).await;
         }
-        if !self.offline_cache {
+        if !self.offline_cache().await {
             return self.plain(StatusCode::NOT_FOUND);
         }
         let Ok(body) = Limited::new(request.into_body(), MAX_OFFLINE_KEY_BYTES)

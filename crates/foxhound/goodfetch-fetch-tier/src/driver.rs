@@ -29,12 +29,13 @@ use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_engine::happy_eyeballs::FamilyUnavailable;
+use goodfetch_engine::response_limits::{Decoding, Limits};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::{CertificateChanged, CertificateInvalid, ExceptionUsed};
 use goodfetch_frontier::backoff_classes::Met;
@@ -48,6 +49,7 @@ use url::{Host, Url};
 
 use crate::content_types::{Accepts, typed};
 use crate::decoding::{self, DecodingFailed};
+use crate::sniffing::MAX_BYTES_TO_SNIFF;
 
 #[cfg(test)]
 mod tests;
@@ -311,6 +313,20 @@ pub fn met(status: u16, headers: &[(String, String)], forwarded: bool) -> Met<'_
 }
 
 impl TransportFailure {
+    /// The failure as a hop to `url` reports it: an egress refusal names
+    /// the hop's URL, whatever URL the library's error carried; any other
+    /// failure stays as it is. Every transport's translation ends here
+    /// (ADR 0129).
+    pub(crate) fn of_hop(self, url: &Url) -> Self {
+        match self {
+            Self::Egress(refused) => Self::Egress(Refused {
+                url: url.to_string(),
+                ..refused
+            }),
+            failure => failure,
+        }
+    }
+
     /// What a hop that failed so met, as the backoff classes read it: its
     /// network error, Chrome's name for it, the proxy's own for a tunnel
     /// the proxy refused, asked credentials for or never opened.
@@ -434,11 +450,11 @@ pub struct Fetched {
     pub headers: Vec<(String, String)>,
     /// Its body, decoded as its `Content-Encoding` lists; empty when it
     /// was dropped for its type.
-    pub body: Vec<u8>,
+    pub body: Bytes,
     /// The type of a response that would reach the handler but whose
     /// type the request's Label does not take (`crawl.content_types`,
     /// ADR 0119), its body then dropped: unread when its head named the
-    /// type, read and sniffed when it named none.
+    /// type, read only as far as the sniffer reads when it named none.
     pub unaccepted: Option<String>,
     /// The invalid-certificate exception its host was reached through (ADR
     /// 0042, pitfall H03), which the Provenance of its Records marks.
@@ -581,37 +597,45 @@ async fn fetch_on(
                 url: hop.url.clone(),
                 status: sent.status,
                 headers: sent.headers,
-                body: Vec::new(),
+                body: Bytes::new(),
                 unaccepted: Some(refused),
                 certificate_exception: sent.certificate_exception,
             });
         }
-        let expected = content_length(&sent.headers);
-        let mut body = Vec::new();
-        // Any failure once the head arrived cuts the body (ADR 0118).
-        while let Some(chunk) = sent
-            .body
-            .chunk()
-            .await
-            .map_err(|_| truncated(url, body.len(), expected))?
-        {
-            body.extend_from_slice(&chunk);
-        }
-        let codings = sent
+        let codings: Vec<&str> = sent
             .headers
             .iter()
             .filter(|(name, _)| name == "content-encoding" && !sent.decoded)
-            .map(|(_, value)| value.as_str());
+            .map(|(_, value)| value.as_str())
+            .collect();
+        let expected = content_length(&sent.headers);
+        let sniffed = match (accepts, &declared) {
+            (Some(accepts), None) => Some(accepts),
+            _ => None,
+        };
+        let answered = (sent.status, expected);
+        let body = match read_body(&mut *sent.body, hop, answered, &codings, sniffed).await? {
+            Read::Whole(body) => body,
+            Read::Refused(refused) => {
+                return Ok(Fetched {
+                    url: hop.url.clone(),
+                    status: sent.status,
+                    headers: sent.headers,
+                    body: Bytes::new(),
+                    unaccepted: Some(refused),
+                    certificate_exception: sent.certificate_exception,
+                });
+            }
+        };
         let received = body.len();
-        let body = decoding::decode(codings, body).map_err(|failed| match failed {
+        let body = decoding::decode(codings.into_iter(), body).map_err(|failed| match failed {
             DecodingFailed::Cut => truncated(url, received, expected),
             DecodingFailed::Corrupt => TransportFailure::ContentDecodingFailed.error(url),
         })?;
         if decoding::still_compressed(declared.as_deref(), &body) {
             return Err(TransportFailure::ContentDecodingFailed.error(url));
         }
-        // With no type in its head, the body is sniffed as Chromium sniffs
-        // it, so it had to be read.
+        // An untyped body shorter than the sniffer reads is judged whole.
         let unaccepted = match (accepts, &declared) {
             (Some(accepts), None) => {
                 accepts.refused(sent.status, &typed(None, &body, hop.url.path()).0)
@@ -623,7 +647,7 @@ async fn fetch_on(
             status: sent.status,
             headers: sent.headers,
             body: if unaccepted.is_some() {
-                Vec::new()
+                Bytes::new()
             } else {
                 body
             },
@@ -635,6 +659,69 @@ async fn fetch_on(
         .navigation
         .within(clock, "navigation", whole)
         .await?
+}
+
+/// What reading an answer's body gave.
+enum Read {
+    /// The whole body as it arrived, no content coding decoded.
+    Whole(Bytes),
+    /// The type the sniffer gave its first bytes, which its Label does not
+    /// take: the rest was left unread.
+    Refused(String),
+}
+
+/// Reads the body of `hop`'s answer, `status`, as it arrives under
+/// `codings`, its `Content-Length` declaring `expected`. With `sniffed`,
+/// the answer named no type: its codings are decoded as its bytes arrive,
+/// and once the sniffer's 1,024 bytes are in (`kMaxBytesToSniff`), a type
+/// `sniffed` refuses stops the read. A body that does not decode is read
+/// whole, and its decoding then decides.
+///
+/// # Errors
+///
+/// `response_truncated` when the body breaks off (ADR 0118).
+async fn read_body(
+    body: &mut dyn Body,
+    hop: &Hop,
+    (status, expected): (u16, Option<u64>),
+    codings: &[&str],
+    sniffed: Option<&Accepts>,
+) -> Result<Read, CallError> {
+    let url = hop.url.as_str();
+    let mut sniffing = sniffed.map(|accepts| {
+        (
+            accepts,
+            Decoding::new(url, codings.iter().copied(), Limits::default()),
+        )
+    });
+    let mut read = BytesMut::new();
+    // Any failure once the head arrived cuts the body (ADR 0118).
+    while let Some(chunk) = body
+        .chunk()
+        .await
+        .map_err(|_| truncated(url, read.len(), expected))?
+    {
+        read.extend_from_slice(&chunk);
+        let Some((accepts, decoding)) = sniffing.as_mut() else {
+            continue;
+        };
+        let judged = decoding
+            .push(&chunk)
+            .and_then(|()| decoding.decoded())
+            .map(|decoded| {
+                (decoded.len() >= MAX_BYTES_TO_SNIFF)
+                    .then(|| accepts.refused(status, &typed(None, decoded, hop.url.path()).0))
+            });
+        match judged {
+            Ok(Some(Some(refused))) => return Ok(Read::Refused(refused)),
+            // Judged and taken, or no stream of its codings, which the
+            // whole body's decoding then fails.
+            Ok(Some(None)) | Err(_) => sniffing = None,
+            // Too few bytes decoded yet.
+            Ok(None) => {}
+        }
+    }
+    Ok(Read::Whole(read.freeze()))
 }
 
 /// The length an answer's `Content-Length` declares, if it declares one.

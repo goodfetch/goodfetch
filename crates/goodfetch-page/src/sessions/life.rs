@@ -152,12 +152,6 @@ impl PageLife {
         error
     }
 
-    /// Where the page is.
-    #[cfg(test)]
-    pub(crate) fn state(&self) -> PageState {
-        *self.shared.state.borrow()
-    }
-
     /// Whether the page is found past its memory cap for the first time:
     /// only the first finding ends it.
     pub(crate) fn past_cap(&self) -> bool {

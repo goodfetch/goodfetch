@@ -37,7 +37,7 @@ const SITEMAP_SITE: &str = "sitemap-seed.test";
 /// The fields every Record of a Markdown crawl holds.
 const FIELDS: [&str; 6] = [
     "base_url",
-    "fetchedAt",
+    "fetched_at",
     "main_content",
     "markdown",
     "status",
@@ -176,7 +176,7 @@ fn a_crawl_with_no_code_fills_pages_keyed_by_url_with_each_pages_markdown() {
             (
                 record.as_object().unwrap().keys().cloned().collect(),
                 record["status"].as_u64(),
-                record["fetchedAt"]
+                record["fetched_at"]
                     .as_str()
                     .is_some_and(|at| at.ends_with('Z') && at.contains('T')),
             )

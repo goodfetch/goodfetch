@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "35"
+version = "36"
 
 [[capability]]
 name = "sessions.default"
@@ -382,6 +382,10 @@ covers = ["story:5-40", "operation:page.route"]
 id = "a-fetch-whose-page-closes-before-its-response-raises-closed-and-the-run-finishes"
 covers = ["story:5-40", "operation:route.fetch", "error:closed"]
 
+[[capability.case]]
+id = "a-fetch-whose-body-passes-network-max-body-size-raises-response-limit-exceeded"
+covers = ["operation:route.fetch", "error:response_limit_exceeded", "setting:network.max_body_size"]
+
 [[capability]]
 name = "routes.interception_order"
 
@@ -416,7 +420,7 @@ covers = ["story:5-94", "setting:browser.block_resources"]
 name = "clean_up.never_block"
 
 [[capability.case]]
-id = "challenge-and-anti-bot-scripts-load-over-the-filter-lists-and-block-resources"
+id = "challenge-anti-bot-and-payment-scripts-load-over-the-filter-lists-and-block-resources"
 covers = ["story:5-95", "setting:browser.block_resources"]
 
 [[capability]]

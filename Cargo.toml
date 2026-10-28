@@ -363,6 +363,15 @@ url = { version = "2.5.8", default-features = false, features = ["std"] }
 # Whether a name from outside input is in Unicode's composed form, as APFS
 # compares names (ADR 0067), with the data `url`'s IDNA already takes.
 icu_normalizer = { version = "2.3.0", default-features = false, features = ["compiled_data"] }
+# CLDR's printed forms of numbers, dates and times, which a code-free
+# field's Value transform learns by printing known values under its locale
+# and reads text back against (ADR 0123): ICU4X formats but does not parse.
+fixed_decimal = { version = "0.7.3", default-features = false }
+icu_calendar = { version = "2.4.0", default-features = false, features = ["compiled_data"] }
+icu_datetime = { version = "2.4.0", default-features = false, features = ["compiled_data"] }
+icu_decimal = { version = "2.4.0", default-features = false, features = ["compiled_data"] }
+icu_locale_core = { version = "2.4.0", default-features = false }
+writeable = { version = "0.6.4", default-features = false }
 # Mozilla's root certificates, which the Browser cache's pinned downloads
 # trust (ADR 0043), as ureq's rustls already does.
 webpki-roots = { version = "1.0.9", default-features = false }

@@ -20,7 +20,7 @@ use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
-use goodfetch_protocol::run::{RunId, RunWarning};
+use goodfetch_protocol::run::{RunId, RunKind, RunWarning, StartInput};
 use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
 use serde_json::{Value, json};
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -29,11 +29,14 @@ use super::{Client, attached_with, dependencies, engine_with};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::Dependencies;
 use crate::log::LogEvents;
-use crate::mask::Masks;
 use crate::run_trace::RequestLog;
+use crate::runs::{EndedBy, Start, Started};
 
 /// The variable the Run's key-encryption key is read from.
 const KEY_VARIABLE: &str = "GF_TEST_RUN_KEY";
+
+/// A key-encryption key no canary holds, for the positive control.
+const UNPLANTED_KEY: &str = "a key-encryption key no canary holds";
 
 /// Logs, warns, traces and returns a text, as a page reflecting it would.
 const REFLECT: Operation = Operation {
@@ -124,25 +127,13 @@ fn keyed(env: &TestEnv, key: &str) -> Dependencies {
 /// Every message the Client received while a Run of `settings` started,
 /// reflected `text` and finished, its `hello` asking for `info` log lines.
 fn reflected(env: &TestEnv, key: &str, settings: &Value, text: &str) -> Vec<Value> {
-    reflected_through(env, key, settings, text, Masks::new())
-}
-
-/// As [`reflected`], the engine masking with `masks`.
-fn reflected_through(
-    env: &TestEnv,
-    key: &str,
-    settings: &Value,
-    text: &str,
-    masks: Masks,
-) -> Vec<Value> {
     let log_events = LogEvents::new();
     let subscriber = tracing_subscriber::registry().with(log_events.layer());
     let engine = engine_with(
         Product::Collie,
         Some(Contribution::new("test-reflect").with_handler(Handler::new(&REFLECT, reflect))),
     )
-    .with_log_events(log_events)
-    .with_masks(masks);
+    .with_log_events(log_events);
     let calls = [
         (
             "run.start",
@@ -299,18 +290,24 @@ fn with_redaction_off_a_resolved_credential_stays_only_in_the_run_trace() {
     );
 }
 
-/// The positive control of the searches above (spec #564): with the
-/// harness's `Mask` letting every value through, the same search finds the
-/// Run's key in every output the Run wrote it to, so a search that finds
-/// nothing proves what it claims.
+/// The positive control of the searches above (spec #564): the same Run
+/// reflects the canary, but resolves another key-encryption key, so no
+/// `Mask` knows the canary, and the same search finds it in every output
+/// the Run wrote it to. A search that finds nothing then proves what it
+/// claims, with no switch in the masking path.
 /// Covers: story:4-91
 #[test]
-fn with_the_mask_letting_values_through_the_search_finds_the_key_in_every_output() {
+fn with_the_reflected_value_resolved_by_no_run_the_search_finds_it_in_every_output() {
     let env = TestEnv::new();
     let mut canaries = Canaries::new(env.seed());
-    let key = canaries.plant(SecretKind::RunDataKey).value().to_owned();
+    let reflected_value = canaries.plant(SecretKind::RunDataKey).value().to_owned();
 
-    let received = reflected_through(&env, &key, &json!({}), &reflecting(&key), Masks::unmasked());
+    let received = reflected(
+        &env,
+        UNPLANTED_KEY,
+        &json!({}),
+        &reflecting(&reflected_value),
+    );
 
     let outputs: std::collections::BTreeSet<String> = leaks(&canaries, &env, &received)
         .into_iter()
@@ -363,4 +360,107 @@ fn a_short_resolved_value_stays_in_a_read_and_is_masked_in_what_the_engine_keeps
         .find_map(|message| message["result"]["text"].as_str())
         .is_some_and(|text| text.starts_with(&format!("raw {key} |")));
     assert_eq!((leaks, returned), (Vec::<String>::new(), true));
+}
+
+/// Starts a Run of its own under `run_id`, tagged `tags` with the crawl
+/// seeds `seeds` as its inputs, as a crawl's start would.
+const START_TAGGED: Operation = Operation {
+    name: "test.start_tagged",
+    description: "Starts a Run with tags and seeds.",
+    ..REFLECT
+};
+
+async fn start_tagged(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let started = context
+        .runs()
+        .start(Start {
+            run_id: Some(RunId::parse(params["run_id"].as_str().unwrap()).unwrap()),
+            tags: serde_json::from_value(params["tags"].clone()).unwrap(),
+            kind: RunKind::Collie,
+            needs: Product::Collie,
+            inputs: [(StartInput::Seeds, params["seeds"].clone())].into(),
+            ended_by: EndedBy::Finish,
+            initialize: None,
+            policy_version: None,
+            weakened: Vec::new(),
+            binding: None,
+            clean_up_digest: None,
+            checkpoint_interval: None,
+            timeout: None,
+            settings: None,
+        })
+        .await;
+    Ok(match started {
+        Ok(Started::New(_)) => json!("new"),
+        Ok(Started::Existing(_)) => json!("existing"),
+        Err(error) => json!(error.to_string()),
+    })
+}
+
+/// A Run's tags and inputs, here a crawl's seeds, pass through the `Mask`
+/// before run state and the Run index keep them (spec #564): a value
+/// another Run resolved, its key-encryption key, is in no file once a Run
+/// tagged and seeded with it started, and the same start again still
+/// answers that Run rather than a conflict.
+/// Covers: story:4-56, setting:run_state.key_reference
+#[test]
+fn a_runs_tags_and_inputs_are_masked_in_what_the_engine_keeps() {
+    let env = TestEnv::new();
+    let mut canaries = Canaries::new(env.seed());
+    let key = canaries.plant(SecretKind::RunDataKey).value().to_owned();
+    let engine = engine_with(
+        Product::Collie,
+        Some(
+            Contribution::new("test-tagged")
+                .with_handler(Handler::new(&START_TAGGED, start_tagged)),
+        ),
+    );
+    let tagged = json!({
+        "run_id": "tagged",
+        "tags": [format!("token {key}")],
+        "seeds": [format!("https://shop.test/?token={key}")],
+    });
+
+    let answers = attached_with(
+        &engine,
+        || keyed(&env, &key),
+        |mut client: Client| async move {
+            let mut answers = Vec::new();
+            client
+                .send(&[json!({
+                    "jsonrpc": "2.0", "id": 0, "method": "hello",
+                    "params": {
+                        "protocol_version": "0.1", "surface": "sdk_typescript",
+                        "needs": "collie", "product_version": "1.4.0",
+                    },
+                })])
+                .await;
+            client.next().await;
+            for (id, (method, params)) in (1_i64..).zip([
+                ("run.start", json!({ "run_id": "masked" })),
+                ("test.start_tagged", tagged.clone()),
+                ("test.start_tagged", tagged),
+            ]) {
+                client
+                    .send(&[
+                        json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }),
+                    ])
+                    .await;
+                loop {
+                    let message = client.next().await.expect("the engine replies");
+                    if message["id"] == json!(id) {
+                        answers.push(message["result"].clone());
+                        break;
+                    }
+                }
+            }
+            answers
+        },
+    );
+
+    assert_eq!(
+        (leaks(&canaries, &env, &[]), &answers[1..]),
+        (Vec::<String>::new(), &[json!("new"), json!("existing")][..]),
+        "{answers:?}"
+    );
 }

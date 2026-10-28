@@ -342,7 +342,7 @@ fn run_export_refuses_a_path_it_cannot_write_whole(
     ];
 
     let output = if full {
-        let output = crate::tmpfs::mounted(&env, &folder, SIZE, FOXHOUND)
+        let output = goodfetch_test_support::tmpfs_mounted(&env, &folder, SIZE, FOXHOUND)
             .args(arguments)
             .stdin(Stdio::null())
             .output()

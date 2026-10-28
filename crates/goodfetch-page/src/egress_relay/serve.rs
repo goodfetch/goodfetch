@@ -49,6 +49,22 @@ pub(crate) trait Network: Sync {
     fn connect_upstream(&self) -> impl Future<Output = io::Result<Self::Stream>> + Send;
 }
 
+/// The egress policy's refusal of the Session's upstream proxy's own
+/// address (ADR 0017), which the error [`Network::connect_upstream`] fails
+/// with carries.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub(crate) struct ProxyRefused(pub(crate) Refused);
+
+/// The refusal `error`, a failed connection to the upstream proxy, carries,
+/// if the egress policy refused the proxy's address.
+fn proxy_refused(error: &io::Error) -> Option<&Refused> {
+    error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<ProxyRefused>())
+        .map(|ProxyRefused(refused)| refused)
+}
+
 /// Where the Session's connections go after the relay.
 #[derive(Clone, Debug)]
 pub(crate) enum Upstream {
@@ -72,6 +88,9 @@ pub(crate) enum Met {
     Unreachable,
     /// The upstream proxy refused the Session's credentials.
     CredentialsRefused,
+    /// A SOCKS5 proxy took the connection but refused the tunnel, which
+    /// the relay answered with its own `502`.
+    Refused,
 }
 
 /// Why the relay could not reach a site itself, as the browser names the
@@ -387,12 +406,9 @@ where
     N: Network,
     O: Observe,
 {
-    let Ok(mut proxy) = network.connect_upstream().await else {
-        observe.upstream(Met::Unreachable);
-        let _ = browser
-            .write_all(&failed("502 Bad Gateway", "connection_refused"))
-            .await;
-        return Served::Failed;
+    let mut proxy = match network.connect_upstream().await {
+        Ok(proxy) => proxy,
+        Err(error) => return unconnected(&mut browser, head, &error, observe).await,
     };
     if let Target::Absolute { .. } = head.target {
         observe.upstream(Met::Reached);
@@ -456,23 +472,24 @@ where
     N: Network,
     O: Observe,
 {
-    let Ok(mut proxy) = network.connect_upstream().await else {
-        observe.upstream(Met::Unreachable);
-        let _ = browser
-            .write_all(&failed("502 Bad Gateway", "connection_refused"))
-            .await;
-        return Served::Failed;
+    let mut proxy = match network.connect_upstream().await {
+        Ok(proxy) => proxy,
+        Err(error) => return unconnected(&mut browser, head, &error, observe).await,
     };
-    observe.upstream(Met::Reached);
-    if socks5_connect(&mut proxy, head.target.host(), head.target.port())
-        .await
-        .is_err()
-    {
+    if let Err(error) = socks5_connect(&mut proxy, head.target.host(), head.target.port()).await {
+        // A proxy that asks for a method other than none asks for
+        // credentials the Session does not give.
+        observe.upstream(if error.kind() == io::ErrorKind::PermissionDenied {
+            Met::CredentialsRefused
+        } else {
+            Met::Refused
+        });
         let _ = browser
             .write_all(&failed("502 Bad Gateway", "proxy_internal_error"))
             .await;
         return Served::Failed;
     }
+    observe.upstream(Met::Reached);
     let opened = match head.target {
         Target::Tunnel { .. } => browser.write_all(ESTABLISHED).await,
         Target::Absolute { .. } => proxy.write_all(&head.forwarded(false, None)).await,
@@ -481,6 +498,35 @@ where
         return Served::Failed;
     }
     forward(browser, proxy, rest, head, relaying, observe).await
+}
+
+/// Answers `head`'s connection, which no connection to the upstream proxy
+/// carries for `error`: refused as the egress policy refused the proxy's
+/// own address, else the relay's `502` for a proxy it could not reach.
+async fn unconnected<B, O>(browser: &mut B, head: &Head, error: &io::Error, observe: &O) -> Served
+where
+    B: AsyncWrite + Unpin,
+    O: Observe,
+{
+    if let Some(refused) = proxy_refused(error) {
+        let refused = Refused {
+            url: head.target.url(),
+            ..refused.clone()
+        };
+        return refuse(
+            browser,
+            head,
+            &refused,
+            observe,
+            "destination_ip_prohibited",
+        )
+        .await;
+    }
+    observe.upstream(Met::Unreachable);
+    let _ = browser
+        .write_all(&failed("502 Bad Gateway", "connection_refused"))
+        .await;
+    Served::Failed
 }
 
 /// Opens a SOCKS5 tunnel to `host` on `port` over `proxy`, asking for no

@@ -342,3 +342,50 @@ fn a_reader_of_a_dataset_the_crawl_does_not_declare_fails_with_dataset_unknown()
         )
     );
 }
+
+/// A reader on another engine than the one whose writer works the Run, as
+/// a reader on the Daemon of a Run an Attached engine crawls, follows it
+/// live too: while that engine holds the Run's writer lock, it is sent
+/// each Record as it commits, and it answers only once the Run ended and
+/// every Record is read (ADRs 0102 and 0103).
+///
+/// Covers: story:6-271, operation:run.records
+#[test]
+fn a_reader_on_another_engine_follows_the_live_run_its_writer_works() {
+    let env = TestEnv::new();
+    let mut writer = Session::new(Attached::start(&env));
+    let mut reader = Session::new(Attached::start(&env));
+
+    writer.crawl("elsewhere", 3);
+    writer.answer_next();
+    writer.until(|session| !session.requests.is_empty());
+    reader.read("reader", "elsewhere", None);
+    reader.credit("reader", 10);
+    reader.until(|session| session.read_by("reader") == 1);
+    writer.answer_next();
+    reader
+        .until(|session| session.read_by("reader") == 2 || session.replies.contains_key("reader"));
+    let answered_while_live = reader.replies.contains_key("reader");
+    writer.answer_next();
+    let finished = writer.finish("elsewhere", &[]);
+    reader.until(|session| session.replies.contains_key("reader"));
+    let read = reader.records_of("reader");
+    let reply = reader.replies["reader"]["result"].clone();
+    assert!(writer.engine.finish());
+    assert!(reader.engine.finish());
+
+    assert_eq!(
+        (
+            &finished["result"]["lifecycle"],
+            answered_while_live,
+            read,
+            reply
+        ),
+        (
+            &json!("finished"),
+            false,
+            vec![page(1, 1), page(2, 2), page(3, 3)],
+            json!({ "count": 3, "last": 3 }),
+        )
+    );
+}

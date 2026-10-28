@@ -20,10 +20,12 @@
 use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
 
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{
+    Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
+};
 use goodfetch_protocol::foxhound::settings::POLITENESS_WEAKENED;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
-use goodfetch_protocol::run::RUN_STATE_DURABILITY;
+use goodfetch_protocol::run::{RUN_STATE_DURABILITY, RunId};
 use goodfetch_test_support::{Canaries, SecretKind, TestEnv};
 use serde_json::{Value, json};
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -31,9 +33,11 @@ use tracing_subscriber::layer::SubscriberExt as _;
 use super::run::call;
 use super::{attached_with, dependencies, engine_with, hello};
 use crate::audit::AuditLog;
-use crate::composition::Contribution;
+use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::{Dependencies, Engine};
 use crate::home::Home;
+use crate::known_certificates::KeyHash;
+use crate::tls::ExceptionKind;
 
 /// The variable the Run's key-encryption key is read from.
 const KEY_VARIABLE: &str = "GF_TEST_RUN_KEY";
@@ -169,6 +173,48 @@ fn a_run_with_the_audit_chain_switched_off_is_reported_once_and_its_entries_writ
     );
 }
 
+/// A start with no Run ID of its own, whose engine generates one, writes
+/// its first entry, its key-encryption key's use before the Run exists,
+/// unchained and naming that Run, as the rest of its entries are.
+/// Covers: story:4-74, setting:security.audit_chain, setting:run_state.key_reference
+#[test]
+fn a_generated_runs_first_entry_is_unchained_with_the_audit_chain_off() {
+    let env = TestEnv::new();
+    let params = json!({ "settings": { "security": { "audit_chain": false } } });
+
+    let started = attached_with(
+        &engine_with(Product::Collie, None),
+        || keyed(&env),
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await;
+            call(&mut client, 1, "run.start", params).await
+        },
+    );
+
+    let run_id = started["result"]["run_id"].clone();
+    let entries: Vec<Value> = AuditLog::of(&Home::new(env.home().to_owned()), None)
+        .export()
+        .unwrap()
+        .into_iter()
+        .map(|exported| {
+            json!([
+                exported.entry.kind,
+                exported.entry.run_id,
+                exported.entry.chained
+            ])
+        })
+        .collect();
+    assert_eq!(
+        entries,
+        vec![
+            json!(["secret_reference_used", run_id, false]),
+            json!(["security_switch_turned_off", run_id, true]),
+        ],
+        "{started}"
+    );
+}
+
 /// The positive control: with every control on, nothing is reported, the
 /// report has no `weakened`, and the Run's entries are chained.
 /// Covers: story:4-74, setting:security.audit_chain
@@ -281,8 +327,11 @@ fn recorded(env: &TestEnv) -> Vec<Value> {
 fn a_registered_weakening_is_recorded_once_as_its_kind_with_its_default_and_layer() {
     let (pressing, gentle) = (TestEnv::new(), TestEnv::new());
     let registering = || {
-        Contribution::new("test-politeness")
-            .with_recorded_weakening(&POLITENESS_SHARING, &POLITENESS_WEAKENED)
+        Contribution::new("test-politeness").with_recorded_weakening(
+            &POLITENESS_SHARING,
+            &POLITENESS_WEAKENED,
+            POLITENESS_SHARING.default,
+        )
     };
 
     let pressed = started_twice(
@@ -319,5 +368,90 @@ fn a_registered_weakening_is_recorded_once_as_its_kind_with_its_default_and_laye
             ),
             (&Value::Null, Vec::<String>::new(), Vec::<Value>::new()),
         )
+    );
+}
+
+/// Marks the hosts `params` lists reached by the live Run `run_id`
+/// through an invalid-certificate exception, as its Sessions' TLS
+/// exceptions do once they admit a host.
+const REACH: Operation = Operation {
+    name: "test.reach",
+    description: "Marks hosts reached through a certificate exception.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<Value>,
+    result: schema_of::<Value>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+async fn reach(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+    let run = context.runs().live(run_id).await.unwrap();
+    for (host, kind) in [
+        ("pinned.test", ExceptionKind::TrustOnFirstUse),
+        ("any.test", ExceptionKind::Any),
+        ("pinned.test", ExceptionKind::TrustOnFirstUse),
+    ] {
+        run.secrets()
+            .exception_hosts()
+            .add(host, KeyHash::of_public_key(host.as_bytes()), kind)
+            .await;
+    }
+    Ok(json!({}))
+}
+
+/// A Run that reached hosts through certificate exceptions records them in
+/// the Audit log once, as it ends, by host and kind with each key (ADR
+/// 0042); the Runs above, which reached none, record no such entry.
+/// Covers: story:4-37, setting:tls.accept_invalid_certs
+#[test]
+fn a_run_records_the_certificate_exceptions_it_used_once_as_it_ends() {
+    let env = TestEnv::new();
+    let engine = engine_with(
+        Product::Collie,
+        Some(Contribution::new("test-reach").with_handler(Handler::new(&REACH, reach))),
+    );
+
+    attached_with(
+        &engine,
+        || dependencies(&env),
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await;
+            call(&mut client, 1, "run.start", json!({ "run_id": "reaching" })).await;
+            call(
+                &mut client,
+                2,
+                "test.reach",
+                json!({ "run_id": "reaching" }),
+            )
+            .await;
+            call(
+                &mut client,
+                3,
+                "run.finish",
+                json!({ "run_id": "reaching" }),
+            )
+            .await
+        },
+    );
+
+    let key = |host: &str| KeyHash::of_public_key(host.as_bytes()).to_string();
+    assert_eq!(
+        recorded(&env),
+        vec![json!([
+            "certificate_exceptions_used",
+            "reaching",
+            null,
+            { "hosts": [
+                { "host": "any.test", "kind": "any", "spki_sha256": key("any.test") },
+                { "host": "pinned.test", "kind": "trust_on_first_use", "spki_sha256": key("pinned.test") },
+            ] },
+        ])]
     );
 }

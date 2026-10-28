@@ -55,6 +55,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::Instrument as _;
 
+use goodfetch_protocol::audit::{Actor, CERTIFICATE_EXCEPTIONS_USED};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::checkpoint::{
     RUN_ABORTING, RUN_CHECKPOINTING, RUN_MIGRATING, RUN_STOPPING, RunAborting, RunBinding,
@@ -83,7 +84,7 @@ use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
 use secrecy::SecretString;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -96,8 +97,8 @@ pub use self::report::ReportPart;
 pub use self::writer::{Writer, test_writer};
 
 use self::folder::{
-    Found, RunRow, canonical_inputs, input_differences, point_in_time, read_found, read_report,
-    text, write_end,
+    Found, RunRow, canonical_inputs, input_differences, masked_tags, point_in_time, read_found,
+    read_report, text, write_end,
 };
 use self::lifecycle::{InvalidRunTransition, Next, RunEvent};
 use self::progress::{Progress, Progressing};
@@ -108,7 +109,7 @@ use self::takeover::TakeOver;
 use self::writer::{LockError, take_lock};
 use crate::CallError;
 use crate::admission::{Admission, Gates};
-use crate::audit::{AuditEvents, AuditLog};
+use crate::audit::{AuditEvents, AuditLog, Origin};
 use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
 use crate::clock::Clock;
@@ -959,6 +960,7 @@ enum Command {
         oneshot::Sender<Result<Option<StoredKey>, RunError>>,
     ),
     Machine(oneshot::Sender<Result<String, RunError>>),
+    GenerateId(oneshot::Sender<RunId>),
     SafeStop(RunId, StoppedBy, oneshot::Sender<Result<Waiting, RunError>>),
     Reader(RunId, oneshot::Sender<RunReader>),
     Progress(RunId, oneshot::Sender<Followed>),
@@ -1079,8 +1081,13 @@ struct Shared {
     stop: watch::Sender<Option<StopReason>>,
     /// Whether `run.finish` let it finish.
     finish: watch::Sender<bool>,
-    /// Its Slices of the Limits that hold it, until it ends.
-    charging: tokio::sync::Mutex<Option<Charging>>,
+    /// Its Slices of the Limits that hold it, until it ends: taken only
+    /// in the ledger's blocking calls, never across an await.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the ledger's calls block: one Mutex guards a Run's charging, taken only inside them with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
+    )]
+    charging: std::sync::Mutex<Option<Charging>>,
     /// The runtime's metrics.
     metrics: Metrics,
     /// Its `tracing` span, a root of its own (ADR 0132), which each of its
@@ -1112,6 +1119,15 @@ struct Shared {
     /// Where its crawl's attempts stage the writes made through a
     /// handler's `ctx.run`, once its crawl registered it.
     attempt_writes: std::sync::OnceLock<Arc<dyn AttemptWrites>>,
+}
+
+impl Shared {
+    /// Its charging, locked: called only inside the ledger's blocking calls.
+    fn charging(&self) -> std::sync::MutexGuard<'_, Option<Charging>> {
+        self.charging
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 impl std::fmt::Debug for Run {
@@ -1169,6 +1185,13 @@ impl Run {
     /// # Errors
     ///
     /// As [`RunKeyError`] says.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future of the caller that makes the key abandons the
+    /// making, and the next caller makes one again. A drop once the
+    /// wrapped key's write was queued may leave it stored: the next making
+    /// then takes that key rather than store another.
     pub async fn key(&self) -> Result<&RunKey, RunKeyError> {
         self.shared.key.get_or_try_init(|| self.make_key()).await
     }
@@ -1191,10 +1214,21 @@ impl Run {
             wrapped: key.wrap(&kek)?,
             key_reference: reference.to_string(),
         };
-        self.state
-            .write(move |connection| run_key::store(connection, &stored))
+        // A making whose caller was dropped once its write was queued may
+        // have stored a key the Run never took: that one is the Run's key,
+        // and this making's is not stored (the check and the write are one
+        // job of the writer, so no second key can slip between them).
+        let earlier = self
+            .state
+            .write(move |connection| match run_key::stored(connection)? {
+                Some(earlier) => Ok(Some(earlier)),
+                None => run_key::store(connection, &stored).map(|()| None),
+            })
             .await?;
-        Ok(key)
+        match earlier {
+            Some(earlier) => Ok(RunKey::unwrap(self.id.clone(), &earlier.wrapped, &kek)?),
+            None => Ok(key),
+        }
     }
 
     /// The engine's clock.
@@ -1410,6 +1444,11 @@ impl Run {
     /// # Errors
     ///
     /// When its run state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future does not withdraw a write already queued: the
+    /// warning may still be handed over.
     pub async fn warn_once(&self, warning: RunWarning) -> Result<(), RunStateError> {
         let warning = self.masked(warning);
         self.state
@@ -1451,12 +1490,19 @@ impl Run {
     ///
     /// Dropping the future loses only the answer.
     pub async fn usage(&self) -> Result<RunUsage, ChargeError> {
-        let charging = self.shared.charging.lock().await.clone();
+        let shared = Arc::clone(&self.shared);
         let now = self.runs.limits.now();
-        let limits = match charging {
-            Some(charging) => self.owner.blocking(move || charging.applied(now)).await?,
-            None => Vec::new(),
-        };
+        let limits = self
+            .owner
+            .blocking(move || {
+                shared
+                    .charging()
+                    .as_ref()
+                    .map(|charging| charging.applied(now))
+                    .transpose()
+            })
+            .await?
+            .unwrap_or_default();
         Ok(self
             .state
             .read(move |connection| report::usage(connection, limits))
@@ -1693,7 +1739,7 @@ impl Run {
     ///
     /// Dropping the future may leave a temporary file beside the bodies,
     /// never a partial body.
-    pub async fn store_body(&self, bytes: Vec<u8>) -> std::io::Result<BodyHandle> {
+    pub async fn store_body(&self, bytes: bytes::Bytes) -> std::io::Result<BodyHandle> {
         let folder = self.folder.clone();
         let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         let (body, file) = self
@@ -1946,51 +1992,44 @@ impl Run {
     /// Runs `change` on the Run's charging under the ledger's blocking
     /// calls, journals what it charged, and asks the Run to stop at its next
     /// safe point when a Limit refused it; answers none once the Run ended.
+    /// The change and the queueing of its journal happen under the charging's
+    /// lock, inside the blocking call, so journals reach the run state in the
+    /// order of the changes, and no lock is held across an await.
     async fn charged<T, F>(&self, change: F) -> Result<Option<T>, ChargeError>
     where
         T: Send + 'static,
         F: FnOnce(&mut Charging, jiff::Timestamp) -> Result<(T, Charged), Refusal> + Send + 'static,
     {
-        let mut held = self.shared.charging.lock().await;
-        let Some(mut charging) = held.take() else {
-            return Ok(None);
-        };
+        let place = self.state.reserve().await?;
+        let shared = Arc::clone(&self.shared);
         let now = self.runs.limits.now();
-        let (charging, changed) = self
+        let epoch = self.state.epoch();
+        let changed = self
             .owner
             .blocking(move || {
-                let changed = change(&mut charging, now);
-                (charging, changed)
+                let mut held = shared.charging();
+                let charging = held.as_mut()?;
+                let changed = change(charging, now);
+                let uncapped = charging.uncapped();
+                Some(changed.map(|(value, journaled)| {
+                    let journaling =
+                        (!journaled.used.is_empty() || !journaled.counted.is_empty() || uncapped)
+                            .then(|| {
+                                place.write(move |connection| {
+                                    journal(connection, epoch, &journaled, uncapped)
+                                })
+                            });
+                    (value, journaling)
+                }))
             })
             .await;
-        let uncapped = charging.uncapped();
-        *held = Some(charging);
+        let Some(changed) = changed else {
+            return Ok(None);
+        };
         match changed {
-            Ok((value, journaled)) => {
-                if !journaled.used.is_empty() || !journaled.counted.is_empty() || uncapped {
-                    let epoch = self.state.epoch();
-                    self.state
-                        .write(move |connection| {
-                            slices::journal(connection, epoch, &journaled.used, uncapped)?;
-                            for counted in &journaled.counted {
-                                report::count(
-                                    connection,
-                                    &counted.usage_kind,
-                                    counted.currency.as_deref(),
-                                    counted.delta,
-                                )?;
-                                if let Some(part) = &counted.part {
-                                    report::count_part(
-                                        connection,
-                                        &counted.usage_kind,
-                                        part,
-                                        counted.delta,
-                                    )?;
-                                }
-                            }
-                            Ok(())
-                        })
-                        .await?;
+            Ok((value, journaling)) => {
+                if let Some(journaling) = journaling {
+                    journaling.await?;
                 }
                 Ok(Some(value))
             }
@@ -2178,6 +2217,12 @@ impl Runs {
         self.secrets.audit()
     }
 
+    /// The OS user's name, from the engine's environment map: the person
+    /// of a single-user install.
+    pub(crate) fn person(&self) -> String {
+        crate::people::os_user(self.secrets.environment())
+    }
+
     /// Where this engine's listeners record their refusals: the user's
     /// Audit log (`endpoint`).
     pub(crate) fn refusals(&self) -> Refusals {
@@ -2293,14 +2338,23 @@ impl Runs {
     /// [`Runs::start`] once its Clean-up rules are chosen: a new Run whose
     /// settings switch a control off reports each switch once (ADR 0016),
     /// and with `security.audit_chain` off its entries, from its key's use
-    /// on, are written unchained; a start that answers an existing Run, or
-    /// fails, reports nothing.
-    async fn start_chosen(&self, start: Start) -> Result<Started, StartError> {
+    /// on, are written unchained, a start with no Run ID of its own taking
+    /// its generated one first so that its key's use names it; a start that
+    /// answers an existing Run, or fails, reports nothing.
+    async fn start_chosen(&self, mut start: Start) -> Result<Started, StartError> {
         let switched = start
             .settings
             .as_ref()
             .map(|settings| self.controls.switched_off(settings.resolved()))
             .unwrap_or_default();
+        if start.run_id.is_none() && switched.unchains() {
+            let (answer, answered) = oneshot::channel();
+            self.commands
+                .send(Command::GenerateId(answer))
+                .await
+                .map_err(|_| StartError::Stopped)?;
+            start.run_id = Some(answered.await.map_err(|_| StartError::Stopped)?);
+        }
         let audit = self.audit().clone();
         let chosen = start.run_id.clone().filter(|_| switched.unchains());
         let newly_unchained = chosen.clone().is_some_and(|run_id| audit.unchain(run_id));
@@ -2616,6 +2670,24 @@ impl Runs {
     ///
     /// Dropping the future after the resume was sent still resumes the Run.
     pub async fn resume(&self, resume: Resume) -> Result<Resumed, RunError> {
+        // With `security.audit_chain` off, the resumed Run's entries, from
+        // its key's use on, are written unchained (ADR 0016); a resume
+        // that takes no epoch chains them again.
+        let unchains = resume
+            .settings
+            .as_ref()
+            .is_some_and(|settings| self.controls.switched_off(settings.resolved()).unchains());
+        let (audit, run_id) = (self.audit().clone(), resume.run_id.clone());
+        let newly_unchained = unchains && audit.unchain(run_id.clone());
+        let resumed = self.resume_unchained(resume).await;
+        if newly_unchained && !matches!(resumed, Ok(Resumed::New { .. })) {
+            audit.rechain(&run_id);
+        }
+        resumed
+    }
+
+    /// [`Runs::resume`] once its entries' chaining is set.
+    async fn resume_unchained(&self, resume: Resume) -> Result<Resumed, RunError> {
         let secrets = run_secrets(&self.secrets, resume.settings.as_ref());
         let unwrapped = self.unwrapped_key(&resume, &secrets).await?;
         let (stored, key) = match unwrapped {
@@ -3415,6 +3487,7 @@ impl Registry {
                 Command::Stop(run_id, reason, location, answer) => {
                     let _ = answer.send(self.stop(&run_id, reason, location).await);
                 }
+                Command::GenerateId(answer) => _ = answer.send(self.generated_id()),
                 Command::StoredKey(run_id, checkpoint, answer) => {
                     let _ = answer.send(self.stored_key(&run_id, checkpoint.as_deref()).await);
                 }
@@ -3872,6 +3945,7 @@ impl Registry {
             self.setup.run_state.vfs.clone(),
             Arc::clone(&self.readers),
             following,
+            self.setup.clock,
         )
     }
 
@@ -3974,7 +4048,7 @@ impl Registry {
 
     async fn start(
         &mut self,
-        start: Start,
+        mut start: Start,
         secrets: RunSecrets,
         connection: Option<ConnectionId>,
         link: &Link,
@@ -3983,7 +4057,15 @@ impl Registry {
             Some(run_id) => run_id.clone(),
             None => self.generated_id(),
         };
-        let inputs = canonical_inputs(&start.inputs);
+        // Its tags and inputs pass through the `Mask` before run state and
+        // the Run index keep them (spec #564), as every writer does.
+        let given = canonical_inputs(&start.inputs);
+        let mut kept = start.inputs.clone();
+        for value in kept.values_mut() {
+            self.setup.masks.apply_value(value, Scope::Kept);
+        }
+        let inputs = canonical_inputs(&kept);
+        start.tags = masked_tags(&self.setup.masks, &start.tags);
         if let Some(found) = self.existing(&run_id).await? {
             let mut differences = Vec::new();
             if found.needs != start.needs {
@@ -3995,7 +4077,15 @@ impl Registry {
             if found.caller != CALLER {
                 differences.push(StartInput::Caller);
             }
-            differences.extend(input_differences(&found.inputs, &inputs));
+            // A value that left the masks since the Run kept its inputs
+            // masked is no difference: an input differs when it differs
+            // both masked and as given.
+            let unmasked = input_differences(&found.inputs, &given);
+            differences.extend(
+                input_differences(&found.inputs, &inputs)
+                    .into_iter()
+                    .filter(|input| unmasked.contains(input)),
+            );
             if !differences.is_empty() {
                 return Err(StartError::Conflict {
                     run_id,
@@ -4411,7 +4501,11 @@ impl Registry {
             shared: Arc::new(Shared {
                 stop: watch::Sender::new(None),
                 finish: watch::Sender::new(false),
-                charging: tokio::sync::Mutex::new(Some(self.limits.charging(
+                #[expect(
+                    clippy::disallowed_types,
+                    reason = "the Run's charging, the Mutex its field declares (ADR 0060)"
+                )]
+                charging: std::sync::Mutex::new(Some(self.limits.charging(
                     run_id,
                     folder,
                     epoch,
@@ -5254,16 +5348,40 @@ impl Taking {
     }
 }
 
+/// Journals in a Run's run state, under `epoch`, what a charge took from
+/// each Slice and what it counted, and that the Run is *uncapped* once it is.
+fn journal(
+    connection: &rusqlite::Connection,
+    epoch: u64,
+    journaled: &Charged,
+    uncapped: bool,
+) -> rusqlite::Result<()> {
+    slices::journal(connection, epoch, &journaled.used, uncapped)?;
+    for counted in &journaled.counted {
+        report::count(
+            connection,
+            &counted.usage_kind,
+            counted.currency.as_deref(),
+            counted.delta,
+        )?;
+        if let Some(part) = &counted.part {
+            report::count_part(connection, &counted.usage_kind, part, counted.delta)?;
+        }
+    }
+    Ok(())
+}
+
 /// Gives back what is left of the Slices `run` holds, under `writer`'s
 /// blocking work, and answers the Limits that then apply to it, with what
 /// is left of each (ADR 0101).
 async fn given_back(run: &Run, writer: &TaskOwner) -> Vec<AppliedLimit> {
-    let Some(mut charging) = run.shared.charging.lock().await.take() else {
-        return Vec::new();
-    };
+    let shared = Arc::clone(&run.shared);
     let now = run.runs.limits.now();
     writer
         .blocking(move || {
+            let Some(mut charging) = shared.charging().take() else {
+                return Ok(Vec::new());
+            };
             if let Err(error) = charging.give_back() {
                 tracing::warn!(%error, "the Run's Slices were not given back; the next engine to open the Usage ledger reclaims them");
             }
@@ -5274,6 +5392,44 @@ async fn given_back(run: &Run, writer: &TaskOwner) -> Vec<AppliedLimit> {
             tracing::warn!(%error, "the Limits that apply to the Run could not be read; its report goes without them");
             Vec::new()
         })
+}
+
+/// Records the certificate exceptions `run` used in the Audit log, once as
+/// it ends, by host and kind with the key each presented (ADR 0042):
+/// nothing when it reached no host through one. A failure to record is
+/// logged, and the Run ends all the same.
+async fn exceptions_used(run: &Run, writer: &TaskOwner, clock: Clock) {
+    let used = run.secrets().exception_hosts().used().await;
+    if used.is_empty() {
+        return;
+    }
+    let hosts: Vec<Value> = used
+        .into_iter()
+        .map(|(host, key, kind)| {
+            json!({ "host": host, "kind": kind.as_str(), "spki_sha256": key.to_string() })
+        })
+        .collect();
+    let origin = Origin {
+        actor: Actor::Engine,
+        surface: None,
+        layer: None,
+        run_id: Some(run.id.clone()),
+    };
+    let audit = run.runs.audit().clone();
+    let now = jiff::Timestamp::try_from(clock.wall()).unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+    let recorded = writer
+        .blocking(move || {
+            audit.record(
+                &origin,
+                &CERTIFICATE_EXCEPTIONS_USED,
+                json!({ "hosts": hosts }),
+                now,
+            )
+        })
+        .await;
+    if let Err(error) = recorded {
+        tracing::warn!(run_id = %run.id, %error, "the Audit log cannot record the certificate exceptions the Run used");
+    }
 }
 
 /// Where a stopping Run's Checkpoint goes, and what writes it.
@@ -5426,6 +5582,7 @@ impl Closing {
             End::Stopped(reason) => (Some(reason), None, Vec::new()),
         };
         let limits = given_back(&run, &writer).await;
+        exceptions_used(&run, &writer, clock).await;
         let facts = EndFacts {
             run_id: run.id.clone(),
             lifecycle,

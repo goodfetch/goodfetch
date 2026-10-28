@@ -24,13 +24,17 @@ use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::run::{RunId, RunKind, Tags};
+use goodfetch_protocol::secrets::RUN_STATE_KEY_REFERENCE;
 use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
 use serde_json::{Value, json};
 
 use super::checkpoint::Talk;
 use super::{Client, attached_with, dependencies, engine_with};
+use crate::audit::AuditLog;
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::{Dependencies, Engine};
+use crate::home::Home;
+use crate::run_key::{self, sealing};
 use crate::run_state::RunStateTables;
 use crate::runs::{EndedBy, Run, Start, Started};
 
@@ -62,6 +66,15 @@ const SEAL: Operation = Operation {
 const OPEN: Operation = Operation {
     name: "test.open",
     description: "Opens a value of a Run's secret table.",
+    ..KEEP
+};
+
+/// Stores a data key for a live Run that has made none, wrapped by the
+/// key-encryption key `kek`, and seals `value` into row `row` with it, as
+/// a making whose caller was dropped once its write was queued leaves it.
+const STORED_KEY: Operation = Operation {
+    name: "test.stored_key",
+    description: "Stores a Run's wrapped data key as a dropped making leaves it.",
     ..KEEP
 };
 
@@ -134,7 +147,7 @@ fn sealing() -> Contribution {
                         params["value"].as_str().unwrap().as_bytes(),
                     )
                     .unwrap();
-                let data_key = data_encoding::HEXLOWER.encode(key.bytes());
+                let data_key = data_encoding::HEXLOWER.encode(data_key(&run).await.as_slice());
                 run.state()
                     .write(move |connection| {
                         connection
@@ -150,6 +163,7 @@ fn sealing() -> Contribution {
                 Ok::<Value, CallError>(json!({ "data_key": data_key }))
             },
         ))
+        .with_handler(stored_key())
         .with_handler(Handler::new(
             &OPEN,
             |params: Value, context: CallContext| async move {
@@ -177,6 +191,44 @@ fn sealing() -> Contribution {
         ))
 }
 
+/// The handler of `test.stored_key`.
+fn stored_key() -> Handler {
+    Handler::new(
+        &STORED_KEY,
+        |params: Value, context: CallContext| async move {
+            let run = live(&context, &params).await;
+            let row = params["row"].as_i64().unwrap();
+            let kek = secrecy::SecretString::from(params["kek"].as_str().unwrap().to_owned());
+            let key = run_key::RunKey::generate(run.id().clone()).unwrap();
+            let stored = run_key::StoredKey {
+                wrapped: key.wrap(&kek).unwrap(),
+                key_reference: "secretfile:run-state-key".to_owned(),
+            };
+            let sealed = key
+                .seal(
+                    "test_secrets",
+                    "value",
+                    &row.to_string(),
+                    params["value"].as_str().unwrap().as_bytes(),
+                )
+                .unwrap();
+            run.state()
+                .write(move |connection| {
+                    run_key::store(connection, &stored)?;
+                    connection
+                        .execute(
+                            "INSERT INTO test_secrets (row, value) VALUES (?1, ?2)",
+                            (row, sealed),
+                        )
+                        .map(drop)
+                })
+                .await
+                .unwrap();
+            Ok::<Value, CallError>(json!({}))
+        },
+    )
+}
+
 /// The failure a call answers when its Run has no data key, so a test
 /// fails on its reply rather than waiting for one.
 fn no_key(error: &crate::runs::RunKeyError) -> CallError {
@@ -187,6 +239,23 @@ fn no_key(error: &crate::runs::RunKeyError) -> CallError {
 }
 
 /// The live Run the call's `run_id` names.
+/// The data key of `run`, unwrapped from what its run state stores by the
+/// key-encryption key the Run holds, as the Run itself unwraps it.
+async fn data_key(run: &Run) -> secrecy::zeroize::Zeroizing<[u8; sealing::KEY_LENGTH]> {
+    let stored = run
+        .state()
+        .read(run_key::stored)
+        .await
+        .unwrap()
+        .expect("the Run stored its key");
+    let kek = run
+        .secrets()
+        .held_for(RUN_STATE_KEY_REFERENCE.name)
+        .await
+        .expect("the Run holds its key-encryption key");
+    sealing::unwrap(run.id().as_str(), stored.wrapped.as_bytes(), &kek).unwrap()
+}
+
 async fn live(context: &CallContext, params: &Value) -> Run {
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     context.runs().live(run_id).await.unwrap()
@@ -343,6 +412,54 @@ fn a_sealed_value_is_in_no_byte_of_the_run_file_or_its_checkpoint_and_opens_back
             ),
         ),
         (json!({ "value": second }), Vec::new(), Vec::<String>::new())
+    );
+}
+
+/// A Run whose data key's making was dropped after its wrapped key was
+/// written, so its run state holds a key its Run never took, opens with
+/// that key at its next use instead of failing to store a second one.
+/// Covers: story:4-64
+#[test]
+fn a_key_a_dropped_making_stored_is_the_one_the_run_opens_with_next() {
+    let env = TestEnv::new();
+    let made = &env;
+    let opened = on(
+        || dependencies(&env),
+        |mut talk| async move {
+            talk.ok(2, "test.keep", json!({ "run_id": "first" })).await;
+            talk.ok(
+                3,
+                "test.seal",
+                json!({ "run_id": "first", "row": 1, "value": "made the engine's key" }),
+            )
+            .await;
+            talk.ok(4, "test.keep", json!({ "run_id": "dropped" }))
+                .await;
+            talk.ok(
+                5,
+                "test.stored_key",
+                json!({
+                    "run_id": "dropped",
+                    "row": 1,
+                    "value": "sealed by the dropped making's key",
+                    "kek": made_key(made),
+                }),
+            )
+            .await;
+            let opened = talk
+                .call(6, "test.open", json!({ "run_id": "dropped", "row": 1 }))
+                .await;
+            talk.ok(7, "run.finish", json!({ "run_id": "dropped" }))
+                .await;
+            talk.ok(8, "run.finish", json!({ "run_id": "first" })).await;
+            opened
+        },
+    );
+
+    assert_eq!(
+        opened.get("result"),
+        Some(&json!({ "value": "sealed by the dropped making's key" })),
+        "{opened}"
     );
 }
 
@@ -542,6 +659,59 @@ fn with_an_os_keychain_the_key_comes_from_it_and_a_paused_run_resumes_with_it() 
             false
         )
     );
+}
+
+/// A Run resumed with `security.audit_chain` off writes its entries
+/// unchained from the resume on, its key-encryption key's use included
+/// (ADR 0016), and the log still verifies; the entries it wrote before,
+/// while its chain was on, stay chained.
+/// Covers: story:4-74, setting:security.audit_chain, operation:run.resume
+#[test]
+fn a_run_resumed_with_the_audit_chain_off_writes_its_entries_unchained() {
+    let env = TestEnv::new();
+    let store: Arc<keyring_core::CredentialStore> = keyring_core::mock::Store::new().unwrap();
+    let with_keychain = || Dependencies {
+        keychain: crate::secrets::Keychain::of(Arc::clone(&store)),
+        ..dependencies(&env)
+    };
+    let used = || {
+        let log = AuditLog::of(&Home::new(env.home().to_owned()), None);
+        assert!(log.verify().unwrap().intact, "the Audit log verifies");
+        log.export()
+            .unwrap()
+            .into_iter()
+            .filter(|exported| exported.entry.kind == "secret_reference_used")
+            .map(|exported| exported.entry.chained)
+            .collect::<Vec<_>>()
+    };
+    on(with_keychain, |mut talk| async move {
+        talk.ok(2, "test.keep", json!({ "run_id": "keyed" })).await;
+        talk.ok(
+            3,
+            "test.seal",
+            json!({ "run_id": "keyed", "row": 1, "value": "kept" }),
+        )
+        .await;
+        talk.ok(4, "run.pause", json!({ "run_id": "keyed" })).await;
+    });
+    let before = used();
+
+    on(with_keychain, |mut talk| async move {
+        talk.ok(
+            2,
+            "run.resume",
+            json!({ "run_id": "keyed", "settings": { "security": { "audit_chain": false } } }),
+        )
+        .await;
+        talk.ok(3, "run.finish", json!({ "run_id": "keyed" })).await;
+    });
+    let after = used();
+
+    assert!(
+        !before.is_empty() && before.iter().all(|chained| *chained),
+        "{before:?}"
+    );
+    assert_eq!(&after[before.len()..], &[false], "{after:?}");
 }
 
 /// Discarding a Run overwrites its wrapped data key in its run file before

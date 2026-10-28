@@ -18,7 +18,10 @@
 //! nothing renders it or downloads it, while the browser still reports how
 //! its body ended: whole, cut (a length mismatch, a chunked stream or a
 //! connection ending early), or a content coding that failed to decode
-//! (ADR 0118's note on the pinned Chromium's signals). The Set-Cookie
+//! (ADR 0118's note on the pinned Chromium's signals), and a body with no
+//! content coding shorter than its `Content-Length` is cut even when the
+//! browser lost that failure and finished the load with no bytes counted
+//! (ADR 0118's note on fix-queue NEW-2). The Set-Cookie
 //! headers it carries are the browser's to keep, in the Session's context.
 //!
 //! The body is judged by the Run's limits on what the engine reads (SC-05):
@@ -65,6 +68,49 @@ fn declared_length(response: &PageResponse) -> Option<u64> {
 )]
 fn encoded_bytes(encoded: f64) -> Option<u64> {
     (encoded.is_finite() && encoded >= 1.0).then_some(encoded as u64)
+}
+
+/// Whether a load the browser reported finished, of `response` to a
+/// request of `method`, holding `bytes` decoded after `encoded` bytes the
+/// browser counted, broke off all the same: one with no content coding,
+/// whose body is shorter than its `Content-Length`, which the browser
+/// finished with no bytes counted.
+///
+/// The pinned Chromium finishes so a load whose body broke off when the
+/// network's failure reaches the paused response only after the response
+/// went on: its interception then ends the load itself, counting no bytes,
+/// and the failure is lost (fix-queue NEW-2). A load the network finished
+/// counts its headers at least, and one the cache answered is whole. A
+/// chunked or coded body cut so cannot be told from a whole one.
+fn cut_though_finished(
+    method: Option<&str>,
+    response: &PageResponse,
+    bytes: usize,
+    encoded: f64,
+) -> bool {
+    let coded = response
+        .headers
+        .get("content-encoding")
+        .is_some_and(|coding| !coding.trim().eq_ignore_ascii_case("identity"));
+    let bodiless = method.is_some_and(|method| method.eq_ignore_ascii_case("HEAD"))
+        || matches!(response.status, 100..=199 | 204 | 304);
+    encoded_bytes(encoded).is_none()
+        && !coded
+        && !bodiless
+        && declared_length(response)
+            .is_some_and(|declared| u64::try_from(bytes).unwrap_or(u64::MAX) < declared)
+}
+
+/// `response`, whose body broke off after `bytes`, decoded.
+fn cut(response: PageResponse, bytes: &[u8]) -> Fetched {
+    let expected = declared_length(&response);
+    Fetched {
+        response,
+        body: Body::Cut {
+            received: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+            expected,
+        },
+    }
 }
 
 /// One request, as its caller gives it.
@@ -237,6 +283,9 @@ impl<'a> Load<'a> {
                         self.authenticate(required).await;
                     } else if let Some(finished) = event.read::<network::LoadingFinishedEvent>() {
                         if self.ours(&finished.request_id) && let Some((response, bytes)) = self.answered.take() {
+                            if cut_though_finished(self.request.method, &response, bytes.len(), finished.encoded_data_length) {
+                                return Ok(cut(response, &bytes));
+                            }
                             return self.within_limits(&response, &bytes, finished.encoded_data_length)
                                 .map(|()| Fetched { response, body: Body::Whole(bytes) });
                         }
@@ -492,17 +541,7 @@ impl<'a> Load<'a> {
     fn failed(&mut self, error: &NetError) -> Result<Fetched, CallError> {
         match self.answered.take() {
             Some((response, bytes)) if *error != NetError::ContentDecodingFailed => {
-                let expected = response
-                    .headers
-                    .get("content-length")
-                    .and_then(|length| length.trim().parse().ok());
-                Ok(Fetched {
-                    response,
-                    body: Body::Cut {
-                        received: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
-                        expected,
-                    },
-                })
+                Ok(cut(response, &bytes))
             }
             _ => {
                 let url = self.chain.last().map_or(self.request.url, String::as_str);
@@ -647,3 +686,6 @@ impl<'a> Load<'a> {
         .await;
     }
 }
+
+#[cfg(test)]
+mod tests;

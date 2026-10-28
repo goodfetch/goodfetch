@@ -1,6 +1,8 @@
 //! Covers: story:5-128
 
-use super::classify;
+use url::Url;
+
+use super::{HTTP1_ORIGINS, Http1Origins, classify};
 use crate::driver::TransportFailure;
 
 /// A failure no library named.
@@ -65,4 +67,27 @@ fn another_http2_error_is_the_generic_case() {
     let failure = classify(&h2::Error::from(h2::Reason::INTERNAL_ERROR));
 
     assert_eq!(failure, TransportFailure::Other);
+}
+
+/// The origins kept on HTTP/1.1 are bounded: past [`HTTP1_ORIGINS`], the
+/// one that answered `HTTP_1_1_REQUIRED` longest ago is forgotten first.
+///
+/// Covers: story:5-127
+#[test]
+fn the_origins_kept_on_http_1_1_forget_the_oldest_past_their_bound() {
+    let origins = Http1Origins::default();
+    let origin = |index: usize| Url::parse(&format!("https://site{index}.test/")).unwrap();
+    for index in 0..=HTTP1_ORIGINS {
+        origins.insert(&origin(index));
+    }
+    origins.insert(&origin(HTTP1_ORIGINS));
+
+    assert_eq!(
+        (
+            origins.contains(&origin(0)),
+            origins.contains(&origin(1)),
+            origins.contains(&origin(HTTP1_ORIGINS)),
+        ),
+        (false, true, true)
+    );
 }

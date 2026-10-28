@@ -10,30 +10,28 @@ use crate::settings::Resolved;
 
 mod disks;
 
-#[cfg(test)]
-pub(crate) use disks::DiskView;
 pub(crate) use disks::{Disks, Folders};
-pub use disks::{Filesystem, Held, StorageSample};
+pub use disks::{Filesystem, FilesystemSource, Held, StorageSample};
 
 /// What one filesystem reads: its size and the space left to the engine's
 /// user, and its inodes where it reports them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Reading {
+pub struct FilesystemReading {
     /// Its size, in bytes.
-    pub(crate) size: u64,
+    pub size: u64,
     /// The space left to the engine's user, in bytes.
-    pub(crate) free: u64,
+    pub free: u64,
     /// Its inodes, where it reports them.
-    pub(crate) inodes: Option<Inodes>,
+    pub inodes: Option<FilesystemInodes>,
 }
 
 /// A filesystem's inodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Inodes {
+pub struct FilesystemInodes {
     /// How many it has.
-    pub(crate) total: u64,
+    pub total: u64,
     /// How many are left to the engine's user.
-    pub(crate) free: u64,
+    pub free: u64,
 }
 
 /// `storage.low_free` and `storage.critical_free`, none when unset.
@@ -95,7 +93,7 @@ impl Thresholds {
     /// Whether a filesystem that reads `reading` is at `level` or worse:
     /// its free space below the level's size, or its free inodes below
     /// the level's percentage where it reports them.
-    fn reached(&self, level: StorageLevel, reading: &Reading) -> bool {
+    fn reached(&self, level: StorageLevel, reading: &FilesystemReading) -> bool {
         let Some(bytes) = self.below(level, reading.size) else {
             return false;
         };
@@ -114,7 +112,7 @@ impl Thresholds {
 /// The level of a filesystem that reads `reading` under `thresholds`: the
 /// worst it reached, with no memory of an earlier one, so a level drops
 /// back at the first reading that finds the space again.
-pub(crate) fn level(reading: &Reading, thresholds: &Thresholds) -> StorageLevel {
+pub(crate) fn level(reading: &FilesystemReading, thresholds: &Thresholds) -> StorageLevel {
     [StorageLevel::Critical, StorageLevel::Low]
         .into_iter()
         .find(|level| thresholds.reached(*level, reading))
@@ -178,7 +176,11 @@ impl Settled {
     }
 
     /// What the filesystem that reads `reading` and holds `folders` is at.
-    fn filesystem(&self, folders: Vec<std::path::PathBuf>, reading: &Reading) -> Filesystem {
+    fn filesystem(
+        &self,
+        folders: Vec<std::path::PathBuf>,
+        reading: &FilesystemReading,
+    ) -> Filesystem {
         let level = level(reading, &self.thresholds);
         Filesystem {
             folders,

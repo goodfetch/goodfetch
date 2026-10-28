@@ -92,7 +92,7 @@ pub fn contribution() -> Contribution {
         .with_admission_gates(Arc::new(queues::DomainGates));
     PRESSING_HARDER
         .into_iter()
-        .fold(contribution, |contribution, setting| {
-            contribution.with_recorded_weakening(setting, &POLITENESS_WEAKENED)
+        .fold(contribution, |contribution, key| {
+            contribution.with_recorded_weakening(key.setting, &POLITENESS_WEAKENED, key.built_in)
         })
 }

@@ -213,3 +213,5 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
   - Each lists this ADR.
 - **The pitfall catalog's rows O03 and O10** become Handled, proved by the storage and Daemon log cases.
 - **The `prototype/sdk-api` sketch** holds `resource` and its folder in `RunStopReason`, `storage` in `RunProgress`, the `storage_low` warning, and `ResourcesExhaustedError` with its details, in each language.
+
+> Note (agent decision, pending owner review), 2026-10-28, step 7 review (Standards A3): where the Resource governor reads the filesystems the Runs write to is a value of its `System`, as where it reads the machine is (`System::linux_files`): the OS's own calls, or a `FilesystemSource` given with `System::with_filesystems`, which answers which filesystem holds a folder and what it reads. The engine's tests give it their own view of filesystems through that interface, in place of the test-only `cfg` branches the governor's storage module had.

@@ -71,6 +71,16 @@ pub(crate) enum Recycle {
     Memory,
 }
 
+impl Recycle {
+    /// Its value of `goodfetch.browser.recycled`'s `reason` label.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Pages => "pages",
+            Self::Memory => "memory",
+        }
+    }
+}
+
 /// Whether `browser` is recycled under `limits`, and why.
 pub(crate) fn recycle(browser: &Use, limits: &Limits) -> Option<Recycle> {
     if browser.held {

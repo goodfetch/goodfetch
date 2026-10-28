@@ -50,6 +50,7 @@ use crate::known_certificates::KeyHash;
 use crate::mask::{Mask, Masks, Reach, Redaction};
 use crate::settings::{HostDefaults, Resolved};
 use crate::tasks::TaskOwner;
+use crate::tls::ExceptionKind;
 
 /// A provider's answer to one reference, which the driver bounds by
 /// `timeout.secret`.
@@ -281,8 +282,11 @@ struct Shared {
     /// engine makes its own key-encryption key.
     keychain: Keychain,
     secret_files: PathBuf,
-    /// Held while the engine makes its key-encryption key, so it makes one.
-    making: Arc<tokio::sync::Mutex<()>>,
+    /// Each engine-owned key-encryption key ([`ENGINE_KEYS`]) once this
+    /// driver made it or found it made: the first caller makes it, and
+    /// every later or concurrent one waits for that making, so the engine
+    /// makes one.
+    made: Arc<[tokio::sync::OnceCell<()>; 2]>,
     /// Every live Run's resolved values, which each Run's own join.
     masks: Masks,
 }
@@ -337,7 +341,7 @@ impl Secrets {
             clock,
             keychain,
             secret_files,
-            making: Arc::default(),
+            made: Arc::default(),
             masks: Masks::new(),
         }))
     }
@@ -364,7 +368,8 @@ impl Secrets {
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future may leave the item made or not.
+    /// Dropping the future may leave the item made or not; the next call
+    /// makes it again where it is missing.
     pub(crate) async fn make_key(&self, reference: &SecretReference) -> Result<(), SecretError> {
         let unavailable = |failure: ProviderFailure| {
             let (failure, fix) = failure_of(failure, reference);
@@ -375,14 +380,29 @@ impl Secrets {
                 fix,
             }
         };
-        if !is_engine_key(reference) {
+        let Some(engine_key) = ENGINE_KEYS
+            .iter()
+            .position(|engine_key| *engine_key == reference.as_str())
+        else {
             return Err(unavailable(ProviderFailure::NotConfigured(ConfigProblem {
                 fix: format!(
                     "The engine makes only its own key-encryption key; store one where `{reference}` points."
                 ),
             })));
-        }
-        let _making = self.0.making.lock().await;
+        };
+        self.0.made[engine_key]
+            .get_or_try_init(|| self.make_engine_key(reference, unavailable))
+            .await
+            .copied()
+    }
+
+    /// Makes the engine-owned item `reference` names, unless it holds a
+    /// value already, failing through `unavailable`.
+    async fn make_engine_key(
+        &self,
+        reference: &SecretReference,
+        unavailable: impl Fn(ProviderFailure) -> SecretError,
+    ) -> Result<(), SecretError> {
         let mut bytes = secrecy::zeroize::Zeroizing::new([0_u8; 32]);
         getrandom::fill(bytes.as_mut_slice()).map_err(|_| {
             unavailable(ProviderFailure::Refused {
@@ -491,6 +511,11 @@ impl Secrets {
         &self.0.audit
     }
 
+    /// The engine's environment map.
+    pub(crate) fn environment(&self) -> &BTreeMap<OsString, OsString> {
+        &self.0.environment
+    }
+
     /// What one Run resolves through, each provider bounded by `timeout`,
     /// its `timeout.secret`, holding every value it resolved until its last
     /// handle drops, its values masked in its kept outputs too.
@@ -512,12 +537,13 @@ impl Secrets {
 }
 
 /// The hosts one Run reached through an invalid-certificate exception
-/// (ADR 0042), with the key each presented: the engine's client sends them
-/// no Session cookie and the driver resolves no value for them. Hosts are
-/// held as the URL parser leaves them, without a trailing dot. Clones share
-/// it.
+/// (ADR 0042), with the key each presented and the kind of exception: the
+/// engine's client sends them no Session cookie, the driver resolves no
+/// value for them, and the Run's end records them once in the Audit log.
+/// Hosts are held as the URL parser leaves them, without a trailing dot.
+/// Clones share it.
 #[derive(Clone, Debug, Default)]
-pub struct ExceptionHosts(Arc<tokio::sync::Mutex<BTreeMap<String, KeyHash>>>);
+pub struct ExceptionHosts(Arc<tokio::sync::Mutex<BTreeMap<String, (KeyHash, ExceptionKind)>>>);
 
 impl ExceptionHosts {
     /// The key `host` presented, when the Run reached it through an
@@ -527,16 +553,35 @@ impl ExceptionHosts {
     ///
     /// Dropping the future loses only the answer.
     pub async fn reached(&self, host: &str) -> Option<KeyHash> {
-        self.0.lock().await.get(&host_key(host)).copied()
+        self.0
+            .lock()
+            .await
+            .get(&host_key(host))
+            .map(|(key, _)| *key)
     }
 
-    /// Adds `host`, reached through an exception with `key`.
+    /// Adds `host`, reached through an exception of `kind` with `key`.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave the host out.
-    pub(crate) async fn add(&self, host: &str, key: KeyHash) {
-        self.0.lock().await.insert(host_key(host), key);
+    pub(crate) async fn add(&self, host: &str, key: KeyHash, kind: ExceptionKind) {
+        self.0.lock().await.insert(host_key(host), (key, kind));
+    }
+
+    /// Every host reached, in order, with the key it presented last and its
+    /// exception's kind.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub(crate) async fn used(&self) -> Vec<(String, KeyHash, ExceptionKind)> {
+        self.0
+            .lock()
+            .await
+            .iter()
+            .map(|(host, (key, kind))| (host.clone(), *key, *kind))
+            .collect()
     }
 }
 
@@ -766,8 +811,12 @@ fn failure_of(failure: ProviderFailure, reference: &SecretReference) -> (SecretF
 /// key: one of `run_state.key_reference`'s defaults, which the engine makes
 /// where run state first wraps a data key with it.
 pub fn is_engine_key(reference: &SecretReference) -> bool {
-    [KEY_REFERENCE_IN_KEYCHAIN, KEY_REFERENCE_IN_FILE].contains(&reference.as_str())
+    ENGINE_KEYS.contains(&reference.as_str())
 }
+
+/// The items the engine makes its own key-encryption key in, the defaults of
+/// `run_state.key_reference`.
+const ENGINE_KEYS: [&str; 2] = [KEY_REFERENCE_IN_KEYCHAIN, KEY_REFERENCE_IN_FILE];
 
 /// A refusal's reason as the wire names it.
 fn reason_name(reason: SecretInputRefusedReason) -> &'static str {

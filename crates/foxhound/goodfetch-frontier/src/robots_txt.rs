@@ -14,7 +14,8 @@
 //! so a crawl fetches each origin's robots.txt once for all its pages; the
 //! fetch itself, which the caller gives, is sent under a Permit of its
 //! domain key, so it counts in the domain's Politeness. Within one engine,
-//! the readers of one origin wait for one fetch.
+//! the readers of one origin wait for one fetch, and an origin is held in
+//! memory only while a reader of it is in flight.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -26,7 +27,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::politeness::{Politeness, PolitenessTables, milliseconds};
 use goodfetch_engine::robots_txt::{Answer, Copied, Copies, Fetch, Fetched, MAX_SIZE};
 use rusqlite::{Connection, OptionalExtension as _};
-use tokio::sync::Mutex;
+use tokio::sync::OnceCell;
 
 /// How long a copy is used before its origin's robots.txt is fetched
 /// again (ADR 0086).
@@ -127,8 +128,74 @@ pub(crate) fn store(connection: &Connection, location: &str, copy: &Copy) -> rus
 pub struct SharedRobotsTxt {
     politeness: Politeness,
     clock: Clock,
-    /// One lock per origin, so readers of one engine wait for one fetch.
-    fetches: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    /// The reading in flight of each origin a reader waits on, so readers
+    /// of one engine wait for one fetch; an origin leaves once no reader
+    /// waits on it, so the map holds at most one entry per reader in
+    /// flight.
+    in_flight: InFlight,
+}
+
+/// The readings in flight, by origin.
+#[expect(
+    clippy::disallowed_types,
+    reason = "the map is read or written in one step, never across an `.await` or another lock, so there is no lock order to test under loom (ADR 0060)"
+)]
+type InFlight = Arc<std::sync::Mutex<HashMap<String, Reading>>>;
+
+/// One origin's reading: what applies, once its first reader read it.
+type Reading = Arc<OnceCell<Arc<Fetched>>>;
+
+/// A reader's hold on its origin's [`Reading`]: dropped, by the reader's
+/// end or its cancellation, the origin leaves [`InFlight`] once no other
+/// reader holds it.
+struct Held {
+    in_flight: InFlight,
+    origin: String,
+    reading: Option<Reading>,
+}
+
+impl Held {
+    /// A hold on `origin`'s reading in `in_flight`, which starts it when
+    /// none is in flight.
+    fn on(in_flight: &InFlight, origin: String) -> Self {
+        let reading = Arc::clone(
+            in_flight
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .entry(origin.clone())
+                .or_default(),
+        );
+        Self {
+            in_flight: Arc::clone(in_flight),
+            origin,
+            reading: Some(reading),
+        }
+    }
+
+    fn reading(&self) -> &Reading {
+        self.reading
+            .as_ref()
+            .expect("invariant: a hold keeps its reading until it drops")
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        let mut in_flight = self
+            .in_flight
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Every hold is taken and dropped under the lock, so the count
+        // seen here is exact: the map's and this hold's.
+        if let Some(reading) = self.reading.take()
+            && in_flight
+                .get(&self.origin)
+                .is_some_and(|held| Arc::ptr_eq(held, &reading))
+            && Arc::strong_count(&reading) == 2
+        {
+            in_flight.remove(&self.origin);
+        }
+    }
 }
 
 impl fmt::Debug for SharedRobotsTxt {
@@ -145,22 +212,33 @@ impl SharedRobotsTxt {
         Self {
             politeness,
             clock,
-            fetches: Arc::default(),
+            in_flight: Arc::default(),
         }
     }
 
     /// The robots.txt at `location` as it applies now: the copy, while it
     /// is fresh; else what `fetch` answered, kept when it applies as it is.
-    /// A file that cannot be read or written costs only a fetch.
+    /// A file that cannot be read or written costs only a fetch. A
+    /// concurrent reader of the same origin waits for the first one's
+    /// reading and answers it.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future of the reader whose fetch runs drops that fetch
+    /// and keeps nothing: a waiting or later reader reads again with its
+    /// own.
     async fn read(&self, location: &Url, fetch: Fetch<'_>) -> Arc<Fetched> {
-        let origin = Arc::clone(
-            self.fetches
-                .lock()
-                .await
-                .entry(location.as_str().to_owned())
-                .or_default(),
-        );
-        let _one_fetch = origin.lock().await;
+        let held = Held::on(&self.in_flight, location.as_str().to_owned());
+        let applied = held
+            .reading()
+            .get_or_init(|| self.fetched(location, fetch))
+            .await;
+        Arc::clone(applied)
+    }
+
+    /// What applies at `location`, from the copy while it is fresh, else
+    /// from what `fetch` answered.
+    async fn fetched(&self, location: &Url, fetch: Fetch<'_>) -> Arc<Fetched> {
         let key = location.as_str().to_owned();
         let copy = self
             .politeness

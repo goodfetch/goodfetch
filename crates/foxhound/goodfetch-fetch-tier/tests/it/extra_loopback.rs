@@ -85,24 +85,6 @@ fn sources_of(observations: &Value, path: &str) -> Vec<IpAddr> {
         .collect()
 }
 
-/// The source address of each query the DNS fixture received for `name`.
-fn query_sources(observations: &Value, name: &str) -> Vec<IpAddr> {
-    observations["dns_queries"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|query| query["name"] == name)
-        .map(|query| {
-            query["source"]
-                .as_str()
-                .unwrap()
-                .parse::<SocketAddr>()
-                .unwrap()
-                .ip()
-        })
-        .collect()
-}
-
 /// A Session holding `127.0.0.3` reaches the site from it, and asks the
 /// name server for the site's name from it.
 ///
@@ -137,7 +119,7 @@ fn a_sessions_hop_and_its_dns_queries_leave_from_its_local_address(
             .map(|sent| sent.status)
     });
     let observations = proving_ground.observations().unwrap();
-    let queries = query_sources(&observations, "1.catalog.test");
+    let queries = ProvingGround::dns_query_sources(&observations, "1.catalog.test");
 
     assert_eq!(
         (

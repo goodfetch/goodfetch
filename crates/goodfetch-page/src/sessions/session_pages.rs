@@ -322,7 +322,7 @@ impl Sessions {
             .await?;
         // Live hiding and the Consent prompt runner share each document's
         // one hiding sheet.
-        let sheets = Arc::new(Sheets::new(driver.clone()));
+        let sheets = Arc::new(Sheets::new(driver.clone(), run));
         let hiding = self
             .hiding
             .start(page, session, driver, run, &held.clean_up, &sheets)

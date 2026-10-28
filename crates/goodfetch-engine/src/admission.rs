@@ -173,6 +173,13 @@ pub trait Gate: Send {
         Vec::new()
     }
 
+    /// How many requests wait in it, of every key, those of a key at its
+    /// concurrency included: what `goodfetch.work_item.queued` counts (ADR
+    /// 0050). None by default.
+    fn waiting(&self) -> usize {
+        0
+    }
+
     /// Ends the hold on `key`.
     fn wake(&mut self, key: &str);
 
@@ -375,6 +382,11 @@ impl Admission {
     /// [`Gate::queued`] says.
     pub fn queued(&self, now: Instant) -> Vec<Queued> {
         self.gate.queued(now)
+    }
+
+    /// How many requests wait in its gate, as [`Gate::waiting`] says.
+    pub fn waiting(&self) -> usize {
+        self.gate.waiting()
     }
 
     /// The key a request to `url` waits under.

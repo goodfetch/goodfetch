@@ -1,5 +1,5 @@
-//! Where the governor reads filesystems (ADR 0122), a value: the OS, or in a
-//! test a view the test sets; the folders it samples, each held by whoever
+//! Where the governor reads filesystems (ADR 0122), a value: the OS, or a
+//! [`FilesystemSource`] the engine was given in its place; the folders it samples, each held by whoever
 //! writes there; and the storage sample, which reads each filesystem
 //! holding one of those folders once.
 #![expect(
@@ -15,8 +15,8 @@ use goodfetch_protocol::settings::SettingLimit;
 use goodfetch_protocol::storage::StorageLevel;
 
 #[cfg(unix)]
-use super::Inodes;
-use super::{Reading, Settled};
+use super::FilesystemInodes;
+use super::{FilesystemReading, Settled};
 
 #[cfg(unix)]
 mod unix;
@@ -65,9 +65,22 @@ enum FilesystemId {
     /// A Windows volume's mount point.
     #[cfg(windows)]
     Volume(String),
-    /// One of a test's view.
-    #[cfg(test)]
-    View(usize),
+    /// One a chosen source tells apart by this number.
+    Chosen(u64),
+}
+
+/// Where the governor reads filesystems in place of the OS's own calls,
+/// such as an embedder whose filesystems the OS does not report as the
+/// engine writes to them. Both calls block, and run under the governor's
+/// blocking policy.
+pub trait FilesystemSource: Send + Sync + std::fmt::Debug {
+    /// The filesystem holding `folder`, by a number that tells it apart
+    /// from the source's other filesystems; none where none holds it.
+    fn identify(&self, folder: &Path) -> Option<u64>;
+
+    /// What the filesystem holding `folder` reads now; none where it
+    /// cannot be read.
+    fn read(&self, folder: &Path) -> Option<FilesystemReading>;
 }
 
 /// Where the governor reads filesystems.
@@ -76,9 +89,8 @@ pub(crate) enum Disks {
     /// The OS the engine runs on.
     #[default]
     Os,
-    /// A test's view.
-    #[cfg(test)]
-    View(DiskView),
+    /// A source the engine was given in place of the OS's calls.
+    Chosen(Arc<dyn FilesystemSource>),
 }
 
 impl Disks {
@@ -87,18 +99,16 @@ impl Disks {
     fn identify(&self, folder: &Path) -> Option<FilesystemId> {
         match self {
             Self::Os => os_identify(&existing(folder)?),
-            #[cfg(test)]
-            Self::View(view) => view.identify(folder).map(FilesystemId::View),
+            Self::Chosen(source) => source.identify(folder).map(FilesystemId::Chosen),
         }
     }
 
     /// What the filesystem holding `folder` reads now, through its nearest
     /// folder that exists. Blocking.
-    fn read(&self, folder: &Path) -> Option<Reading> {
+    fn read(&self, folder: &Path) -> Option<FilesystemReading> {
         match self {
             Self::Os => os_read(&existing(folder)?),
-            #[cfg(test)]
-            Self::View(view) => view.read(view.identify(folder)?),
+            Self::Chosen(source) => source.read(folder),
         }
     }
 
@@ -150,7 +160,7 @@ fn os_identify(folder: &Path) -> Option<FilesystemId> {
 }
 
 #[cfg(unix)]
-fn os_read(folder: &Path) -> Option<Reading> {
+fn os_read(folder: &Path) -> Option<FilesystemReading> {
     unix::read(folder)
 }
 
@@ -160,7 +170,7 @@ fn os_identify(folder: &Path) -> Option<FilesystemId> {
 }
 
 #[cfg(windows)]
-fn os_read(folder: &Path) -> Option<Reading> {
+fn os_read(folder: &Path) -> Option<FilesystemReading> {
     windows::read(folder)
 }
 
@@ -170,7 +180,7 @@ fn os_identify(_folder: &Path) -> Option<FilesystemId> {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn os_read(_folder: &Path) -> Option<Reading> {
+fn os_read(_folder: &Path) -> Option<FilesystemReading> {
     None
 }
 
@@ -239,64 +249,4 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// A test's view of filesystems: each one a folder and everything under
-/// it, reading what the test sets, counting how often it is read.
-#[cfg(test)]
-#[derive(Clone, Debug, Default)]
-pub(crate) struct DiskView(Arc<Mutex<Vec<ViewFilesystem>>>);
-
-#[cfg(test)]
-#[derive(Debug)]
-struct ViewFilesystem {
-    root: PathBuf,
-    reading: Reading,
-    reads: u64,
-}
-
-#[cfg(test)]
-impl DiskView {
-    /// A filesystem of `size` bytes with `free` left, holding `root` and
-    /// everything under it; answers its index.
-    pub(crate) fn mount(&self, root: &Path, size: u64, free: u64) -> usize {
-        let mut filesystems = lock(&self.0);
-        filesystems.push(ViewFilesystem {
-            root: root.to_owned(),
-            reading: Reading {
-                size,
-                free,
-                inodes: None,
-            },
-            reads: 0,
-        });
-        filesystems.len() - 1
-    }
-
-    /// The filesystem `index` has `free` left from now on.
-    pub(crate) fn set_free(&self, index: usize, free: u64) {
-        lock(&self.0)[index].reading.free = free;
-    }
-
-    /// How often the filesystem `index` was read.
-    pub(crate) fn reads(&self, index: usize) -> u64 {
-        lock(&self.0)[index].reads
-    }
-
-    /// The filesystem with the longest root above `folder`.
-    fn identify(&self, folder: &Path) -> Option<usize> {
-        lock(&self.0)
-            .iter()
-            .enumerate()
-            .filter(|(_, filesystem)| folder.starts_with(&filesystem.root))
-            .max_by_key(|(_, filesystem)| filesystem.root.components().count())
-            .map(|(index, _)| index)
-    }
-
-    fn read(&self, index: usize) -> Option<Reading> {
-        let mut filesystems = lock(&self.0);
-        let filesystem = filesystems.get_mut(index)?;
-        filesystem.reads += 1;
-        Some(filesystem.reading)
-    }
 }

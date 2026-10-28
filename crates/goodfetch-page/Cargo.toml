@@ -22,6 +22,8 @@ foreign-types.workspace = true
 # The certificates the browser's ClientHello may ask compressed (RFC 8879):
 # Brotli and zlib, decoded only.
 brotli-decompressor.workspace = true
+# Bodies are `Bytes`, read once and never copied (STYLE.md).
+bytes.workspace = true
 data-encoding.workspace = true
 flate2.workspace = true
 # Drives a Borrowed browser's CDP WebSocket's stream of messages and its

@@ -26,13 +26,13 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
+use super::disk_view::DiskView;
 use super::events::credit;
 use super::needs_you::{SUBSCRIPTION, Seen, listed};
 use super::run::call;
 use super::{Client, attached_on, engine_with};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::Engine;
-use crate::governor::{DiskView, System};
 use crate::home::Home;
 
 const MB: u64 = 1_000_000;
@@ -76,7 +76,7 @@ fn walls() -> Contribution {
 fn walled_engine(env: &TestEnv) -> Engine {
     let view = DiskView::default();
     view.mount(env.home(), 100 * MB, 50 * MB);
-    engine_with(Product::Collie, Some(walls())).with_governor(System::os().with_disks(view))
+    engine_with(Product::Collie, Some(walls())).with_governor(view.system())
 }
 
 /// Writes `text` as `file` of the test home's per-major folder.

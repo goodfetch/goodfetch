@@ -125,6 +125,37 @@ fn a_refusal_is_browser_sandbox_unavailable_naming_the_environment_and_its_fix()
     );
 }
 
+/// A refusal the probe does not know, such as `user.max_user_namespaces`
+/// at 0, still refuses the launch with the probe's error, so the browser
+/// never starts without the sandbox it was asked for: its message says what
+/// the probe met, and its fix how to find what refuses the namespace or to
+/// switch the sandbox off.
+/// Covers: story:4-86, error:browser_sandbox_unavailable
+#[test]
+fn an_unknown_refusal_refuses_the_launch_with_the_probes_error() {
+    let probed = judge(&facts(UserNamespace::Refused(EPERM)));
+
+    let refusal = probed.refusal().unwrap();
+
+    let data = refusal.details().unwrap();
+    assert_eq!(
+        (
+            refusal.code(),
+            data["environment"].clone(),
+            refusal
+                .message()
+                .contains("creating a user namespace was refused"),
+            data["fix"]
+                .as_str()
+                .unwrap()
+                .contains("`security.browser_sandbox` off in Operator policy"),
+        ),
+        ("browser_sandbox_unavailable", json!("unknown"), true, true),
+        "{}",
+        refusal.message()
+    );
+}
+
 /// On a platform with no fix, the host's default switches the sandbox off;
 /// elsewhere the catalog's stays.
 /// Covers: story:4-86, setting:security.browser_sandbox

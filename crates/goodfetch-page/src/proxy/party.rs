@@ -61,6 +61,12 @@ pub(crate) fn relay_unreachable() -> String {
     )
 }
 
+/// Whether the nearest member of the `Proxy-Status` field `field` is the
+/// Session's own relay's.
+pub(crate) fn relays(field: &str) -> bool {
+    nearest(field).map(name) == Some(RELAY)
+}
+
 /// Who gave `answer`.
 pub fn party(answer: Answer<'_>) -> Party {
     match answer {

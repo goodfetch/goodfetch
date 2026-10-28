@@ -305,6 +305,13 @@ fn through(
     )
 }
 
+/// The authority's own certificate, in DER: the second of every chain it
+/// signs.
+fn authority_certificate(authority: &Authority) -> Vec<u8> {
+    let [_, certificate] = authority.leaf("listed.test").unwrap().chain.clone();
+    certificate
+}
+
 /// How the relay ended a connection, and the exception it said the
 /// connection passed through, once it said it passed.
 #[derive(Debug)]
@@ -355,7 +362,7 @@ fn a_listed_hosts_invalid_certificate_passes_under_its_exception_and_the_bytes_g
         (
             ExceptionKind::TrustOnFirstUse,
             true,
-            Some(authority.certificate()),
+            Some(authority_certificate(&authority).as_slice()),
             Some(b"h2".as_slice()),
             b"pong".as_slice(),
             b"ping".as_slice(),
@@ -628,7 +635,7 @@ fn the_authoritys_leaf_for_a_host_outside_its_domains_is_rejected_by_a_verifier(
     let authority = Authority::new(vec!["listed.test".to_owned(), "192.0.2.7".to_owned()]).unwrap();
     let mut roots = rustls::RootCertStore::empty();
     roots
-        .add(CertificateDer::from(authority.certificate().to_vec()))
+        .add(CertificateDer::from(authority_certificate(&authority)))
         .unwrap();
     let verifier = WebPkiServerVerifier::builder_with_provider(
         Arc::new(roots),

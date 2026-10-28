@@ -1706,7 +1706,7 @@ impl PageDriver {
             return None;
         }
         let error = proxy_status.and_then(proxy_error).unwrap_or_default();
-        Some(proxy.unavailable(url, &error))
+        Some(proxy.answered(url, &error))
     }
 
     /// The encoding the main frame's document was decoded with, read in

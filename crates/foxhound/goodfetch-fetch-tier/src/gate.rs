@@ -27,10 +27,13 @@
 //!   robots.txt is neither read nor applied.
 //! - **Its document's use signals.** While
 //!   `site_preferences.respect_use_signals` is on, a main-frame document
-//!   whose response's AI-use signals (`TDMRep`'s `tdm-reservation` header,
-//!   aipref's `Content-Usage` header) refuse the Run's
+//!   whose response's AI-use signals refuse the Run's
 //!   `site_preferences.purpose` is refused with `use_signals`, and the page
-//!   is left on a blank document.
+//!   is left on a blank document: `TDMRep`'s `tdm-reservation` header or
+//!   `<meta>`, aipref's `Content-Usage` header, and the RSL license its
+//!   `Link` header or `<link>` element names, fetched once for the Run
+//!   through its shared signal files, as the crawl request's own document
+//!   is judged.
 //! - **The delay between starts.** The request waits until the domain's
 //!   last start, by any sharing run, is its Crawl-delay ago, and on its
 //!   own domain key, or after a robots.txt it fetched, also
@@ -59,6 +62,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use bytes::Bytes;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Room, SecondCopies};
 use goodfetch_engine::egress::Policy;
@@ -68,7 +72,8 @@ use goodfetch_engine::robots_txt::{self, Fetch, Fetched, Judgment, Rule};
 use goodfetch_engine::runs::Run;
 use goodfetch_frontier::{DomainKeys, Scope};
 use goodfetch_page::page_value::{
-    Admission, DocumentResponse, Navigation, NavigationGate, Permit, Refusal, Sending,
+    Admission, DocumentJudgment, DocumentResponse, Navigation, NavigationGate, Permit, Refusal,
+    Sending,
 };
 use goodfetch_page::robots_txt::{Group, ProductToken, applicable_rules};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
@@ -83,7 +88,7 @@ use crate::content_types::ContentTypes;
 use crate::discovered_api::Capture;
 use crate::driver::{Hop, judged};
 use crate::transports::AddressCheck;
-use crate::use_signals::{Purpose, UseSignals};
+use crate::use_signals::{Purpose, SignalFiles, UseSignals, rsl_refusing};
 
 /// Fetches the robots.txt at a location for a Run, as the crawl's HTTP
 /// tier does (`HttpTier::robots_txt_fetch`).
@@ -132,6 +137,10 @@ pub struct HandOver {
     /// handler's page navigates to is judged against it by the AI-use
     /// signals its response carries. None judges none.
     pub use_signals: Option<Purpose>,
+    /// The AI-use signal files the Run fetched, each once for all its
+    /// requests: the RSL licenses those documents name are read through
+    /// them, fetched with [`HandOver::robots`].
+    pub signal_files: SignalFiles,
     /// The attempt's lease.
     pub lease: Arc<dyn LeaseCheck>,
     /// The Run's domain policy, which judges each redirect hop.
@@ -145,6 +154,11 @@ pub struct HandOver {
     /// judges the browser pages the attempt opens in place of their
     /// Session's (ADR 0093).
     pub page_check: Option<PageCheck>,
+    /// The main-content step its crawl request's Label chooses with
+    /// `content.extractor`, which every page the attempt serves or opens
+    /// reads its formats with over the Run's; none when the Label leaves
+    /// it to the Run.
+    pub extractor: Option<goodfetch_extractor::BuiltIn>,
     /// The encoding `fetch.encoding` forces on the crawl request's own
     /// document, its Label's else the Run's (ADR 0119); none of the
     /// handler's own navigations takes it.
@@ -247,8 +261,8 @@ impl NavigationGate for Admitted {
         Box::pin(async {})
     }
 
-    fn judge_document(&self, _response: &DocumentResponse<'_>) -> Result<(), Refusal> {
-        Ok(())
+    fn judge_document<'a>(&'a self, _response: &'a DocumentResponse<'a>) -> DocumentJudgment<'a> {
+        Box::pin(std::future::ready(Ok(())))
     }
 }
 
@@ -307,18 +321,57 @@ impl NavigationGate for Gate {
 
     /// Refuses with `use_signals` a document whose response's AI-use
     /// signals refuse the Run's Purpose, while the Run honours them
-    /// (ADRs 0016, 0086 and 0093).
-    fn judge_document(&self, response: &DocumentResponse<'_>) -> Result<(), Refusal> {
-        let Some(purpose) = self.0.use_signals else {
-            return Ok(());
-        };
-        match UseSignals::of(response.headers).refusing(purpose) {
-            Some(signal) => Err(Refusal {
+    /// (ADRs 0016, 0045, 0086 and 0093): its headers, its markup, and the
+    /// RSL license either names, fetched once for the Run.
+    fn judge_document<'a>(&'a self, response: &'a DocumentResponse<'a>) -> DocumentJudgment<'a> {
+        Box::pin(async move {
+            let Some(purpose) = self.0.use_signals else {
+                return Ok(());
+            };
+            let refused = |signal: &str| Refusal {
                 reason: SitePreference::UseSignals,
                 message: format!("{signal} refuses the run's Purpose for {}", response.url),
-            }),
-            None => Ok(()),
-        }
+            };
+            let signals = UseSignals::of(response.headers);
+            let signals = match Url::parse(response.url) {
+                Ok(url) => {
+                    // The markup's signals are ASCII: a document in another
+                    // encoding reads the same for them.
+                    let html = String::from_utf8_lossy(response.body).into_owned();
+                    self.0
+                        .run
+                        .owner()
+                        .blocking(move || signals.with_markup(&html, &url))
+                        .await
+                }
+                Err(_) => signals,
+            };
+            if let Some(signal) = signals.refusing(purpose) {
+                return Err(refused(signal));
+            }
+            let (Some(license), Some(fetch)) = (signals.license(), &self.0.robots) else {
+                return Ok(());
+            };
+            let run = self.0.run.clone();
+            let file = self
+                .0
+                .signal_files
+                .read(&license, async {
+                    match fetch(run, license.clone()).await {
+                        robots_txt::Answer::Response { status, body }
+                            if (200..300).contains(&status) =>
+                        {
+                            Some(body)
+                        }
+                        _ => None,
+                    }
+                })
+                .await;
+            match file.and_then(|file| rsl_refusing(&file, purpose)) {
+                Some(signal) => Err(refused(signal)),
+                None => Ok(()),
+            }
+        })
     }
 }
 
@@ -678,12 +731,12 @@ impl ChainGate {
 }
 
 /// What the Frontier takes of `hop` of `crawl_request`.
-fn frontier_hop(crawl_request: &str, hop: &Hop) -> (String, Url, HttpMethod, Option<Vec<u8>>) {
+fn frontier_hop(crawl_request: &str, hop: &Hop) -> (String, Url, HttpMethod, Option<Bytes>) {
     (
         crawl_request.to_owned(),
         hop.url.clone(),
         HttpMethod::parse(hop.method.as_str()).unwrap_or_else(|_| HttpMethod::get()),
-        hop.body.as_ref().map(|body| body.to_vec()),
+        hop.body.clone(),
     )
 }
 

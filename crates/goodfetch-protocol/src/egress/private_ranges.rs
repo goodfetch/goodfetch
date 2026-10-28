@@ -137,7 +137,8 @@ pub const EGRESS_PRIVATE_RANGES: Setting = Setting {
 };
 
 /// `egress.recipe_private_ranges`: the Operator policy's allowance for a
-/// Recipe to set `egress.private_ranges` (spec #563's shape).
+/// Recipe to set `egress.private_ranges`, which ticket #622's "a Recipe may
+/// set it only where Operator policy allows it" asks for (ADR 0017's note).
 pub const EGRESS_RECIPE_PRIVATE_RANGES: Setting = Setting {
     name: "egress.recipe_private_ranges",
     description: "Whether a Recipe may set `egress.private_ranges`. `false` by default, so a Recipe's value is `setting_locked`; set only in an Operator policy.",

@@ -35,7 +35,6 @@ use crate::audit::{AuditLog, Origin};
 use crate::composition::{CallContext, CallError};
 use crate::needs_you::refetch::{coverage, machine_listing, normalized};
 use crate::run::settings_error;
-use crate::runs::CALLER;
 use crate::settings::{
     HostDefaults, Layers, MachineLayers, SettingsError, operator_policy, resolve, set,
     user_configuration,
@@ -64,6 +63,8 @@ struct Machine {
     version: ProductVersion,
     audit: AuditLog,
     surface: goodfetch_protocol::connection::Surface,
+    /// The person answering, as the Audit log names them.
+    person: String,
     now: jiff::Timestamp,
 }
 
@@ -84,6 +85,7 @@ impl Machine {
             version: context.identity().product_version.clone(),
             audit: runs.audit().clone(),
             surface: context.surface(),
+            person: context.person(),
             now: runs.limits().now(),
         })
     }
@@ -170,7 +172,7 @@ impl Machine {
     ) {
         let origin = Origin {
             actor: Actor::Person {
-                name: CALLER.to_owned(),
+                name: self.person.clone(),
             },
             surface: Some(self.surface),
             layer: Some(layer),

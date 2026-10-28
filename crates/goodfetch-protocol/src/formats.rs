@@ -513,7 +513,10 @@ fn any_key(_: &Setting) -> bool {
 
 /// A key a cap bounds: a count or a duration.
 fn bounded_key(setting: &Setting) -> bool {
-    matches!(setting.kind, ValueKind::Count | ValueKind::Duration)
+    matches!(
+        setting.kind,
+        ValueKind::Count | ValueKind::CountUpTo(_) | ValueKind::Duration
+    )
 }
 
 /// Every key of either Product that `holds`, nested by its segments, its

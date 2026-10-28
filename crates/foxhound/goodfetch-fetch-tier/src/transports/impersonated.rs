@@ -24,6 +24,15 @@
 //! takes the exception's decision and connects again, or ends it with
 //! `certificate_changed`.
 //!
+//! **Client certificates:** BoringSSL takes one client identity per
+//! client and picks it without the server name, so a host a listed domain
+//! of `tls.client_certificates` covers goes out on clients of its own,
+//! built for its trust scope and that domain when a host of the domain is
+//! first reached, and presenting that domain's certificate (spec #563
+//! story 34; step 7 review, finding 563-565-3). They present the same
+//! profile, so a site cannot tell them from the others. A host reached
+//! through its exception is sent no client certificate, as on reqwest.
+//!
 //! **Translation point (ADR 0127):** [`classify`] is where `wreq`'s,
 //! `wreq-proto`'s, `http2`'s, BoringSSL's and the OS's failures, and a
 //! proxy's answer to the tunnel request, become a [`TransportFailure`].
@@ -39,17 +48,21 @@ use std::error::Error;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use goodfetch_engine::egress::Refused;
-use goodfetch_engine::tls::{Decision, Examiner, Presented, SharedTrust, Verdict};
+use goodfetch_engine::run::secret_error;
+use goodfetch_engine::tls::{
+    ClientCertificateFailure, ClientCertificates, Decision, Examiner, IdentityFiles, Presented,
+    SharedTrust, Verdict,
+};
 use goodfetch_protocol::tls::CertificateFailure;
 use http_body_util::BodyExt as _;
+use secrecy::ExposeSecret as _;
 use url::Url;
 
 use super::{
     AddressCheck, CONNECTED, DECISIONS, Http1Origins, MarkConnects, Resolver, TransportConfig,
     TransportUnavailable,
 };
-use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
+use crate::driver::{Body, CallFailure, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
 use crate::http_profile::HttpProfile;
 
 /// `wreq`, the transport of HTTP-only `stealth` Sessions.
@@ -66,6 +79,64 @@ pub struct Wreq {
     /// The verdicts that verification left for the transport.
     verdicts: Verdicts,
     resolver: Arc<Resolver>,
+    /// The client certificates of `tls.client_certificates`.
+    client_certificates: Option<ClientCertificates>,
+    /// What builds its clients, kept for those of each listed domain of
+    /// `tls.client_certificates`.
+    builder: Arc<Builder>,
+    /// Its clients presenting a listed domain's client certificate, by the
+    /// trust scope and the listed domain of the hosts they serve, built
+    /// when a host of the domain is first reached.
+    presenting: Presenting,
+}
+
+/// What builds a [`Wreq`]'s clients: every one presents the same profile,
+/// resolves, binds and goes through the proxy alike, and differs only in
+/// the authorities it trusts and the client certificate it presents.
+struct Builder {
+    profile: HttpProfile,
+    resolver: Arc<Resolver>,
+    local: Option<super::LocalSource>,
+    proxy: Option<wreq::Proxy>,
+    decision: SharedTrust,
+    examiner: Arc<Examiner>,
+    verdicts: Verdicts,
+}
+
+/// A trust scope's clients: offering HTTP/2 and HTTP/1.1, and HTTP/1.1
+/// alone for the origins that asked.
+struct ScopeClients {
+    any: Clients,
+    http1: Clients,
+}
+
+/// The clients presenting a client certificate, by trust scope and listed
+/// domain. Clones share them.
+#[derive(Clone, Default)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the map is read or written in one step, never across an `.await` or another lock: a client is built outside it and the first one built is kept, so there is no lock order to test under loom (ADR 0060)"
+)]
+struct Presenting(Arc<std::sync::Mutex<PresentingClients>>);
+
+/// The clients presenting a client certificate, by what they serve.
+type PresentingClients = BTreeMap<Presents, Arc<ScopeClients>>;
+
+/// What a set of presenting clients serves: the hosts of one trust scope
+/// (`None` for the hosts no `tls.trusted_cas` domain covers) that one
+/// listed domain of `tls.client_certificates` covers.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Presents {
+    trust_scope: Option<String>,
+    listed: String,
+}
+
+impl Presenting {
+    fn clients(&self) -> std::sync::MutexGuard<'_, PresentingClients> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 impl std::fmt::Debug for Wreq {
@@ -106,66 +177,23 @@ impl Wreq {
             .transpose()?;
         let decision = SharedTrust::new(config.trust.clone(), config.exceptions.clone());
         let verdicts = Verdicts::default();
-        let verify = custom_verify(
-            decision.clone(),
-            Arc::new(config.trust.examiner()),
-            verdicts.clone(),
-        );
+        let builder = Arc::new(Builder {
+            profile,
+            resolver: Arc::clone(&resolver),
+            local: config.local.clone(),
+            proxy,
+            decision: decision.clone(),
+            examiner: Arc::new(config.trust.examiner()),
+            verdicts: verdicts.clone(),
+        });
         let mut any = Scopes::new();
         let mut http1 = Scopes::new();
         for scope in config.trust.scopes() {
-            let client = |http1_only: bool, pooled: bool| {
-                let store = wreq::tls::trust::CertStore::builder()
-                    .add_der_certs(webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter())
-                    .add_der_certs(scope.authorities.iter())
-                    .build()
-                    .map_err(refused)?;
-                let builder = wreq::Client::builder()
-                    .emulation(profile.emulation())
-                    // A folded header line is read as a space, as Chrome
-                    // reads it.
-                    .http1_options(
-                        wreq::http1::Http1Options::builder()
-                            .allow_obsolete_multiline_headers_in_responses(true)
-                            .build(),
-                    )
-                    .tls_cert_store(store)
-                    .tls_custom_verify(verify.clone())
-                    .dns_resolver(Arc::clone(&resolver) as Arc<dyn wreq::dns::Resolve>)
-                    .redirect(wreq::redirect::Policy::none())
-                    .retry(wreq::retry::Policy::never())
-                    .connector_layer(MarkConnects);
-                let builder = match &config.local {
-                    Some(local) => bind_device(
-                        builder.local_addresses(local.ipv4, local.ipv6),
-                        local.interface.as_deref(),
-                    ),
-                    None => builder,
-                };
-                let builder = if pooled {
-                    builder
-                } else {
-                    builder.pool_max_idle_per_host(0)
-                };
-                let builder = if http1_only {
-                    builder.http1_only()
-                } else {
-                    builder
-                };
-                let builder = match &proxy {
-                    Some(proxy) => builder.proxy(proxy.clone()),
-                    None => builder.no_proxy(),
-                };
-                build(builder).map_err(refused)
-            };
-            let clients = |http1_only: bool| -> Result<Clients, TransportUnavailable> {
-                Ok(Clients {
-                    pooled: client(http1_only, true)?,
-                    new: client(http1_only, false)?,
-                })
-            };
-            any.insert(scope.domain.clone(), clients(false)?);
-            http1.insert(scope.domain, clients(true)?);
+            let clients = builder
+                .scope_clients(&scope.authorities, None)
+                .map_err(refused)?;
+            any.insert(scope.domain.clone(), clients.any);
+            http1.insert(scope.domain, clients.http1);
         }
         Ok(Self {
             any,
@@ -175,6 +203,9 @@ impl Wreq {
             decision,
             verdicts,
             resolver,
+            client_certificates: config.client_certificates,
+            builder,
+            presenting: Presenting::default(),
         })
     }
 
@@ -183,24 +214,181 @@ impl Wreq {
         AddressCheck(Arc::clone(&self.resolver))
     }
 
-    /// The client `hop` goes out on, as its host's trust scope and `reuse`
-    /// allow.
-    fn client(&self, hop: &Hop, reuse: Reuse) -> Option<&wreq::Client> {
-        let scopes = if self.http1_origins.contains(&hop.url) {
-            &self.http1
-        } else {
-            &self.any
+    /// The clients of `host`'s trust scope that present the client
+    /// certificate of its listed domain of `tls.client_certificates`, built
+    /// when a host of the domain is first reached: none when no listed
+    /// domain covers it. Every client presents the same profile, so a site
+    /// cannot tell which one served it.
+    async fn presenting_for(
+        &self,
+        host: &str,
+    ) -> Result<Option<Arc<ScopeClients>>, TransportFailure> {
+        let Some(certificates) = &self.client_certificates else {
+            return Ok(None);
         };
-        let scope = hop
-            .url
-            .host_str()
-            .and_then(|host| self.trust.scope_of(host))
-            .map(str::to_owned);
-        let clients = scopes.get(&scope)?;
+        let Some(domain) = certificates.scope_of(host) else {
+            return Ok(None);
+        };
+        let key = Presents {
+            trust_scope: self.trust.scope_of(host).map(str::to_owned),
+            listed: domain,
+        };
+        if let Some(clients) = self.presenting.clients().get(&key) {
+            return Ok(Some(Arc::clone(clients)));
+        }
+        let Some(files) = certificates
+            .files_for_host(host)
+            .await
+            .map_err(|failure| super::client_certificate_failure(&failure))?
+        else {
+            return Ok(None);
+        };
+        let unusable = |reason: String| {
+            super::client_certificate_failure(&ClientCertificateFailure::Unusable {
+                domain: files.domain.clone(),
+                layer: certificates.layer(),
+                reason,
+            })
+        };
+        let identity = identity_of(&files).map_err(unusable)?;
+        let authorities = self
+            .trust
+            .scopes()
+            .into_iter()
+            .find(|scope| scope.domain == key.trust_scope)
+            .map(|scope| scope.authorities)
+            .unwrap_or_default();
+        let built = Arc::new(
+            self.builder
+                .scope_clients(&authorities, Some(&identity))
+                .map_err(|_| TransportFailure::Other)?,
+        );
+        Ok(Some(Arc::clone(
+            self.presenting.clients().entry(key).or_insert(built),
+        )))
+    }
+
+    /// The client `hop` goes out on, as its host's trust scope and `reuse`
+    /// allow: one of `presenting`, the clients that present its host's
+    /// client certificate, when it has one.
+    fn client<'c>(
+        &'c self,
+        hop: &Hop,
+        reuse: Reuse,
+        presenting: Option<&'c ScopeClients>,
+    ) -> Option<&'c wreq::Client> {
+        let http1_only = self.http1_origins.contains(&hop.url);
+        let clients = match presenting {
+            Some(presenting) if http1_only => &presenting.http1,
+            Some(presenting) => &presenting.any,
+            None => {
+                let scopes = if http1_only { &self.http1 } else { &self.any };
+                let scope = hop
+                    .url
+                    .host_str()
+                    .and_then(|host| self.trust.scope_of(host))
+                    .map(str::to_owned);
+                scopes.get(&scope)?
+            }
+        };
         Some(match reuse {
             Reuse::Allowed => &clients.pooled,
             Reuse::Never => &clients.new,
         })
+    }
+}
+
+/// The client identity `files` hold, as BoringSSL takes it: the key in
+/// PKCS #8, whichever PEM form its reference gave.
+fn identity_of(files: &IdentityFiles) -> Result<wreq::tls::trust::Identity, String> {
+    let key = btls::pkey::PKey::private_key_from_pem(files.key.expose_secret().as_bytes())
+        .and_then(|key| key.private_key_to_pem_pkcs8())
+        .map_err(|_| "the value of its key's reference is no PEM private key".to_owned())?;
+    let key = secrecy::zeroize::Zeroizing::new(key);
+    wreq::tls::trust::Identity::from_pkcs8_pem(&files.certificate, &key)
+        .map_err(|_| "its key is not the key of its certificate".to_owned())
+}
+
+impl Builder {
+    /// The clients of a trust scope whose authorities, beside Mozilla's
+    /// roots, are `authorities`, presenting `identity` when a server asks
+    /// for a client certificate.
+    fn scope_clients(
+        &self,
+        authorities: &[rustls::pki_types::CertificateDer<'static>],
+        identity: Option<&wreq::tls::trust::Identity>,
+    ) -> wreq::Result<ScopeClients> {
+        let clients = |http1_only: bool| -> wreq::Result<Clients> {
+            Ok(Clients {
+                pooled: self.client(authorities, identity, http1_only, true)?,
+                new: self.client(authorities, identity, http1_only, false)?,
+            })
+        };
+        Ok(ScopeClients {
+            any: clients(false)?,
+            http1: clients(true)?,
+        })
+    }
+
+    /// One client: offering HTTP/1.1 alone when `http1_only`, and keeping
+    /// its connections when `pooled`.
+    fn client(
+        &self,
+        authorities: &[rustls::pki_types::CertificateDer<'static>],
+        identity: Option<&wreq::tls::trust::Identity>,
+        http1_only: bool,
+        pooled: bool,
+    ) -> wreq::Result<wreq::Client> {
+        let store = wreq::tls::trust::CertStore::builder()
+            .add_der_certs(webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter())
+            .add_der_certs(authorities.iter())
+            .build()?;
+        let verify = custom_verify(
+            self.decision.clone(),
+            Arc::clone(&self.examiner),
+            self.verdicts.clone(),
+            identity.is_some(),
+        );
+        let builder = wreq::Client::builder()
+            .emulation(self.profile.emulation())
+            // A folded header line is read as a space, as Chrome reads it.
+            .http1_options(
+                wreq::http1::Http1Options::builder()
+                    .allow_obsolete_multiline_headers_in_responses(true)
+                    .build(),
+            )
+            .tls_cert_store(store)
+            .tls_custom_verify(verify)
+            .dns_resolver(Arc::clone(&self.resolver) as Arc<dyn wreq::dns::Resolve>)
+            .redirect(wreq::redirect::Policy::none())
+            .retry(wreq::retry::Policy::never())
+            .connector_layer(MarkConnects);
+        let builder = match identity {
+            Some(identity) => builder.tls_identity(identity.clone()),
+            None => builder,
+        };
+        let builder = match &self.local {
+            Some(local) => bind_device(
+                builder.local_addresses(local.ipv4, local.ipv6),
+                local.interface.as_deref(),
+            ),
+            None => builder,
+        };
+        let builder = if pooled {
+            builder
+        } else {
+            builder.pool_max_idle_per_host(0)
+        };
+        let builder = if http1_only {
+            builder.http1_only()
+        } else {
+            builder
+        };
+        let builder = match &self.proxy {
+            Some(proxy) => builder.proxy(proxy.clone()),
+            None => builder.no_proxy(),
+        };
+        build(builder)
     }
 }
 
@@ -250,14 +438,17 @@ impl Wreq {
     /// Sends `hop` over TLS to `host`, its certificate decided per host
     /// during each handshake: sent again on a new connection each time its
     /// handshake stopped for the exception's decision, which
-    /// [`SharedTrust::decide_presented`] then took.
+    /// [`SharedTrust::decide_presented`] then took. A host a listed domain
+    /// of `tls.client_certificates` covers goes out on the clients that
+    /// present its certificate.
     async fn send_to(&self, host: &str, hop: &Hop, reuse: Reuse) -> Result<Sent, TransportFailure> {
         self.decision
             .before(host)
             .await
             .map_err(TransportFailure::CertificateChanged)?;
+        let presenting = self.presenting_for(host).await?;
         for _ in 0..DECISIONS {
-            let presented = match self.send_once(hop, reuse).await {
+            let presented = match self.send_on(presenting.as_deref(), hop, reuse).await {
                 Ok(mut sent) => {
                     sent.certificate_exception = self.decision.exception(host);
                     return Ok(sent);
@@ -267,25 +458,46 @@ impl Wreq {
             };
             match self
                 .decision
-                .decide_presented(host, *presented, false)
+                .decide_presented(host, *presented, presenting.is_some())
                 .await
             {
                 Decision::Again => {}
                 Decision::Changed(changed) => {
                     return Err(TransportFailure::CertificateChanged(changed));
                 }
-                // Its clients present no client certificate.
-                Decision::Excepted => return Err(TransportFailure::Tls),
+                // A client certificate never goes to a host reached
+                // through its exception.
+                Decision::Excepted => {
+                    return Err(self
+                        .client_certificates
+                        .as_ref()
+                        .and_then(|certificates| certificates.refused(host))
+                        .map_or(TransportFailure::Tls, |refused| {
+                            TransportFailure::ClientCertificate(CallFailure(secret_error(&refused)))
+                        }));
+                }
             }
         }
         Err(TransportFailure::Tls)
     }
 
-    /// Sends `hop` once: its answer, or its failure and, when its handshake
-    /// stopped for its host's exception to decide, the certificate the host
-    /// presented.
+    /// Sends `hop` once, on its host's clients that present no client
+    /// certificate.
     async fn send_once(
         &self,
+        hop: &Hop,
+        reuse: Reuse,
+    ) -> Result<Sent, (TransportFailure, Option<Box<Presented>>)> {
+        self.send_on(None, hop, reuse).await
+    }
+
+    /// Sends `hop` once, on one of `presenting` when its host has clients
+    /// that present a client certificate: its answer, or its failure and,
+    /// when its handshake stopped for its host's exception to decide, the
+    /// certificate the host presented.
+    async fn send_on(
+        &self,
+        presenting: Option<&ScopeClients>,
         hop: &Hop,
         reuse: Reuse,
     ) -> Result<Sent, (TransportFailure, Option<Box<Presented>>)> {
@@ -294,7 +506,7 @@ impl Wreq {
         {
             // Every scope has its clients, so a host always finds one.
             let client = self
-                .client(hop, reuse)
+                .client(hop, reuse, presenting)
                 .ok_or((TransportFailure::Other, None))?;
             let mut request = client.request(hop.method.clone(), hop.url.as_str());
             for (name, value) in &hop.headers {
@@ -403,6 +615,7 @@ fn custom_verify(
     decision: SharedTrust,
     examiner: Arc<Examiner>,
     verdicts: Verdicts,
+    presents: bool,
 ) -> wreq::tls::CustomVerify {
     wreq::tls::CustomVerify::new(move |host, ssl| {
         let chain: Vec<Vec<u8>> = ssl
@@ -415,8 +628,7 @@ fn custom_verify(
             })
             .unwrap_or_default();
         let verdict = match examiner.examine(host, &chain) {
-            // Its clients present no client certificate.
-            Ok(presented) => decision.verdict(host, presented, false),
+            Ok(presented) => decision.verdict(host, presented, presents),
             Err(_) => Verdict::Rejected(CertificateFailure::Unrecognized(
                 "unreadable_certificate".to_owned(),
             )),
@@ -461,15 +673,9 @@ impl wreq::dns::Resolve for Resolver {
     }
 }
 
-/// `error`'s failure, an egress refusal naming the hop's URL.
+/// `error`'s failure, as a hop to `url` reports it.
 fn failure_of(error: &wreq::Error, url: &Url) -> TransportFailure {
-    match classify(error) {
-        TransportFailure::Egress(refused) => TransportFailure::Egress(Refused {
-            url: url.to_string(),
-            ..refused
-        }),
-        failure => failure,
-    }
+    classify(error).of_hop(url)
 }
 
 /// The failure `error` is, read down its chain of sources: the first one

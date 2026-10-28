@@ -404,6 +404,13 @@ type SignalFile = OnceCell<Option<Arc<[u8]>>>;
 impl SignalFiles {
     /// The body at `url`: kept, or fetched with `fetch` by the first
     /// reader, every concurrent reader waiting for that fetch.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future of the reader whose `fetch` runs drops that
+    /// fetch and keeps nothing: a concurrent or later reader fetches the
+    /// file with its own. Dropping any other reader's future loses only
+    /// its answer.
     pub async fn read<F>(&self, url: &Url, fetch: F) -> Option<Arc<[u8]>>
     where
         F: Future<Output = Option<Vec<u8>>>,

@@ -18,6 +18,8 @@ use goodfetch_protocol::run::RunId;
 use hmac::{Hmac, Mac as _};
 use sha2::Sha256;
 
+use crate::endpoint::same_token;
+
 /// How long a signed address stays valid.
 pub(crate) const VALID_FOR: Duration = Duration::from_mins(5);
 
@@ -201,7 +203,7 @@ impl ContentKey {
         let shown = Shown::named(shown).ok_or(Unsigned::Wrong)?;
         let expires = expires.parse::<u64>().map_err(|_| Unsigned::Wrong)?;
         let file = ContentFile::of(run_id, body, shown).ok_or(Unsigned::NoFile)?;
-        if !same_secret(signature, &self.mac(&file, expires)) {
+        if !same_token(signature, &self.mac(&file, expires)) {
             return Err(Unsigned::Wrong);
         }
         if seconds(now) >= expires {
@@ -241,20 +243,6 @@ fn seconds(moment: SystemTime) -> u64 {
     moment
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| since.as_secs())
-}
-
-/// Whether two secrets are equal, in time that depends only on their
-/// lengths.
-fn same_secret(given: &str, expected: &str) -> bool {
-    let (given, expected) = (given.as_bytes(), expected.as_bytes());
-    given.len() == expected.len()
-        && given
-            .iter()
-            .zip(expected)
-            .fold(0_u8, |difference, (left, right)| {
-                difference | (left ^ right)
-            })
-            == 0
 }
 
 #[cfg(test)]

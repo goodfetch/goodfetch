@@ -21,13 +21,13 @@ use goodfetch_test_support::{CrashVfs, IoFault, TestEnv};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 
+use super::disk_view::DiskView;
 use super::events::credit;
 use super::run::{call, run_folder};
 use super::{Client, attached_on, attached_with, dependencies, engine, engine_with, hello};
 use crate::Dependencies;
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::Engine;
-use crate::governor::{DiskView, System};
 use crate::run_state::{RunStateOptions, RunStateTables};
 
 const MB: u64 = 1_000_000;
@@ -49,7 +49,7 @@ const LEVELS: &str = "storage.low_free = 2000000\nstorage.critical_free = 100000
 
 /// A Collie engine whose governor reads the filesystems through `view`.
 fn viewed(view: &DiskView) -> Engine {
-    engine(Product::Collie).with_governor(System::os().with_disks(view.clone()))
+    engine(Product::Collie).with_governor(view.system())
 }
 
 async fn opened(client: &mut Client) {

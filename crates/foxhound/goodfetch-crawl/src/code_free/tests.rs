@@ -57,7 +57,7 @@ fn the_pages_schema_is_generated_from_the_formats_request_and_a_pages_record_hol
             declared.name.as_str(),
             declared.key.clone(),
             record["status"].clone(),
-            record["fetchedAt"].clone(),
+            record["fetched_at"].clone(),
             datasets.check(pushed(record)).is_ok(),
             datasets.check(pushed(without_links)).is_ok(),
             datasets.check(pushed(with_html)).is_ok(),
@@ -195,14 +195,14 @@ fn the_pages_schema_holds_each_fields_type() {
 }
 
 /// The start refuses with `invalid_params` a field whose name a format's
-/// property, `status` or `fetchedAt` takes, and a field the engine could
+/// property, `status` or `fetched_at` takes, and a field the engine could
 /// never read.
 ///
 /// Covers: story:6-304
 #[rstest::rstest]
 #[case::a_formats_property(json!({ "url": { "locator": { "kind": "css", "selector": "a" } } }))]
 #[case::status(json!({ "status": { "locator": { "kind": "css", "selector": "p" } } }))]
-#[case::fetched_at(json!({ "fetchedAt": { "locator": { "kind": "css", "selector": "p" } } }))]
+#[case::fetched_at(json!({ "fetched_at": { "locator": { "kind": "css", "selector": "p" } } }))]
 #[case::an_unreadable_field(json!({ "name": { "locator": { "kind": "css", "selector": "h1[" } } }))]
 fn the_start_refuses_a_field_it_cannot_hold_or_read(#[case] fields: Value) {
     let extraction = extraction(json!({ "formats": { "markdown": true }, "fields": fields }));

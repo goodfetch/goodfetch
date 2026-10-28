@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use goodfetch_engine::admission::{Admission, Held, Queued};
+use goodfetch_engine::admission::{Held, Queued};
 use goodfetch_engine::runs::{ProgressPart, Run};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::foxhound::crawl::CRAWL_HANDLER_CONCURRENCY;
@@ -77,18 +77,17 @@ pub(crate) fn room(held: bool, free: bool, starved: bool) -> Room {
 }
 
 /// Sets the crawl's live parts of its Run's progress: why its due requests
-/// wait, under `resolved`, with `room` for those no domain holds; its
-/// handlers running against `crawl.handler.concurrency`; and that it is
-/// not idle.
+/// wait, `queued` in its admission at `now`, under `resolved`, with `room`
+/// for those no domain holds; its handlers running against
+/// `crawl.handler.concurrency`; and that it is not idle.
 pub(crate) fn show(
     run: &Run,
-    admission: &Admission,
+    (queued, now): (&[Queued], Instant),
     resolved: &Resolved,
     room: Room,
     (handlers, handler_concurrency): (usize, usize),
 ) {
-    let now = run.clock().now();
-    show_waits(run, &admission.queued(now), resolved, now, room);
+    show_waits(run, queued, resolved, now, room);
     show_concurrency(run, handlers, handler_concurrency);
     show_idle(run, false);
 }

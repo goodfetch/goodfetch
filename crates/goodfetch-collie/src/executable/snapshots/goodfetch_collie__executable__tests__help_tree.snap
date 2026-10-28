@@ -96,6 +96,8 @@ Usage: goodfetch-collie audit export [OPTIONS]
 
 Options:
       --json          Prints a failure as JSON on stdout; the entries are JSON either way
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -107,6 +109,8 @@ Usage: goodfetch-collie audit verify [OPTIONS]
 Options:
       --file <FILE>   A file `audit export` wrote, verified in place of the log; it has no head file, so its tail is its last line
       --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -146,6 +150,8 @@ Arguments:
 
 Options:
       --json          Refused: a person answers at a terminal, never under `--json`
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -159,6 +165,8 @@ Arguments:
 
 Options:
       --json          Refused: a person answers at a terminal, never under `--json`
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 
@@ -421,7 +429,9 @@ Options:
       --currency <CURRENCY>      The currency it caps the price in, an ISO 4217 code
       --period <PERIOD>          The period it counts over, as JSON such as `{"every":"month","time_zone":"UTC"}`; none for a Limit that never starts again
       --amount <AMOUNT>          How much it allows per period from now on: a count of the Usage kind, or millionths of the currency
+      --attached                 Runs the call on an Attached engine in this process, even when a Daemon runs
       --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon                   Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
   -h, --help                     Print help
 
 $ goodfetch-collie upgrade-files --help
@@ -1135,6 +1145,7 @@ Commits bytes with their content type for a key in a live Run's Key-value store,
 Usage: goodfetch-collie key-value-store set-bytes [OPTIONS] --content <CONTENT> --content-type <CONTENT_TYPE> --key <KEY> --run-id <RUN_ID>
 
 Options:
+      --attempt <ATTEMPT>            The crawl attempt whose handler's `ctx.run` sets the bytes: the write is staged with the attempt and commits with it, a kept file written only then, or is discarded with it (ADR 0093). Absent, the bytes are committed at once
       --content <CONTENT>            The bytes, in Base64
       --content-type <CONTENT_TYPE>  Their content type, such as `image/png`
       --key <KEY>                    The key

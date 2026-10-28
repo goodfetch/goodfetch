@@ -35,14 +35,16 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::SecretFailure;
 use goodfetch_protocol::settings::SettingsLayer;
-use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
+use goodfetch_test_support::{Canaries, SecretKind, TestEnv};
 use http_body_util::{BodyExt as _, Full};
 use hyper::body::Bytes;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use rstest::rstest;
 use secrecy::ExposeSecret as _;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
+
+use crate::support::{leaks, runtime, table, unavailable};
 
 /// The credentials the stand-in takes; none has a real credential's shape.
 const AWS_KEY_ID: &str = "stand-in-key-id";
@@ -325,19 +327,6 @@ fn azure(store: &Store, authorization: &str, secret: &str) -> (StatusCode, Value
     }
 }
 
-/// A runtime whose clock is real (TESTING.md, Time), which drives the
-/// stand-in whenever a call blocks on it.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a test helper builds the runtime the test runs on (ADR 0062)"
-)]
-fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-}
-
 /// One test's runtime, home, canaries and stand-in.
 struct Fixture {
     env: TestEnv,
@@ -417,13 +406,6 @@ fn fixture() -> Fixture {
         port,
         received,
         password,
-    }
-}
-
-fn table(value: Value) -> Map<String, Value> {
-    match value {
-        Value::Object(map) => map,
-        _ => panic!("settings are a table"),
     }
 }
 
@@ -512,38 +494,6 @@ impl Fixture {
     fn received(&self) -> usize {
         self.received.load(Ordering::SeqCst)
     }
-
-    /// Every canary seen outside the stand-in's store: the home, with its
-    /// Audit log, and `held`, the test's other outputs.
-    fn leaks(&self, held: &[(&'static str, &[u8])]) -> Vec<String> {
-        let mut outputs = vec![Output::Path(self.env.home())];
-        outputs.extend(
-            held.iter()
-                .map(|(name, bytes)| Output::Bytes { name, bytes }),
-        );
-        self.canaries
-            .leaks(&outputs)
-            .unwrap()
-            .into_iter()
-            .map(|hit| format!("{hit:?}"))
-            .collect()
-    }
-}
-
-/// The failure of a `secret_unavailable`, with its message and fix.
-fn unavailable(answer: Result<secrecy::SecretString, SecretError>) -> (SecretFailure, String) {
-    match answer {
-        Err(error @ SecretError::Unavailable { .. }) => {
-            let message = error.to_string();
-            match error {
-                SecretError::Unavailable { failure, fix, .. } => {
-                    (failure, format!("{message} {fix}"))
-                }
-                _ => unreachable!(),
-            }
-        }
-        other => panic!("expected `secret_unavailable`, found {:?}", other.err()),
-    }
 }
 
 /// A value planted in each cloud's stand-in resolves at the moment of use,
@@ -570,7 +520,11 @@ fn a_planted_value_resolves_through_each_cloud_and_is_found_in_no_output(#[case]
         (
             resolved.expose_secret() == fixture.password,
             absent,
-            fixture.leaks(&[("formatted", formatted.as_bytes())]),
+            leaks(
+                &fixture.canaries,
+                &fixture.env,
+                &[("formatted", formatted.as_bytes())]
+            ),
         ),
         (true, SecretFailure::Missing, Vec::<String>::new())
     );
@@ -624,7 +578,11 @@ fn a_denied_refused_or_unreachable_cloud_fails_naming_it_and_no_value(
             failure,
             message.contains(reference.as_str()),
             message.contains(service) && message.contains(names),
-            fixture.leaks(&[("message", message.as_bytes())]),
+            leaks(
+                &fixture.canaries,
+                &fixture.env,
+                &[("message", message.as_bytes())]
+            ),
         ),
         (
             SecretFailure::ProviderFailed,
@@ -663,7 +621,11 @@ fn each_cloud_endpoint_is_refused_on_loopback_only_under_no_private_endpoints(
                 failure,
                 message.contains("egress.no_private_endpoints"),
                 fixture.received(),
-                fixture.leaks(&[("message", message.as_bytes())]),
+                leaks(
+                    &fixture.canaries,
+                    &fixture.env,
+                    &[("message", message.as_bytes())]
+                ),
             ),
             (SecretFailure::ProviderFailed, true, 0, Vec::<String>::new()),
             "{message}"

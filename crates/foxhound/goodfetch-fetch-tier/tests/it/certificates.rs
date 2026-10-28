@@ -392,14 +392,20 @@ fn every_trust_scope_of_a_stealth_session_presents_one_fingerprint() {
     );
 }
 
-/// Story 4-34 on reqwest, which picks a client certificate without the
-/// server name: two domains listing two client certificates, each signed
-/// by another Proving ground's client authority, are each sent their own.
-/// Each mutual-TLS host answers the hop that presents its own authority's
-/// certificate, and refuses the handshake of the other one's.
-/// Covers: setting:tls.client_certificates
-#[test]
-fn two_domains_with_different_client_certificates_are_routed_by_host() {
+/// Story 4-34 on each transport, both of which pick a client certificate
+/// without the server name: two domains listing two client certificates,
+/// each signed by another Proving ground's client authority, are each sent
+/// their own. Each mutual-TLS host answers the hop that presents its own
+/// authority's certificate, and refuses the handshake of the other one's;
+/// a host no listed domain covers is answered too. `wreq` keeps a client
+/// per listed domain with the same profile, so its handshakes show one
+/// fingerprint whatever certificate they present (step 7 review, finding
+/// 563-565-3).
+/// Covers: story:4-34, setting:tls.client_certificates
+#[rstest]
+fn two_domains_with_different_client_certificates_are_routed_by_host(
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
+) {
     let fixture = fixture();
     let other = ProvingGround::start(&fixture.env, SEED + 1).unwrap();
     let (own, others) = (
@@ -416,7 +422,7 @@ fn two_domains_with_different_client_certificates_are_routed_by_host() {
         OTHER_MUTUAL: { "certificate": others.certificate.display().to_string(), "key": "env:OTHER_KEY" },
     });
     let transport = fixture.transport(
-        Stack::Reqwest,
+        stack,
         &[&other],
         &[VERIFIED, "certificates.test"],
         &json!({}),
@@ -424,14 +430,18 @@ fn two_domains_with_different_client_certificates_are_routed_by_host() {
         fixture.secrets(environment),
     );
 
-    let (mutual, other_mutual, crossed) = running_clock_runtime().block_on(async {
+    let (verified, mutual, other_mutual, crossed) = running_clock_runtime().block_on(async {
+        let verified = sent(&*transport, &hop(&fixture.proving_ground, VERIFIED)).await;
         let mutual = sent(&*transport, &hop(&fixture.proving_ground, MUTUAL)).await;
         let other_mutual = sent(&*transport, &hop(&other, OTHER_MUTUAL)).await;
         let crossed = sent(&*transport, &hop(&fixture.proving_ground, OTHER_MUTUAL)).await;
-        (mutual, other_mutual, crossed)
+        (verified, mutual, other_mutual, crossed)
     });
 
-    assert_eq!((mutual, other_mutual), (Ok((200, None)), Ok((200, None))));
+    assert_eq!(
+        (verified, mutual, other_mutual),
+        (Ok((200, None)), Ok((200, None)), Ok((200, None)))
+    );
     assert!(crossed.is_err(), "{crossed:?}");
     assert_eq!(
         (
@@ -440,4 +450,12 @@ fn two_domains_with_different_client_certificates_are_routed_by_host() {
         ),
         (json!([MUTUAL]), json!([OTHER_MUTUAL]))
     );
+    if matches!(stack, Stack::Wreq) {
+        let fingerprints: BTreeSet<String> = handshakes(&fixture.proving_ground)
+            .into_iter()
+            .chain(handshakes(&other))
+            .map(|(_, ja4)| ja4)
+            .collect();
+        assert_eq!(fingerprints.len(), 1, "{fingerprints:?}");
+    }
 }

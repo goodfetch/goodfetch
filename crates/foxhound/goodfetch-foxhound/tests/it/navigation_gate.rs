@@ -156,9 +156,10 @@ fn a_handlers_goto_robots_txt_disallows_is_refused_before_it_leaves() {
 
 /// A `page.request` robots.txt disallows answers no response and raises
 /// `site_preferences_refused` with `robots_txt`; a click on a link it
-/// disallows leaves the page on its document; neither reaches the site.
+/// disallows leaves the page on its document, the refusal raising from the
+/// wait armed for that navigation; neither reaches the site.
 ///
-/// Covers: story:5-134, error:site_preferences_refused, operation:page.request, operation:locator.click, operation:page.evaluate
+/// Covers: story:5-134, error:site_preferences_refused, operation:page.request, operation:locator.click, operation:page.evaluate, operation:page.wait_for_url
 #[test]
 fn a_disallowed_request_answers_nothing_and_a_disallowed_click_leaves_the_page() {
     let env = TestEnv::new();
@@ -180,12 +181,30 @@ fn a_disallowed_request_answers_nothing_and_a_disallowed_click_leaves_the_page()
                 "page.request",
                 &json!({ "page_id": page_id, "url": requested_url }),
             ));
-            answers.push(inside.call(
-                "locator.click",
-                &json!({ "locator": { "page_id": page_id, "selector": "a.next" } }),
-            ));
-            // A navigation the click started would have left by now.
-            std::thread::sleep(Duration::from_secs(3));
+            // A wait armed before the click hears the gate refuse the
+            // navigation the click starts, so the page is read once the
+            // refusal came, not after a guessed while.
+            let engine = inside.engine();
+            engine.send(&json!({
+                "jsonrpc": "2.0", "id": "refused", "method": "page.wait_for_url",
+                "params": {
+                    "page_id": page_id,
+                    "url": { "kind": "glob", "pattern": "**/private/catalog/2" },
+                },
+            }));
+            engine.send(&json!({
+                "jsonrpc": "2.0", "id": "click", "method": "locator.click",
+                "params": { "locator": { "page_id": page_id, "selector": "a.next" } },
+            }));
+            let mut others = Vec::new();
+            let clicked = answer_to(engine, "click", &mut others);
+            let refused = match others.iter().position(|other| other["id"] == "refused") {
+                Some(at) => others.remove(at),
+                None => answer_to(engine, "refused", &mut others),
+            };
+            assert!(others.is_empty(), "{others:?}");
+            answers.push(clicked);
+            answers.push(refused);
             answers.push(inside.call(
                 "page.evaluate",
                 &json!({ "page_id": page_id, "function": "() => location.pathname" }),
@@ -201,7 +220,8 @@ fn a_disallowed_request_answers_nothing_and_a_disallowed_click_leaves_the_page()
             refusal(&answers[0]),
             answers[0].get("result").is_none(),
             answers[1].get("result").is_some(),
-            &answers[2]["result"]["value"],
+            refusal(&answers[2]).1,
+            &answers[3]["result"]["value"],
             requested(&proving_ground, ROBOTS_HOST, "/private/catalog/3"),
             requested(&proving_ground, ROBOTS_HOST, "/private/catalog/2"),
         ),
@@ -214,6 +234,7 @@ fn a_disallowed_request_answers_nothing_and_a_disallowed_click_leaves_the_page()
             ),
             true,
             true,
+            json!("robots_txt"),
             &json!("/catalog/1"),
             0,
             0,
@@ -379,6 +400,10 @@ fn answer_to(engine: &mut Attached, id: &str, others: &mut Vec<Value>) -> Value 
     }
 }
 
+/// How long the permit-wait case waits between two reads of the Run's live
+/// status.
+const PROGRESS_POLL: Duration = Duration::from_millis(50);
+
 /// A handler whose `goto` waits for its domain's delay between starts is
 /// not timed out meanwhile: the wait lasts longer than the attempt's lease
 /// was granted for, the lease is renewed through it, the Run's live status
@@ -429,18 +454,27 @@ fn a_handler_waiting_for_a_permit_is_not_timed_out_and_its_wait_is_named() {
                 "jsonrpc": "2.0", "id": "goto", "method": "page.goto",
                 "params": { "page_id": page_id, "url": url },
             }));
-            std::thread::sleep(Duration::from_secs(2));
-            engine.send(&json!({
-                "jsonrpc": "2.0", "id": "progress", "method": "run.progress",
-                "params": { "run_id": handle["run_id"] },
-            }));
-            let progress = answer_to(engine, "progress", &mut others);
-            phases = progress["result"]["in_flight"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|request| request["phase"].clone())
-                .collect();
+            // The live status is read until it names the wait, within a
+            // deadline shorter than the delay the `goto` waits out.
+            let deadline = Instant::now() + Duration::from_secs(10);
+            for poll in 0.. {
+                let id = format!("progress-{poll}");
+                engine.send(&json!({
+                    "jsonrpc": "2.0", "id": id, "method": "run.progress",
+                    "params": { "run_id": handle["run_id"] },
+                }));
+                let progress = answer_to(engine, &id, &mut others);
+                phases = progress["result"]["in_flight"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|request| request["phase"].clone())
+                    .collect();
+                if phases.contains(&json!("waiting_for_permit")) || Instant::now() >= deadline {
+                    break;
+                }
+                std::thread::sleep(PROGRESS_POLL);
+            }
             went = Some(answer_to(engine, "goto", &mut others));
             json!({ "result": { "records": [] } })
         },
@@ -756,21 +790,34 @@ fn with_robots_txt_not_respected_a_handlers_goto_is_not_refused() {
 /// answers with `tdm-reservation: 1`.
 const TDMREP_HOST: &str = "5.access-policy.test";
 
+/// The `access-policy` family's host whose pages declare their signals in
+/// markup: none on page 1, a `TDMRep` `<meta>` on page 2, an RSL `Link`
+/// header on page 3 and an RSL `<link>` on page 4, the license prohibiting
+/// every AI use.
+const MARKUP_HOST: &str = "markup.access-policy.test";
+
 /// A handler's `goto` to a document whose `TDMRep` header reserves its
 /// rights, under `site_preferences`: answers the call and whether the page
 /// then holds any text.
 fn goto_reserved_document(site_preferences: &Value) -> (Value, Value) {
+    goto_declaring(TDMREP_HOST, "/catalog/2", site_preferences)
+}
+
+/// A handler's `goto` to `path` on `host`, from a page of the crawl of its
+/// first page, under `site_preferences`: answers the call and whether the
+/// page then holds any text.
+fn goto_declaring(host: &str, path: &str, site_preferences: &Value) -> (Value, Value) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
-    let reserved = proving_ground.url(TDMREP_HOST, "/catalog/2");
+    let reserved = proving_ground.url(host, path);
     let more = json!({ "site_preferences": site_preferences });
 
     let (mut went, mut text) = (Value::Null, Value::Null);
     let report = crawl_with(
         &mut engine,
         "signals",
-        &[json!({ "url": proving_ground.url(TDMREP_HOST, "/catalog/1"), "label": "page" })],
+        &[json!({ "url": proving_ground.url(host, "/catalog/1"), "label": "page" })],
         &settings(&proving_ground, &more),
         &mut |inside, handle| {
             let page_id = new_page(inside, handle);
@@ -815,6 +862,47 @@ fn a_handlers_goto_to_a_document_whose_use_signals_refuse_the_purpose_is_refused
         ),
         "{went}"
     );
+}
+
+/// The same holds for a document that declares its signals in its
+/// response's markup or names its license: a `TDMRep` `<meta>`, an RSL
+/// `Link` header or an RSL `<link>`, the license fetched once for the Run
+/// and prohibiting every AI use; a page of the same host declaring none
+/// loads.
+///
+/// Covers: story:5-134, setting:site_preferences.respect_use_signals, setting:site_preferences.purpose, operation:page.goto, operation:page.evaluate
+#[rstest::rstest]
+/// Covers: error:site_preferences_refused
+#[case::a_tdmrep_meta("/catalog/2", false)]
+/// Covers: error:site_preferences_refused
+#[case::an_rsl_link_header("/catalog/3", false)]
+/// Covers: error:site_preferences_refused
+#[case::an_rsl_link_element("/catalog/4", false)]
+#[case::no_signal("/catalog/1", true)]
+fn a_handlers_goto_to_a_document_whose_markup_or_license_refuses_the_purpose_is_refused_blank(
+    #[case] path: &str,
+    #[case] loads: bool,
+) {
+    let (went, text) = goto_declaring(
+        MARKUP_HOST,
+        path,
+        &json!({ "respect_use_signals": true, "purpose": "ai-input" }),
+    );
+
+    let answered = if loads {
+        went["result"]["response"]["status"].clone()
+    } else {
+        json!([
+            went["error"]["data"]["code"],
+            went["error"]["data"]["reason"]
+        ])
+    };
+    let expected = if loads {
+        json!(200)
+    } else {
+        json!(["site_preferences_refused", "use_signals"])
+    };
+    assert_eq!((answered, text), (expected, json!(loads)), "{went}");
 }
 
 /// With `site_preferences.respect_use_signals` off, or a Purpose of
@@ -1408,16 +1496,22 @@ fn a_handlers_navigations_through_a_fresh_egress_relay_reach_their_domain_the_de
         .windows(2)
         .map(|pair| pair[1].1 - pair[0].1)
         .collect();
-    // The arrivals may come a little closer than the sends (`too_soon`).
-    let least = RELAY_DELAY_MILLISECONDS * 1_000 * 9 / 10;
+    // The gap after the relay's first request is held to the whole delay:
+    // a gate counting from that request's admission, or from the command
+    // that first sent it on, lets the second arrive short of it by the
+    // relay's `407` and its credentials. Between two later navigations, the
+    // arrivals may come a little closer than the sends (`too_soon`).
+    let delay = RELAY_DELAY_MILLISECONDS * 1_000;
+    let least = delay * 9 / 10;
     assert_eq!(
         (
             &report["result"]["lifecycle"],
             statuses,
             arrived.len(),
-            gaps.iter().filter(|gap| **gap < least).count(),
+            gaps.first().map(|relay_gap| *relay_gap >= delay),
+            gaps.iter().skip(1).filter(|gap| **gap < least).count(),
         ),
-        (&json!("finished"), vec![json!(200); 3], 3, 0),
+        (&json!("finished"), vec![json!(200); 3], 3, Some(true), 0),
         "{arrived:?} {gaps:?}"
     );
 }

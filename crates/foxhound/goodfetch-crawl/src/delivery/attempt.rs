@@ -249,6 +249,9 @@ pub(super) struct Gating {
     /// The address check of the Run's HTTP tier, if it has one.
     pub(super) addresses: Option<AddressCheck>,
     pub(super) page_check: Option<PageCheck>,
+    /// The main-content step the request's Label chooses with
+    /// `content.extractor`, over the Run's.
+    pub(super) extractor: Option<goodfetch_fetch_tier::BuiltIn>,
     /// The encoding `fetch.encoding` forces on the request's own
     /// document: its Label's, else the Run's (ADR 0119).
     pub(super) encoding: Option<&'static encoding_rs::Encoding>,
@@ -308,6 +311,7 @@ impl Gating {
                 .as_ref()
                 .and_then(|settings| settings.duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)),
             use_signals: settings.as_ref().and_then(honoured_purpose),
+            signal_files: self.signal_files.clone(),
             lease: Arc::new(HandlerLease {
                 lease: lease.clone(),
                 run: run.clone(),
@@ -317,6 +321,7 @@ impl Gating {
             egress: Arc::clone(&self.egress),
             addresses: self.addresses.clone(),
             page_check: self.page_check.clone(),
+            extractor: self.extractor,
             encoding: self.encoding,
             content_types: self.content_types.clone(),
             capture: None,
@@ -818,9 +823,10 @@ impl On<'_> {
             .await;
         // A Session that may move to the browser, under `auto`, sends its
         // HTTP from inside its browser, so its fingerprint and cookies stay
-        // the Session's on both tiers (ADR 0020; pitfall H20).
+        // the Session's on both tiers (ADR 0020; pitfall H20), and so does
+        // one forced onto `browser_fetch`.
         let in_browser;
-        let http = if choice.forced.is_none() {
+        let http = if choice.forced.is_none() || choice.tier == FetchTier::BrowserFetch {
             in_browser = tiers.in_browser(http, run, self.in_browser, &hand_over, self.context);
             &in_browser
         } else {
@@ -1122,7 +1128,22 @@ impl On<'_> {
         };
         let encoding = read_by_browser(tiers, &page_id, navigated.response.as_ref());
         self.document.lock().await.clone_from(&navigated.response);
-        record_tier(run, leased, lease, &browser, how, encoding.clone(), None).await;
+        // A document the Session's egress relay reached under an
+        // invalid-certificate exception marks its Records (ADR 0042).
+        let certificate_exception = match &navigated.response {
+            Some(response) => tiers.browser_exception(&page_id, &response.url).await,
+            None => None,
+        };
+        record_tier(
+            run,
+            leased,
+            lease,
+            &browser,
+            how,
+            encoding.clone(),
+            certificate_exception,
+        )
+        .await;
         self.in_flight
             .lock()
             .await

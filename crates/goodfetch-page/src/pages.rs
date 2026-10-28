@@ -98,6 +98,7 @@ use crate::browser_fetch;
 use crate::dialogs::{self, Dialogs};
 use crate::driver::{Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
+use crate::hiding::Hidden;
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Matches, Pending, Registered};
@@ -858,6 +859,17 @@ impl BrowserPages for Opener {
         Box::pin(async move { self.pages.sessions.retire(run_id, pooled, context).await })
     }
 
+    fn certificate_exception<'a>(
+        &'a self,
+        page_id: &'a PageId,
+        host: &'a str,
+    ) -> Opening<'a, Option<goodfetch_engine::tls::ExceptionUsed>> {
+        Box::pin(async move {
+            let page = self.pages.sessions.page(page_id).await.ok()?;
+            page.driver.relay()?.exception(host)
+        })
+    }
+
     fn fetch<'a>(
         &'a self,
         run_id: &'a RunId,
@@ -1140,7 +1152,13 @@ impl Pages {
             action,
             window: Window { limit, duration },
             surface: context.surface(),
-            hiding: page.hiding.as_deref(),
+            hiding: Hidden {
+                live: page.hiding.as_deref(),
+                sheets: &page.sheets,
+                run: &page.run,
+                page_id: &locator.page_id,
+                session_id: &page.session,
+            },
         };
         let acted = page
             .life
@@ -1200,7 +1218,7 @@ impl Pages {
         let fetched = fetched.map_err(|error| page.life.withheld(error))?;
         let kept = match fetched.body {
             browser_fetch::Body::Whole(bytes) => {
-                let handle = page.run.store_body(bytes).await.map_err(|error| {
+                let handle = page.run.store_body(bytes.into()).await.map_err(|error| {
                     CallError::protocol(
                         ProtocolFailure::InternalError,
                         format!("the response's body was not kept in the Run's folder: {error}"),
@@ -1246,7 +1264,7 @@ impl Pages {
                 page.driver.evaluate(expression, world, operation),
             )
             .await?;
-        page_functions::answered(returns, surface)
+        page_functions::answered(returns, (surface, operation))
     }
 
     /// Registers the init script `params` names on its page, `pending`
@@ -1426,7 +1444,8 @@ impl Pages {
     /// The formats the request names, read from one serialization of the
     /// page's document, its shadow roots included, on a blocking thread of
     /// its Run's, the Clean-up rules of its Session applied before the main
-    /// content (ADR 0047); Provenance records each call with the rules'
+    /// content (ADR 0047), on a document a fetch tier served those of its
+    /// Run, as in every tier; Provenance records each call with the rules'
     /// version and what they removed (G6).
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
@@ -1440,9 +1459,10 @@ impl Pages {
             let request = params.formats;
             let extractor = clean_up::extractor(
                 served.run.settings().map(RunSettings::resolved),
-                &Values::default(),
+                (&Values::default(), served.extractor),
                 &Values::default(),
             );
+            let cosmetic = self.interception.served_cosmetic(&served.run).await;
             let (formats, read) = served
                 .run
                 .owner()
@@ -1452,7 +1472,7 @@ impl Pages {
                         Serialization::Served,
                         request,
                         extractor.extractor(),
-                        (None, &[]),
+                        (cosmetic.as_ref(), &[]),
                     )
                 })
                 .await;
@@ -1469,7 +1489,7 @@ impl Pages {
         let (_, session) = self.sessions.own_settings(&page.session).await?;
         let extractor = clean_up::extractor(
             page.run.settings().map(RunSettings::resolved),
-            &session,
+            (&session, page.driver.value().extractor()),
             &page.settings,
         );
         let cosmetic = self.interception.cosmetic(&params.page_id);

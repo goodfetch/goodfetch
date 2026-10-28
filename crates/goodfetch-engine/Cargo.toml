@@ -14,6 +14,8 @@ autobenches = false
 # The run's `Mask`: one automaton over every resolved value and its
 # encodings (spec #564, ADR 0071).
 aho-corasick.workspace = true
+# Bodies are `Bytes`, read once and never copied (STYLE.md).
+bytes.workspace = true
 chacha20.workspace = true
 # Run state's field encryption and its data key's wrap (ADR 0015).
 chacha20poly1305.workspace = true

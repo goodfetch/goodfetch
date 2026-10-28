@@ -27,7 +27,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
 use rstest::rstest;
-use rusqlite::{Connection, OptionalExtension as _};
+use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -171,9 +171,20 @@ fn url_of(
     }
 }
 
-/// The time the Politeness file holds the domain key `key` until, if any.
+/// The time the Politeness file holds the domain key `key` until, if any:
+/// none while the engine has made the file but not yet its tables.
 fn ready_at(file: &Path, key: &str) -> Option<SystemTime> {
-    let connection = Connection::open(file).unwrap();
+    let connection = Connection::open_with_flags(file, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    let tables: bool = connection
+        .query_row(
+            "SELECT count(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'domain_limits'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    if !tables {
+        return None;
+    }
     let ready_at: Option<Option<i64>> = connection
         .query_row(
             "SELECT ready_at FROM domain_limits WHERE key = ?1",

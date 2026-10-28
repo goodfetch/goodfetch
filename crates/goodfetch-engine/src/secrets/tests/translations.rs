@@ -4,19 +4,15 @@
 //! Secret canary, in no log line and no formatted failure. Then the
 //! keychain provider through the driver over keyring-core's mock store,
 //! and on a host with no keychain.
-#![expect(
-    clippy::disallowed_types,
-    reason = "the test's log writer holds its bytes behind a standard Mutex, outside any loom model"
-)]
 
 use std::io;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use age::DecryptError;
 use goodfetch_protocol::secrets::SecretFailure;
-use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
+use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv, logged};
 use keyring_core::{CredentialStore, Error};
 use rstest::rstest;
 use secrecy::ExposeSecret as _;
@@ -147,31 +143,6 @@ fn the_encrypted_local_files_failures_translate_each_to_its_meaning(
     );
 
     assert_eq!(meaning(&failure), expected);
-}
-
-/// What `tracing` wrote while `work` ran, at every level.
-fn logged<T>(work: impl FnOnce() -> T) -> (T, Vec<u8>) {
-    #[derive(Clone, Default)]
-    struct Captured(Arc<Mutex<Vec<u8>>>);
-    impl io::Write for Captured {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-    let captured = Captured::default();
-    let writer = captured.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(move || writer.clone())
-        .with_max_level(tracing::Level::TRACE)
-        .with_ansi(false)
-        .finish();
-    let answer = tracing::subscriber::with_default(subscriber, work);
-    let bytes = captured.0.lock().unwrap().clone();
-    (answer, bytes)
 }
 
 /// Covers: story:4-50

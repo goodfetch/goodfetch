@@ -50,7 +50,10 @@ impl Policy {
     pub fn check_caps(&self) -> Result<(), SettingsError> {
         for name in self.cap.applied.keys() {
             let capped = keys::find(name).map(|key| key.setting.kind);
-            if !matches!(capped, Some(ValueKind::Count | ValueKind::Duration)) {
+            if !matches!(
+                capped,
+                Some(ValueKind::Count | ValueKind::CountUpTo(_) | ValueKind::Duration)
+            ) {
                 return Err(SettingsError::Invalid {
                     key: (*name).to_owned(),
                     layer: Some(SettingsLayer::OperatorPolicy),

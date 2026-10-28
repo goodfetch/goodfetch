@@ -15,8 +15,11 @@
 //!   `/copy_text.js`), which a blocker blocks.
 //! - `/challenge`: Akamai's (`/akam/13/…`) and HUMAN's (`/perimeterx/…`)
 //!   first-party sensors, which EasyPrivacy blocks and the never-block list
-//!   keeps loading, Cloudflare's challenge platform script and logo, and the
-//!   same tracker as `/ads`, which stays blocked.
+//!   keeps loading, Cloudflare's challenge platform script and logo, Stripe's
+//!   fraud-signals script (`/6` of [`PAYMENT_HOST`], another site's, which
+//!   EasyPrivacy's `||m.stripe.com^$third-party` blocks and the never-block
+//!   list keeps loading as a payment script), and the same tracker as
+//!   `/ads`, which stays blocked.
 //! - `/stand-in`: loads Chartbeat's `https://static.chartbeat.com/js/chartbeat.js`,
 //!   which EasyPrivacy redirects to its stand-in, and calls the
 //!   `pSUPERFLY.virtualPage` it defines; then, before its `load`, shows
@@ -57,6 +60,13 @@ pub(crate) const HOST: &str = "clean-up.test";
 /// The host name of `/cross-site`'s frame, another site.
 pub(crate) const FRAME_HOST: &str = "clean-up-frame.test";
 
+/// The host of Stripe's fraud-signals script, a payment script `/challenge`
+/// loads from it over HTTPS as a checkout page would: its own name, so the
+/// Filter lists and the never-block list judge the request as they judge
+/// Stripe's. Browsers reach `stripe.com`'s hosts only over HTTPS (it is
+/// HSTS-preloaded), so the server's leaf of its seeded authority answers it.
+pub(crate) const PAYMENT_HOST: &str = "m.stripe.com";
+
 /// A transparent 1×1 GIF, every image's body.
 const GIF: &[u8] = &[
     0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -93,6 +103,11 @@ const CHALLENGE: &str = "<!DOCTYPE html>
 <script src=\"/akam/13/sensor.js\"></script>
 <script src=\"/perimeterx/px.js\"></script>
 <script src=\"/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1\"></script>
+<script>
+const payment = document.createElement(\"script\");
+payment.src = `https://m.stripe.com:${location.port}/6`;
+document.head.append(payment);
+</script>
 <script src=\"/js/adobe-analytics.js\"></script>
 </head>
 <body>
@@ -322,13 +337,19 @@ fn reporting(page: &str, report: &str) -> String {
     reason = "the pages name their own subresources, all in lowercase"
 )]
 pub(crate) fn respond(name: &str, request: &Request<'_>) -> Option<Reply> {
-    if name != HOST && name != FRAME_HOST {
+    if name != HOST && name != FRAME_HOST && name != PAYMENT_HOST {
         return None;
     }
     if request.method != Method::GET {
         return Some(Reply::not_found());
     }
     let path = request.path.split('?').next().unwrap_or_default();
+    if name == PAYMENT_HOST {
+        return Some(match path {
+            "/6" => asset("application/javascript", b"void 0;\n"),
+            _ => Reply::not_found(),
+        });
+    }
     if name == FRAME_HOST && path == "/framed" {
         return Some(Reply::html(FRAMED.to_owned()));
     }

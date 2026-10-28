@@ -36,7 +36,6 @@ use crate::audit::{AuditLog, Origin};
 use crate::composition::{CallContext, CallError, Handler};
 use crate::durable;
 use crate::run::settings_error;
-use crate::runs::CALLER;
 use crate::settings::{
     HostDefaults, Layers, Opening, Policy, SettingsError, Values, operator_policy, policy_version,
     resolve, set, user_configuration,
@@ -132,7 +131,7 @@ impl Edit {
             audit: runs.audit().clone(),
             origin: Origin {
                 actor: Actor::Person {
-                    name: CALLER.to_owned(),
+                    name: context.person(),
                 },
                 surface: Some(context.surface()),
                 layer: Some(layer),
@@ -211,27 +210,35 @@ async fn policy_write(
         let _lock = lock(&edit.path)?;
         let text = read(&edit.path)?;
         let current = policy_version(text.as_deref().unwrap_or_default());
-        if current != params.digest {
-            return Err(Refused::Conflict {
-                read: params.digest,
-                current,
-            });
-        }
         let text = text.unwrap_or_else(|| new_file(&OPERATOR_POLICY));
-        let before = operator_policy(&text, edit.product, &edit.version)?;
-        let mut written = text;
-        for change in &params.changes {
-            written = set(
-                &written,
-                change.table.as_str(),
-                &change.key,
-                &change.value,
-                &OPERATOR_POLICY,
-                &edit.version,
-                added_in(&change.key),
-            )?;
-        }
-        let after = operator_policy(&written, edit.product, &edit.version)?;
+        let applied = |text: String| -> Result<_, Refused> {
+            let before = operator_policy(&text, edit.product, &edit.version)?;
+            let mut written = text;
+            for change in &params.changes {
+                written = set(
+                    &written,
+                    change.table.as_str(),
+                    &change.key,
+                    &change.value,
+                    &OPERATOR_POLICY,
+                    &edit.version,
+                    added_in(&change.key),
+                )?;
+            }
+            let after = operator_policy(&written, edit.product, &edit.version)?;
+            Ok((before, written, after))
+        };
+        let stale = current != params.digest;
+        let (before, written, after) = match applied(text) {
+            Ok(applied) => applied,
+            Err(_) if stale => {
+                return Err(Refused::Conflict {
+                    read: params.digest,
+                    current,
+                });
+            }
+            Err(refused) => return Err(refused),
+        };
         let diff = diff(
             params
                 .changes
@@ -240,6 +247,21 @@ async fn policy_write(
             |table, key| table.and_then(|table| entry(&before, table, key)),
             |table, key| table.and_then(|table| entry(&after, table, key)),
         );
+        if stale {
+            // A write the file already holds, as when a Client resent it
+            // after its Connection dropped before the reply, was made:
+            // answered as written, the file left as it is (#874).
+            if entries(&after) == entries(&before) {
+                return Ok(PolicyWritten {
+                    digest: current,
+                    diff,
+                });
+            }
+            return Err(Refused::Conflict {
+                read: params.digest,
+                current,
+            });
+        }
         replace(&edit.path, &written)?;
         let digest = policy_version(&written);
         edit.record(

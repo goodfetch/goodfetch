@@ -57,6 +57,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::events::Events;
+use goodfetch_engine::response_limits::{LimitExceeded, Limits};
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::catalog::Event;
@@ -237,8 +238,9 @@ struct State {
     /// epoch: what the browser replays from before is passed over.
     runtime_since: Option<f64>,
     requests: BTreeMap<String, Tracked>,
-    /// The bodies kept for the responses a waiter answered.
-    kept: BTreeMap<String, BodyHandle>,
+    /// The bodies kept for the responses a waiter answered, or the
+    /// `response_limit_exceeded` a body past the Run's limits raises.
+    kept: BTreeMap<String, Result<BodyHandle, CallError>>,
     /// The bodies kept for the latest responses `page.request` answered
     /// from the page's Session, whole or cut.
     requested: Latest<Requested, REQUESTED_LIMIT>,
@@ -598,7 +600,7 @@ impl PageEvents {
             {
                 let state = lock(&shared.state);
                 if let Some(kept) = state.kept.get(request_id) {
-                    return Ok(kept.clone());
+                    return kept.clone();
                 }
                 match state.requested.get(request_id) {
                     Some(Requested::Whole(kept)) => return Ok(kept.clone()),
@@ -638,10 +640,13 @@ impl PageEvents {
                 Err(cut(&url, received, expected))
             }
             Ended::Failed(_) => Err(unavailable(&url, request_id, surface)),
-            Ended::Finished => match read_body(shared, request_id).await {
-                Some(handle) => Ok(handle),
-                None => Err(unavailable(&url, request_id, surface)),
-            },
+            Ended::Finished => {
+                match read_body(shared, request_id, &url, (received, expected)).await {
+                    Ok(handle) => Ok(handle),
+                    Err(Unread::PastLimit(exceeded)) => Err(exceeded),
+                    Err(Unread::Gone) => Err(unavailable(&url, request_id, surface)),
+                }
+            }
         }
     }
 }
@@ -654,16 +659,47 @@ fn declared_length(response: &PageResponse) -> Option<u64> {
         .and_then(|length| length.trim().parse().ok())
 }
 
-/// Reads the body of the finished request `request_id` from the browser
-/// and stores it in the Run's folder; none when the browser no longer holds
-/// it.
-async fn read_body(shared: &Shared, request_id: &str) -> Option<BodyHandle> {
-    let bytes = body_bytes(shared, request_id).await?;
-    match shared.run.store_body(bytes).await {
-        Ok(handle) => Some(handle),
+/// Why a finished request's body was not read.
+enum Unread {
+    /// The browser no longer holds it, or it was not stored.
+    Gone,
+    /// It is past the Run's `network.max_body_size` or
+    /// `network.max_decompression_ratio`: `response_limit_exceeded`.
+    PastLimit(CallError),
+}
+
+/// Reads the body of the finished request `request_id` to `url` from the
+/// browser and stores it in the Run's folder, once the Run's limits allow
+/// it (ticket #644): `received` decoded bytes the browser counted, from
+/// the `Content-Length` it declared, if any, are judged before the body is
+/// read, and the bytes read after.
+async fn read_body(
+    shared: &Shared,
+    request_id: &str,
+    url: &str,
+    (received, declared): (u64, Option<u64>),
+) -> Result<BodyHandle, Unread> {
+    let limits = shared
+        .run
+        .settings()
+        .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+    let past = |exceeded: LimitExceeded| Unread::PastLimit(exceeded.error());
+    limits
+        .judge_decoded(url, received, declared)
+        .map_err(past)?;
+    let bytes = body_bytes(shared, request_id).await.ok_or(Unread::Gone)?;
+    limits
+        .judge_decoded(
+            url,
+            u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+            declared,
+        )
+        .map_err(past)?;
+    match shared.run.store_body(bytes.into()).await {
+        Ok(handle) => Ok(handle),
         Err(error) => {
             tracing::warn!(%error, "a response's body was not stored");
-            None
+            Err(Unread::Gone)
         }
     }
 }
@@ -1154,23 +1190,40 @@ fn answer_waiters(
     if matched.is_empty() {
         return;
     }
+    let received = state
+        .requests
+        .get(&request.request_id)
+        .map_or(0, |tracked| tracked.received);
+    let declared = declared_length(&response);
     let shared = Arc::clone(shared);
     let run = shared.run.clone();
     run.spawn(async move {
         let request_id = request.request_id.clone();
-        let kept = read_body(&shared, &request_id).await;
-        if let Some(handle) = &kept {
-            lock(&shared.state)
-                .kept
-                .insert(request_id.clone(), handle.clone());
+        let kept = read_body(&shared, &request_id, &request.url, (received, declared)).await;
+        let gone = matches!(kept, Err(Unread::Gone));
+        match kept {
+            Ok(handle) => {
+                lock(&shared.state)
+                    .kept
+                    .insert(request_id.clone(), Ok(handle));
+            }
+            Err(Unread::PastLimit(exceeded)) => {
+                lock(&shared.state)
+                    .kept
+                    .insert(request_id.clone(), Err(exceeded));
+            }
+            Err(Unread::Gone) => {}
         }
         for waiter in matched {
-            let answer = match kept {
-                Some(_) => Ok(PageExchange {
+            // A body past the limits is no body the browser dropped: the
+            // request finished, and `response.body` raises the limit.
+            let answer = if gone {
+                Err(unavailable(&request.url, &request_id, waiter.surface))
+            } else {
+                Ok(PageExchange {
                     request: request.clone(),
                     response: response.clone(),
-                }),
-                None => Err(unavailable(&request.url, &request_id, waiter.surface)),
+                })
             };
             let _ = waiter.answer.send(answer);
         }

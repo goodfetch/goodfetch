@@ -376,6 +376,11 @@ impl WorkItemLease {
         let epoch = lease.epoch();
         let staging = self.0.leases.staging.clone();
         let masks = masks.clone();
+        let folder = state
+            .path()
+            .parent()
+            .expect("invariant: a run file lies in its Run's folder")
+            .to_owned();
         match state
             .write(move |connection| {
                 let staged = staging.take(&work_item, epoch);
@@ -387,7 +392,7 @@ impl WorkItemLease {
                     Err(refused) => return Ok(Some(Err(refused))),
                 };
                 let writes = staged.admit(connection)?;
-                let files = goodfetch_engine::key_value_store::apply(connection, writes)?;
+                let files = goodfetch_engine::key_value_store::apply(connection, &folder, writes)?;
                 let fetched = staged.fetched().clone();
                 let fields = staged.fields().clone();
                 let mut records = staged.records();

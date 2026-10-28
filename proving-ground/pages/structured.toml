@@ -113,8 +113,8 @@ contacts = '''
 '''
 
 # A contact page whose language tag carries no region (`en`): its `tel:`
-# link without a country code gets no E.164, its national number in text
-# is no number at all, and its international one gets its E.164 (G1).
+# link and its national number in text, without a country code, get no
+# E.164, and its international one gets its E.164 (G1).
 [[pages]]
 path = "no-region"
 html = '''
@@ -148,6 +148,7 @@ contacts = '''
   "emails": [],
   "phones": [
     { "value": "02070313000", "text": "the London shop", "e164": null },
+    { "value": "020 7031 3001", "text": "020 7031 3001", "e164": null },
     { "value": "+1 650-253-0000", "text": "+1 650-253-0000", "e164": "+16502530000" }
   ],
   "social": [

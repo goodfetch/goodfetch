@@ -102,6 +102,7 @@ fn a_labels_tier_forces_its_own_requests_over_the_runs(
 #[case::a_race(json!({ "fetch": { "tier_race": true } }), "setting_not_applicable", "fetch.tier_race")]
 #[case::unknown_encoding(json!({ "fetch": { "encoding": "klingon" } }), "setting_invalid", "fetch.encoding")]
 #[case::encoding_not_text(json!({ "fetch": { "encoding": 8 } }), "setting_invalid", "fetch.encoding")]
+#[case::unknown_extractor(json!({ "content": { "extractor": "readability" } }), "setting_invalid", "content.extractor")]
 /// Covers: story:5-137, setting:session.page_check
 #[case::no_page_check(
     json!({ "session": { "page_check": { "expected_page": { "kind": "css" } } } }),

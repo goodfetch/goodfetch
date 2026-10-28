@@ -200,6 +200,10 @@ impl LocalBinding {
     /// # Errors
     ///
     /// [`Failure::Network`] when the name has no address.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future abandons the lookup; nothing is kept.
     pub async fn lookup(
         &self,
         host: &str,
@@ -222,6 +226,10 @@ impl LocalBinding {
     /// [`io::ErrorKind::AddrNotAvailable`] when the Session holds no address
     /// of that family, so none is opened from another; else the
     /// connection's own failure.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes a connection still being opened.
     pub async fn connect(&self, address: SocketAddr) -> io::Result<TcpStream> {
         let Some(local) = self.of(family_of(address.ip())) else {
             return Err(io::ErrorKind::AddrNotAvailable.into());
@@ -404,6 +412,9 @@ pub struct UpstreamProxy {
     pub host: String,
     /// Its port.
     pub port: u16,
+    /// How its own addresses are judged: as an Operator-configured
+    /// endpoint's, under `egress.no_private_endpoints` (ADR 0017).
+    pub policy: EndpointPolicy,
 }
 
 impl std::fmt::Display for UpstreamProxy {
@@ -550,6 +561,14 @@ impl PageTraffic {
                     .addresses(&proxy_server)
                     .await
                     .map_err(|_| FetchError::Failed(Failure::Proxy(ProxyFailure::Unreachable)))?;
+                if let Err(refused) =
+                    egress::judge_endpoint_addresses(&proxy.to_string(), &at, proxy.policy)
+                {
+                    if let Waiter::Nobody(log) = waiter {
+                        record_unwaited(log, &refused).await;
+                    }
+                    return Err(FetchError::Refused(refused));
+                }
                 Via::Proxy {
                     port: proxy_server.port,
                     host: &proxy.host,
@@ -673,8 +692,9 @@ impl ConfiguredEndpoint<'_> {
 
 /// What the machine's settings let every Operator-configured endpoint
 /// reach and trust: `egress.no_private_endpoints`, `network.resolve`,
-/// `tls.trusted_cas` and the race's delays. Each endpoint's module holds
-/// one and sends through it with its own kind.
+/// `tls.trusted_cas`, the race's delays and `network.max_body_size`, which
+/// caps every reply as each endpoint's own limit does. Each endpoint's
+/// module holds one and sends through it with its own kind.
 #[derive(Clone, Debug)]
 pub(crate) struct EndpointSettings {
     policy: EndpointPolicy,
@@ -682,6 +702,7 @@ pub(crate) struct EndpointSettings {
     authorities: Vec<(String, Vec<PathBuf>)>,
     clock: Clock,
     delays: Delays,
+    max_body_size: u64,
 }
 
 /// Why an Operator-configured endpoint gave no whole answer.
@@ -727,18 +748,18 @@ impl EndpointSettings {
             authorities,
             clock,
             delays: Delays::of(settings),
+            max_body_size: Limits::of(settings).max_body_size,
         }
     }
 
     /// Sends `request`, whose URI is the endpoint's absolute URL, to an
     /// endpoint of `kind`, and answers its whole answer, at most `limit`
-    /// bytes of body.
+    /// bytes of body and at most `network.max_body_size`.
     ///
     /// # Errors
     ///
     /// [`WholeFailure`] when the policy refused the endpoint, its
-    /// certificate failed, or it gave no whole answer of at most `limit`
-    /// bytes.
+    /// certificate failed, or it gave no whole answer within both limits.
     ///
     /// # Cancel safety
     ///
@@ -768,6 +789,7 @@ impl EndpointSettings {
                 }
                 EndpointFailure::Failed(_) => WholeFailure::Network,
             })?;
+        let limit = limit.min(usize::try_from(self.max_body_size).unwrap_or(usize::MAX));
         let mut body = Vec::new();
         while let Some(bytes) = answer.chunk().await.map_err(|_| WholeFailure::Network)? {
             if body.len() + bytes.len() > limit {
@@ -1359,6 +1381,10 @@ async fn attempt(address: SocketAddr, local: Option<IpAddr>) -> io::Result<TcpSt
 /// # Errors
 ///
 /// [`Failure::Network`] when the name has no address.
+///
+/// # Cancel safety
+///
+/// Dropping the future abandons the lookup; nothing is kept.
 pub async fn lookup(host: &str, port: u16, resolve: &Resolve) -> Result<Vec<SocketAddr>, Failure> {
     let server = Server {
         host,

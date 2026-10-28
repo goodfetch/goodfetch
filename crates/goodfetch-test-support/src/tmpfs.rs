@@ -15,7 +15,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use goodfetch_test_support::TestEnv;
+use crate::env::TestEnv;
 
 /// The test-only copy of util-linux's `unshare` that `ci/os-services.sh
 /// setup` installs, root-owned, with an `AppArmor` profile that gives it user
@@ -40,24 +40,29 @@ const MOUNT: &str = "set -e; folder=\"$1\"; size=\"$2\"; kept=\"$3\"; shift 3; \
 /// teardown copies into its exercise record (TESTING.md, Feature coverage).
 const LOG_FOLDER: &str = "logs";
 
-/// A command that runs `program` with a tmpfs of `size` bytes over the
-/// test's Goodfetch home, which holds what the home held, in a user and
-/// mount namespace of its own, its `logs` folder kept on the test's own
-/// disk: the engine's JSON log outlives the tmpfs and is never refused by
-/// the full filesystem, so the test's exercise record shows what the engine
-/// dispatched (ADR 0072). It fails the test at once, naming the
-/// restriction, when that `unshare` cannot map the test's user to root.
-/// Collie's tests hold the same helper; the two executables' tests share
-/// no module.
-pub(crate) fn mounted_home(env: &TestEnv, size: u64, program: &str) -> Command {
-    mounted_keeping(env, env.home(), size, program, LOG_FOLDER)
+/// A command that runs `program` with a tmpfs of `size` bytes over
+/// `folder`, which holds what `folder` held, in a user and mount namespace
+/// of its own.
+///
+/// # Panics
+///
+/// At once, naming the restriction, when that `unshare` cannot map the
+/// test's user to root.
+pub fn tmpfs_mounted(env: &TestEnv, folder: &Path, size: u64, program: &str) -> Command {
+    mounted_keeping(env, folder, size, program, "")
 }
 
 /// A command that runs `program` with a tmpfs of `size` bytes over the
-/// test's `folder`, which holds what the folder held, in a user and mount
-/// namespace of its own.
-pub(crate) fn mounted(env: &TestEnv, folder: &Path, size: u64, program: &str) -> Command {
-    mounted_keeping(env, folder, size, program, "")
+/// test's Goodfetch home, as [`tmpfs_mounted`] does, but its `logs` folder
+/// kept on the test's own disk: the engine's JSON log outlives the tmpfs
+/// and is never refused by the full filesystem, so the test's exercise
+/// record shows what the engine dispatched (ADR 0072).
+///
+/// # Panics
+///
+/// As [`tmpfs_mounted`].
+pub fn tmpfs_mounted_home(env: &TestEnv, size: u64, program: &str) -> Command {
+    mounted_keeping(env, env.home(), size, program, LOG_FOLDER)
 }
 
 fn mounted_keeping(env: &TestEnv, folder: &Path, size: u64, program: &str, kept: &str) -> Command {
@@ -79,7 +84,7 @@ fn mounted_keeping(env: &TestEnv, folder: &Path, size: u64, program: &str, kept:
          allows it",
         String::from_utf8_lossy(&probe.stderr).trim()
     );
-    std::fs::create_dir_all(folder).unwrap();
+    std::fs::create_dir_all(folder).expect("the folder to mount over is made");
     let mut command = env.process_command(unshare);
     command
         .args([
@@ -98,9 +103,9 @@ fn mounted_keeping(env: &TestEnv, folder: &Path, size: u64, program: &str, kept:
     command
 }
 
-/// `path` as the process `pid` started by [`mounted`] sees it, inside its
-/// mount namespace.
-pub(crate) fn inside(pid: u32, path: &Path) -> PathBuf {
+/// `path` as the process `pid` started by [`tmpfs_mounted`] sees it,
+/// inside its mount namespace.
+pub fn inside_mount(pid: u32, path: &Path) -> PathBuf {
     let relative = path.strip_prefix("/").unwrap_or(path);
     Path::new("/proc")
         .join(pid.to_string())
@@ -110,15 +115,19 @@ pub(crate) fn inside(pid: u32, path: &Path) -> PathBuf {
 
 /// Fills the filesystem of `folder`, as `pid` sees it, with a file of
 /// zeros, keeping `room` bytes free, or until no byte is left when `room`
-/// is 0; answers the file, which [`free`] removes.
+/// is 0; answers the file, which [`free_filesystem`] removes.
 ///
 /// With some `room`, the file never takes more than what is free beyond
 /// it: a filesystem full for a moment on the way is one the engine's
 /// storage sample or a commit of run state may meet, and either stops the
 /// Run as at `critical` (ADR 0122).
-pub(crate) fn fill(pid: u32, folder: &Path, room: u64) -> PathBuf {
-    let filler = inside(pid, &folder.join("filler"));
-    let mut file = std::fs::File::create(&filler).unwrap();
+///
+/// # Panics
+///
+/// When the file cannot be made or synced.
+pub fn fill_filesystem(pid: u32, folder: &Path, room: u64) -> PathBuf {
+    let filler = inside_mount(pid, &folder.join("filler"));
+    let mut file = std::fs::File::create(&filler).expect("the filler file is made");
     let block = vec![0_u8; 64 * 1024];
     if room == 0 {
         while file.write_all(&block).is_ok() {}
@@ -131,10 +140,10 @@ pub(crate) fn fill(pid: u32, folder: &Path, room: u64) -> PathBuf {
             if file.write_all(&block[..size]).is_err() {
                 break;
             }
-            left -= u64::try_from(size).unwrap();
+            left -= u64::try_from(size).unwrap_or(u64::MAX).min(left);
         }
     }
-    file.sync_all().unwrap();
+    file.sync_all().expect("the filler file syncs");
     filler
 }
 
@@ -145,18 +154,26 @@ fn available(path: &Path) -> u64 {
         .args(["--file-system", "--format", "%a %S"])
         .arg(path)
         .output()
-        .unwrap();
+        .expect("`stat --file-system` runs");
     assert!(
         output.status.success(),
         "`stat --file-system` failed: {}",
         String::from_utf8_lossy(&output.stderr).trim()
     );
-    let read = String::from_utf8(output.stdout).unwrap();
-    let (blocks, size) = read.trim().split_once(' ').unwrap();
-    blocks.parse::<u64>().unwrap() * size.parse::<u64>().unwrap()
+    let read = String::from_utf8(output.stdout).expect("`stat` prints UTF-8");
+    let (blocks, size) = read
+        .trim()
+        .split_once(' ')
+        .expect("`stat` prints blocks and a block size");
+    let number = |text: &str| text.parse::<u64>().expect("`stat` prints numbers");
+    number(blocks) * number(size)
 }
 
-/// Frees what [`fill`] took.
-pub(crate) fn free(filler: &Path) {
-    std::fs::remove_file(filler).unwrap();
+/// Frees what [`fill_filesystem`] took.
+///
+/// # Panics
+///
+/// When the file cannot be removed.
+pub fn free_filesystem(filler: &Path) {
+    std::fs::remove_file(filler).expect("the filler file is removed");
 }

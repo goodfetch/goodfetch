@@ -27,18 +27,19 @@
     reason = "the tests start their own browser, read its port and the Run trace, and run their stand-ins on their own threads, never an async worker"
 )]
 
+use std::collections::BTreeMap;
 use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 use goodfetch_test_support::{
-    Answer, BROWSERS_PATH_VARIABLE, Outcome, Process, Refusal, Runner, SsrfCase, SsrfTable,
-    TestEnv, browser_cache,
+    Answer, BROWSERS_PATH_VARIABLE, Outcome, Process, Redirect, Refusal, Runner, SsrfCase,
+    SsrfTable, TestEnv, browser_cache,
 };
 use serde_json::{Map, Value, json};
 
@@ -61,6 +62,10 @@ const OPENER: &str = "/opener";
 /// The site's popup page, whose button opens a popup on `leak.test` and
 /// closes the page itself, so the new popup's opener is gone at once.
 const POPUP: &str = "/popup";
+
+/// How long a redirect case waits for its hop once its page loaded: a
+/// refresh or a script hops once the page is in.
+const HOP_DEADLINE: Duration = Duration::from_secs(10);
 
 /// What `cdp_url_not_allowed` asks for.
 const FIX: &str = "set the address in Operator policy or in user or project configuration, or give a public address";
@@ -113,6 +118,8 @@ impl Lent {
 struct Site {
     port: u16,
     hosts: Arc<Mutex<Vec<String>>>,
+    /// The whole response each path given a redirect answers instead.
+    redirects: Arc<Mutex<BTreeMap<String, String>>>,
 }
 
 impl Site {
@@ -120,14 +127,50 @@ impl Site {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let hosts = Arc::new(Mutex::new(Vec::new()));
-        let recorded = Arc::clone(&hosts);
+        let redirects = Arc::new(Mutex::new(BTreeMap::new()));
+        let (recorded, answered) = (Arc::clone(&hosts), Arc::clone(&redirects));
         std::thread::spawn(move || {
             for stream in listener.incoming().map_while(Result::ok) {
-                let recorded = Arc::clone(&recorded);
-                std::thread::spawn(move || answer(stream, &recorded));
+                let (recorded, answered) = (Arc::clone(&recorded), Arc::clone(&answered));
+                std::thread::spawn(move || answer(stream, &recorded, &answered));
             }
         });
-        Self { port, hosts }
+        Self {
+            port,
+            hosts,
+            redirects,
+        }
+    }
+
+    /// Answers `path` with `redirect` from now on, its location as given.
+    fn redirect(&self, path: &str, redirect: &Redirect) {
+        let page = |location: &str, element: &str| {
+            let body = element.replace("LOCATION", location);
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+        };
+        let response = match redirect {
+            Redirect::Status { status, location } => format!(
+                "HTTP/1.1 {status} Redirect\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            ),
+            Redirect::RefreshHeader { location } => format!(
+                "HTTP/1.1 200 OK\r\nRefresh: 0; url={location}\r\nContent-Type: text/html\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            ),
+            Redirect::MetaRefresh { location } => page(
+                location,
+                "<html><head><meta http-equiv=\"refresh\" content=\"0; url=LOCATION\"></head><body>Refresh</body></html>",
+            ),
+            Redirect::Script { location } => page(
+                location,
+                "<html><body><script>location.href = \"LOCATION\";</script></body></html>",
+            ),
+        };
+        self.redirects
+            .lock()
+            .unwrap()
+            .insert(path.to_owned(), response);
     }
 
     /// The hosts of the requests it received, the browser's own for an
@@ -143,8 +186,13 @@ impl Site {
 }
 
 /// Reads one request head from `stream`, records its `Host`, and answers a
-/// page; a preconnected socket that sends nothing records nothing.
-fn answer(mut stream: TcpStream, recorded: &Mutex<Vec<String>>) {
+/// page, or the redirect its path was given; a preconnected socket that
+/// sends nothing records nothing.
+fn answer(
+    mut stream: TcpStream,
+    recorded: &Mutex<Vec<String>>,
+    redirects: &Mutex<BTreeMap<String, String>>,
+) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let mut head = Vec::new();
     let mut buffer = [0; 4096];
@@ -165,6 +213,10 @@ fn answer(mut stream: TcpStream, recorded: &Mutex<Vec<String>>) {
     let host = host.rsplit_once(':').map_or(host, |(name, _)| name);
     recorded.lock().unwrap().push(host.to_owned());
     let path = text.split(' ').nth(1).unwrap_or("/");
+    if let Some(redirect) = redirects.lock().unwrap().get(path) {
+        let _ = stream.write_all(redirect.as_bytes());
+        return;
+    }
     let body = match path {
         OPENER => {
             "<html><body><button id=open onclick=\"window.open('/popup')\">Open</button></body></html>"
@@ -1037,4 +1089,149 @@ fn a_popup_whose_opener_went_never_runs_outside_the_interception() {
         ),
         (&json!(200), true, true, false),
     );
+}
+
+/// `redirect` with its location, when it is an `http:` URL, on the site's
+/// `port`, so a hop let through reaches the site, which records it.
+fn on_port(redirect: &Redirect, port: u16) -> Redirect {
+    let moved = |location: &str| match url::Url::parse(location) {
+        Ok(mut url) if url.scheme() == "http" => {
+            let _ = url.set_port(Some(port));
+            url.to_string()
+        }
+        _ => location.to_owned(),
+    };
+    match redirect {
+        Redirect::Status { status, location } => Redirect::Status {
+            status: *status,
+            location: moved(location),
+        },
+        Redirect::RefreshHeader { location } => Redirect::RefreshHeader {
+            location: moved(location),
+        },
+        Redirect::MetaRefresh { location } => Redirect::MetaRefresh {
+            location: moved(location),
+        },
+        Redirect::Script { location } => Redirect::Script {
+            location: moved(location),
+        },
+    }
+}
+
+/// The host a redirect's location names, if it names one.
+fn hop_host(redirect: &Redirect) -> Option<String> {
+    let (Redirect::Status { location, .. }
+    | Redirect::RefreshHeader { location }
+    | Redirect::MetaRefresh { location }
+    | Redirect::Script { location }) = redirect;
+    url::Url::parse(location).ok().and_then(|url| {
+        url.host_str()
+            .map(|host| host.trim_matches(['[', ']']).to_owned())
+    })
+}
+
+/// The SSRF table's thin runner on a Borrowed browser (ADR 0067), for the
+/// redirect family: the stand-in site answers each case's page with its
+/// redirect, every status and kind of redirect and every scheme other than
+/// HTTP's, and interception judges the hop as the browser follows it, the
+/// hop's name resolved by the engine as the case's `lookups` say and by the
+/// browser to loopback, so a hop let through reaches the site, which then
+/// stands in for its target. A refresh or a script hops once the page is
+/// in, so its refusal is the page's next call's. Positive control: a hop to
+/// the site's public name goes through.
+///
+/// Covers: story:4-5, story:4-14, error:egress_refused
+#[test]
+fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_a_borrowed_browser() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let site = Site::start();
+    let runner = Runner::committed(
+        "borrowed_browser",
+        file!(),
+        "every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_a_borrowed_browser",
+    )
+    .unwrap();
+    let controls = SsrfTable::parse(&format!(
+        r#"
+        [[cases]]
+        name = "status_to_the_sites_public_name"
+        family = "redirect"
+        url = "http://redirect.ssrf.test/"
+        lookups = [{{ name = "redirect.ssrf.test", answers = ["public"] }}]
+        redirect = {{ kind = "status", status = 302, location = "http://{SITE}/" }}
+        target = "public"
+        refusal = {{ code = "egress_refused", rule = "private_address" }}
+        "#
+    ))
+    .unwrap();
+    let mut program = Program::start(&env, &cache, "sdk_python");
+    let public = PUBLIC.parse().unwrap();
+    let mut sessions: Vec<(Mapping, String)> = Vec::new();
+
+    let result = runner.run(&controls.cases, public, |case| {
+        let page = borrowed_page(&mut program, &lent.cdp_url, &mut sessions, mapping_of(case));
+        let path = format!("/hop/{}", case.name);
+        let Some(redirect) = &case.redirect else {
+            return Outcome::connected(Vec::new());
+        };
+        site.redirect(&path, &on_port(redirect, site.port));
+        let first = url::Url::parse(&case.url)
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_owned))
+            .unwrap_or_default();
+        let hop = hop_host(redirect);
+        let before = site.hosts().len();
+        let reached = || {
+            site.hosts()
+                .iter()
+                .skip(before)
+                .any(|host| hop.as_deref() == Some(host.as_str()) && *host != first)
+        };
+        let outcome = |refusal, reached: bool| Outcome {
+            refusal,
+            connections: if reached {
+                case.target_address(public).into_iter().collect()
+            } else {
+                Vec::new()
+            },
+        };
+        let refusal = |answer: &Value| match error(answer) {
+            (code, details) if code == "egress_refused" => {
+                serde_json::from_value(details["rule"].clone())
+                    .ok()
+                    .map(|rule| Refusal::EgressRefused { rule })
+            }
+            _ => None,
+        };
+        let went = program.goto(&page, &site.url(&first, &path));
+        if went.get("error").is_some() {
+            return outcome(refusal(&went), reached());
+        }
+        // A refresh or a script hops once the page is in.
+        let until = Instant::now() + HOP_DEADLINE;
+        while Instant::now() < until {
+            let read = program.call(
+                "page.formats",
+                &json!({ "page_id": page, "formats": { "markdown": true } }),
+            );
+            if let Some(refused) = refusal(&read) {
+                return outcome(Some(refused), reached());
+            }
+            if reached() {
+                return outcome(None, true);
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        outcome(None, reached())
+    });
+    for run in 1..sessions.len() {
+        let _ = program.call("run.finish", &json!({ "run_id": format!("table-{run}") }));
+    }
+    program.finish("table-0");
+    lent.stop();
+
+    assert_eq!(runner.cases().len(), 15);
+    assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
 }

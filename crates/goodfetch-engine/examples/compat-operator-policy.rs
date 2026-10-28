@@ -23,7 +23,10 @@ fn any_key(_: &Setting) -> bool {
 }
 
 fn bounded_key(setting: &Setting) -> bool {
-    matches!(setting.kind, ValueKind::Count | ValueKind::Duration)
+    matches!(
+        setting.kind,
+        ValueKind::Count | ValueKind::CountUpTo(_) | ValueKind::Duration
+    )
 }
 
 fn main() {

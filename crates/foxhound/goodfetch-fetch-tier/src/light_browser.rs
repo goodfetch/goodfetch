@@ -162,7 +162,7 @@ pub async fn prepare(
 /// the tier, then held while the engine lives.
 #[derive(Default)]
 pub(crate) struct LightBrowser {
-    prepared: tokio::sync::Mutex<Option<Arc<Prepared>>>,
+    prepared: tokio::sync::OnceCell<Arc<Prepared>>,
 }
 
 impl LightBrowser {
@@ -173,35 +173,48 @@ impl LightBrowser {
     ///
     /// [`prepare`]'s, and `browser_not_installed` on a platform with no
     /// pinned build.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`prepare`]'s: dropping the future of the call that prepares the
+    /// build leaves none prepared, and the next call prepares it.
+    ///
+    /// # Panics
+    ///
+    /// When the clock reads a time outside jiff's range, years -9999 to
+    /// 9999.
     pub(crate) async fn prepared(
         &self,
         run: &Run,
         home: &Home,
         pinned_by: &PinnedBy,
     ) -> Result<Arc<Prepared>, CallError> {
-        let mut prepared = self.prepared.lock().await;
-        if let Some(prepared) = prepared.as_ref() {
-            return Ok(Arc::clone(prepared));
-        }
-        let pin = pinned_here().ok_or_else(|| {
-            CallError::new(
-                &NAVIGATION_FAILED,
-                "Lightpanda builds nothing for this platform.",
-                &serde_json::json!({}),
-            )
-        })?;
-        let cache = BrowserCache::new(&CacheLocation::new(
-            home.root(),
-            home.browsers_path().map(std::path::Path::to_path_buf),
-        ));
-        let fetching = run.settings().map_or_else(
-            || Fetching::new(run.clock()),
-            |settings| Fetching::of(settings.resolved(), run.clock()),
-        );
-        let now = jiff::Timestamp::try_from(run.clock().wall()).unwrap_or_default();
-        let made = Arc::new(prepare(&cache, &pin, pinned_by, &fetching, now).await?);
-        *prepared = Some(Arc::clone(&made));
-        Ok(made)
+        let prepared = self
+            .prepared
+            .get_or_try_init(|| async {
+                let pin = pinned_here().ok_or_else(|| {
+                    CallError::new(
+                        &NAVIGATION_FAILED,
+                        "Lightpanda builds nothing for this platform.",
+                        &serde_json::json!({}),
+                    )
+                })?;
+                let cache = BrowserCache::new(&CacheLocation::new(
+                    home.root(),
+                    home.browsers_path().map(std::path::Path::to_path_buf),
+                ));
+                let fetching = run.settings().map_or_else(
+                    || Fetching::new(run.clock()),
+                    |settings| Fetching::of(settings.resolved(), run.clock()),
+                );
+                let now = jiff::Timestamp::try_from(run.clock().wall())
+                    .expect("invariant: the clock reads a time jiff can hold");
+                prepare(&cache, &pin, pinned_by, &fetching, now)
+                    .await
+                    .map(Arc::new)
+            })
+            .await?;
+        Ok(Arc::clone(prepared))
     }
 }
 

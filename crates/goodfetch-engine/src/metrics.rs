@@ -14,7 +14,8 @@ use goodfetch_protocol::governor::{
     PRESSURE_SOURCE, PressureSource, SATURATION, SystemInfo, TARGET, WorkKind,
 };
 use goodfetch_protocol::ops::{
-    BROWSER_RUNNING, CLIENT_CONNECTED, DAEMON_DRAINING, RUN_ACTIVE, RUN_ENDED,
+    BROWSER_MEMORY, BROWSER_RECYCLED, BROWSER_RUNNING, CLIENT_CONNECTED, DAEMON_DRAINING,
+    RUN_ACTIVE, RUN_ENDED,
 };
 use goodfetch_protocol::run::{RunKind, RunReport};
 use goodfetch_protocol::storage::{
@@ -37,6 +38,8 @@ pub struct Metrics(Arc<Instruments>);
 struct Instruments {
     meter: Meter,
     browser_running: UpDownCounter<i64>,
+    browser_recycled: Counter<u64>,
+    browser_memory: Gauge<u64>,
     run_active: UpDownCounter<i64>,
     run_ended: Counter<u64>,
     client_connected: UpDownCounter<i64>,
@@ -107,6 +110,16 @@ impl Metrics {
                 .with_description(BROWSER_RUNNING.description)
                 .with_unit(BROWSER_RUNNING.unit)
                 .build(),
+            browser_recycled: meter
+                .u64_counter(BROWSER_RECYCLED.name)
+                .with_description(BROWSER_RECYCLED.description)
+                .with_unit(BROWSER_RECYCLED.unit)
+                .build(),
+            browser_memory: meter
+                .u64_gauge(BROWSER_MEMORY.name)
+                .with_description(BROWSER_MEMORY.description)
+                .with_unit(BROWSER_MEMORY.unit)
+                .build(),
             run_active: meter
                 .i64_up_down_counter(RUN_ACTIVE.name)
                 .with_description(RUN_ACTIVE.description)
@@ -167,6 +180,29 @@ impl Metrics {
         )
     }
 
+    /// A browser of a Run's pool was recycled for `reason`, a value of
+    /// `goodfetch.browser.recycled`'s `reason` label.
+    pub fn browser_recycled(&self, reason: &'static str) {
+        self.0
+            .browser_recycled
+            .add(1, &[KeyValue::new("reason", reason)]);
+    }
+
+    /// A level of `metric`, an up-down counter with no label, that a crate
+    /// sets as what it counts changes, such as a queue's depth.
+    pub fn level(&self, metric: &goodfetch_protocol::catalog::Metric) -> Level {
+        Level {
+            counter: self
+                .0
+                .meter
+                .i64_up_down_counter(metric.name)
+                .with_description(metric.description)
+                .with_unit(metric.unit)
+                .build(),
+            counted: 0,
+        }
+    }
+
     /// A Run of `kind` became live, started or resumed.
     pub(crate) fn run_live(&self, kind: RunKind) {
         self.0
@@ -203,9 +239,10 @@ impl Metrics {
     }
 
     /// The Resource governor's sample `info`: each kind's target, what
-    /// holds it above normal, and its saturation, the highest share of a
-    /// kind's target in use.
+    /// holds it above normal, its saturation, the highest share of a
+    /// kind's target in use, and what its browsers use.
     pub(crate) fn governor(&self, info: &SystemInfo) {
+        self.0.browser_memory.record(info.memory.browsers, &[]);
         let mut saturation: f64 = 0.0;
         for kind in WorkKind::ALL {
             let concurrency = info.concurrency.of(kind);
@@ -233,6 +270,30 @@ impl Metrics {
     /// folders of it without the others.
     pub(crate) fn storage(&self, folders: impl IntoIterator<Item = FolderStorage>) {
         self.0.storage.send_replace(folders.into_iter().collect());
+    }
+}
+
+/// How many of something one owner holds now, on an up-down counter that
+/// other owners add to as well: none from its making, and none again once
+/// it drops.
+#[derive(Debug)]
+pub struct Level {
+    counter: UpDownCounter<i64>,
+    counted: i64,
+}
+
+impl Level {
+    /// Counts `now` in place of what it counted.
+    pub fn set(&mut self, now: usize) {
+        let now = i64::try_from(now).unwrap_or(i64::MAX);
+        self.counter.add(now - self.counted, &[]);
+        self.counted = now;
+    }
+}
+
+impl Drop for Level {
+    fn drop(&mut self) {
+        self.counter.add(-self.counted, &[]);
     }
 }
 

@@ -261,6 +261,62 @@ fn metrics_answer_the_ops_token_with_the_runtimes_metrics_under_bounded_labels()
     );
 }
 
+/// The value of the series `name` with no label in the Prometheus text
+/// `/metrics` at `address` answers `token`, if it has one.
+fn unlabelled(address: SocketAddr, token: &str, name: &str) -> Option<f64> {
+    let (_, text) = get(address, "/metrics", Some(token));
+    series(&text)
+        .into_iter()
+        .find(|(series, labels, _)| series == name && labels.is_empty())
+        .map(|(_, _, value)| value.parse().unwrap())
+}
+
+/// A Run whose browser opened its `governor.browser.recycle_pages` pages
+/// has it recycled at its next page, which `goodfetch.browser.recycled`
+/// counts with the reason `pages`; and once the Resource governor measured
+/// the Run's browser, `goodfetch.browser.memory` holds what it uses.
+///
+/// Covers: story:3-103, story:3-62, setting:governor.browser.recycle_pages
+#[test]
+fn metrics_count_each_browser_recycled_and_what_the_browsers_use() {
+    let env = TestEnv::new();
+    let (mut daemon, address) = with_ops(&env, Browsers::Installed);
+    let endpoint = daemon.serving();
+    let mut client = opened(&env, &endpoint);
+    let token = ops_token(&env);
+    let settings = json!({ "governor": { "browser": { "recycle_pages": 1 } } });
+    client.call(
+        1,
+        "run.start",
+        &json!({ "run_id": "recycling", "settings": settings }),
+    );
+    let first = client.call(2, "run.new_page", &json!({ "run_id": "recycling" }));
+    let deadline = Instant::now() + SAMPLE_DEADLINE;
+    let memory = loop {
+        let memory = unlabelled(address, &token, "goodfetch_browser_memory_bytes");
+        if memory.is_some_and(|memory| memory > 0.0) || Instant::now() >= deadline {
+            break memory;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let second = client.call(3, "run.new_page", &json!({ "run_id": "recycling" }));
+
+    let (_, text) = get(address, "/metrics", Some(&token));
+    drop(client);
+    daemon.terminate();
+    let lines: BTreeSet<&str> = text.lines().collect();
+    assert_eq!(
+        (
+            first.get("result").is_some(),
+            second.get("result").is_some(),
+            memory.is_some_and(|memory| memory > 0.0),
+            lines.contains(r#"goodfetch_browser_recycled_total{reason="pages"} 1"#),
+        ),
+        (true, true, true, true),
+        "{first}\n{second}\n{memory:?}\n{text}"
+    );
+}
+
 /// A collector stand-in on loopback: it hands each OTLP/HTTP request's
 /// path and body to the test, then answers it with 200, so an export the
 /// Daemon saw answered is already the test's.
@@ -308,9 +364,11 @@ fn collector() -> (SocketAddr, mpsc::Receiver<(String, Vec<u8>)>) {
 /// The metrics a Collie Daemon has a series of once a Client ran a Run and
 /// the Resource governor sampled the machine and the filesystems of the
 /// Daemon's own folders (ADRs 0050 and 0122): `goodfetch.browser.running`
-/// has none, since no browser ran, and [`INODES`] joins them only where the
-/// filesystem reports its inodes.
-const SAMPLED: [&str; 9] = [
+/// and `goodfetch.browser.recycled` have none, since no browser ran,
+/// `goodfetch.browser.memory` is 0, and [`INODES`] joins them only where
+/// the filesystem reports its inodes.
+const SAMPLED: [&str; 10] = [
+    "goodfetch.browser.memory",
     "goodfetch.client.connected",
     "goodfetch.daemon.draining",
     "goodfetch.governor.pressure_source",

@@ -42,6 +42,7 @@ use std::sync::Arc;
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
+use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::page::{
     FormatsRequest, Navigated, PageFormats, PageId, PageResponse, SessionId, SitePreference,
 };
@@ -86,6 +87,17 @@ pub trait BrowserPages: Send + Sync {
 
     /// Closes the page `page_id`, unless it is closed already.
     fn close<'a>(&'a self, page_id: &'a PageId) -> Opening<'a, ()>;
+
+    /// The invalid-certificate exception the browser page `page_id`
+    /// reached `host` through: the one its Session's egress relay
+    /// terminated the host's connections under (ADR 0042), for the
+    /// Provenance of what the page fetched; none for a host reached without
+    /// one, or once the page closed.
+    fn certificate_exception<'a>(
+        &'a self,
+        page_id: &'a PageId,
+        host: &'a str,
+    ) -> Opening<'a, Option<goodfetch_engine::tls::ExceptionUsed>>;
 
     /// Retires the Session of the Run `run_id` that the Product's Session
     /// pool names `pooled` (spec #594's `Retire`): its pages and browser
@@ -193,7 +205,7 @@ pub struct EngineFetch {
     /// Headers set over the browser's own, by name without regard to case.
     pub headers: Vec<(String, String)>,
     /// Its body, if any.
-    pub body: Option<Vec<u8>>,
+    pub body: Option<bytes::Bytes>,
 }
 
 /// What [`BrowserPages::fetch`] answers: the response and its body, its
@@ -335,6 +347,9 @@ pub type Admission<'a> = Pin<Box<dyn Future<Output = Result<Permit, Refusal>> + 
 /// The boxed future [`NavigationGate::sending`] answers.
 pub type Sending<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
+/// The boxed future [`NavigationGate::judge_document`] answers.
+pub type DocumentJudgment<'a> = Pin<Box<dyn Future<Output = Result<(), Refusal>> + Send + 'a>>;
+
 /// The navigation gate (ADRs 0087 and 0093): consulted at step 6 of the
 /// interception, after the domain policy and the Filter lists, for each
 /// request [`NavigationKind`] names. Time spent in [`NavigationGate::admit`]
@@ -355,25 +370,30 @@ pub trait NavigationGate: Debug + Send + Sync {
 
     /// Judges the document a main-frame navigation's response carries, for
     /// a signal the response itself sends (aipref's `Content-Usage` header,
-    /// `TDMRep`'s headers and `<meta>`, RSL's `Link` header): a refusal
-    /// raises from the call that asked for the navigation, and the page is
-    /// left on a blank document.
+    /// `TDMRep`'s headers and `<meta>`, RSL's `Link` header), which may
+    /// name a file the gate fetches first, such as an RSL license: a
+    /// refusal raises from the call that asked for the navigation, and the
+    /// page is left on a blank document. The response stays paused
+    /// meanwhile.
     ///
     /// # Errors
     ///
     /// The refusal.
-    fn judge_document(&self, response: &DocumentResponse<'_>) -> Result<(), Refusal>;
+    fn judge_document<'a>(&'a self, response: &'a DocumentResponse<'a>) -> DocumentJudgment<'a>;
 }
 
 /// What a page carries for Foxhound (ADR 0087): its navigation gate and its
-/// lease check, each empty unless Foxhound set it, and the Page check its
+/// lease check, each empty unless Foxhound set it, the Page check its
 /// crawl request's Label declares, which judges the page in place of its
-/// Session's (ADR 0093). Clones share them.
+/// Session's (ADR 0093), and the main-content step its Label's
+/// `content.extractor` chooses, which `page.formats` reads with over its
+/// Session's and its Run's (spec #580). Clones share them.
 #[derive(Clone, Debug, Default)]
 pub struct PageValue {
     gate: Option<Arc<dyn NavigationGate>>,
     lease: Option<Arc<dyn LeaseCheck>>,
     page_check: Option<PageCheck>,
+    extractor: Option<BuiltIn>,
 }
 
 impl PageValue {
@@ -389,6 +409,7 @@ impl PageValue {
             gate: Some(Arc::new(gate)),
             lease: Some(Arc::new(lease)),
             page_check: None,
+            extractor: None,
         }
     }
 
@@ -404,6 +425,21 @@ impl PageValue {
     /// when it carries one.
     pub(crate) fn page_check(&self) -> Option<&PageCheck> {
         self.page_check.as_ref()
+    }
+
+    /// The same value, its pages' main content read with `extractor` over
+    /// their Session's and their Run's `content.extractor` when it is
+    /// given.
+    #[must_use]
+    pub fn with_extractor(mut self, extractor: Option<BuiltIn>) -> Self {
+        self.extractor = extractor;
+        self
+    }
+
+    /// The main-content step its pages read with over their Session's and
+    /// their Run's, when it carries one.
+    pub(crate) fn extractor(&self) -> Option<BuiltIn> {
+        self.extractor
     }
 
     /// Its navigation gate, when it has one.
@@ -638,6 +674,10 @@ pub struct ServedDocument {
     pub base_url: String,
     /// Its HTML, decoded.
     pub html: String,
+    /// The main-content step its crawl request's Label chooses with
+    /// `content.extractor`, over its Run's; none when the Label leaves it
+    /// to the Run.
+    pub extractor: Option<BuiltIn>,
 }
 
 impl Debug for ServedDocument {

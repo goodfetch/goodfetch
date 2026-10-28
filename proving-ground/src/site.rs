@@ -137,6 +137,7 @@ impl Site {
                 languages::HOST,
                 clean_up::HOST,
                 clean_up::FRAME_HOST,
+                clean_up::PAYMENT_HOST,
                 consent::HOST,
                 consent::FRAME_HOST,
             ])
@@ -249,7 +250,9 @@ impl Site {
                 return page.into_reply();
             }
         }
-        let held = browser_pages::hold(&name, request.path).map(crawl::Held::after);
+        let held = browser_pages::hold(&name, request.path)
+            .or_else(|| access::hold(&name, request.path))
+            .map(crawl::Held::after);
         (self.respond(host, request), held)
     }
 

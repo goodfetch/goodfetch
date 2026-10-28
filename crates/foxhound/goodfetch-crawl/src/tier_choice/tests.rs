@@ -5,7 +5,7 @@ use goodfetch_protocol::foxhound::fetch::FetchTier;
 use rusqlite::Connection;
 
 use super::{
-    AttemptPlan, MAX_SEGMENTS, Sampled, Sampling, TABLES, TierChoices, Weighed, read, record,
+    AttemptPlan, MAX_SEGMENTS, Sampled, Sampling, TABLES, TierChoices, Unit, Weighed, read, record,
     segment,
 };
 
@@ -17,6 +17,20 @@ const SAMPLES: usize = 3;
 /// The moment every test starts at, in milliseconds since the Unix epoch.
 const START: u64 = 1_790_000_000_000;
 
+/// The segments `label` keeps a tier for on `domain_key`.
+fn segments(choices: &TierChoices, label: &str, domain_key: &str) -> Vec<String> {
+    match choices
+        .units
+        .get(&(label.to_owned(), domain_key.to_owned()))
+    {
+        Some(Unit::Split { segments, .. }) => segments
+            .iter()
+            .map(|segment| segment.name.clone())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// The plan of a request of `label` at `path` on [`KEY`], under `auto`, at
 /// [`START`].
 fn plan(choices: &mut TierChoices, label: &str, path: &str) -> AttemptPlan {
@@ -25,7 +39,9 @@ fn plan(choices: &mut TierChoices, label: &str, path: &str) -> AttemptPlan {
 
 /// The plan of a request of `label` at `path` on [`KEY`] at `now`.
 fn plan_at(choices: &mut TierChoices, label: &str, path: &str, now: u64) -> AttemptPlan {
-    choices.serve_attempt(label, KEY, &format!("http://tiers.test{path}"), now)
+    choices
+        .serve_attempt(label, KEY, &format!("http://tiers.test{path}"), now)
+        .0
 }
 
 /// Classifies the sample of a request of `label` at `path`, as matched or
@@ -147,7 +163,7 @@ fn a_split_label_keeps_sixteen_segments_and_the_rest_share_the_labels_choice() {
 
     assert_eq!(
         (
-            choices.segments("page", KEY),
+            segments(&choices, "page", KEY),
             tier(&mut choices, "page", "/s3/2"),
             tier(&mut choices, "page", "/s17/1"),
             tier(&mut choices, "page", "/s18/1"),
@@ -178,7 +194,7 @@ fn the_learned_choices_read_back_from_the_run_file() {
     sample(&mut choices, "page", "/products/1", true);
     sample(&mut choices, "page", "/blog/1", false);
     sample(&mut choices, "page", "/products/2", true);
-    for (label, key, unit) in choices.units() {
+    for ((label, key), unit) in &choices.units {
         record(&connection, label, key, unit).unwrap();
     }
 
@@ -264,6 +280,44 @@ fn a_choice_is_sampled_again_after_its_requests_or_its_time_whichever_comes_firs
                 }),
             ]
         )
+    );
+}
+
+/// A resumed crawl goes on counting the requests a choice served: the count
+/// is kept in the run file beside the moment the choice was made, so a
+/// crawl resumed more often than `fetch.sample.refresh_after`'s requests is
+/// still sampled again after them.
+///
+/// Covers: story:5-114, story:6-257
+#[test]
+fn a_resumed_crawl_goes_on_counting_the_requests_a_choice_served() {
+    let sampling = Sampling {
+        count: SAMPLES,
+        requests: 2,
+        after_ms: 60_000,
+    };
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in TABLES.statements {
+        connection.execute_batch(statement).unwrap();
+    }
+    let mut choices = TierChoices::default().sampled_as(sampling);
+    for page in 1..=SAMPLES {
+        sample(&mut choices, "static", &format!("/products/{page}"), true);
+    }
+    let before = tier(&mut choices, "static", "/products/4");
+    for ((label, key), unit) in &choices.units {
+        record(&connection, label, key, unit).unwrap();
+    }
+
+    let mut resumed = read(&connection).unwrap().sampled_as(sampling);
+    let after = [
+        tier(&mut resumed, "static", "/products/5"),
+        tier(&mut resumed, "static", "/products/6"),
+    ];
+
+    assert_eq!(
+        (before, after),
+        (Some(FetchTier::Http), [Some(FetchTier::Http), None])
     );
 }
 

@@ -5,12 +5,16 @@
 //! at the terminal, and calls `certs.accept` or `certs.forget` only when
 //! the person answers yes. Under `--json`, or when stdin is no terminal, as
 //! under a script, an agent or CI, it is refused with `person_required`
-//! before any engine call.
+//! before any engine call. Its calls run on the Daemon when one runs or
+//! `--daemon` is given, else on an Attached engine, as any command whose
+//! value does not outlive it (ticket #1183).
 
 use std::process::ExitCode;
 
 use clap::Subcommand;
-use goodfetch_cli::engine_choice::{self, Answer, CommandCall, Daemons};
+use goodfetch_cli::engine_choice::{
+    self, Answer, CommandCall, Daemons, EngineChoice, EngineFlags, Lifetime,
+};
 use goodfetch_cli::exit_codes;
 use goodfetch_cli::generated::{Joined, Joining};
 use goodfetch_cli::output::{self, Human};
@@ -18,7 +22,7 @@ use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::{ErrorGroup, Operation};
 use goodfetch_protocol::cli::{CommandError, CommandFailed};
 use goodfetch_protocol::connection::PERSON_REQUIRED;
-use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure};
 use goodfetch_protocol::tls::{
     CERTS_ACCEPT, CERTS_FORGET, CERTS_LIST, CertificatePin, CertsAcceptParams, CertsForgetParams,
     CertsListed,
@@ -47,6 +51,8 @@ pub(super) enum OwnCertsCommand {
         /// Refused: a person answers at a terminal, never under `--json`.
         #[arg(long)]
         json: bool,
+        #[command(flatten)]
+        engine: EngineFlags,
     },
     /// Removes a host's pin, so its next connection under trust on first
     /// use pins again: a person's answer, asked at the terminal, and
@@ -58,6 +64,8 @@ pub(super) enum OwnCertsCommand {
         /// Refused: a person answers at a terminal, never under `--json`.
         #[arg(long)]
         json: bool,
+        #[command(flatten)]
+        engine: EngineFlags,
     },
 }
 
@@ -77,12 +85,40 @@ pub(super) fn run(
         CertsCommand::Generated(joining) => {
             joining.call().run(engine, dependencies, daemons, human)
         }
-        CertsCommand::Own(OwnCertsCommand::Accept { host, json }) => {
-            accept(engine, dependencies, &host, json, human)
+        CertsCommand::Own(OwnCertsCommand::Accept {
+            host,
+            json,
+            engine: flags,
+        }) => {
+            let warn = |text: &str| human.warning(text);
+            let reach = reach(daemons, flags, &warn);
+            accept(engine, dependencies, &reach, &host, json, human)
         }
-        CertsCommand::Own(OwnCertsCommand::Forget { host, json }) => {
-            forget(engine, dependencies, &host, json, human)
+        CertsCommand::Own(OwnCertsCommand::Forget {
+            host,
+            json,
+            engine: flags,
+        }) => {
+            let warn = |text: &str| human.warning(text);
+            let reach = reach(daemons, flags, &warn);
+            forget(engine, dependencies, &reach, &host, json, human)
         }
+    }
+}
+
+/// The engine a command's calls run on: as its `flags` choose, a command
+/// whose value does not outlive it, so the Daemon when one runs or
+/// `--daemon` is given, else an Attached engine ([`engine_choice`]).
+fn reach<'a>(
+    daemons: &'a dyn Daemons,
+    flags: EngineFlags,
+    warn: &'a dyn Fn(&str),
+) -> EngineChoice<'a> {
+    EngineChoice {
+        choice: flags.choice(),
+        lifetime: Lifetime::Passing,
+        daemons,
+        warn,
     }
 }
 
@@ -92,6 +128,7 @@ pub(super) fn run(
 fn accept(
     engine: &Engine,
     mut dependencies: Dependencies,
+    reach: &EngineChoice<'_>,
     host: &str,
     json: bool,
     human: &Human,
@@ -99,7 +136,7 @@ fn accept(
     if json || !human.can_ask() {
         return person_required(&CERTS_ACCEPT, json, human);
     }
-    let pin = match pin_of(engine, forked(&mut dependencies), host, human) {
+    let pin = match pin_of(engine, forked(&mut dependencies), reach, host, human) {
         Ok(pin) => pin,
         Err(exit) => return exit,
     };
@@ -136,7 +173,14 @@ fn accept(
         host: pin.host,
         spki_sha256: changed,
     };
-    answered(engine, dependencies, &CERTS_ACCEPT, json!(params), human)
+    answered(
+        engine,
+        dependencies,
+        reach,
+        &CERTS_ACCEPT,
+        json!(params),
+        human,
+    )
 }
 
 /// Asks the person at the terminal to remove `host`'s pin, and removes it
@@ -144,6 +188,7 @@ fn accept(
 fn forget(
     engine: &Engine,
     mut dependencies: Dependencies,
+    reach: &EngineChoice<'_>,
     host: &str,
     json: bool,
     human: &Human,
@@ -151,7 +196,7 @@ fn forget(
     if json || !human.can_ask() {
         return person_required(&CERTS_FORGET, json, human);
     }
-    let pin = match pin_of(engine, forked(&mut dependencies), host, human) {
+    let pin = match pin_of(engine, forked(&mut dependencies), reach, host, human) {
         Ok(pin) => pin,
         Err(exit) => return exit,
     };
@@ -177,7 +222,14 @@ fn forget(
         return ExitCode::from(exit_codes::SUCCESS);
     }
     let params = CertsForgetParams { host: pin.host };
-    answered(engine, dependencies, &CERTS_FORGET, json!(params), human)
+    answered(
+        engine,
+        dependencies,
+        reach,
+        &CERTS_FORGET,
+        json!(params),
+        human,
+    )
 }
 
 /// The person's answer to `question`, yes or not; none when stdin is no
@@ -209,10 +261,11 @@ fn forked(dependencies: &mut Dependencies) -> Dependencies {
 fn pin_of(
     engine: &Engine,
     dependencies: Dependencies,
+    reach: &EngineChoice<'_>,
     host: &str,
     human: &Human,
 ) -> Result<Option<CertificatePin>, ExitCode> {
-    let listed = call(engine, dependencies, &CERTS_LIST, json!({}), human)?;
+    let listed = call(engine, dependencies, reach, &CERTS_LIST, json!({}), human)?;
     let listed: CertsListed =
         serde_json::from_value(listed).map_err(|_| ExitCode::from(exit_codes::unanswered()))?;
     let wanted = host.to_ascii_lowercase();
@@ -220,16 +273,17 @@ fn pin_of(
     Ok(listed.pins.into_iter().find(|pin| pin.host == wanted))
 }
 
-/// Calls `operation` with `params` on `engine` and prints its result's
-/// fields.
+/// Calls `operation` with `params` on the engine `reach` chooses and
+/// prints its result's fields.
 fn answered(
     engine: &Engine,
     dependencies: Dependencies,
+    reach: &EngineChoice<'_>,
     operation: &'static Operation,
     params: Value,
     human: &Human,
 ) -> ExitCode {
-    match call(engine, dependencies, operation, params, human) {
+    match call(engine, dependencies, reach, operation, params, human) {
         Ok(Value::Object(fields)) => {
             for (name, value) in fields {
                 human.field(&name, &text(&value));
@@ -244,11 +298,13 @@ fn answered(
     }
 }
 
-/// `operation`'s result on `engine`, or the exit code of its failure, which
-/// it printed.
+/// `operation`'s result on the engine `reach` chooses, the Daemon or an
+/// Attached engine, `engine` on `dependencies`, or the exit code of its
+/// failure, which it printed.
 fn call(
     engine: &Engine,
     dependencies: Dependencies,
+    reach: &EngineChoice<'_>,
     operation: &'static Operation,
     params: Value,
     human: &Human,
@@ -263,28 +319,35 @@ fn call(
         input: None,
     };
     let product = engine.identity().product;
-    match engine_choice::call_attached(engine, dependencies, product, call) {
+    match engine_choice::call(engine, dependencies, product, reach, call) {
         Answer::Result(value) => Ok(value),
         Answer::Error(error) => {
             let group = goodfetch_cli::generated::group(&error);
-            human.failure(
-                &error.message,
-                &[
-                    ("code", error.data.code.clone()),
-                    ("retryable", error.data.retryable.to_string()),
-                ],
-            );
-            Err(ExitCode::from(exit_codes::of_error(
-                &error.data.code,
-                group,
-            )))
+            Err(failed(
+                &error,
+                exit_codes::of_error(&error.data.code, group),
+                human,
+            ))
         }
+        Answer::Refused(error) => Err(failed(&error, exit_codes::DAEMON_REFUSED, human)),
         Answer::Unanswered(problem) => {
             tracing::error!("{problem}");
             Err(ExitCode::from(exit_codes::unanswered()))
         }
         Answer::Interrupted(interrupt) => Err(ExitCode::from(interrupt.exit_code())),
     }
+}
+
+/// Prints `error` on stderr and answers `exit`.
+fn failed(error: &ErrorObject, exit: u8, human: &Human) -> ExitCode {
+    human.failure(
+        &error.message,
+        &[
+            ("code", error.data.code.clone()),
+            ("retryable", error.data.retryable.to_string()),
+        ],
+    );
+    ExitCode::from(exit)
 }
 
 /// Refuses `operation`, a person's answer, with `person_required`: as JSON

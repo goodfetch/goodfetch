@@ -74,6 +74,7 @@ use goodfetch_engine::local_addresses::{
     BlockSizes, LocalAddresses, Rotation, SessionAddresses, System, Unavailable,
 };
 use goodfetch_engine::mask::Scope;
+use goodfetch_engine::metrics::Level;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::{ChargeError, Ending, Run};
 use goodfetch_engine::settings::{Resolved, RunSettings};
@@ -85,7 +86,7 @@ use goodfetch_frontier::Bounds;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED,
-    HANDLER_LOST, LEASE_LOST, WORK_ITEM_RETRIED,
+    HANDLER_LOST, LEASE_LOST, WORK_ITEM_QUEUED, WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_SAMPLE_COUNT, FETCH_SAMPLE_REFRESH_AFTER, FETCH_TIER_RACE, FetchTier,
@@ -291,7 +292,7 @@ async fn deliver(
     let Some((mut admission, mut pool)) = opened(run, settings).await else {
         return;
     };
-    let mut wakes = admission.wakes();
+    let (mut wakes, mut queued) = (admission.wakes(), run.metrics().level(&WORK_ITEM_QUEUED));
     let mut attempts: JoinSet<Attempt> = JoinSet::new();
     let mut stop: Option<StopReason> = None;
     loop {
@@ -354,7 +355,7 @@ async fn deliver(
             .then(|| admission.ready_at(run.clock().now()))
             .flatten();
         let waits = [stop.is_some(), free, starved];
-        show(run, &admission, &resolved, servers, waits);
+        show(run, (&admission, &mut queued), &resolved, servers, waits);
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => {
@@ -389,10 +390,11 @@ async fn deliver(
 
 /// Sets the crawl's live parts of its Run's progress (ADR 0102) as its
 /// `servers` stand, given whether it stops, whether a serving Connection
-/// has room and whether the governor starves it.
+/// has room and whether the governor starves it, and its count in
+/// `goodfetch.work_item.queued` as its admission's queues stand.
 fn show(
     run: &Run,
-    admission: &Admission,
+    (admission, count): (&Admission, &mut Level),
     resolved: &Resolved,
     servers: &mut [Serving],
     [stopping, free, starved]: [bool; 3],
@@ -401,7 +403,10 @@ fn show(
     let handlers = servers.iter().map(|server| server.in_flight).sum();
     let room = progress::room(stopping || !serving, free, starved);
     let concurrency = CrawlPolicy::of(resolved).handler_concurrency;
-    progress::show(run, admission, resolved, room, (handlers, concurrency));
+    let now = run.clock().now();
+    let queued = admission.queued(now);
+    count.set(admission.waiting());
+    progress::show(run, (&queued, now), resolved, room, (handlers, concurrency));
 }
 
 /// The ending of a crawl whose state or admission failed with `error`:
@@ -560,6 +565,7 @@ impl Fetching<'_> {
             egress: std::sync::Arc::clone(&self.egress),
             addresses: self.http.map(HttpTier::address_check),
             page_check: self.labels.settings.page_check(label).cloned(),
+            extractor: self.labels.settings.extractor(label),
             encoding: self
                 .labels
                 .settings
@@ -578,13 +584,16 @@ impl Fetching<'_> {
     /// Challenge moved there, `to_browser` (ADR 0021), else, when the Run
     /// races its tiers, as a race timed by its Label on its domain's
     /// browser-fetch latencies, else as its Label on its domain learned,
-    /// and what it fetches its document with.
+    /// and what it fetches its document with. Each request a learned choice
+    /// serves is counted in `run`'s file.
     async fn served(
         &self,
+        run: &Run,
         leased: &Leased,
         (to_browser, local): (bool, Local),
-        (second_copies, now): (&SecondCopies, u64),
+        second_copies: &SecondCopies,
     ) -> Tiering {
+        let now = wall_ms(run);
         let request = &leased.crawl_request;
         // A sitemap's fetch runs no handler and takes no tier choice: its
         // attempt fetches it on the Run's HTTP tier.
@@ -603,12 +612,7 @@ impl Fetching<'_> {
                 forced: None,
             }),
             Choosing::Alone | Choosing::Engine if self.races && !to_browser && !leased.sitemap => {
-                let learned = self.choices.lock().await.serve_attempt(
-                    &request.label,
-                    &leased.waiting.key,
-                    &request.url,
-                    now,
-                );
+                let learned = self.learned(run, leased, now).await;
                 AttemptPlan::Race(Raced {
                     label: request.label.clone(),
                     domain_key: leased.waiting.key.clone(),
@@ -632,12 +636,7 @@ impl Fetching<'_> {
                 tier: FetchTier::Browser,
                 forced: None,
             }),
-            Choosing::Engine => self.choices.lock().await.serve_attempt(
-                &request.label,
-                &leased.waiting.key,
-                &request.url,
-                now,
-            ),
+            Choosing::Engine => self.learned(run, leased, now).await,
         };
         let http = self.session_tier(local);
         Tiering::of(
@@ -647,6 +646,30 @@ impl Fetching<'_> {
             self.labels.settings.page_check(&request.label).cloned(),
             second_copies,
         )
+    }
+
+    /// How `leased`'s attempt runs at `now` as its Label on its domain
+    /// learned, its choice's count of requests served written into `run`'s
+    /// file, so a resumed crawl goes on counting toward its refresh.
+    async fn learned(&self, run: &Run, leased: &Leased, now: u64) -> AttemptPlan {
+        let request = &leased.crawl_request;
+        let (plan, counted) = {
+            let mut choices = self.choices.lock().await;
+            let (plan, unit) =
+                choices.serve_attempt(&request.label, &leased.waiting.key, &request.url, now);
+            (plan, unit.cloned())
+        };
+        if let Some(unit) = counted {
+            let (label, key) = (request.label.clone(), leased.waiting.key.clone());
+            if let Err(error) = run
+                .state()
+                .write(move |connection| tier_choice::record(connection, &label, &key, &unit))
+                .await
+            {
+                tracing::warn!(%error, run_id = %run.id(), "a Label's count of requests served was not written; a resumed crawl counts from the last one written");
+            }
+        }
+        plan
     }
 
     /// The Run's HTTP tier as a Session holding `local` sends on it (ADR
@@ -802,17 +825,12 @@ async fn lease_to_servers(
                 policy.lease_length(),
             );
             server.in_flight += 1;
-            let tiering = pooled
-                .fetching
-                .served(
-                    &leased,
-                    (to_browser, local),
-                    (&admission.second_copies(), wall_ms(run)),
-                )
+            let copies = admission.second_copies();
+            let fetching = &pooled.fetching;
+            let tiering = fetching
+                .served(run, &leased, (to_browser, local), &copies)
                 .await;
-            let gating = pooled
-                .fetching
-                .gating(&leased.crawl_request.label, &admission.second_copies());
+            let gating = fetching.gating(&leased.crawl_request.label, &copies);
             let fetches = tiering.tier().or(leased.sitemap.then_some(FetchTier::Http));
             pooled.fetching.in_flight.lock().await.began(
                 run,

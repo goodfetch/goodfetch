@@ -4,7 +4,8 @@
 //! checks either the log itself or such an export, `--file`, which it reads
 //! and verifies in this process, so a copy kept anywhere verifies without
 //! the log it came from. Each reads the log through `audit.export` and
-//! `audit.verify` on an Attached engine in this process; `audit verify`
+//! `audit.verify` on the Daemon when one runs or `--daemon` is given, else
+//! on an Attached engine in this process (ticket #1183); `audit verify`
 //! prints what `audit.verify` answers, as JSON under `--json`, and a
 //! failure prints as every command's does.
 
@@ -12,7 +13,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Subcommand;
-use goodfetch_cli::engine_choice::{self, Answer, CommandCall, Daemons};
+use goodfetch_cli::engine_choice::{
+    self, Answer, CommandCall, Daemons, EngineChoice, EngineFlags, Lifetime,
+};
 use goodfetch_cli::exit_codes;
 use goodfetch_cli::generated::{Joined, Joining};
 use goodfetch_cli::output::{self, Human};
@@ -47,6 +50,8 @@ pub(super) enum OwnAuditCommand {
         /// way.
         #[arg(long)]
         json: bool,
+        #[command(flatten)]
+        engine: EngineFlags,
     },
     /// Verifies the user's Audit log, or with `--file` an export of it:
     /// every entry's hash chains it to the one before it, from the first or
@@ -61,6 +66,8 @@ pub(super) enum OwnAuditCommand {
         /// Prints the result as JSON.
         #[arg(long)]
         json: bool,
+        #[command(flatten)]
+        engine: EngineFlags,
     },
 }
 
@@ -80,11 +87,22 @@ pub(super) fn run(
         AuditCommand::Generated(joining) => {
             joining.call().run(engine, dependencies, daemons, human)
         }
-        AuditCommand::Own(OwnAuditCommand::Export { json }) => {
-            export(engine, dependencies, json, human)
+        AuditCommand::Own(OwnAuditCommand::Export {
+            json,
+            engine: flags,
+        }) => {
+            let warn = |text: &str| human.warning(text);
+            let reach = reach(daemons, flags, &warn);
+            export(engine, dependencies, &reach, json, human)
         }
-        AuditCommand::Own(OwnAuditCommand::Verify { file: None, json }) => {
-            match call(engine, dependencies, &AUDIT_VERIFY, json, human) {
+        AuditCommand::Own(OwnAuditCommand::Verify {
+            file: None,
+            json,
+            engine: flags,
+        }) => {
+            let warn = |text: &str| human.warning(text);
+            let reach = reach(daemons, flags, &warn);
+            match call(engine, dependencies, &reach, &AUDIT_VERIFY, json, human) {
                 Ok(verified) => print(&verified, json, human),
                 Err(exit) => exit,
             }
@@ -92,14 +110,37 @@ pub(super) fn run(
         AuditCommand::Own(OwnAuditCommand::Verify {
             file: Some(file),
             json,
+            engine: _,
         }) => verify_file(&file, json, human),
     }
 }
 
-/// Writes every entry `audit.export` answers on `engine`, one JSON line
-/// each.
-fn export(engine: &Engine, dependencies: Dependencies, json: bool, human: &Human) -> ExitCode {
-    let exported = match call(engine, dependencies, &AUDIT_EXPORT, json, human) {
+/// The engine a command's call runs on: as its `flags` choose, a command
+/// whose value does not outlive it, so the Daemon when one runs or
+/// `--daemon` is given, else an Attached engine ([`engine_choice`]).
+fn reach<'a>(
+    daemons: &'a dyn Daemons,
+    flags: EngineFlags,
+    warn: &'a dyn Fn(&str),
+) -> EngineChoice<'a> {
+    EngineChoice {
+        choice: flags.choice(),
+        lifetime: Lifetime::Passing,
+        daemons,
+        warn,
+    }
+}
+
+/// Writes every entry `audit.export` answers on the engine `reach`
+/// chooses, one JSON line each.
+fn export(
+    engine: &Engine,
+    dependencies: Dependencies,
+    reach: &EngineChoice<'_>,
+    json: bool,
+    human: &Human,
+) -> ExitCode {
+    let exported = match call(engine, dependencies, reach, &AUDIT_EXPORT, json, human) {
         Ok(exported) => exported,
         Err(exit) => return exit,
     };
@@ -149,11 +190,13 @@ fn print(verified: &Value, json: bool, human: &Human) -> ExitCode {
     ExitCode::from(exit_codes::SUCCESS)
 }
 
-/// `operation`'s result on an Attached engine in this process, or the exit
+/// `operation`'s result on the engine `reach` chooses, the Daemon or an
+/// Attached engine in this process, `engine` on `dependencies`, or the exit
 /// code of its failure, which it printed.
 fn call(
     engine: &Engine,
     dependencies: Dependencies,
+    reach: &EngineChoice<'_>,
     operation: &'static Operation,
     json: bool,
     human: &Human,
@@ -168,9 +211,16 @@ fn call(
         input: None,
     };
     let product = engine.identity().product;
-    match engine_choice::call_attached(engine, dependencies, product, call) {
+    match engine_choice::call(engine, dependencies, product, reach, call) {
         Answer::Result(value) => Ok(value),
         Answer::Error(error) => Err(fail(&error, operation, json, human)),
+        Answer::Refused(error) => Err(fail_exiting(
+            &error,
+            operation,
+            exit_codes::DAEMON_REFUSED,
+            json,
+            human,
+        )),
         Answer::Unanswered(problem) => {
             tracing::error!("{problem}");
             Err(ExitCode::from(exit_codes::unanswered()))
@@ -183,6 +233,20 @@ fn call(
 /// [`CommandFailed`] on stdout under `--json`, else on stderr; answers its
 /// exit code.
 fn fail(error: &ErrorObject, operation: &Operation, json: bool, human: &Human) -> ExitCode {
+    let group = goodfetch_cli::generated::group(error);
+    let exit = exit_codes::of_error(&error.data.code, group);
+    fail_exiting(error, operation, exit, json, human)
+}
+
+/// Prints `error`, `operation`'s failure, as [`fail`] does, and answers
+/// `exit`.
+fn fail_exiting(
+    error: &ErrorObject,
+    operation: &Operation,
+    exit: u8,
+    json: bool,
+    human: &Human,
+) -> ExitCode {
     let group = goodfetch_cli::generated::group(error);
     if json {
         output::json(&CommandFailed {
@@ -204,5 +268,5 @@ fn fail(error: &ErrorObject, operation: &Operation, json: bool, human: &Human) -
             ],
         );
     }
-    ExitCode::from(exit_codes::of_error(&error.data.code, group))
+    ExitCode::from(exit)
 }

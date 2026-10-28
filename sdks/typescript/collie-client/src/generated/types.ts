@@ -3288,6 +3288,13 @@ export interface KeyValueStoreSet {}
  */
 export interface KeyValueStoreSetBytesParams {
   /**
+   * The crawl attempt whose handler's `ctx.run` sets the bytes: the
+   * write is staged with the attempt and commits with it, a kept file
+   * written only then, or is discarded with it (ADR 0093). Absent, the
+   * bytes are committed at once.
+   */
+  attempt?: KeyValueStoreAttempt | null;
+  /**
    * The bytes, in Base64.
    */
   content: string;
@@ -3798,6 +3805,11 @@ export interface MemoryReading {
    * What set it.
    */
   allowance_source: "cgroup" | "job_object" | "setting" | "physical";
+  /**
+   * What the browsers it counts use, in bytes, each process with its
+   * descendants (PSS on Linux), summed; part of `used`, 0 with none.
+   */
+  browsers: number;
   /**
    * The host's own memory pressure: PSI and `MemAvailable` on Linux,
    * the memory-pressure level on macOS, the low-memory notification on
@@ -7180,6 +7192,11 @@ export interface MemoryReading1 {
    * What set it.
    */
   allowance_source: "cgroup" | "job_object" | "setting" | "physical";
+  /**
+   * What the browsers it counts use, in bytes, each process with its
+   * descendants (PSS on Linux), summed; part of `used`, 0 with none.
+   */
+  browsers: number;
   /**
    * The host's own memory pressure: PSI and `MemAvailable` on Linux,
    * the memory-pressure level on macOS, the low-memory notification on

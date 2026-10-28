@@ -189,6 +189,89 @@ fn a_failed_attempts_enqueues_seeds_and_keys_are_discarded_and_its_retry_commits
     );
 }
 
+/// Base64 of 1 MiB and 2 bytes of `a`, past what a key's row holds inline,
+/// so the store keeps them as a file of the Run's folder.
+fn kept_bytes() -> String {
+    "YWFh".repeat(349_526)
+}
+
+/// A crawl conformance case (ADR 0093): Key-value store bytes written
+/// through a handler's `ctx.run`, inline or kept as a file, are staged with
+/// the attempt as its JSON values are: a read through the attempt sees
+/// them, the failed attempt leaves neither its row nor its kept file, and
+/// the retried attempt's bytes are the ones the run file holds.
+///
+/// Covers: story:6-236, operation:key_value_store.set_bytes, operation:key_value_store.get_bytes
+#[test]
+fn a_failed_attempts_bytes_inline_or_kept_are_discarded_and_its_retry_commits_its_own() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    let mut read = Vec::new();
+
+    crawl_under(
+        &mut engine,
+        "bytes",
+        &[json!({ "url": SEED, "label": "page" })],
+        &json!({ "retry": { "max": 2 } }),
+        &mut |inside, handle| {
+            let (run_id, attempt) = (&handle["run_id"], attempt_of(handle));
+            let small = if handle["attempt"] == 1 {
+                "Zmlyc3Q="
+            } else {
+                "c2Vjb25k"
+            };
+            inside.call(
+                "key_value_store.set_bytes",
+                &json!({ "run_id": run_id, "key": "small", "content": small, "content_type": "text/plain", "attempt": attempt }),
+            );
+            if handle["attempt"] == 1 {
+                inside.call(
+                    "key_value_store.set_bytes",
+                    &json!({ "run_id": run_id, "key": "big", "content": kept_bytes(), "content_type": "text/plain", "attempt": attempt }),
+                );
+            }
+            let got = inside.call(
+                "key_value_store.get_bytes",
+                &json!({ "run_id": run_id, "key": "small", "attempt": attempt }),
+            );
+            read.push(answer_of(&got)["bytes"]["content"].clone());
+            if handle["attempt"] == 1 {
+                json!({ "error": { "code": -32003, "message": "try again", "data": { "code": "retry_requested", "retryable": true } } })
+            } else {
+                record_the_page(handle)
+            }
+        },
+    );
+    assert!(engine.finish());
+
+    let rows: Vec<(String, Option<Vec<u8>>, Option<i64>)> = run_file(&env, "bytes")
+        .prepare("SELECT key, content, file FROM key_values ORDER BY key")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let kept = env
+        .home()
+        .join("0.0")
+        .join("runs")
+        .join("bytes")
+        .join("files");
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test lists the run folder's kept files on its own thread, never an async worker"
+    )]
+    let files = std::fs::read_dir(&kept).map_or(0, Iterator::count);
+    assert_eq!(
+        (read, rows, files),
+        (
+            vec![json!("Zmlyc3Q="), json!("c2Vjb25k")],
+            vec![("small".to_owned(), Some(b"second".to_vec()), None)],
+            0
+        )
+    );
+}
+
 /// A crawl conformance case (ADR 0093): an attempt that fails for good,
 /// with its handler's own failure, leaves none of what it staged: no work
 /// item but its own, no key; the Records it never answered never commit.

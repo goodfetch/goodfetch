@@ -28,7 +28,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
 use crate::crawl::Attached;
-use crate::tmpfs::{fill, free, inside, mounted_home};
+use goodfetch_test_support::{fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted_home};
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
@@ -346,7 +346,8 @@ fn an_export_holds_the_records_committed_when_the_call_is_made_in_number_order()
 /// during the next call, another Export: a new engine on the same home
 /// saves it with the bytes its SHA-256 names, and every file the Run's
 /// Exports folder shows is whole, named by its own bytes' SHA-256, a killed
-/// write leaving at most a hidden temporary file.
+/// write leaving at most a hidden temporary file; the same Export made there
+/// has the same SHA-256.
 ///
 /// Covers: story:6-280, operation:run.export, operation:export.save_as
 #[test]
@@ -365,14 +366,18 @@ fn an_export_answered_is_whole_after_the_engine_is_killed_during_the_next_call()
     let mut later = Attached::start(&env);
     let saved_to = env.home().join("books.json");
     let saved = save_as(&mut later, &held["result"]["export_id"], &saved_to);
-    assert!(later.finish());
-
     let exports = run_folder(&env, "killed").join("exports");
     let visible_whole: Vec<bool> = names_in(&exports)
         .into_iter()
         .filter(|name| !name.starts_with('.'))
         .map(|name| sha256(&std::fs::read(exports.join(&name)).unwrap()) == name)
         .collect();
+    // The same Export again, on the engine that exits as it should: the
+    // killed engine's log loses what its writer's thread had not written
+    // yet, the record of the answered `run.export` among it, which the
+    // exercise audit reads (fix-queue NEW-1).
+    let again = export(&mut later, "killed", "json");
+    assert!(later.finish());
     let file = std::fs::read(&saved_to).unwrap();
     let values: Vec<Value> = serde_json::from_slice(&file).unwrap();
     assert_eq!(
@@ -381,8 +386,15 @@ fn an_export_answered_is_whole_after_the_engine_is_killed_during_the_next_call()
             sha256(&file).as_str() == held["result"]["sha256"],
             values.len(),
             !visible_whole.is_empty() && visible_whole.iter().all(|whole| *whole),
+            &again["result"]["sha256"],
         ),
-        (&held["result"]["sha256"], true, 200, true)
+        (
+            &held["result"]["sha256"],
+            true,
+            200,
+            true,
+            &held["result"]["sha256"]
+        )
     );
 }
 
@@ -474,7 +486,7 @@ const SIZE: u64 = 64 * MIB;
 /// 40 Records of about 50 kB each in `books`.
 fn crawled_on_a_tmpfs(env: &TestEnv, settings: &str, run_id: &str) -> Attached {
     env.user_configuration(settings);
-    let mut command = mounted_home(env, SIZE, FOXHOUND);
+    let mut command = tmpfs_mounted_home(env, SIZE, FOXHOUND);
     command.arg("attached-engine");
     let mut engine = Attached::spawned(env, None, &mut command);
     crawl(&mut engine, run_id, 40);
@@ -502,12 +514,12 @@ fn a_write_the_full_filesystem_refuses_fails_with_file_write_failed_and_leaves_n
     );
     let pid = engine.pid();
     let folder = run_folder(&env, "full");
-    let filler = fill(pid, env.home(), 512 * 1024);
+    let filler = fill_filesystem(pid, env.home(), 512 * 1024);
     let failed = export(&mut engine, "full", "json");
-    let left = names_in(&inside(pid, &folder.join("exports")));
-    free(&filler);
+    let left = names_in(&inside_mount(pid, &folder.join("exports")));
+    free_filesystem(&filler);
     let written = export(&mut engine, "full", "json");
-    let kept = names_in(&inside(pid, &folder.join("exports")));
+    let kept = names_in(&inside_mount(pid, &folder.join("exports")));
     assert!(engine.finish());
 
     let data = &failed["error"]["data"];
@@ -556,10 +568,10 @@ fn an_export_at_the_critical_storage_level_fails_before_writing() {
     );
     let pid = engine.pid();
     let folder = run_folder(&env, "critical");
-    let filler = fill(pid, env.home(), 10 * MIB);
+    let filler = fill_filesystem(pid, env.home(), 10 * MIB);
     let failed = export(&mut engine, "critical", "json");
-    let exports = inside(pid, &folder.join("exports")).exists();
-    free(&filler);
+    let exports = inside_mount(pid, &folder.join("exports")).exists();
+    free_filesystem(&filler);
     assert!(engine.finish());
 
     let data = &failed["error"]["data"];

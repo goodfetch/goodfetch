@@ -89,8 +89,8 @@ fn a_number_in_a_document_whose_language_tag_has_a_region_gets_e164() {
 }
 
 /// No country is guessed (G1): with no region in the language tag, a
-/// `tel:` link without its country code has no E.164, and text without
-/// its country code is no number at all.
+/// number without its country code, from a `tel:` link or from text, has
+/// no E.164; a date written with digits alone is no number.
 ///
 /// Covers: story:6-7
 #[test]
@@ -99,12 +99,14 @@ fn a_number_without_its_country_code_and_no_region_gets_no_e164() {
         <p><a href="tel:0142685300">Call us</a> or 01 42 68 53 01;
         in the US, +1 650-253-0000;
         <a href="tel:+44-20-7031-3000;ext=12">London</a>.</p>
+        <p>Ordered 2026-10-26, shipped 28.10.2026.</p>
         </body></html>"#;
 
     assert_eq!(
         contacts(html).phones,
         [
             phone("0142685300", "Call us", None),
+            phone("01 42 68 53 01", "01 42 68 53 01", None),
             phone("+1 650-253-0000", "+1 650-253-0000", Some("+16502530000")),
             phone("+44-20-7031-3000", "London", Some("+442070313000")),
         ]

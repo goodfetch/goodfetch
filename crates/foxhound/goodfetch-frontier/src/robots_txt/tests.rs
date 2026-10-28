@@ -415,3 +415,66 @@ async fn the_copy_follows_the_politeness_files_refusal_cases(
         (_, opened) => panic!("{case:#?} opened as {:?}", opened.map(|_| ())),
     }
 }
+
+/// How many origins the copy holds state for in memory.
+fn origins_held(copies: &SharedRobotsTxt) -> usize {
+    copies.in_flight.lock().unwrap().len()
+}
+
+/// The copy holds an origin in memory only while a reader of it is in
+/// flight, so a crawl over many origins keeps no state that grows with
+/// them (STYLE.md, Memory and hot paths).
+///
+/// Covers: story:6-241
+#[tokio::test(start_paused = true)]
+async fn an_origin_is_held_in_memory_only_while_it_is_read() {
+    let env = TestEnv::new();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
+    let copies = SharedRobotsTxt::new(file(&env, "engine", &owner).await, clock);
+    let fetches = Arc::new(AtomicUsize::new(0));
+
+    for origin in ["https://one.test", "https://two.test", "https://three.test"] {
+        let location = Url::parse(&format!("{origin}/robots.txt")).unwrap();
+        copies
+            .copy(&location, counted(&fetches, response(200, FILE)))
+            .await;
+    }
+
+    assert_eq!(
+        (origins_held(&copies), fetches.load(Ordering::SeqCst)),
+        (0, 3)
+    );
+}
+
+/// A reader dropped while its fetch is in flight keeps nothing: the next
+/// reader of the origin fetches it, and no state is left behind.
+///
+/// Covers: story:6-241
+#[tokio::test(start_paused = true)]
+async fn a_reader_dropped_during_its_fetch_leaves_the_next_one_to_fetch() {
+    let env = TestEnv::new();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
+    let copies = SharedRobotsTxt::new(file(&env, "engine", &owner).await, clock);
+    let fetches = Arc::new(AtomicUsize::new(0));
+    let never: goodfetch_engine::robots_txt::Fetch<'static> = Box::pin(std::future::pending());
+
+    let dropped =
+        tokio::time::timeout(Duration::from_secs(1), copies.copy(&location(), never)).await;
+    let held_after_the_drop = origins_held(&copies);
+    let read = copies
+        .copy(&location(), counted(&fetches, response(200, FILE)))
+        .await;
+
+    assert_eq!(
+        (
+            dropped.is_err(),
+            held_after_the_drop,
+            (*read).clone(),
+            fetches.load(Ordering::SeqCst),
+            origins_held(&copies),
+        ),
+        (true, 0, Fetched::File(parse(FILE)), 1, 0)
+    );
+}

@@ -1091,6 +1091,11 @@ class MemoryReading(BaseModel):
     """The Memory allowance, in bytes."""
     allowance_source: AllowanceSource
     """What set it."""
+    browsers: Annotated[int, Field(ge=0)]
+    """
+    What the browsers it counts use, in bytes, each process with its
+    descendants (PSS on Linux), summed; part of `used`, 0 with none.
+    """
     host: GovernorLevel
     """
     The host's own memory pressure: PSI and `MemAvailable` on Linux,
@@ -4130,6 +4135,13 @@ class KeyValueStoreSetBytesParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    attempt: KeyValueStoreAttempt | None = None
+    """
+    The crawl attempt whose handler's `ctx.run` sets the bytes: the
+    write is staged with the attempt and commits with it, a kept file
+    written only then, or is discarded with it (ADR 0093). Absent, the
+    bytes are committed at once.
+    """
     content: KeyValueStoreContent
     """The bytes, in Base64."""
     content_type: str

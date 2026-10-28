@@ -1,9 +1,10 @@
 //! `goto`, `reload`, `goBack` and `goForward` on a page a document tier
 //! serves (ADR 0093): each fetches its URL over the same tier, the page's
-//! Run's HTTP transport, through the navigation gate of the attempt that
-//! handed its Run's pages over, its first hop and every redirect or
-//! refresh stub it follows each taking its own permit, as the crawl
-//! request's own fetch follows them (ADR 0118); the document it reaches
+//! Run's HTTP transport, through the navigation gate of the attempt the
+//! page belongs to, its first hop and every redirect or refresh stub it
+//! follows each taking its own permit while that attempt's lease holds,
+//! as the crawl request's own fetch follows them (ADR 0118); the document
+//! it reaches
 //! takes the old one's place, and its response is the call's answer, a
 //! 404 or a 500 a value. The page keeps a history of its own: `goBack` at
 //! its first entry and `goForward` at its last answer no response, as the
@@ -18,7 +19,7 @@ use goodfetch_protocol::page::{NAVIGATION_FAILED, Navigated, NavigationFailedDet
 use url::Url;
 
 use super::super::{FetchTiers, History, Opened, ServedPage};
-use super::{answered, outlived, refused};
+use super::{answered, leased, refused};
 use crate::chain::{Gating, HopGate, Stop, follow};
 use crate::driver::{Hop, fetch};
 use crate::gate::{Gate, HandOver};
@@ -44,7 +45,8 @@ pub(super) enum Step {
 ///
 /// `navigation_failed` for a URL that does not parse or a fetch that
 /// reached no document, `site_preferences_refused` for a hop the gate
-/// refuses, and the chain's `too_many_redirects`, `response_unavailable`
+/// refuses, `attempt_ended` for a hop once the attempt's lease ended, and
+/// the chain's `too_many_redirects`, `response_unavailable`
 /// and `response_truncated`.
 pub(super) async fn navigate(
     tiers: &FetchTiers,
@@ -69,10 +71,10 @@ pub(super) async fn navigate(
     };
     let url = Url::parse(&url).map_err(|error| failed(&url, &error))?;
     let run = page.document.run.clone();
-    let hand_over = tiers
-        .handed_over(run.id())
-        .ok_or_else(|| outlived(page_id))?;
-    let gate = Navigating { hand_over };
+    let gate = Navigating {
+        hand_over: Arc::clone(&page.hand_over),
+        operation,
+    };
     let first = Hop::get(url);
     let mut permit = Some(gate.admit(&first).await.map_err(stopped)?);
     let clock = run.clock();
@@ -93,7 +95,7 @@ pub(super) async fn navigate(
     // `crawl.content_types` (ADR 0119): a response that is no document
     // leaves the page holding none, and a document only a guess could read
     // is never served.
-    let opened = Opened::of(&run, fetched.clone(), None);
+    let opened = Opened::of(&run, fetched.clone(), (None, page.document.extractor));
     if opened.read.is_none() && opened.not_document.is_none() {
         return Err(tiers.unserved(page_id, operation, false));
     }
@@ -105,20 +107,28 @@ pub(super) async fn navigate(
     })
 }
 
-/// The gate of a served page's navigation: the attempt's navigation gate
-/// for each hop, the first included.
+/// The gate of a served page's navigation, the call `operation`: the
+/// navigation gate of the attempt the page belongs to for each hop, the
+/// first included, each sent only while that attempt's lease holds.
 struct Navigating {
     hand_over: Arc<HandOver>,
+    operation: &'static str,
 }
 
 impl HopGate for Navigating {
     fn admit<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<Permit, Stop>> {
         Box::pin(async move {
-            let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
-            Gate::new(Arc::clone(&self.hand_over))
-                .admitted(&hop.url)
-                .await
-                .map_err(|refusal| Stop::Failed(refused(hop.url.as_str(), &refusal)))
+            leased(&self.hand_over, self.operation).map_err(Stop::Failed)?;
+            let permit = {
+                let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
+                Gate::new(Arc::clone(&self.hand_over))
+                    .admitted(&hop.url)
+                    .await
+                    .map_err(|refusal| Stop::Failed(refused(hop.url.as_str(), &refusal)))?
+            };
+            // The wait for the permit may outlast the lease.
+            leased(&self.hand_over, self.operation).map_err(Stop::Failed)?;
+            Ok(permit)
         })
     }
 

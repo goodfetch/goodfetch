@@ -84,7 +84,7 @@ async fn outcomes(
         Some(OutcomesAfter::Now(_)) => reader.read(last_position).await.map_err(failed)?,
     };
     loop {
-        let live = reader.is_live();
+        let live = reader.is_live().await;
         let page = read_page(&mut reader, after, &filter)
             .await
             .map_err(failed)?;

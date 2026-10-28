@@ -18,6 +18,10 @@ pub enum ValueKind {
     Boolean,
     /// A whole number from 0.
     Count,
+    /// A whole number from 0 to this one, as `network.max_json_depth`,
+    /// which the engine could not apply past its ceiling; a larger value is
+    /// `setting_invalid`. It caps and narrows as a count does.
+    CountUpTo(u64),
     /// A duration in whole milliseconds, the one unit of every surface's
     /// wire (ADR 0080).
     Duration,
@@ -81,6 +85,10 @@ impl ValueKind {
             Self::Boolean => wrong("`true` or `false`"),
             Self::Count | Self::Duration if value.is_u64() => Ok(()),
             Self::Count => wrong("a whole number from 0"),
+            Self::CountUpTo(most) => match value.as_u64() {
+                Some(count) if count <= *most => Ok(()),
+                _ => wrong(&format!("a whole number from 0 to {most}")),
+            },
             Self::Duration => wrong("a whole number of milliseconds"),
             Self::Text if value.is_string() => Ok(()),
             Self::Text => wrong("text"),
@@ -123,10 +131,12 @@ impl ValueKind {
     /// otherwise the same value. Both are of this kind.
     pub fn narrows(&self, higher: &Value, lower: &Value) -> bool {
         match self {
-            Self::Count | Self::Duration => match (higher.as_u64(), lower.as_u64()) {
-                (Some(higher), Some(lower)) => higher <= lower,
-                _ => higher == lower,
-            },
+            Self::Count | Self::CountUpTo(_) | Self::Duration => {
+                match (higher.as_u64(), lower.as_u64()) {
+                    (Some(higher), Some(lower)) => higher <= lower,
+                    _ => higher == lower,
+                }
+            }
             Self::Price => match (
                 higher.as_str().and_then(price),
                 lower.as_str().and_then(price),
@@ -160,6 +170,7 @@ impl ValueKind {
         match self {
             Self::Boolean => json!({ "type": "boolean" }),
             Self::Count => json!({ "type": "integer", "minimum": 0 }),
+            Self::CountUpTo(most) => json!({ "type": "integer", "minimum": 0, "maximum": most }),
             Self::Duration => json!({
                 "type": "integer",
                 "minimum": 0,
@@ -295,7 +306,7 @@ pub enum Authority {
     /// Every layer but a Client acting for a model, whose value is
     /// `setting_locked`, and a Recipe, unless the Operator policy sets the
     /// boolean setting this names to `true`, as `egress.private_ranges`
-    /// (spec #563).
+    /// (ticket #622, ADR 0017's note).
     NotByModelRecipeAllowedBy(&'static str),
     /// Every layer, but a Recipe and a Client acting for a model only
     /// narrow the list of hosts the layers below give, each entry a host

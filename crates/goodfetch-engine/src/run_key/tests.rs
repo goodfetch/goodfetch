@@ -8,7 +8,7 @@
 use proptest::prelude::*;
 use secrecy::SecretString;
 
-use super::{KeyError, RunKey, Wrapped};
+use super::{KeyError, RunKey, Wrapped, sealing};
 use goodfetch_protocol::run::RunId;
 
 fn run(name: &str) -> RunId {
@@ -104,22 +104,27 @@ proptest! {
         prop_assert!(matches!(with_another, Err(KeyError::DoesNotOpen)));
         prop_assert!(matches!(for_another_run, Err(KeyError::DoesNotOpen)));
         prop_assert!(matches!(tampered, Err(KeyError::DoesNotOpen)));
-        prop_assert!(!holds(wrapped.as_bytes(), key.bytes()));
+        let bytes = sealing::unwrap("wrapped", wrapped.as_bytes(), &kek).unwrap();
+        prop_assert!(!holds(wrapped.as_bytes(), bytes.as_slice()));
     }
 }
 
-/// The same key under another Run's ID opens none of the first Run's
-/// values: the Run ID is part of each value's associated data.
+/// The same key's bytes at another Run's place open none of the first
+/// Run's values: the Run ID is part of each value's associated data.
 /// Covers: story:4-64
 #[test]
 fn a_sealed_value_moved_to_another_run_does_not_open() {
+    let kek = SecretString::from("kek");
     let key = RunKey::generate(run("first")).unwrap();
     let sealed = key.seal("t", "c", "1", b"token").unwrap();
-    let same_bytes = RunKey::from_bytes(run("second"), *key.bytes());
+    let bytes = sealing::unwrap("first", key.wrap(&kek).unwrap().as_bytes(), &kek).unwrap();
 
     assert!(matches!(
-        same_bytes.open("t", "c", "1", &sealed),
-        Err(KeyError::DoesNotOpen)
+        (
+            sealing::open_field(&bytes, "first", ["t", "c", "1"], &sealed).map(|opened| opened.to_vec()),
+            sealing::open_field(&bytes, "second", ["t", "c", "1"], &sealed),
+        ),
+        (Ok(opened), Err(KeyError::DoesNotOpen)) if opened == b"token"
     ));
 }
 
@@ -152,7 +157,7 @@ fn two_seals_of_one_value_differ() {
 /// A Run key's `Debug` shows its Run, never its bytes.
 #[test]
 fn a_run_keys_debug_shows_no_key() {
-    let key = RunKey::from_bytes(run("first"), [0xAB; 32]);
+    let key = RunKey::generate(run("first")).unwrap();
 
     assert_eq!(format!("{key:?}"), "RunKey { run_id: \"first\", .. }");
 }

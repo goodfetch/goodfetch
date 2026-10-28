@@ -50,11 +50,11 @@ mod system;
 pub use browsers::{BrowserUse, GovernedBrowser, PageHold};
 pub use ladder::{Weight, last_resort_run};
 pub use shares::{Permit, RunShare};
-pub use storage::{Filesystem, Held, StorageSample};
+pub use storage::{
+    Filesystem, FilesystemInodes, FilesystemReading, FilesystemSource, Held, StorageSample,
+};
 pub use system::{System, footprint_of};
 
-#[cfg(test)]
-pub(crate) use storage::DiskView;
 use storage::{Disks, Folders, Settled};
 
 use controller::{Bounds, Controller, Decision, Limits, Reading};
@@ -319,6 +319,7 @@ impl Sampler {
                 })
                 .await;
             self.shares.browsers().measured(&footprints);
+            let browsers = footprints.iter().map(|(_, footprint)| footprint).sum();
             let now = self.clock.now();
             let tokio_busy = tokio_busy();
             let parallelism = std::thread::available_parallelism().map_or(1, usize::from);
@@ -376,7 +377,7 @@ impl Sampler {
             });
             self.sender.send_replace(Some(info(
                 &limits,
-                &read,
+                (&read, browsers),
                 &decision,
                 cpu,
                 self.shares.in_use(),
@@ -496,9 +497,10 @@ fn tokio_busy() -> Duration {
         .sum()
 }
 
+/// The sample of `read`, with `browsers`, what the browsers counted used.
 fn info(
     limits: &Limits,
-    read: &SystemReading,
+    (read, browsers): (&SystemReading, u64),
     decision: &Decision,
     cpu: CpuReading,
     in_use: [u32; 3],
@@ -517,6 +519,7 @@ fn info(
             allowance: read.allowance,
             allowance_source: read.allowance_source,
             used: read.used,
+            browsers,
             host: read.host,
         },
         cpu,

@@ -12,7 +12,8 @@
 //! configured through `GOODFETCH_URL`, or `--daemon` is given. A Daemon
 //! that refuses the command's `hello` by Product or protocol version and
 //! cannot hand over ends it under `--daemon` with the refusal, whose `fix`
-//! names this executable's `daemon restart`; otherwise the command warns of
+//! names this executable's `daemon restart`, and exit `11` whichever of the
+//! two refused it (ticket #1183); otherwise the command warns of
 //! the refusal and runs on an Attached engine, as `engine: "auto"` does
 //! (ADR 0098). A Daemon that hands over is waited for. A Connection to the
 //! Daemon that drops before the call is answered fails it with
@@ -75,6 +76,34 @@ pub enum Choice {
     /// `--daemon`: the Daemon, started when none runs; its refusal ends the
     /// command.
     Daemon,
+}
+
+// A hand-written command's `--attached` and `--daemon`, as every generated
+// command takes them. Plain comments: a doc comment would become the help
+// of every command that flattens it.
+#[derive(Clone, Copy, Debug, Default, clap::Args)]
+pub struct EngineFlags {
+    /// Runs the call on an Attached engine in this process, even when a
+    /// Daemon runs.
+    #[arg(long, conflicts_with = "daemon")]
+    pub attached: bool,
+    /// Runs the call on the Daemon of the major, starting it if none runs;
+    /// its refusal ends the command.
+    #[arg(long)]
+    pub daemon: bool,
+}
+
+impl EngineFlags {
+    /// The engine they ask for.
+    pub fn choice(self) -> Choice {
+        if self.attached {
+            Choice::Attached
+        } else if self.daemon {
+            Choice::Daemon
+        } else {
+            Choice::Auto
+        }
+    }
 }
 
 /// What the command's call needs of its engine.
@@ -208,6 +237,10 @@ pub enum Answer {
     Result(Value),
     /// The engine's error, or its refusal of `hello`.
     Error(ErrorObject),
+    /// Under `--daemon`, the Daemon's refusal of `hello` by Product or by
+    /// protocol version, its `fix` naming this executable's `daemon
+    /// restart`: the command exits [`exit_codes::DAEMON_REFUSED`].
+    Refused(ErrorObject),
     /// No answer: the engine could not be reached, or the Connection ended
     /// first.
     Unanswered(String),
@@ -298,7 +331,7 @@ pub fn call(
                     .details
                     .insert("fix".to_owned(), Value::from(fix));
                 if reach.choice == Choice::Daemon {
-                    return Answer::Error(refusal);
+                    return Answer::Refused(refusal);
                 }
                 (reach.warn)(&format!(
                     "the Daemon refused this command, which runs on an Attached engine instead: {} {}",
@@ -397,8 +430,9 @@ fn hello(engine: &Engine, needs: Product) -> HelloParams {
 }
 
 /// The failure of a call whose Connection to the Daemon at `endpoint`
-/// dropped before `method` was answered.
-fn connection_lost(endpoint: &DaemonEndpoint, method: &str) -> ErrorObject {
+/// dropped before `method` was answered: `connection_lost`, which exits
+/// its group's row, `8`.
+pub fn connection_lost(endpoint: &DaemonEndpoint, method: &str) -> ErrorObject {
     let mut details = Map::new();
     details.insert(
         "fix".to_owned(),

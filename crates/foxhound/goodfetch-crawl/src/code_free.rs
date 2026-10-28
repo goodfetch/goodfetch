@@ -3,7 +3,7 @@
 //! The start declares the Label `page` and the Dataset `pages`, keyed by
 //! `url`, whose JSON Schema is `page.formats`' schema of the formats
 //! request (Collie's `page_formats_schema`) with the Record's `status` and
-//! `fetchedAt`; a start that also declares a Dataset is refused with
+//! `fetched_at`; a start that also declares a Dataset is refused with
 //! `invalid_params`. Each attempt reads the formats of the page its tier
 //! served, as `page.formats` answers them, and answers one Record of
 //! `pages`, committed under its lease as a handler's answer is; under
@@ -177,7 +177,7 @@ pub(crate) fn dataset(extraction: &CrawlExtraction) -> DatasetDeclaration {
 }
 
 /// What every Record of a crawl reading `formats` holds: `page.formats`'
-/// schema of the request with `status` and `fetchedAt` required beside it.
+/// schema of the request with `status` and `fetched_at` required beside it.
 fn page_schema(formats: &FormatsRequest) -> Value {
     let mut schema = page_formats_schema(formats);
     if let Some(properties) = schema["properties"].as_object_mut() {
@@ -191,7 +191,7 @@ fn page_schema(formats: &FormatsRequest) -> Value {
             }),
         );
         properties.insert(
-            "fetchedAt".to_owned(),
+            "fetched_at".to_owned(),
             json!({
                 "description": "When the engine read the page, in UTC (RFC 3339).",
                 "type": "string",
@@ -200,7 +200,7 @@ fn page_schema(formats: &FormatsRequest) -> Value {
         );
     }
     if let Some(required) = schema["required"].as_array_mut() {
-        required.extend([json!("status"), json!("fetchedAt")]);
+        required.extend([json!("status"), json!("fetched_at")]);
     }
     schema
 }
@@ -262,7 +262,7 @@ pub(crate) fn record_of(
     let mut record = serde_json::to_value(formats).expect("invariant: formats encode as JSON");
     if let Some(properties) = record.as_object_mut() {
         properties.insert("status".to_owned(), json!(status));
-        properties.insert("fetchedAt".to_owned(), json!(fetched_at));
+        properties.insert("fetched_at".to_owned(), json!(fetched_at));
         properties.extend(fields);
     }
     record

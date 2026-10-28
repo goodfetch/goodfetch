@@ -3934,6 +3934,7 @@ impl Registry {
             self.setup.run_state.vfs.clone(),
             Arc::clone(&self.readers),
             following,
+            self.setup.clock,
         )
     }
 

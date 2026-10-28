@@ -3,24 +3,34 @@
 //! generated from the catalog. It asks at the terminal and raises the
 //! Limit through `usage.raise` only when the person answers yes; when stdin
 //! is no terminal, as under a script, an agent or CI, it is refused with
-//! `person_required` before any engine call. It takes no `--json`.
+//! `person_required` before any engine call. It takes no `--json`. It
+//! raises the Limit on the Daemon when one runs or `--daemon` is given,
+//! else on an Attached engine, as any command whose value does not outlive
+//! it (ticket #1183).
 
 use std::process::ExitCode;
 
-use goodfetch_cli::engine_choice::{self, Answer, CommandCall};
+use goodfetch_cli::engine_choice::{
+    self, Answer, Choice, CommandCall, Daemons, EngineChoice, Lifetime,
+};
 use goodfetch_cli::exit_codes;
 use goodfetch_cli::output::{self, Human};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::connection::PERSON_REQUIRED;
+use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::run::Period;
 use goodfetch_protocol::usage::{USAGE_RAISE, UsageRaiseParams};
 use serde_json::Value;
 
 /// Asks the person at the terminal to raise the Limit `params` names, and
-/// raises it on `engine` when they answer yes.
+/// raises it when they answer yes: on the engine `choice` and the
+/// executable's Daemon, `daemons`, choose, a command whose value does not
+/// outlive it ([`engine_choice`]), or else an Attached engine, `engine` on
+/// `dependencies`.
 pub(super) fn raise(
     engine: &Engine,
     dependencies: Dependencies,
+    (daemons, choice): (&dyn Daemons, Choice),
     params: &UsageRaiseParams,
     human: &Human,
 ) -> ExitCode {
@@ -51,7 +61,14 @@ pub(super) fn raise(
         input: None,
     };
     let product = engine.identity().product;
-    match engine_choice::call_attached(engine, dependencies, product, call) {
+    let warn = |text: &str| human.warning(text);
+    let reach = EngineChoice {
+        choice,
+        lifetime: Lifetime::Passing,
+        daemons,
+        warn: &warn,
+    };
+    match engine_choice::call(engine, dependencies, product, &reach, call) {
         Answer::Result(Value::Object(fields)) => {
             for (name, value) in fields {
                 human.field(&name, &text(&value));
@@ -64,21 +81,27 @@ pub(super) fn raise(
         }
         Answer::Error(error) => {
             let group = goodfetch_cli::generated::group(&error);
-            human.failure(
-                &error.message,
-                &[
-                    ("code", error.data.code.clone()),
-                    ("retryable", error.data.retryable.to_string()),
-                ],
-            );
-            ExitCode::from(exit_codes::of_error(&error.data.code, group))
+            failed(&error, exit_codes::of_error(&error.data.code, group), human)
         }
+        Answer::Refused(error) => failed(&error, exit_codes::DAEMON_REFUSED, human),
         Answer::Unanswered(problem) => {
             tracing::error!("{problem}");
             ExitCode::from(exit_codes::unanswered())
         }
         Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
     }
+}
+
+/// Prints `error` on stderr and answers `exit`.
+fn failed(error: &ErrorObject, exit: u8, human: &Human) -> ExitCode {
+    human.failure(
+        &error.message,
+        &[
+            ("code", error.data.code.clone()),
+            ("retryable", error.data.retryable.to_string()),
+        ],
+    );
+    ExitCode::from(exit)
 }
 
 /// The question the prompt asks: which Limit, raised to what.

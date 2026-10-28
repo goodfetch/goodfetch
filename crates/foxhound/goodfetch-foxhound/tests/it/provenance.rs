@@ -9,17 +9,21 @@
 //! no Value transform where the handler parsed its own values. A Record
 //! pushed holding a value the Run resolved is kept as `%name%`, in the
 //! Dataset and in its rejection table alike, and the Secret canary is
-//! found nowhere in the Run's folder (ADR 0067).
+//! found nowhere in the Run's folder nor in an Export of the Dataset,
+//! JSON, a gzip CSV or an XLSX workbook (ADR 0067).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
+
+use std::collections::BTreeSet;
 
 use goodfetch_test_support::{Canaries, Output, ProvingGround, SecretKind, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
+use crate::exports::save_as;
 use crate::fetch_tiers::{provenance, settings};
 use crate::frontier::{Inside, crawl_from};
 
@@ -190,14 +194,86 @@ fn run_file(env: &TestEnv, run_id: &str) -> Connection {
     .unwrap()
 }
 
+/// The Export of `dataset` of `run_id` in `format`, compressed as
+/// `compression` says, saved in the test's folder: its bytes.
+fn saved_export(
+    env: &TestEnv,
+    engine: &mut Attached,
+    (run_id, dataset): (&str, &str),
+    format: &str,
+    compression: &str,
+) -> Vec<u8> {
+    let exported = engine.call(
+        "export",
+        "run.export",
+        &json!({ "run_id": run_id, "dataset": dataset, "format": format, "compression": compression }),
+        &mut |_| None,
+    );
+    let path = env
+        .folder()
+        .join(format!("{dataset}.{format}.{compression}"));
+    let saved = save_as(engine, &exported["result"]["export_id"], &path);
+    assert!(saved.get("result").is_some(), "{exported}\n{saved}");
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test reads the Export the engine saved"
+    )]
+    std::fs::read(&path).unwrap()
+}
+
+/// The text of every part of the ZIP `bytes`, such as an XLSX workbook's
+/// sheets and shared strings, decompressed, each named by its path.
+fn zip_parts(bytes: Vec<u8>) -> Vec<(String, Vec<u8>)> {
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    (0..archive.len())
+        .map(|index| {
+            let mut part = archive.by_index(index).unwrap();
+            let mut text = Vec::new();
+            std::io::Read::read_to_end(&mut part, &mut text).unwrap();
+            (part.name().unwrap().into_owned(), text)
+        })
+        .collect()
+}
+
+/// The Exports of `dataset` as JSON, as a CSV compressed with gzip and as
+/// an XLSX workbook, read decompressed: the JSON file, the CSV text and
+/// each part of the workbook, each named, with the format it came from.
+fn decompressed_exports(
+    env: &TestEnv,
+    engine: &mut Attached,
+    dataset: (&str, &str),
+) -> Vec<(&'static str, String, Vec<u8>)> {
+    let json_export = saved_export(env, engine, dataset, "json", "none");
+    let csv_export = saved_export(env, engine, dataset, "csv", "gzip");
+    let xlsx_export = saved_export(env, engine, dataset, "xlsx", "none");
+    let mut csv_text = Vec::new();
+    std::io::Read::read_to_end(
+        &mut flate2::read::GzDecoder::new(csv_export.as_slice()),
+        &mut csv_text,
+    )
+    .unwrap();
+    let mut exports = vec![
+        ("json", format!("{}.json", dataset.1), json_export),
+        ("csv", format!("{}.csv", dataset.1), csv_text),
+    ];
+    exports.extend(
+        zip_parts(xlsx_export)
+            .into_iter()
+            .map(|(name, text)| ("xlsx", name, text)),
+    );
+    exports
+}
+
 /// A Record pushed holding a value the Run resolved, here its
 /// key-encryption key, which `run_state.key_reference` names, is kept as
 /// `%run_state.key_reference%` in its Dataset, as is one its schema
 /// refused in the Dataset's rejection table, and as is a Record of the
 /// handler's answer; `run.records` reads it so, and the canary is found
-/// nowhere in the Run's folder.
+/// nowhere in the Run's folder nor in the Dataset's Exports: JSON, a CSV
+/// compressed with gzip, and an XLSX workbook, each part of it read
+/// decompressed, each holding the placeholder instead (ticket #972).
 ///
-/// Covers: story:6-275, operation:crawl_request.push, operation:run.records
+/// Covers: story:6-275, operation:crawl_request.push, operation:run.records, operation:run.export, operation:export.save_as
 #[test]
 fn a_record_holding_a_resolved_secret_value_is_kept_with_its_placeholder() {
     let env = TestEnv::new();
@@ -237,7 +313,21 @@ fn a_record_holding_a_resolved_secret_value_is_kept_with_its_placeholder() {
         .into_iter()
         .map(|record| record["value"].clone())
         .collect();
+    let exports = decompressed_exports(&env, &mut engine, ("reflected", "pages"));
     assert!(engine.finish());
+    let holding: BTreeSet<&str> = exports
+        .iter()
+        .filter(|(_, _, bytes)| {
+            String::from_utf8_lossy(bytes).contains("%run_state.key_reference%")
+        })
+        .map(|(format, _, _)| *format)
+        .collect();
+    assert_eq!(holding, BTreeSet::from(["csv", "json", "xlsx"]));
+    let exported: Vec<Output<'_>> = exports
+        .iter()
+        .map(|(_, name, bytes)| Output::Bytes { name, bytes })
+        .collect();
+    assert_eq!(canaries.leaks(&exported).unwrap(), Vec::new());
 
     let placeholder = "the key is %run_state.key_reference%";
     let kept: Vec<String> = run_file(&env, "reflected")

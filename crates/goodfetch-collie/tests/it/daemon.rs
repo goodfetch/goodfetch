@@ -656,7 +656,8 @@ fn a_runtime_file_whose_daemon_died_is_replaced() {
 }
 
 /// A Daemon that drops the Connection before it answers fails the command
-/// rather than hanging it.
+/// with `connection_lost`, exit `8`, as every command that reaches the
+/// Daemon does, rather than hanging it (ticket #1183).
 ///
 /// Covers: story:3-11
 #[test]
@@ -671,8 +672,12 @@ fn a_connection_dropped_mid_command_fails_the_command() {
     scripted.child().wait().unwrap();
 
     assert_eq!(
-        (output.exit, output.stdout.as_str()),
-        (Some(1), ""),
+        (
+            output.exit,
+            output.stdout.as_str(),
+            output.stderr.contains("code=\"connection_lost\""),
+        ),
+        (Some(8), "", true),
         "{}",
         output.stderr
     );

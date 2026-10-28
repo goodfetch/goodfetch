@@ -25,6 +25,8 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::attached::{Attached, hello};
+use crate::daemon::{StopsTheDaemon, short_idle};
+use crate::engine_choice::{On, daemon_dispatched};
 use crate::run::call;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -268,6 +270,51 @@ fn certs_accept_asks_the_person_at_the_terminal(
     assert_eq!(
         (&verified["intact"], &verified["entries"]),
         (&json!(true), &json!(recorded))
+    );
+}
+
+/// `certs accept` and `certs forget` make their calls on the engine their
+/// flags choose: an Attached engine in their process under `--attached`,
+/// the Daemon of the major, which they start, under `--daemon`; either
+/// answers the person's yes the same (ticket #1183).
+///
+/// Covers: story:4-36, story:4-37, story:11-199
+#[rstest::rstest]
+/// Covers: command:certs.accept
+#[case::accept_attached("accept", On::Attached, Some((json!(CHANGED), Value::Null)))]
+/// Covers: command:certs.accept
+#[case::accept_daemon("accept", On::Daemon, Some((json!(CHANGED), Value::Null)))]
+/// Covers: command:certs.forget
+#[case::forget_attached("forget", On::Attached, None)]
+/// Covers: command:certs.forget
+#[case::forget_daemon("forget", On::Daemon, None)]
+fn certs_accept_and_forget_run_on_the_engine_their_flags_choose(
+    #[case] command: &str,
+    #[case] on: On,
+    #[case] after: Option<(Value, Value)>,
+) {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    changed_store(&env);
+    let mut asked = pty(&env, COLLIE)
+        .args(["certs", command, HOST, on.flag()])
+        .spawn()
+        .unwrap();
+
+    asked.expect("[y/N]").unwrap();
+    asked.send_line("y").unwrap();
+    let answered = asked.finish().unwrap();
+
+    assert_eq!(
+        (
+            answered.exit,
+            pin_of_host(&env),
+            daemon_dispatched(&env, &format!("certs.{command}")),
+        ),
+        (Some(0), after, on == On::Daemon),
+        "{}",
+        answered.stripped()
     );
 }
 

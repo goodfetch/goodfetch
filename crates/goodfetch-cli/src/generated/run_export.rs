@@ -207,6 +207,7 @@ pub(super) fn run(
             ExitCode::from(exit_codes::SUCCESS)
         }
         Answer::Error(error) => call.fail(error, human),
+        Answer::Refused(error) => call.fail_exiting(error, exit_codes::DAEMON_REFUSED, human),
         Answer::Unanswered(problem) => {
             tracing::error!("{problem}");
             ExitCode::from(exit_codes::unanswered())

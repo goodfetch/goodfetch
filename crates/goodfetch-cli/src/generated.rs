@@ -1010,6 +1010,7 @@ impl Call {
                 ExitCode::from(self.exit_of(result))
             }
             Answer::Error(error) => self.fail(error, human),
+            Answer::Refused(error) => self.fail_exiting(error, exit_codes::DAEMON_REFUSED, human),
             Answer::Unanswered(problem) => {
                 tracing::error!("{problem}");
                 ExitCode::from(exit_codes::unanswered())
@@ -1063,9 +1064,16 @@ impl Call {
         }
     }
 
+    /// Prints the failure `error` and answers its exit code, its Error
+    /// code's row of the table.
     fn fail(&self, error: ErrorObject, human: &Human) -> ExitCode {
+        let exit = exit_codes::of_error(&error.data.code, group(&error));
+        self.fail_exiting(error, exit, human)
+    }
+
+    /// Prints the failure `error` and answers `exit`.
+    fn fail_exiting(&self, error: ErrorObject, exit: u8, human: &Human) -> ExitCode {
         let group = group(&error);
-        let exit = exit_codes::of_error(&error.data.code, group);
         let failed = CommandFailed {
             error: CommandError {
                 code: error.data.code,

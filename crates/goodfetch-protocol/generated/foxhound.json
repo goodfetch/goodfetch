@@ -1271,14 +1271,14 @@
     },
     "CrawlExtraction": {
       "additionalProperties": false,
-      "description": "What a crawl with no handler reads from each page it fetches (spec\n#582's code-free crawls; ADR 0103): the engine declares the Label\n[`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by\n`url`, whose JSON Schema is generated from `formats`, and commits one\nRecord per page fetched: the page's formats, as `page.formats` answers\nthem (its `url` the document's, after redirects), its response's\n`status` and `fetchedAt`, when the engine read it, and its named\n`fields`, each read by a locator and given by a Value transform (ADR\n0123).",
+      "description": "What a crawl with no handler reads from each page it fetches (spec\n#582's code-free crawls; ADR 0103): the engine declares the Label\n[`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by\n`url`, whose JSON Schema is generated from `formats`, and commits one\nRecord per page fetched: the page's formats, as `page.formats` answers\nthem (its `url` the document's, after redirects), its response's\n`status` and `fetched_at`, when the engine read it, and its named\n`fields`, each read by a locator and given by a Value transform (ADR\n0123).",
       "properties": {
         "fields": {
           "additionalProperties": {
             "$ref": "#/$defs/ExtractionField"
           },
           "arrived_in": "0.1",
-          "description": "The named fields each page's Record holds beside its formats, by\nname, which no format's property and neither `status` nor\n`fetchedAt` may take; none by default.",
+          "description": "The named fields each page's Record holds beside its formats, by\nname, which no format's property and neither `status` nor\n`fetched_at` may take; none by default.",
           "type": "object"
         },
         "follow": {
@@ -4217,7 +4217,7 @@
       "type": "object"
     },
     "FieldTransform": {
-      "description": "A field's Value transform (ADR 0123), named by `kind`, each\nlocale-dependent one stating its locale, a BCP 47 tag. A `number`,\n`date` or `date_time` reads the machine-readable value of a `<time\ndatetime>`, a `<data value>` or an element's `content` attribute in its\ninvariant form (ISO 8601, a plain decimal with a dot), whatever the\nlocale; a text printed for people, read under its locale's CLDR forms,\nis the Value transforms' parsers' (#844, #848), and until they land is\nnot a value.",
+      "description": "A field's Value transform (ADR 0123), named by `kind`, each\nlocale-dependent one stating its locale, a BCP 47 tag. A `number`,\n`date` or `date_time` reads the machine-readable value of a `<time\ndatetime>`, a `<data value>` or an element's `content` attribute in its\ninvariant form (ISO 8601, a plain decimal with a dot), whatever the\nlocale; a text printed for people is read under its locale's CLDR\nforms: a number in its digits, separators and grouping, a date or a\ndate and time in one of its short, medium or long forms with a\nfour-digit year; any other text is not a value.",
       "oneOf": [
         {
           "additionalProperties": false,

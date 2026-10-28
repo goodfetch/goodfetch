@@ -209,7 +209,7 @@ pub const CODE_FREE_DATASET: &str = "pages";
 /// `url`, whose JSON Schema is generated from `formats`, and commits one
 /// Record per page fetched: the page's formats, as `page.formats` answers
 /// them (its `url` the document's, after redirects), its response's
-/// `status` and `fetchedAt`, when the engine read it, and its named
+/// `status` and `fetched_at`, when the engine read it, and its named
 /// `fields`, each read by a locator and given by a Value transform (ADR
 /// 0123).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -224,7 +224,7 @@ pub struct CrawlExtraction {
     pub follow: ExtractionFollow,
     /// The named fields each page's Record holds beside its formats, by
     /// name, which no format's property and neither `status` nor
-    /// `fetchedAt` may take; none by default.
+    /// `fetched_at` may take; none by default.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub fields: BTreeMap<String, ExtractionField>,
@@ -303,9 +303,10 @@ const fn first_group() -> u32 {
 /// `date` or `date_time` reads the machine-readable value of a `<time
 /// datetime>`, a `<data value>` or an element's `content` attribute in its
 /// invariant form (ISO 8601, a plain decimal with a dot), whatever the
-/// locale; a text printed for people, read under its locale's CLDR forms,
-/// is the Value transforms' parsers' (#844, #848), and until they land is
-/// not a value.
+/// locale; a text printed for people is read under its locale's CLDR
+/// forms: a number in its digits, separators and grouping, a date or a
+/// date and time in one of its short, medium or long forms with a
+/// four-digit year; any other text is not a value.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum FieldTransform {

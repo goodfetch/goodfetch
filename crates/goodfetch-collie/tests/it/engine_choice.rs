@@ -42,6 +42,26 @@ fn daemon(env: &TestEnv) -> Value {
         .clone()
 }
 
+/// The engine a hand-written command's flag chooses, for its `attached` and
+/// `daemon` cases against one expected answer (ticket #1183, ADR 0069).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum On {
+    /// `--attached`: an Attached engine in the command's process.
+    Attached,
+    /// `--daemon`: the Daemon of the major, which the command starts.
+    Daemon,
+}
+
+impl On {
+    /// Its flag.
+    pub(crate) fn flag(self) -> &'static str {
+        match self {
+            Self::Attached => "--attached",
+            Self::Daemon => "--daemon",
+        }
+    }
+}
+
 /// Whether a Daemon's log file in the home records the engine dispatching
 /// `method`: only a Daemon writes one named `daemon-<major>`.
 pub(crate) fn daemon_dispatched(env: &TestEnv, method: &str) -> bool {

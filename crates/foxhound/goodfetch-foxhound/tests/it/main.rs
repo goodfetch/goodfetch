@@ -79,5 +79,6 @@ mod tier_race;
 mod trap_links;
 mod url_fragments;
 mod use_signals;
+mod waiting;
 mod workers;
 mod writer_lock;

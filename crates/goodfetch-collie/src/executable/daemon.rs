@@ -52,7 +52,9 @@ use goodfetch_engine::transport::{self, Connection, ConnectionReader, Connection
 use goodfetch_protocol::browser_cache::MAX_UNUSED_AGE;
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
-use goodfetch_protocol::connection::{HelloParams, Surface};
+use goodfetch_protocol::connection::{
+    HelloParams, NOT_IN_PRODUCT, PROTOCOL_VERSION_UNSUPPORTED, Surface,
+};
 use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonHealth, DaemonHealthOutput, DaemonRuntimeFile, DaemonState, DaemonStatus,
@@ -136,6 +138,14 @@ pub(super) enum Failure {
         message: String,
         fix: String,
     },
+    /// The Daemon refused this Client's `hello` by Product or by protocol
+    /// version and cannot hand over, its `fix` naming this executable's
+    /// `daemon restart`.
+    DaemonRefused {
+        code: String,
+        message: String,
+        fix: String,
+    },
     /// The Daemon cannot be started or reached.
     Unavailable(String),
 }
@@ -153,6 +163,10 @@ impl Failure {
                 tracing::error!(code = code.as_str(), "{message} {fix}");
                 ExitCode::from(exit_codes::of_error(code, *group))
             }
+            Self::DaemonRefused { code, message, fix } => {
+                tracing::error!(code = code.as_str(), "{message} {fix}");
+                ExitCode::from(exit_codes::DAEMON_REFUSED)
+            }
             Self::Unavailable(problem) => {
                 tracing::error!("{problem}");
                 ExitCode::FAILURE
@@ -165,7 +179,9 @@ impl Failure {
     /// What it says, for people: a refusal's message and its `fix`.
     fn message(self) -> String {
         match self {
-            Self::Refused { message, fix, .. } => format!("{message} {fix}"),
+            Self::Refused { message, fix, .. } | Self::DaemonRefused { message, fix, .. } => {
+                format!("{message} {fix}")
+            }
             Self::Unavailable(problem) => problem,
         }
     }
@@ -479,11 +495,18 @@ impl Machine<'_> {
             .get("fix")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        Failure::Refused {
-            code: error.data.code.clone(),
-            group: generated::group(error),
-            message: error.message.clone(),
-            fix: self.fix_of(given),
+        let code = error.data.code.clone();
+        let message = error.message.clone();
+        let fix = self.fix_of(given);
+        if [NOT_IN_PRODUCT.name, PROTOCOL_VERSION_UNSUPPORTED.name].contains(&code.as_str()) {
+            Failure::DaemonRefused { code, message, fix }
+        } else {
+            Failure::Refused {
+                code,
+                group: generated::group(error),
+                message,
+                fix,
+            }
         }
     }
 
@@ -693,10 +716,18 @@ impl Connected {
                     "the Daemon answered `{method}` with no result of it: {error}"
                 ))
             }),
-            Err(None) => Err(Failure::Unavailable(format!(
-                "the Daemon at {} closed the Connection before it answered `{method}`",
-                self.endpoint
-            ))),
+            Err(None) => {
+                let lost = goodfetch_cli::engine_choice::connection_lost(&self.endpoint, method);
+                Err(Failure::Refused {
+                    group: generated::group(&lost),
+                    code: lost.data.code,
+                    fix: lost.data.details["fix"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                    message: lost.message,
+                })
+            }
             Err(Some(error)) => Err(Failure::Refused {
                 code: error.data.code.clone(),
                 group: generated::group(&error),

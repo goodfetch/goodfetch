@@ -58,13 +58,14 @@ use super::websocket::{
     self, Authorities, ConsoleSocket, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
 };
 use super::{
-    failure_line, handshake, line, not_in_product, notification_line, record, record_cancel,
-    success_line, trace_context,
+    failure_line, handshake, line, not_in_product, notification_line, notification_value_line,
+    record, record_cancel, success_line, trace_context,
 };
 use crate::client::{Client, Outgoing};
 use crate::clock::Clock;
 use crate::composition::{
-    CallContext, CallError, CallInput, CallStream, ConnectionContext, DaemonSide, Driver, Handler,
+    CallContext, CallError, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide,
+    Driver, Handler, InputSender,
 };
 use crate::endpoint::{REFUSAL_TARGET, same_token};
 use crate::events::{Credits, Events};
@@ -529,7 +530,7 @@ struct InFlight {
     cancellable: bool,
     credits: Option<Credits>,
     /// The notification it takes as its input, and where each goes.
-    input: Option<(&'static str, mpsc::UnboundedSender<Value>)>,
+    input: Option<(&'static str, InputSender)>,
 }
 
 /// A message read from the Connection, by the event of the engine's table
@@ -999,24 +1000,15 @@ impl Session<'_> {
         let operation = handler.operation();
         let span = trace::server_span(operation.name, &id, params.as_ref(), meta);
         let credits = handler.streams().then(Credits::new);
-        let stream = credits.clone().map(|credits| CallStream {
-            id: id.clone(),
-            credits,
-            outgoing: self.outgoing.clone(),
-            line: notification_line,
-        });
+        let notifier =
+            CallNotifier::new(id.clone(), self.outgoing.clone(), notification_value_line);
+        let stream = credits
+            .clone()
+            .map(|credits| CallStream::new(notifier.clone(), credits));
         let (input, call_input) = match handler.input() {
-            Some(method) => {
-                let (sender, incoming) = mpsc::unbounded_channel();
-                (
-                    Some((method, sender)),
-                    Some(CallInput::new(
-                        id.clone(),
-                        incoming,
-                        self.outgoing.clone(),
-                        notification_line,
-                    )),
-                )
+            Some((method, room)) => {
+                let (sender, call_input) = CallInput::new(notifier, room);
+                (Some((method, sender)), Some(call_input))
             }
             None => (None, None),
         };
@@ -1088,7 +1080,7 @@ impl Session<'_> {
         self.in_flight.contains_key(id)
     }
 
-    fn notification(&self, notification: &Notification) {
+    fn notification(&mut self, notification: &Notification) {
         if notification.method == CREDIT {
             self.credit(notification);
             return;
@@ -1112,7 +1104,7 @@ impl Session<'_> {
 
     /// Hands an input notification to the call in flight it names, which
     /// takes it; any other is ignored.
-    fn input(&self, notification: &Notification) {
+    fn input(&mut self, notification: &Notification) {
         #[derive(serde::Deserialize)]
         struct Named {
             id: RequestId,
@@ -1120,11 +1112,11 @@ impl Session<'_> {
         let params = notification.params.clone().unwrap_or(Value::Null);
         let taker = serde_json::from_value::<Named>(params.clone())
             .ok()
-            .and_then(|Named { id }| self.in_flight.get(&id))
-            .and_then(|call| call.input.as_ref())
+            .and_then(|Named { id }| self.in_flight.get_mut(&id))
+            .and_then(|call| call.input.as_mut())
             .filter(|(method, _)| *method == notification.method);
         if let Some((_, sender)) = taker {
-            let _ = sender.send(params);
+            sender.hand_over(params);
         } else {
             tracing::debug!("an unknown notification is ignored");
         }

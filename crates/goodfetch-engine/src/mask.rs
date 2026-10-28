@@ -92,10 +92,6 @@ pub struct Masks(Arc<Shared>);
 #[derive(Default)]
 struct Shared {
     state: RwLock<State>,
-    /// A test harness's masks that let every value through, the positive
-    /// control of a Secret canary search (spec #564).
-    #[cfg(test)]
-    unmasked: bool,
 }
 
 #[derive(Default)]
@@ -273,17 +269,6 @@ impl Masks {
         Self::default()
     }
 
-    /// Masks no value ever joins, so every output keeps each value a Run
-    /// resolved: a test harness's positive control, showing a Secret canary
-    /// search finds what the `Mask` would have hidden (spec #564).
-    #[cfg(test)]
-    pub(crate) fn unmasked() -> Self {
-        Self(Arc::new(Shared {
-            state: RwLock::default(),
-            unmasked: true,
-        }))
-    }
-
     /// A new Run's mask, its values masked in [`Scope::KeptOutput`] unless
     /// `redaction` is off. Its values leave once its last handle drops.
     pub fn for_run(&self, redaction: Redaction) -> Mask {
@@ -423,10 +408,6 @@ impl Masks {
     }
 
     fn join(&self, run: u64, name: &str, value: &SecretString, reach: Reach, redaction: Redaction) {
-        #[cfg(test)]
-        if self.0.unmasked {
-            return;
-        }
         let short = reach == Reach::OneTimeCode || value.expose_secret().chars().count() < SHORT;
         let mut state = self.write();
         state.entries.push(Entry {

@@ -13,34 +13,18 @@
 )]
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use goodfetch_engine::browser_cache::Platform;
 use goodfetch_protocol::browser_cache::{
     BrowserCleaned, BrowserInstalled, InstallOutcome, InstalledBuild,
 };
-use goodfetch_test_support::{TestEnv, assert_cli_snapshot, browser_cache, cli};
+use goodfetch_test_support::{
+    TestEnv, assert_cli_snapshot, browser_cache, cli, lay_out_browser_entry,
+};
 use serde_json::{Value, json};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
-
-/// Lays out a browser build's entry in the cache at `root`, last used at
-/// `used_at`.
-fn lay_out(root: &Path, build: &str, used_at: &str) -> PathBuf {
-    let folder = root.join("browser").join("chrome-for-testing").join(build);
-    fs::create_dir_all(folder.join("files")).unwrap();
-    fs::write(folder.join("files").join("chrome"), "#!chrome\n").unwrap();
-    fs::write(folder.join("lock"), "").unwrap();
-    let entry = json!({
-        "format_version": "0.1",
-        "artifact": { "kind": "browser", "name": "chrome-for-testing", "build": build },
-        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-        "installed_at": used_at,
-        "used_at": used_at,
-    });
-    fs::write(folder.join("entry.json"), entry.to_string()).unwrap();
-    folder
-}
 
 fn run(env: &TestEnv, arguments: &[&str], variables: &[(&str, &Path)]) -> Value {
     let command = variables.iter().fold(
@@ -108,9 +92,9 @@ fn browser_install_makes_sure_of_each_build_the_version_pins() {
 fn browser_clean_dry_run_lists_what_browser_clean_then_removes() {
     let env = TestEnv::new();
     let cache = env.home().join("browsers");
-    let unused = lay_out(&cache, "unused-since-2020", "2020-01-01T00:00:00Z");
-    let recent = lay_out(&cache, "used-in-2100", "2100-01-01T00:00:00Z");
-    let pinned = lay_out(&cache, "pinned-by-foxhound", "2020-01-01T00:00:00Z");
+    let unused = lay_out_browser_entry(&cache, "unused-since-2020", "2020-01-01T00:00:00Z");
+    let recent = lay_out_browser_entry(&cache, "used-in-2100", "2100-01-01T00:00:00Z");
+    let pinned = lay_out_browser_entry(&cache, "pinned-by-foxhound", "2020-01-01T00:00:00Z");
     install_a_foxhound_executable(&env, "pinned-by-foxhound");
 
     let dry_run = cli(&env, COLLIE)
@@ -170,8 +154,8 @@ fn install_a_foxhound_executable(env: &TestEnv, build: &str) {
 fn browser_clean_deletes_what_nothing_pins_or_used_within_the_age() {
     let env = TestEnv::new();
     let cache = env.home().join("browsers");
-    let unused = lay_out(&cache, "unused-since-2020", "2020-01-01T00:00:00Z");
-    let recent = lay_out(&cache, "used-in-2100", "2100-01-01T00:00:00Z");
+    let unused = lay_out_browser_entry(&cache, "unused-since-2020", "2020-01-01T00:00:00Z");
+    let recent = lay_out_browser_entry(&cache, "used-in-2100", "2100-01-01T00:00:00Z");
 
     let output = run(&env, &["browser", "clean", "--json"], &[]);
 
@@ -218,8 +202,8 @@ fn install_two_executables(env: &TestEnv) {
 fn browser_clean_keeps_what_an_installed_executable_pins() {
     let env = TestEnv::new();
     let cache = env.home().join("browsers");
-    let kept = lay_out(&cache, "pinned-by-a-program", "2020-01-01T00:00:00Z");
-    lay_out(
+    let kept = lay_out_browser_entry(&cache, "pinned-by-a-program", "2020-01-01T00:00:00Z");
+    lay_out_browser_entry(
         &cache,
         "pinned-by-a-removed-foxhound",
         "2020-01-01T00:00:00Z",
@@ -244,7 +228,7 @@ fn browser_clean_keeps_what_an_installed_executable_pins() {
 fn browser_clean_keeps_what_was_used_within_the_age_user_configuration_sets() {
     let env = TestEnv::new();
     let cache = env.home().join("browsers");
-    let unused = lay_out(&cache, "unused-since-2020", "2020-01-01T00:00:00Z");
+    let unused = lay_out_browser_entry(&cache, "unused-since-2020", "2020-01-01T00:00:00Z");
     fs::create_dir_all(env.home().join("0.0")).unwrap();
     fs::write(
         env.home().join("0.0").join("configuration.toml"),
@@ -264,7 +248,7 @@ fn browser_clean_keeps_what_was_used_within_the_age_user_configuration_sets() {
 fn goodfetch_browsers_path_wins_over_goodfetch_home() {
     let env = TestEnv::new();
     let copy = env.folder().join("prepared cache");
-    let unused = lay_out(&copy, "unused-since-2020", "2020-01-01T00:00:00Z");
+    let unused = lay_out_browser_entry(&copy, "unused-since-2020", "2020-01-01T00:00:00Z");
 
     let output = run(
         &env,
@@ -284,7 +268,7 @@ fn browser_clean_never_cleans_a_read_only_goodfetch_browsers_path() {
     use std::os::unix::fs::PermissionsExt as _;
     let env = TestEnv::new();
     let copy = env.folder().join("read-only cache");
-    let unused = lay_out(&copy, "unused-since-2020", "2020-01-01T00:00:00Z");
+    let unused = lay_out_browser_entry(&copy, "unused-since-2020", "2020-01-01T00:00:00Z");
     fs::set_permissions(&copy, fs::Permissions::from_mode(0o555)).unwrap();
 
     let output = run(

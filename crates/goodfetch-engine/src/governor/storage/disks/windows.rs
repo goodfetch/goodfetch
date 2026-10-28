@@ -13,7 +13,7 @@ use std::path::Path;
 
 use windows_sys::Win32::Storage::FileSystem::{GetDiskFreeSpaceExW, GetVolumePathNameW};
 
-use super::Reading;
+use super::FilesystemReading;
 
 /// The longest volume path `GetVolumePathNameW` writes, in UTF-16 units,
 /// past `MAX_PATH` for a long path.
@@ -39,7 +39,7 @@ pub(super) fn volume(folder: &Path) -> Option<String> {
 }
 
 /// What the volume holding `folder`, which exists, reads.
-pub(super) fn read(folder: &Path) -> Option<Reading> {
+pub(super) fn read(folder: &Path) -> Option<FilesystemReading> {
     let path = wide(folder);
     let (mut free, mut size, mut all_free) = (0_u64, 0_u64, 0_u64);
     // SAFETY: `path` is NUL-terminated and each count a writable `u64`.
@@ -51,7 +51,7 @@ pub(super) fn read(folder: &Path) -> Option<Reading> {
             &raw mut all_free,
         )
     };
-    (done != 0).then_some(Reading {
+    (done != 0).then_some(FilesystemReading {
         size,
         free,
         inodes: None,

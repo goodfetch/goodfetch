@@ -227,6 +227,62 @@ type Completion = Box<dyn FnOnce(Result<(), RunStateError>) + Send>;
 /// an I/O error; given none, it reports the failure only.
 type QueuedWrite = Box<dyn FnOnce(Option<(&Connection, &Path)>) -> (Completion, bool) + Send>;
 
+/// `work` as a write the writer's actor runs in its next commit, and the
+/// answer it sends once that commit ends.
+fn queued<T, F>(work: F) -> (QueuedWrite, oneshot::Receiver<Result<T, RunStateError>>)
+where
+    T: Send + 'static,
+    F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+{
+    let (answer, answered) = oneshot::channel();
+    let job: QueuedWrite = Box::new(move |transaction: Option<(&Connection, &Path)>| {
+        let mut storage = false;
+        let done = match transaction {
+            Some((connection, path)) => run_in_savepoint(connection, work).map_err(|error| {
+                storage = is_storage(&error);
+                sqlite_error(path, &error)
+            }),
+            None => Err(RunStateError::Closed),
+        };
+        let completion: Completion = Box::new(move |committed: Result<(), RunStateError>| {
+            let _ = answer.send(committed.and(done));
+        });
+        (completion, storage)
+    });
+    (job, answered)
+}
+
+/// A place [`RunState::reserve`] took in the writer's queue; dropped
+/// unused, it frees the place.
+pub struct ReservedWrite(mpsc::OwnedPermit<QueuedWrite>);
+
+impl std::fmt::Debug for ReservedWrite {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ReservedWrite")
+            .finish_non_exhaustive()
+    }
+}
+
+impl ReservedWrite {
+    /// Queues `work` in the place, at once, as [`RunState::write`] would
+    /// have queued it, and answers the future of what it returns once its
+    /// commit is acknowledged, with [`RunState::write`]'s errors. Dropping
+    /// that future does not withdraw the write.
+    pub fn write<T, F>(
+        self,
+        work: F,
+    ) -> impl Future<Output = Result<T, RunStateError>> + Send + 'static
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let (job, answered) = queued(work);
+        self.0.send(job);
+        async move { answered.await.map_err(|_| RunStateError::Closed)? }
+    }
+}
+
 /// The writer of one run file: a handle to its actor, which any task may
 /// clone and send writes to.
 #[derive(Clone, Debug)]
@@ -335,26 +391,32 @@ impl RunState {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        let (answer, answered) = oneshot::channel();
-        let job: QueuedWrite = Box::new(move |transaction: Option<(&Connection, &Path)>| {
-            let mut storage = false;
-            let done = match transaction {
-                Some((connection, path)) => run_in_savepoint(connection, work).map_err(|error| {
-                    storage = is_storage(&error);
-                    sqlite_error(path, &error)
-                }),
-                None => Err(RunStateError::Closed),
-            };
-            let completion: Completion = Box::new(move |committed: Result<(), RunStateError>| {
-                let _ = answer.send(committed.and(done));
-            });
-            (completion, storage)
-        });
+        let (job, answered) = queued(work);
         self.mailbox
             .send(job)
             .await
             .map_err(|_| RunStateError::Closed)?;
         answered.await.map_err(|_| RunStateError::Closed)?
+    }
+
+    /// A place in the writer's queue, for a write the caller queues once it
+    /// knows it: without awaiting, so in order with a change it makes under
+    /// a lock, such as a Run's charging and its journal.
+    ///
+    /// # Errors
+    ///
+    /// `Closed` when the writer has stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future takes no place.
+    pub async fn reserve(&self) -> Result<ReservedWrite, RunStateError> {
+        self.mailbox
+            .clone()
+            .reserve_owned()
+            .await
+            .map(ReservedWrite)
+            .map_err(|_| RunStateError::Closed)
     }
 
     /// Runs `work` on the writer's connection, in order with its writes, so

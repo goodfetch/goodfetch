@@ -21,13 +21,13 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
+use super::disk_view::DiskView;
 use super::events::credit;
 use super::run::{call, run_folder};
 use super::storage::configure;
 use super::usage::{charging, install_month, monthly_install_limit};
 use super::{Client, attached_on, engine, engine_with, hello};
 use crate::engine::Engine;
-use crate::governor::{DiskView, System};
 
 const MB: u64 = 1_000_000;
 
@@ -38,7 +38,7 @@ const LEVELS: &str = "storage.low_free = 2000000\nstorage.critical_free = 100000
 pub(super) const SUBSCRIPTION: i64 = 1;
 
 fn viewed(view: &DiskView) -> Engine {
-    engine(Product::Collie).with_governor(System::os().with_disks(view.clone()))
+    engine(Product::Collie).with_governor(view.system())
 }
 
 /// Opens the Connection and subscribes to every event; answers the engine
@@ -351,8 +351,7 @@ fn stopped_by_limit_then_raised(tags: Value) -> (Vec<Value>, Vec<Value>, Vec<Val
     let env = TestEnv::new();
     let view = DiskView::default();
     view.mount(env.home(), 1_000_000 * MB, 500_000 * MB);
-    let engine = engine_with(Product::Collie, Some(charging()))
-        .with_governor(System::os().with_disks(view.clone()));
+    let engine = engine_with(Product::Collie, Some(charging())).with_governor(view.system());
 
     attached_on(&engine, &env, |mut client| async move {
         let mut opening = hello("collie", "0.1");

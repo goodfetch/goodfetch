@@ -25,7 +25,7 @@ use rustls::crypto::ring;
 use rustls::sign::CertifiedKey;
 use secrecy::ExposeSecret as _;
 use serde_json::Value;
-use tokio::sync::Mutex;
+use tokio::sync::OnceCell;
 
 use super::{covered, domain_key, read_certificates, read_private_key};
 use crate::composition::CallError;
@@ -37,8 +37,8 @@ use crate::secrets::{Purpose, RunSecrets, SecretError};
 #[derive(Clone, Debug, Default)]
 pub struct ClientCertificates {
     /// Each listed domain's certificate, by the domain as the URL parser
-    /// leaves a host.
-    listed: BTreeMap<String, ClientCertificateConfiguration>,
+    /// leaves a host. Clones share what each loaded.
+    listed: Arc<BTreeMap<String, Listed>>,
     /// The Run's Secrets, which resolve each key; none when nothing is
     /// listed.
     secrets: Option<RunSecrets>,
@@ -46,9 +46,15 @@ pub struct ClientCertificates {
     layer: Option<SettingsLayer>,
     /// The Run whose connections present them.
     run_id: Option<RunId>,
-    /// Each listed domain's certificate and key, once a handshake loaded
-    /// them.
-    loaded: Arc<Mutex<BTreeMap<String, Arc<CertifiedKey>>>>,
+}
+
+/// One listed domain's certificate, and its certificate and key once a
+/// handshake loaded them: the first handshake of the domain loads them, and
+/// every later or concurrent one waits for that load.
+#[derive(Debug)]
+struct Listed {
+    entry: ClientCertificateConfiguration,
+    loaded: OnceCell<Arc<CertifiedKey>>,
 }
 
 /// Why a listed client certificate cannot be presented.
@@ -118,19 +124,24 @@ impl ClientCertificates {
             let key = domain_key(domain)
                 .ok_or_else(|| unusable("it names no host or domain".to_owned()))?;
             let entry = ClientCertificateConfiguration::read(value).map_err(unusable)?;
-            listed.insert(key, entry);
+            listed.insert(
+                key,
+                Listed {
+                    entry,
+                    loaded: OnceCell::new(),
+                },
+            );
         }
         Ok(Self {
-            listed,
+            listed: Arc::new(listed),
             secrets: Some(secrets),
             layer,
             run_id,
-            loaded: Arc::default(),
         })
     }
 
     /// The most specific listed domain of `host`, with its certificate.
-    fn entry_of(&self, host: &str) -> Option<(&str, &ClientCertificateConfiguration)> {
+    fn entry_of(&self, host: &str) -> Option<(&str, &Listed)> {
         let found = Cell::new(None);
         covered(host, |domain| {
             found.set(
@@ -169,7 +180,7 @@ impl ClientCertificates {
         &self,
         host: &str,
     ) -> Result<Option<Arc<CertifiedKey>>, ClientCertificateFailure> {
-        let (Some((domain, entry)), Some(secrets)) = (self.entry_of(host), &self.secrets) else {
+        let (Some((domain, listed)), Some(secrets)) = (self.entry_of(host), &self.secrets) else {
             return Ok(None);
         };
         if secrets.exception_hosts().reached(host).await.is_some() {
@@ -178,10 +189,22 @@ impl ClientCertificates {
                     .expect("invariant: a listed domain covers the host"),
             ));
         }
-        let mut loaded = self.loaded.lock().await;
-        if let Some(certified) = loaded.get(domain) {
-            return Ok(Some(Arc::clone(certified)));
-        }
+        listed
+            .loaded
+            .get_or_try_init(|| self.load(host, domain, &listed.entry, secrets))
+            .await
+            .map(|certified| Some(Arc::clone(certified)))
+    }
+
+    /// Loads the certificate `entry` lists for `domain`, with its key
+    /// resolved for a handshake with `host`.
+    async fn load(
+        &self,
+        host: &str,
+        domain: &str,
+        entry: &ClientCertificateConfiguration,
+        secrets: &RunSecrets,
+    ) -> Result<Arc<CertifiedKey>, ClientCertificateFailure> {
         let unusable = |reason: String| ClientCertificateFailure::Unusable {
             domain: domain.to_owned(),
             layer: self.layer,
@@ -215,19 +238,17 @@ impl ClientCertificates {
             .map_err(|error| unusable(format!("the value of its key's reference: {error}")))?;
         let certified = CertifiedKey::from_der(chain, key, &ring::default_provider())
             .map_err(|_| unusable("its key is not the key of its certificate".to_owned()))?;
-        let certified = Arc::new(certified);
-        loaded.insert(domain.to_owned(), Arc::clone(&certified));
-        Ok(Some(certified))
+        Ok(Arc::new(certified))
     }
 
     /// The refusal of the client certificate listed for `host`, which was
     /// reached through an invalid-certificate exception: none when no listed
     /// domain covers it.
     pub fn refused(&self, host: &str) -> Option<SecretError> {
-        let (_, entry) = self.entry_of(host)?;
+        let (_, listed) = self.entry_of(host)?;
         Some(SecretError::InputRefused {
             placeholder: TLS_CLIENT_CERTIFICATES.name.to_owned(),
-            reference: entry.key.clone(),
+            reference: listed.entry.key.clone(),
             domain: host.to_owned(),
             reason: SecretInputRefusedReason::InvalidCertificateException,
         })

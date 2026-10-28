@@ -37,6 +37,12 @@ use rusqlite::Connection;
 use crate::serving::{Crawls, LiveCrawl};
 use crate::work_items::{self, Positions};
 
+/// The most `$/seeds` batches a `run.add_seeds` call leaves unread: a
+/// Client honouring its credits has at most [`SEED_CREDITS`] seeds
+/// unanswered, each batch holding one at least, and then the batch that
+/// ends the stream, which may hold none.
+const SEED_INPUT_ROOM: usize = SEED_CREDITS as usize + 1;
+
 /// The handlers of `run.add_seed` and `run.add_seeds` on the live crawls of
 /// `crawls`.
 pub(crate) fn handlers(crawls: &Crawls) -> [Handler; 2] {
@@ -49,7 +55,7 @@ pub(crate) fn handlers(crawls: &Crawls) -> [Handler; 2] {
         Handler::new(&RUN_ADD_SEEDS, move |params, context| {
             add_seeds(params, context, streamed.clone())
         })
-        .taking_input(SEEDS),
+        .taking_input(SEEDS, SEED_INPUT_ROOM),
     ]
 }
 
@@ -197,7 +203,7 @@ async fn add_seeds(
         return Ok(added);
     }
     loop {
-        let Some(batch) = input.next().await else {
+        let Some(batch) = input.next().await? else {
             return Ok(added);
         };
         let batch: SeedBatch = serde_json::from_value(batch).map_err(|error| {

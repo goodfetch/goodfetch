@@ -3,16 +3,9 @@
 //! and `base-program.ts` in `bitwarden/clients`) and one for a failure it
 //! is not, and its own text, planted as a Secret canary, in no log line
 //! and no formatted failure.
-#![expect(
-    clippy::disallowed_types,
-    reason = "the test's log writer holds its bytes behind a standard Mutex, outside any loom model"
-)]
-
-use std::io;
-use std::sync::{Arc, Mutex};
 
 use goodfetch_engine::secrets::ProviderFailure;
-use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
+use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv, logged};
 use rstest::rstest;
 
 use super::translate;
@@ -72,31 +65,6 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
 #[case::an_unknown_failure("The moon is in the wrong phase.", Meaning::Unrecognized)]
 fn bws_failures_translate_each_to_its_meaning(#[case] stderr: &str, #[case] expected: Meaning) {
     assert_eq!(meaning(&translate(stderr.to_owned(), Some(1))), expected);
-}
-
-/// What `tracing` wrote while `work` ran, at every level.
-fn logged<T>(work: impl FnOnce() -> T) -> (T, Vec<u8>) {
-    #[derive(Clone, Default)]
-    struct Captured(Arc<Mutex<Vec<u8>>>);
-    impl io::Write for Captured {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-    let captured = Captured::default();
-    let writer = captured.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(move || writer.clone())
-        .with_max_level(tracing::Level::TRACE)
-        .with_ansi(false)
-        .finish();
-    let answer = tracing::subscriber::with_default(subscriber, work);
-    let bytes = captured.0.lock().unwrap().clone();
-    (answer, bytes)
 }
 
 /// Covers: story:4-50

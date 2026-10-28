@@ -24,6 +24,7 @@ use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::run::{RunId, RunKind, Tags};
+use goodfetch_protocol::secrets::RUN_STATE_KEY_REFERENCE;
 use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
 use serde_json::{Value, json};
 
@@ -31,6 +32,7 @@ use super::checkpoint::Talk;
 use super::{Client, attached_with, dependencies, engine_with};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::{Dependencies, Engine};
+use crate::run_key::{self, sealing};
 use crate::run_state::RunStateTables;
 use crate::runs::{EndedBy, Run, Start, Started};
 
@@ -134,7 +136,7 @@ fn sealing() -> Contribution {
                         params["value"].as_str().unwrap().as_bytes(),
                     )
                     .unwrap();
-                let data_key = data_encoding::HEXLOWER.encode(key.bytes());
+                let data_key = data_encoding::HEXLOWER.encode(data_key(&run).await.as_slice());
                 run.state()
                     .write(move |connection| {
                         connection
@@ -187,6 +189,23 @@ fn no_key(error: &crate::runs::RunKeyError) -> CallError {
 }
 
 /// The live Run the call's `run_id` names.
+/// The data key of `run`, unwrapped from what its run state stores by the
+/// key-encryption key the Run holds, as the Run itself unwraps it.
+async fn data_key(run: &Run) -> secrecy::zeroize::Zeroizing<[u8; sealing::KEY_LENGTH]> {
+    let stored = run
+        .state()
+        .read(run_key::stored)
+        .await
+        .unwrap()
+        .expect("the Run stored its key");
+    let kek = run
+        .secrets()
+        .held_for(RUN_STATE_KEY_REFERENCE.name)
+        .await
+        .expect("the Run holds its key-encryption key");
+    sealing::unwrap(run.id().as_str(), stored.wrapped.as_bytes(), &kek).unwrap()
+}
+
 async fn live(context: &CallContext, params: &Value) -> Run {
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     context.runs().live(run_id).await.unwrap()

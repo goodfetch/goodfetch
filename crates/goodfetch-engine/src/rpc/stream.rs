@@ -7,12 +7,10 @@ use goodfetch_protocol::events::{
     EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventsSubscribeParams, SubscriptionEnded,
 };
 use goodfetch_protocol::page::{
-    BODY_NOT_FOUND, BodyNotFoundDetails, CHUNK, CHUNK_BYTES, Chunk, PAGE_BODY, PageBodyParams,
-    PageBodyRead,
+    BODY_NOT_FOUND, BodyNotFoundDetails, PAGE_BODY, PageBodyParams, PageBodyRead,
 };
-use tokio::io::AsyncReadExt as _;
 
-use super::{notification_line, record_event};
+use super::record_event;
 use crate::body;
 use crate::composition::{CallContext, CallError, Handler};
 
@@ -49,15 +47,10 @@ async fn subscribe(
             record_event(&event.event);
         }
         let batch = EventBatch {
-            id: stream.id.clone(),
+            id: stream.id().clone(),
             events,
         };
-        if stream
-            .outgoing
-            .send(notification_line(EVENTS, &batch))
-            .await
-            .is_err()
-        {
+        if !stream.notify(EVENTS, &batch).await {
             return Ok(SubscriptionEnded {});
         }
     }
@@ -89,45 +82,15 @@ async fn read_body(
     let mut file = tokio::fs::File::open(&file)
         .await
         .map_err(|_| not_found())?;
-    let stream = context.stream();
-    let mut offset: u64 = 0;
-    let mut chunk = vec![0; CHUNK_BYTES];
-    loop {
-        let read = read_chunk(&mut file, &mut chunk).await.map_err(|error| {
+    let size = context
+        .stream()
+        .send_file(&mut file)
+        .await
+        .map_err(|error| {
             CallError::protocol(
                 goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
                 format!("the body could not be read: {error}"),
             )
         })?;
-        if read == 0 {
-            return Ok(PageBodyRead { size: offset });
-        }
-        let _ = stream.credits.spend(1).await;
-        let line = notification_line(
-            CHUNK,
-            &Chunk {
-                id: stream.id.clone(),
-                offset,
-                data: data_encoding::BASE64.encode(&chunk[..read]),
-            },
-        );
-        if stream.outgoing.send(line).await.is_err() {
-            return Ok(PageBodyRead { size: offset });
-        }
-        offset += u64::try_from(read).unwrap_or(u64::MAX);
-    }
-}
-
-/// Fills `chunk` from `file` as far as it goes, and answers how many bytes
-/// it read: fewer than its length only at the file's end.
-async fn read_chunk(file: &mut tokio::fs::File, chunk: &mut [u8]) -> std::io::Result<usize> {
-    let mut filled = 0;
-    while filled < chunk.len() {
-        let read = file.read(&mut chunk[filled..]).await?;
-        if read == 0 {
-            break;
-        }
-        filled += read;
-    }
-    Ok(filled)
+    Ok(PageBodyRead { size })
 }

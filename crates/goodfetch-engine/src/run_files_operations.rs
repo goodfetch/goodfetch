@@ -20,12 +20,9 @@ use goodfetch_protocol::download::{
     DOWNLOAD_SAVE_AS, DownloadId, DownloadSaveAsParams, DownloadSaved,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::{CHUNK, CHUNK_BYTES, Chunk};
 use goodfetch_protocol::run::RunId;
-use tokio::io::AsyncReadExt as _;
 
 use crate::composition::{CallContext, CallError, Handler};
-use crate::rpc::notification_line;
 use crate::run::run_error;
 use crate::run_files::{self, KeepError, SaveError};
 use crate::runs::RunError;
@@ -126,6 +123,12 @@ async fn save_as(
 /// `path_not_writable` or `file_write_failed` with side `program` when the
 /// path could not be written, `file_write_failed` with side `engine` when
 /// the kept file could not be read, and `call_cancelled`.
+///
+/// # Cancel safety
+///
+/// Dropping the future does not stop a write of the path already
+/// started: it runs to its end, the hidden temporary file renamed over the
+/// path only once whole. Chunks already sent to the SDK stay sent.
 pub async fn save_kept(
     context: &CallContext,
     folder: &Path,
@@ -169,6 +172,10 @@ async fn written(
 ///
 /// `file_write_failed` with side `engine` when the kept file could not be
 /// read.
+///
+/// # Cancel safety
+///
+/// Dropping the future stops the chunks; those sent stay sent.
 pub async fn send_kept(
     context: &CallContext,
     folder: &Path,
@@ -186,30 +193,11 @@ pub async fn send_kept(
         )
     };
     let mut file = tokio::fs::File::open(source).await.map_err(unreadable)?;
-    let stream = context.stream();
-    let mut offset: u64 = 0;
-    let mut chunk = vec![0; CHUNK_BYTES];
-    loop {
-        let read = read_chunk(&mut file, &mut chunk)
-            .await
-            .map_err(unreadable)?;
-        if read == 0 {
-            break;
-        }
-        let _ = stream.credits.spend(1).await;
-        let line = notification_line(
-            CHUNK,
-            &Chunk {
-                id: stream.id.clone(),
-                offset,
-                data: data_encoding::BASE64.encode(&chunk[..read]),
-            },
-        );
-        if stream.outgoing.send(line).await.is_err() {
-            break;
-        }
-        offset += u64::try_from(read).unwrap_or(u64::MAX);
-    }
+    context
+        .stream()
+        .send_file(&mut file)
+        .await
+        .map_err(unreadable)?;
     Ok(())
 }
 
@@ -283,18 +271,4 @@ fn path_fix(reason: &str) -> &'static str {
         "file_too_large" => "Give `saveAs` a path on a filesystem that holds a file this size.",
         _ => "Give `saveAs` a path in a folder this user can write.",
     }
-}
-
-/// Fills `chunk` from `file` as far as it goes, and answers how many bytes
-/// it read: fewer than its length only at the file's end.
-async fn read_chunk(file: &mut tokio::fs::File, chunk: &mut [u8]) -> std::io::Result<usize> {
-    let mut filled = 0;
-    while filled < chunk.len() {
-        let read = file.read(&mut chunk[filled..]).await?;
-        if read == 0 {
-            break;
-        }
-        filled += read;
-    }
-    Ok(filled)
 }

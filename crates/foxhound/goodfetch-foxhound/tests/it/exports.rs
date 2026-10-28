@@ -28,7 +28,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
 use crate::crawl::Attached;
-use crate::tmpfs::{fill, free, inside, mounted_home};
+use goodfetch_test_support::{fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted_home};
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
@@ -474,7 +474,7 @@ const SIZE: u64 = 64 * MIB;
 /// 40 Records of about 50 kB each in `books`.
 fn crawled_on_a_tmpfs(env: &TestEnv, settings: &str, run_id: &str) -> Attached {
     env.user_configuration(settings);
-    let mut command = mounted_home(env, SIZE, FOXHOUND);
+    let mut command = tmpfs_mounted_home(env, SIZE, FOXHOUND);
     command.arg("attached-engine");
     let mut engine = Attached::spawned(env, None, &mut command);
     crawl(&mut engine, run_id, 40);
@@ -502,12 +502,12 @@ fn a_write_the_full_filesystem_refuses_fails_with_file_write_failed_and_leaves_n
     );
     let pid = engine.pid();
     let folder = run_folder(&env, "full");
-    let filler = fill(pid, env.home(), 512 * 1024);
+    let filler = fill_filesystem(pid, env.home(), 512 * 1024);
     let failed = export(&mut engine, "full", "json");
-    let left = names_in(&inside(pid, &folder.join("exports")));
-    free(&filler);
+    let left = names_in(&inside_mount(pid, &folder.join("exports")));
+    free_filesystem(&filler);
     let written = export(&mut engine, "full", "json");
-    let kept = names_in(&inside(pid, &folder.join("exports")));
+    let kept = names_in(&inside_mount(pid, &folder.join("exports")));
     assert!(engine.finish());
 
     let data = &failed["error"]["data"];
@@ -556,10 +556,10 @@ fn an_export_at_the_critical_storage_level_fails_before_writing() {
     );
     let pid = engine.pid();
     let folder = run_folder(&env, "critical");
-    let filler = fill(pid, env.home(), 10 * MIB);
+    let filler = fill_filesystem(pid, env.home(), 10 * MIB);
     let failed = export(&mut engine, "critical", "json");
-    let exports = inside(pid, &folder.join("exports")).exists();
-    free(&filler);
+    let exports = inside_mount(pid, &folder.join("exports")).exists();
+    free_filesystem(&filler);
     assert!(engine.finish());
 
     let data = &failed["error"]["data"];

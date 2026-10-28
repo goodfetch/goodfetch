@@ -9,39 +9,20 @@
 )]
 
 use std::fs;
-use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::browser_cache::BrowserCleaned;
-use goodfetch_test_support::{TestEnv, cli};
+use goodfetch_test_support::{TestEnv, cli, lay_out_browser_entry};
 use serde_json::json;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
-
-/// Lays out a browser build's entry in the cache at `root`, last used at
-/// `used_at`.
-fn lay_out(root: &Path, build: &str, used_at: &str) -> PathBuf {
-    let folder = root.join("browser").join("chrome-for-testing").join(build);
-    fs::create_dir_all(folder.join("files")).unwrap();
-    fs::write(folder.join("files").join("chrome"), "#!chrome\n").unwrap();
-    fs::write(folder.join("lock"), "").unwrap();
-    let entry = json!({
-        "format_version": "0.1",
-        "artifact": { "kind": "browser", "name": "chrome-for-testing", "build": build },
-        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-        "installed_at": used_at,
-        "used_at": used_at,
-    });
-    fs::write(folder.join("entry.json"), entry.to_string()).unwrap();
-    folder
-}
 
 /// Covers: story:11-296, command:browser.clean
 #[test]
 fn foxhounds_browser_clean_keeps_a_build_an_installed_collie_pins() {
     let env = TestEnv::new();
     let cache = env.home().join("browsers");
-    let unused = lay_out(&cache, "unused-since-2020", "2020-01-01T00:00:00Z");
-    let pinned = lay_out(&cache, "pinned-by-collie", "2020-01-01T00:00:00Z");
+    let unused = lay_out_browser_entry(&cache, "unused-since-2020", "2020-01-01T00:00:00Z");
+    let pinned = lay_out_browser_entry(&cache, "pinned-by-collie", "2020-01-01T00:00:00Z");
     let collie = env.folder().join("goodfetch-collie");
     fs::write(&collie, "#!collie\n").unwrap();
     let list = json!({

@@ -86,8 +86,6 @@ mod shedding;
 mod sign_in;
 #[cfg(target_os = "linux")]
 mod storage;
-#[cfg(target_os = "linux")]
-mod tmpfs;
 mod upgrade_files;
 mod usage;
 mod views;

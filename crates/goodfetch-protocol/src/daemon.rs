@@ -78,15 +78,7 @@ const PREVIEW_PORT_BASE: u16 = 7600;
 /// on port 7900 plus the major, or 7600 plus the minor during `0.y`
 /// previews, so the foreground Daemons of two majors never share a port.
 pub fn default_address(version: &ProductVersion) -> SocketAddr {
-    let mut numbers = version.as_str().split(['.', '-']);
-    let major = numbers.next().and_then(|number| number.parse::<u16>().ok());
-    let minor = numbers.next().and_then(|number| number.parse::<u16>().ok());
-    let port = match (major, minor) {
-        (Some(0), Some(minor)) => PREVIEW_PORT_BASE.saturating_add(minor),
-        (Some(major), _) => RELEASE_PORT_BASE.saturating_add(major),
-        (None, _) => RELEASE_PORT_BASE,
-    };
-    SocketAddr::from((Ipv4Addr::LOCALHOST, port))
+    version.loopback_of_its_major(RELEASE_PORT_BASE, PREVIEW_PORT_BASE)
 }
 
 fn address_of_this_version() -> serde_json::Value {

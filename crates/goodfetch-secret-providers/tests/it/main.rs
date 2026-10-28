@@ -14,4 +14,5 @@
 mod providers;
 
 mod clouds;
+mod support;
 mod vault;

@@ -189,14 +189,14 @@ fn at_the_default_level_a_thousand_requests_write_no_line_per_request() {
 fn on_a_full_filesystem_the_daemon_keeps_serving_and_then_says_how_many_lines_it_dropped() {
     use std::time::Duration;
 
-    use crate::tmpfs::{fill, free, inside, mounted};
+    use goodfetch_test_support::{fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted};
 
     let env = TestEnv::new();
     env.user_configuration(&format!(
         "daemon.address = \"{ANY_PORT}\"\nlog.output = \"file\"\nlog.level = \"trace\"\n"
     ));
     let logs = env.home().join("logs");
-    let mut command = mounted(&env, &logs, 1 << 20, COLLIE);
+    let mut command = tmpfs_mounted(&env, &logs, 1 << 20, COLLIE);
     command.args(["daemon", "run"]);
 
     let mut daemon = Foreground::spawned(&env, &mut command);
@@ -204,16 +204,17 @@ fn on_a_full_filesystem_the_daemon_keeps_serving_and_then_says_how_many_lines_it
     let pid = daemon.process.child().id();
     let mut client = opened(&env, &endpoint);
     client.call(1, "engine.info", &json!({}));
-    let filler = fill(pid, &logs, 0);
+    let filler = fill_filesystem(pid, &logs, 0);
     let served: Vec<Value> = (2..=21)
         .map(|id| client.call(id, "engine.info", &json!({}))["result"]["product"].clone())
         .collect();
     // The log writer's thread takes the lines the full disk refused.
     std::thread::sleep(Duration::from_millis(500));
-    free(&filler);
+    free_filesystem(&filler);
     client.call(22, "engine.info", &json!({}));
     std::thread::sleep(Duration::from_millis(500));
-    let written = std::fs::read_to_string(inside(pid, &logs.join("daemon-0.0.jsonl"))).unwrap();
+    let written =
+        std::fs::read_to_string(inside_mount(pid, &logs.join("daemon-0.0.jsonl"))).unwrap();
     drop(client);
     let exited = daemon.terminate();
 

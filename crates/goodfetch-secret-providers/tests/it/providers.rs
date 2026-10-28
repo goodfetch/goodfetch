@@ -26,10 +26,12 @@ use goodfetch_protocol::secret_reference::{Provider, SecretReference};
 use goodfetch_protocol::secrets::SecretFailure;
 use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_secret_providers::{Bitwarden, OnePassword};
-use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
+use goodfetch_test_support::{Canaries, SecretKind, TestEnv};
 use rstest::rstest;
 use secrecy::ExposeSecret as _;
 use serde_json::json;
+
+use crate::support::{leaks, reference, runtime, unavailable};
 
 /// The token the `op` stand-in takes as signed in; no real token's shape.
 const OP_TOKEN: &str = "stand-in-service-account";
@@ -139,23 +141,6 @@ impl Vendor {
             Self::Bitwarden => Arc::new(Bitwarden::new(command, environment)),
         }
     }
-}
-
-/// A real-time runtime: a child process's exit is no timer, so on the
-/// paused clock the driver's timeout would fire first (TESTING.md, Time).
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a test helper builds the runtime the test runs on (ADR 0060)"
-)]
-fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-}
-
-fn reference(text: &str) -> SecretReference {
-    SecretReference::parse(text).unwrap()
 }
 
 /// How the stand-in's party stands.
@@ -278,22 +263,6 @@ impl Fixture {
             vendor.implementation(Some(self.command(vendor)), Self::environment(vendor, party)),
         )
     }
-
-    /// Every canary seen outside the stand-ins' stores: the home, with its
-    /// Audit log, and `held`, the test's other outputs.
-    fn leaks(&self, held: &[(&'static str, &[u8])]) -> Vec<String> {
-        let mut outputs = vec![Output::Path(self.env.home())];
-        outputs.extend(
-            held.iter()
-                .map(|(name, bytes)| Output::Bytes { name, bytes }),
-        );
-        self.canaries
-            .leaks(&outputs)
-            .unwrap()
-            .into_iter()
-            .map(|hit| format!("{hit:?}"))
-            .collect()
-    }
 }
 
 fn through(
@@ -310,22 +279,6 @@ fn through(
             run_id: None,
         },
     ))
-}
-
-/// The failure and fix of a `secret_unavailable`, with its message.
-fn unavailable(answer: Result<secrecy::SecretString, SecretError>) -> (SecretFailure, String) {
-    match answer {
-        Err(error @ SecretError::Unavailable { .. }) => {
-            let message = error.to_string();
-            match error {
-                SecretError::Unavailable { failure, fix, .. } => {
-                    (failure, format!("{message} {fix}"))
-                }
-                _ => unreachable!(),
-            }
-        }
-        other => panic!("expected `secret_unavailable`, found {:?}", other.err()),
-    }
 }
 
 /// A value planted in each provider's store resolves through its CLI at
@@ -349,7 +302,11 @@ fn a_planted_value_resolves_through_its_provider_and_is_found_in_no_output(#[cas
             held.iter()
                 .map(|(name, _)| name.clone())
                 .collect::<Vec<_>>(),
-            fixture.leaks(&[("formatted", formatted.as_bytes())]),
+            leaks(
+                &fixture.canaries,
+                &fixture.env,
+                &[("formatted", formatted.as_bytes())]
+            ),
         ),
         (
             true,
@@ -403,7 +360,11 @@ fn an_unauthorised_or_unreachable_provider_fails_naming_it_and_no_value(
             failure,
             message.contains(vendor.reference().as_str()) && message.contains(fix_names),
             missing,
-            fixture.leaks(&[("message", message.as_bytes())]),
+            leaks(
+                &fixture.canaries,
+                &fixture.env,
+                &[("message", message.as_bytes())]
+            ),
         ),
         (
             SecretFailure::ProviderFailed,

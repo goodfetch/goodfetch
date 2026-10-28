@@ -200,6 +200,10 @@ impl LocalBinding {
     /// # Errors
     ///
     /// [`Failure::Network`] when the name has no address.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future abandons the lookup; nothing is kept.
     pub async fn lookup(
         &self,
         host: &str,
@@ -222,6 +226,10 @@ impl LocalBinding {
     /// [`io::ErrorKind::AddrNotAvailable`] when the Session holds no address
     /// of that family, so none is opened from another; else the
     /// connection's own failure.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes a connection still being opened.
     pub async fn connect(&self, address: SocketAddr) -> io::Result<TcpStream> {
         let Some(local) = self.of(family_of(address.ip())) else {
             return Err(io::ErrorKind::AddrNotAvailable.into());
@@ -1359,6 +1367,10 @@ async fn attempt(address: SocketAddr, local: Option<IpAddr>) -> io::Result<TcpSt
 /// # Errors
 ///
 /// [`Failure::Network`] when the name has no address.
+///
+/// # Cancel safety
+///
+/// Dropping the future abandons the lookup; nothing is kept.
 pub async fn lookup(host: &str, port: u16, resolve: &Resolve) -> Result<Vec<SocketAddr>, Failure> {
     let server = Server {
         host,

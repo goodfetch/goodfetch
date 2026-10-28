@@ -10,6 +10,7 @@
 //! A handler answers a value or a [`CallError`], which only the RPC layer
 //! turns into the wire's error object.
 
+mod call_streams;
 mod params;
 
 use std::collections::BTreeMap;
@@ -25,13 +26,13 @@ use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
-use tokio::sync::mpsc;
+
 use tokio_util::sync::CancellationToken;
 
 use crate::admission::Gates;
 use crate::client::Client;
 use crate::controls::Controls;
-use crate::events::{Credits, Events};
+use crate::events::Events;
 use crate::log::ConnectionLog;
 use crate::needs_you::NeedsYouSource;
 use crate::people::SignInDriver;
@@ -43,6 +44,9 @@ use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
 use goodfetch_protocol::run::RunKind;
 use goodfetch_protocol::secret_reference::Provider;
+
+pub use call_streams::{CallInput, CallStream};
+pub(crate) use call_streams::{CallNotifier, InputSender};
 
 /// A failure a call answers with: an Error code of the catalog, with its
 /// message and details, or a failure of the protocol itself.
@@ -226,100 +230,6 @@ pub(crate) trait DaemonSide: Send + Sync {
     fn sign_ins(&self) -> Option<SignInDriver>;
 }
 
-/// What a streaming call sends its notifications with: its id, the credits
-/// its Client grants it, the Connection's writer and the lines it writes
-/// of a notification's method and params.
-pub struct CallStream {
-    pub(crate) id: RequestId,
-    pub(crate) credits: Credits,
-    pub(crate) outgoing: mpsc::Sender<Vec<u8>>,
-    pub(crate) line: fn(&str, &Value) -> Vec<u8>,
-}
-
-impl CallStream {
-    /// The call's id, which its notifications name.
-    pub fn id(&self) -> &RequestId {
-        &self.id
-    }
-
-    /// Waits for at least one credit its Client grants, and spends at most
-    /// `most`: how many notifications it may send now.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future spends nothing.
-    pub async fn spend(&self, most: usize) -> usize {
-        self.credits.spend(most).await
-    }
-
-    /// Sends the Client the notification `method` with `params`; `false`
-    /// once the Connection's writer is gone.
-    pub async fn notify(&self, method: &str, params: &impl Serialize) -> bool {
-        let params =
-            serde_json::to_value(params).expect("invariant: a notification's params encode");
-        self.outgoing
-            .send((self.line)(method, &params))
-            .await
-            .is_ok()
-    }
-}
-
-/// The stream of input a call takes from its Client (ADR 0024): each
-/// notification of its handler's input method that names the call's id, in
-/// the order they came, and the way back to its Client for what it
-/// answers, such as the credits that let the Client send more.
-pub struct CallInput {
-    id: RequestId,
-    incoming: tokio::sync::Mutex<mpsc::UnboundedReceiver<Value>>,
-    outgoing: mpsc::Sender<Vec<u8>>,
-    line: fn(&str, &Value) -> Vec<u8>,
-}
-
-impl CallInput {
-    /// The input of the call `id`, whose notifications `incoming` brings,
-    /// answering on the Connection's writer `outgoing` with the lines
-    /// `line` writes of a notification's method and params.
-    pub(crate) fn new(
-        id: RequestId,
-        incoming: mpsc::UnboundedReceiver<Value>,
-        outgoing: mpsc::Sender<Vec<u8>>,
-        line: fn(&str, &Value) -> Vec<u8>,
-    ) -> Self {
-        Self {
-            id,
-            incoming: tokio::sync::Mutex::new(incoming),
-            outgoing,
-            line,
-        }
-    }
-
-    /// The call's id, which its notifications name.
-    pub fn id(&self) -> &RequestId {
-        &self.id
-    }
-
-    /// The params of the next input notification; `None` once the
-    /// Connection ended.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future loses no notification.
-    pub async fn next(&self) -> Option<Value> {
-        self.incoming.lock().await.recv().await
-    }
-
-    /// Sends the Client the notification `method` with `params`; `false`
-    /// once the Connection's writer is gone.
-    pub async fn notify(&self, method: &str, params: &impl Serialize) -> bool {
-        let params =
-            serde_json::to_value(params).expect("invariant: a notification's params encode");
-        self.outgoing
-            .send((self.line)(method, &params))
-            .await
-            .is_ok()
-    }
-}
-
 impl CallContext {
     /// The call `id` on `connection`, cancelled through `token`, with
     /// `stream` when its handler streams, and `input` when it takes input.
@@ -451,7 +361,7 @@ pub struct Handler {
     operation: &'static Operation,
     call: Arc<dyn Fn(Value, CallContext) -> Answer + Send + Sync>,
     streams: bool,
-    input: Option<&'static str>,
+    input: Option<(&'static str, usize)>,
 }
 
 impl Handler {
@@ -507,15 +417,19 @@ impl Handler {
     }
 
     /// The same handler, whose calls take the notifications `method` that
-    /// name them as their input, through [`CallContext::input`].
+    /// name them as their input, through [`CallContext::input`], at most
+    /// `room` of them unread: the most its calls' credits let a Client
+    /// send unanswered. A Client that sends one more fails the call's next
+    /// read with `invalid_params`.
     #[must_use]
-    pub fn taking_input(mut self, method: &'static str) -> Self {
-        self.input = Some(method);
+    pub fn taking_input(mut self, method: &'static str, room: usize) -> Self {
+        self.input = Some((method, room));
         self
     }
 
-    /// The notification its calls take as their input, if any.
-    pub(crate) fn input(&self) -> Option<&'static str> {
+    /// The notification its calls take as their input, with their room,
+    /// if any.
+    pub(crate) fn input(&self) -> Option<(&'static str, usize)> {
         self.input
     }
 

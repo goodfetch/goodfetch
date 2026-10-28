@@ -12,7 +12,7 @@
 
 use std::collections::BTreeMap;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -234,6 +234,30 @@ impl ProvingGround {
             .call()
             .and_then(|mut response| response.body_mut().read_json())
             .map_err(|error| ProvingGroundError::Observations(error.to_string()))
+    }
+
+    /// The source address of each query for `name` its DNS fixture received,
+    /// in `observations`, read once from [`observations`](Self::observations),
+    /// in arrival order.
+    ///
+    /// # Panics
+    ///
+    /// When `observations` hold no `dns_queries` list, or a query no source
+    /// address.
+    pub fn dns_query_sources(observations: &serde_json::Value, name: &str) -> Vec<IpAddr> {
+        observations["dns_queries"]
+            .as_array()
+            .expect("the observations list the DNS queries")
+            .iter()
+            .filter(|query| query["name"] == name)
+            .map(|query| {
+                query["source"]
+                    .as_str()
+                    .and_then(|source| source.parse::<SocketAddr>().ok())
+                    .expect("each DNS query names its source address")
+                    .ip()
+            })
+            .collect()
     }
 
     /// The requests of its [`observations`](Self::observations), which a

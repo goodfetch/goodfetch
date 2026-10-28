@@ -49,9 +49,13 @@ const EXPANDED_BYTES: u64 = 10 * 1024 * 1024;
 /// The expanded size is past the 1 MiB at which the ratio limit begins.
 const _: () = assert!(EXPANDED_BYTES > 1024 * 1024);
 
-/// The largest a zstd RLE block may regenerate with a single-segment window
-/// (RFC 8878, section 3.1.1.1.2): 128 KiB.
+/// The largest a zstd RLE block may regenerate (RFC 8878, section
+/// 3.1.1.2.3): 128 KiB, the frame's window.
 const ZSTD_BLOCK_MAXIMUM: u32 = 128 * 1024;
+
+/// The zstd frame's Window_Descriptor (RFC 8878, section 3.1.1.1.2): a
+/// window of 2^17 bytes, [`ZSTD_BLOCK_MAXIMUM`].
+const ZSTD_WINDOW_DESCRIPTOR: u8 = (17 - 10) << 3;
 
 /// The byte a bomb's body is filler of; its long run is what compresses so
 /// far.
@@ -103,7 +107,7 @@ const SPECS: [Spec; (SAFE - 1) as usize] = [
     },
     Spec {
         content_encodings: &["zstd"],
-        compressed_bytes: 329,
+        compressed_bytes: 330,
         description: "Read the start page as one Record with `id` and `word`. Its body is a \
             zstd decompression bomb that decodes to far more than it sends, past the engine's \
             decompression-ratio limit. A correct tool refuses it at the limit.",
@@ -228,9 +232,13 @@ fn zstd_rle_filler() -> Vec<u8> {
     // Magic number (RFC 8878, section 3.1.1).
     frame.extend_from_slice(&0xFD2F_B528_u32.to_le_bytes());
     // Frame_Header_Descriptor: Frame_Content_Size of 4 bytes (flag 2, bits
-    // 7-6 = 10) and Single_Segment (bit 5), so the window is the content and
-    // each block regenerates at most 128 KiB; no checksum, no dictionary.
-    frame.push(0b1010_0000);
+    // 7-6 = 10), not single-segment, so a Window_Descriptor follows; no
+    // checksum, no dictionary.
+    frame.push(0b1000_0000);
+    // Window_Descriptor: a window of 128 KiB (exponent 7 over 2^10, mantissa
+    // 0), within RFC 9659's 8 MB, which Chromium and the engine enforce: a
+    // single-segment frame's window is its whole content, 10 MiB.
+    frame.push(ZSTD_WINDOW_DESCRIPTOR);
     frame.extend_from_slice(&expanded.to_le_bytes());
     let mut remaining = expanded;
     while remaining > 0 {
@@ -432,17 +440,24 @@ mod tests {
             "the frame begins with zstd's magic number"
         );
         assert_eq!(
-            frame[4], 0b1010_0000,
-            "a 4-byte content size, single segment"
+            frame[4], 0b1000_0000,
+            "a 4-byte content size, not single-segment"
+        );
+        let window = 1_u64 << (10 + (frame[5] >> 3));
+        assert!(
+            window <= 8 * 1024 * 1024,
+            "the frame asks for a window within RFC 9659's 8 MB ({window} bytes)"
         );
         assert_eq!(
-            u64::from(u32::from_le_bytes(frame[5..9].try_into().expect("4 bytes"))),
+            u64::from(u32::from_le_bytes(
+                frame[6..10].try_into().expect("4 bytes")
+            )),
             EXPANDED_BYTES,
             "the frame declares the expanded size"
         );
-        // Walk the RLE blocks after the 9-byte header, summing what they
+        // Walk the RLE blocks after the 10-byte header, summing what they
         // regenerate, and confirm the last block is flagged.
-        let mut at = 9;
+        let mut at = 10;
         let mut regenerated = 0_u64;
         let mut last_seen = false;
         while at < frame.len() {

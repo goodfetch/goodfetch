@@ -14,10 +14,10 @@
 //! through undecoded, as Chrome does. Every decoded byte is counted as the
 //! decoders give it, so a limit stops the decoding within one decoder's
 //! buffer of where it was passed, and the engine never holds more than the
-//! limit and that buffer. A zstd frame may ask for a window of 8 MiB, which
-//! RFC 9659 has every HTTP decoder support, or up to `network.max_body_size`
-//! rounded up to a power of two, so the decoder's own window never takes
-//! much more than the body it may decode.
+//! limit and that buffer. A zstd frame may ask for a window of at most 8 MiB,
+//! RFC 9659's, and one that asks for more fails to decode, as Chromium's
+//! decoder refuses it (`ERR_ZSTD_WINDOW_SIZE_TOO_BIG`), so the HTTP tiers and
+//! the browser give one frame one verdict.
 //!
 //! JSON is judged before anything parses it ([`check_json_depth`]), then
 //! parsed with no recursion limit of the parser's own, which would refuse
@@ -37,13 +37,9 @@ use goodfetch_protocol::response_limits::{
 use crate::composition::CallError;
 use crate::settings::Resolved;
 
-/// The window, as a power of two, a zstd frame may always ask for: 8 MiB
-/// (RFC 9659).
-const ZSTD_WINDOW_LOG_FLOOR: u32 = 23;
-
-/// The largest window, as a power of two, zstd's decoder takes on 64-bit
-/// hosts.
-const ZSTD_WINDOW_LOG_CEILING: u32 = 31;
+/// The largest window, as a power of two, a zstd frame may ask for: 8 MiB
+/// (RFC 9659, and Chromium's `windowLogMax`).
+const ZSTD_WINDOW_LOG_MAX: u32 = 23;
 
 /// The deepest JSON the engine parses, whatever a [`Limits`] built in code
 /// says: the most `network.max_json_depth` takes, past which the parser,
@@ -222,7 +218,7 @@ impl Decoding {
             .unwrap_or_default()
             .into_iter()
             .fold(Box::new(sink) as Box<dyn Stage>, |inner, coding| {
-                coding.stage(inner, &limits)
+                coding.stage(inner)
             });
         Self { stage }
     }
@@ -316,8 +312,8 @@ impl ContentCoding {
             .collect()
     }
 
-    /// The stage that decodes this coding into `inner`, under `limits`.
-    fn stage(self, inner: Box<dyn Stage>, limits: &Limits) -> Box<dyn Stage> {
+    /// The stage that decodes this coding into `inner`.
+    fn stage(self, inner: Box<dyn Stage>) -> Box<dyn Stage> {
         match self {
             Self::Gzip => Box::new(flate2::write::GzDecoder::new(inner)),
             Self::Deflate => Box::new(Deflate::Opening(Vec::new(), Some(inner))),
@@ -325,7 +321,7 @@ impl ContentCoding {
                 inner,
                 BROTLI_BUFFER,
             )),
-            Self::Zstd => Box::new(Zstd::new(inner, limits)),
+            Self::Zstd => Box::new(Zstd::new(inner)),
         }
     }
 }
@@ -500,9 +496,8 @@ pub fn has_zlib_header(body: &[u8]) -> bool {
     }
 }
 
-/// A `zstd` stage, whose frame may ask for a window of 8 MiB, or up to
-/// `network.max_body_size` rounded up to a power of two; one whose decoder
-/// cannot start fails on its first write.
+/// A `zstd` stage, whose frame may ask for a window of at most 8 MiB; one
+/// whose decoder cannot start fails on its first write.
 enum Zstd {
     /// The decoder.
     Decoding(Box<zstd::stream::write::Decoder<'static, Box<dyn Stage>>>),
@@ -511,15 +506,15 @@ enum Zstd {
 }
 
 impl Zstd {
-    fn new(inner: Box<dyn Stage>, limits: &Limits) -> Self {
-        let body_log = limits.max_body_size.saturating_sub(1).bit_width();
-        let window_log = body_log.clamp(ZSTD_WINDOW_LOG_FLOOR, ZSTD_WINDOW_LOG_CEILING);
+    fn new(inner: Box<dyn Stage>) -> Self {
         // The decoder's context is made before the inner stage is moved in,
         // so a context that cannot be made keeps the stage.
         match zstd::stream::raw::Decoder::new() {
             Ok(mut raw) => {
                 if raw
-                    .set_parameter(zstd::stream::raw::DParameter::WindowLogMax(window_log))
+                    .set_parameter(zstd::stream::raw::DParameter::WindowLogMax(
+                        ZSTD_WINDOW_LOG_MAX,
+                    ))
                     .is_err()
                 {
                     return Self::Unopened(inner);

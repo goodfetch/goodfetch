@@ -36,7 +36,10 @@ publish = false
 # Brave's adblock-rust, unmodified (MPL-2.0, ADRs 0018 and 0047): the Filter
 # lists' network and cosmetic rules. Without its `single-thread` feature, so
 # one `Engine` is `Send + Sync` and every Session shares it (ADR 0047).
-adblock = { version = "0.13.3", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
+# With its `css-validation` feature, as Brave builds it: a cosmetic rule
+# whose selector does not parse, or whose style holds `url(`, `image-set(`,
+# `\` or `/*`, is refused, so a list cannot make a page fetch a URL.
+adblock = { version = "0.13.3", default-features = false, features = ["css-validation", "embedded-domain-resolver", "full-regex-handling"] }
 aho-corasick = { version = "1.1.5", default-features = false, features = ["std", "perf-literal"] }
 # The encrypted local file, `secretfile:` (spec #564): an age file encrypted
 # to an X25519 identity, read binary or armored.

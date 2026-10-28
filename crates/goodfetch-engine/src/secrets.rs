@@ -38,8 +38,9 @@ use goodfetch_protocol::secrets::{
 };
 use goodfetch_protocol::settings::SettingsLayer;
 use jiff::Timestamp;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::json;
+use subtle::ConstantTimeEq as _;
 
 pub use keychain::Keychain;
 
@@ -711,10 +712,13 @@ impl RunSecrets {
         })?;
         self.record(reference, purpose).await?;
         self.0.mask.join(purpose.placeholder, &value, Reach::Value);
-        self.0.held.lock().await.push(Held {
+        let mut held = self.0.held.lock().await;
+        held.retain(|held| !(held.placeholder == purpose.placeholder && same(&held.value, &value)));
+        held.push(Held {
             placeholder: purpose.placeholder.to_owned(),
             value: value.clone(),
         });
+        drop(held);
         Ok(value)
     }
 
@@ -804,6 +808,16 @@ fn failure_of(failure: ProviderFailure, reference: &SecretReference) -> (SecretF
             "Answer the reference from the program's `resolveSecret`.".to_owned(),
         ),
     }
+}
+
+/// Whether `one` and `other` are the same value, in time that depends only
+/// on their lengths.
+fn same(one: &SecretString, other: &SecretString) -> bool {
+    bool::from(
+        one.expose_secret()
+            .as_bytes()
+            .ct_eq(other.expose_secret().as_bytes()),
+    )
 }
 
 /// Whether `reference` names the item of the engine's own key-encryption

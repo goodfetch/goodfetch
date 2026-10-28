@@ -45,6 +45,7 @@ use aho_corasick::{AhoCorasick, MatchKind};
 use secrecy::zeroize::Zeroizing;
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::Value;
+use subtle::ConstantTimeEq as _;
 
 /// The length, in characters, under which a value is masked only where it
 /// was typed and in what the engine keeps (spec #564's shape: fixed, not a
@@ -425,9 +426,33 @@ impl Masks {
         }
     }
 
-    fn join(&self, run: u64, name: &str, value: &SecretString, reach: Reach, redaction: Redaction) {
+    /// Adds `value` under `name` for `run`, and rebuilds the automata,
+    /// unless `run` holds it under `name` already: whether it joined.
+    fn join(
+        &self,
+        run: u64,
+        name: &str,
+        value: &SecretString,
+        reach: Reach,
+        redaction: Redaction,
+    ) -> bool {
         let short = reach == Reach::OneTimeCode || value.expose_secret().chars().count() < SHORT;
         let mut state = self.write();
+        let held = state.entries.iter().any(|entry| {
+            entry.run == run
+                && entry.name == name
+                && entry.short == short
+                && bool::from(
+                    entry
+                        .value
+                        .expose_secret()
+                        .as_bytes()
+                        .ct_eq(value.expose_secret().as_bytes()),
+                )
+        });
+        if held {
+            return false;
+        }
         state.entries.push(Entry {
             run,
             name: name.to_owned(),
@@ -436,6 +461,7 @@ impl Masks {
             redaction,
         });
         state.rebuild();
+        true
     }
 
     fn leave(&self, run: u64) {
@@ -485,11 +511,13 @@ impl std::fmt::Debug for Mask {
 impl Mask {
     /// Adds `value` under `name`, a Secret placeholder's name or the
     /// setting's key where no placeholder names it, for the rest of the
-    /// Run: masked as `%name%`.
-    pub fn join(&self, name: &str, value: &SecretString, reach: Reach) {
+    /// Run: masked as `%name%`. A value the Run holds under `name` already
+    /// does not join again, so the masks are rebuilt only when a new value
+    /// joins; whether it joined.
+    pub fn join(&self, name: &str, value: &SecretString, reach: Reach) -> bool {
         self.0
             .masks
-            .join(self.0.run, name, value, reach, self.0.redaction);
+            .join(self.0.run, name, value, reach, self.0.redaction)
     }
 
     /// The engine's masks this one is part of.

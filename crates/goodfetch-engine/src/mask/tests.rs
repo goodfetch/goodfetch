@@ -171,6 +171,47 @@ fn each_runs_values_are_masked_by_their_own_names() {
     assert_eq!(applied, "%password%, %proxy.password%");
 }
 
+/// A value the Run's mask holds under its name already does not join it
+/// again: of 1,000 joins of one value, as many Sessions' opens resolve one
+/// proxy password, only the first adds it.
+#[test]
+fn a_value_the_run_holds_under_its_name_already_joins_its_mask_once() {
+    let masks = Masks::new();
+    let mask = masks.for_run(Redaction::On);
+    let value = SecretString::from(VALUE);
+
+    let joined: Vec<bool> = (0..1_000)
+        .map(|_| mask.join(NAME, &value, Reach::Value))
+        .collect();
+
+    assert_eq!(
+        (
+            joined.iter().filter(|joined| **joined).count(),
+            masks.apply(VALUE, Scope::Returned).into_owned()
+        ),
+        (1, "%proxy.password%".to_owned())
+    );
+}
+
+/// The same value under another name, or in another Run, still joins.
+#[rstest]
+#[case::another_name("proxy.providers.one.password", false)]
+#[case::another_run(NAME, true)]
+fn a_value_joins_again_under_another_name_or_in_another_run(
+    #[case] name: &str,
+    #[case] other_run: bool,
+) {
+    let masks = Masks::new();
+    let first = masks.for_run(Redaction::On);
+    let second = masks.for_run(Redaction::On);
+    let value = SecretString::from(VALUE);
+    first.join(NAME, &value, Reach::Value);
+
+    let joined = if other_run { &second } else { &first }.join(name, &value, Reach::Value);
+
+    assert!(joined);
+}
+
 #[test]
 fn every_string_of_a_json_value_is_masked_its_members_names_included() {
     let (masks, _mask) = joined(VALUE, Reach::Value, Redaction::On);
@@ -255,7 +296,7 @@ enum Form {
     Plus,
     /// A form's body or a GET form's query, as the WHATWG URL Standard's
     /// `application/x-www-form-urlencoded` serializer writes it.
-    FormUrlencoded,
+    Urlencoded,
     /// As JavaScript's `encodeURIComponent` writes it.
     UriComponent,
     Base64 {
@@ -273,7 +314,7 @@ fn form() -> impl Strategy<Value = Form> {
         Just(Form::Json),
         Just(Form::Percent),
         Just(Form::Plus),
-        Just(Form::FormUrlencoded),
+        Just(Form::Urlencoded),
         Just(Form::UriComponent),
         (any::<bool>(), 0..6_usize).prop_map(|(url, before)| Form::Base64 { url, before }),
         Just(Form::Basic),
@@ -300,7 +341,7 @@ fn encoded(value: &str, form: Form) -> String {
         Form::Json => serde_json::to_string(value).expect("a string encodes"),
         Form::Percent => percent(),
         Form::Plus => percent().replace("%20", "+"),
-        Form::FormUrlencoded => url::form_urlencoded::byte_serialize(value.as_bytes()).collect(),
+        Form::Urlencoded => url::form_urlencoded::byte_serialize(value.as_bytes()).collect(),
         Form::UriComponent => value
             .bytes()
             .map(|byte| {
@@ -347,7 +388,7 @@ fn leaks(value: &str, output: &[u8]) -> Vec<String> {
         .into_iter()
         .map(|hit| format!("{hit:?}"))
         .collect();
-    for form in [Form::Plus, Form::FormUrlencoded, Form::UriComponent] {
+    for form in [Form::Plus, Form::Urlencoded, Form::UriComponent] {
         let spelt = encoded(value, form);
         if output
             .windows(spelt.len())

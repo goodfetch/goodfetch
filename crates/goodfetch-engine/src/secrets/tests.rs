@@ -176,6 +176,39 @@ fn a_set_variable_resolves_through_env_and_is_held_for_the_run() {
     );
 }
 
+/// A value resolved again for the same placeholder, as each Session's open
+/// resolves the proxy password, is held once: 100 resolutions of one
+/// value leave one held value, and a value resolved after it comes last.
+/// Covers: story:4-49
+#[test]
+fn a_value_resolved_again_for_its_placeholder_is_held_once() {
+    let env = TestEnv::new();
+    let secrets = goodfetch_test_support::runtime().block_on(async {
+        driver(
+            &env,
+            &[("SHOP_KEY", "s3cr3t-value"), ("OTHER_KEY", "other-value")],
+        )
+        .for_run(Duration::from_secs(30))
+    });
+
+    for _ in 0..100 {
+        resolved(&secrets, "env:SHOP_KEY").unwrap();
+    }
+    resolved(&secrets, "env:OTHER_KEY").unwrap();
+    resolved(&secrets, "env:SHOP_KEY").unwrap();
+
+    let held = goodfetch_test_support::runtime().block_on(secrets.held());
+    assert_eq!(
+        held.iter()
+            .map(|(name, value)| (name.clone(), value.expose_secret().to_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (KEY.to_owned(), "other-value".to_owned()),
+            (KEY.to_owned(), "s3cr3t-value".to_owned())
+        ]
+    );
+}
+
 /// Covers: story:4-60, error:secret_unavailable
 #[rstest]
 #[case::an_unset_variable("env:SHOP_KEY", &[], SecretFailure::Missing)]

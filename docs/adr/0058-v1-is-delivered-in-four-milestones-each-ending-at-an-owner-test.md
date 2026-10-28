@@ -51,6 +51,8 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
   > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each testing issue installs both Products' executables from a local build and lists the Journeys of both Products due at its milestone.
   >
   > Amended by [ADR 0108](0108-while-the-repository-is-private-the-release-suite-runs-its-macos-cells-on-the-owners-machine-and-its-hosted-cells-under-a-ceiling.md): while the repository is private, `main`'s latest Release suite run is `main`'s latest commit whose cells have all run, across its dispatches.
+  >
+  > Amended by [ADR 0136](0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md): the testing issue is a checkpoint, not a start gate. Tickets of the next milestone start while it is open; its readiness rules stand.
 - M4 ends at the release gates of ADRs 0030 and 0032.
 - Nothing is published before M4, on any channel; the owner tests from local builds. **Changes ADRs 0030, 0032 and 0057:** the nightly channel (npm `nightly`, GitHub pre-releases, the nightly Python index, the OCI `nightly` tag) and the `0.y` previews start in M4.
 - Between gates, delivery stays autonomous under AGENTS.md.
@@ -62,6 +64,8 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
   > Amended by [ADR 0131](0131-a-cross-spec-milestone-inversion-moves-the-dependent-later-unless-pulling-the-blocker-earlier-moves-fewer-tickets.md): this holds within one spec. Across specs, the dependent moves later or is split, unless pulling the blocker earlier changes the milestone of fewer tickets, counted transitively; a tie moves the dependent.
   > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): `/to-tickets` has no milestone step. The invariant holds, and `docs/agents/issue-tracker.md` states it.
 - A milestone is done when it has no open ticket; the earliest milestone with an open ticket is the current one. Each of M1, M2 and M3 holds its testing issue, created with the milestone.
+  > Amended by [ADR 0136](0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md): no rule picks work by the current milestone. A milestone is done when it has no open ticket, and its testing issue is then ready.
 - The tracker's frontier query takes the earliest open milestone first, then map order (`docs/agents/issue-tracker.md`).
+  > Amended by [ADR 0136](0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md): each `/implement-spec` run is one whole spec, whatever milestones its tickets carry, and its frontier is the spec's open tickets with no open blocker and no assignee. Milestones neither scope nor order a run.
 - Specs keep ADR 0037's order, and each area spans the milestones its tickets fall in.
 - This ADR decides delivery order, not a capability, so no row of ADR 0037's area table lists it, and ADR 0037's rule on area rows does not apply.

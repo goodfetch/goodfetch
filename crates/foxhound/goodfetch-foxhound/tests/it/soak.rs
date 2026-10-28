@@ -17,6 +17,22 @@
 //! 0134's note). A median of five crawls takes no one crawl's reading for
 //! the Daemon's.
 //!
+//! A line fitted by least squares to the private memory after each of
+//! crawls 26 to 40 climbs at most 2 MiB a crawl, about 7 KiB a page: a
+//! leak that grows the Daemon crawl after crawl fails it, wherever in the
+//! fifteen crawls it starts (#1729, the owner's decision of 2026-10-28,
+//! ADR 0134's note). The bound comes from the noise of clean runs, measured
+//! on the M1 server once #1729's leak was fixed: nine runs of this test's
+//! setup, up to six side by side, climbed -181 to +1,379 KiB a crawl (mean
+//! +338, standard deviation 515), as the allocator's retained pages came
+//! and went, while heaptrack showed the live heap flat; 2 MiB stays above
+//! their mean plus three standard deviations (1.8 MiB). A leak of 16 KiB a
+//! page climbed 4.7 to 6.1 MiB a crawl in three runs, over twice the
+//! bound. A leak the private memory shows under about 1.4 MiB a crawl is
+//! within that noise: #1729's own, about 110 KB a Run, climbed 583 KiB a
+//! crawl, and the engine's own test holds it (`run.report` read after the
+//! end).
+//!
 //! Each crawl fetches 300 pages, not 1,000: the 40 crawls took 61 s in
 //! the CI test profile and 145 to 246 s in the local one under load (ADR
 //! 0134), and the crawl count never drops. Up to 8 requests are in flight on the Proving
@@ -50,6 +66,14 @@ const WARMED_UP: std::ops::RangeInclusive<usize> = 26..=30;
 
 /// The last crawls, whose private memory is held to the warm Daemon's.
 const LAST: std::ops::RangeInclusive<usize> = 36..=CRAWLS;
+
+/// The crawls, numbered from 1, whose private memory a line is fitted to:
+/// every crawl once the Daemon is warm.
+const FITTED: std::ops::RangeInclusive<usize> = 26..=CRAWLS;
+
+/// The steepest that line may climb, in bytes a crawl: 2 MiB, above the
+/// clean runs' noise (the module's comment).
+const MOST_GROWTH_A_CRAWL: i128 = 2 * 1024 * 1024;
 
 /// How many `scale.test` items each crawl fetches.
 const PAGES: u64 = 300;
@@ -102,6 +126,30 @@ fn median_of(after: &[u64], crawls: std::ops::RangeInclusive<usize>) -> u64 {
     held[held.len() / 2]
 }
 
+/// The slope of the least-squares line through the private memory `after`
+/// holds for the crawls `crawls`, numbered from 1, in bytes a crawl,
+/// rounded toward zero.
+fn slope_of(after: &[u64], crawls: std::ops::RangeInclusive<usize>) -> i128 {
+    let points: Vec<(i128, i128)> = crawls
+        .map(|crawl| (i128::try_from(crawl).unwrap(), i128::from(after[crawl - 1])))
+        .collect();
+    let count = i128::try_from(points.len()).unwrap();
+    let total: i128 = points.iter().map(|(crawl, _)| crawl).sum();
+    // Each crawl's distance from the mean crawl, times `count`, so that the
+    // arithmetic stays in integers: the slope is the sum of each distance
+    // times its memory over the sum of each distance times its crawl.
+    let distance = |crawl: i128| count * crawl - total;
+    let rise: i128 = points
+        .iter()
+        .map(|(crawl, held)| distance(*crawl) * held)
+        .sum();
+    let run: i128 = points
+        .iter()
+        .map(|(crawl, _)| distance(*crawl) * crawl)
+        .sum();
+    rise / run
+}
+
 #[test]
 fn forty_crawls_of_one_daemon_keep_its_private_memory_within_a_tenth_once_warm() {
     let env = TestEnv::in_memory().with_variable("MIMALLOC_PURGE_DELAY", "0");
@@ -133,6 +181,11 @@ fn forty_crawls_of_one_daemon_keep_its_private_memory_within_a_tenth_once_warm()
             vec![json!("finished"); CRAWLS],
             CRAWLS * usize::try_from(PAGES).unwrap()
         )
+    );
+    let slope = slope_of(&after, FITTED);
+    assert!(
+        slope <= MOST_GROWTH_A_CRAWL,
+        "the Daemon's private memory climbed {slope} bytes a crawl over crawls {FITTED:?}, more than {MOST_GROWTH_A_CRAWL}; after each crawl: {after:?}"
     );
     assert!(
         last * 10 <= warm * 11,

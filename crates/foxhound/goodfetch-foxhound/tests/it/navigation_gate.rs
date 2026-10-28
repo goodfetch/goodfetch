@@ -870,10 +870,13 @@ fn a_handlers_goto_to_a_document_whose_use_signals_refuse_the_purpose_is_refused
 /// and prohibiting every AI use; a page of the same host declaring none
 /// loads.
 ///
-/// Covers: story:5-134, error:site_preferences_refused, setting:site_preferences.respect_use_signals, setting:site_preferences.purpose, operation:page.goto, operation:page.evaluate
+/// Covers: story:5-134, setting:site_preferences.respect_use_signals, setting:site_preferences.purpose, operation:page.goto, operation:page.evaluate
 #[rstest::rstest]
+/// Covers: error:site_preferences_refused
 #[case::a_tdmrep_meta("/catalog/2", false)]
+/// Covers: error:site_preferences_refused
 #[case::an_rsl_link_header("/catalog/3", false)]
+/// Covers: error:site_preferences_refused
 #[case::an_rsl_link_element("/catalog/4", false)]
 #[case::no_signal("/catalog/1", true)]
 fn a_handlers_goto_to_a_document_whose_markup_or_license_refuses_the_purpose_is_refused_blank(

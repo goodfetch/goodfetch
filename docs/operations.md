@@ -40,7 +40,7 @@ At the default `log.level`, `info`, the Daemon logs state changes only: a Run st
 
 | Target | Where stdout goes | What bounds it |
 |---|---|---|
-| Compose | Docker's `local` logging driver | The Compose file `goodfetch-collie init --deploy compose` writes sets `logging: driver: local`. The `local` driver rotates and compresses, keeping 100 MB per container by default. Docker's default driver, `json-file`, never rotates, so keep `local` when you edit the file. Read the logs with `docker compose logs daemon`. |
+| Compose | Docker's `local` logging driver | Set `logging: driver: local` on the Daemon's service in your Compose file. The `local` driver rotates and compresses, keeping 100 MB per container by default. Docker's default driver, `json-file`, never rotates. This release writes no Compose file for you: `goodfetch-collie init --deploy compose`, which will write one with `local` already set, comes in a later release. Read the logs with `docker compose logs daemon`. |
 | systemd | journald | The system unit `goodfetch-collie-<major>.service` sends stdout to journald, which caps its files at 10 % of their filesystem and at most 4 GiB (`SystemMaxUse` in `journald.conf`). Read the logs with `journalctl -u goodfetch-collie-<major>.service`. |
 | Kubernetes | The node's container log files | The kubelet rotates each container's log at 10 MiB and keeps 5 files by default (`containerLogMaxSize`, `containerLogMaxFiles`). The Helm chart relies on that rotation. Read the logs with `kubectl logs`. |
 | Cloud Run | Cloud Logging | Cloud Logging keeps a log bucket's entries for its retention period, 30 days for the `_Default` bucket. Change the bucket's retention to keep less or more. |

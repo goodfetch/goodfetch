@@ -1,0 +1,29 @@
+# Each `/implement-spec` run is one whole spec, and milestones are ticket metadata and owner checkpoints
+
+Each `/implement-spec` run implements one whole spec: every open ticket of that spec, whatever milestone each carries, on that spec's own integration branch. A milestone is metadata on a ticket and a checkpoint where the owner runs an owner test. It is never the scope of a run and never holds a ticket back from starting.
+
+ADR 0058 made each owner test a start gate: "no ticket of the next milestone starts until the owner closes it", and the frontier took the earliest open milestone first. ADR 0133 then limited `/implement-spec` to the current milestone's tickets, and `docs/agents/issue-tracker.md` started one run over every open ticket of the milestone, across its specs, on one branch `milestone/<milestone>`, because tickets of different specs block each other. The skill is written for one spec. The M1 Core run ([#1583](https://github.com/goodfetch/goodfetch/pull/1583)) took about 20 specs at once on `milestone/m1-core`, and it needed steps the skill does not have: start slots, a merge queue, per-spec gates and smokes, and a fix queue for what those found. On 2026-10-28 the owner set it aside: « on oublie le "M1", on oublie tout over engineering, instructions etc et contradictions qui contredisent les skills implement spec de matt pocock », and from then on « une spec à la fois, chaque spec en entier ».
+
+## Decision
+
+- **One run is one whole spec.** `/implement-spec #<spec>` takes every open ticket of that spec, in any milestone, as its task graph, and follows the skill as written. The skill's step 3 creates the integration branch `spec/<n>`, where `<n>` is the spec's issue number, and opens its draft pull request after the first merge, marked as closing the spec and its tickets. That pull request merges into `main` through `just merge`.
+- **A milestone is ticket metadata.** Each ticket still carries one of ADR 0058's four milestones, and the order invariant still holds: a ticket's milestone is never later than that of any ticket it blocks. Neither picks or orders work. The frontier is the skill's own: the spec's open tickets with no open blocker and no assignee.
+- **An owner test is a checkpoint, not a start gate.** It is ready on ADR 0058's terms, as amended by ADRs 0063, 0072, 0094 and 0108, and the owner runs it then. While it is open, tickets of every milestone start.
+- **A `flaky-test` or `live-check` issue goes to the spec that owns its test.** It is a sub-issue of the spec that owns the test or the Live check, in the milestone of that spec's ticket that added it, so that spec's next run picks it up. A spec's tickets can carry several milestones, so the ticket that added the test decides which one.
+
+## Considered Options
+
+- **Keep the milestone-scoped run** over every open ticket of the current milestone, across its specs: rejected by the owner. It is not the skill as written, and running it needed the extra steps listed above.
+- **Keep a "current milestone" only for `flaky-test` and `live-check` issues:** rejected. The run that fixes such an issue is the run of the spec that owns its test, and a current milestone kept for these two labels alone would keep a milestone acting as a scope.
+
+## Consequences
+
+- **Amends ADR 0058.** Its testing issues no longer hold back the next milestone's tickets, and its frontier no longer takes the earliest open milestone first. Its milestone contents, its readiness rules and its release rules stand. Notes sit at the Gates bullet and at the Tracking bullets on the current milestone and the frontier.
+- **Amends ADR 0133.** The implementation loop is `/implement-spec` as written, one whole spec per run, not limited to the current milestone's tickets. Notes sit at that Decision bullet and at the Consequences bullets on the Implementation loop and on closing the spec.
+- **Amends ADR 0131.** No owner test holds back a ticket now, so a milestone inversion no longer stalls work; it still breaks the order invariant, which still holds. A note sits at its ADR 0133 note.
+- **Amends ADR 0064.** `flaky-test` and `live-check` issues go to the spec that owns the test, not to the current milestone; a milestone's owner test still waits for the ones in its milestone. Notes sit at those bullets. `xtask issues` still files them, and the perf-drift and Release-ceiling issues, in the earliest open milestone with an open issue, until [#1719](https://github.com/goodfetch/goodfetch/issues/1719) changes it.
+- **Specs that block each other.** A ticket blocked by another spec's open ticket stays off its run's frontier until that ticket closes, through GitHub's native dependencies. ADR 0037's spec order mostly runs a providing spec first; the owner picks which spec to run next.
+- **`docs/agents/issue-tracker.md`** replaces Frontier, Gate and the Implementation loop accordingly, and names `spec/<n>` as each run's integration branch. **`TESTING.md`** files `flaky-test` and `live-check` issues as above.
+- **Tickets.** The owner-test issues drop their start-gate sentence, and the Journey tickets keep « proved on `main` » without « before Mx's testing issue becomes ready ».
+- **ADR 0037.** This ADR decides how work is run, not a capability, so no row of its area table lists it.
+- **Glossary.** No term changes.

@@ -13,6 +13,7 @@ The repository was written while an autonomous delivery mode in `AGENTS.md` had 
 - **A pull request's evidence is the `pr` skill's Evidence section.** Each new test's red failure is its Before and the passing test its After; surviving mutants and a skipped mutants job are listed there. No rule names a separate Verification section.
 - **No skill writes repository files or sets ticket fields.** Files a rule had `/to-spec` or `/to-tickets` write (the Journey catalog entries of ADR 0063, the stories file and its flags of ADRs 0072 and 0075) are standards: they exist before a test declares them, and tickets add them like any other work. `/to-tickets` opens no pull request and has no milestone step.
 - **The implementation loop is `/implement-spec` as written,** limited to the current milestone's tickets. `docs/agents/issue-tracker.md` gives the start command and no other rule about runs.
+  > Amended by [ADR 0136](0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md): each run is one whole spec, every open ticket of that spec whatever its milestone, not the current milestone's tickets.
 
 ## Considered Options
 
@@ -25,5 +26,7 @@ The repository was written while an autonomous delivery mode in `AGENTS.md` had 
 - **`TESTING.md`** drops the other-seam exception and the fresh review, says Evidence instead of Verification, drops its refactoring rule (`tdd` holds it), and names no skill as the writer of a file.
 - **`AGENTS.md`** drops the other-seam clause, and its `## Agent workflows` section becomes the `## Agent skills` block that `setup-matt-pocock-skills` writes.
 - **`docs/agents/issue-tracker.md`**'s Implementation loop keeps only the start command scoped to the current milestone. On 2026-10-18 the owner removed the rules that added steps: Create, the `/to-tickets` milestone moves of ADR 0131, and ADR 0064's frontier order for `flaky-test` and `live-check` issues. Assign, the Order invariant, Frontier and Gate stay as tracker configuration.
+  > Amended by [ADR 0136](0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md): the Implementation loop starts `/implement-spec #<spec>`, one whole spec per run on `spec/<n>`; the Frontier no longer takes the current milestone first, and the Gate holds back no ticket.
 - **Closing the spec:** `implement-spec` step 3 and `preflight` step 4 both mark the draft pull request as closing the spec and its tickets, a milestone-scoped run included. The repository takes no side.
+  > Amended by [ADR 0136](0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md): there is no milestone-scoped run. Each run's draft pull request closes its one spec and that spec's tickets.
 - **Glossary.** No term changes.

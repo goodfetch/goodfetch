@@ -832,15 +832,20 @@ impl Seat {
     /// Closes the Session's browser contexts, and with them every page in
     /// them; its browsers stay, for the Run's other Sessions.
     pub(crate) async fn close(&self) {
-        let mut place = self.shared.place.lock().await;
-        if let Some((number, driver)) = place.at.take() {
+        // Its contexts are taken out of its place under the lock, which is
+        // let go before they close (STYLE.md: no lock across an `.await`).
+        let (at, left) = {
+            let mut place = self.shared.place.lock().await;
+            place.carried = Carried::default();
+            (place.at.take(), std::mem::take(&mut place.left))
+        };
+        if let Some((number, driver)) = at {
             driver.close().await;
             self.shared.pool.leave(number, self.shared.number);
         }
-        for (_, driver) in std::mem::take(&mut place.left) {
+        for (_, driver) in left {
             driver.close().await;
         }
-        place.carried = Carried::default();
     }
 }
 

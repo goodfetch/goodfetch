@@ -17,12 +17,17 @@
 //!   planned head on a clean tree. A failed step run per member records
 //!   green each crate its nextest JUnit files show passed in full, and its
 //!   other members red (`attribution`).
+//! - **compare**: the backstop's check: from a full run's record, each
+//!   result that an incremental run on the same tree reused and the full
+//!   run found red, as `miss` lines, or `suspect` lines for a step run per
+//!   member, whose red the members that run reran may hold.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
 )]
 
 mod attribution;
+mod compare;
 mod evidence;
 mod plan;
 mod runs;
@@ -115,6 +120,20 @@ pub(crate) enum Command {
         #[arg(long)]
         selection: Option<std::path::PathBuf>,
     },
+    /// Prints each result an incremental run on the full run's tree reused
+    /// and the full run on `full` found red: the backstop's check.
+    Compare {
+        /// The folder of the full run's record.
+        #[arg(long)]
+        records: std::path::PathBuf,
+        /// The folder of the incremental runs to compare it with, as the
+        /// backstop reads `just merge`'s; `records` by default.
+        #[arg(long)]
+        runs: Option<std::path::PathBuf>,
+        /// The head of the full run (`GOODFETCH_GATE_FULL=1`).
+        #[arg(long)]
+        full: String,
+    },
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -188,6 +207,15 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     evidence,
                 },
             )?;
+        }
+        Command::Compare {
+            records,
+            runs,
+            full,
+        } => {
+            let records = environment.path(&records);
+            let runs = runs.map_or_else(|| records.clone(), |runs| environment.path(&runs));
+            return compare::compare(root, &records, &runs, &full);
         }
     }
     Ok(ExitCode::SUCCESS)

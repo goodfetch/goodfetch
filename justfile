@@ -1329,6 +1329,21 @@ _gate-record head step status *evidence:
     cargo run --quiet -p xtask -- gate record --records target/gate-runs --head {{ head }} \
       --now "$(date +%s)" --step {{ step }} --status {{ status }} {{ evidence }}
 
+# The incremental gate's backstop (ADR 0135), daily from the gate host's
+# cron on `main`'s head: in a gate worktree of its own, `just pre-merge all`
+# in full (`GOODFETCH_GATE_FULL=1`), then each result an incremental run of
+# `just merge` on the same tree reused and the full run found red, a
+# selection miss to fix (ci/gate-backstop.sh). Its log and results go to
+# ~/gate-backstop/ (GOODFETCH_GATE_BACKSTOP_LOG). Run from the main checkout.
+gate-backstop ref="origin/main":
+    ci/gate-backstop.sh {{ ref }}
+
+# The backstop's comparison (ADR 0135): each result an incremental run in
+# `runs` on the full run's tree reused and the full run on `full` found red.
+_gate-compare full runs="target/gate-runs":
+    cargo run --quiet --locked -p xtask -- gate compare --records target/gate-runs \
+      --runs "{{ runs }}" --full {{ full }}
+
 # Starts and checks the real OS services the tests use (ci/os-services.sh),
 # which `just pre-merge` runs first on a Linux host.
 _os-services:

@@ -350,7 +350,9 @@ fn dropped(answering: Option<u64>, pending: &mut BTreeMap<u64, Pending>) {
             let _ = answer.send(Err(Failure::TooLarge { method }));
         }
         None => {
-            tracing::warn!("the browser sent a message past the framing's limit, which was dropped")
+            tracing::warn!(
+                "the browser sent a message past the framing's limit, which was dropped"
+            );
         }
     }
 }

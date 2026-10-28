@@ -76,18 +76,14 @@ impl Framer {
     /// and the next call reads on.
     pub fn next_frame(&mut self) -> Result<Option<Bytes>, FramingError> {
         if self.dropping {
-            match self.buffer.iter().position(|byte| *byte == 0) {
-                Some(offset) => {
-                    self.buffer.advance(offset + 1);
-                    self.dropping = false;
-                    self.let_go();
-                }
-                None => {
-                    self.buffer.clear();
-                    self.let_go();
-                    return Ok(None);
-                }
-            }
+            let Some(offset) = self.buffer.iter().position(|byte| *byte == 0) else {
+                self.buffer.clear();
+                self.let_go();
+                return Ok(None);
+            };
+            self.buffer.advance(offset + 1);
+            self.dropping = false;
+            self.let_go();
         }
         match self.buffer[self.searched..]
             .iter()

@@ -137,6 +137,7 @@ impl Site {
                 languages::HOST,
                 clean_up::HOST,
                 clean_up::FRAME_HOST,
+                clean_up::PAYMENT_HOST,
                 consent::HOST,
                 consent::FRAME_HOST,
             ])

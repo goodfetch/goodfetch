@@ -1,8 +1,8 @@
 //! The page suite's Clean-up cases (ADRs 0047 and 0117, ticket #713) on
 //! the Proving ground's `clean-up.test` pages: the Filter lists block ads
 //! and trackers by default, each failing as `BlockedByClient`; the
-//! never-block list keeps a challenge's anti-bot sensors loading over the
-//! lists and over `browser.block_resources`; a redirect rule's stand-in
+//! never-block list keeps a challenge's anti-bot sensors and a payment
+//! script loading over the lists and over `browser.block_resources`; a redirect rule's stand-in
 //! keeps a page that calls a blocked tracker working; and
 //! `browser.block_resources` blocks its kinds before every navigation and
 //! warns once. Live hiding (ticket #715) hides an ad in a page and in its
@@ -53,6 +53,11 @@ pub(super) const TRACKER: &str = "/js/adobe-analytics.js";
 pub(super) const ANNOYANCE: &str = "/js/copy_text.js";
 /// A document EasyList blocks wherever it is (`/page/bouncy.php?$document`).
 const BLOCKED_DOCUMENT: &str = "/page/bouncy.php?id=1";
+/// The host of the `/challenge` page's payment script, Stripe's own.
+const PAYMENT_HOST: &str = "m.stripe.com";
+/// Stripe's fraud-signals script, which EasyPrivacy blocks on another site
+/// and the never-block list keeps loading.
+const PAYMENT: &str = "/6";
 /// The `/challenge` page's anti-bot sensors and challenge files, which the
 /// never-block list keeps loading.
 const CHALLENGE: [&str; 4] = [
@@ -86,7 +91,7 @@ impl Case {
             "ads-and-trackers-fail-as-blocked-by-client-and-the-sites-own-content-loads" => {
                 Self::Blocked
             }
-            "challenge-and-anti-bot-scripts-load-over-the-filter-lists-and-block-resources" => {
+            "challenge-anti-bot-and-payment-scripts-load-over-the-filter-lists-and-block-resources" => {
                 Self::NeverBlocked
             }
             "a-redirect-stand-in-keeps-a-page-that-calls-a-blocked-tracker-working" => {
@@ -140,11 +145,16 @@ impl Case {
 /// How many requests for `target` on the pages' host the Proving ground
 /// received.
 pub(super) fn received(site: &Site, target: &str) -> usize {
+    received_on(site, HOST, target)
+}
+
+/// How many requests for `target` of `host` the Proving ground received.
+fn received_on(site: &Site, host: &str, target: &str) -> usize {
     site.proving_ground
         .received_requests()
         .unwrap_or_default()
         .of_the_case()
-        .filter(|request| request["host"] == json!(HOST) && request["target"] == json!(target))
+        .filter(|request| request["host"] == json!(host) && request["target"] == json!(target))
         .count()
 }
 
@@ -324,9 +334,10 @@ fn blocked(
     finish(connection, run_id).map(drop)
 }
 
-/// The `/challenge` page's anti-bot sensors, which EasyPrivacy blocks, and
-/// its challenge script and image load under `browser.block_resources:
-/// ["image"]`, while its tracker stays blocked.
+/// The `/challenge` page's anti-bot sensors and Stripe's fraud-signals
+/// script, which EasyPrivacy blocks, and its challenge script and image
+/// load under `browser.block_resources: ["image"]`, while its tracker stays
+/// blocked.
 fn never_blocked(
     connection: &mut Connection,
     site: &Site,
@@ -338,6 +349,7 @@ fn never_blocked(
         return finish(connection, run_id).map(drop);
     };
     let (before, tracker) = (counts(site, CHALLENGE), received(site, TRACKER));
+    let payment = received_on(site, PAYMENT_HOST, PAYMENT);
     let (url, answer) = visit(connection, site, &page, "/challenge")?;
     answered(
         &answer,
@@ -355,6 +367,12 @@ fn never_blocked(
             after == before + 1,
         );
     }
+    checks.check(
+        format!(
+            "the payment script {PAYMENT} of {PAYMENT_HOST} reached the Proving ground over the lists and `browser.block_resources`"
+        ),
+        received_on(site, PAYMENT_HOST, PAYMENT) == payment + 1,
+    );
     checks.check(
         "the challenge page's tracker stays blocked",
         received(site, TRACKER) == tracker,

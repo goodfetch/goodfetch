@@ -416,7 +416,7 @@ covers = ["story:5-94", "setting:browser.block_resources"]
 name = "clean_up.never_block"
 
 [[capability.case]]
-id = "challenge-and-anti-bot-scripts-load-over-the-filter-lists-and-block-resources"
+id = "challenge-anti-bot-and-payment-scripts-load-over-the-filter-lists-and-block-resources"
 covers = ["story:5-95", "setting:browser.block_resources"]
 
 [[capability]]

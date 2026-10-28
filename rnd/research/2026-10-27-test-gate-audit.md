@@ -174,3 +174,35 @@ Declined:
 - **Moving to Bazel or Buck2:** cost far beyond the saving; Cargo, nextest and sccache already give per-crate builds and caching.
 
 Order of work if the owner agrees: 6 first (it measures the rest), then 1 and 2 (the largest savings, process and one flag), then 3 and 4 (gate code), 5, and 7 when #1591 is ready. 9 only after a replay.
+
+## 8. Decisions
+
+### Option 1: adopted (owner, 2026-10-28)
+
+The owner's words: "While a spec gate is red, the next run gates the same head plus its fix commits only, and ticket merges wait for the green." The draft for the M1 run's scripts is [`2026-10-28-red-hold.patch`](2026-10-28-red-hold.patch). It applies with `patch -p1` in `.claude/handoff/m1/`, and it is not applied yet: the owner reviews it first.
+
+- **`run-merge.sh`** is the one place both `spec-check.sh` and `gate-pr.sh` run `just merge`. Only for the milestone's pull request (`pr-number.txt`):
+  - A red exit writes `m1/red-hold` with `head <sha>`, the gated tip.
+  - A green exit removes `m1/red-hold`.
+  - With a hold in place, the gate is refused (exit 3) in two cases. First, when the held head is not an ancestor of the tip. Second, when `held..tip` has a first-parent merge that is a ticket (`chore: merge #<n> …`), or an item the hold does not list as `fix <item>`. Merges of `main` and direct commits pass: fixes, reverts and regenerated files.
+- **`merge-queue.sh`**: while `m1/red-hold` exists, it picks only the items listed there as `fix <item>`. Tickets and other items stay in `finished.txt` until the green.
+- **`merger-brief.md`**: under a hold, a merger merges only a listed fix item. For any other item it stops and reports "held: gate red".
+- **The orchestrator** adds a `fix <item>` line to `m1/red-hold` each time it files a fix item for the red. That one line is what the hold needs from the orchestrator.
+
+**Checked:**
+- `bash -n` and `shellcheck -S warning` pass on both scripts.
+- I ran the patched `run-merge.sh` against the real milestone history, with `just` replaced by a stub. That covered:
+  - a red that sets the hold;
+  - a green that clears it;
+  - a listed fix that passes;
+  - an unlisted fix that is refused;
+  - another pull request, which ignores the hold;
+  - a held head that is not an ancestor, which is refused.
+- With the hold on rerun 11's head (`cfb620b58`), rerun 12's tip (`de6f898e3`) is refused. The refusal names #1513, #1153 and #1573, plus FQ121, FQ123 and FQ126 until they are listed.
+- I tested the queue's selection on a sample `finished.txt`.
+
+**Not checked:** a real gate, or a real merge queue run under the hold.
+
+**Timing:** rerun 12 ran before this decision (2026-10-27 23:13, red on Playwright). Under the transition order of 2026-10-28, the next gate is the single `just merge 1583` after the reviews and their fixes. A red there is where the hold first applies: the reviews' remaining fix merges then wait as tickets do, unless the orchestrator lists them as fixes for that red.
+
+**Beyond M1:** after #1583 merges, `milestone/m1-core` and these scripts retire, and runs use one `spec/<n>` branch per spec (ADR 0136, in #1720). For the rule to outlive the scripts, it would need a line in ADR 0135 or 0136.

@@ -1,0 +1,80 @@
+--- a/run-merge.sh
++++ b/run-merge.sh
+@@ -1,6 +1,6 @@
+ #!/bin/bash
+ # run-merge.sh <pr>: run `just merge <pr>` with its log in reports/, and exit with its real exit code.
+-pr=$1; repo=/Users/jb/Dev/goodfetch; log=$repo/.claude/handoff/m1/reports/merge-$pr.log
++pr=$1; repo=/Users/jb/Dev/goodfetch; m1=$repo/.claude/handoff/m1; log=$m1/reports/merge-$pr.log
+ # Until #1591 merges, the milestone's ci/merge-pr.sh keeps Vite's pre-bundled dependencies across
+ # gate resets; a head importing a new package then fails every browser test at import (fix-queue
+ # 51). Drop them from the gate worktree first, as #1591's ci/gate-worktree.sh will.
+@@ -8,5 +8,41 @@
+ [[ -d $worktree ]] && find "$worktree" \( -path "$worktree/target" -o -path "$worktree/.venv" -o -name .pnpm \) -prune -o \
+   -type f -path '*/node_modules/*/deps/_metadata.json' -print |
+   while IFS= read -r entry; do rm -rf "${entry%/_metadata.json}"; done
++# The red hold (owner, 2026-10-28; option 1 of rnd/research/2026-10-27-test-gate-audit.md): a red gate
++# of the milestone's pull request holds its head still until a gate is green. m1/red-hold's `head`
++# line is the first red head; each `fix <item>` line is a fix item for that red, which the
++# orchestrator adds when it files the item. The next gate runs on that head plus those items' merges,
++# merges of main and direct commits (fixes, reverts, regenerated files); a ticket merge or an
++# unlisted item's merge in between refuses the gate, so a rerun never tests code the red one lacked.
++hold=$m1/red-hold
++milestone=0; [[ $pr == "$(cat "$m1/pr-number.txt" 2>/dev/null)" ]] && milestone=1
++if (( milestone )); then
++  git -C "$repo" fetch -q origin milestone/m1-core
++  tip=$(git -C "$repo" rev-parse origin/milestone/m1-core)
++fi
++if (( milestone )) && [[ -e $hold ]]; then
++  held=$(awk '$1 == "head" {print $2}' "$hold")
++  git -C "$repo" merge-base --is-ancestor "$held" "$tip" ||
++    { echo "RED HOLD: the held head $held is not an ancestor of the tip $tip: gate refused"; exit 3; }
++  extra=$(git -C "$repo" log --first-parent --format='%h %s' "$held..$tip" | while read -r sha subject; do
++    case $subject in
++      "chore: merge main into "*) ;;
++      "chore: merge #"[0-9]*) echo "  $sha $subject" ;;
++      "chore: merge "*) item=${subject#chore: merge }; item=${item%% *}
++        grep -qx "fix $item" "$hold" || echo "  $sha $subject" ;;
++    esac
++  done)
++  [[ -z $extra ]] || { printf 'RED HOLD on %s: the tip %s adds merges the hold does not list:\n%s\ngate refused: revert them, or add `fix <item>` to m1/red-hold for a fix item of this red\n' "$held" "$tip" "$extra"; exit 3; }
++  echo "RED HOLD on $held: the tip $tip adds only the hold's fixes ($(git -C "$repo" rev-list --count --first-parent "$held..$tip") first-parent commits)"
++fi
+ cd "$repo" && just merge "$pr" > "$log" 2>&1; ec=$?
+-echo "exit $ec" >> "$log"; exit $ec
++echo "exit $ec" >> "$log"
++if (( milestone )); then
++  if (( ec == 0 )); then
++    [[ -e $hold ]] && { rm -f "$hold"; echo "RED HOLD ended: the gate is green"; }
++  elif [[ ! -e $hold ]]; then
++    printf 'head %s %s\n' "$tip" "$(date -u +%FT%TZ)" > "$hold"
++    echo "RED HOLD on $tip: only fix items merge until a gate is green; add \`fix <item>\` to m1/red-hold for each fix item"
++  fi
++fi
++exit $ec
+--- a/merge-queue.sh
++++ b/merge-queue.sh
+@@ -35,9 +35,12 @@
+   while read -r n branch head; do
+     [[ -z ${n:-} ]] && continue
+     grep -q "^$n " "$m1/needs-merger.txt" && continue
++    # A red gate holds the milestone (m1/red-hold, run-merge.sh): only the fix items it lists merge;
++    # tickets and other items wait in finished.txt for the green (owner, 2026-10-28).
++    [[ -e $m1/red-hold ]] && ! grep -qx "fix $n" "$m1/red-hold" && continue
+     next="$n $branch $head"; break
+   done < "$m1/finished.txt"
+-  [[ -z $next ]] && { echo "$(date -u '+%F %T') queue empty (or only items needing a merger)" >> "$log"; exit 0; }
++  [[ -z $next ]] && { echo "$(date -u '+%F %T') queue empty (or only items needing a merger or held by m1/red-hold)" >> "$log"; exit 0; }
+   # disk-guard.sh's flag: under the disk budget nothing new starts (owner, 2026-10-22).
+   [[ -e $m1/disk-low ]] && { echo "$(date -u '+%F %T') disk low ($(cat "$m1/disk-low") GB free): stop" >> "$log"; exit 3; }
+   read -r n branch head <<< "$next"
+--- a/merger-brief.md
++++ b/merger-brief.md
+@@ -4,6 +4,8 @@
+ 
+ **While a spec gate runs (`.claude/handoff/m1/push-hold` exists), the orchestrator starts no merger** (2026-10-26). If one exists when you start, stop at once and report "gate running": a merge's builds and tests beside the gate starve it.
+ 
++**While a red gate holds the milestone (`.claude/handoff/m1/red-hold` exists), merge only an item it lists as `fix <item>`** (owner, 2026-10-28): the next gate runs on the red head plus that red's fixes. For any other item, stop at once and report "held: gate red". `m1/run-merge.sh` refuses a gate whose range holds another merge.
++
+ ## Steps
+ 
+ 1. `cd /Users/jb/Dev/goodfetch`. Check `git status` is clean and the branch is `milestone/m1-core`. Record the tip: `base=$(git rev-parse HEAD)`. `source .claude/handoff/m1/env.sh` in every Bash call that builds **or runs tests** (it sets `TMPDIR=/g`, so test folders stay off the RAM-backed /tmp; 2026-10-26).

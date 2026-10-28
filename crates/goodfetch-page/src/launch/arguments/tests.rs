@@ -35,7 +35,7 @@ fn launch(headless: bool, shared_memory: Option<u64>) -> Launch<'static> {
 }
 
 fn has(built: &Arguments, flag: &str) -> bool {
-    built.arguments.iter().any(|argument| argument == flag)
+    built.command_line.iter().any(|argument| argument == flag)
 }
 
 #[test]
@@ -88,11 +88,11 @@ fn the_browser_runs_over_its_pipe_on_the_runs_profile_and_opens_a_blank_page_las
         (
             has(&built, "--remote-debugging-pipe"),
             built
-                .arguments
+                .command_line
                 .iter()
                 .any(|argument| argument.starts_with("--remote-debugging-port")),
             has(&built, "--user-data-dir=/runs/r/browser-data/1"),
-            built.arguments.last().map(String::as_str),
+            built.command_line.last().map(String::as_str),
         ),
         (true, false, true, Some("about:blank"))
     );
@@ -119,7 +119,7 @@ fn resolve_reaches_chromium_as_host_resolver_rules_each_host_on_its_first_addres
             "--host-resolver-rules=MAP catalog.test 127.0.0.1, MAP ipv6.test [::1], MAP *.invalid ~NOTFOUND"
         ),
         "{:?}",
-        built.arguments
+        built.command_line
     );
 }
 
@@ -236,7 +236,7 @@ fn a_launch_on_the_runs_profile_keeps_away_from_the_os_keychain() {
 fn every_launch_carries_every_entry_of_the_background_traffic_table() {
     let omitted = |built: &Arguments| {
         let disabled_features: Vec<&str> = built
-            .arguments
+            .command_line
             .iter()
             .filter_map(|argument| argument.strip_prefix("--disable-features="))
             .collect();
@@ -274,7 +274,7 @@ fn a_policy_script_reaches_the_browser_as_its_proxy_configuration() {
     let open = arguments(&launch(true, None));
     let configured = |built: &Arguments| {
         built
-            .arguments
+            .command_line
             .iter()
             .filter_map(|argument| {
                 argument
@@ -311,7 +311,7 @@ fn a_run_with_a_relay_authority_trusts_it_by_its_key_hash_alone() {
     let plain = arguments(&launch(true, None));
     let flags = |built: &Arguments| -> Vec<String> {
         built
-            .arguments
+            .command_line
             .iter()
             .filter(|argument| argument.starts_with("--ignore-certificate-errors"))
             .cloned()
@@ -325,4 +325,16 @@ fn a_run_with_a_relay_authority_trusts_it_by_its_key_hash_alone() {
             Vec::new()
         )
     );
+}
+
+/// On Linux the browser's character type is UTF-8 whatever the host's
+/// locale, so a Browser data folder whose path is not ASCII opens and
+/// closes in time under `LANG=C` or a locale the system lacks (fix-queue
+/// 127).
+#[cfg(target_os = "linux")]
+#[test]
+fn every_linux_launch_gives_the_browser_a_utf8_character_type_whatever_the_hosts_locale() {
+    let built = arguments(&launch(true, None));
+
+    assert_eq!(built.environment, [("LC_ALL", "C.UTF-8")]);
 }

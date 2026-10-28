@@ -3,15 +3,10 @@
 //! admission from its governor, whose fixed cap holds both, and what one
 //! gives back goes to the other in turn.
 
-use std::time::Duration;
-
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
-
-/// How long the engine must send nothing more for a turn to be whole.
-const QUIET: Duration = Duration::from_millis(500);
 
 /// The user configuration of a home whose engines keep `in_flight` HTTP
 /// admissions at once whatever the machine: each engine is held at
@@ -27,31 +22,87 @@ pub(crate) fn in_flight_whatever_the_machine(in_flight: u32) -> String {
     )
 }
 
-fn start(engine: &mut Attached, run_id: &str, hosts: &[&str]) {
+/// Starts the crawl `run_id` of one request on each of `hosts`, up to 3
+/// handlers at once, and answers once the engine took it, with each
+/// handler request it sent meanwhile kept in `held`.
+fn start(engine: &mut Attached, run_id: &str, hosts: &[&str], held: &mut Vec<Value>) {
     let seeds: Vec<Value> = hosts
         .iter()
         .map(|host| json!({ "url": format!("https://{host}/"), "label": "page" }))
         .collect();
+    let id = format!("start-{run_id}");
     engine.send(&json!({
-        "jsonrpc": "2.0", "id": format!("start-{run_id}"), "method": "crawl.start",
+        "jsonrpc": "2.0", "id": id, "method": "crawl.start",
         "params": {
             "run_id": run_id,
             "seeds": seeds,
             "settings": { "crawl": { "handler": { "concurrency": 3 } } },
         },
     }));
-}
-
-/// Every handler request the engine sends until it is quiet, held.
-fn turn(engine: &mut Attached) -> Vec<Value> {
-    let mut held = Vec::new();
-    while !engine.is_quiet_for(QUIET) {
+    loop {
         let message = engine.next().unwrap();
         if message["method"] == "crawl_request.handle" {
             held.push(message);
+        } else if message["id"] == id {
+            assert!(message.get("result").is_some(), "{message}");
+            return;
         }
     }
-    held
+}
+
+/// Every handler request the engine sends, after those already `held`
+/// and with those of `unanswered` not answered yet, until the governor
+/// holds the crawls still: each of `crawls`, a Run ID and its number of
+/// seeds, has all its requests done, waiting or handled by a request held
+/// here, none fetched, and either the governor's `cap` admissions are all
+/// held here or nothing waits. Nothing more comes then until one is
+/// answered. It reads the crawls' progress (`run.progress`) rather than
+/// waiting for a quiet stretch, which a loaded machine outlasts (fix-queue
+/// 129).
+fn turn(
+    engine: &mut Attached,
+    (crawls, cap): (&[(&str, u64)], u64),
+    unanswered: &[Value],
+    mut held: Vec<Value>,
+) -> Vec<Value> {
+    loop {
+        let (mut accounted, mut handled, mut waiting) = (true, 0, 0);
+        for &(run_id, seeds) in crawls {
+            let progress = progress(engine, run_id, &mut held);
+            let mine = held
+                .iter()
+                .chain(unanswered)
+                .filter(|request| request["params"]["run_id"] == run_id)
+                .count();
+            let count = |name: &str| progress["requests"][name].as_u64().unwrap_or(0);
+            let done = count("succeeded") + count("failed") + count("skipped") + count("blocked");
+            accounted &= count("fetching") == 0
+                && count("handling") == u64::try_from(mine).unwrap()
+                && done + count("handling") + count("pending") == seeds;
+            handled += count("handling");
+            waiting += count("pending");
+        }
+        if accounted && (handled == cap || waiting == 0) {
+            return held;
+        }
+    }
+}
+
+/// The progress of `run_id` at once, each handler request that comes
+/// meanwhile kept in `held`.
+fn progress(engine: &mut Attached, run_id: &str, held: &mut Vec<Value>) -> Value {
+    let id = format!("progress-{run_id}");
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": id, "method": "run.progress", "params": { "run_id": run_id },
+    }));
+    loop {
+        let message = engine.next().unwrap();
+        if message["method"] == "crawl_request.handle" {
+            held.push(message);
+        } else if message["id"] == id {
+            return message["result"].clone();
+        }
+    }
 }
 
 /// The Runs `held`'s requests are of, in order.
@@ -82,14 +133,36 @@ fn two_crawls_take_the_governors_http_admissions_in_turn() {
     env.user_configuration("governor.http.floor = 2\ngovernor.http.ceiling = 2\n");
     let mut engine = Attached::start(&env);
 
-    start(&mut engine, "first", &["a.test", "b.test", "c.test"]);
-    let alone = turn(&mut engine);
-    start(&mut engine, "second", &["d.test", "e.test", "f.test"]);
-    let waiting = turn(&mut engine);
+    let mut alone = Vec::new();
+    start(
+        &mut engine,
+        "first",
+        &["a.test", "b.test", "c.test"],
+        &mut alone,
+    );
+    let alone = turn(&mut engine, (&[("first", 3)], 2), &[], alone);
+    let mut waiting = Vec::new();
+    start(
+        &mut engine,
+        "second",
+        &["d.test", "e.test", "f.test"],
+        &mut waiting,
+    );
+    let waiting = turn(
+        &mut engine,
+        (&[("first", 3), ("second", 3)], 2),
+        &alone,
+        waiting,
+    );
     let mut turns = vec![runs(&alone), runs(&waiting)];
     answer(&mut engine, alone);
     for _ in 0..3 {
-        let held = turn(&mut engine);
+        let held = turn(
+            &mut engine,
+            (&[("first", 3), ("second", 3)], 2),
+            &[],
+            Vec::new(),
+        );
         turns.push(runs(&held));
         answer(&mut engine, held);
     }
@@ -146,11 +219,12 @@ fn a_crawl_the_governor_admits_nothing_more_for_says_its_due_requests_wait_under
     env.user_configuration("governor.http.floor = 1\ngovernor.http.ceiling = 1\n");
     let mut engine = Attached::start(&env);
 
-    start(&mut engine, "held", &["a.test", "b.test"]);
-    let held = turn(&mut engine);
+    let mut held = Vec::new();
+    start(&mut engine, "held", &["a.test", "b.test"], &mut held);
+    let held = turn(&mut engine, (&[("held", 2)], 1), &[], held);
     let group = wait_group(&mut engine, "held", "governor");
     answer(&mut engine, held);
-    let _ = turn(&mut engine);
+    let _ = turn(&mut engine, (&[("held", 2)], 1), &[], Vec::new());
     assert!(engine.finish());
 
     assert_eq!(

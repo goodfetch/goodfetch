@@ -28,6 +28,8 @@ use goodfetch_test_support::{DaemonEndpoint, Process, StrictStdout, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
+use crate::governor::in_flight_whatever_the_machine;
+
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
 /// How long a handler process waits for each message from the engine.
@@ -90,7 +92,13 @@ struct Attached {
 }
 
 impl Attached {
+    /// Starts the engine with two HTTP admissions whatever the machine:
+    /// each test holds a request on the Client while the handler process
+    /// waits for its own, and a governor at its floor of one under a
+    /// loaded machine's memory pressure sent the handler process none
+    /// (fix-queue 130).
     fn start(env: &TestEnv) -> Self {
+        env.user_configuration(&in_flight_whatever_the_machine(2));
         env.log_level("trace");
         let mut command = env.process_command(FOXHOUND);
         command.arg("attached-engine").stderr(Stdio::piped());
@@ -172,10 +180,24 @@ impl Peer for HandlerProcess {
         self.writer.flush().unwrap();
     }
 
+    /// # Panics
+    ///
+    /// When nothing comes for [`DEADLINE`]: a read past the socket's timeout
+    /// fails with `WouldBlock` on Unix and `TimedOut` on Windows.
     fn next(&mut self) -> Option<Value> {
         let mut line = String::new();
-        (self.reader.read_line(&mut line).unwrap() > 0)
-            .then(|| serde_json::from_str(&line).unwrap())
+        let read = match self.reader.read_line(&mut line) {
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                panic!("the private endpoint sent nothing for {DEADLINE:?}")
+            }
+            read => read.unwrap(),
+        };
+        (read > 0).then(|| serde_json::from_str(&line).unwrap())
     }
 }
 

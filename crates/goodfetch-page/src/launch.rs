@@ -229,7 +229,7 @@ pub(crate) async fn launch(
     let headless = settings
         .and_then(|settings| settings.boolean(BROWSER_HEADLESS.name))
         .unwrap_or(true);
-    let arguments = command_line(
+    let (arguments, environment) = command_line(
         run,
         settings,
         &data_folder,
@@ -241,6 +241,7 @@ pub(crate) async fn launch(
     let mut command = Command::new(&executable);
     command
         .args(&arguments)
+        .envs(environment.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -314,8 +315,9 @@ async fn write_preferences(run: &Run, data_folder: &Path) -> std::io::Result<()>
         .await
 }
 
-/// The browser's command line under the Run's `settings`, on `data_folder`;
-/// the warnings of a degraded launch are logged.
+/// The browser's command line under the Run's `settings`, on `data_folder`,
+/// and the variables it starts with beside the engine's own; the warnings
+/// of a degraded launch are logged.
 async fn command_line(
     run: &Run,
     settings: Option<&Resolved>,
@@ -323,7 +325,7 @@ async fn command_line(
     headless: bool,
     sandbox: bool,
     relay_authority: Option<&str>,
-) -> Vec<String> {
+) -> (Vec<String>, &'static [(&'static str, &'static str)]) {
     let resolve = settings
         .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
         .unwrap_or_default();
@@ -349,7 +351,7 @@ async fn command_line(
     for warning in &built.warnings {
         tracing::warn!(%warning, "the Run's browser launches degraded");
     }
-    built.arguments
+    (built.command_line, built.environment)
 }
 
 /// The size of `/dev/shm`, where Linux mounts one of its own.

@@ -22,6 +22,7 @@ use goodfetch_protocol::page::route::{
 };
 use goodfetch_protocol::page::session_pages::PAGE_CLOSE;
 use goodfetch_protocol::page::{NAVIGATION_FAILED, PAGE_GOTO, PageOpened};
+use goodfetch_protocol::response_limits::RESPONSE_LIMIT_EXCEEDED;
 use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 
@@ -48,6 +49,7 @@ pub(crate) enum Case {
     SiblingClosed,
     PostData,
     FetchPageClosed,
+    FetchPastLimit,
 }
 
 impl Case {
@@ -73,6 +75,9 @@ impl Case {
             "a-fetch-whose-page-closes-before-its-response-raises-closed-and-the-run-finishes" => {
                 Self::FetchPageClosed
             }
+            "a-fetch-whose-body-passes-network-max-body-size-raises-response-limit-exceeded" => {
+                Self::FetchPastLimit
+            }
             _ => return None,
         })
     }
@@ -96,6 +101,7 @@ impl Case {
             Self::SiblingClosed => sibling_closed(connection, site, checks),
             Self::PostData => post_data(connection, site, checks),
             Self::FetchPageClosed => fetch_page_closed(connection, site, checks),
+            Self::FetchPastLimit => fetch_past_limit(connection, site, checks),
         }
     }
 }
@@ -1087,6 +1093,50 @@ fn fetch_page_closed(
     let finished = connection.browser_answer(finished)?.message;
     checks.check("the Run finishes", finished.get("result").is_some());
     Ok(())
+}
+
+/// The body `route.fetch` reads is one the engine itself reads (ticket
+/// #644): past the Run's `network.max_body_size` it raises
+/// `response_limit_exceeded` naming the setting and its value, and the
+/// handler's call holds no copy of it.
+fn fetch_past_limit(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-route-fetch-past-limit";
+    let settings = json!({ "network": { "max_body_size": 64 } });
+    let (Some(url), Some(page)) = (
+        site.named_url("scope.test", "/about?route=fetch-past-limit"),
+        page(connection, site, run_id, &settings, checks)?,
+    ) else {
+        return finish_run(connection, run_id);
+    };
+    let mut routes = Routes::new(|_| vec![Act::FetchThenFulfill(with_header)]);
+    Routes::route(
+        connection,
+        PAGE_ROUTE.name,
+        &json!({ "page_id": page.page_id, "url": glob("**/about*") }),
+    )?;
+    let answer = goto(&mut routes, connection, &page, &url)?;
+    checks.check(
+        "the `goto` whose fetched body passed the limit answers",
+        answer.get("result").is_some() || answer.get("error").is_some(),
+    );
+    let made = routes.made(connection)?;
+    checks.check(
+        format!(
+            "`route.fetch` raises `{}` naming `network.max_body_size` and 64",
+            RESPONSE_LIMIT_EXCEEDED.name
+        ),
+        made.first().is_some_and(|(method, answer)| {
+            *method == ROUTE_FETCH.name
+                && code_of(answer) == &json!(RESPONSE_LIMIT_EXCEEDED.name)
+                && answer["error"]["data"]["setting"] == json!("network.max_body_size")
+                && answer["error"]["data"]["limit"] == json!(64)
+        }),
+    );
+    finish_run(connection, run_id)
 }
 
 /// A route sees the body a page posts, in Base64, as `route.request()`'s

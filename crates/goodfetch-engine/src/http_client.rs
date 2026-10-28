@@ -673,8 +673,9 @@ impl ConfiguredEndpoint<'_> {
 
 /// What the machine's settings let every Operator-configured endpoint
 /// reach and trust: `egress.no_private_endpoints`, `network.resolve`,
-/// `tls.trusted_cas` and the race's delays. Each endpoint's module holds
-/// one and sends through it with its own kind.
+/// `tls.trusted_cas`, the race's delays and `network.max_body_size`, which
+/// caps every reply as each endpoint's own limit does. Each endpoint's
+/// module holds one and sends through it with its own kind.
 #[derive(Clone, Debug)]
 pub(crate) struct EndpointSettings {
     policy: EndpointPolicy,
@@ -682,6 +683,7 @@ pub(crate) struct EndpointSettings {
     authorities: Vec<(String, Vec<PathBuf>)>,
     clock: Clock,
     delays: Delays,
+    max_body_size: u64,
 }
 
 /// Why an Operator-configured endpoint gave no whole answer.
@@ -727,18 +729,18 @@ impl EndpointSettings {
             authorities,
             clock,
             delays: Delays::of(settings),
+            max_body_size: Limits::of(settings).max_body_size,
         }
     }
 
     /// Sends `request`, whose URI is the endpoint's absolute URL, to an
     /// endpoint of `kind`, and answers its whole answer, at most `limit`
-    /// bytes of body.
+    /// bytes of body and at most `network.max_body_size`.
     ///
     /// # Errors
     ///
     /// [`WholeFailure`] when the policy refused the endpoint, its
-    /// certificate failed, or it gave no whole answer of at most `limit`
-    /// bytes.
+    /// certificate failed, or it gave no whole answer within both limits.
     ///
     /// # Cancel safety
     ///
@@ -768,6 +770,7 @@ impl EndpointSettings {
                 }
                 EndpointFailure::Failed(_) => WholeFailure::Network,
             })?;
+        let limit = limit.min(usize::try_from(self.max_body_size).unwrap_or(usize::MAX));
         let mut body = Vec::new();
         while let Some(bytes) = answer.chunk().await.map_err(|_| WholeFailure::Network)? {
             if body.len() + bytes.len() > limit {

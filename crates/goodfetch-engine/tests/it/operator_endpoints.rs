@@ -142,6 +142,29 @@ fn a_collector_on_loopback_is_reached_unless_the_operator_policy_refuses_private
     }
 }
 
+/// An endpoint's reply is a body the engine itself reads, so
+/// `network.max_body_size` caps it as the endpoint's own limit does (ticket
+/// #644): a collector whose answer passes a one-byte limit fails as too
+/// long, and the same collector under the default limit answers.
+/// Covers: setting:network.max_body_size
+#[test]
+fn an_endpoints_reply_past_network_max_body_size_is_too_long() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let url = format!("http://{}/v1/traces", target(&proving_ground));
+    let limited = Collector::of(
+        &machine_settings(json!({}), json!({ "network": { "max_body_size": 1 } })),
+        Clock::system(),
+    );
+    let unlimited = Collector::of(&machine_settings(json!({}), json!({})), Clock::system());
+
+    let cut = export(&limited, &url);
+    let whole = export(&unlimited, &url);
+
+    assert!(matches!(cut, Err(ExportFailure::TooLong)), "{cut:?}");
+    assert_eq!(whole.unwrap(), 200);
+}
+
 /// The SSRF table's thin runner on the engine's HTTP client for
 /// Operator-configured endpoints: each case's collector under the Operator
 /// policy of `egress.no_private_endpoints`, its lookups as the

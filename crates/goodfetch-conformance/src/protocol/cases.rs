@@ -242,7 +242,10 @@ impl Site {
         if !settings.is_object() {
             settings = json!({});
         }
-        settings["network"] = json!({ "resolve": self.resolve });
+        if !settings["network"].is_object() {
+            settings["network"] = json!({});
+        }
+        settings["network"]["resolve"] = self.resolve.clone();
         if for_model {
             return settings;
         }

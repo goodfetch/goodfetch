@@ -23,6 +23,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::{self, Policy, Refused, RequestKind};
 use goodfetch_engine::http_client::{self, Resolve};
+use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::CLOSED;
@@ -637,15 +638,42 @@ impl PageContext {
         }
     }
 
-    /// The response a `fetch` got, its body read.
+    /// The response a `fetch` got, its body read once the Run's limits
+    /// allow it (ticket #644): a `Content-Length` past
+    /// `network.max_body_size`, with no content coding, is refused before
+    /// the body is read, and the decoded body is judged once read.
+    ///
+    /// # Errors
+    ///
+    /// `response_limit_exceeded` naming the limit the body passed.
     async fn fetched(&self, paused: &fetch::RequestPausedEvent) -> Result<Reply, CallError> {
-        let body = BASE64.encode(&self.body(&paused.request_id).await);
-        let headers = paused
+        let headers: BTreeMap<String, String> = paused
             .response_headers
             .iter()
             .flatten()
             .map(|header| (header.name.to_ascii_lowercase(), header.value.clone()))
             .collect();
+        let limits = self
+            .run
+            .settings()
+            .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+        let url = &paused.request.url;
+        let declared = headers
+            .get("content-length")
+            .and_then(|length| length.trim().parse::<u64>().ok());
+        let coded = headers
+            .get("content-encoding")
+            .is_some_and(|coding| !coding.trim().eq_ignore_ascii_case("identity"));
+        if let Some(length) = declared.filter(|_| !coded) {
+            limits
+                .judge_decoded(url, length, None)
+                .map_err(|exceeded| exceeded.error())?;
+        }
+        let read = self.body(&paused.request_id).await;
+        limits
+            .judge_decoded(url, u64::try_from(read.len()).unwrap_or(u64::MAX), declared)
+            .map_err(|exceeded| exceeded.error())?;
+        let body = BASE64.encode(&read);
         Ok(Reply::Fetched(RouteFetched {
             status: paused
                 .response_status_code

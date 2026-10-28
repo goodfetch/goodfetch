@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "35"
+version = "36"
 
 [[capability]]
 name = "sessions.default"
@@ -381,6 +381,10 @@ covers = ["story:5-40", "operation:page.route"]
 [[capability.case]]
 id = "a-fetch-whose-page-closes-before-its-response-raises-closed-and-the-run-finishes"
 covers = ["story:5-40", "operation:route.fetch", "error:closed"]
+
+[[capability.case]]
+id = "a-fetch-whose-body-passes-network-max-body-size-raises-response-limit-exceeded"
+covers = ["operation:route.fetch", "error:response_limit_exceeded", "setting:network.max_body_size"]
 
 [[capability]]
 name = "routes.interception_order"

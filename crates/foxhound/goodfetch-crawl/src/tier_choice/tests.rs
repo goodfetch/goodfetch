@@ -305,7 +305,7 @@ fn a_resumed_crawl_goes_on_counting_the_requests_a_choice_served() {
         sample(&mut choices, "static", &format!("/products/{page}"), true);
     }
     let before = tier(&mut choices, "static", "/products/4");
-    for (label, key, unit) in choices.units() {
+    for ((label, key), unit) in &choices.units {
         record(&connection, label, key, unit).unwrap();
     }
 

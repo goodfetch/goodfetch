@@ -1079,8 +1079,13 @@ struct Shared {
     stop: watch::Sender<Option<StopReason>>,
     /// Whether `run.finish` let it finish.
     finish: watch::Sender<bool>,
-    /// Its Slices of the Limits that hold it, until it ends.
-    charging: tokio::sync::Mutex<Option<Charging>>,
+    /// Its Slices of the Limits that hold it, until it ends: taken only
+    /// in the ledger's blocking calls, never across an await.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the ledger's calls block: one Mutex guards a Run's charging, taken only inside them with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
+    )]
+    charging: std::sync::Mutex<Option<Charging>>,
     /// The runtime's metrics.
     metrics: Metrics,
     /// Its `tracing` span, a root of its own (ADR 0132), which each of its
@@ -1112,6 +1117,15 @@ struct Shared {
     /// Where its crawl's attempts stage the writes made through a
     /// handler's `ctx.run`, once its crawl registered it.
     attempt_writes: std::sync::OnceLock<Arc<dyn AttemptWrites>>,
+}
+
+impl Shared {
+    /// Its charging, locked: called only inside the ledger's blocking calls.
+    fn charging(&self) -> std::sync::MutexGuard<'_, Option<Charging>> {
+        self.charging
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 impl std::fmt::Debug for Run {
@@ -1463,12 +1477,19 @@ impl Run {
     ///
     /// Dropping the future loses only the answer.
     pub async fn usage(&self) -> Result<RunUsage, ChargeError> {
-        let charging = self.shared.charging.lock().await.clone();
+        let shared = Arc::clone(&self.shared);
         let now = self.runs.limits.now();
-        let limits = match charging {
-            Some(charging) => self.owner.blocking(move || charging.applied(now)).await?,
-            None => Vec::new(),
-        };
+        let limits = self
+            .owner
+            .blocking(move || {
+                shared
+                    .charging()
+                    .as_ref()
+                    .map(|charging| charging.applied(now))
+                    .transpose()
+            })
+            .await?
+            .unwrap_or_default();
         Ok(self
             .state
             .read(move |connection| report::usage(connection, limits))
@@ -1958,51 +1979,44 @@ impl Run {
     /// Runs `change` on the Run's charging under the ledger's blocking
     /// calls, journals what it charged, and asks the Run to stop at its next
     /// safe point when a Limit refused it; answers none once the Run ended.
+    /// The change and the queueing of its journal happen under the charging's
+    /// lock, inside the blocking call, so journals reach the run state in the
+    /// order of the changes, and no lock is held across an await.
     async fn charged<T, F>(&self, change: F) -> Result<Option<T>, ChargeError>
     where
         T: Send + 'static,
         F: FnOnce(&mut Charging, jiff::Timestamp) -> Result<(T, Charged), Refusal> + Send + 'static,
     {
-        let mut held = self.shared.charging.lock().await;
-        let Some(mut charging) = held.take() else {
-            return Ok(None);
-        };
+        let place = self.state.reserve().await?;
+        let shared = Arc::clone(&self.shared);
         let now = self.runs.limits.now();
-        let (charging, changed) = self
+        let epoch = self.state.epoch();
+        let changed = self
             .owner
             .blocking(move || {
-                let changed = change(&mut charging, now);
-                (charging, changed)
+                let mut held = shared.charging();
+                let charging = held.as_mut()?;
+                let changed = change(charging, now);
+                let uncapped = charging.uncapped();
+                Some(changed.map(|(value, journaled)| {
+                    let journaling =
+                        (!journaled.used.is_empty() || !journaled.counted.is_empty() || uncapped)
+                            .then(|| {
+                                place.write(move |connection| {
+                                    journal(connection, epoch, &journaled, uncapped)
+                                })
+                            });
+                    (value, journaling)
+                }))
             })
             .await;
-        let uncapped = charging.uncapped();
-        *held = Some(charging);
+        let Some(changed) = changed else {
+            return Ok(None);
+        };
         match changed {
-            Ok((value, journaled)) => {
-                if !journaled.used.is_empty() || !journaled.counted.is_empty() || uncapped {
-                    let epoch = self.state.epoch();
-                    self.state
-                        .write(move |connection| {
-                            slices::journal(connection, epoch, &journaled.used, uncapped)?;
-                            for counted in &journaled.counted {
-                                report::count(
-                                    connection,
-                                    &counted.usage_kind,
-                                    counted.currency.as_deref(),
-                                    counted.delta,
-                                )?;
-                                if let Some(part) = &counted.part {
-                                    report::count_part(
-                                        connection,
-                                        &counted.usage_kind,
-                                        part,
-                                        counted.delta,
-                                    )?;
-                                }
-                            }
-                            Ok(())
-                        })
-                        .await?;
+            Ok((value, journaling)) => {
+                if let Some(journaling) = journaling {
+                    journaling.await?;
                 }
                 Ok(Some(value))
             }
@@ -4423,7 +4437,11 @@ impl Registry {
             shared: Arc::new(Shared {
                 stop: watch::Sender::new(None),
                 finish: watch::Sender::new(false),
-                charging: tokio::sync::Mutex::new(Some(self.limits.charging(
+                #[expect(
+                    clippy::disallowed_types,
+                    reason = "the Run's charging, the Mutex its field declares (ADR 0060)"
+                )]
+                charging: std::sync::Mutex::new(Some(self.limits.charging(
                     run_id,
                     folder,
                     epoch,
@@ -5266,16 +5284,40 @@ impl Taking {
     }
 }
 
+/// Journals in a Run's run state, under `epoch`, what a charge took from
+/// each Slice and what it counted, and that the Run is *uncapped* once it is.
+fn journal(
+    connection: &rusqlite::Connection,
+    epoch: u64,
+    journaled: &Charged,
+    uncapped: bool,
+) -> rusqlite::Result<()> {
+    slices::journal(connection, epoch, &journaled.used, uncapped)?;
+    for counted in &journaled.counted {
+        report::count(
+            connection,
+            &counted.usage_kind,
+            counted.currency.as_deref(),
+            counted.delta,
+        )?;
+        if let Some(part) = &counted.part {
+            report::count_part(connection, &counted.usage_kind, part, counted.delta)?;
+        }
+    }
+    Ok(())
+}
+
 /// Gives back what is left of the Slices `run` holds, under `writer`'s
 /// blocking work, and answers the Limits that then apply to it, with what
 /// is left of each (ADR 0101).
 async fn given_back(run: &Run, writer: &TaskOwner) -> Vec<AppliedLimit> {
-    let Some(mut charging) = run.shared.charging.lock().await.take() else {
-        return Vec::new();
-    };
+    let shared = Arc::clone(&run.shared);
     let now = run.runs.limits.now();
     writer
         .blocking(move || {
+            let Some(mut charging) = shared.charging().take() else {
+                return Ok(Vec::new());
+            };
             if let Err(error) = charging.give_back() {
                 tracing::warn!(%error, "the Run's Slices were not given back; the next engine to open the Usage ledger reclaims them");
             }

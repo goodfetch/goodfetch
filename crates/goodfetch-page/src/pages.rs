@@ -1433,7 +1433,8 @@ impl Pages {
     /// The formats the request names, read from one serialization of the
     /// page's document, its shadow roots included, on a blocking thread of
     /// its Run's, the Clean-up rules of its Session applied before the main
-    /// content (ADR 0047); Provenance records each call with the rules'
+    /// content (ADR 0047), on a document a fetch tier served those of its
+    /// Run, as in every tier; Provenance records each call with the rules'
     /// version and what they removed (G6).
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
@@ -1447,9 +1448,10 @@ impl Pages {
             let request = params.formats;
             let extractor = clean_up::extractor(
                 served.run.settings().map(RunSettings::resolved),
-                &Values::default(),
+                (&Values::default(), served.extractor),
                 &Values::default(),
             );
+            let cosmetic = self.interception.served_cosmetic(&served.run).await;
             let (formats, read) = served
                 .run
                 .owner()
@@ -1459,7 +1461,7 @@ impl Pages {
                         Serialization::Served,
                         request,
                         extractor.extractor(),
-                        (None, &[]),
+                        (cosmetic.as_ref(), &[]),
                     )
                 })
                 .await;
@@ -1476,7 +1478,7 @@ impl Pages {
         let (_, session) = self.sessions.own_settings(&page.session).await?;
         let extractor = clean_up::extractor(
             page.run.settings().map(RunSettings::resolved),
-            &session,
+            (&session, page.driver.value().extractor()),
             &page.settings,
         );
         let cosmetic = self.interception.cosmetic(&params.page_id);

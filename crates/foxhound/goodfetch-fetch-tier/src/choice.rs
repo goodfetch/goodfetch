@@ -15,12 +15,14 @@ use std::collections::BTreeMap;
 
 use encoding_rs::Encoding;
 use goodfetch_engine::CallError;
+use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, CRAWL_CONTENT_TYPES, LabelDeclaration};
 use goodfetch_protocol::foxhound::fetch::{
     BROWSER_REQUIRED, BrowserRequiredDetails, FETCH_ENCODING, FETCH_KEPT_RESPONSES_URLS,
     FETCH_TIER, FETCH_TIER_RACE, FETCH_TIERS, FetchTier,
 };
 use goodfetch_protocol::foxhound::frontier::CRAWL_KEEP_URL_FRAGMENT;
+use goodfetch_protocol::page::{CONTENT_EXTRACTOR, CONTENT_EXTRACTORS};
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
     SESSION_PAGE_CHECK, SESSION_SOURCE, SETTING_INVALID, SETTING_NOT_APPLICABLE,
@@ -41,8 +43,10 @@ const PROXY_KEYS: &str = "proxy.";
 /// `fetch.tier`, the `fetch.encoding`, `crawl.content_types` (ADR 0119) and
 /// `session.page_check` it sets, if any (ADR 0093), whether it keeps its URLs' fragments
 /// (`crawl.keep_url_fragment`, ADR 0120) and whether it keeps responses
-/// for its handler (`fetch.kept_responses.urls`, ADR 0110), when it says.
-/// Its `session.source` is the Session pool's to read.
+/// for its handler (`fetch.kept_responses.urls`, ADR 0110), when it says,
+/// and the main-content step its pages' `formats` read with
+/// (`content.extractor`, spec #580). Its `session.source` is the Session
+/// pool's to read.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LabelSettings {
     tiers: BTreeMap<String, SetTier>,
@@ -51,6 +55,7 @@ pub struct LabelSettings {
     page_checks: BTreeMap<String, PageCheck>,
     fragments: BTreeMap<String, bool>,
     kept_responses: BTreeMap<String, bool>,
+    extractors: BTreeMap<String, BuiltIn>,
 }
 
 /// How a request's tier is chosen.
@@ -85,15 +90,16 @@ impl LabelSettings {
     /// `setting_not_applicable` for a key a Label does not take here (every
     /// key but `fetch.tier`, `fetch.encoding`, `crawl.content_types`,
     /// `session.page_check`, `crawl.keep_url_fragment`,
-    /// `fetch.kept_responses.urls` and `session.source`, which the Session
-    /// pool reads; `fetch.tier_race` and every `proxy.*` key, the pools'
+    /// `fetch.kept_responses.urls`, `content.extractor` and
+    /// `session.source`, which the Session pool reads; `fetch.tier_race` and every `proxy.*` key, the pools'
     /// identity policy, are the Run's only), and
     /// `setting_invalid` for a `fetch.tier` that names no tier, a
     /// `fetch.encoding` that is no WHATWG Encoding label, a
     /// `crawl.content_types` that is no list of media ranges, a
     /// `session.page_check` that is no Page check, a
-    /// `crawl.keep_url_fragment` that is no Boolean or a
-    /// `fetch.kept_responses.urls` that is no list of patterns.
+    /// `crawl.keep_url_fragment` that is no Boolean, a
+    /// `fetch.kept_responses.urls` that is no list of patterns or a
+    /// `content.extractor` that names no built-in.
     pub fn of(labels: &BTreeMap<String, LabelDeclaration>) -> Result<Self, CallError> {
         let mut tiers = BTreeMap::new();
         let mut encodings = BTreeMap::new();
@@ -101,6 +107,7 @@ impl LabelSettings {
         let mut page_checks = BTreeMap::new();
         let mut fragments = BTreeMap::new();
         let mut kept_responses = BTreeMap::new();
+        let mut extractors = BTreeMap::new();
         for (name, declaration) in labels {
             let mut keys = Vec::new();
             flatten("", &declaration.settings, &mut keys);
@@ -141,6 +148,18 @@ impl LabelSettings {
                     kept_responses.insert(name.clone(), !patterns.is_empty());
                     continue;
                 }
+                if key == CONTENT_EXTRACTOR.name {
+                    let Some(extractor) = value.as_str().and_then(BuiltIn::named) else {
+                        return Err(invalid(
+                            name,
+                            &key,
+                            &value,
+                            &format!("is none of {}", CONTENT_EXTRACTORS.join(", ")),
+                        ));
+                    };
+                    extractors.insert(name.clone(), extractor);
+                    continue;
+                }
                 // The Session pool reads a Label's own Session source.
                 if key == SESSION_SOURCE.name || key.starts_with(SESSION_SOURCE_KEYS) {
                     continue;
@@ -177,7 +196,14 @@ impl LabelSettings {
             page_checks,
             fragments,
             kept_responses,
+            extractors,
         })
+    }
+
+    /// The main-content step the Label `label` chooses with
+    /// `content.extractor`: `None` when it leaves it to the Run.
+    pub fn extractor(&self, label: &str) -> Option<BuiltIn> {
+        self.extractors.get(label).copied()
     }
 
     /// Each declared Label, with the `fetch.tier` it sets.
@@ -278,7 +304,7 @@ fn not_taken(name: &str, key: String) -> CallError {
             ""
         };
         format!(
-            "which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.encoding`, `fetch.kept_responses.urls`, `crawl.content_types`, `crawl.keep_url_fragment`, `session.page_check` and `session.source` are set per Label"
+            "which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.encoding`, `fetch.kept_responses.urls`, `crawl.content_types`, `crawl.keep_url_fragment`, `content.extractor`, `session.page_check` and `session.source` are set per Label"
         )
     };
     CallError::new(

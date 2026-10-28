@@ -249,6 +249,9 @@ pub(super) struct Gating {
     /// The address check of the Run's HTTP tier, if it has one.
     pub(super) addresses: Option<AddressCheck>,
     pub(super) page_check: Option<PageCheck>,
+    /// The main-content step the request's Label chooses with
+    /// `content.extractor`, over the Run's.
+    pub(super) extractor: Option<goodfetch_fetch_tier::BuiltIn>,
     /// The encoding `fetch.encoding` forces on the request's own
     /// document: its Label's, else the Run's (ADR 0119).
     pub(super) encoding: Option<&'static encoding_rs::Encoding>,
@@ -317,6 +320,7 @@ impl Gating {
             egress: Arc::clone(&self.egress),
             addresses: self.addresses.clone(),
             page_check: self.page_check.clone(),
+            extractor: self.extractor,
             encoding: self.encoding,
             content_types: self.content_types.clone(),
             capture: None,

@@ -93,7 +93,7 @@ pub(super) async fn navigate(
     // `crawl.content_types` (ADR 0119): a response that is no document
     // leaves the page holding none, and a document only a guess could read
     // is never served.
-    let opened = Opened::of(&run, fetched.clone(), None);
+    let opened = Opened::of(&run, fetched.clone(), (None, page.document.extractor));
     if opened.read.is_none() && opened.not_document.is_none() {
         return Err(tiers.unserved(page_id, operation, false));
     }

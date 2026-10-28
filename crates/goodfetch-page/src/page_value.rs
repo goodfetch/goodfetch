@@ -42,6 +42,7 @@ use std::sync::Arc;
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
+use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::page::{
     FormatsRequest, Navigated, PageFormats, PageId, PageResponse, SessionId, SitePreference,
 };
@@ -366,14 +367,17 @@ pub trait NavigationGate: Debug + Send + Sync {
 }
 
 /// What a page carries for Foxhound (ADR 0087): its navigation gate and its
-/// lease check, each empty unless Foxhound set it, and the Page check its
+/// lease check, each empty unless Foxhound set it, the Page check its
 /// crawl request's Label declares, which judges the page in place of its
-/// Session's (ADR 0093). Clones share them.
+/// Session's (ADR 0093), and the main-content step its Label's
+/// `content.extractor` chooses, which `page.formats` reads with over its
+/// Session's and its Run's (spec #580). Clones share them.
 #[derive(Clone, Debug, Default)]
 pub struct PageValue {
     gate: Option<Arc<dyn NavigationGate>>,
     lease: Option<Arc<dyn LeaseCheck>>,
     page_check: Option<PageCheck>,
+    extractor: Option<BuiltIn>,
 }
 
 impl PageValue {
@@ -389,6 +393,7 @@ impl PageValue {
             gate: Some(Arc::new(gate)),
             lease: Some(Arc::new(lease)),
             page_check: None,
+            extractor: None,
         }
     }
 
@@ -404,6 +409,21 @@ impl PageValue {
     /// when it carries one.
     pub(crate) fn page_check(&self) -> Option<&PageCheck> {
         self.page_check.as_ref()
+    }
+
+    /// The same value, its pages' main content read with `extractor` over
+    /// their Session's and their Run's `content.extractor` when it is
+    /// given.
+    #[must_use]
+    pub fn with_extractor(mut self, extractor: Option<BuiltIn>) -> Self {
+        self.extractor = extractor;
+        self
+    }
+
+    /// The main-content step its pages read with over their Session's and
+    /// their Run's, when it carries one.
+    pub(crate) fn extractor(&self) -> Option<BuiltIn> {
+        self.extractor
     }
 
     /// Its navigation gate, when it has one.
@@ -638,6 +658,10 @@ pub struct ServedDocument {
     pub base_url: String,
     /// Its HTML, decoded.
     pub html: String,
+    /// The main-content step its crawl request's Label chooses with
+    /// `content.extractor`, over its Run's; none when the Label leaves it
+    /// to the Run.
+    pub extractor: Option<BuiltIn>,
 }
 
 impl Debug for ServedDocument {

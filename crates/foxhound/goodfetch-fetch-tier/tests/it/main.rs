@@ -8,6 +8,7 @@
 )]
 
 mod addresses;
+mod body_limits;
 mod certificates;
 mod chain;
 mod conformance_gate;

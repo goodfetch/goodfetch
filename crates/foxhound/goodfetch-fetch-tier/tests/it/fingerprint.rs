@@ -18,7 +18,8 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
-use goodfetch_fetch_tier::{Deadlines, Hop, HttpProfile, Wreq, fetch};
+use goodfetch_engine::response_limits::Limits;
+use goodfetch_fetch_tier::{FetchBounds, Hop, HttpProfile, Wreq, fetch};
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_test_support::{
     CHROME_FOR_TESTING_BUILD, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
@@ -141,9 +142,10 @@ fn a_stealth_session_s_http_presents_its_browser_s_tls_and_http2_fingerprint() {
     )
     .unwrap();
     let hop = Hop::get(Url::parse(&format!("https://{HOST}:{port}/?client=wreq")).unwrap());
-    let deadlines = Deadlines {
+    let deadlines = FetchBounds {
         first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
         navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+        limits: Limits::default(),
     };
     running_clock_runtime()
         .block_on(fetch(&transport, &hop, &deadlines, &Clock::system()))

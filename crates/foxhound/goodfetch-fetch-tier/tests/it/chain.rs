@@ -24,8 +24,9 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::Refused;
+use goodfetch_engine::response_limits::Limits;
 use goodfetch_fetch_tier::{
-    Deadlines, Fetched, Following, Gating, Hop, HopGate, Skip, Stop, Transport, fetch, follow,
+    FetchBounds, Fetched, Following, Gating, Hop, HopGate, Skip, Stop, Transport, fetch, follow,
 };
 use goodfetch_page::page_value::Permit;
 use goodfetch_protocol::egress::EgressRule;
@@ -43,10 +44,11 @@ const SEED: u64 = 762;
 const HOST: &str = "fetch-edge.test";
 const HTTP1_HOST: &str = "h1.fetch-edge.test";
 
-fn deadlines() -> Deadlines {
-    Deadlines {
+fn deadlines() -> FetchBounds {
+    FetchBounds {
         first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
         navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+        limits: Limits::default(),
     }
 }
 

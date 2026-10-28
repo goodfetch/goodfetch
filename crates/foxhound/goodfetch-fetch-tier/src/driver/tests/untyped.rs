@@ -20,12 +20,13 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::response_limits::Limits;
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use url::Url;
 
 use crate::content_types::Accepts;
 use crate::driver::{
-    Body, Deadlines, Fetched, Hop, Reuse, Sending, Sent, Transport, fetch_accepting,
+    Body, FetchBounds, Fetched, Hop, Reuse, Sending, Sent, Transport, fetch_accepting,
 };
 
 /// A PDF's opening, which the sniffer names `application/pdf`, padded past
@@ -87,20 +88,14 @@ impl Transport for Untyped {
 /// A fetch of `transport`'s answer under the built-in
 /// `crawl.content_types`, `timeout.navigation` at 30 s.
 async fn fetched(transport: &Untyped) -> Result<Fetched, goodfetch_engine::CallError> {
-    let deadlines = Deadlines {
+    let bounds = FetchBounds {
         first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
         navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+        limits: Limits::default(),
     };
     let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
     let hop = Hop::get(Url::parse("http://files.test/download").unwrap());
-    fetch_accepting(
-        transport,
-        &hop,
-        &deadlines,
-        &clock,
-        Some(&Accepts::default()),
-    )
-    .await
+    fetch_accepting(transport, &hop, &bounds, &clock, Some(&Accepts::default())).await
 }
 
 /// The judgment of a fetch: its type when refused, and its body's length.

@@ -93,7 +93,7 @@ use crate::choice::{
 use crate::content_types::{Accepts, ContentTypes, is_document, typed};
 use crate::discovered_api::Plan;
 use crate::document::{self, FieldElement, Matched, SelectorInvalid, matched};
-use crate::driver::{Deadlines, Hop, Transport, fetch, fetch_accepting};
+use crate::driver::{FetchBounds, Hop, Transport, fetch_accepting, fetch_start};
 use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::light_browser::LightBrowser;
@@ -640,7 +640,7 @@ impl FetchTiers {
             addresses,
             transport,
             egress,
-            deadlines: Deadlines::of(settings),
+            bounds: FetchBounds::of(settings),
             redundant: Arc::new(Redundant::of(settings)),
             following: Following::of(settings),
             sessions: Arc::new(SessionTransports {
@@ -736,7 +736,7 @@ impl FetchTiers {
                     tier.redundant
                         .fetch(
                             tier.transport.as_ref(),
-                            &tier.deadlines,
+                            &tier.bounds,
                             run,
                             (&hop, Some(accepts)),
                             requester,
@@ -746,7 +746,7 @@ impl FetchTiers {
                     fetch_accepting(
                         tier.transport.as_ref(),
                         &hop,
-                        &tier.deadlines,
+                        &tier.bounds,
                         clock,
                         Some(accepts),
                     )
@@ -874,7 +874,7 @@ impl FetchTiers {
             run,
             &prepared.executable,
             &request.url,
-            tier.address_check(),
+            (tier.address_check(), &tier.bounds.limits),
         )
         .await
         .map_err(Stop::Failed)?;
@@ -1657,7 +1657,8 @@ pub struct HttpTier {
     /// The address check of the tier's reqwest connections, run ahead of a
     /// request whatever transport then sends it.
     addresses: AddressCheck,
-    deadlines: Deadlines,
+    /// The timeouts its fetches wait under and the limits they read under.
+    bounds: FetchBounds,
     /// Its Run's hedges and requests in flight, which no other Run shares.
     redundant: Arc<Redundant>,
     /// What its requests' redirect chains follow.
@@ -1758,7 +1759,9 @@ impl HttpTier {
     /// Fetches the robots.txt at `location` for `run` (ADR 0086), following
     /// up to five redirects as RFC 9309 §2.3.1.2 asks: a `3xx` past them,
     /// or one naming no location, answers as itself, which disallows
-    /// everything until a later fetch; a failed fetch answers why.
+    /// everything until a later fetch; a failed fetch answers why. Only its
+    /// first 500 KiB are read and decoded, all RFC 9309 has a crawler
+    /// parse, under the Run's limits (ADR 0067).
     ///
     /// # Cancel safety
     ///
@@ -1767,11 +1770,12 @@ impl HttpTier {
         let mut url = location.clone();
         let mut redirects = 0;
         loop {
-            let fetched = match fetch(
+            let fetched = match fetch_start(
                 self.transport.as_ref(),
                 &Hop::get(url.clone()),
-                &self.deadlines,
+                &self.bounds,
                 &run.clock(),
+                MAX_SIZE,
             )
             .await
             {
@@ -1796,7 +1800,7 @@ impl HttpTier {
                 _ => {
                     return Answer::Response {
                         status: fetched.status,
-                        body: fetched.body.into_iter().take(MAX_SIZE).collect(),
+                        body: fetched.body.to_vec(),
                     };
                 }
             }

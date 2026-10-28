@@ -8,7 +8,8 @@
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
-use goodfetch_fetch_tier::{Deadlines, Fetched, Hop, Transport, fetch};
+use goodfetch_engine::response_limits::Limits;
+use goodfetch_fetch_tier::{FetchBounds, Fetched, Hop, Transport, fetch};
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rstest::rstest;
@@ -24,10 +25,11 @@ const SEED: u64 = 763;
 const HOST: &str = "fetch-edge.test";
 
 /// `timeout.first_byte` and `timeout.navigation` at 30 s each.
-fn deadlines() -> Deadlines {
-    Deadlines {
+fn deadlines() -> FetchBounds {
+    FetchBounds {
         first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
         navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+        limits: Limits::default(),
     }
 }
 

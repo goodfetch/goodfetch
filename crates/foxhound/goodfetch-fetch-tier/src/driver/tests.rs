@@ -13,6 +13,7 @@ use proptest::prelude::*;
 
 use super::{TransportFailure, met};
 
+mod kept;
 mod untyped;
 
 /// Every failure an HTTP tier's transport meets that names no value of

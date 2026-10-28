@@ -41,7 +41,7 @@ use serde_json::json;
 use tokio::sync::watch;
 
 use crate::content_types::Accepts;
-use crate::driver::{Deadlines, Fetched, Hop, Transport, fetch_accepting, fetch_anew};
+use crate::driver::{FetchBounds, Fetched, Hop, Transport, fetch_accepting, fetch_anew};
 use crate::hedging::{Budget, Latencies, repeatable};
 
 /// Provenance's action for a response a request shared with an identical
@@ -162,7 +162,7 @@ impl Redundant {
     pub(crate) async fn fetch(
         &self,
         transport: &dyn Transport,
-        deadlines: &Deadlines,
+        bounds: &FetchBounds,
         run: &Run,
         (hop, accepts): (&Hop, Option<&Accepts>),
         requester: &Requester<'_>,
@@ -172,7 +172,7 @@ impl Redundant {
             return self
                 .sent(
                     transport,
-                    deadlines,
+                    bounds,
                     run,
                     (hop, accepts),
                     requester,
@@ -198,7 +198,7 @@ impl Redundant {
                     let outcome = self
                         .sent(
                             transport,
-                            deadlines,
+                            bounds,
                             run,
                             (hop, accepts),
                             requester,
@@ -239,7 +239,7 @@ impl Redundant {
     async fn sent(
         &self,
         transport: &dyn Transport,
-        deadlines: &Deadlines,
+        bounds: &FetchBounds,
         run: &Run,
         (hop, accepts): (&Hop, Option<&Accepts>),
         requester: &Requester<'_>,
@@ -250,12 +250,12 @@ impl Redundant {
             lock(&hedges.budget).sent();
         }
         let Some(hedges) = self.hedges.as_ref().filter(|_| repeatable) else {
-            return fetch_accepting(transport, hop, deadlines, &clock, accepts).await;
+            return fetch_accepting(transport, hop, bounds, &clock, accepts).await;
         };
         let route = format!("{}@{}", requester.label, requester.domain_key);
         let threshold = lock(&hedges.latencies).threshold(&route);
         let started = clock.now();
-        let first = fetch_accepting(transport, hop, deadlines, &clock, accepts);
+        let first = fetch_accepting(transport, hop, bounds, &clock, accepts);
         tokio::pin!(first);
         let outcome = match threshold {
             None => first.await,
@@ -271,7 +271,7 @@ impl Redundant {
                         hedged(
                             hedges,
                             transport,
-                            deadlines,
+                            bounds,
                             run,
                             (hop, accepts),
                             requester,
@@ -344,7 +344,7 @@ impl AnsweredBy {
 async fn hedged(
     hedges: &Hedges,
     transport: &dyn Transport,
-    deadlines: &Deadlines,
+    bounds: &FetchBounds,
     run: &Run,
     (hop, accepts): (&Hop, Option<&Accepts>),
     requester: &Requester<'_>,
@@ -373,7 +373,7 @@ async fn hedged(
         requester.second_copies.give_back(copy).await;
         return first.await;
     }
-    let hedge = fetch_anew(transport, hop, deadlines, &clock, accepts);
+    let hedge = fetch_anew(transport, hop, bounds, &clock, accepts);
     tokio::pin!(hedge);
     let (outcome, answered_by) = tokio::select! {
         biased;

@@ -481,7 +481,7 @@ async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, 
         let fetched = fetch(
             page.http.transport.as_ref(),
             &hop,
-            &page.http.deadlines,
+            &page.http.bounds,
             &run.clock(),
         )
         .await;

@@ -124,6 +124,41 @@ fn an_ended_runs_report_comes_at_once() {
     assert_eq!(report["result"]["lifecycle"], "finished");
 }
 
+/// An ended Run's report read after its ending call's answer is the one
+/// its run file keeps, in the engine that ended it as in any other: that
+/// engine keeps no copy of it, so a Daemon that runs Run after Run holds
+/// no report, with its settings explained, for each Run it ended (#1729).
+/// The ending call alone answers its settings (ADR 0102's note); the
+/// engine that ended it adds only the last Checkpoint it wrote of it.
+///
+/// Covers: story:3-165, operation:run.report
+#[test]
+fn an_ended_runs_later_report_is_the_one_its_run_file_keeps_in_the_engine_that_ended_it_too() {
+    let env = TestEnv::new();
+    let (finished, here) = attached_on(&engine(Product::Collie), &env, |mut client| async move {
+        client.send(&[hello("collie", "0.1")]).await;
+        client.next().await.unwrap();
+        call(&mut client, 1, "run.start", json!({ "run_id": "done" })).await;
+        let finished = call(&mut client, 2, "run.finish", json!({ "run_id": "done" })).await;
+        let here = call(&mut client, 3, "run.report", json!({ "run_id": "done" })).await;
+        (finished, here)
+    });
+    let elsewhere = attached_on(&engine(Product::Collie), &env, |mut client| async move {
+        client.send(&[hello("collie", "0.1")]).await;
+        client.next().await.unwrap();
+        call(&mut client, 1, "run.report", json!({ "run_id": "done" })).await
+    });
+
+    assert_eq!(
+        (
+            finished["result"]["settings"].is_array(),
+            &here["result"],
+            elsewhere["result"]["lifecycle"].clone()
+        ),
+        (true, &elsewhere["result"], json!("finished"))
+    );
+}
+
 /// A Run whose engine died has no live writer: its progress says so as
 /// its last value, its report raises `run_interrupted`, and a resume with
 /// its Run ID takes it up at the next run epoch.

@@ -179,30 +179,26 @@ Order of work if the owner agrees: 6 first (it measures the rest), then 1 and 2 
 
 ### Option 1: adopted (owner, 2026-10-28)
 
-The owner's words: "While a spec gate is red, the next run gates the same head plus its fix commits only, and ticket merges wait for the green." The draft for the M1 run's scripts is [`2026-10-28-red-hold.patch`](2026-10-28-red-hold.patch). It applies with `patch -p1` in `.claude/handoff/m1/`, and it is not applied yet: the owner reviews it first.
+The owner's words: "While a spec gate is red, the next run gates the same head plus its fix commits only, and ticket merges wait for the green."
 
-- **`run-merge.sh`** is the one place both `spec-check.sh` and `gate-pr.sh` run `just merge`. Only for the milestone's pull request (`pr-number.txt`):
-  - A red exit writes `m1/red-hold` with `head <sha>`, the gated tip.
-  - A green exit removes `m1/red-hold`.
-  - With a hold in place, the gate is refused (exit 3) in two cases. First, when the held head is not an ancestor of the tip. Second, when `held..tip` has a first-parent merge that is a ticket (`chore: merge #<n> …`), or an item the hold does not list as `fix <item>`. Merges of `main` and direct commits pass: fixes, reverts and regenerated files.
-- **`merge-queue.sh`**: while `m1/red-hold` exists, it picks only the items listed there as `fix <item>`. Tickets and other items stay in `finished.txt` until the green.
-- **`merger-brief.md`**: under a hold, a merger merges only a listed fix item. For any other item it stops and reports "held: gate red".
-- **The orchestrator** adds a `fix <item>` line to `m1/red-hold` each time it files a fix item for the red. That one line is what the hold needs from the orchestrator.
+The first draft (commit `11fe61b58`) patched `merge-queue.sh`, `run-merge.sh` and `merger-brief.md`. The orchestrator then reported the transition of 2026-10-28: spec gates, smokes and the queue scripts are retired, and gate rerun 12 for #577 will never run. Two gates remain where the rule applies:
+- the single final `just merge 1583`;
+- every later spec PR's `just merge`, on `spec/<n>` (ADR 0136, in #1720).
 
-**Checked:**
-- `bash -n` and `shellcheck -S warning` pass on both scripts.
-- I ran the patched `run-merge.sh` against the real milestone history, with `just` replaced by a stub. That covered:
-  - a red that sets the hold;
-  - a green that clears it;
-  - a listed fix that passes;
-  - an unlisted fix that is refused;
-  - another pull request, which ignores the hold;
-  - a held head that is not an ancestor, which is refused.
-- With the hold on rerun 11's head (`cfb620b58`), rerun 12's tip (`de6f898e3`) is refused. The refusal names #1513, #1153 and #1573, plus FQ121, FQ123 and FQ126 until they are listed.
-- I tested the queue's selection on a sample `finished.txt`.
+This version replaces the first draft.
 
-**Not checked:** a real gate, or a real merge queue run under the hold.
+**The rule.** After a red `just merge <pr>`, the pull request's head changes only by:
+1. commits that fix that red, each with its root cause (ADR 0064);
+2. a merge of `main`, only when `main` has moved since the red run.
 
-**Timing:** rerun 12 ran before this decision (2026-10-27 23:13, red on Playwright). Under the transition order of 2026-10-28, the next gate is the single `just merge 1583` after the reviews and their fixes. A red there is where the hold first applies: the reviews' remaining fix merges then wait as tickets do, unless the orchestrator lists them as fixes for that red.
+Nothing else lands on the head until a gate is green: no ticket, no review fix, and no other branch.
 
-**Beyond M1:** after #1583 merges, `milestone/m1-core` and these scripts retire, and runs use one `spec/<n>` branch per spec (ADR 0136, in #1720). For the rule to outlive the scripts, it would need a line in ADR 0135 or 0136.
+**Why `main` is the one exception.** `ci/merge-pr.sh:34` refuses a head that does not contain its base's tip, so the gate's verdict holds for the tree that lands on `main`. When `main` moves, merging it in is required, not optional. Leading practice agrees: bors keeps unrelated work out of a candidate, but lets the base move and retests on the new one (section 6). So "don't merge `main` again unless the fix needs it" becomes "merge `main` only when the gate requires it." What keeps `main` still is merge order:
+- **Final gate:** land #1721 and #1720 on `main` first, then merge `main` into `milestone/m1-core`, then start the first final gate. While #1583 is red, merge nothing else into `main` unless the red's fix needs it, such as a new live advisory. #1721 alone changes `Cargo.lock` and `pnpm-lock.yaml`, both gate inputs, so landing it between two reruns would force a full rerun.
+- **Spec PRs:** under the skill, every ticket is merged before the PR is marked ready, so only fixes and `main` can move the head. The rule needs no new mechanism. It needs one line in ADR 0136 or ADR 0135, so it outlives the M1 run.
+
+**No change to `ci/merge-pr.sh`.** The script already guarantees the property that matters: the verdict covers exactly the head that merges. Holding the head still is a matter of what gets committed, and a script can't tell a fix commit from other work without a list someone maintains. For the final gate, the M1 run can still enforce the rule with the first draft's `run-merge.sh` guard alone (`11fe61b58`). That guard refuses a rerun whose range holds a merge not listed as `fix <item>` in `m1/red-hold`. It is optional, since the orchestrator controls every merge into the milestone.
+
+**Text for ADR 0136, proposed:**
+
+> After a red `just merge`, the pull request's head changes only by commits that fix that red and, when `main` has moved, a merge of `main` (`ci/merge-pr.sh` requires its tip). Nothing else lands on it until a gate is green, so each rerun tests the red head plus its fixes and `xtask gate plan` can reuse what the fixes do not reach.

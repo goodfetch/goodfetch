@@ -3,10 +3,11 @@
 // `network.json` on with its own fetch, and makes three requests of its
 // own as it installs (`own.json`, a body on `elsewhere.test` and a path a
 // tracker list blocks). Once the worker controls the page, or registration
-// failed, the page fetches both JSON calls, then reports whether
-// `register()` resolved, whether `register` is the browser's own function
-// and whether a worker controls the page. The document's title is `done`
-// once it reported.
+// failed, the page fetches both JSON calls, asks the worker to make its
+// held request (which it makes only when its query holds `held`), then
+// reports whether `register()` resolved, whether `register` is the
+// browser's own function and whether a worker controls the page. The
+// document's title is `done` once it reported.
 (() => {
   "use strict";
   const script = document.currentScript;
@@ -44,6 +45,9 @@
       } catch {
         // A failed call is what the case reads.
       }
+    }
+    if (container && container.controller) {
+      container.controller.postMessage("hold");
     }
     await send("register", registered);
     await send("register_native", String(native));

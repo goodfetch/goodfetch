@@ -347,6 +347,22 @@ pub(crate) struct Cosmetic {
     pub(crate) choices: Choices,
 }
 
+impl Cosmetic {
+    /// The cosmetic rules of step 4's `blocking`, its Filter lists of the
+    /// version `version`, when any list is on.
+    fn of(blocking: &steps::Blocking, version: Option<String>) -> Option<Self> {
+        blocking
+            .lists
+            .as_ref()
+            .zip(version)
+            .map(|(lists, version)| Self {
+                lists: Arc::clone(lists),
+                version,
+                choices: blocking.choices.clone(),
+            })
+    }
+}
+
 /// What a page's Session chose of the Clean-up rules beside its requests'
 /// blocking: its cosmetic rules, and its `live_view.hiding`.
 pub(crate) struct PageCleanUp {
@@ -464,15 +480,7 @@ impl Interception {
             .then(|| clean_up::effective(resolved, own, BROWSER_BLOCK_RESOURCES.name).to_string());
         let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
         let clean_up = PageCleanUp {
-            cosmetic: blocking
-                .lists
-                .as_ref()
-                .zip(version)
-                .map(|(lists, version)| Cosmetic {
-                    lists: Arc::clone(lists),
-                    version,
-                    choices: blocking.choices.clone(),
-                }),
+            cosmetic: Cosmetic::of(&blocking, version),
             live_hiding: clean_up::live_hiding(resolved, own),
         };
         if let Some(blocked) = blocked {
@@ -781,6 +789,18 @@ impl Interception {
     pub(crate) fn cosmetic(&self, page_id: &PageId) -> Option<Cosmetic> {
         let state = lock(&self.shared.tables).pages.get(page_id).cloned()?;
         state.cosmetic.clone()
+    }
+
+    /// The cosmetic rules a document a fetch tier served `run` is read with,
+    /// as in every tier, HTTP included (ADR 0047): those of the Run's
+    /// Filter lists, when any is on, of the version it holds to.
+    pub(crate) async fn served_cosmetic(&self, run: &Run) -> Option<Cosmetic> {
+        let choices = clean_up::choices(
+            run.settings().map(RunSettings::resolved),
+            &Values::default(),
+        );
+        let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
+        Cosmetic::of(&blocking, version)
     }
 
     /// Warns `run`, once for the Session `session`, that its

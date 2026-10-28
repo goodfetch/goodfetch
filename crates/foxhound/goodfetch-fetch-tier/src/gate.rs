@@ -154,6 +154,11 @@ pub struct HandOver {
     /// judges the browser pages the attempt opens in place of their
     /// Session's (ADR 0093).
     pub page_check: Option<PageCheck>,
+    /// The main-content step its crawl request's Label chooses with
+    /// `content.extractor`, which every page the attempt serves or opens
+    /// reads its formats with over the Run's; none when the Label leaves
+    /// it to the Run.
+    pub extractor: Option<goodfetch_extractor::BuiltIn>,
     /// The encoding `fetch.encoding` forces on the crawl request's own
     /// document, its Label's else the Run's (ADR 0119); none of the
     /// handler's own navigations takes it.

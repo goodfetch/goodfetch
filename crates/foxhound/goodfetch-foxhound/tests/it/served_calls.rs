@@ -21,7 +21,7 @@ use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
-use crate::fetch_tiers::{engine, settings, tiers};
+use crate::fetch_tiers::{engine, provenance, settings, tiers};
 use crate::frontier::{Inside, crawl_declaring};
 
 /// The Proving ground's seed.
@@ -452,6 +452,304 @@ fn every_page_formats_the_same_markdown_on_its_tier_as_the_oracle_holds(#[case] 
             &verdict["outcome"],
         ),
         (31, 31, &json!("verified")),
+        "{verdict}"
+    );
+}
+
+/// The host of the Proving ground's Clean-up rules pages.
+const CLEAN_UP_HOST: &str = "clean-up.test";
+
+/// The cosmetic Clean-up rules apply on every tier, HTTP included (ADR
+/// 0047): on the Proving ground's `/hiding`, whose ad EasyList's
+/// `##.ad-slot` matches, a handler's `formats` read on `http` leaves the ad
+/// out of the Markdown and the cleaned HTML as on `browser`, and
+/// Provenance records the rules' version and what they removed.
+///
+/// Covers: story:6-10, operation:page.formats
+#[rstest::rstest]
+#[case::http("http")]
+#[case::browser("browser")]
+fn a_cosmetic_rule_takes_an_ad_out_of_a_handlers_formats_on_its_tier(#[case] tier: &str) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let run_id = format!("cosmetic-{tier}");
+
+    let mut read = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        &run_id,
+        &[json!({ "url": proving_ground.url(CLEAN_UP_HOST, "/hiding"), "label": "article" })],
+        &json!({ "article": {} }),
+        &settings(&proving_ground, &json!({ "fetch": { "tier": tier } })),
+        &mut |inside: &mut Inside<'_>, handle: &Value| {
+            let formats = inside.call(
+                "page.formats",
+                &json!({
+                    "page_id": handle["page_id"],
+                    "formats": { "markdown": true, "html": { "kind": "cleaned" } },
+                }),
+            );
+            let markdown = formats["result"]["markdown"].as_str().unwrap_or_default();
+            let html = formats["result"]["html"].as_str().unwrap_or_default();
+            read.push((
+                handle["tier"].clone(),
+                markdown.contains("The article's text begins here"),
+                markdown.contains("An ad's text"),
+                html.contains("ad-slot"),
+            ));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let ended = ended(&mut engine, &run_id);
+    assert!(engine.finish());
+
+    let recorded: Vec<(bool, bool)> = provenance(&env, &run_id, "formats")
+        .iter()
+        .map(|entry| {
+            (
+                entry["clean_up_rules"].is_string(),
+                entry["removed"]
+                    .as_array()
+                    .is_some_and(|removed| !removed.is_empty()),
+            )
+        })
+        .collect();
+    assert_eq!(
+        (read, recorded, ended.len()),
+        (
+            vec![(json!(tier), true, false, false)],
+            vec![(true, true)],
+            1
+        )
+    );
+}
+
+/// The extraction task whose navigation page holds a figure.
+const CONTENT_MODES_TASK: &str = "extraction/8";
+
+/// A Label's `content.extractor` chooses the main-content step of its
+/// requests' pages, over the Run's, on every tier (spec #580's Settings
+/// table): on the page with a figure, dom-smoothie's Markdown holds the
+/// figure's image and rs-trafilatura's does not, while both keep the
+/// article's paragraph.
+///
+/// Covers: setting:content.extractor, operation:page.formats
+#[rstest::rstest]
+#[case::http("http")]
+#[case::browser("browser")]
+fn a_labels_content_extractor_reads_its_pages_main_content(#[case] tier: &str) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let index = proving_ground.start_url(CONTENT_MODES_TASK).unwrap();
+    let origin = index[..index.find("/content-modes").unwrap()].to_owned();
+    let figure = format!("{origin}/content-modes/navigation-and-related");
+    let run_id = format!("label-extractor-{tier}");
+
+    let mut read = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        &run_id,
+        &[
+            json!({ "url": figure, "label": "smoothie" }),
+            json!({ "url": format!("{figure}?again"), "label": "trafilatura" }),
+        ],
+        &json!({
+            "smoothie": {},
+            "trafilatura": { "settings": { "content": { "extractor": "trafilatura" } } },
+        }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": tier },
+                "politeness": { "domain": { "delay": 0 } },
+            }),
+        ),
+        &mut |inside: &mut Inside<'_>, handle: &Value| {
+            let formats = inside.call(
+                "page.formats",
+                &json!({ "page_id": handle["page_id"], "formats": { "markdown": true } }),
+            );
+            let markdown = formats["result"]["markdown"].as_str().unwrap_or_default();
+            read.push((
+                handle["crawl_request"]["label"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+                markdown.contains("Braided polyester is the usual choice for single-line kites"),
+                markdown.contains("/images/line.jpg"),
+            ));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let ended = ended(&mut engine, &run_id);
+    assert!(engine.finish());
+
+    read.sort();
+    assert_eq!(
+        (read, ended.len()),
+        (
+            vec![
+                ("smoothie".to_owned(), true, true),
+                ("trafilatura".to_owned(), true, false),
+            ],
+            2
+        )
+    );
+}
+
+/// What a handler's page answers of one extraction task's formats, as the
+/// task's oracle reads a Record: the call or calls it makes through
+/// `inside` on the page `page_id`, and the Record's fields.
+type Recording = fn(&mut Inside<'_>, &Value) -> serde_json::Map<String, Value>;
+
+/// Each form `extraction/8`'s Records hold: its field, the request that
+/// asks for it and the key of the result that holds it.
+const CONTENT_FORMS: [(&str, &str, &str); 7] = [
+    (
+        "markdown",
+        r#"{ "markdown": { "content": "main" } }"#,
+        "markdown",
+    ),
+    (
+        "markdown_full",
+        r#"{ "markdown": { "content": "full" } }"#,
+        "markdown",
+    ),
+    (
+        "markdown_fit",
+        r#"{ "markdown": { "content": "fit" } }"#,
+        "markdown",
+    ),
+    ("html_raw", r#"{ "html": { "kind": "raw" } }"#, "html"),
+    (
+        "html_cleaned",
+        r#"{ "html": { "kind": "cleaned" } }"#,
+        "html",
+    ),
+    ("html_main", r#"{ "html": { "kind": "main" } }"#, "html"),
+    ("text", r#"{ "text": true }"#, "text"),
+];
+
+/// The content-mode Record of the page `page_id`: each Markdown content
+/// mode, each HTML kind and the text, one call each.
+fn content_modes(inside: &mut Inside<'_>, page_id: &Value) -> serde_json::Map<String, Value> {
+    CONTENT_FORMS
+        .iter()
+        .map(|(field, request, key)| {
+            let request: Value = serde_json::from_str(request).unwrap();
+            let read = inside.call(
+                "page.formats",
+                &json!({ "page_id": page_id, "formats": request }),
+            );
+            ((*field).to_owned(), read["result"][key].clone())
+        })
+        .collect()
+}
+
+/// The reference Record of the page `page_id`: its links, images, media
+/// and tables, from one call.
+fn references(inside: &mut Inside<'_>, page_id: &Value) -> serde_json::Map<String, Value> {
+    let read = inside.call(
+        "page.formats",
+        &json!({
+            "page_id": page_id,
+            "formats": { "links": true, "images": true, "media": true, "tables": true },
+        }),
+    );
+    ["links", "images", "media", "tables"]
+        .into_iter()
+        .map(|field| (field.to_owned(), read["result"][field].clone()))
+        .collect()
+}
+
+/// The structured Record of the page `page_id`: its metadata and its
+/// contacts, from one call.
+fn structured(inside: &mut Inside<'_>, page_id: &Value) -> serde_json::Map<String, Value> {
+    let read = inside.call(
+        "page.formats",
+        &json!({ "page_id": page_id, "formats": { "metadata": true, "contacts": true } }),
+    );
+    ["metadata", "contacts"]
+        .into_iter()
+        .map(|field| (field.to_owned(), read["result"][field].clone()))
+        .collect()
+}
+
+/// Page formats conformance cases on Foxhound's executable for every
+/// format beside the Markdown (spec #580's Testing Decisions; ADR 0094): a
+/// crawl of every page of the `extraction` family's content-mode,
+/// reference and structured tasks reads each page's formats through
+/// `formats` as a handler does and answers them as Records, and each
+/// task's oracle verifies them on `http` as on `browser`: the HTML kinds,
+/// the text, links, images, media, tables, metadata and contacts.
+///
+/// Covers: story:6-259, operation:page.formats
+#[rstest::rstest]
+#[case::content_modes_on_http("extraction/8", "http", content_modes as Recording, 2)]
+#[case::content_modes_on_browser("extraction/8", "browser", content_modes as Recording, 2)]
+#[case::references_on_http("extraction/9", "http", references as Recording, 3)]
+#[case::references_on_browser("extraction/9", "browser", references as Recording, 3)]
+#[case::structured_on_http("extraction/10", "http", structured as Recording, 3)]
+#[case::structured_on_browser("extraction/10", "browser", structured as Recording, 3)]
+fn every_format_of_a_handlers_page_matches_the_oracle_on_its_tier(
+    #[case] task: &str,
+    #[case] tier: &str,
+    #[case] recording: Recording,
+    #[case] pages: usize,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let index = proving_ground.start_url(task).unwrap();
+    let listing = ureq_get(&proving_ground, &index);
+    let host = index.find("://").unwrap() + "://".len();
+    let origin = index[..host + index[host..].find('/').unwrap()].to_owned();
+    let seeds: Vec<Value> = listing
+        .split("href=\"")
+        .skip(1)
+        .filter_map(|link| link.split('"').next())
+        .map(|path| json!({ "url": format!("{origin}{path}"), "label": "page" }))
+        .collect();
+    let run_id = format!("formats-{}-{tier}", task.replace('/', "-"));
+
+    let mut records = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        &run_id,
+        &seeds,
+        &json!({ "page": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": tier },
+                "politeness": { "domain": { "delay": 0 } },
+            }),
+        ),
+        &mut |inside: &mut Inside<'_>, handle: &Value| {
+            let mut record = recording(inside, &handle["page_id"]);
+            record.insert("id".to_owned(), path_of(&handle["crawl_request"]["url"]));
+            records.push(Value::Object(record));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let ended = ended(&mut engine, &run_id);
+    assert!(engine.finish());
+
+    let verdict = proving_ground
+        .judge_records(task, "success", &records)
+        .unwrap();
+    assert_eq!(
+        (
+            seeds.len(),
+            ended
+                .iter()
+                .filter(|outcome| outcome[1] == "succeeded")
+                .count(),
+            &verdict["outcome"],
+        ),
+        (pages, pages, &json!("verified")),
         "{verdict}"
     );
 }

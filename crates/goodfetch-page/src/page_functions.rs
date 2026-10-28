@@ -28,11 +28,11 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::functions::LOCATOR_EVALUATE_ALL;
 use goodfetch_protocol::page::functions::{
     Evaluated, PAGE_FUNCTION_FAILED, PAGE_VALUE_INVALID, PageFunctionFailedDetails,
     PageValueDirection, PageValueInvalidDetails, PageValueKind, World,
 };
+use goodfetch_protocol::page::functions::{LOCATOR_EVALUATE_ALL, PAGE_EVALUATE};
 use goodfetch_protocol::page::waits::{LOCATOR_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_FUNCTION};
 use goodfetch_protocol::page::{PageId, SessionId};
 use serde::{Deserialize, Deserializer};
@@ -168,7 +168,7 @@ pub(crate) async fn until_truthy(
 ) -> Result<Evaluated, CallError> {
     loop {
         let returns = driver.evaluate(expression, world, operation).await?;
-        let evaluated = answered(returns, surface)?;
+        let evaluated = answered(returns, (surface, operation))?;
         if truthy(evaluated.value.as_ref()) {
             return Ok(evaluated);
         }
@@ -190,13 +190,14 @@ fn truthy(value: Option<&Value>) -> bool {
 }
 
 /// The answer to a page function `Runtime.evaluate` ran as [`expression`]
-/// built it, its errors spelled for `surface`.
+/// built it for the operation `operation`, its errors spelled for
+/// `surface`.
 pub(crate) fn answered(
     returns: runtime::EvaluateReturns,
-    surface: Surface,
+    spelled: (Surface, &'static str),
 ) -> Result<Evaluated, CallError> {
     if let Some(details) = returns.exception_details {
-        return Err(failed(not_run(&details), surface));
+        return Err(failed(not_run(&details), spelled));
     }
     let walked: Walked = serde_json::from_value(returns.result.value.unwrap_or(Value::Null))
         .map_err(|error| {
@@ -206,7 +207,7 @@ pub(crate) fn answered(
                     message: format!("the page's answer was not the walker's: {error}"),
                     stack: None,
                 },
-                surface,
+                spelled,
             )
         })?;
     if let Some(Unparsed { selector, message }) = walked.unparsed {
@@ -222,7 +223,7 @@ pub(crate) fn answered(
         return Err(value_invalid(invalid));
     }
     if let Some(thrown) = walked.thrown {
-        return Err(failed(thrown, surface));
+        return Err(failed(thrown, spelled));
     }
     if walked.expression {
         return Err(argument_to_expression());
@@ -263,24 +264,46 @@ pub(crate) fn error_message(name: Option<&str>, description: &str) -> String {
         .to_owned()
 }
 
-/// `page_function_failed` for what the page threw; a `ReferenceError`'s
-/// fix names the argument, spelled for `surface`.
-fn failed(thrown: Thrown, surface: Surface) -> CallError {
+/// The call of the operation `operation` that passes `missing` as its
+/// argument, spelled for `surface`: a locator's page function takes its
+/// matches first and the argument second.
+fn passing(missing: &str, (surface, operation): (Surface, &'static str)) -> String {
+    let (typescript, other, matches) = match operation {
+        name if name == LOCATOR_EVALUATE_ALL.name => {
+            ("locator.evaluateAll", name, Some("elements"))
+        }
+        name if name == LOCATOR_WAIT_FOR_FUNCTION.name => {
+            ("locator.waitForFunction", name, Some("element"))
+        }
+        name if name == PAGE_WAIT_FOR_FUNCTION.name => ("page.waitForFunction", name, None),
+        _ => ("page.evaluate", PAGE_EVALUATE.name, None),
+    };
+    let parameters = matches.map_or_else(
+        || missing.to_owned(),
+        |matches| format!("{matches}, {missing}"),
+    );
+    match surface {
+        Surface::SdkTypescript => format!("{typescript}(({parameters}) => …, {missing})"),
+        Surface::SdkPython
+        | Surface::Rust
+        | Surface::Cli
+        | Surface::Mcp
+        | Surface::Console
+        | Surface::Cloud
+        | Surface::BrowserHost
+        | Surface::Worker => format!("{other}(\"({parameters}) => …\", {missing})"),
+    }
+}
+
+/// `page_function_failed` for what the page threw in the operation
+/// `operation`; a `ReferenceError`'s fix names the argument, its call
+/// spelled for `surface`.
+fn failed(thrown: Thrown, (surface, operation): (Surface, &'static str)) -> CallError {
     let fix = (thrown.name.as_deref() == Some("ReferenceError"))
         .then(|| thrown.message.strip_suffix(" is not defined"))
         .flatten()
         .map(|missing| {
-            let call = match surface {
-                Surface::SdkTypescript => format!("page.evaluate(({missing}) => …, {missing})"),
-                Surface::SdkPython
-                | Surface::Rust
-                | Surface::Cli
-                | Surface::Mcp
-                | Surface::Console
-                | Surface::Cloud
-                | Surface::BrowserHost
-                | Surface::Worker => format!("page.evaluate(\"({missing}) => …\", {missing})"),
-            };
+            let call = passing(missing, (surface, operation));
             format!(
                 "A page function sees only the page and its one argument, never the program's variables: pass `{missing}` as the argument, as `{call}` does."
             )
@@ -541,7 +564,7 @@ impl Injection {
     /// The operation that injected, as Provenance names it.
     fn by(self) -> &'static str {
         match self {
-            Self::Evaluate => goodfetch_protocol::page::functions::PAGE_EVALUATE.name,
+            Self::Evaluate => PAGE_EVALUATE.name,
             Self::InitScript => goodfetch_protocol::page::functions::PAGE_ADD_INIT_SCRIPT.name,
             Self::WaitForFunction => PAGE_WAIT_FOR_FUNCTION.name,
             Self::EvaluateAll => LOCATOR_EVALUATE_ALL.name,

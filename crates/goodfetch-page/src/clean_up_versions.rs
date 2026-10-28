@@ -31,6 +31,7 @@
 )]
 
 use std::collections::BTreeMap;
+use std::convert::Infallible;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::Duration;
@@ -58,7 +59,7 @@ use goodfetch_protocol::settings::{
 };
 use goodfetch_protocol::tls::TLS_TRUSTED_CAS;
 use serde_json::{Value, json};
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
 use crate::trace;
@@ -92,8 +93,9 @@ const STATE_FILE: &str = "clean-up-rules.json";
 #[derive(Default)]
 pub(crate) struct Versions {
     home: OnceLock<Home>,
-    loaded: Mutex<BTreeMap<String, Weak<FilterLists>>>,
-    loading: AsyncMutex<()>,
+    /// Each version loaded or loading, by digest: the loads of one digest
+    /// wait on its cell, never on a lock held while it compiles.
+    loaded: Mutex<BTreeMap<String, Arc<OnceCell<Weak<FilterLists>>>>>,
     holding: Mutex<BTreeMap<RunId, Held>>,
 }
 
@@ -653,20 +655,10 @@ impl Versions {
                 None,
             ),
         };
-        if let Some(lists) = self.loaded(&digest) {
-            return HeldLists { digest, lists };
-        }
-        let _loading = self.loading.lock().await;
-        if let Some(lists) = self.loaded(&digest) {
-            return HeldLists { digest, lists };
-        }
         if digest != EMBEDDED_DIGEST {
-            match self.load(&digest, artifact, run, owner).await {
-                Ok(lists) => {
-                    let lists = Arc::new(lists);
-                    lock(&self.loaded).insert(digest.clone(), Arc::downgrade(&lists));
-                    return HeldLists { digest, lists };
-                }
+            let loading = || self.load(&digest, artifact.clone(), run, owner);
+            match self.loaded_once(&digest, loading).await {
+                Ok(lists) => return HeldLists { digest, lists },
                 Err(failure) => {
                     let fallback =
                         fallback(&format!("the Run's Clean-up rules, {digest},"), &failure);
@@ -686,25 +678,52 @@ impl Versions {
                 }
             }
         }
-        let digest = EMBEDDED_DIGEST.to_owned();
-        if let Some(lists) = self.loaded(EMBEDDED_DIGEST) {
-            return HeldLists { digest, lists };
+        let embedded = || async {
+            Ok::<_, Infallible>(owner.blocking(FilterLists::embedded).await.expect(
+                "invariant: the build compiled the embedded Filter lists with this binary's own adblock",
+            ))
+        };
+        let Ok(lists) = self.loaded_once(EMBEDDED_DIGEST, embedded).await;
+        HeldLists {
+            digest: EMBEDDED_DIGEST.to_owned(),
+            lists,
         }
-        let lists = Arc::new(
-            owner
-                .blocking(FilterLists::embedded)
-                .await
-                .expect("invariant: the build compiled the embedded Filter lists with this binary's own adblock"),
-        );
-        lock(&self.loaded).insert(EMBEDDED_DIGEST.to_owned(), Arc::downgrade(&lists));
-        HeldLists { digest, lists }
     }
 
-    /// The loaded version of `digest`, if a Run still holds it.
-    fn loaded(&self, digest: &str) -> Option<Arc<FilterLists>> {
-        let mut loaded = lock(&self.loaded);
-        loaded.retain(|_, lists| lists.strong_count() > 0);
-        loaded.get(digest).and_then(Weak::upgrade)
+    /// The version of `digest`, loaded by `load` unless a Run still holds
+    /// it loaded: the loads of one digest run one at a time on its cell, so
+    /// each version is compiled once for every Run that holds to it, and a
+    /// load that failed leaves the next to try again.
+    async fn loaded_once<Load, Loading, Failure>(
+        &self,
+        digest: &str,
+        load: Load,
+    ) -> Result<Arc<FilterLists>, Failure>
+    where
+        Load: Fn() -> Loading,
+        Loading: Future<Output = Result<FilterLists, Failure>>,
+    {
+        loop {
+            let cell = {
+                let mut loaded = lock(&self.loaded);
+                loaded.retain(|_, cell| cell.get().is_none_or(|lists| lists.strong_count() > 0));
+                Arc::clone(loaded.entry(digest.to_owned()).or_default())
+            };
+            let mut compiled = None;
+            let weak = cell
+                .get_or_try_init(|| async {
+                    let lists = Arc::new(load().await?);
+                    let weak = Arc::downgrade(&lists);
+                    compiled = Some(lists);
+                    Ok(weak)
+                })
+                .await?;
+            // A version another load compiled whose Runs all ended since
+            // is loaded again.
+            if let Some(lists) = compiled.or_else(|| weak.upgrade()) {
+                return Ok(lists);
+            }
+        }
     }
 
     /// Loads the version of `digest` from its texts in the cache, which

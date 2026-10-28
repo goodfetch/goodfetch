@@ -9,7 +9,11 @@
 // `navigations=refetch`: a `cors` request to its URL, #720), or answers
 // from a copy of the page it made in its Cache Storage as it installed
 // (`navigations=cache`, #760), sending nothing. Every other request goes on
-// as if no worker were there.
+// as if no worker were there. Asked by its page, when its registration's
+// query holds `held`, it requests `/service-worker-held.json`, which the
+// Proving ground holds in flight far past `networkidle`'s 500 ms of quiet,
+// so a page reaches `networkidle` meanwhile only if a worker's own
+// requests are left out (#707).
 "use strict";
 
 const query = self.location.search;
@@ -49,6 +53,16 @@ self.addEventListener("install", (event) => {
       await self.skipWaiting();
     })(),
   );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data === "hold" && new URLSearchParams(query).has("held")) {
+    event.waitUntil(
+      fetch(`/service-worker-held.json${query}`)
+        .then((response) => response.text())
+        .catch(() => null),
+    );
+  }
 });
 
 self.addEventListener("activate", (event) => {

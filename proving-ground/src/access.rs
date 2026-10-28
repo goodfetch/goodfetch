@@ -80,6 +80,13 @@ const SERVICE_WORKER_CALLS: [&str; 3] = [
 ];
 /// The path the service worker requests that EasyPrivacy blocks.
 const SERVICE_WORKER_TRACKER: &str = "/service-worker/js/adobe-analytics.js";
+/// The request the service worker makes, when its page asks, that the
+/// Proving ground holds in flight [`SERVICE_WORKER_HOLD`], far past
+/// `networkidle`'s 500 ms of quiet, so a wait that counted a worker's own
+/// requests would not end while it is held (#707).
+const SERVICE_WORKER_HELD: &str = "/service-worker-held.json";
+/// How long [`SERVICE_WORKER_HELD`] is held.
+const SERVICE_WORKER_HOLD: std::time::Duration = std::time::Duration::from_secs(60);
 /// The request kinds pages, one per kind under this prefix, and their
 /// worker's script, service worker's script and cross-site frame.
 const REQUEST_KINDS: &str = "/request-kinds/";
@@ -239,6 +246,10 @@ pub(crate) fn respond(
             None,
         ),
         Method::GET if path == SERVICE_WORKER_TRACKER => (script_reply("void 0;\n"), None),
+        Method::GET if path == SERVICE_WORKER_HELD => (
+            Reply::json(StatusCode::OK, &serde_json::json!({ "held": true })),
+            None,
+        ),
         Method::GET if let Some(reply) = request_kinds(seed, path) => (reply, None),
         Method::GET => (corpus::page(path).unwrap_or_else(Reply::not_found), None),
         Method::POST if path == "/reports" => match Report::parse(request.body) {
@@ -280,6 +291,13 @@ pub(crate) fn push(name: &str, method: &Method, path: &str) -> Option<Push> {
         && path == PAGE_EVENTS_SOCKET
         && (name == LOCAL_HOST || task::serves(name, HOST, TASKS)))
     .then_some(Push::Socket)
+}
+
+/// How long the server holds a request for `path` on `name` before it
+/// answers, if it holds it: the service worker's held request.
+pub(crate) fn hold(name: &str, path: &str) -> Option<std::time::Duration> {
+    (path == SERVICE_WORKER_HELD && (name == LOCAL_HOST || task::serves(name, HOST, TASKS)))
+        .then_some(SERVICE_WORKER_HOLD)
 }
 
 /// `script`, served as JavaScript.

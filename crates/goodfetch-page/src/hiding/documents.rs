@@ -14,7 +14,7 @@ use goodfetch_cdp::generated::dom::StyleSheetId;
 use goodfetch_cdp::generated::page::FrameId;
 
 /// Who writes a part of a document's sheet.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Part {
     /// Live hiding's rules, from the Session's Filter lists.
     Hiding,
@@ -34,6 +34,9 @@ struct Document {
     sheet: Option<StyleSheetId>,
     hiding: String,
     consent: String,
+    /// The selectors of the runner's rules the guard lifted, which its
+    /// part no longer writes.
+    consent_lifted: BTreeSet<String>,
     /// Whether live hiding's part waits for the runner's first pass.
     held: bool,
     /// What the browser's sheet holds now.
@@ -45,12 +48,29 @@ impl Document {
     /// first once it no longer waits.
     fn text(&self) -> String {
         let hiding = if self.held { "" } else { self.hiding.as_str() };
-        [hiding, self.consent.as_str()]
+        let consent = if self.consent_lifted.is_empty() {
+            self.consent.clone()
+        } else {
+            let kept: String = self
+                .consent
+                .split_inclusive('}')
+                .filter(|rule| !self.consent_lifted.contains(selector_of(rule)))
+                .collect();
+            kept.trim().to_owned()
+        };
+        [hiding, consent.as_str()]
             .into_iter()
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>()
             .join("\n")
     }
+}
+
+/// The selector of the rule `rule`, `<selector> { <declarations> }`.
+fn selector_of(rule: &str) -> &str {
+    rule.split_once('{')
+        .map_or(rule, |(selector, _)| selector)
+        .trim()
 }
 
 /// What one change asks the browser for.
@@ -149,6 +169,31 @@ impl Documents {
             .map(|(selector, _)| selector.trim().to_owned())
             .filter(|selector| !selector.is_empty())
             .collect()
+    }
+
+    /// The selectors of [`Self::consent_selectors`] the guard did not lift.
+    pub(super) fn consent_applied(&self, key: &Key) -> Vec<String> {
+        let lifted = self
+            .by_key
+            .get(key)
+            .map(|document| &document.consent_lifted);
+        self.consent_selectors(key)
+            .into_iter()
+            .filter(|selector| !lifted.is_some_and(|lifted| lifted.contains(selector)))
+            .collect()
+    }
+
+    /// The guard found an action's target hidden by the runner's rules of
+    /// `selectors` in `key`'s document: they are lifted there until its
+    /// next load, whatever the runner sets; the write it needs, as
+    /// [`Self::set`] answers it.
+    pub(super) fn lift_consent(&mut self, key: &Key, selectors: &[String]) -> Option<Write> {
+        let document = self.by_key.get_mut(key)?;
+        document.consent_lifted.extend(selectors.iter().cloned());
+        if self.lifted.as_ref().is_some_and(|lifted| lifted != key) {
+            return None;
+        }
+        self.write(key)
     }
 
     /// The write that brings `key`'s sheet to its whole text, if it differs.

@@ -84,16 +84,29 @@ impl CleanUp for Matcher<'_> {
 }
 
 /// The main-content step a page's formats read with: the
-/// `content.extractor` of its own settings `page`, else of its Session's
-/// `session`, else of its Run's resolved settings `run`; dom-smoothie
-/// without any. A value no built-in has never reaches here: it was refused
-/// where it was set.
-pub(super) fn extractor(run: Option<&Resolved>, session: &Values, page: &Values) -> BuiltIn {
-    page.get(CONTENT_EXTRACTOR.name)
-        .or_else(|| session.get(CONTENT_EXTRACTOR.name))
-        .or_else(|| run.map(|run| run.value(CONTENT_EXTRACTOR.name)))
-        .and_then(Value::as_str)
-        .and_then(BuiltIn::named)
+/// `content.extractor` of its own settings `page`, else the one its crawl
+/// request's Label chooses, `label`, else its Session's `session`, else
+/// its Run's resolved settings `run`; dom-smoothie without any. A value no
+/// built-in has never reaches here: it was refused where it was set.
+pub(super) fn extractor(
+    run: Option<&Resolved>,
+    (session, label): (&Values, Option<BuiltIn>),
+    page: &Values,
+) -> BuiltIn {
+    let named = |values: &Values| {
+        values
+            .get(CONTENT_EXTRACTOR.name)
+            .and_then(Value::as_str)
+            .and_then(BuiltIn::named)
+    };
+    named(page)
+        .or(label)
+        .or_else(|| named(session))
+        .or_else(|| {
+            run.map(|run| run.value(CONTENT_EXTRACTOR.name))
+                .and_then(Value::as_str)
+                .and_then(BuiltIn::named)
+        })
         .unwrap_or_default()
 }
 

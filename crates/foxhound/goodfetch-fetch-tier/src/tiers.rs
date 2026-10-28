@@ -46,6 +46,7 @@ use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionKind, ExceptionUsed, PinBook, trusted_cas,
 };
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
+use goodfetch_extractor::BuiltIn;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, Observer, PageValue, PooledSession, ProgramPages, Reader,
@@ -268,12 +269,17 @@ struct Opened {
 }
 
 impl Opened {
-    /// The document `fetched` answered for `run`, decoded in the encoding
-    /// ADR 0119's order finds, `forced` being `fetch.encoding`'s: a
+    /// The document `fetched` answered for `run`, its formats read with
+    /// `extractor`, its Label's `content.extractor`, decoded in the
+    /// encoding ADR 0119's order finds, `forced` being `fetch.encoding`'s: a
     /// response with no `Content-Type` is typed as Chromium's MIME sniffer
     /// types it, and one of a type that is no HTML or XHTML holds no
     /// document.
-    fn of(run: &Run, fetched: crate::driver::Fetched, forced: Option<&'static Encoding>) -> Self {
+    fn of(
+        run: &Run,
+        fetched: crate::driver::Fetched,
+        (forced, extractor): (Option<&'static Encoding>, Option<BuiltIn>),
+    ) -> Self {
         let url = fetched.url.to_string();
         let header = fetched
             .headers
@@ -323,6 +329,7 @@ impl Opened {
                 url,
                 base_url,
                 html,
+                extractor,
             },
             not_document,
             encoding,
@@ -761,7 +768,8 @@ impl FetchTiers {
 
     /// Opens a page served from `fetched` on `tier` for `run`, its calls
     /// served as `choice` says and gated by `hand_over`, the attempt's, its
-    /// document read with `forced` from `fetch.encoding`.
+    /// document read with `forced` from `fetch.encoding` and its formats
+    /// with the hand-over's extractor, its Label's `content.extractor`.
     ///
     /// # Errors
     ///
@@ -783,7 +791,7 @@ impl FetchTiers {
             fetched.body.clone(),
         );
         let certificate_exception = fetched.certificate_exception.as_ref().map(mark);
-        let opened = Opened::of(run, fetched, forced);
+        let opened = Opened::of(run, fetched, (forced, hand_over.extractor));
         // A document only a guess could read is never served: under a
         // forced tier it fails, and under `auto` its page escalates before
         // its handler runs (ADR 0119). A page holding no document is never
@@ -1572,9 +1580,10 @@ impl HandlerPages for FetchTiers {
             .map(|(_, hand_over)| Arc::clone(hand_over));
         match handed {
             Some(hand_over) => {
-                let page_check = hand_over.page_check.clone();
+                let (page_check, extractor) = (hand_over.page_check.clone(), hand_over.extractor);
                 PageValue::new(Gate::new(Arc::clone(&hand_over)), Lease::new(hand_over))
                     .with_page_check(page_check)
+                    .with_extractor(extractor)
             }
             None => ProgramPages.value(run, session),
         }

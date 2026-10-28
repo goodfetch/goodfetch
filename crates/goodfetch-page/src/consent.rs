@@ -421,7 +421,7 @@ async fn answer(shared: &Shared, frame: &Frame, message: Message) {
             if current(shared, frame).await
                 && let Err(failure) = shared
                     .sheets
-                    .set(&frame.session, &frame.id, Part::Consent, text)
+                    .set((&frame.session, &frame.id), Part::Consent, text, None)
                     .await
             {
                 tracing::debug!(%failure, "the Consent prompt runner's hiding sheet was not set");

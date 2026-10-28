@@ -429,6 +429,11 @@ pub fn apply(connection: &Connection, writes: &[StagedWrite]) -> rusqlite::Resul
 
 /// Forgets each of `files`, kept files of `run`'s folder that committed
 /// writes took out, once no record names it.
+///
+/// # Cancel safety
+///
+/// Dropping the future leaves the files not yet forgotten in the folder,
+/// where no record names them.
 pub async fn forget_files(run: &Run, files: Vec<String>) {
     for file in files {
         forget(run, Some(file)).await;

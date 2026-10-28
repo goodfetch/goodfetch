@@ -359,6 +359,12 @@ type OriginCopy = Arc<OnceCell<Arc<Fetched>>>;
 impl RunCopies {
     /// The copy of `location`'s file, fetched with `fetch` only when no
     /// reader of the Run fetched it before.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future of the reader that fetches abandons its fetch,
+    /// and the next reader fetches again; a waiting reader loses only its
+    /// answer.
     pub async fn copy<F, Fut>(&self, location: &Url, fetch: F) -> Arc<Fetched>
     where
         F: FnOnce() -> Fut,

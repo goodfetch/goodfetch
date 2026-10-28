@@ -1169,6 +1169,13 @@ impl Run {
     /// # Errors
     ///
     /// As [`RunKeyError`] says.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future of the caller that makes the key abandons the
+    /// making, and the next caller makes one again. A drop once the
+    /// wrapped key's write was queued may leave it stored, and the next
+    /// making then fails with the run state's error.
     pub async fn key(&self) -> Result<&RunKey, RunKeyError> {
         self.shared.key.get_or_try_init(|| self.make_key()).await
     }
@@ -1410,6 +1417,11 @@ impl Run {
     /// # Errors
     ///
     /// When its run state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future does not withdraw a write already queued: the
+    /// warning may still be handed over.
     pub async fn warn_once(&self, warning: RunWarning) -> Result<(), RunStateError> {
         let warning = self.masked(warning);
         self.state

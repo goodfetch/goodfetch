@@ -642,6 +642,11 @@ fn interrupted(run_id: RunId) -> CallError {
 /// # Errors
 ///
 /// The failure the owner answered.
+///
+/// # Cancel safety
+///
+/// Dropping the future abandons the read; the owner may still answer it,
+/// to no one.
 pub async fn through_owner<R: DeserializeOwned>(
     context: &CallContext,
     operation: &'static Operation,

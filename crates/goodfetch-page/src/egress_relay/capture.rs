@@ -30,6 +30,10 @@ const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(10);
 /// # Errors
 ///
 /// The listener's, or the server's set-up's.
+///
+/// # Cancel safety
+///
+/// Dropping the future closes the connection being read and the listener.
 pub async fn capture_application_settings(
     listener: TcpListener,
 ) -> io::Result<ApplicationSettings> {

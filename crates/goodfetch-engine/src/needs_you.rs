@@ -163,6 +163,10 @@ impl SourceContext {
     }
 
     /// Runs `work`, which blocks, under the engine's blocking policy.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer: `work` runs to its end.
     pub async fn blocking<T, F>(&self, work: F) -> T
     where
         T: Send + 'static,

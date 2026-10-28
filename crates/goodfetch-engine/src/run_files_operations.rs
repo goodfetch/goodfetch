@@ -126,6 +126,12 @@ async fn save_as(
 /// `path_not_writable` or `file_write_failed` with side `program` when the
 /// path could not be written, `file_write_failed` with side `engine` when
 /// the kept file could not be read, and `call_cancelled`.
+///
+/// # Cancel safety
+///
+/// Dropping the future does not stop a write of the path already
+/// started: it runs to its end, the hidden temporary file renamed over the
+/// path only once whole. Chunks already sent to the SDK stay sent.
 pub async fn save_kept(
     context: &CallContext,
     folder: &Path,
@@ -169,6 +175,10 @@ async fn written(
 ///
 /// `file_write_failed` with side `engine` when the kept file could not be
 /// read.
+///
+/// # Cancel safety
+///
+/// Dropping the future stops the chunks; those sent stay sent.
 pub async fn send_kept(
     context: &CallContext,
     folder: &Path,

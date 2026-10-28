@@ -28,6 +28,10 @@
 //! The `daemon` commands need Collie, which carries `daemon.*`, so either
 //! executable stops or asks a Daemon of either Product; a command that
 //! runs the engine needs its executable's own Product (spec #213).
+//!
+//! Size: one concern, the executables' side of the Daemon: the `daemon`
+//! commands and the start every Client shares, kept whole so finding,
+//! starting and handing over a Daemon follow one start lock.
 #![expect(
     clippy::disallowed_methods,
     reason = "the CLI reads the machine's files, starts the Daemon's process and builds its runtime before and outside any async worker (ADR 0060)"

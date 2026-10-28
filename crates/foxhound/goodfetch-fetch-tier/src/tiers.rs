@@ -38,12 +38,13 @@ use encoding_rs::Encoding;
 use goodfetch_engine::dns::ResolverConfiguration;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::home::Home;
+use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::{
-    CertificateExceptions, ClientCertificates, ExceptionKind, ExceptionUsed, PinBook, trusted_cas,
+    CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, trusted_cas,
 };
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_extractor::BuiltIn;

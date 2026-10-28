@@ -26,7 +26,7 @@ use std::sync::{Arc, OnceLock};
 
 pub use client_certificates::{ClientCertificateFailure, ClientCertificates, IdentityFiles};
 pub use exceptions::{
-    CertificateChanged, CertificateExceptions, ExceptionKind, ExceptionUsed, PinBook, Presented,
+    CertificateChanged, CertificateExceptions, ExceptionUsed, PinBook, Presented,
 };
 pub use shared::{Decision, SharedTrust, Verdict, certificate_failure};
 

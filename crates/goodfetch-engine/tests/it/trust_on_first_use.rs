@@ -24,12 +24,11 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::http_client::{
     Failure, FetchError, PageTraffic, Resolve, Response, SessionCookie, Waiter,
 };
-use goodfetch_engine::known_certificates::{KeyHash, KnownCertificates};
+use goodfetch_engine::known_certificates::{ExceptionKind, KeyHash, KnownCertificates};
 use goodfetch_engine::secrets::{Carried, Keychain, Purpose, RunSecrets, SecretError, Secrets};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::tls::{
-    CertificateChanged, CertificateExceptions, ClientCertificates, ExceptionKind, ExceptionUsed,
-    PinBook, Trust,
+    CertificateChanged, CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
 };
 use goodfetch_protocol::audit::AuditVerified;
 use goodfetch_protocol::run::RunId;

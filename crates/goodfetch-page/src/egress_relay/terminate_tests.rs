@@ -22,12 +22,10 @@ use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::{Policy, Refused};
 use goodfetch_engine::home::Home;
-use goodfetch_engine::known_certificates::{KeyHash, KnownCertificates};
+use goodfetch_engine::known_certificates::{ExceptionKind, KeyHash, KnownCertificates};
 use goodfetch_engine::secrets::ExceptionHosts;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
-use goodfetch_engine::tls::{
-    CertificateExceptions, ExceptionKind, ExceptionUsed, PinBook, Presented, Trust,
-};
+use goodfetch_engine::tls::{CertificateExceptions, ExceptionUsed, PinBook, Presented, Trust};
 use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
 use goodfetch_test_support::{TestEnv, runtime};
 use rcgen::{

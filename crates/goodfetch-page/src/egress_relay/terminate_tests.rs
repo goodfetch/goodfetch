@@ -124,7 +124,7 @@ struct Received(Mutex<Vec<u8>>);
 
 /// The site: a BoringSSL server presenting `certificate`, choosing `h2`
 /// when it is offered, else `http/1.1`, which reads what comes and answers
-/// `pong` to it.
+/// `pong` to its first bytes.
 async fn site(stream: DuplexStream, (certificate, key): (Vec<u8>, Vec<u8>), received: &Received) {
     let mut builder = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()).unwrap();
     builder
@@ -143,6 +143,9 @@ async fn site(stream: DuplexStream, (certificate, key): (Vec<u8>, Vec<u8>), rece
     if std::pin::Pin::new(&mut stream).accept().await.is_err() {
         return;
     }
+    // It answers once, then reads to the end, so it keeps every byte the
+    // relay sent even after the relay ended the connection.
+    let mut answered = false;
     let mut buffer = [0; 64];
     while let Ok(count) = stream.read(&mut buffer).await {
         if count == 0 {
@@ -153,8 +156,8 @@ async fn site(stream: DuplexStream, (certificate, key): (Vec<u8>, Vec<u8>), rece
             .lock()
             .unwrap()
             .extend_from_slice(&buffer[..count]);
-        if stream.write_all(b"pong").await.is_err() {
-            break;
+        if !std::mem::replace(&mut answered, true) {
+            let _ = stream.write_all(b"pong").await;
         }
     }
 }

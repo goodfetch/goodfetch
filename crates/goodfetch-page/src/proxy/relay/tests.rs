@@ -39,7 +39,8 @@ use tokio_util::sync::CancellationToken;
 use super::{
     ACCEPT_BACKOFF, Credentials, LISTENER, Mode, USERNAME, Upstream, accepting, basic, relay,
 };
-use crate::egress_relay::{ByAuthority, HEAD_DEADLINE, Outcomes};
+use crate::egress_relay::deadlines::HEAD_DEADLINE;
+use crate::egress_relay::{ByAuthority, Outcomes};
 
 /// What a fake SOCKS5 proxy met: the connections it accepted, and the
 /// first bytes each tunnel it opened carried.

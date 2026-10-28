@@ -50,6 +50,7 @@ pub(crate) mod authority;
 pub(crate) mod capture;
 pub(crate) mod client_hello;
 pub(crate) mod cookies;
+pub(crate) mod deadlines;
 pub(crate) mod head;
 pub(crate) mod serve;
 pub(crate) mod terminate;
@@ -64,7 +65,6 @@ use std::time::Duration;
 
 use data_encoding::BASE64;
 use goodfetch_engine::CallError;
-use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::dns::Dns;
 use goodfetch_engine::egress::{self, EndpointPolicy, Policy, Refused};
@@ -191,6 +191,10 @@ pub(crate) struct RelayEndpoint<'a> {
     pub(crate) password: &'a str,
 }
 
+/// What tells the Session's upstream proxy what a connection for an
+/// authority met.
+pub(crate) type MetTold = Box<dyn Fn(&str, Met) + Send + Sync>;
+
 /// How a Session's relay chains through its upstream proxy.
 pub(crate) struct Chain {
     /// The protocol the relay speaks to the proxy.
@@ -201,7 +205,7 @@ pub(crate) struct Chain {
     /// Whether a URL goes around the proxy, as `proxy.bypass` says.
     pub(crate) bypasses: Box<dyn Fn(&str) -> bool + Send + Sync>,
     /// Tells the proxy what a connection to it met.
-    pub(crate) met: Box<dyn Fn(&str, Met) + Send + Sync>,
+    pub(crate) met: MetTold,
     /// How the proxy's own addresses are judged before each connection to
     /// it, as an Operator-configured endpoint's (ADR 0017); none for the
     /// Session's loopback relay, which the Session's open judged the proxy
@@ -217,11 +221,6 @@ const KEPT_OUTCOMES: usize = 64;
 /// shorter ([`connect_deadline`]).
 const CONNECT_DEADLINE: Duration = Duration::from_secs(10);
 
-/// The longest a relay waits for a client's request head once it accepted
-/// the connection: a browser sends its head at once, so a client that sends
-/// none holds no task past it (deep review finding 577-8).
-pub(crate) const HEAD_DEADLINE: Duration = Duration::from_secs(10);
-
 /// How long a relay of `run` waits for a connection it opens:
 /// [`CONNECT_DEADLINE`], or half the Run's `timeout.navigation` when that is
 /// shorter, so a proxy that never answers fails as the proxy's, with
@@ -230,37 +229,6 @@ pub(crate) const HEAD_DEADLINE: Duration = Duration::from_secs(10);
 pub(crate) fn connect_deadline(run: &Run) -> Duration {
     let navigation = Deadline::of_run(run, &TIMEOUT_NAVIGATION).duration();
     CONNECT_DEADLINE.min(navigation / 2)
-}
-
-/// What `work` gave, unless `deadline` passed on `clock` first.
-///
-/// # Cancel safety
-///
-/// As cancel-safe as `work`, which is dropped at the deadline.
-pub(crate) async fn within_or_none<T>(
-    clock: &Clock,
-    deadline: Duration,
-    work: impl Future<Output = T>,
-) -> Option<T> {
-    tokio::select! {
-        done = work => Some(done),
-        () = clock.sleep(deadline) => None,
-    }
-}
-
-/// What `work` gave, or `TimedOut` once `deadline` passed on `clock`.
-///
-/// # Errors
-///
-/// `work`'s, and `TimedOut` at the deadline.
-pub(crate) async fn within<T>(
-    clock: &Clock,
-    deadline: Duration,
-    work: impl Future<Output = io::Result<T>>,
-) -> io::Result<T> {
-    within_or_none(clock, deadline, work)
-        .await
-        .unwrap_or_else(|| Err(io::ErrorKind::TimedOut.into()))
 }
 
 /// The latest value of each authority a relay's connections asked for, at
@@ -666,7 +634,7 @@ struct Record {
     run: Run,
     log: Arc<RequestLog>,
     /// Tells the Session's upstream proxy what a connection to it met.
-    met: Option<Box<dyn Fn(&str, Met) + Send + Sync>>,
+    met: Option<MetTold>,
     /// Its latest refusals, each with its number and authority.
     refusals: Mutex<VecDeque<(u64, String, Refusal)>>,
     /// The sites it could not reach itself since it last reached them,

@@ -645,7 +645,7 @@ fn an_upstream_proxy_that_never_answers_is_unreachable_at_the_connect_deadline()
 
 /// A client that sends no request head is dropped at the relay's head
 /// deadline (deep review finding 577-8): on Tokio's paused clock, the
-/// connection ends with nothing relayed once [`super::HEAD_DEADLINE`]
+/// connection ends with nothing relayed once [`super::deadlines::HEAD_DEADLINE`]
 /// passed.
 ///
 /// Covers: story:4-10
@@ -664,7 +664,7 @@ fn a_client_that_sends_no_head_is_dropped_at_the_head_deadline() {
 
     assert_eq!(
         (answer.as_str(), served, waited, network.connections()),
-        ("", Served::Failed, super::HEAD_DEADLINE, vec![])
+        ("", Served::Failed, super::deadlines::HEAD_DEADLINE, vec![])
     );
 }
 

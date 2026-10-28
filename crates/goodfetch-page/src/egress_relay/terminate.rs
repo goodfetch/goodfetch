@@ -226,16 +226,14 @@ where
         let (up, down) = both_ways(&mut browser, &mut up.stream).await;
         return Terminated::Relayed { up, down };
     }
-    match without_cookies(&mut browser, &mut up.stream).await {
-        Some((up, down)) => Terminated::Relayed { up, down },
-        None => {
-            tracing::warn!(
-                host,
-                "the egress relay ended a connection whose request carried a Session cookie to a host reached through an invalid-certificate exception (ADR 0042)"
-            );
-            Terminated::Stopped
-        }
-    }
+    let Some((up, down)) = without_cookies(&mut browser, &mut up.stream).await else {
+        tracing::warn!(
+            host,
+            "the egress relay ended a connection whose request carried a Session cookie to a host reached through an invalid-certificate exception (ADR 0042)"
+        );
+        return Terminated::Stopped;
+    };
+    Terminated::Relayed { up, down }
 }
 
 /// `hello`, offering HTTP/1.1 alone, as the relay offers a host an

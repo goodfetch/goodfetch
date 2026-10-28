@@ -22,9 +22,9 @@ use goodfetch_engine::tls::ExceptionUsed;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 use super::client_hello::{ClientHello, Noting};
+use super::deadlines::{HEAD_DEADLINE, within, within_or_none};
 use super::head::{self, Head, Target, Unread};
 use super::terminate::{self, Stop, Terminated, Terminating};
-use super::{HEAD_DEADLINE, within, within_or_none};
 
 /// The name the relay gives its own member of a `Proxy-Status` field (RFC
 /// 9209).

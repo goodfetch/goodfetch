@@ -64,11 +64,10 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::party::{RELAY, relay_unreachable};
+use crate::egress_relay::deadlines::{HEAD_DEADLINE, within, within_or_none};
 use crate::egress_relay::head::{self, Head, Target, Unread};
 use crate::egress_relay::serve::{Met, socks5_request};
-use crate::egress_relay::{
-    ByAuthority, HEAD_DEADLINE, Outcomes, authority_of, connect_deadline, within, within_or_none,
-};
+use crate::egress_relay::{ByAuthority, Outcomes, authority_of, connect_deadline};
 use crate::proxy_provider::ProxyUsage;
 use crate::proxy_provider::failure::ProviderAnswer;
 

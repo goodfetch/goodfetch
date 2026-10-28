@@ -113,8 +113,10 @@ fn settle(program: &mut Program<'_>, page: &str) {
 
 /// A browser Session with a local address reaches its site from that
 /// address over HTTP/1.1 and over a WebSocket, and, with the site's HTTPS
-/// under a certificate exception, over HTTP/2 through the relay's
-/// terminating mode, and Provenance records the address its relay binds.
+/// under a certificate exception, through the relay's terminating mode,
+/// over HTTP/1.1 alone so the relay reads each request head and no Session
+/// cookie reaches the host (ADR 0042), and Provenance records the address
+/// its relay binds.
 /// Switching `security.raw_cdp_egress_proxy` off, with no exception that
 /// would keep a relay anyway, keeps the binding (A04-23): a Session with a
 /// local address always goes through its relay.
@@ -166,15 +168,16 @@ fn a_browser_session_with_a_local_address_reaches_its_site_from_it(
         "{plain} {https:?} {socket}"
     );
     let kinds = request_kinds(&observations);
-    let mut expected = vec![("http/1.1", "request"), ("http/1.1", "websocket")];
-    if secure {
-        expected.push(("h2", "request"));
-    }
+    let expected = [("http/1.1", "request"), ("http/1.1", "websocket")];
     assert!(
         expected
             .iter()
             .all(|(protocol, kind)| kinds.contains(&((*protocol).to_owned(), (*kind).to_owned()))),
         "{kinds:?}"
+    );
+    assert!(
+        !kinds.contains(&("h2".to_owned(), "request".to_owned())),
+        "a host an exception lists is reached over HTTP/1.1 alone: {kinds:?}"
     );
     assert_eq!(
         site_sources(&observations),

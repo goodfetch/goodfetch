@@ -309,7 +309,7 @@ status = "active"
 
 [[story]]
 id = 39
-title = "As a developer, I want a browser Session with an exception to reach the listed hosts through the engine's TLS relay, which shows the site the browser's own ClientHello and HTTP/2 settings, and the hosts it terminated reported on the Session, so that the exception does not change what the site sees (ADR 0042)."
+title = "As a developer, I want a browser Session with an exception to reach the listed hosts through the engine's TLS relay, which shows the site the browser's own ClientHello and HTTP/2 settings (a host only `tls.trusted_cas` lists; a host an invalid-certificate exception lists is reached over HTTP/1.1 alone, so that no Session cookie reaches it), and the hosts it terminated reported on the Session, so that the exception does not change what the site sees (ADR 0042)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

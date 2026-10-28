@@ -512,3 +512,165 @@ fn a_sitemap_entry_robots_txt_disallows_ends_skipped_unsent() {
         )
     );
 }
+
+/// The request seed of the `run.add_seed` cases below: an article no
+/// sitemap of the family lists.
+const ADDING: &str = "/books/30";
+
+/// The sitemap seed the `run.add_seed` cases below add: the plain sitemap
+/// of `/books/11` and `/books/12`, each an entry for the Label `book`.
+fn plain_sitemap(proving_ground: &ProvingGround) -> Value {
+    json!({
+        "sitemap": proving_ground.url(SITE, "/sitemaps/plain.xml"),
+        "rules": [{ "pattern": "**/books/*", "label": "book" }],
+    })
+}
+
+/// A sitemap seed added to a running crawl, `run.add_seed(sitemap(...))`,
+/// is committed at once and answered as an enqueue is: the sitemap is read
+/// as a start's sitemap seed is, its entries handled with their rule's
+/// Label and counted in the Run's report (ticket #914, CO-03).
+///
+/// Covers: story:6-208, story:6-203, operation:run.add_seed
+#[test]
+fn a_sitemap_seed_added_to_a_running_crawl_is_committed_at_once_and_read() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let url = |path: &str| proving_ground.url(SITE, path);
+    let sitemap = plain_sitemap(&proving_ground);
+    let mut engine = Attached::start(&env);
+    let mut answers = Vec::new();
+    let mut handled = Vec::new();
+
+    let report = crawl_with(
+        &mut engine,
+        "adding",
+        &[json!({ "url": url(ADDING), "label": "page" })],
+        &settings(&proving_ground, &json!({})),
+        &mut |inside, handle| {
+            let request = &handle["crawl_request"];
+            handled.push((
+                request["label"].as_str().unwrap().to_owned(),
+                request["url"].as_str().unwrap().to_owned(),
+            ));
+            if request["url"] == url(ADDING) {
+                let reply = inside.call(
+                    "run.add_seed",
+                    &json!({ "run_id": "adding", "seed": sitemap }),
+                );
+                answers.push(reply.get("result").unwrap_or(&reply).clone());
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+    handled.sort();
+
+    assert_eq!(
+        (
+            report["result"]["lifecycle"].clone(),
+            answers,
+            handled,
+            report["result"]["sitemaps"].clone(),
+        ),
+        (
+            json!("finished"),
+            vec![added("2", &url("/sitemaps/plain.xml"))],
+            crate::sitemap::handled(&[
+                ("book", &url("/books/11")),
+                ("book", &url("/books/12")),
+                ("page", &url(ADDING)),
+            ]),
+            json!([counts(&url("/sitemaps/plain.xml"), 1, &[], 2, &[])]),
+        ),
+        "{report}"
+    );
+}
+
+/// A sitemap seed a handler adds through its context, `ctx.run.addSeed`,
+/// is staged with its attempt: the attempt that fails leaves nothing of it,
+/// so the sitemap is not read for it, and the retried attempt's own seed
+/// commits with that attempt, its entries each handled once (ticket #914,
+/// ADR 0093).
+///
+/// Covers: story:6-208, story:6-236, operation:run.add_seed
+#[test]
+fn a_sitemap_seed_staged_by_a_failed_attempt_is_discarded_and_its_retry_commits_its_own() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let url = |path: &str| proving_ground.url(SITE, path);
+    let sitemap = plain_sitemap(&proving_ground);
+    let mut engine = Attached::start(&env);
+    let mut answers = Vec::new();
+    let mut handled = Vec::new();
+
+    let report = crawl_with(
+        &mut engine,
+        "staged",
+        &[json!({ "url": url(ADDING), "label": "page" })],
+        &settings(
+            &proving_ground,
+            &json!({ "crawl": { "retry": { "max": 2 } } }),
+        ),
+        &mut |inside, handle| {
+            let request = &handle["crawl_request"];
+            handled.push((
+                request["label"].as_str().unwrap().to_owned(),
+                request["url"].as_str().unwrap().to_owned(),
+            ));
+            if request["url"] != url(ADDING) {
+                return json!({ "result": { "records": [] } });
+            }
+            let reply = inside.call(
+                "run.add_seed",
+                &json!({
+                    "run_id": "staged",
+                    "seed": sitemap,
+                    "attempt": {
+                        "crawl_request_id": request["id"],
+                        "lease_epoch": handle["lease_epoch"],
+                    },
+                }),
+            );
+            answers.push(reply.get("result").unwrap_or(&reply).clone());
+            if handle["attempt"] == 1 {
+                json!({ "error": { "code": -32003, "message": "try again", "data": { "code": "retry_requested", "retryable": true } } })
+            } else {
+                json!({ "result": { "records": [] } })
+            }
+        },
+    );
+    let observations = proving_ground.observations().unwrap();
+    assert!(engine.finish());
+    handled.sort();
+
+    let sitemap_url = url("/sitemaps/plain.xml");
+    assert_eq!(
+        (
+            report["result"]["lifecycle"].clone(),
+            answers
+                .iter()
+                .map(|answer| answer["kind"].clone())
+                .collect::<Vec<_>>(),
+            handled,
+            report["result"]["sitemaps"].clone(),
+            targets(&observations, SITE)
+                .iter()
+                .filter(|target| target.as_str() == "/sitemaps/plain.xml")
+                .count(),
+        ),
+        (
+            json!("finished"),
+            vec![json!("added"), json!("added")],
+            crate::sitemap::handled(&[
+                ("book", &url("/books/11")),
+                ("book", &url("/books/12")),
+                ("page", &url(ADDING)),
+                ("page", &url(ADDING)),
+            ]),
+            json!([counts(&sitemap_url, 1, &[], 2, &[])]),
+            1,
+        ),
+        "{report}\n{answers:?}"
+    );
+}

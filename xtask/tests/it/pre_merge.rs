@@ -59,7 +59,9 @@ const HOST_SETUP: &[&str] = if cfg!(target_os = "linux") {
 /// When they are `lingering`'s content, it starts a child, as `just perf`'s
 /// recipe starts `xtask perf build` and its `cargo bench`, its output
 /// thrown away, writes the child's process ID to `descendant` and waits for
-/// it; the failing step then fails only once that child has started.
+/// it; the failing step then fails only once that child has started. When
+/// they are `late`'s content, it fails with status 3 once the run's output
+/// holds `awaiting`'s text.
 fn stand_in_just(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -73,6 +75,14 @@ fi
 if [ -f "{failing}" ] && [ "$*" = "$(cat "{failing}")" ]; then
   waited=0
   while [ -f "{lingering}" ] && [ ! -s "{descendant}" ] && [ $waited -lt 300 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  exit 3
+fi
+if [ -f "{late}" ] && [ "$*" = "$(cat "{late}")" ]; then
+  waited=0
+  while ! grep -qF -- "$(cat "{awaiting}")" "{stdout}" && [ $waited -lt 300 ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
@@ -95,6 +105,9 @@ fi
         killing = folder.join("killing").display(),
         lingering = folder.join("lingering").display(),
         descendant = folder.join("descendant").display(),
+        late = folder.join("late").display(),
+        awaiting = folder.join("awaiting").display(),
+        stdout = folder.join("stdout").display(),
     );
     let just = folder.join("just");
     std::fs::write(&just, script).unwrap();
@@ -603,6 +616,78 @@ fn a_failed_step_is_recorded_as_failed(#[case] call: &str, #[case] step: &str) {
     assert!(
         run.gate
             .contains(&format!("_gate-record planned {step} fail")),
+        "{:?}",
+        run.gate
+    );
+}
+
+/// A step beside the host's that ended before a host step failed keeps its
+/// result, so the next run reuses it where the change since does not reach
+/// it (the test-gate audit's option 3).
+#[rstest]
+#[case::passed("perf", "pass")]
+#[case::failed("visual", "fail")]
+fn a_step_beside_that_ended_before_a_host_step_failed_records_its_result(
+    #[case] step: &str,
+    #[case] status: &str,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("plan"), "previous\tnone\nhead\tplanned\n").unwrap();
+    if status == "fail" {
+        std::fs::write(stand_in.join("failing"), step).unwrap();
+    }
+    // `lint` fails once the step beside has ended.
+    std::fs::write(stand_in.join("late"), "lint").unwrap();
+    std::fs::write(
+        stand_in.join("awaiting"),
+        format!("[{step}] Gate step {step}: ended at"),
+    )
+    .unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, Some(3), "{}", run.stderr);
+    assert!(
+        !run.calls.iter().any(|call| call == "notices"),
+        "the run went on past lint: {:?}",
+        run.calls
+    );
+    assert!(
+        run.gate
+            .contains(&format!("_gate-record planned {step} {status}")),
+        "{:?}\n{}",
+        run.gate,
+        run.stdout
+    );
+}
+
+/// A step beside the host's still running when a host step fails is
+/// stopped and records nothing, so the next run reruns it.
+#[test]
+fn a_step_beside_still_running_when_a_host_step_fails_records_nothing() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("plan"), "previous\tnone\nhead\tplanned\n").unwrap();
+    std::fs::write(stand_in.join("lingering"), "perf").unwrap();
+    std::fs::write(stand_in.join("failing"), "lint").unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    if let Ok(descendant) = std::fs::read_to_string(stand_in.join("descendant")) {
+        let _ = std::process::Command::new("kill")
+            .arg(descendant.trim())
+            .status();
+    }
+    assert_eq!(run.code, Some(3), "{}", run.stderr);
+    assert!(
+        run.gate
+            .contains(&"_gate-record planned lint fail".to_owned()),
+        "{:?}",
+        run.gate
+    );
+    assert!(
+        !run.gate.iter().any(|call| call.contains(" perf ")),
         "{:?}",
         run.gate
     );

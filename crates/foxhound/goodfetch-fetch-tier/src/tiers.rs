@@ -246,6 +246,9 @@ struct ServedPage {
     /// The invalid-certificate exception its document's host was reached
     /// through (ADR 0042).
     certificate_exception: Option<CertificateExceptionMark>,
+    /// What the attempt it belongs to handed over: the navigation gate and
+    /// the lease its navigations and `page.request`s go through.
+    hand_over: Arc<HandOver>,
 }
 
 /// A document a fetch answered, read as a served page holds it: its text,
@@ -750,12 +753,12 @@ impl FetchTiers {
                 ),
             }));
         }
-        self.open_served(tier, run, choice, fetched, hand_over.encoding)
+        self.open_served(tier, run, choice, fetched, (hand_over, hand_over.encoding))
     }
 
     /// Opens a page served from `fetched` on `tier` for `run`, its calls
-    /// served as `choice` says, its document read with `forced` from
-    /// `fetch.encoding`.
+    /// served as `choice` says and gated by `hand_over`, the attempt's, its
+    /// document read with `forced` from `fetch.encoding`.
     ///
     /// # Errors
     ///
@@ -768,7 +771,7 @@ impl FetchTiers {
         run: &Run,
         choice: &TierChoice,
         fetched: crate::driver::Fetched,
-        forced: Option<&'static Encoding>,
+        (hand_over, forced): (&Arc<HandOver>, Option<&'static Encoding>),
     ) -> Result<PageId, Stop> {
         let status = fetched.status;
         let (url, headers, body) = (
@@ -816,6 +819,7 @@ impl FetchTiers {
                 read: opened.read,
                 own: Some((response, body)),
                 certificate_exception,
+                hand_over: Arc::clone(hand_over),
             },
         );
         pages.opened(&page_id, opened);
@@ -907,7 +911,7 @@ impl FetchTiers {
             // exception is taken on this tier.
             certificate_exception: None,
         };
-        self.open_served(tier, run, choice, fetched, None)
+        self.open_served(tier, run, choice, fetched, (hand_over, None))
     }
 
     /// Whether a Run's resolved `settings` let its crawl take the

@@ -593,24 +593,26 @@ fn page_request_on_a_document_tier_drops_authorization_across_origins_and_body_h
     );
 }
 
-/// A page the `http` tier serves past its work item's lease sends nothing
-/// more (ADRs 0003 and 0087; story 5-135): once the lease ended, its
-/// `page.request` and its `goto` are refused with `attempt_ended` and the
-/// site gets neither.
+/// A `page.request` from a page the `http` tier serves holds its
+/// attempt's lease while it waits for its permit (ADR 0093): the wait,
+/// its domain's delay between starts, lasts longer than the lease was
+/// granted for, the lease is renewed through it, and the request is sent
+/// and answered while the attempt still holds its lease, which then
+/// commits, never timed out.
 ///
-/// The lease is the 1 s handler timeout plus its 10 s margin, in real time:
-/// a test of the binary sets short durations through settings (TESTING.md,
-/// "Time"), and the handler waits out the lease it set.
+/// The lease is the 1 s handler timeout plus its 10 s margin, and the
+/// delay 12 s, in real time: a test of the binary sets short durations
+/// through settings (TESTING.md, "Time").
 ///
-/// Covers: story:5-135, error:attempt_ended, setting:timeout.handler, operation:page.request, operation:page.goto
+/// Covers: story:5-135, setting:timeout.handler, setting:politeness.domain.delay, operation:page.request
 #[test]
-fn a_served_page_past_its_work_items_lease_sends_nothing_more() {
+fn a_served_pages_request_waiting_for_its_permit_holds_its_attempts_lease() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
     let url = |path: &str| proving_ground.url(STATIC_HOST, path);
 
-    let mut refused = Vec::new();
+    let mut statuses = Vec::new();
     crawl_declaring(
         &mut engine,
         "tiers-lease",
@@ -620,31 +622,37 @@ fn a_served_page_past_its_work_items_lease_sends_nothing_more() {
             &proving_ground,
             &json!({
                 "fetch": { "tier": "http" },
-                // A lease of 1 s plus the 10 s margin.
+                // A lease of 1 s plus the 10 s margin, shorter than the
+                // delay.
                 "timeout": { "handler": 1_000 },
+                "politeness": { "domain": { "delay": 12_000 } },
                 "crawl": { "retry": { "max": 0 } },
                 "site_preferences": { "respect_robots_txt": false },
             }),
         ),
         &mut |inside, handle| {
-            let page_id = handle["page_id"].clone();
-            std::thread::sleep(Duration::from_secs(12));
-            for (method, path) in [("page.request", "/catalog/2"), ("page.goto", "/catalog/3")] {
-                let answer = inside.call(method, &json!({ "page_id": page_id, "url": url(path) }));
-                refused.push(answer["error"]["data"]["code"].clone());
-            }
+            let got = inside.call(
+                "page.request",
+                &json!({ "page_id": handle["page_id"], "url": url("/catalog/2") }),
+            );
+            statuses.push(got["result"]["status"].clone());
             json!({ "result": { "records": [] } })
         },
     );
+    let ended = outcomes(&mut engine, "tiers-lease");
     assert!(engine.finish());
 
     assert_eq!(
         (
-            refused,
+            statuses,
+            ended,
             requests_for(&proving_ground, STATIC_HOST, "/catalog/2").len(),
-            requests_for(&proving_ground, STATIC_HOST, "/catalog/3").len(),
         ),
-        (vec![json!("attempt_ended"); 2], 0, 0)
+        (
+            vec![json!(200)],
+            vec![(url(STATIC_PATH), json!("succeeded"), Value::Null)],
+            1,
+        )
     );
 }
 

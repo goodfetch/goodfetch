@@ -20,16 +20,20 @@
 //!   fetched over the same tier through the gate (the `navigation`
 //!   module);
 //! - `page.request`, sent through the Session's HTTP transport, through
-//!   the navigation gate of the attempt that handed its Run's pages over,
-//!   each redirect it follows taking its own permit, and never escalated;
-//!   its response's body is kept for `response.body`;
+//!   the navigation gate of the attempt the page belongs to, each redirect
+//!   it follows taking its own permit and Fetch's method, body and header
+//!   rules (the `redirects` module), and never escalated; its response's
+//!   body is kept for `response.body`;
 //! - `page.close`, which closes the page;
 //! - on `discovered_api`, `page.wait_for_response` and
 //!   `page.wait_for_request_finished`, answered from the calls the page's
 //!   next navigation replays (the `replayed` module).
 //!
 //! Any other call is one the tier cannot serve exactly. Once a call
-//! escalated, every later call on the page fails as it did.
+//! escalated, every later call on the page fails as it did. A navigation
+//! or a `page.request` checks the lease of the page's attempt before each
+//! hop it sends, and once that lease ended is withheld with the lease
+//! check's error, `attempt_ended` (ADRs 0003 and 0087).
 //!
 //! On a page holding no document, whose accepted response is no HTML
 //! (ADR 0119), every call the table says reads, waits on or acts on the
@@ -38,13 +42,13 @@
 //! the Run's folder once asked for.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use bytes::Bytes;
 use data_encoding::BASE64;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallError, GuardAnswer};
 use goodfetch_page::url_pattern::UrlPattern;
-use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::fetch::{RESPONSE_NOT_DOCUMENT, ResponseNotDocumentDetails};
 use goodfetch_protocol::page::events::{
     PAGE_WAIT_FOR_REQUEST_FINISHED, RESPONSE_BODY, ResponseBodyParams, WaitForRequestFinishedParams,
@@ -71,7 +75,8 @@ use url::Url;
 
 use super::{FetchTiers, ServedPage, lock};
 use crate::driver::{Fetched, Hop, fetch};
-use crate::gate::Gate;
+use crate::gate::{Gate, HandOver};
+use crate::redirects;
 use crate::served_calls::{Row, Verdict, verdict};
 use markup::{Shown, shown};
 use navigation::{Step, navigate};
@@ -408,10 +413,10 @@ pub(crate) fn matches(html: &str, selector: &str) -> Option<u64> {
 }
 
 /// `page.request` from the served page `page_id`, sent on its tier's HTTP
-/// transport through the navigation gate of the attempt that handed its
-/// Run's pages over, following up to its count of redirects as Fetch does,
-/// each hop through the gate; its response's body is kept for
-/// `response.body`.
+/// transport through the navigation gate of the attempt the page belongs
+/// to, following up to its count of redirects as Fetch does, each hop
+/// through the gate and checking that attempt's lease first; its
+/// response's body is kept for `response.body`.
 async fn request(
     tiers: &FetchTiers,
     page_id: &PageId,
@@ -419,23 +424,19 @@ async fn request(
     params: PageRequestParams,
 ) -> Result<PageResponse, CallError> {
     let run = page.document.run.clone();
-    let fetched = sent(tiers, page_id, &page, &params).await?;
+    let fetched = sent(&page, &params).await?;
     answered(tiers, page_id, &run, fetched).await
 }
 
-/// What a request `params` of the served page `page_id`, `page`, was
-/// answered, its redirects followed as `page.request` follows them,
-/// each hop through the navigation gate.
+/// What a request `params` of the served page `page` was answered, its
+/// redirects followed as `page.request` follows them, with Fetch's method,
+/// body and header rules, each hop through the navigation gate of the
+/// page's own attempt, and sent only while that attempt's lease holds.
 ///
 /// # Errors
 ///
-/// As [`request`]'s.
-async fn sent(
-    tiers: &FetchTiers,
-    page_id: &PageId,
-    page: &ServedPage,
-    params: &PageRequestParams,
-) -> Result<Fetched, CallError> {
+/// As [`request`]'s, and `attempt_ended` once the attempt's lease ended.
+async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, CallError> {
     let max_redirects = params.max_redirects.unwrap_or(MAX_REDIRECTS);
     if max_redirects > MAX_REDIRECTS {
         return Err(CallError::new(
@@ -451,29 +452,32 @@ async fn sent(
         ));
     }
     let run = page.document.run.clone();
-    let hand_over = tiers
-        .handed_over(run.id())
-        .ok_or_else(|| outlived(page_id))?;
-    let gate = Gate::new(hand_over);
+    let hand_over = &page.hand_over;
+    let gate = Gate::new(Arc::clone(hand_over));
     let Asked {
-        mut url,
-        mut method,
+        url,
+        method,
         headers,
-        mut body,
+        body,
     } = asked(params)?;
-    let mut chain = vec![url.to_string()];
+    let mut hop = Hop {
+        url,
+        read: Hop::idempotent(&method),
+        method,
+        headers,
+        body,
+    };
+    let mut chain = vec![hop.url.to_string()];
     loop {
-        let permit = gate
-            .admitted(&url)
-            .await
-            .map_err(|refusal| refused(url.as_str(), &refusal))?;
-        let hop = Hop {
-            url: url.clone(),
-            read: Hop::idempotent(&method),
-            method: method.clone(),
-            headers: headers.clone(),
-            body: body.clone(),
+        leased(hand_over, PAGE_REQUEST.name)?;
+        let permit = {
+            let _waiting = hand_over.lease.permit_wait(hop.url.as_str());
+            gate.admitted(&hop.url)
+                .await
+                .map_err(|refusal| refused(hop.url.as_str(), &refusal))?
         };
+        // The wait for the permit may outlast the lease.
+        leased(hand_over, PAGE_REQUEST.name)?;
         let fetched = fetch(
             page.http.transport.as_ref(),
             &hop,
@@ -483,8 +487,7 @@ async fn sent(
         .await;
         drop(permit);
         let fetched = fetched?;
-        let next = location(&fetched);
-        match next {
+        match location(&fetched) {
             // A count of 0 answers the 3xx itself.
             Some(_) if max_redirects == 0 => {}
             Some(next) => {
@@ -492,21 +495,35 @@ async fn sent(
                     return Err(too_many_redirects(&chain, max_redirects));
                 }
                 // Fetch's method rule: a 303 turns any method but `HEAD`
-                // into a `GET`, and a 301 or 302 a `POST`, dropping the body.
-                if (fetched.status == 303 && method != http::Method::HEAD)
-                    || (matches!(fetched.status, 301 | 302) && method == http::Method::POST)
-                {
-                    method = http::Method::GET;
-                    body = None;
-                }
-                chain.push(next.to_string());
-                url = next;
+                // into a `GET`, and a 301 or 302 a `POST`, dropping the
+                // body and its headers; `Authorization` is removed once a
+                // hop goes to another origin (the `redirects` module).
+                let to_get = (fetched.status == 303 && hop.method != http::Method::HEAD)
+                    || (matches!(fetched.status, 301 | 302) && hop.method == http::Method::POST);
+                hop = redirects::hop_to(&hop, next, to_get);
+                hop.read = Hop::idempotent(&hop.method);
+                chain.push(hop.url.to_string());
                 continue;
             }
             None => {}
         }
         return Ok(fetched);
     }
+}
+
+/// Whether the lease of `hand_over`, the attempt a served page belongs
+/// to, still holds, so the page may send its call `operation` (ADRs 0003
+/// and 0087).
+///
+/// # Errors
+///
+/// The error the lease check withholds the call with once it ended:
+/// `attempt_ended`.
+pub(super) fn leased(hand_over: &HandOver, operation: &str) -> Result<(), CallError> {
+    hand_over
+        .lease
+        .check()
+        .map_err(|ended| hand_over.lease.withheld(ended, operation))
 }
 
 /// What a `page.request` asks for: its first hop's URL, method, headers and
@@ -621,16 +638,6 @@ pub(in crate::tiers) fn page_response(
         request_id,
         from_service_worker: false,
     }
-}
-
-/// `closed` for a call on the served page `page_id` after the attempt
-/// that handed it over ended.
-fn outlived(page_id: &PageId) -> CallError {
-    CallError::new(
-        &CLOSED,
-        format!("the page `{}` outlived its attempt", page_id.0),
-        &json!({ "page_id": page_id }),
-    )
 }
 
 /// `navigation_failed` for a request to `url` that could not be sent.

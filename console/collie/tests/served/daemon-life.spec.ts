@@ -58,25 +58,34 @@ async function running(daemon: ServedDaemon): Promise<boolean> {
 test(
   "a visible Console tab keeps the Daemon running past its idle time, and a hidden one does not",
   { annotation: [{ type: "covers", description: "story:12-6" }] },
-  async ({ page, context, daemon, signIn }) => {
+  async ({ page, daemon, signIn }) => {
     await restartedWithAShortIdleTime(daemon);
     await signIn.withLink(page);
     await expect(page.getByText("Connected to Collie", { exact: false })).toBeVisible();
 
-    // The Daemon runs on, the tab visible, until three idle times passed.
+    // The Daemon runs on, the tab visible, past three idle times. Each
+    // `daemon status` is a Client of its own, so the checks come further
+    // apart than the idle time: between two of them, only the tab is.
     const shown = Date.now();
     await expect
       .poll(async () => (await running(daemon)) && Date.now() - shown > 3 * IDLE, {
         timeout: STOPS,
+        intervals: [3 * IDLE],
       })
       .toBe(true);
 
-    // Another tab in front hides the Console's, as a person switching tabs does.
-    const other = await context.newPage();
-    await other.bringToFront();
-    await expect.poll(() => page.evaluate(() => document.visibilityState)).toBe("hidden");
+    // The page turns hidden, as a tab behind another does; headless Chromium
+    // keeps every page visible, and no Playwright or CDP call hides one.
+    await page.evaluate(() => {
+      // oxlint-disable-next-line no-restricted-properties -- the only way to hide a page in headless Chromium; the Console reads `document.visibilityState` and its change event (ADR 0031).
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "hidden",
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
 
-    await expect.poll(() => running(daemon), { timeout: STOPS }).toBe(false);
+    await expect.poll(() => running(daemon), { timeout: STOPS, intervals: [3 * IDLE] }).toBe(false);
   },
 );
 

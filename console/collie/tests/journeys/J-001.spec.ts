@@ -87,7 +87,11 @@ journey("J-001", "console", async ({ step, check, cli, daemon, page }) => {
 
   await step("Close the Console and wait past the idle time", async () => {
     await page.close();
-    await expect.poll(async () => field(await status(), "pid"), { timeout: STOPS }).toBeNull();
+    // Each `daemon status` is a Client of its own: the checks come further
+    // apart than the idle time, so the Daemon has its idle time between them.
+    await expect
+      .poll(async () => field(await status(), "pid"), { timeout: STOPS, intervals: [3 * IDLE] })
+      .toBeNull();
   });
 
   await check(

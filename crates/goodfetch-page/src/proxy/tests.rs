@@ -81,7 +81,7 @@ fn only_a_response_the_proxy_forwarded_can_be_its_own(
 #[case::the_relay_answered(crate::egress_relay::serve::Met::Unreachable, Party::Proxy)]
 #[case::the_proxy_refused_the_tunnel(crate::egress_relay::serve::Met::Refused, Party::Proxy)]
 #[case::the_relay_reached_the_proxy(crate::egress_relay::serve::Met::Reached, Party::Site)]
-fn a_socks5_response_the_relay_wrote_is_the_proxys(
+fn a_socks5_response_the_relay_wrote_belongs_to_the_proxy(
     #[case] met: crate::egress_relay::serve::Met,
     #[case] expected: Party,
 ) {

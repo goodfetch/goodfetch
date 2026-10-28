@@ -170,7 +170,7 @@ fn through_the_proxy_a_name_that_resolves_privately_is_refused_before_the_proxy_
 ///
 /// Covers: story:4-16, error:egress_refused, setting:egress.no_private_endpoints
 #[test]
-fn the_proxys_own_address_is_held_by_no_private_endpoints_before_any_connection() {
+fn the_proxy_address_itself_is_held_by_no_private_endpoints_before_any_connection() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let public = target(&proving_ground);

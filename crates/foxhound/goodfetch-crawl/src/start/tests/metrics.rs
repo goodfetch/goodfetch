@@ -33,8 +33,8 @@ fn value_of(registry: &prometheus::Registry, name: &str) -> Option<f64> {
 
 /// Each work item waiting in its domain's queue counts in
 /// `goodfetch.work_item.queued` until it is leased: three pages of one
-/// domain, admitted one at a time, leave two, then one, then none queued,
-/// and the crawl that ended counts none.
+/// domain, admitted one at a time to a handler of concurrency 1, leave two,
+/// then one, then none queued, and the crawl that ended counts none.
 ///
 /// Covers: story:3-103
 #[test]
@@ -58,7 +58,7 @@ fn a_crawl_counts_the_work_items_its_domain_queues_hold() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "queued", "seeds": seeds(3) }),
+                    json!({ "run_id": "queued", "seeds": seeds(3), "settings": { "crawl": { "handler": { "concurrency": 1 } } } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;

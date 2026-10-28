@@ -11,7 +11,7 @@
 
 use std::borrow::Cow;
 use std::fmt;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -179,6 +179,20 @@ impl ProductVersion {
     /// The version as written.
     pub fn as_str(&self) -> &str {
         &self.text
+    }
+
+    /// A listener's address on loopback that belongs to this version's
+    /// major alone: port `release_base` plus the major, or `preview_base`
+    /// plus the minor during `0.y` previews, where each minor counts as a
+    /// major (ADR 0030).
+    pub(crate) fn loopback_of_its_major(&self, release_base: u16, preview_base: u16) -> SocketAddr {
+        let number = |number: u64| u16::try_from(number).ok();
+        let port = match (number(self.major), number(self.minor)) {
+            (Some(0), Some(minor)) => preview_base.saturating_add(minor),
+            (Some(major), _) => release_base.saturating_add(major),
+            (None, _) => release_base,
+        };
+        SocketAddr::from((Ipv4Addr::LOCALHOST, port))
     }
 }
 

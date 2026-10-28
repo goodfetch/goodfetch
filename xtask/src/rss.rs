@@ -9,6 +9,7 @@
 //! 0134), which never gates.
 
 mod ceilings;
+pub(crate) mod crawl;
 mod measure;
 pub(crate) mod peak;
 pub(crate) mod peaks;
@@ -106,6 +107,9 @@ pub(crate) struct ProbeArguments {
     /// The Product the scenario's Client needs: the executable's own.
     #[arg(long, value_parser = peaks::parse_product)]
     needs: Option<goodfetch_protocol::catalog::Product>,
+    /// The address of the Proving ground the crawl crawls, `<ip>:<port>`.
+    #[arg(long)]
+    address: Option<String>,
     /// The program and its arguments.
     #[arg(last = true, required = true)]
     command: Vec<std::ffi::OsString>,
@@ -137,8 +141,11 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             Ok(check::report(&findings))
         }
         Command::Probe(arguments) => {
-            let bytes =
-                measure::probe(arguments.scenario.zip(arguments.needs), &arguments.command)?;
+            let bytes = measure::probe(
+                arguments.scenario.zip(arguments.needs),
+                arguments.address.as_deref(),
+                &arguments.command,
+            )?;
             output::line(&format!("peak-bytes={bytes}"));
             Ok(ExitCode::SUCCESS)
         }

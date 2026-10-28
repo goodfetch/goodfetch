@@ -5,6 +5,7 @@
 //! `xtask rss propose` turns 20 runs into ceilings at 1.5 times the highest
 //! peak, rounded up to a whole MiB. Peaks and ceilings are fixtures here.
 
+use goodfetch_test_support::Tool;
 use rstest::rstest;
 
 use crate::workspace::{Outcome, Workspace, finding};
@@ -461,5 +462,130 @@ fn measure_refuses_a_manifest_without_an_executable_the_scenario_runs_on() {
     ]);
 
     assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert_eq!(workspace.read("target/rss/peaks.jsonl"), None);
+}
+
+/// The test tool manifest of the commit's executables the scenarios run,
+/// which `just test` builds, as `xtask rss measure` reads it.
+fn real_tools(workspace: &Workspace) {
+    let tools = goodfetch_test_support::tools().unwrap();
+    let manifest = serde_json::json!({
+        "collie": tools.path(Tool::Collie).unwrap(),
+        "foxhound": tools.path(Tool::Foxhound).unwrap(),
+        "proving_ground": tools.path(Tool::ProvingGround).unwrap(),
+    });
+    workspace.write("target/test-tools.json", manifest.to_string().as_bytes());
+}
+
+fn measure(workspace: &Workspace, scenario: &str) -> Outcome {
+    workspace.xtask(&[
+        "rss",
+        "measure",
+        scenario,
+        "--tools",
+        "target/test-tools.json",
+        "--out",
+        "target/rss/peaks.jsonl",
+    ])
+}
+
+/// The peaks file's lines as (Product, scenario, bytes).
+fn measured(workspace: &Workspace) -> Vec<(String, String, u64)> {
+    workspace
+        .read_text("target/rss/peaks.jsonl")
+        .lines()
+        .map(|line| {
+            let peak: serde_json::Value = serde_json::from_str(line).unwrap();
+            (
+                peak["product"].as_str().unwrap().to_owned(),
+                peak["scenario"].as_str().unwrap().to_owned(),
+                peak["bytes"].as_u64().unwrap(),
+            )
+        })
+        .collect()
+}
+
+fn subjects(peaks: &[(String, String, u64)]) -> Vec<(&str, &str)> {
+    peaks
+        .iter()
+        .map(|(product, scenario, _)| (product.as_str(), scenario.as_str()))
+        .collect()
+}
+
+/// Each Product's Daemon is started, waited for until it prints its
+/// runtime file, stopped over its own endpoint and measured once it exited:
+/// the probe fails on a Daemon that is not stopped cleanly.
+#[test]
+fn the_idle_daemon_scenario_measures_each_products_daemon_once_stopped() {
+    let workspace = Workspace::from_fixture("empty");
+    real_tools(&workspace);
+
+    let outcome = measure(&workspace, "idle-daemon");
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let peaks = measured(&workspace);
+    assert_eq!(
+        subjects(&peaks),
+        [("collie", "idle-daemon"), ("foxhound", "idle-daemon")]
+    );
+    // A running Daemon holds well over a mebibyte.
+    assert!(peaks.iter().all(|(_, _, bytes)| *bytes > MIB), "{peaks:?}");
+}
+
+/// A child that prints no runtime file is no Daemon to measure.
+#[cfg(unix)]
+#[test]
+fn the_idle_daemon_scenario_fails_on_a_child_that_prints_no_runtime_file() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = workspace.xtask(&[
+        "rss",
+        "probe",
+        "--scenario",
+        "idle-daemon",
+        "--needs",
+        "collie",
+        "--",
+        "sh",
+        "-c",
+        "echo not-a-runtime-file",
+    ]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert_eq!(outcome.stdout, "");
+}
+
+/// Foxhound's executable crawls the 1,000-page site of a Proving ground
+/// `measure` serves outside the probe, so the peak is the engine's alone;
+/// the probe fails on a crawl that does not finish complete.
+#[test]
+fn the_crawl_scenario_measures_foxhounds_crawl_of_the_proving_ground() {
+    let workspace = Workspace::from_fixture("empty");
+    real_tools(&workspace);
+
+    let outcome = measure(&workspace, "crawl");
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let peaks = measured(&workspace);
+    assert_eq!(subjects(&peaks), [("foxhound", "crawl")]);
+    assert!(peaks[0].2 > MIB, "{peaks:?}");
+}
+
+#[test]
+fn the_crawl_scenario_refuses_a_manifest_without_the_proving_ground() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "target/test-tools.json",
+        b"{\"collie\": \"/nonexistent/goodfetch-collie\", \"foxhound\": \"/nonexistent/goodfetch-foxhound\"}\n",
+    );
+
+    let outcome = measure(&workspace, "crawl");
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert!(
+        outcome.stderr.contains("Proving ground"),
+        "{}",
+        outcome.stderr
+    );
     assert_eq!(workspace.read("target/rss/peaks.jsonl"), None);
 }

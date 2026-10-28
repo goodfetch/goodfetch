@@ -6,75 +6,26 @@
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
 )]
 
-use std::io::{BufRead as _, BufReader};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, Result, bail};
-use serde::Deserialize;
 use serde_json::Value;
 
 use crate::output;
+use crate::rss::crawl::{HOST, serve};
 
 use super::same_work;
-use super::trial::HOST;
 use super::trials::{
     CONCURRENCY, Comparison, Declared, Machine, SITE_PAGES, SPIDER_VERSION, STATISTIC, TRIALS,
     Tool, Trial,
 };
-
-/// The Proving ground's seed.
-const SEED: u64 = 1574;
 
 /// The executables a run takes.
 pub(crate) struct Executables<'a> {
     pub(crate) proving_ground: &'a Path,
     pub(crate) foxhound: &'a Path,
     pub(crate) spider: &'a Path,
-}
-
-/// A Proving ground serving for one trial, stopped when dropped.
-struct Serving {
-    child: Child,
-    address: String,
-}
-
-impl Drop for Serving {
-    fn drop(&mut self) {
-        // A trial's Proving ground holds nothing worth a clean stop.
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-#[derive(Deserialize)]
-struct ServeLine {
-    address: String,
-}
-
-fn serve(proving_ground: &Path) -> Result<Serving> {
-    let mut child = Command::new(proving_ground)
-        .args(["serve", "--seed", &SEED.to_string(), "--copy", "local"])
-        .args(["--address", "127.0.0.1:0", "--network-profile", "none"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("starting the Proving ground")?;
-    let mut line = String::new();
-    let stdout = child.stdout.take().context("its stdout is piped")?;
-    BufReader::new(stdout)
-        .read_line(&mut line)
-        .context("reading the Proving ground's first line")?;
-    // Stopped on drop from here, even when its line is not one.
-    let mut serving = Serving {
-        child,
-        address: String::new(),
-    };
-    let first: ServeLine = serde_json::from_str(&line)
-        .with_context(|| format!("the Proving ground's first line: {}", line.trim_end()))?;
-    serving.address = first.address;
-    Ok(serving)
 }
 
 /// `SplitMix64`, for the trials' order: nothing here needs more.

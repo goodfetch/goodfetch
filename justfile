@@ -833,8 +833,9 @@ release-ci cells="all" commit="":
 
 # The resident-memory check (ADRs 0071, 0094 and 0134): builds both Products'
 # executables with the `ci` profile the Release suite's cells build, runs the
-# scenario (every scenario when none is named: idle-attached-engine) on each
-# executable it runs on, then holds each peak to its ceiling in
+# scenario (every scenario when none is named: idle-attached-engine,
+# idle-daemon and crawl, the last on Foxhound against a Proving ground it
+# serves) on each executable it runs on, then holds each peak to its ceiling in
 # ci/rss-ceilings.toml and shows it against its Performance target. With no
 # ceilings file it reports and gates nothing. The JUnit file and the figures
 # the results store keeps go to target/junit/.
@@ -875,8 +876,9 @@ compare-spider profile="release":
 
 # The Performance targets report (ADR 0134), on the owner's machine before
 # each owner test: each Product's release build, its startup to `hello`
-# with hyperfine (10 warm-up runs, then 100; median) and its idle Attached
-# engine's peak (median of 5 runs), with the crawl figures of the latest
+# with hyperfine (10 warm-up runs, then 100; median), and its idle Attached
+# engine's, idle Daemon's and (Foxhound's) 1,000-page crawl's peaks (median
+# of 5 runs each), with the pages per second of the latest
 # `just compare-spider` report. Writes target/targets/report.md: each
 # target, its figure, met or missed with its gap and the optimization
 # pass's write-up from ci/performance-target-gaps.toml. Labelled
@@ -886,7 +888,7 @@ targets:
     cargo run --quiet -p xtask -- test-tools --cargo-profile release --out "$PWD/target/targets/test-tools.json"
     rm -f target/targets/peaks.jsonl target/targets/startup-*.json
     cargo run --quiet -p xtask -- targets startup --tools target/targets/test-tools.json --out target/targets
-    cargo run --quiet -p xtask -- rss measure idle-attached-engine --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
+    cargo run --quiet -p xtask -- rss measure idle-attached-engine idle-daemon crawl --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
     cargo run --quiet -p xtask -- targets report --measured target/targets
 
 # The counted performance figures of what changed, against `base` (the merge

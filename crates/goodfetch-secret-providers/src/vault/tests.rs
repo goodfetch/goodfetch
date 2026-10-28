@@ -3,16 +3,9 @@
 //! and `OpenBao` 2.4.1 dev servers, and one for a failure it is not; the
 //! field a successful read answers; and the server's own text, planted as
 //! a Secret canary, in no log line and no formatted failure.
-#![expect(
-    clippy::disallowed_types,
-    reason = "the test's log writer holds its bytes behind a standard Mutex, outside any loom model"
-)]
-
-use std::io;
-use std::sync::{Arc, Mutex};
 
 use goodfetch_engine::secrets::ProviderFailure;
-use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
+use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv, logged};
 use rstest::rstest;
 use secrecy::ExposeSecret as _;
 
@@ -110,31 +103,6 @@ fn a_successful_reads_field_is_its_value(#[case] field: &str, #[case] expected: 
 #[case::a_query("https://vault.example.com/?token=x", false)]
 fn a_servers_address_is_https_or_loopback_http(#[case] address: &str, #[case] taken: bool) {
     assert_eq!(server_url(address).is_ok(), taken, "{address}");
-}
-
-/// What `tracing` wrote while `work` ran, at every level.
-fn logged<T>(work: impl FnOnce() -> T) -> (T, Vec<u8>) {
-    #[derive(Clone, Default)]
-    struct Captured(Arc<Mutex<Vec<u8>>>);
-    impl io::Write for Captured {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-    let captured = Captured::default();
-    let writer = captured.clone();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(move || writer.clone())
-        .with_max_level(tracing::Level::TRACE)
-        .with_ansi(false)
-        .finish();
-    let answer = tracing::subscriber::with_default(subscriber, work);
-    let bytes = captured.0.lock().unwrap().clone();
-    (answer, bytes)
 }
 
 /// Covers: story:4-50

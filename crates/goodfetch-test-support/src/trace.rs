@@ -5,10 +5,15 @@
 //! and the engine's outcome records (each Error code a Run recorded and no
 //! reply carries) as JSON lines into the running test's exercise record,
 //! which ADR 0072's audit reads for an in-process test over the in-memory
-//! transport.
+//! transport. `logged` captures what `tracing` wrote while a closure ran.
+#![expect(
+    clippy::disallowed_types,
+    reason = "a `tracing` writer cannot await: one Mutex guards the bytes `logged` captured, with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
+)]
 
 use std::fmt;
-use std::sync::Arc;
+use std::io;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::SystemTime;
 
 use tracing_subscriber::Layer as _;
@@ -77,6 +82,43 @@ where
                 .with_filter(LevelFilter::INFO),
         )
         .with(record)
+}
+
+/// What `tracing` wrote while `work` ran, at every level and without
+/// colour, beside `work`'s answer: the bytes a test searches for what no
+/// log line may hold, such as a party's own text.
+pub fn logged<T>(work: impl FnOnce() -> T) -> (T, Vec<u8>) {
+    let captured = Captured::default();
+    let writer = captured.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(move || writer.clone())
+        .with_max_level(tracing::Level::TRACE)
+        .with_ansi(false)
+        .finish();
+    let answer = tracing::subscriber::with_default(subscriber, work);
+    let bytes = captured.bytes().clone();
+    (answer, bytes)
+}
+
+/// The bytes [`logged`]'s subscriber wrote, shared by its writers.
+#[derive(Clone, Default)]
+struct Captured(Arc<Mutex<Vec<u8>>>);
+
+impl Captured {
+    fn bytes(&self) -> MutexGuard<'_, Vec<u8>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl io::Write for Captured {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.bytes().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

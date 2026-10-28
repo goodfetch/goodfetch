@@ -297,3 +297,30 @@ fn symlink(original: &Path, link: &Path) -> io::Result<()> {
 fn symlink(original: &Path, link: &Path) -> io::Result<()> {
     std::os::windows::fs::symlink_file(original, link)
 }
+
+/// Lays out a stand-in entry of the build `build` in the Browser cache at
+/// `root`, installed and last used at `used_at`, as `browser clean` reads
+/// one: its files (a placeholder `chrome`), its lock and its `entry.json`.
+/// Answers its folder.
+///
+/// # Panics
+///
+/// When the folder cannot be written.
+pub fn lay_out_browser_entry(root: &Path, build: &str, used_at: &str) -> PathBuf {
+    let folder = root.join("browser").join("chrome-for-testing").join(build);
+    let written = (|| -> io::Result<()> {
+        fs::create_dir_all(folder.join("files"))?;
+        fs::write(folder.join("files").join("chrome"), "#!chrome\n")?;
+        fs::write(folder.join("lock"), "")?;
+        let entry = serde_json::json!({
+            "format_version": "0.1",
+            "artifact": { "kind": "browser", "name": "chrome-for-testing", "build": build },
+            "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "installed_at": used_at,
+            "used_at": used_at,
+        });
+        fs::write(folder.join("entry.json"), entry.to_string())
+    })();
+    written.unwrap_or_else(|error| panic!("the entry of `{build}` cannot be laid out: {error}"));
+    folder
+}

@@ -37,24 +37,6 @@ fn dns(proving_ground: &ProvingGround) -> Dns {
     )
 }
 
-/// The source address of each query the DNS fixture received for `name`.
-fn query_sources(observations: &Value, name: &str) -> Vec<IpAddr> {
-    observations["dns_queries"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|query| query["name"] == name)
-        .map(|query| {
-            query["source"]
-                .as_str()
-                .unwrap()
-                .parse::<SocketAddr>()
-                .unwrap()
-                .ip()
-        })
-        .collect()
-}
-
 /// The source address of each connection the watched target accepted.
 fn target_sources(observations: &Value) -> Vec<IpAddr> {
     observations["connections"]
@@ -122,10 +104,10 @@ async fn a_fetch_through_a_session_bound_to_a_loopback_alias_leaves_from_it_and_
         (
             status.ok(),
             target_sources(&observations),
-            query_sources(&observations, "1.catalog.test")
+            ProvingGround::dns_query_sources(&observations, "1.catalog.test")
                 .into_iter()
                 .all(|source| source == IpAddr::V4(BOUND)),
-            query_sources(&observations, "1.catalog.test").is_empty(),
+            ProvingGround::dns_query_sources(&observations, "1.catalog.test").is_empty(),
         ),
         (Some(200), vec![IpAddr::V4(BOUND)], true, false)
     );
@@ -179,10 +161,10 @@ async fn a_bindings_lookup_and_connection_leave_from_the_sessions_address() {
             found,
             connected.is_ok(),
             target_sources(&observations),
-            query_sources(&observations, "3.catalog.test")
+            ProvingGround::dns_query_sources(&observations, "3.catalog.test")
                 .into_iter()
                 .all(|source| source == IpAddr::V4(BOUND)),
-            query_sources(&observations, "3.catalog.test").is_empty(),
+            ProvingGround::dns_query_sources(&observations, "3.catalog.test").is_empty(),
             other_family,
         ),
         (
@@ -221,11 +203,12 @@ async fn the_engines_resolver_sends_a_sessions_queries_from_its_local_address() 
     assert_eq!(
         (
             from_bound,
-            query_sources(&observations, "1.catalog.test")
+            ProvingGround::dns_query_sources(&observations, "1.catalog.test")
                 .into_iter()
                 .all(|source| source == IpAddr::V4(BOUND)),
             from_unbound.is_ok(),
-            query_sources(&observations, "2.catalog.test").contains(&IpAddr::V4(BOUND)),
+            ProvingGround::dns_query_sources(&observations, "2.catalog.test")
+                .contains(&IpAddr::V4(BOUND)),
         ),
         (
             Ok(Resolution::Addresses {

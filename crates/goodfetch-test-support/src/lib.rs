@@ -6,7 +6,8 @@
 //! test tool manifest, `JourneyRun`, which runs a Rust Journey variant and
 //! writes its result document through the constructor its test passes, the
 //! paused runtime, proptest's configuration, the
-//! test `tracing` subscriber, the Observation log with its fencing and
+//! test `tracing` subscriber and `logged`, which captures what `tracing`
+//! wrote, the size-capped tmpfs a test fills on Linux, the Observation log with its fencing and
 //! Limits checkers, seeded kills of real processes and the crash VFS under
 //! SQLite (ADR 0060), the byte-stable SQL dump of a SQLite store (ADR 0066), the strict reader of a child's JSON-RPC stdout
 //! (ADR 0070), `fuzz_replay!`, the replay of a fuzz target's seeds and past
@@ -82,6 +83,7 @@ mod special_purpose;
 mod sql_dump;
 mod ssrf;
 mod strict_stdout;
+mod tmpfs;
 mod tools;
 mod trace;
 mod transition_tables;
@@ -96,7 +98,7 @@ mod variables;
 pub use browsers::{
     BROWSERS_PATH_VARIABLE, BrowserCacheError, CHROME_FOR_TESTING_BUILD, LIGHTPANDA_BUILD,
     LIGHTPANDA_DOWNLOADS_VARIABLE, browser_cache, browser_cache_in_home,
-    browser_cache_with_lightpanda, lightpanda_copy,
+    browser_cache_with_lightpanda, lay_out_browser_entry, lightpanda_copy,
 };
 pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SHORT_VALUE,
@@ -191,8 +193,11 @@ pub use strict_stdout::{
     Line, MESSAGE_DEADLINE, STDERR_GRACE, STDERR_LIMIT, StrictStdout, StrictStdoutError,
     StrictStdoutErrorKind,
 };
+pub use tmpfs::{
+    fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted, tmpfs_mounted_home,
+};
 pub use tools::{Product, Tool, Tools, ToolsError, tools};
-pub use trace::{subscriber, subscriber_writing_to};
+pub use trace::{logged, subscriber, subscriber_writing_to};
 pub use transition_tables::refused_matches;
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 #[cfg(all(

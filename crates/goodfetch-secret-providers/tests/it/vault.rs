@@ -36,7 +36,7 @@ use goodfetch_protocol::secret_reference::{Provider, SecretReference};
 use goodfetch_protocol::secrets::SecretFailure;
 use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_secret_providers::Vault;
-use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
+use goodfetch_test_support::{Canaries, SecretKind, TestEnv};
 use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::{Request, Response, StatusCode};
@@ -44,7 +44,9 @@ use hyper_util::rt::TokioIo;
 use rstest::rstest;
 use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
 use secrecy::ExposeSecret as _;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
+
+use crate::support::{leaks, reference, runtime, table, unavailable};
 
 /// The token the stand-in takes; no real token's shape.
 const TOKEN: &str = "stand-in-token";
@@ -98,20 +100,6 @@ struct Fixture {
     password: String,
     /// The value planted as `shop/portal#pin`.
     pin: String,
-}
-
-/// A runtime whose clock is real (TESTING.md, Time): the stand-in's
-/// connections are no timers, so on the paused clock the driver's timeout
-/// would fire first. It drives the stand-in whenever a call blocks on it.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a test helper builds the runtime the test runs on (ADR 0062)"
-)]
-fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
 }
 
 /// The secret's fields, as the stand-in answers them.
@@ -276,13 +264,6 @@ fn fixture(tls: bool) -> Fixture {
     }
 }
 
-fn table(value: Value) -> Map<String, Value> {
-    match value {
-        Value::Object(map) => map,
-        _ => panic!("settings are a table"),
-    }
-}
-
 /// The machine's settings: the Operator policy's `policy`, and user
 /// configuration's `configuration`.
 fn machine_settings(policy: Value, configuration: Value) -> Resolved {
@@ -305,10 +286,6 @@ fn machine_settings(policy: Value, configuration: Value) -> Resolved {
         ..Layers::default()
     };
     resolve(&layers, Product::Collie, Product::Collie).unwrap()
-}
-
-fn reference(text: &str) -> SecretReference {
-    SecretReference::parse(text).unwrap()
 }
 
 impl Fixture {
@@ -410,38 +387,6 @@ impl Fixture {
     fn received(&self) -> usize {
         self.stand_in.received.load(Ordering::SeqCst)
     }
-
-    /// Every canary seen outside the stand-in's store: the home, with its
-    /// Audit log, and `held`, the test's other outputs.
-    fn leaks(&self, held: &[(&'static str, &[u8])]) -> Vec<String> {
-        let mut outputs = vec![Output::Path(self.env.home())];
-        outputs.extend(
-            held.iter()
-                .map(|(name, bytes)| Output::Bytes { name, bytes }),
-        );
-        self.canaries
-            .leaks(&outputs)
-            .unwrap()
-            .into_iter()
-            .map(|hit| format!("{hit:?}"))
-            .collect()
-    }
-}
-
-/// The failure and fix of a `secret_unavailable`, with its message.
-fn unavailable(answer: Result<secrecy::SecretString, SecretError>) -> (SecretFailure, String) {
-    match answer {
-        Err(error @ SecretError::Unavailable { .. }) => {
-            let message = error.to_string();
-            match error {
-                SecretError::Unavailable { failure, fix, .. } => {
-                    (failure, format!("{message} {fix}"))
-                }
-                _ => unreachable!(),
-            }
-        }
-        other => panic!("expected `secret_unavailable`, found {:?}", other.err()),
-    }
 }
 
 const PASSWORD: &str = "vault:secret/shop/portal#password";
@@ -476,7 +421,11 @@ fn a_planted_value_resolves_through_vault_and_is_found_in_no_output(#[case] serv
             pin.expose_secret() == fixture.pin,
             absent_field,
             absent_secret,
-            fixture.leaks(&[("formatted", formatted.as_bytes())]),
+            leaks(
+                &fixture.canaries,
+                &fixture.env,
+                &[("formatted", formatted.as_bytes())]
+            ),
         ),
         (
             true,
@@ -517,7 +466,11 @@ fn a_vault_server_on_a_private_address_is_refused_only_under_no_private_endpoint
                 failure,
                 message.contains("egress.no_private_endpoints"),
                 fixture.received(),
-                fixture.leaks(&[("message", message.as_bytes())]),
+                leaks(
+                    &fixture.canaries,
+                    &fixture.env,
+                    &[("message", message.as_bytes())]
+                ),
             ),
             (SecretFailure::ProviderFailed, true, 0, Vec::<String>::new()),
             "{message}"
@@ -605,7 +558,11 @@ fn a_refused_token_or_a_sealed_server_fails_naming_it_and_no_value(
         (
             failure,
             message.contains(PASSWORD) && message.contains(fix_names),
-            fixture.leaks(&[("message", message.as_bytes())]),
+            leaks(
+                &fixture.canaries,
+                &fixture.env,
+                &[("message", message.as_bytes())]
+            ),
         ),
         (SecretFailure::ProviderFailed, true, Vec::<String>::new()),
         "{message}"

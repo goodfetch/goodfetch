@@ -48,7 +48,7 @@ use crate::attached::{Attached, hello};
 use crate::daemon::RawClient;
 use crate::daemon_run::{ANY_PORT, Foreground};
 use crate::ops::{get, series};
-use crate::tmpfs::{fill, free, inside, mounted_home};
+use goodfetch_test_support::{fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted_home};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -87,7 +87,7 @@ impl<'env> Engine<'env> {
         let mut engine = match mode {
             Mode::Attached => {
                 env.user_configuration(settings);
-                let mut command = mounted_home(env, SIZE, COLLIE);
+                let mut command = tmpfs_mounted_home(env, SIZE, COLLIE);
                 command.arg("attached-engine");
                 let mut engine =
                     Self::Attached(Attached::spawned(env, MESSAGE_DEADLINE, &mut command));
@@ -97,12 +97,12 @@ impl<'env> Engine<'env> {
             }
             Mode::Daemon => {
                 env.user_configuration(&format!("{settings}daemon.address = \"{ANY_PORT}\"\n"));
-                let mut command = mounted_home(env, SIZE, COLLIE);
+                let mut command = tmpfs_mounted_home(env, SIZE, COLLIE);
                 command.args(["daemon", "run"]);
                 let mut daemon = Foreground::spawned(env, &mut command);
                 let endpoint = daemon.serving();
                 let pid = daemon.process.child().id();
-                let token = std::fs::read_to_string(inside(
+                let token = std::fs::read_to_string(inside_mount(
                     pid,
                     &env.home().join("0.0").join("daemon.token"),
                 ))
@@ -199,7 +199,7 @@ fn warnings(report: &Value) -> Vec<Value> {
 }
 
 fn exists(pid: u32, path: &Path) -> bool {
-    inside(pid, path).exists()
+    inside_mount(pid, path).exists()
 }
 
 /// Low: crossing `storage.low_free` leaves the Run working, its progress
@@ -216,9 +216,9 @@ fn past_low_free_a_run_goes_on_and_carries_storage_low(#[case] mode: Mode) {
     let pid = engine.pid();
 
     let started = engine.call(1, "run.start", &json!({ "run_id": "low" }));
-    let filler = fill(pid, env.home(), LOW_ROOM);
+    let filler = fill_filesystem(pid, env.home(), LOW_ROOM);
     let low = engine.progress_at("low");
-    free(&filler);
+    free_filesystem(&filler);
     let normal = engine.progress_at("normal");
     let finished = engine.call(2, "run.finish", &json!({ "run_id": "low" }));
     engine.stop();
@@ -259,7 +259,7 @@ fn past_critical_free_a_run_stops_resumably_and_nothing_new_is_written_there(#[c
     let pid = engine.pid();
 
     engine.call(1, "run.start", &json!({ "run_id": "full" }));
-    let filler = fill(pid, env.home(), CRITICAL_ROOM);
+    let filler = fill_filesystem(pid, env.home(), CRITICAL_ROOM);
     engine.progress_at("critical");
     let stopped = engine.call(2, "run.finish", &json!({ "run_id": "full" }));
     let refused = engine.call(3, "run.start", &json!({ "run_id": "another" }));
@@ -274,7 +274,7 @@ fn past_critical_free_a_run_stops_resumably_and_nothing_new_is_written_there(#[c
         exists(pid, &run_folder(&env, "full").join("checkpoint.sqlite")),
         exists(pid, &run_folder(&env, "another")),
     );
-    free(&filler);
+    free_filesystem(&filler);
     let resumed = engine.call(5, "run.resume", &json!({ "run_id": "full" }));
     let finished = engine.call(6, "run.finish", &json!({ "run_id": "full" }));
     engine.stop();
@@ -348,14 +348,14 @@ fn a_write_the_full_disk_refuses_stops_the_run_and_its_waiting_call_raises_resou
     let pid = engine.pid();
 
     engine.call(1, "run.start", &json!({ "run_id": "refused" }));
-    let filler = fill(pid, env.home(), 0);
+    let filler = fill_filesystem(pid, env.home(), 0);
     let failed = engine.call(
         2,
         "run.set_progress_message",
         &json!({ "run_id": "refused", "message": "a status line the full disk refuses" }),
     );
     let stopped = engine.call(3, "run.finish", &json!({ "run_id": "refused" }));
-    free(&filler);
+    free_filesystem(&filler);
     let resumed = engine.call(4, "run.resume", &json!({ "run_id": "refused" }));
     let finished = engine.call(5, "run.finish", &json!({ "run_id": "refused" }));
     engine.stop();
@@ -395,7 +395,7 @@ fn daemon_with_ops(env: &TestEnv) -> (Foreground, SocketAddr, String) {
     env.user_configuration(&format!(
         "{LEVELS}daemon.address = \"{ANY_PORT}\"\nops.address = \"127.0.0.1:0\"\n"
     ));
-    let mut command = mounted_home(env, SIZE, COLLIE);
+    let mut command = tmpfs_mounted_home(env, SIZE, COLLIE);
     command
         .args(["daemon", "run"])
         .env("GOODFETCH_BROWSERS_PATH", browser_cache(env).unwrap());
@@ -407,7 +407,8 @@ fn daemon_with_ops(env: &TestEnv) -> (Foreground, SocketAddr, String) {
         .unwrap();
     let pid = daemon.process.child().id();
     let token =
-        std::fs::read_to_string(inside(pid, &env.home().join("0.0").join("ops.token"))).unwrap();
+        std::fs::read_to_string(inside_mount(pid, &env.home().join("0.0").join("ops.token")))
+            .unwrap();
     (daemon, address, token)
 }
 
@@ -447,7 +448,7 @@ fn storage_at(address: SocketAddr, token: &str, pid: u32, folder: &Path, level: 
     let deadline = Instant::now() + METRICS_DEADLINE;
     loop {
         let read = scraped(address, token);
-        let (bytes, inodes) = left(&inside(pid, folder));
+        let (bytes, inodes) = left(&inside_mount(pid, folder));
         let of = |name: &str| {
             read.get(&(name.to_owned(), "run_state".to_owned()))
                 .cloned()
@@ -492,14 +493,14 @@ fn readyz_fails_while_run_states_filesystem_is_critical_and_the_metrics_read_its
 
     let normal = storage_at(address, &token, pid, env.home(), "0");
     let ready_at_normal = get(address, "/readyz", None).0;
-    let filler = fill(pid, env.home(), LOW_ROOM);
+    let filler = fill_filesystem(pid, env.home(), LOW_ROOM);
     storage_at(address, &token, pid, env.home(), "1");
     let ready_at_low = get(address, "/readyz", None).0;
-    free(&filler);
-    let filler = fill(pid, env.home(), CRITICAL_ROOM);
+    free_filesystem(&filler);
+    let filler = fill_filesystem(pid, env.home(), CRITICAL_ROOM);
     let critical = storage_at(address, &token, pid, env.home(), "2");
     let ready_at_critical = get(address, "/readyz", None).0;
-    free(&filler);
+    free_filesystem(&filler);
     storage_at(address, &token, pid, env.home(), "0");
     let ready_once_freed = get(address, "/readyz", None).0;
     daemon.terminate();

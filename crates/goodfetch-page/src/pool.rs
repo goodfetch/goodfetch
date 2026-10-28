@@ -49,7 +49,7 @@ use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::tls::{CertificateExceptions, PinBook, Trust, trusted_cas};
 use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_TRUSTED_CAS};
-use tokio::sync::{Mutex, OnceCell};
+use tokio::sync::{OnceCell, mpsc, oneshot};
 
 use crate::borrowed::CdpUrl;
 use crate::driver::{
@@ -338,17 +338,20 @@ impl Pool {
             browsers.seats += 1;
             browsers.seats
         };
-        Seat {
-            shared: Arc::new(SeatShared {
-                pool: self.clone(),
-                number,
-                placement,
-                egress,
-                borrowed,
-                origins: Origins::default(),
-                place: Mutex::new(Place::default()),
-            }),
-        }
+        let (place, commands) = mpsc::channel(PLACE_COMMANDS);
+        let shared = Arc::new(SeatShared {
+            pool: self.clone(),
+            number,
+            placement,
+            egress,
+            borrowed,
+            origins: Origins::default(),
+            place,
+        });
+        self.shared
+            .run
+            .spawn(keep_place(Arc::downgrade(&shared), commands));
+        Seat { shared }
     }
 
     /// Seats `seat` in a browser under `placement`: the first of the Run
@@ -750,8 +753,35 @@ struct SeatShared {
     /// The Borrowed browser it is seated in for good, outside the pool.
     borrowed: Option<Arc<BorrowedBrowser>>,
     origins: Origins,
-    place: Mutex<Place>,
+    /// The actor that alone holds its [`Place`] (STYLE.md: state with one
+    /// owner is an actor): seating it, moving it out of a recycled browser,
+    /// closing it and evacuating a closing browser each run whole, one at a
+    /// time, in the order they were asked.
+    place: mpsc::Sender<PlaceCommand>,
 }
+
+/// What a seat's place actor is asked, each with where its answer goes.
+enum PlaceCommand {
+    /// Seat it where it is in no browser; with `moving`, move it first
+    /// when its browser is recycled.
+    Seated {
+        moving: bool,
+        answer: oneshot::Sender<Result<(u64, Driver, Opening), CallError>>,
+    },
+    /// Whether it is seated in the browser of this number now.
+    IsIn(u64, oneshot::Sender<bool>),
+    /// Take its browser contexts out of its place, for its closing.
+    Close(oneshot::Sender<Contexts>),
+    /// The browser of this number closes.
+    Evacuate(u64, oneshot::Sender<()>),
+}
+
+/// A seat's browser contexts: the one it is seated in, and those it left
+/// in recycled browsers.
+type Contexts = (Option<(u64, Driver)>, Vec<(u64, Driver)>);
+
+/// How many asks a seat's place actor holds unread before an asker waits.
+const PLACE_COMMANDS: usize = 16;
 
 /// The Session's driver in one browser.
 type Driver = Arc<SessionDriver<Behind>>;
@@ -771,13 +801,25 @@ struct Place {
     left: Vec<(u64, Driver)>,
 }
 
+/// The failure of an ask its seat's place actor never answered: the
+/// actor ends with its Run.
+fn place_ended() -> CallError {
+    crate::errors::cancelled(
+        goodfetch_protocol::connection::StoppedBy::Program,
+        goodfetch_protocol::connection::ClosedValue::Session,
+    )
+}
+
 impl Seat {
     /// Makes the Session's browser context, launching a browser first when
     /// none of the Run has room: a missing build or a browser that does
     /// not start raises its code here.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer: the seating goes on.
     pub(crate) async fn open(&self) -> Result<(), CallError> {
-        let mut place = self.shared.place.lock().await;
-        self.shared.seated(&mut place).await.map(drop)
+        self.shared.seated(false).await.map(drop)
     }
 
     /// Opens a page of the Session in its browser, of `visibility`,
@@ -786,15 +828,7 @@ impl Seat {
         &self,
         visibility: Visibility,
     ) -> Result<(PageDriver, InBrowser), CallError> {
-        let mut place = self.shared.place.lock().await;
-        let (number, driver, opening) = loop {
-            let (number, driver, opening) = self.shared.seated(&mut place).await?;
-            if self.shared.borrowed.is_some() || !self.shared.pool.recycled(number).await {
-                break (number, driver, opening);
-            }
-            drop(opening);
-            self.shared.leave(&mut place).await;
-        };
+        let (number, driver, opening) = self.shared.seated(true).await?;
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
         drop(opening);
         let page = driver.new_page(visibility).await?;
@@ -823,24 +857,36 @@ impl Seat {
 
     /// Whether the Session is seated in the browser `number` now.
     pub(crate) async fn is_in(&self, number: u64) -> bool {
-        self.shared
+        let (answer, answered) = oneshot::channel();
+        if self
+            .shared
             .place
-            .lock()
+            .send(PlaceCommand::IsIn(number, answer))
             .await
-            .at
-            .as_ref()
-            .is_some_and(|(at, _)| *at == number)
+            .is_err()
+        {
+            return false;
+        }
+        answered.await.unwrap_or(false)
     }
 
     /// Closes the Session's browser contexts, and with them every page in
     /// them; its browsers stay, for the Run's other Sessions.
     pub(crate) async fn close(&self) {
-        // Its contexts are taken out of its place under the lock, which is
-        // let go before they close (STYLE.md: no lock across an `.await`).
-        let (at, left) = {
-            let mut place = self.shared.place.lock().await;
-            place.carried = Carried::default();
-            (place.at.take(), std::mem::take(&mut place.left))
+        let (answer, answered) = oneshot::channel();
+        if self
+            .shared
+            .place
+            .send(PlaceCommand::Close(answer))
+            .await
+            .is_err()
+        {
+            return;
+        }
+        // Its contexts are taken out of its place by its actor, and close
+        // here, outside it.
+        let Ok((at, left)) = answered.await else {
+            return;
         };
         if let Some((number, driver)) = at {
             driver.close().await;
@@ -853,10 +899,89 @@ impl Seat {
 }
 
 impl SeatShared {
+    /// Asks its place actor for the browser it is seated in, as
+    /// [`PlaceCommand::Seated`] says.
+    async fn seated(&self, moving: bool) -> Result<(u64, Driver, Opening), CallError> {
+        let (answer, answered) = oneshot::channel();
+        self.place
+            .send(PlaceCommand::Seated { moving, answer })
+            .await
+            .map_err(|_| place_ended())?;
+        answered.await.map_err(|_| place_ended())?
+    }
+
+    /// The browser `number` closes: the Session leaves it if seated there,
+    /// and its contexts left there go with it.
+    async fn evacuate(&self, number: u64) {
+        let (answer, answered) = oneshot::channel();
+        if self
+            .place
+            .send(PlaceCommand::Evacuate(number, answer))
+            .await
+            .is_ok()
+        {
+            // An actor that ended holds no context to evacuate.
+            let _ = answered.await;
+        }
+    }
+}
+
+/// The place actor of the seat `seat`: it alone holds the seat's
+/// [`Place`], and answers `commands` one at a time until the seat is
+/// dropped or its Run ends.
+async fn keep_place(seat: Weak<SeatShared>, mut commands: mpsc::Receiver<PlaceCommand>) {
+    let mut place = Place::default();
+    while let Some(command) = commands.recv().await {
+        let Some(seat) = seat.upgrade() else {
+            break;
+        };
+        match command {
+            PlaceCommand::Seated { moving, answer } => {
+                let seated = seat.seated_moving(&mut place, moving).await;
+                // An asker that left drops what it asked for.
+                let _ = answer.send(seated);
+            }
+            PlaceCommand::IsIn(number, answer) => {
+                let _ = answer.send(place.at.as_ref().is_some_and(|(at, _)| *at == number));
+            }
+            PlaceCommand::Close(answer) => {
+                place.carried = Carried::default();
+                let _ = answer.send((place.at.take(), std::mem::take(&mut place.left)));
+            }
+            PlaceCommand::Evacuate(number, answer) => {
+                place.left.retain(|(left, _)| *left != number);
+                if place.at.as_ref().is_some_and(|(at, _)| *at == number) {
+                    seat.leave(&mut place).await;
+                }
+                let _ = answer.send(());
+            }
+        }
+    }
+}
+
+impl SeatShared {
+    /// The browser the Session is seated in and its driver there, seating
+    /// it as [`Self::seated_in`] does; with `moving`, it first leaves a
+    /// browser of the pool that is recycled, as often as one is.
+    async fn seated_moving(
+        self: &Arc<Self>,
+        place: &mut Place,
+        moving: bool,
+    ) -> Result<(u64, Driver, Opening), CallError> {
+        loop {
+            let (number, driver, opening) = self.seated_in(place).await?;
+            if !moving || self.borrowed.is_some() || !self.pool.recycled(number).await {
+                return Ok((number, driver, opening));
+            }
+            drop(opening);
+            self.leave(place).await;
+        }
+    }
+
     /// The browser the Session is seated in and its driver there, seating
     /// it with what it carries when it is in none; the browser is not idle
     /// while the [`Opening`] lives.
-    async fn seated(
+    async fn seated_in(
         self: &Arc<Self>,
         place: &mut Place,
     ) -> Result<(u64, Driver, Opening), CallError> {
@@ -911,16 +1036,6 @@ impl SeatShared {
             driver.close().await;
         }
         self.pool.leave(number, self.number);
-    }
-
-    /// The browser `number` closes: the Session leaves it if seated there,
-    /// and its contexts left there go with it.
-    async fn evacuate(&self, number: u64) {
-        let mut place = self.place.lock().await;
-        place.left.retain(|(left, _)| *left != number);
-        if place.at.as_ref().is_some_and(|(at, _)| *at == number) {
-            self.leave(&mut place).await;
-        }
     }
 }
 

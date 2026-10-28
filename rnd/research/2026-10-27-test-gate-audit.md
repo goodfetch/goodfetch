@@ -202,3 +202,18 @@ Nothing else lands on the head until a gate is green: no ticket, no review fix, 
 **Text for ADR 0136, proposed:**
 
 > After a red `just merge`, the pull request's head changes only by commits that fix that red and, when `main` has moved, a merge of `main` (`ci/merge-pr.sh` requires its tip). Nothing else lands on it until a gate is green, so each rerun tests the red head plus its fixes and `xtask gate plan` can reuse what the fixes do not reach.
+
+### Options 6, 3, 4, 2, 5 and 7: adopted (owner, 2026-10-28, relayed by the M1 orchestrator)
+
+The owner approved option 1 as written above. The ADR 0136 sentence goes into #1720. The owner also adopted options 6, 3, 4, 2, 5 and 7. The M1 run implements each one in its own pull request, before #1583's final gate.
+
+| Option | What lands | Condition from this audit |
+|---|---|---|
+| 6 | Each step's start and end times in the gate log; each run's log kept rather than overwritten | None: it only prints lines. |
+| 3 | Perf, Linux and visual results recorded as each step ends, so a host step's red no longer discards them | Prove with a replay that the gate keeps the same steps, results and reuse decisions. A red recorded for a step must still never be reused. |
+| 4 | Only the members a JUnit failure names are marked red | Same replay proof. A member whose result can't be attributed stays red. |
+| 2 | A red stress run ends after its first red iteration | First check that nextest with `--stress-count` stops at the end of that iteration, not partway through it. A green still needs all 20 clean iterations. |
+| 5 | The full `just lint` before each merge into the gated head | None. |
+| 7 | #1591's daily full run (backstop) and its comparison | None. |
+
+**Recorded caution.** This audit had ranked 3 and 4 after the final gate. Both change what the gate records, which decides what it reuses, so a bug in either would affect the one gate that matters. The owner chose to land them before it. Each pull request's replay proof is what makes that safe. Options 8 and 9 are not adopted. 8 is already built into ADR 0136, and 9 still needs a replay first.

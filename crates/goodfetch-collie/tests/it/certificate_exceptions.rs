@@ -22,7 +22,7 @@ use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
-use crate::egress_relay::{PAST_AUTO_RELOAD, error, provenance, started};
+use crate::egress_relay::{PAST_AUTO_RELOAD, Program, error, provenance, started};
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 635;
@@ -289,6 +289,72 @@ fn no_session_cookie_is_sent_to_a_host_reached_through_an_exception() {
         received.iter().all(|(received, _)| received != host),
         "{received:?}"
     );
+}
+
+/// The function `page.evaluate` runs to open a WebSocket to `url` and
+/// answer how it ended: `open`, or `error` once the handshake failed.
+fn web_socket(url: &str) -> String {
+    format!(
+        "() => new Promise((done) => {{ const socket = new WebSocket({}); socket.onopen = () => {{ socket.close(); done('open'); }}; socket.onerror = () => done('error'); }})",
+        json!(url)
+    )
+}
+
+/// No Session cookie goes to an exception host on a request the
+/// interception never pauses either (deep review finding 564-1): a page's
+/// WebSocket handshake to the host reaches it while the Session holds no
+/// cookie for it (positive control), and once the Session holds one, the
+/// relay, which reads every request on the terminated connection, closes
+/// the handshake before it reaches the host.
+///
+/// Covers: story:4-38
+#[test]
+fn a_web_socket_handshake_carries_no_session_cookie_to_a_host_reached_through_an_exception() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let host = "expired.certificates.test";
+    let exceptions = json!({ "tls": { "accept_invalid_certs": { (host): null } } });
+    let mut program = started(&env, &proving_ground, "web-socket", &exceptions, &[]);
+    let page = program.new_page("web-socket");
+    let setter = program.new_page("web-socket");
+    let socket = format!("wss://{host}:{}/ws", proving_ground.address().port());
+    let open = |program: &mut Program<'_>| {
+        program.call(
+            "page.evaluate",
+            &json!({ "page_id": page, "function": web_socket(&socket) }),
+        )
+    };
+
+    let opened = reached(&program.goto(&page, &secure(&proving_ground, host, "/")));
+    let before = open(&mut program);
+    let cookie_set = reached(&program.goto(
+        &setter,
+        &format!(
+            "http://name-mismatch.certificates.test:{}/set-cookie",
+            proving_ground.address().port()
+        ),
+    ));
+    let after = open(&mut program);
+    program.finish("web-socket");
+
+    assert_eq!(
+        (opened, cookie_set),
+        (json!(200), json!(200)),
+        "{before} {after}"
+    );
+    let handshakes: Vec<Value> = proving_ground
+        .received_requests()
+        .unwrap()
+        .every()
+        .filter(|request| {
+            request["kind"] == json!("websocket")
+                && request["host"]
+                    .as_str()
+                    .is_some_and(|received| received.starts_with(host))
+        })
+        .map(|request| request["cookies"].clone())
+        .collect();
+    assert_eq!(handshakes, vec![json!([])], "{before} {after}");
 }
 
 /// The exception host's own host-only cookie is a Session cookie too: the

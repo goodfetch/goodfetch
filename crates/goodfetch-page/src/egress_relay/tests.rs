@@ -58,8 +58,13 @@ fn relaying(policy: Policy, upstream: Upstream) -> Relaying {
         upstream,
         bypasses: Box::new(|_| false),
         terminating: None,
+        clock: goodfetch_engine::clock::Clock::system(),
+        connect_deadline: CONNECT_DEADLINE,
     }
 }
+
+/// The connect deadline of the relays these tests build.
+const CONNECT_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn every_host() -> Policy {
     Policy::new(&["*"], &[] as &[&str]).unwrap()
@@ -76,6 +81,9 @@ enum Far {
     Proxy { answer: &'static str },
     /// An upstream proxy whose own address the egress policy refuses.
     RefusedProxy(Refused),
+    /// An upstream proxy whose connection never opens: a black-holed
+    /// address, which drops every SYN.
+    Silent,
 }
 
 /// The network beyond the relay: names through the Scripted resolver or
@@ -179,6 +187,9 @@ impl Network for Scripted {
                 ProxyRefused(refused.clone()),
             ));
         }
+        if let Far::Silent = &self.far {
+            return std::future::pending().await;
+        }
         Ok(self.open(None))
     }
 }
@@ -212,7 +223,7 @@ impl Observe for Told {
             .push((refused.clone(), method.to_owned()));
     }
 
-    fn upstream(&self, met: Met) {
+    fn upstream(&self, _: &str, met: Met) {
         self.met.lock().unwrap().push(met);
     }
 
@@ -579,6 +590,81 @@ fn an_upstream_proxy_whose_own_address_is_refused_carries_nothing() {
                 Some("egress.no_private_endpoints")
             )],
         )
+    );
+}
+
+/// An upstream proxy whose connection never opens, a black-holed address,
+/// is the proxy's failure at the relay's connect deadline (deep review
+/// finding 577-4), before the navigation's own: on Tokio's paused clock,
+/// the tunnel gets the relay's `502` naming `connection_timeout` once
+/// [`CONNECT_DEADLINE`] passed, and the Session learns that the connection
+/// reached no proxy, which it raises as `proxy_unavailable` naming the
+/// proxy.
+///
+/// Covers: story:5-88, error:proxy_unavailable
+#[test]
+fn an_upstream_proxy_that_never_answers_is_unreachable_at_the_connect_deadline() {
+    let resolver = ScriptedResolver::new([goodfetch_test_support::Lookup::new(
+        "public.ssrf.test",
+        [PUBLIC],
+    )]);
+    let network = Scripted::new(Some(&resolver), Far::Silent);
+    let told = Told::default();
+    let relaying = relaying(
+        every_host(),
+        Upstream::Http {
+            authorization: None,
+        },
+    );
+    let runtime = goodfetch_test_support::runtime();
+
+    let ((answer, served), waited) = runtime.block_on(async {
+        let started = relaying.clock.now();
+        let ended = through(
+            &connect("public.ssrf.test:443"),
+            GET,
+            &relaying,
+            &network,
+            &told,
+        )
+        .await;
+        (ended, relaying.clock.now().duration_since(started))
+    });
+
+    assert_eq!(
+        (answer.lines().next(), served, waited),
+        (
+            Some("HTTP/1.1 502 Bad Gateway"),
+            Served::Failed,
+            CONNECT_DEADLINE
+        )
+    );
+    assert!(answer.contains("error=connection_timeout"), "{answer}");
+    assert_eq!(*told.met.lock().unwrap(), vec![Met::Unreachable]);
+}
+
+/// A client that sends no request head is dropped at the relay's head
+/// deadline (deep review finding 577-8): on Tokio's paused clock, the
+/// connection ends with nothing relayed once [`super::HEAD_DEADLINE`]
+/// passed.
+///
+/// Covers: story:4-10
+#[test]
+fn a_client_that_sends_no_head_is_dropped_at_the_head_deadline() {
+    let network = Scripted::new(None, Far::Site);
+    let told = Told::default();
+    let relaying = relaying(every_host(), Upstream::Direct);
+    let runtime = goodfetch_test_support::runtime();
+
+    let ((answer, served), waited) = runtime.block_on(async {
+        let started = relaying.clock.now();
+        let ended = through("", b"", &relaying, &network, &told).await;
+        (ended, relaying.clock.now().duration_since(started))
+    });
+
+    assert_eq!(
+        (answer.as_str(), served, waited, network.connections()),
+        ("", Served::Failed, super::HEAD_DEADLINE, vec![])
     );
 }
 

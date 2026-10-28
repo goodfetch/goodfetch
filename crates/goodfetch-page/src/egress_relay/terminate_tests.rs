@@ -122,8 +122,9 @@ fn site_certificate(host: &str, made: Made, trusted: &SiteAuthority) -> (Vec<u8>
 #[derive(Default)]
 struct Received(Mutex<Vec<u8>>);
 
-/// The site: a BoringSSL server presenting `certificate`, choosing `h2`,
-/// which reads what comes and answers `pong` to it.
+/// The site: a BoringSSL server presenting `certificate`, choosing `h2`
+/// when it is offered, else `http/1.1`, which reads what comes and answers
+/// `pong` to it.
 async fn site(stream: DuplexStream, (certificate, key): (Vec<u8>, Vec<u8>), received: &Received) {
     let mut builder = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()).unwrap();
     builder
@@ -133,7 +134,8 @@ async fn site(stream: DuplexStream, (certificate, key): (Vec<u8>, Vec<u8>), rece
         .set_private_key(&PKey::private_key_from_pkcs8(&key).unwrap())
         .unwrap();
     builder.set_alpn_select_callback(|_, offered| {
-        btls::ssl::select_next_proto(b"\x02h2", offered).ok_or(btls::ssl::AlpnError::NOACK)
+        btls::ssl::select_next_proto(b"\x02h2\x08http/1.1", offered)
+            .ok_or(btls::ssl::AlpnError::NOACK)
     });
     let acceptor = builder.build();
     let ssl = btls::ssl::Ssl::new(acceptor.context()).unwrap();
@@ -166,9 +168,18 @@ struct Shown {
     answer: Vec<u8>,
 }
 
+/// The request a browser sends a host an exception lists, which carries no
+/// cookie.
+const REQUEST: &[u8] = b"GET / HTTP/1.1\r\nHost: listed.test\r\n\r\n";
+
 /// The browser: a BoringSSL client offering `h2` and `http/1.1` with
 /// GREASE, which takes any certificate, sends `ping` and reads the answer.
 async fn browser(stream: DuplexStream, host: &str) -> Shown {
+    browser_sending(stream, host, b"ping").await
+}
+
+/// The browser, sending `sent` once its handshake finished.
+async fn browser_sending(stream: DuplexStream, host: &str, sent: &[u8]) -> Shown {
     let seen: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
     let kept = Arc::clone(&seen);
     let mut builder = SslConnector::builder(SslMethod::tls()).unwrap();
@@ -194,7 +205,7 @@ async fn browser(stream: DuplexStream, host: &str) -> Shown {
     }
     shown.chain = seen.lock().unwrap().clone();
     shown.protocol = stream.ssl().selected_alpn_protocol().map(<[u8]>::to_vec);
-    stream.write_all(b"ping").await.unwrap();
+    stream.write_all(sent).await.unwrap();
     let mut answer = [0; 4];
     if stream.read_exact(&mut answer).await.is_ok() {
         shown.answer = answer.to_vec();
@@ -229,6 +240,22 @@ pub(super) fn stores() -> Stores {
     }
 }
 
+/// The relay terminating `listed.test` and its subdomains for the
+/// authority `trusted` the Run trusts for them, with no exception: their
+/// connections keep the browser's own protocol.
+fn trusting(stores: &Stores, trusted: &SiteAuthority) -> Terminating {
+    Terminating {
+        exceptions: CertificateExceptions::listed(
+            &json!({ "elsewhere.test": null }),
+            stores.book.clone(),
+            ExceptionHosts::default(),
+        )
+        .unwrap(),
+        trust: trust(trusted),
+        ..terminating(stores, trusted)
+    }
+}
+
 /// The relay terminating `listed.test` and its subdomains, trusting
 /// `trusted` for them beside Mozilla's roots.
 fn terminating(stores: &Stores, trusted: &SiteAuthority) -> Terminating {
@@ -255,13 +282,24 @@ fn trust(trusted: &SiteAuthority) -> Trust {
 }
 
 /// One browser connection to `host` through the terminating mode, its
-/// site presenting `made`'s certificate: how the relay ended it, what the
-/// browser was shown and what the site received.
+/// site presenting `made`'s certificate, the browser sending [`REQUEST`]:
+/// how the relay ended it, what the browser was shown and what the site
+/// received.
 fn through(
     host: &str,
     made: Made,
     stores: &Stores,
     trusted: &SiteAuthority,
+) -> (Through, Shown, Vec<u8>, Arc<Authority>) {
+    through_sending(host, made, (stores, trusted), REQUEST)
+}
+
+/// [`through`], the browser sending `sent`.
+fn through_sending(
+    host: &str,
+    made: Made,
+    (stores, trusted): (&Stores, &SiteAuthority),
+    sent: &[u8],
 ) -> (Through, Shown, Vec<u8>, Arc<Authority>) {
     let terminating = terminating(stores, trusted);
     let certificate = site_certificate(host, made, trusted);
@@ -283,7 +321,7 @@ fn through(
                 passed,
                 |stop: &Stop| *told.lock().unwrap() = Some(stop.clone())
             ),
-            browser(browser_end, host),
+            browser_sending(browser_end, host, sent),
             site(site_end, certificate, &received),
         );
         (terminated, shown)
@@ -361,10 +399,76 @@ fn a_listed_hosts_invalid_certificate_passes_under_its_exception_and_the_bytes_g
             ExceptionKind::TrustOnFirstUse,
             true,
             Some(authority_certificate(&authority).as_slice()),
-            Some(b"h2".as_slice()),
+            Some(b"http/1.1".as_slice()),
             b"pong".as_slice(),
-            b"ping".as_slice(),
+            REQUEST,
         )
+    );
+}
+
+/// No Session cookie reaches a host an exception lists, on a request the
+/// interception never pauses either, such as a WebSocket handshake (deep
+/// review finding 564-1): the relay holds the host to HTTP/1.1 and reads
+/// each request head before it goes up, so the connection ends at the
+/// first that carries a `Cookie` header, before any byte of it reaches the
+/// host, while the requests before it, a body naming a cookie in its bytes
+/// and a WebSocket's frames after its upgrade go up unchanged.
+///
+/// Covers: story:4-38
+#[rstest]
+#[case::a_request_with_no_cookie(REQUEST, REQUEST, true)]
+#[case::a_request_carrying_a_cookie(
+    b"GET /ws HTTP/1.1\r\nHost: listed.test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nCookie: session=c00k1e\r\n\r\n",
+    b"",
+    false
+)]
+#[case::a_cookie_on_a_later_request(
+    b"GET / HTTP/1.1\r\nHost: listed.test\r\n\r\nGET /two HTTP/1.1\r\nHost: listed.test\r\ncookie: session=c00k1e\r\n\r\n",
+    REQUEST,
+    false
+)]
+#[case::a_body_that_names_a_cookie(
+    b"POST / HTTP/1.1\r\nHost: listed.test\r\nContent-Length: 19\r\n\r\nCookie: not-a-head\nGET / HTTP/1.1\r\nHost: listed.test\r\n\r\n",
+    b"POST / HTTP/1.1\r\nHost: listed.test\r\nContent-Length: 19\r\n\r\nCookie: not-a-head\nGET / HTTP/1.1\r\nHost: listed.test\r\n\r\n",
+    true
+)]
+#[case::a_chunked_body_then_a_cookie(
+    b"POST / HTTP/1.1\r\nHost: listed.test\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\nGET / HTTP/1.1\r\nHost: listed.test\r\nCookie: a=b\r\n\r\n",
+    b"POST / HTTP/1.1\r\nHost: listed.test\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n",
+    false
+)]
+#[case::a_web_socket_after_its_upgrade(
+    b"GET /ws HTTP/1.1\r\nHost: listed.test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n\x81\x05Cookie",
+    b"GET /ws HTTP/1.1\r\nHost: listed.test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n\x81\x05Cookie",
+    true
+)]
+fn no_request_carrying_a_cookie_reaches_a_host_an_exception_lists(
+    #[case] sent: &[u8],
+    #[case] expected: &[u8],
+    #[case] relayed: bool,
+) {
+    let stores = stores();
+    let trusted = authority("Site authority");
+
+    let (through, shown, received, _) = through_sending(
+        "expired.listed.test",
+        Made::Expired,
+        (&stores, &trusted),
+        sent,
+    );
+
+    assert_eq!(
+        (
+            shown.protocol.as_deref(),
+            String::from_utf8_lossy(&received).into_owned(),
+            matches!(through.terminated, Terminated::Relayed { .. }),
+        ),
+        (
+            Some(b"http/1.1".as_slice()),
+            String::from_utf8_lossy(expected).into_owned(),
+            relayed
+        ),
+        "{through:?}"
     );
 }
 
@@ -390,7 +494,7 @@ fn a_listed_host_whose_certificate_verifies_passes_with_no_exception() {
     );
     assert_eq!(
         (shown.answer, received),
-        (b"pong".to_vec(), b"ping".to_vec())
+        (b"pong".to_vec(), REQUEST.to_vec())
     );
 }
 
@@ -753,7 +857,7 @@ impl Observe for Stopping {
     fn unreached(&self, _: &str, _: Unreached) {}
     fn reached(&self, _: &str) {}
     fn refused(&self, _: &Refused, _: &str) {}
-    fn upstream(&self, _: Met) {}
+    fn upstream(&self, _: &str, _: Met) {}
     fn unauthenticated(&self, _: bool) {}
     fn terminated(&self, _: &str, _: Option<&ExceptionUsed>) {}
     fn client_hello(&self, _: &str, _: ClientHello) {}
@@ -795,6 +899,8 @@ fn a_stopped_connection_is_told_before_the_browser_sees_it_end() {
         upstream: Upstream::Direct,
         bypasses: Box::new(|_| false),
         terminating: Some(Arc::new(terminating)),
+        clock: Clock::system(),
+        connect_deadline: std::time::Duration::from_secs(10),
     };
     let ended = Arc::new(AtomicBool::new(false));
     let told = Stopping {
@@ -948,7 +1054,7 @@ fn the_relay_sends_the_site_the_alps_payload_captured_from_the_pinned_build() {
     let stores = stores();
     let trusted = authority("Site authority");
     let host = "site.listed.test";
-    let mut terminating = terminating(&stores, &trusted);
+    let mut terminating = trusting(&stores, &trusted);
     terminating.application_settings =
         Arc::new([("h2".to_owned(), CAPTURED.to_vec())].into_iter().collect());
 
@@ -971,8 +1077,8 @@ fn a_returning_connection_resumes_the_sessions_upstream_tls_session_and_a_new_se
     let trusted = authority("Site authority");
     let host = "site.listed.test";
     let acceptor = keeping_acceptor(host, &trusted);
-    let session = terminating(&stores, &trusted);
-    let next_session = terminating(&stores, &trusted);
+    let session = trusting(&stores, &trusted);
+    let next_session = trusting(&stores, &trusted);
 
     let resumed: Vec<(bool, Vec<u8>)> = [&session, &session, &next_session]
         .into_iter()

@@ -3,10 +3,11 @@
 //! credentials gets a `407` and no relayed byte, a wrong one in the Audit
 //! log; the relay passes its column of the endpoint table; it opens a
 //! SOCKS5 tunnel for a `CONNECT` and for a plain request; whether the proxy
-//! refused the Session's credentials is the latest connection's answer,
-//! never a refusal the Session met once; and the accept loop, on Tokio's
-//! paused clock, backs off after an error that is not one connection's own
-//! instead of spinning.
+//! refused the Session's credentials is the answer of the latest connection
+//! for the same authority, never a refusal another connection met; and, on
+//! Tokio's paused clock, the accept loop backs off after an error that is
+//! not one connection's own instead of spinning, and a client that sends
+//! no head is dropped at the head deadline.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -19,7 +20,7 @@
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_engine::audit::AuditLog;
@@ -38,6 +39,7 @@ use tokio_util::sync::CancellationToken;
 use super::{
     ACCEPT_BACKOFF, Credentials, LISTENER, Mode, USERNAME, Upstream, accepting, basic, relay,
 };
+use crate::egress_relay::{ByAuthority, HEAD_DEADLINE, Outcomes};
 
 /// What a fake SOCKS5 proxy met: the connections it accepted, and the
 /// first bytes each tunnel it opened carried.
@@ -119,15 +121,15 @@ fn refused_tokens(log: &AuditLog) -> usize {
 /// the client credentials of `password`.
 fn upstream(address: SocketAddr, mode: Mode, password: &str, refusals: Refusals) -> Upstream {
     Upstream {
-        address,
+        addresses: vec![address],
         mode,
         client: basic(USERNAME, password),
         refusals,
-        refused: AtomicBool::new(false),
-        unreachable: AtomicBool::new(false),
-        answered: AtomicBool::new(false),
+        outcomes: Outcomes::default(),
         usage: None,
         refusal: None,
+        clock: Clock::system(),
+        connect_deadline: Duration::from_secs(10),
     }
 }
 
@@ -171,10 +173,15 @@ async fn through(upstream: &Upstream, request: &str, after: &[u8]) -> String {
 
 /// A `CONNECT` to `127.0.0.1:80` with `authorization`, if any.
 fn connect(authorization: Option<&str>) -> String {
+    connect_to("127.0.0.1:80", authorization)
+}
+
+/// A `CONNECT` to `authority` with `authorization`, if any.
+fn connect_to(authority: &str, authorization: Option<&str>) -> String {
     let authorization = authorization
         .map(|value| format!("Proxy-Authorization: {value}\r\n"))
         .unwrap_or_default();
-    format!("CONNECT 127.0.0.1:80 HTTP/1.1\r\nHost: 127.0.0.1:80\r\n{authorization}\r\n")
+    format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n{authorization}\r\n")
 }
 
 /// Covers: story:5-88
@@ -265,23 +272,50 @@ async fn a_client_with_the_relays_credentials_reaches_the_site_through_the_socks
     );
 }
 
+/// Whether the proxy refused the credentials is each connection's own
+/// answer, kept for the authority it asked for (deep review finding 577-5):
+/// a connection the proxy took after one it refused leaves the refused
+/// one's request the proxy's credentials failure, and only a later
+/// connection to the same authority changes its answer.
+///
 /// Covers: story:5-88, error:proxy_auth_failed
 #[tokio::test]
-async fn whether_the_proxy_refused_the_credentials_is_the_latest_connections_answer() {
+async fn whether_the_proxy_refused_the_credentials_is_each_connections_own_answer() {
     let env = TestEnv::new();
     let owner = TaskOwner::root(BlockingPolicy::Inline);
     let (_, refusals) = audit(&env, &owner);
-    let (address, _) = fake_proxy(&owner, vec![1, 0]).await;
+    let (address, _) = fake_proxy(&owner, vec![1, 0, 0]).await;
     let upstream = upstream(address, socks5(), "relay-password", refusals);
-    let request = connect(Some(&basic(USERNAME, "relay-password")));
+    let credentials = basic(USERNAME, "relay-password");
+    let refused = || upstream.outcomes.refused("https://127.0.0.1:80/");
+    let other = || upstream.outcomes.refused("https://127.0.0.2:80/");
 
-    through(&upstream, &request, b"").await;
-    let after_a_refusal = upstream.refused.load(Ordering::Relaxed);
-    through(&upstream, &request, b"").await;
-    let after_an_acceptance = upstream.refused.load(Ordering::Relaxed);
+    through(
+        &upstream,
+        &connect_to("127.0.0.1:80", Some(&credentials)),
+        b"",
+    )
+    .await;
+    through(
+        &upstream,
+        &connect_to("127.0.0.2:80", Some(&credentials)),
+        b"",
+    )
+    .await;
+    let after_another_connection = (refused(), other());
+    through(
+        &upstream,
+        &connect_to("127.0.0.1:80", Some(&credentials)),
+        b"",
+    )
+    .await;
+    let after_its_own_next = refused();
 
     owner.cancel();
-    assert_eq!((after_a_refusal, after_an_acceptance), (true, false));
+    assert_eq!(
+        (after_another_connection, after_its_own_next),
+        ((true, false), false)
+    );
 }
 
 /// A fake HTTP proxy on loopback that answers each connection's `CONNECT`
@@ -335,7 +369,7 @@ async fn the_relay_keeps_a_hosted_providers_refusal_of_the_latest_connect_for_it
         authorization: Some(SecretString::from(basic("customer", "provider-secret"))),
     };
     let upstream = Upstream {
-        refusal: Some(std::sync::Mutex::new(None)),
+        refusal: Some(ByAuthority::default()),
         ..upstream(address, mode, "relay-password", refusals)
     };
     let latest = |upstream: &Upstream| {
@@ -343,9 +377,7 @@ async fn the_relay_keeps_a_hosted_providers_refusal_of_the_latest_connect_for_it
             .refusal
             .as_ref()
             .unwrap()
-            .lock()
-            .unwrap()
-            .clone()
+            .get("site.test:443")
             .map(|answer| {
                 (
                     answer.status,
@@ -471,4 +503,41 @@ async fn an_accept_error_that_is_not_one_connections_backs_off_before_the_next_a
         .unwrap()
         + 1;
     assert!(accepts.load(Ordering::Relaxed) <= most);
+}
+
+/// A client that sends no request head is dropped at the head deadline,
+/// holding no task past it (deep review finding 577-8): on Tokio's paused
+/// clock, the relay ends the connection once [`HEAD_DEADLINE`] passed.
+///
+/// Covers: story:5-88
+#[tokio::test(start_paused = true)]
+async fn a_client_that_sends_no_head_is_dropped_at_the_head_deadline() {
+    let env = TestEnv::new();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let (_, refusals) = audit(&env, &owner);
+    let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
+    let upstream = Upstream {
+        clock,
+        ..upstream(
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 9)),
+            socks5(),
+            "relay-password",
+            refusals,
+        )
+    };
+    let clients = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let silent = TcpStream::connect(clients.local_addr().unwrap())
+        .await
+        .unwrap();
+    let (relayed, _) = clients.accept().await.unwrap();
+    let started = clock.now();
+
+    let dropped = tokio::time::timeout(Duration::from_mins(10), relay(relayed, &upstream)).await;
+
+    owner.cancel();
+    drop(silent);
+    assert_eq!(
+        (dropped.is_ok(), clock.now().duration_since(started)),
+        (true, HEAD_DEADLINE)
+    );
 }

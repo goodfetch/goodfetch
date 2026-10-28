@@ -102,7 +102,7 @@ fn decodes_every_coding_as_chrome_decodes_it_and_fails_where_chrome_fails(#[case
             );
         } else {
             let page = answer.unwrap_or_else(|error| panic!("{host}: {error:?}"));
-            let text = String::from_utf8(page.body).unwrap();
+            let text = String::from_utf8(page.body.to_vec()).unwrap();
             assert!(
                 text.contains(&format!(
                     "Content coding page {ordinal}, decoded once and as labelled."

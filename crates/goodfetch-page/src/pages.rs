@@ -1200,7 +1200,7 @@ impl Pages {
         let fetched = fetched.map_err(|error| page.life.withheld(error))?;
         let kept = match fetched.body {
             browser_fetch::Body::Whole(bytes) => {
-                let handle = page.run.store_body(bytes).await.map_err(|error| {
+                let handle = page.run.store_body(bytes.into()).await.map_err(|error| {
                     CallError::protocol(
                         ProtocolFailure::InternalError,
                         format!("the response's body was not kept in the Run's folder: {error}"),

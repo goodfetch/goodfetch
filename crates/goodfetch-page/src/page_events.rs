@@ -659,7 +659,7 @@ fn declared_length(response: &PageResponse) -> Option<u64> {
 /// it.
 async fn read_body(shared: &Shared, request_id: &str) -> Option<BodyHandle> {
     let bytes = body_bytes(shared, request_id).await?;
-    match shared.run.store_body(bytes).await {
+    match shared.run.store_body(bytes.into()).await {
         Ok(handle) => Some(handle),
         Err(error) => {
             tracing::warn!(%error, "a response's body was not stored");

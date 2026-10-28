@@ -1693,7 +1693,7 @@ impl Run {
     ///
     /// Dropping the future may leave a temporary file beside the bodies,
     /// never a partial body.
-    pub async fn store_body(&self, bytes: Vec<u8>) -> std::io::Result<BodyHandle> {
+    pub async fn store_body(&self, bytes: bytes::Bytes) -> std::io::Result<BodyHandle> {
         let folder = self.folder.clone();
         let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         let (body, file) = self

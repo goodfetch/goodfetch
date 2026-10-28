@@ -134,7 +134,7 @@ fn a_body_its_connection_s_close_delimits_is_whole_at_the_close(
         .unwrap();
 
     assert_eq!(page.status, 200);
-    let text = String::from_utf8(page.body).unwrap();
+    let text = String::from_utf8(page.body.to_vec()).unwrap();
     assert!(
         text.contains("Line 40 of the fetch edge page at /close-delimited.")
             && text.ends_with("</html>"),

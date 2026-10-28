@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use bytes::Bytes;
 use goodfetch_engine::CallError;
 use goodfetch_page::page_value::Permit;
 use goodfetch_protocol::foxhound::crawl::{RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE};
@@ -33,7 +34,7 @@ impl HttpTier {
     /// # Cancel safety
     ///
     /// Dropping the future closes the fetch's connection.
-    pub async fn sitemap(&self, url: &Url, hand_over: &HandOver) -> Result<Vec<u8>, CallError> {
+    pub async fn sitemap(&self, url: &Url, hand_over: &HandOver) -> Result<Bytes, CallError> {
         let clock = hand_over.run.clock();
         let gate = SitemapHops(hand_over);
         let fetched = follow(

@@ -260,7 +260,7 @@ fn body(
             let run = page.document.run.clone();
             Box::pin(async move {
                 let stored = run
-                    .store_body(body.to_vec())
+                    .store_body(body.clone())
                     .await
                     .map_err(|error| failed(&response.url, &error))?;
                 tiers.keep_body(&page_id, &response.request_id, stored.clone());
@@ -300,7 +300,7 @@ pub(super) fn on_browser(
     Some(Box::pin(async move {
         let stored = held
             .run
-            .store_body(held.body.to_vec())
+            .store_body(held.body.clone())
             .await
             .map_err(|error| failed(&held.request_id, &error))?;
         Ok(encoded(&stored))

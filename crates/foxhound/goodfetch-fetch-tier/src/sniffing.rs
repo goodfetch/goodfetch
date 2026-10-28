@@ -7,7 +7,7 @@
 //! Pure: no I/O and no task.
 
 /// How many bytes Chromium sniffs at most, `kMaxBytesToSniff`.
-const MAX_BYTES_TO_SNIFF: usize = 1024;
+pub(crate) const MAX_BYTES_TO_SNIFF: usize = 1024;
 
 /// How many bytes the HTML step reads.
 const HTML_BYTES: usize = 512;

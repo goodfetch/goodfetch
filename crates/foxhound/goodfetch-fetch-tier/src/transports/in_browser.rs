@@ -59,7 +59,7 @@ impl Transport for BrowserFetch {
                     .filter(|(name, _)| !name.eq_ignore_ascii_case("accept-encoding"))
                     .cloned()
                     .collect(),
-                body: hop.body.as_ref().map(|body| body.to_vec()),
+                body: hop.body.clone(),
             };
             let fetched = self
                 .pages

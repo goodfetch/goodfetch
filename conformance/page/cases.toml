@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "36"
+version = "37"
 
 [[capability]]
 name = "sessions.default"
@@ -591,6 +591,10 @@ id = "page-request-refuses-a-body-past-the-runs-limits-naming-the-setting"
 covers = ["operation:page.request", "error:response_limit_exceeded"]
 
 [[capability.case]]
+id = "a-coded-body-past-the-browsers-frame-is-refused-at-max-body-size-and-the-browser-goes-on"
+covers = ["operation:page.request", "operation:route.fetch", "error:response_limit_exceeded", "setting:network.max_body_size"]
+
+[[capability.case]]
 id = "no-service-worker-answers-a-page-request"
 covers = ["story:5-44", "operation:page.request", "operation:response.body"]
 
@@ -706,3 +710,7 @@ covers = ["story:6-63", "operation:run.new_page", "operation:page.goto"]
 [[capability.case]]
 id = "a-run-reads-robots-txt-once-per-origin-into-its-own-copy-and-leaves-foxhounds-untouched"
 covers = ["story:6-62", "story:6-64", "operation:run.new_page", "operation:page.goto"]
+
+[[capability.case]]
+id = "a-robots-txt-past-max-body-size-is-recorded-unreachable-and-the-page-loads"
+covers = ["operation:page.goto", "setting:network.max_body_size"]

@@ -4,17 +4,23 @@
 //! reaches the browser, judged by the Proving ground's record of what it
 //! received; and a body past the Run's limits on what the engine reads,
 //! which `page.request` refuses with `response_limit_exceeded` naming the
-//! setting: a decompression bomb and a body one byte past 64 MiB. Each
-//! refusal pairs with its positive control: a plain value is sent, and a
-//! page compressed within the ratio is kept.
+//! setting: a decompression bomb and a body one byte past 64 MiB; and a
+//! gzip body within the ratio that decodes past the 256 MiB a browser's
+//! pipe frames in one message, which `page.request` and a route's
+//! `route.fetch` refuse naming `network.max_body_size` while the browser's
+//! connection goes on. Each refusal pairs with its positive control: a
+//! plain value is sent, and a page compressed within the ratio is kept.
 
 use goodfetch_protocol::hostile_input::HEADER_VALUE_INVALID;
 use goodfetch_protocol::page::request::PAGE_REQUEST;
-use goodfetch_protocol::page::route::{PAGE_ROUTE, ROUTE_CONTINUE, ROUTE_FALLBACK, ROUTE_FULFILL};
+use goodfetch_protocol::page::route::{
+    PAGE_ROUTE, ROUTE_CONTINUE, ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL,
+};
 use goodfetch_protocol::response_limits::RESPONSE_LIMIT_EXCEEDED;
 use serde_json::{Value, json};
 
 use super::navigation::call;
+use super::robots_txt::PAST_THE_SIZE_HOST;
 use super::routes::{Act, Routes, glob, goto};
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
@@ -25,6 +31,7 @@ pub(crate) enum Case {
     RequestHeaders,
     RouteHeaders,
     RequestLimits,
+    CodedPastTheFrame,
 }
 
 impl Case {
@@ -39,6 +46,9 @@ impl Case {
             }
             "page-request-refuses-a-body-past-the-runs-limits-naming-the-setting" => {
                 Self::RequestLimits
+            }
+            "a-coded-body-past-the-browsers-frame-is-refused-at-max-body-size-and-the-browser-goes-on" => {
+                Self::CodedPastTheFrame
             }
             _ => return None,
         })
@@ -55,6 +65,7 @@ impl Case {
             Self::RequestHeaders => request_headers(connection, site, checks),
             Self::RouteHeaders => route_headers(connection, site, checks),
             Self::RequestLimits => request_limits(connection, site, checks),
+            Self::CodedPastTheFrame => coded_past_the_frame(connection, site, checks),
         }
     }
 }
@@ -289,6 +300,93 @@ fn request_limits(
     )?;
     checks.check(
         "`page.request` to a page compressed within the ratio answers 200",
+        kept["result"]["status"] == json!(200),
+    );
+    finish_run(connection, run_id)
+}
+
+/// `network.max_body_size`'s default: 64 MiB.
+const MAX_BODY_SIZE: u64 = 64 * 1024 * 1024;
+
+/// Whether `answer` raises `response_limit_exceeded` naming
+/// `network.max_body_size` and its default.
+fn past_the_size(answer: &Value) -> bool {
+    code_of(answer) == &json!(RESPONSE_LIMIT_EXCEEDED.name)
+        && answer["error"]["data"]["setting"] == json!("network.max_body_size")
+        && answer["error"]["data"]["limit"] == json!(MAX_BODY_SIZE)
+}
+
+/// The `route.fulfill` params a handler answers after its `route.fetch`:
+/// an empty page, as the fetch got no body to pass on.
+fn empty_page(_fetched: &Value) -> Value {
+    json!({ "status": 200, "content_type": "text/plain", "body": "" })
+}
+
+/// `page.request` to a gzip body within the ratio that decodes to 272 MiB,
+/// past the 256 MiB a browser's pipe frames in one message
+/// (`body-limits/6`), raises `response_limit_exceeded` naming
+/// `network.max_body_size`, and so does a route's `route.fetch` of the same
+/// body on a navigation; the browser's connection goes on, so a later
+/// `page.request` answers 200.
+fn coded_past_the_frame(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-hostile-coded-past-the-frame";
+    let (Some(coded), Some(small)) = (
+        site.named_url("6.body-limits.test", "/"),
+        site.named_url(PAST_THE_SIZE_HOST, "/page"),
+    ) else {
+        checks.check("the Proving ground serves the case's pages", false);
+        return Ok(());
+    };
+    start_run(connection, site, run_id, &json!({}), checks)?;
+    let Some(page) = new_page(connection, run_id, checks)? else {
+        return finish_run(connection, run_id);
+    };
+    let page_id = json!(page.page_id);
+    let refused = call(
+        connection,
+        PAGE_REQUEST.name,
+        &page_id,
+        &json!({ "url": coded }),
+    )?;
+    checks.check(
+        format!(
+            "`page.request` to a coded body past the browser's frame raises `{}` naming `network.max_body_size` and {MAX_BODY_SIZE}",
+            RESPONSE_LIMIT_EXCEEDED.name
+        ),
+        past_the_size(&refused),
+    );
+    let mut routes = Routes::new(|_| vec![Act::FetchThenFulfill(empty_page)]);
+    Routes::route(
+        connection,
+        PAGE_ROUTE.name,
+        &json!({ "page_id": page.page_id, "url": glob("**") }),
+    )?;
+    let answer = goto(&mut routes, connection, &page, &coded)?;
+    checks.check(
+        "the `goto` whose fetched body passed the limit answers",
+        answer.get("result").is_some() || answer.get("error").is_some(),
+    );
+    let made = routes.made(connection)?;
+    checks.check(
+        format!(
+            "`route.fetch` of it raises `{}` naming `network.max_body_size` and {MAX_BODY_SIZE}",
+            RESPONSE_LIMIT_EXCEEDED.name
+        ),
+        made.first()
+            .is_some_and(|(method, answer)| *method == ROUTE_FETCH.name && past_the_size(answer)),
+    );
+    let kept = call(
+        connection,
+        PAGE_REQUEST.name,
+        &page_id,
+        &json!({ "url": small }),
+    )?;
+    checks.check(
+        "the browser's connection goes on: a later `page.request` answers 200",
         kept["result"]["status"] == json!(200),
     );
     finish_run(connection, run_id)

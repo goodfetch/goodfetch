@@ -369,3 +369,249 @@ fn changed_pytest_test_is_selected_when_the_base_conftest_imports_what_the_head_
         "{selection:?}"
     );
 }
+
+/// A test that fails on its second run alone: it counts its runs in the
+/// crate's `runs` file.
+const RED_ON_ITS_SECOND_RUN: &str = r#"
+#[cfg(test)]
+mod counted {
+    #[test]
+    fn red_on_its_second_run() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/runs");
+        let run = std::fs::read_to_string(path).map_or(0, |text| text.trim().parse::<u32>().unwrap()) + 1;
+        std::fs::write(path, run.to_string()).unwrap();
+        assert_ne!(run, 2, "red on its second run");
+    }
+}
+"#;
+
+/// The repository's justfile and `ci/` in the `quarantine` fixture, whose
+/// `sample` crate's tests nextest runs for real, with
+/// `counted::red_on_its_second_run` added. cargo is a stand-in for what
+/// the recipes ask of xtask (`stress select` prints `selection`, `repeat`
+/// runs the real xtask) and is cargo for the rest; pnpm and uv are
+/// stand-ins. Each records its arguments.
+#[cfg(unix)]
+struct Recipes {
+    workspace: Workspace,
+    calls: std::path::PathBuf,
+    path: String,
+}
+
+#[cfg(unix)]
+fn recipes(selection: &str) -> Recipes {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let workspace = Workspace::from_fixture("quarantine");
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    std::fs::copy(
+        repository.join("justfile"),
+        workspace.path().join("justfile"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(repository.join("ci"), workspace.path().join("ci")).unwrap();
+    workspace.append("src/lib.rs", RED_ON_ITS_SECOND_RUN);
+    workspace.write(
+        ".config/nextest.toml",
+        b"[profile.ci]\nfail-fast = false\n\n[profile.ci.junit]\npath = \"junit.xml\"\n",
+    );
+    workspace.write(".gitignore", b"target\nstand-ins\nruns\n");
+    workspace.write("selection.tsv", selection.as_bytes());
+    let stand_ins = workspace.path().join("stand-ins");
+    std::fs::create_dir_all(&stand_ins).unwrap();
+    let calls = stand_ins.join("calls");
+    let outer = std::env::var("PATH").unwrap();
+    let cargo = format!(
+        r#"#!/bin/sh
+echo "cargo $*" >>"{calls}"
+case " $* " in
+  *" -- stress select "*) cat "{selection}"; exit 0 ;;
+  *" -- test-tools "*) mkdir -p target; echo '{{}}' >target/test-tools.json; exit 0 ;;
+esac
+if [ "$1" = run ]; then
+  while [ "$1" != -- ]; do shift; done
+  shift
+  exec "{xtask}" "$@"
+fi
+PATH="{outer}" exec cargo "$@"
+"#,
+        calls = calls.display(),
+        selection = workspace.path().join("selection.tsv").display(),
+        xtask = env!("CARGO_BIN_EXE_xtask"),
+    );
+    let recorder =
+        |name: &str| format!("#!/bin/sh\necho \"{name} $*\" >>\"{}\"\n", calls.display());
+    for (name, script) in [
+        ("cargo", cargo),
+        ("pnpm", recorder("pnpm")),
+        ("uv", recorder("uv")),
+    ] {
+        let path = stand_ins.join(name);
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    workspace.commit_all();
+    Recipes {
+        workspace,
+        calls,
+        path: format!("{}:{outer}", stand_ins.display()),
+    }
+}
+
+#[cfg(unix)]
+struct Ran {
+    code: Option<i32>,
+    output: String,
+    calls: Vec<String>,
+}
+
+/// A JUnit file's tests, as `(name, passed runs, failed runs)`.
+#[cfg(unix)]
+type Tests = Vec<(String, usize, usize)>;
+
+#[cfg(unix)]
+impl Recipes {
+    /// Runs the real `just <args>` with the stand-ins first on PATH.
+    fn just(&self, args: &[&str]) -> Ran {
+        let output = self
+            .workspace
+            .command("just")
+            .args(args)
+            .env("PATH", &self.path)
+            .env("HOME", self.workspace.path())
+            .output()
+            .unwrap();
+        Ran {
+            code: output.status.code(),
+            output: format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
+            calls: std::fs::read_to_string(&self.calls)
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_owned)
+                .collect(),
+        }
+    }
+
+    /// How many times `counted::red_on_its_second_run` ran.
+    fn runs(&self) -> u32 {
+        self.workspace.read("runs").map_or(0, |text| {
+            String::from_utf8(text).unwrap().trim().parse().unwrap()
+        })
+    }
+
+    /// The tests of the nextest JUnit files in `folder`, with their runs
+    /// in all the files.
+    fn junit(&self, folder: &str) -> Tests {
+        let Ok(entries) = std::fs::read_dir(self.workspace.path().join(folder)) else {
+            return Vec::new();
+        };
+        let mut tests: std::collections::BTreeMap<String, (usize, usize)> =
+            std::collections::BTreeMap::new();
+        for entry in entries {
+            let name = entry.unwrap().file_name().into_string().unwrap();
+            if !name.starts_with("nextest") {
+                continue;
+            }
+            let text = self.workspace.read_text(&format!("{folder}/{name}"));
+            for case in text.split("<testcase ").skip(1) {
+                let name = case
+                    .split("name=\"")
+                    .nth(1)
+                    .unwrap()
+                    .split('"')
+                    .next()
+                    .unwrap();
+                let body = case.split("</testcase>").next().unwrap();
+                let entry = tests.entry(name.to_owned()).or_default();
+                if body.contains("<failure") {
+                    entry.1 += 1;
+                } else {
+                    entry.0 += 1;
+                }
+            }
+        }
+        tests
+            .into_iter()
+            .map(|(test, (passed, failed))| (test, passed, failed))
+            .collect()
+    }
+}
+
+/// A red stress run stops at the end of its first red iteration (the
+/// test-gate audit's option 2, ADR 0064's amendment of 2026-10-28): nextest
+/// runs that iteration through, every selected test once, and nothing runs
+/// after it: neither the count's later iterations, nor its later runners,
+/// nor the 200 runs.
+#[cfg(unix)]
+#[test]
+fn a_red_stress_run_stops_at_the_end_of_its_first_red_iteration() {
+    let recipes = recipes(
+        "20\tnextest\tsample counted::red_on_its_second_run\n\
+         20\tnextest\tsample tests::steady\n\
+         20\tpytest\ttests/test_sample.py::test_flaky\n\
+         200\tnextest\tsample tests::steady_twin\n",
+    );
+
+    let ran = recipes.just(&["stress", "HEAD"]);
+
+    assert_ne!(ran.code, Some(0), "{}", ran.output);
+    assert_eq!(recipes.runs(), 2, "{}", ran.output);
+    // Two iterations, each through: the red test passed once and failed
+    // once, and the test beside it passed twice.
+    assert_eq!(
+        recipes.junit("target/junit/repeat-20"),
+        [
+            ("counted::red_on_its_second_run".to_owned(), 1, 1),
+            ("tests::steady".to_owned(), 2, 0),
+        ],
+        "{}",
+        ran.output
+    );
+    assert_eq!(recipes.junit("target/junit/repeat-200"), []);
+    assert!(
+        !ran.calls.iter().any(|call| call.starts_with("uv ")),
+        "{:?}",
+        ran.calls
+    );
+}
+
+/// A green stress run still runs each selected test its 20 times.
+#[cfg(unix)]
+#[test]
+fn a_green_stress_run_runs_every_iteration() {
+    let recipes = recipes("20\tnextest\tsample tests::steady\n");
+
+    let ran = recipes.just(&["stress", "HEAD"]);
+
+    assert_eq!(ran.code, Some(0), "{}", ran.output);
+    assert_eq!(
+        recipes.junit("target/junit/repeat-20"),
+        [("tests::steady".to_owned(), 20, 0)],
+        "{}",
+        ran.output
+    );
+}
+
+/// `just repeat` outside the stress run, as a diagnostic run and the daily
+/// test-health job run it, runs every one of its runs past a red one.
+#[cfg(unix)]
+#[test]
+fn repeat_runs_every_run_past_a_red_one() {
+    let recipes = recipes("");
+
+    let ran = recipes.just(&[
+        "repeat",
+        "3",
+        "--test",
+        "nextest=sample counted::red_on_its_second_run",
+    ]);
+
+    assert_ne!(ran.code, Some(0), "{}", ran.output);
+    assert_eq!(recipes.runs(), 3, "{}", ran.output);
+}

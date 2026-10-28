@@ -599,6 +599,12 @@ repeat count *selection:
     # suite's unless GOODFETCH_TEST_SUITE names another), with the test tool
     # manifest, and in the order seeded from the tree under test.
     export GOODFETCH_TEST_SUITE="${GOODFETCH_TEST_SUITE:-pre-merge}"
+    # `--until-red`, first (the stress run's): the run stops at the end of
+    # its first red iteration (ADR 0064's amendment of 2026-10-28). nextest
+    # runs its iterations one a command, each of its batches once, and after
+    # a red one no other iteration or runner runs.
+    iterations=1
+    if [[ "${1:-}" == --until-red ]]; then iterations={{ count }}; fi
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
@@ -615,31 +621,46 @@ repeat count *selection:
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     status=0
     for runner in nextest vitest playwright pytest; do
+      if (( iterations > 1 && status != 0 )); then
+        echo "Repeat run: $runner does not run after a red iteration"
+        continue
+      fi
       batches=$(awk -F'\t' -v runner="$runner" '$1 == runner && $2 > last { last = $2 } END { print last + 0 }' <<< "$arguments")
-      for (( batch = 1; batch <= batches; batch++ )); do
-        selected=()
-        while IFS=$'\t' read -r line_runner line_batch argument; do
-          if [[ "$line_runner" == "$runner" && "$line_batch" == "$batch" ]]; then selected+=("$argument"); fi
-        done <<< "$arguments"
-        case "$runner" in
-          nextest)
-            cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${selected[@]}" || status=$?
-            report=target/nextest/ci/junit.xml name=nextest-ci ;;
-          vitest)
-            pnpm exec vitest run "${vitest_order[@]}" "${selected[@]}" || status=$?
-            report=target/junit/vitest.xml name=vitest ;;
-          playwright)
-            pnpm exec playwright test "${playwright_order[@]}" "${selected[@]}" || status=$?
-            report=target/junit/playwright.xml name=playwright ;;
-          pytest)
-            uv run pytest "${pytest_order[@]}" "${selected[@]}" || status=$?
-            report=target/junit/pytest.xml name=pytest ;;
-        esac
-        if (( batches > 1 )) && [[ -f "$report" ]]; then
-          mkdir -p target/junit
-          mv "$report" "target/junit/$name.$batch.xml"
-        fi
+      commands=1
+      [[ "$runner" != nextest ]] || commands=$iterations
+      # Each iteration after the first runs only while the run is green.
+      for (( iteration = 1; iteration <= commands && (iteration == 1 || status == 0); iteration++ )); do
+        for (( batch = 1; batch <= batches; batch++ )); do
+          selected=()
+          while IFS=$'\t' read -r line_runner line_batch argument; do
+            if [[ "$line_runner" == "$runner" && "$line_batch" == "$batch" ]]; then selected+=("$argument"); fi
+          done <<< "$arguments"
+          case "$runner" in
+            nextest)
+              cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${selected[@]}" || status=$?
+              report=target/nextest/ci/junit.xml name=nextest-ci ;;
+            vitest)
+              pnpm exec vitest run "${vitest_order[@]}" "${selected[@]}" || status=$?
+              report=target/junit/vitest.xml name=vitest ;;
+            playwright)
+              pnpm exec playwright test "${playwright_order[@]}" "${selected[@]}" || status=$?
+              report=target/junit/playwright.xml name=playwright ;;
+            pytest)
+              uv run pytest "${pytest_order[@]}" "${selected[@]}" || status=$?
+              report=target/junit/pytest.xml name=pytest ;;
+          esac
+          if (( commands > 1 )) && [[ -f "$report" ]]; then
+            mkdir -p target/junit
+            mv "$report" "target/junit/$name.$batch.$iteration.xml"
+          elif (( batches > 1 )) && [[ -f "$report" ]]; then
+            mkdir -p target/junit
+            mv "$report" "target/junit/$name.$batch.xml"
+          fi
+        done
       done
+      if (( commands > 1 && status != 0 )); then
+        echo "Repeat run: stopped at the end of red iteration $(( iteration - 1 )) of $commands"
+      fi
     done
     exit "$status"
 
@@ -651,7 +672,8 @@ repeat count *selection:
 # else listed from a checkout of the base. Each count's JUnit files go to
 # target/junit/repeat-<count>/, which the results store's ingest reads as run
 # that many times. Nothing skips it and no count is lowered; it counts
-# against the Pre-merge budget.
+# against the Pre-merge budget. A red run stops at the end of its first red
+# iteration (`just repeat --until-red`): one failure has failed it already.
 #
 # The incremental gate (ADR 0135) narrows it: with `within` workspace members (crates
 # by name, pnpm and uv packages by folder), only their new and changed
@@ -690,13 +712,18 @@ stress base="" since="" *within:
     # changed tests can pass what one command line holds.
     tests=$(mktemp)
     for count in 20 200; do
+      # A red run stops at the end of its first red iteration: no later count runs.
+      if (( status != 0 )); then
+        echo "Stress run: the $count count does not run after a red iteration"
+        continue
+      fi
       while IFS=$'\t' read -r runs runner test; do
         if [[ "$runs" == "$count" ]]; then printf '%s=%s\n' "$runner" "$test"; fi
       done <<< "$selection" > "$tests"
       echo "Stress run: $(wc -l < "$tests" | tr -d ' ') test(s), $count times each"
       [[ -s "$tests" ]] || continue
       rm -f target/nextest/*/junit.xml
-      {{ just_executable() }} repeat "$count" --tests-file "$tests" || status=$?
+      {{ just_executable() }} repeat "$count" --until-red --tests-file "$tests" || status=$?
       folder="target/junit/repeat-$count"
       mkdir -p "$folder"
       find target/junit -maxdepth 1 -name '*.xml' -exec mv {} "$folder/" \;

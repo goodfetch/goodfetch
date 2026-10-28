@@ -104,8 +104,10 @@ impl TestEnv {
     /// (`/dev/shm` on Linux), else in the temporary folder as `new`'s: for
     /// an in-process test of a store, whose synced writes and new files
     /// then wait for no disk, however busy other writers keep it
-    /// (fix-queue 123). A test that starts a browser or an engine keeps
-    /// [`TestEnv::new`]: its copies would sit in memory.
+    /// (fix-queue 123), and for the Daemon soak, whose HTTP crawls start no
+    /// browser and whose Runs' stores a busy disk slowed past its cap
+    /// (fix-queue 128). Any other test that starts a browser or an engine
+    /// keeps [`TestEnv::new`]: its copies would sit in memory.
     ///
     /// # Panics
     ///

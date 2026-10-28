@@ -12,6 +12,10 @@
     clippy::disallowed_methods,
     reason = "the test lists and signals its own browser's processes on its own thread, never an async worker"
 )]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::process::Command;
 use std::time::Duration;
@@ -151,6 +155,79 @@ fn a_renderer_killed_mid_call_raises_page_crashed_emits_crash_and_refuses_later_
             json!("page_crashed")
         ),
         "{clicked}"
+    );
+}
+
+/// A body read is a call on its page (B24): a renderer killed while
+/// `response.body` waits for a response that never ends, the live board's
+/// event stream, raises `page_crashed` for it, and so does a later read of
+/// a body that finished before the crash, rather than answering only once
+/// the Run ends; a body `page.wait_for_request_finished` kept still reads
+/// from the Run's folder (ADR 0085).
+/// Covers: story:5-27, operation:response.body, operation:page.wait_for_request_finished, error:page_crashed
+#[test]
+fn a_renderer_killed_under_a_body_read_raises_page_crashed_for_it_and_for_later_reads() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "body-crash",
+        &Map::new(),
+        |_| {},
+    );
+    let mut exchange = Exchange::new(engine);
+    let page = opened(&exchange.call("run.new_page", &json!({ "run_id": "body-crash" }))).page_id;
+    let board = proving_ground.start_url("live/1").unwrap();
+    let streaming = exchange.request(
+        "page.wait_for_response",
+        &json!({ "page_id": page, "url": { "kind": "glob", "pattern": "**/events" } }),
+    );
+    let keeping = exchange.request(
+        "page.wait_for_request_finished",
+        &json!({ "page_id": page, "url": { "kind": "glob", "pattern": "**/updates/1" } }),
+    );
+    let went = exchange.call("page.goto", &json!({ "page_id": page, "url": board }));
+    let stream = exchange.answer(streaming);
+    let update = exchange.answer(keeping);
+    exchange.subscribe();
+    exchange.listen(&page.0, "crash");
+    let reading = exchange.request(
+        "response.body",
+        &json!({ "page_id": page, "request_id": stream["result"]["request"]["request_id"], "timeout": null }),
+    );
+    std::thread::sleep(IN_FLIGHT);
+
+    signal("KILL", &browser_processes(&env, renderer));
+    let read = exchange.answer(reading);
+    exchange.until("page.crash", |data| data["page_id"] == json!(page));
+    let finished_before = exchange.call(
+        "response.body",
+        &json!({ "page_id": page, "request_id": went["result"]["response"]["request_id"] }),
+    );
+    let kept = exchange.call(
+        "response.body",
+        &json!({ "page_id": page, "request_id": update["result"]["request"]["request_id"] }),
+    );
+    let _ = exchange.call("run.finish", &json!({ "run_id": "body-crash" }));
+    let _ = exchange.engine.finish();
+
+    assert_eq!(
+        (
+            went["result"]["response"]["status"].clone(),
+            failure(&read).0,
+            failure(&finished_before).0,
+            kept["result"]["path"].is_string(),
+        ),
+        (
+            json!(200),
+            json!("page_crashed"),
+            json!("page_crashed"),
+            true
+        ),
+        "{went} {stream} {read} {finished_before} {kept}"
     );
 }
 

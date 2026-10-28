@@ -296,10 +296,19 @@ enum Asked {
 }
 
 impl Reader {
-    /// Reads the page's events until its target goes, answering each
-    /// dialog it opens before the next.
+    /// Reads the page's events until the page leaves the engine or its
+    /// target goes, answering each dialog it opens before the next.
     async fn read(self, mut events: Subscription) {
-        while let Some(event) = events.next().await {
+        let mut closed = self.page.closed.subscribe();
+        loop {
+            let event = tokio::select! {
+                biased;
+                _ = closed.wait_for(|closed| *closed) => return,
+                event = events.next() => event,
+            };
+            let Some(event) = event else {
+                return;
+            };
             if let Some(opening) = event.read::<page::JavascriptDialogOpeningEvent>() {
                 self.answer_dialog(&opening, &mut events).await;
             }

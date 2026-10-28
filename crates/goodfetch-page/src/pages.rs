@@ -1246,7 +1246,7 @@ impl Pages {
                 page.driver.evaluate(expression, world, operation),
             )
             .await?;
-        page_functions::answered(returns, surface)
+        page_functions::answered(returns, (surface, operation))
     }
 
     /// Registers the init script `params` names on its page, `pending`

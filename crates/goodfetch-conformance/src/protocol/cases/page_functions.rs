@@ -654,15 +654,16 @@ fn evaluate_all(
     )?;
     checks.check(
         format!(
-            "reading a variable of the program raises `{}` whose fix names the argument",
-            PAGE_FUNCTION_FAILED.name
+            "reading a variable of the program raises `{}` whose fix names the argument in a `{}` call, after the matches",
+            PAGE_FUNCTION_FAILED.name, LOCATOR_EVALUATE_ALL.name
         ),
         details::<PageFunctionFailedDetails>(&answer, PAGE_FUNCTION_FAILED.name).is_some_and(
             |details| {
                 details.name.as_deref() == Some("ReferenceError")
-                    && details
-                        .fix
-                        .is_some_and(|fix| fix.contains("programVariable"))
+                    && details.fix.is_some_and(|fix| {
+                        (fix.contains("locator.evaluate_all(\"(elements, programVariable)")
+                            || fix.contains("locator.evaluateAll((elements, programVariable)"))
+                    })
             },
         ),
     );

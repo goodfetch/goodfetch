@@ -1,7 +1,10 @@
+use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::page::functions::{LOCATOR_EVALUATE_ALL, PAGE_EVALUATE};
+use goodfetch_protocol::page::waits::{LOCATOR_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_FUNCTION};
 use rstest::rstest;
 use serde_json::json;
 
-use super::{error_message, init_script};
+use super::{Thrown, error_message, failed, init_script};
 
 /// A source that is one function, comments and a closing `;` around it
 /// allowed, is called with its argument: it takes one, which the script
@@ -64,4 +67,63 @@ fn an_errors_message_is_its_first_line_past_its_name(
     #[case] message: &str,
 ) {
     assert_eq!(error_message(name, description), message);
+}
+
+/// A `ReferenceError`'s fix spells the call of the operation that ran,
+/// for the surface the program uses: a locator's page function takes its
+/// matches first, so the fix's function takes the argument second.
+#[rstest]
+#[case::page_evaluate(PAGE_EVALUATE.name, Surface::SdkTypescript, "page.evaluate((x) => …, x)")]
+#[case::page_evaluate_python(PAGE_EVALUATE.name, Surface::SdkPython, "page.evaluate(\"(x) => …\", x)")]
+#[case::locator_evaluate_all(
+    LOCATOR_EVALUATE_ALL.name,
+    Surface::SdkTypescript,
+    "locator.evaluateAll((elements, x) => …, x)"
+)]
+#[case::locator_evaluate_all_python(
+    LOCATOR_EVALUATE_ALL.name,
+    Surface::SdkPython,
+    "locator.evaluate_all(\"(elements, x) => …\", x)"
+)]
+#[case::page_wait_for_function(
+    PAGE_WAIT_FOR_FUNCTION.name,
+    Surface::SdkTypescript,
+    "page.waitForFunction((x) => …, x)"
+)]
+#[case::page_wait_for_function_python(
+    PAGE_WAIT_FOR_FUNCTION.name,
+    Surface::SdkPython,
+    "page.wait_for_function(\"(x) => …\", x)"
+)]
+#[case::locator_wait_for_function(
+    LOCATOR_WAIT_FOR_FUNCTION.name,
+    Surface::SdkTypescript,
+    "locator.waitForFunction((element, x) => …, x)"
+)]
+#[case::locator_wait_for_function_python(
+    LOCATOR_WAIT_FOR_FUNCTION.name,
+    Surface::SdkPython,
+    "locator.wait_for_function(\"(element, x) => …\", x)"
+)]
+fn a_reference_errors_fix_spells_the_call_of_its_operation(
+    #[case] operation: &'static str,
+    #[case] surface: Surface,
+    #[case] call: &str,
+) {
+    let thrown = Thrown {
+        name: Some("ReferenceError".to_owned()),
+        message: "x is not defined".to_owned(),
+        stack: None,
+    };
+
+    let fix = failed(thrown, (surface, operation))
+        .details()
+        .and_then(|details| details["fix"].as_str().map(ToOwned::to_owned));
+
+    assert_eq!(
+        fix,
+        Some(format!(
+            "A page function sees only the page and its one argument, never the program's variables: pass `x` as the argument, as `{call}` does."
+        ))
+    );
 }

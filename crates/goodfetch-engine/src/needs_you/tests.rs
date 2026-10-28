@@ -228,6 +228,72 @@ fn every_sources_items_make_one_list_the_longest_waiting_first() {
     });
 }
 
+/// The list orders items by the time their `since` names, not by its text:
+/// a source that writes fractions of a second or another offset lists its
+/// items where their time falls, and the cursor a page ends at compares as
+/// a time too.
+///
+/// Covers: story:12-23
+#[test]
+fn items_are_ordered_by_the_time_their_since_names_not_its_text() {
+    let (_folder, path) = index();
+    goodfetch_test_support::runtime().block_on(async {
+        let (first, _keep_first) = held(
+            vec![
+                item("whole", "storage_level", "2026-10-24T10:00:00Z"),
+                item("later_fraction", "storage_level", "2026-10-24T10:00:00.5Z"),
+            ],
+            false,
+        );
+        let (second, _keep_second) = held(
+            vec![
+                item(
+                    "offset",
+                    "run_stopped_by_storage",
+                    "2026-10-24T11:30:00+02:00",
+                ),
+                item(
+                    "a_moment_before",
+                    "run_stopped_by_storage",
+                    "2026-10-24T09:59:59.999Z",
+                ),
+            ],
+            true,
+        );
+        let mut started = started(&path, vec![first, second]).await;
+        started.changes(4).await;
+
+        let every = started.ids().await;
+        let after_whole = started
+            .list(NeedsYouListParams {
+                kinds: None,
+                after: Some("2026-10-24T10:00:00Z whole".to_owned()),
+            })
+            .await;
+
+        assert_eq!(
+            (
+                every,
+                after_whole
+                    .items
+                    .iter()
+                    .map(|item| item.id.as_str())
+                    .collect::<Vec<_>>(),
+            ),
+            (
+                vec![
+                    "offset".to_owned(),
+                    "a_moment_before".to_owned(),
+                    "whole".to_owned(),
+                    "later_fraction".to_owned(),
+                ],
+                vec!["later_fraction"],
+            )
+        );
+        started.stop().await;
+    });
+}
+
 /// A list longer than a page is read a page at a time: each page's `next`
 /// is where the next one starts, and the last page has none.
 #[test]

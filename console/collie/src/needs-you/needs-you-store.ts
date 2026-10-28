@@ -31,13 +31,27 @@ function isChange(data: unknown): data is NeedsYouChange {
   );
 }
 
-/** `items` the longest waiting first, then by ID, as the engine orders them. */
+/**
+ * `items` the longest waiting first, by the time each `since` names rather
+ * than its text, since sources write fractions of a second and offsets
+ * differently; then by ID, compared as the engine compares it, code unit by
+ * code unit. A `since` that does not parse goes last.
+ */
 function ordered(items: Iterable<NeedsYouItem>): readonly NeedsYouItem[] {
-  return [...items].toSorted((left, right) =>
-    left.since === right.since
-      ? left.id.localeCompare(right.id)
-      : left.since.localeCompare(right.since),
-  );
+  const at = (item: NeedsYouItem): number => {
+    const time = Date.parse(item.since);
+    return Number.isNaN(time) ? Number.POSITIVE_INFINITY : time;
+  };
+  return [...items].toSorted((left, right) => {
+    const [since, other] = [at(left), at(right)];
+    if (since !== other) {
+      return since < other ? -1 : 1;
+    }
+    if (left.id === right.id) {
+      return 0;
+    }
+    return left.id < right.id ? -1 : 1;
+  });
 }
 
 /** "Needs you" over one Client: an external store React reads with `useSyncExternalStore`. */

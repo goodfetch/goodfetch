@@ -483,7 +483,10 @@ impl Reader<'_> {
 /// The fingerprint of this host and the tools the gate's steps run: the
 /// kernel, the system's packages, the runtimes, the test runners, the
 /// container engines and the toolchain, and the run's environment
-/// `variables`. A command that is missing counts as such.
+/// `variables`. A command that is missing counts as such. Java is asked
+/// without its performance data file: when `/tmp` is full, the JVM warns on
+/// stderr that it cannot write it, naming its own process ID, and each
+/// probe would then fingerprint another host (FQ50).
 fn host_fingerprint(root: &Path, cargo: &OsStr, variables: &str) -> String {
     const PROBES: [&[&str]; 11] = [
         &["uname", "-srvm"],
@@ -495,7 +498,7 @@ fn host_fingerprint(root: &Path, cargo: &OsStr, variables: &str) -> String {
         &["valgrind", "--version"],
         &["podman", "--version"],
         &["docker", "--version"],
-        &["java", "-version"],
+        &["java", "-XX:-UsePerfData", "-version"],
         &["rustc", "-Vv"],
     ];
     let mut digest = Sha256::new();

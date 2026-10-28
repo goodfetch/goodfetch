@@ -39,6 +39,9 @@ The suites are the Quick, Pre-merge and Release suites, each containing the one 
   - *New* means its ID is absent from the base commit's test listing. *Changed* means its file changed in the pull request (Vitest `--changed` and Playwright `--only-changed` also take tests whose imports changed).
   - nextest `--stress-count`, Vitest `--repeats`, Playwright `--repeat-each`, pytest-repeat `--count`.
   - The run is sharded to fit the Pre-merge budget; the count is never lowered, and no label or footer skips it.
+
+> Amended on 2026-10-28 (owner decision of 2026-10-28, adopting option 2 of the test-gate audit): a red stress run stops at the end of its first red iteration, the first run of every selected test in which one failed. One failure has already failed the pull request, and the 3 h 30 the iterations after it took on spec #577's red rounds decided nothing. A green run still runs every test its 20 or 200 times. nextest runs that run's iterations one a command, since its `--max-fail` ends a stress run in the middle of the iteration that reaches it; after a red iteration, no later iteration, runner or count runs. The cost: a second flaky test the later iterations would have caught shows on the next round, and a run that stopped before nextest's last iteration records red, in the gate (ADR 0135), every crate with a selected nextest test, since none of those ran its count.
+
 - **A pull request that takes a test off the quarantine list runs it 200 times.** Gruber et al. (2021) found that Python tests need about 170 runs on average for 95% confidence that a passing test is not flaky.
 - **Tests run in random order wherever the runner allows it**, with the seed printed:
   - pytest: pytest-randomly, on when installed;

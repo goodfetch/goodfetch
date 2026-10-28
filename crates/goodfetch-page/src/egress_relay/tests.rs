@@ -1312,3 +1312,35 @@ fn with_local_addresses_every_address_case_of_the_ssrf_table_is_refused_at_the_r
         ))
     );
 }
+
+/// What a relayed connection met is kept by the authority its head asked
+/// for and read back by the authority of a request's URL (finding 577-5),
+/// so the two name one connection alike: lowercased, the scheme's default
+/// port filled in, an IPv6 address in brackets.
+#[rstest::rstest]
+#[case::a_tunnel("https://site.test/page", "CONNECT site.test:443 HTTP/1.1\r\n\r\n")]
+#[case::a_tunnel_in_capitals("https://Site.TEST/", "CONNECT SITE.test:443 HTTP/1.1\r\n\r\n")]
+#[case::a_tunnel_to_another_port(
+    "https://site.test:8443/",
+    "CONNECT site.test:8443 HTTP/1.1\r\n\r\n"
+)]
+#[case::a_tunnel_to_ipv6(
+    "https://[2001:DB8::1]/",
+    "CONNECT [2001:db8:0::1]:443 HTTP/1.1\r\n\r\n"
+)]
+#[case::a_plain_request("http://site.test/a?b", "GET http://site.test/a?b HTTP/1.1\r\n\r\n")]
+#[case::a_plain_request_on_its_default_port(
+    "http://site.test/",
+    "GET http://site.test:80/ HTTP/1.1\r\n\r\n"
+)]
+#[tokio::test]
+async fn a_request_s_url_names_the_authority_its_connection_asked_for(
+    #[case] url: &str,
+    #[case] head: &str,
+) {
+    let (head, _) = super::head::read(&mut head.as_bytes())
+        .await
+        .expect("the head reads");
+
+    assert_eq!(super::authority_of(url), Some(head.target.authority()));
+}

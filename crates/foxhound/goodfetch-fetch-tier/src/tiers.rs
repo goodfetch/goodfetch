@@ -774,7 +774,7 @@ impl FetchTiers {
         let (url, headers, body) = (
             fetched.url.clone(),
             fetched.headers.clone(),
-            Bytes::from(fetched.body.clone()),
+            fetched.body.clone(),
         );
         let certificate_exception = fetched.certificate_exception.as_ref().map(mark);
         let opened = Opened::of(run, fetched, forced);
@@ -900,7 +900,7 @@ impl FetchTiers {
             url: rendered.url,
             status: rendered.status,
             headers,
-            body: rendered.html.into_bytes(),
+            body: rendered.html.into_bytes().into(),
             unaccepted: None,
             // Lightpanda makes its own TLS connections through the bridge,
             // which relays them unread: no `tls.accept_invalid_certs`

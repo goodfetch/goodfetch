@@ -358,26 +358,6 @@ impl TierChoices {
             self.served.remove(&id);
         }
     }
-
-    /// Every unit, by Label and domain key.
-    #[cfg(test)]
-    pub(crate) fn units(&self) -> impl Iterator<Item = (&str, &str, &Unit)> {
-        self.units
-            .iter()
-            .map(|((label, key), unit)| (label.as_str(), key.as_str(), unit))
-    }
-
-    /// The segments `label` keeps a tier for on `domain_key`.
-    #[cfg(test)]
-    pub(crate) fn segments(&self, label: &str, domain_key: &str) -> Vec<String> {
-        match self.units.get(&(label.to_owned(), domain_key.to_owned())) {
-            Some(Unit::Split { segments, .. }) => segments
-                .iter()
-                .map(|segment| segment.name.clone())
-                .collect(),
-            _ => Vec::new(),
-        }
-    }
 }
 
 /// What a unit plans for one request.

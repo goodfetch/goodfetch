@@ -13,6 +13,8 @@ use proptest::prelude::*;
 
 use super::{TransportFailure, met};
 
+mod untyped;
+
 /// Every failure an HTTP tier's transport meets that names no value of
 /// its own, with whether it is the proxy's.
 fn failures() -> Vec<(TransportFailure, bool)> {

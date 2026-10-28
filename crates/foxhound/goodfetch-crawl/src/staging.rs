@@ -76,10 +76,27 @@ struct Entry {
 /// The `fix` of `effect_staging_refused`.
 const STAGE_AFTER: &str = "Stage it after the `effect` declaration returns, from the output its body returned: a re-run that finds the Effect in the Effect journal does not run the body again.";
 
+/// An attempt of a crawl, by what holds its lease: its work item and the
+/// lease epoch it holds it under.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct AttemptKey {
+    work_item: String,
+    lease_epoch: u64,
+}
+
+impl AttemptKey {
+    fn of(work_item: &str, lease_epoch: u64) -> Self {
+        Self {
+            work_item: work_item.to_owned(),
+            lease_epoch,
+        }
+    }
+}
+
 /// The staging of every attempt of one crawl that holds its lease, by its
 /// work item and lease epoch.
 #[derive(Clone, Default)]
-pub(crate) struct Staging(Arc<Mutex<HashMap<(String, u64), Entry>>>);
+pub(crate) struct Staging(Arc<Mutex<HashMap<AttemptKey, Entry>>>);
 
 /// What an attempt staged so far, as a sample comparison weighs it (ADR
 /// 0103): the Records it pushed, in order, and the Frontier identities of
@@ -142,7 +159,7 @@ impl std::fmt::Debug for Staging {
 }
 
 impl Staging {
-    fn entries(&self) -> MutexGuard<'_, HashMap<(String, u64), Entry>> {
+    fn entries(&self) -> MutexGuard<'_, HashMap<AttemptKey, Entry>> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -150,7 +167,7 @@ impl Staging {
     /// as its lease is granted.
     pub(crate) fn open(&self, work_item: &str, lease_epoch: u64) {
         self.entries()
-            .insert((work_item.to_owned(), lease_epoch), Entry::default());
+            .insert(AttemptKey::of(work_item, lease_epoch), Entry::default());
     }
 
     /// Discards what the attempt staged, as it ends without committing,
@@ -158,7 +175,7 @@ impl Staging {
     /// fails with `attempt_ended`.
     pub(crate) fn discard(&self, work_item: &str, lease_epoch: u64) -> SoFar {
         self.entries()
-            .remove(&(work_item.to_owned(), lease_epoch))
+            .remove(&AttemptKey::of(work_item, lease_epoch))
             .map(|entry| SoFar {
                 records: entry.records,
                 enqueues: entry.enqueues,
@@ -169,7 +186,7 @@ impl Staging {
     /// What the attempt staged so far, which stays staged.
     pub(crate) fn pushed(&self, work_item: &str, lease_epoch: u64) -> SoFar {
         self.entries()
-            .get(&(work_item.to_owned(), lease_epoch))
+            .get(&AttemptKey::of(work_item, lease_epoch))
             .map(|entry| SoFar {
                 records: entry.records.clone(),
                 enqueues: entry.enqueues.clone(),
@@ -184,7 +201,7 @@ impl Staging {
     /// attempt ended.
     pub(crate) fn set_aside(&self, work_item: &str, lease_epoch: u64) -> Option<SetAside> {
         let mut entries = self.entries();
-        let entry = entries.get_mut(&(work_item.to_owned(), lease_epoch))?;
+        let entry = entries.get_mut(&AttemptKey::of(work_item, lease_epoch))?;
         Some(SetAside(std::mem::take(entry)))
     }
 
@@ -192,7 +209,10 @@ impl Staging {
     /// the attempt staged since, which is discarded; nothing once the
     /// attempt ended.
     pub(crate) fn put_back(&self, work_item: &str, lease_epoch: u64, set_aside: SetAside) {
-        if let Some(entry) = self.entries().get_mut(&(work_item.to_owned(), lease_epoch)) {
+        if let Some(entry) = self
+            .entries()
+            .get_mut(&AttemptKey::of(work_item, lease_epoch))
+        {
             *entry = set_aside.0;
         }
     }
@@ -201,7 +221,7 @@ impl Staging {
     /// call of it fails with `attempt_ended`.
     pub(crate) fn take(&self, work_item: &str, lease_epoch: u64) -> Staged {
         self.entries()
-            .remove(&(work_item.to_owned(), lease_epoch))
+            .remove(&AttemptKey::of(work_item, lease_epoch))
             .map(|entry| Staged {
                 admitted: entry.admitted,
                 records: entry.records,
@@ -217,7 +237,10 @@ impl Staging {
     /// robots.txt mark kept unless `fetched` names one; nothing once the
     /// attempt ended.
     pub(crate) fn fetched(&self, work_item: &str, lease_epoch: u64, fetched: Fetched) {
-        if let Some(entry) = self.entries().get_mut(&(work_item.to_owned(), lease_epoch)) {
+        if let Some(entry) = self
+            .entries()
+            .get_mut(&AttemptKey::of(work_item, lease_epoch))
+        {
             let robots_txt = fetched.robots_txt.or(entry.fetched.robots_txt);
             entry.fetched = Fetched {
                 robots_txt,
@@ -230,7 +253,10 @@ impl Staging {
     /// its page's fields, in place of what an earlier run of it noted;
     /// nothing once the attempt ended.
     pub(crate) fn fields_read(&self, work_item: &str, lease_epoch: u64, fields: FieldsRead) {
-        if let Some(entry) = self.entries().get_mut(&(work_item.to_owned(), lease_epoch)) {
+        if let Some(entry) = self
+            .entries()
+            .get_mut(&AttemptKey::of(work_item, lease_epoch))
+        {
             entry.fields = fields;
         }
     }
@@ -239,7 +265,7 @@ impl Staging {
     /// noted, if any.
     pub(crate) fn robots_txt(&self, work_item: &str, lease_epoch: u64) -> Option<RobotsTxtMark> {
         self.entries()
-            .get(&(work_item.to_owned(), lease_epoch))
+            .get(&AttemptKey::of(work_item, lease_epoch))
             .and_then(|entry| entry.fetched.robots_txt)
     }
 
@@ -255,7 +281,7 @@ impl Staging {
     )]
     pub(crate) fn begin_effect(&self, work_item: &str, lease_epoch: u64) -> bool {
         self.entries()
-            .get_mut(&(work_item.to_owned(), lease_epoch))
+            .get_mut(&AttemptKey::of(work_item, lease_epoch))
             .map(|entry| entry.effects += 1)
             .is_some()
     }
@@ -269,7 +295,10 @@ impl Staging {
         )
     )]
     pub(crate) fn end_effect(&self, work_item: &str, lease_epoch: u64) {
-        if let Some(entry) = self.entries().get_mut(&(work_item.to_owned(), lease_epoch)) {
+        if let Some(entry) = self
+            .entries()
+            .get_mut(&AttemptKey::of(work_item, lease_epoch))
+        {
             entry.effects = entry.effects.saturating_sub(1);
         }
     }
@@ -278,7 +307,7 @@ impl Staging {
     /// stages.
     pub(crate) fn holds(&self, work_item: &str, lease_epoch: u64) -> bool {
         self.entries()
-            .contains_key(&(work_item.to_owned(), lease_epoch))
+            .contains_key(&AttemptKey::of(work_item, lease_epoch))
     }
 
     /// Stages `records`, as their Datasets checked them, with the attempt of
@@ -292,7 +321,7 @@ impl Staging {
         records: Checked,
     ) -> Option<Result<(), CallError>> {
         let mut entries = self.entries();
-        let entry = entries.get_mut(&(work_item.to_owned(), lease_epoch))?;
+        let entry = entries.get_mut(&AttemptKey::of(work_item, lease_epoch))?;
         if entry.effects > 0 {
             return Some(Err(refused_in_effect(work_item, lease_epoch)));
         }
@@ -312,7 +341,7 @@ impl Staging {
         lease_epoch: u64,
         admission: impl Fn(&Connection, &mut Positions) -> Answered<T> + Send + Sync + 'static,
     ) -> Answered<T> {
-        let key = (work_item.to_owned(), lease_epoch);
+        let key = AttemptKey::of(work_item, lease_epoch);
         let earlier = match self.entries().get(&key) {
             None => return Ok(None),
             Some(entry) if entry.effects > 0 => {
@@ -421,7 +450,7 @@ impl AttemptWrites for Staging {
         write: StagedWrite,
     ) -> Result<StagedKey, Unstaged> {
         let mut entries = self.entries();
-        let Some(entry) = entries.get_mut(&(crawl_request_id.to_owned(), lease_epoch)) else {
+        let Some(entry) = entries.get_mut(&AttemptKey::of(crawl_request_id, lease_epoch)) else {
             return Err(ended(crawl_request_id, lease_epoch));
         };
         if entry.effects > 0 {
@@ -440,7 +469,7 @@ impl AttemptWrites for Staging {
         key: &str,
     ) -> Result<StagedKey, Unstaged> {
         self.entries()
-            .get(&(crawl_request_id.to_owned(), lease_epoch))
+            .get(&AttemptKey::of(crawl_request_id, lease_epoch))
             .map(|entry| last_of(&entry.writes, key))
             .ok_or_else(|| ended(crawl_request_id, lease_epoch))
     }

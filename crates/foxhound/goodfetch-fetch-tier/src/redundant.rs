@@ -26,6 +26,7 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use bytes::Bytes;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Room, SecondCopies};
 use goodfetch_engine::runs::Run;
@@ -100,7 +101,7 @@ struct Identity {
     method: String,
     url: String,
     headers: Vec<(String, String)>,
-    body: Option<Vec<u8>>,
+    body: Option<Bytes>,
     /// The types its handler takes: requests that take others never share
     /// an answer.
     accepts: Option<Accepts>,
@@ -117,7 +118,7 @@ impl Identity {
                 .iter()
                 .map(|(name, value)| (name.to_ascii_lowercase(), value.clone()))
                 .collect(),
-            body: hop.body.as_ref().map(|body| body.to_vec()),
+            body: hop.body.clone(),
             accepts: accepts.cloned(),
         }
     }

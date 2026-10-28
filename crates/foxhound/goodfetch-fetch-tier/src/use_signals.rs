@@ -407,9 +407,10 @@ impl SignalFiles {
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future of the reader that fetches abandons its fetch,
-    /// and the next reader fetches again; a waiting reader loses only its
-    /// answer.
+    /// Dropping the future of the reader whose `fetch` runs drops that
+    /// fetch and keeps nothing: a concurrent or later reader fetches the
+    /// file with its own. Dropping any other reader's future loses only
+    /// its answer.
     pub async fn read<F>(&self, url: &Url, fetch: F) -> Option<Arc<[u8]>>
     where
         F: Future<Output = Option<Vec<u8>>>,

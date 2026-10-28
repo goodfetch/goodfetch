@@ -193,7 +193,7 @@ pub struct EngineFetch {
     /// Headers set over the browser's own, by name without regard to case.
     pub headers: Vec<(String, String)>,
     /// Its body, if any.
-    pub body: Option<Vec<u8>>,
+    pub body: Option<bytes::Bytes>,
 }
 
 /// What [`BrowserPages::fetch`] answers: the response and its body, its

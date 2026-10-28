@@ -70,9 +70,9 @@ fn a_body_decodes_as_chrome_decodes_its_content_codings(
     #[case] codings: &[&str],
     #[case] body: Vec<u8>,
 ) {
-    let decoded = decode(codings.iter().copied(), body).unwrap();
+    let decoded = decode(codings.iter().copied(), body.into()).unwrap();
 
-    assert_eq!(decoded, b"abc");
+    assert_eq!(decoded, &b"abc"[..]);
 }
 
 #[rstest]
@@ -86,7 +86,7 @@ fn a_body_decodes_as_chrome_decodes_its_content_codings(
 #[case::a_plain_body_labelled_zstd(&["zstd"], b"abc".to_vec())]
 fn a_body_that_does_not_decode_as_labelled_fails(#[case] codings: &[&str], #[case] body: Vec<u8>) {
     assert_eq!(
-        decode(codings.iter().copied(), body),
+        decode(codings.iter().copied(), body.into()),
         Err(DecodingFailed::Corrupt)
     );
 }
@@ -109,7 +109,7 @@ const ALPHABETS: &[u8] = b"abcdefghijklmnopqrstuvwxyz abcdefghijklmnopqrstuvwxyz
 #[case::the_inner_of_two_codings(&["gzip, br"], brotli(&cut(gzip(ALPHABETS))))]
 fn a_compressed_stream_ending_early_is_cut(#[case] codings: &[&str], #[case] body: Vec<u8>) {
     assert_eq!(
-        decode(codings.iter().copied(), body),
+        decode(codings.iter().copied(), body.into()),
         Err(DecodingFailed::Cut)
     );
 }
@@ -129,7 +129,7 @@ fn a_text_body_still_compressed_once_decoded_is_one_compressed_more_than_labelle
     #[case] body: Vec<u8>,
     #[case] expected: bool,
 ) {
-    let decoded = decode(codings.iter().copied(), body).unwrap();
+    let decoded = decode(codings.iter().copied(), body.into()).unwrap();
 
     assert_eq!(still_compressed(content_type, &decoded), expected);
 }

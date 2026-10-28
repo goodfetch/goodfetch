@@ -9,9 +9,14 @@
 //! zstd stream once decoded: one compressed once more than labelled (ADR
 //! 0119). A stream that ends before its end is told from a corrupt one: the
 //! body was cut, which the driver fails with `response_truncated` (ADR
-//! 0118). The charset order of a document's text is #764's.
+//! 0118). Which codings a body names, and how `deflate` tells its zlib
+//! wrapper, are the engine's rule ([`ContentCoding`]), which its own
+//! readers decode by too. The charset order of a document's text is #764's.
 
 use std::io::Read as _;
+
+use bytes::Bytes;
+use goodfetch_engine::response_limits::{ContentCoding, has_zlib_header};
 
 /// Why a body did not decode as its codings say.
 #[derive(Debug, PartialEq, Eq)]
@@ -22,51 +27,30 @@ pub(crate) enum DecodingFailed {
     Cut,
 }
 
-/// A content coding the engine decodes.
-#[derive(Clone, Copy, Debug)]
-enum Coding {
-    Gzip,
-    Deflate,
-    Brotli,
-    Zstd,
-}
-
-impl Coding {
-    /// The coding a `Content-Encoding` token names, `None` for `identity`
-    /// and every coding Chrome does not know.
-    fn named(token: &str) -> Option<Self> {
-        match token.to_ascii_lowercase().as_str() {
-            "gzip" | "x-gzip" => Some(Self::Gzip),
-            "deflate" => Some(Self::Deflate),
-            "br" => Some(Self::Brotli),
-            "zstd" => Some(Self::Zstd),
-            _ => None,
+/// `body` decoded as `coding`; a stream of it that ends early is
+/// [`DecodingFailed::Cut`], anything else that does not decode
+/// [`DecodingFailed::Corrupt`].
+fn decoded(coding: ContentCoding, body: &[u8]) -> Result<Vec<u8>, DecodingFailed> {
+    let mut out = Vec::new();
+    let read = match coding {
+        // A body too short for gzip's header is cut only once it opens as
+        // a gzip stream.
+        ContentCoding::Gzip if !body.starts_with(&GZIP_MAGIC) => Err(DecodingFailed::Corrupt),
+        ContentCoding::Gzip => flate2::read::GzDecoder::new(body)
+            .read_to_end(&mut out)
+            .map_err(|error| failure(&error)),
+        ContentCoding::Deflate if has_zlib_header(body) => flate2::read::ZlibDecoder::new(body)
+            .read_to_end(&mut out)
+            .map_err(|error| failure(&error)),
+        ContentCoding::Deflate => flate2::read::DeflateDecoder::new(body)
+            .read_to_end(&mut out)
+            .map_err(|error| failure(&error)),
+        ContentCoding::Brotli => return brotli(body),
+        ContentCoding::Zstd => {
+            return zstd::stream::decode_all(body).map_err(|error| failure(&error));
         }
-    }
-
-    /// `body` decoded; a stream of this coding that ends early is
-    /// [`DecodingFailed::Cut`], anything else that does not decode
-    /// [`DecodingFailed::Corrupt`].
-    fn decode(self, body: &[u8]) -> Result<Vec<u8>, DecodingFailed> {
-        let mut out = Vec::new();
-        let read = match self {
-            // A body too short for gzip's header is cut only once it opens
-            // as a gzip stream.
-            Self::Gzip if !body.starts_with(&GZIP_MAGIC) => Err(DecodingFailed::Corrupt),
-            Self::Gzip => flate2::read::GzDecoder::new(body)
-                .read_to_end(&mut out)
-                .map_err(|error| failure(&error)),
-            Self::Deflate if has_zlib_header(body) => flate2::read::ZlibDecoder::new(body)
-                .read_to_end(&mut out)
-                .map_err(|error| failure(&error)),
-            Self::Deflate => flate2::read::DeflateDecoder::new(body)
-                .read_to_end(&mut out)
-                .map_err(|error| failure(&error)),
-            Self::Brotli => return brotli(body),
-            Self::Zstd => return zstd::stream::decode_all(body).map_err(|error| failure(&error)),
-        };
-        read.map(|_| out)
-    }
+    };
+    read.map(|_| out)
 }
 
 /// The two bytes a gzip stream opens with (RFC 1952).
@@ -122,18 +106,6 @@ fn brotli(body: &[u8]) -> Result<Vec<u8>, DecodingFailed> {
     }
 }
 
-/// Whether `body` opens with a zlib header (RFC 1950): the deflate method
-/// and a check over its first two bytes. Chrome reads `deflate` without one
-/// as raw deflate.
-fn has_zlib_header(body: &[u8]) -> bool {
-    match body {
-        [method, flags, ..] => {
-            method & 0x0f == 8 && (u16::from(*method) << 8 | u16::from(*flags)) % 31 == 0
-        }
-        _ => false,
-    }
-}
-
 /// Whether `body`, decoded, of the type `content_type` names, is a text
 /// body that still opens as a gzip stream or a zstd frame (ADR 0119): the
 /// text types are `text/*`, `application/json`, `application/xml`,
@@ -165,27 +137,18 @@ fn is_text(content_type: &str) -> bool {
 }
 
 /// `body` with every coding of `codings` (each a `Content-Encoding` field's
-/// value, in order) decoded, the last applied first.
+/// value, in order) decoded, the last applied first; a body no coding
+/// applies to is answered as it is, never copied.
 pub(crate) fn decode<'a>(
     codings: impl Iterator<Item = &'a str>,
-    body: Vec<u8>,
-) -> Result<Vec<u8>, DecodingFailed> {
-    let named: Option<Vec<Coding>> = codings
-        .flat_map(|field| field.split(','))
-        .map(str::trim)
-        .filter(|token| !token.is_empty())
-        .map(Coding::named)
-        .collect();
-    let Some(named) = named else {
+    body: Bytes,
+) -> Result<Bytes, DecodingFailed> {
+    let Some(listed) = ContentCoding::listed(codings) else {
         return Ok(body);
     };
-    if named.is_empty() {
-        return Ok(body);
-    }
-    named
-        .iter()
-        .rev()
-        .try_fold(body, |body, coding| coding.decode(&body))
+    listed.iter().rev().try_fold(body, |body, coding| {
+        decoded(*coding, &body).map(Bytes::from)
+    })
 }
 
 #[cfg(test)]

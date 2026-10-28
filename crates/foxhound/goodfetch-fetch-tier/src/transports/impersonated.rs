@@ -39,7 +39,6 @@ use std::error::Error;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use goodfetch_engine::egress::Refused;
 use goodfetch_engine::tls::{Decision, Examiner, Presented, SharedTrust, Verdict};
 use goodfetch_protocol::tls::CertificateFailure;
 use http_body_util::BodyExt as _;
@@ -461,15 +460,9 @@ impl wreq::dns::Resolve for Resolver {
     }
 }
 
-/// `error`'s failure, an egress refusal naming the hop's URL.
+/// `error`'s failure, as a hop to `url` reports it.
 fn failure_of(error: &wreq::Error, url: &Url) -> TransportFailure {
-    match classify(error) {
-        TransportFailure::Egress(refused) => TransportFailure::Egress(Refused {
-            url: url.to_string(),
-            ..refused
-        }),
-        failure => failure,
-    }
+    classify(error).of_hop(url)
 }
 
 /// The failure `error` is, read down its chain of sources: the first one

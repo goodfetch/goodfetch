@@ -109,7 +109,7 @@ fn test_streams() -> Contribution {
                     panic!("the Run began before");
                 };
                 let size = usize::try_from(params["size"].as_u64().unwrap()).unwrap();
-                let handle = run.store_body(body_bytes(size)).await.unwrap();
+                let handle = run.store_body(body_bytes(size).into()).await.unwrap();
                 Ok::<Value, CallError>(serde_json::to_value(handle).unwrap())
             },
         ))

@@ -216,15 +216,9 @@ impl Decoding {
             bytes: Vec::new(),
             passed: None,
         };
-        let named: Option<Vec<Coding>> = codings
-            .flat_map(|field| field.split(','))
-            .map(str::trim)
-            .filter(|token| !token.is_empty())
-            .map(Coding::named)
-            .collect();
         // The last coding applied is the first decoded, so it is the
         // outermost stage.
-        let stage = named
+        let stage = ContentCoding::listed(codings)
             .unwrap_or_default()
             .into_iter()
             .fold(Box::new(sink) as Box<dyn Stage>, |inner, coding| {
@@ -244,6 +238,20 @@ impl Decoding {
             u64::try_from(received.len()).expect("invariant: a chunk's length fits in u64");
         let written = self.stage.write_all(received);
         self.failed(written)
+    }
+
+    /// Every byte the body received so far decodes to, the decoders'
+    /// buffers flushed: enough to judge a body by its first bytes before
+    /// the rest arrives. The decoding goes on with the next
+    /// [`Self::push`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::push`] says, for what the decoders held.
+    pub fn decoded(&mut self) -> Result<&[u8], BodyFailure> {
+        let flushed = self.stage.flush();
+        self.failed(flushed)?;
+        Ok(&self.stage.sink().bytes)
     }
 
     /// The whole decoded body, once its last bytes arrived.
@@ -267,20 +275,25 @@ impl Decoding {
     }
 }
 
-/// A content coding the engine decodes.
-#[derive(Clone, Copy, Debug)]
-enum Coding {
+/// A content coding the engine decodes, as Chrome decodes it: every tier
+/// that reads a body names its codings with this one rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContentCoding {
+    /// `gzip`, and `x-gzip`.
     Gzip,
+    /// `deflate`, with its zlib wrapper or raw ([`has_zlib_header`]).
     Deflate,
+    /// `br`.
     Brotli,
+    /// `zstd`.
     Zstd,
 }
 
-impl Coding {
+impl ContentCoding {
     /// The coding a `Content-Encoding` token names, `None` for `identity`
     /// and every coding Chrome does not know, which leaves the body as it
     /// is.
-    fn named(token: &str) -> Option<Self> {
+    pub fn named(token: &str) -> Option<Self> {
         match token.to_ascii_lowercase().as_str() {
             "gzip" | "x-gzip" => Some(Self::Gzip),
             "deflate" => Some(Self::Deflate),
@@ -288,6 +301,19 @@ impl Coding {
             "zstd" => Some(Self::Zstd),
             _ => None,
         }
+    }
+
+    /// The codings `fields` list, each a `Content-Encoding` field's value
+    /// in order, in the order they were applied; `None` when one names
+    /// `identity` or a coding Chrome does not know, which, as in Chrome's
+    /// `URLRequestHttpJob`, leaves the whole body undecoded.
+    pub fn listed<'a>(fields: impl Iterator<Item = &'a str>) -> Option<Vec<Self>> {
+        fields
+            .flat_map(|field| field.split(','))
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .map(Self::named)
+            .collect()
     }
 
     /// The stage that decodes this coding into `inner`, under `limits`.
@@ -463,8 +489,9 @@ impl Stage for Deflate {
 }
 
 /// Whether `body` opens with a zlib header (RFC 1950): the deflate method
-/// and a check over its first two bytes.
-fn has_zlib_header(body: &[u8]) -> bool {
+/// and a check over its first two bytes. Chrome reads `deflate` without one
+/// as raw deflate.
+pub fn has_zlib_header(body: &[u8]) -> bool {
     match body {
         [method, flags, ..] => {
             method & 0x0f == 8 && (u16::from(*method) << 8 | u16::from(*flags)) % 31 == 0

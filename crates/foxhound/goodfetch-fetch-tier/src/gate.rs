@@ -59,6 +59,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use bytes::Bytes;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Room, SecondCopies};
 use goodfetch_engine::egress::Policy;
@@ -678,12 +679,12 @@ impl ChainGate {
 }
 
 /// What the Frontier takes of `hop` of `crawl_request`.
-fn frontier_hop(crawl_request: &str, hop: &Hop) -> (String, Url, HttpMethod, Option<Vec<u8>>) {
+fn frontier_hop(crawl_request: &str, hop: &Hop) -> (String, Url, HttpMethod, Option<Bytes>) {
     (
         crawl_request.to_owned(),
         hop.url.clone(),
         HttpMethod::parse(hop.method.as_str()).unwrap_or_else(|_| HttpMethod::get()),
-        hop.body.as_ref().map(|body| body.to_vec()),
+        hop.body.clone(),
     )
 }
 

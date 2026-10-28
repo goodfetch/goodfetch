@@ -35,7 +35,7 @@ pub(crate) struct Server {
 struct Live {
     run: Run,
     egress: Arc<Policy>,
-    joining: mpsc::UnboundedSender<Server>,
+    joining: mpsc::Sender<Server>,
     seeded: Arc<Notify>,
     staging: Staging,
 }
@@ -57,7 +57,7 @@ pub(crate) struct LiveCrawl {
 /// A crawl opened to Connections that join it and to seeds added to it.
 pub(crate) struct Opened {
     /// Where joining Connections arrive.
-    pub(crate) joined: mpsc::UnboundedReceiver<Server>,
+    pub(crate) joined: mpsc::Receiver<Server>,
     /// Notified once seeds were added since its last notification.
     pub(crate) seeded: Arc<Notify>,
     /// Where its attempts stage their outputs until they commit.
@@ -65,6 +65,10 @@ pub(crate) struct Opened {
     /// The Run's domain policy, which judges each redirect hop.
     pub(crate) egress: Arc<Policy>,
 }
+
+/// How many joining Connections wait for a crawl's delivery to take them:
+/// one more waits in its `crawl.serve` call until the delivery takes one.
+const JOINING: usize = 16;
 
 /// The live crawls of one engine.
 #[derive(Clone, Default)]
@@ -75,7 +79,7 @@ impl Crawls {
     /// Connections that join it and to seeds added to it, and answers where
     /// each arrives.
     pub(crate) async fn open(&self, run: &Run, egress: Policy) -> Opened {
-        let (joining, joined) = mpsc::unbounded_channel();
+        let (joining, joined) = mpsc::channel(JOINING);
         let seeded = Arc::new(Notify::new());
         let staging = Staging::default();
         run.stage_attempt_writes_through(Arc::new(staging.clone()));
@@ -115,16 +119,20 @@ impl Crawls {
 
     /// Joins the Connection of the call `context` to the live crawl
     /// `run_id`, until the answered sender drops; `None` when no such crawl
-    /// is open.
+    /// is open, or it ended before its delivery took the Connection. While
+    /// [`JOINING`] Connections already wait for its delivery, it waits too.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future before it answers joins nothing.
     pub(crate) async fn join(
         &self,
         run_id: &RunId,
         context: CallContext,
     ) -> Option<oneshot::Sender<()>> {
         let (stays, left) = oneshot::channel();
-        let crawls = self.0.lock().await;
-        let live = crawls.get(run_id)?;
-        live.joining.send(Server { context, left }).ok()?;
+        let joining = self.0.lock().await.get(run_id)?.joining.clone();
+        joining.send(Server { context, left }).await.ok()?;
         Some(stays)
     }
 }

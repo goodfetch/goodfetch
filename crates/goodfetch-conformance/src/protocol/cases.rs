@@ -312,14 +312,15 @@ impl Site {
 /// The Proving ground's host names that belong to no task and that a case
 /// reaches, which `resolve` maps too: the fetch edge's (ADR 0118), and the
 /// scope family's site and off-site host the route cases load, the
-/// Clean-up pages' two hosts (ADR 0047), and the consent pages' two hosts (ADR
-/// 0048).
-const NAMED_HOSTS: [&str; 7] = [
+/// Clean-up pages' two hosts and the payment script's (ADR 0047), and the
+/// consent pages' two hosts (ADR 0048).
+const NAMED_HOSTS: [&str; 8] = [
     "fetch-edge.test",
     "scope.test",
     "elsewhere.test",
     clean_up::HOST,
     clean_up::FRAME_HOST,
+    clean_up::PAYMENT_HOST,
     consent::HOST,
     consent::FRAME_HOST,
 ];

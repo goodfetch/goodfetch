@@ -61,8 +61,10 @@ pub(crate) const HOST: &str = "clean-up.test";
 pub(crate) const FRAME_HOST: &str = "clean-up-frame.test";
 
 /// The host of Stripe's fraud-signals script, a payment script `/challenge`
-/// loads from it as a checkout page would: its own name, so the Filter
-/// lists and the never-block list judge the request as they judge Stripe's.
+/// loads from it over HTTPS as a checkout page would: its own name, so the
+/// Filter lists and the never-block list judge the request as they judge
+/// Stripe's. Browsers reach `stripe.com`'s hosts only over HTTPS (it is
+/// HSTS-preloaded), so the server's leaf of its seeded authority answers it.
 pub(crate) const PAYMENT_HOST: &str = "m.stripe.com";
 
 /// A transparent 1×1 GIF, every image's body.
@@ -103,7 +105,7 @@ const CHALLENGE: &str = "<!DOCTYPE html>
 <script src=\"/cdn-cgi/challenge-platform/h/b/orchestrate/chl_page/v1\"></script>
 <script>
 const payment = document.createElement(\"script\");
-payment.src = `${location.protocol}//m.stripe.com:${location.port}/6`;
+payment.src = `https://m.stripe.com:${location.port}/6`;
 document.head.append(payment);
 </script>
 <script src=\"/js/adobe-analytics.js\"></script>

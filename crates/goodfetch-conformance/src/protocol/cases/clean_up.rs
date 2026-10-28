@@ -54,7 +54,7 @@ pub(super) const ANNOYANCE: &str = "/js/copy_text.js";
 /// A document EasyList blocks wherever it is (`/page/bouncy.php?$document`).
 const BLOCKED_DOCUMENT: &str = "/page/bouncy.php?id=1";
 /// The host of the `/challenge` page's payment script, Stripe's own.
-const PAYMENT_HOST: &str = "m.stripe.com";
+pub(super) const PAYMENT_HOST: &str = "m.stripe.com";
 /// Stripe's fraud-signals script, which EasyPrivacy blocks on another site
 /// and the never-block list keeps loading.
 const PAYMENT: &str = "/6";
@@ -344,7 +344,13 @@ fn never_blocked(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-clean-up-never-blocked";
-    let settings = json!({ "browser": { "block_resources": ["image"] } });
+    // Stripe's host is reached over HTTPS alone, and the Proving ground's
+    // leaf for it chains to an authority no browser trusts: the Run takes
+    // it on first use, which a run may list (ADR 0042).
+    let settings = json!({
+        "browser": { "block_resources": ["image"] },
+        "tls": { "accept_invalid_certs": { PAYMENT_HOST: null } },
+    });
     let Some(page) = open(connection, site, run_id, &settings, checks)? else {
         return finish(connection, run_id).map(drop);
     };

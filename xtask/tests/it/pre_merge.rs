@@ -259,6 +259,138 @@ fn the_quick_form_runs_the_checks_every_change_needs_and_nothing_beside() {
     assert_eq!(run.calls, expected);
 }
 
+/// When one step of a gate run started and ended, and its exit status, as
+/// its log says.
+#[derive(Debug)]
+struct StepTimes {
+    started: jiff::Timestamp,
+    ended: jiff::Timestamp,
+    seconds: i64,
+    status: i32,
+}
+
+/// Each step's times in a gate run's output, by step: the `Gate step
+/// <step>: started at <time>` and `… ended at <time> after <n> s, exit
+/// status <code>` lines, a step beside the host's behind its `[<step>] `
+/// mark, and the steps that started and never ended. A step logged twice,
+/// or ended before it started, fails.
+fn step_times(stdout: &str) -> (std::collections::BTreeMap<String, StepTimes>, Vec<String>) {
+    let line = regex::Regex::new(
+        r"^(?:\[[a-z]+\] )?Gate step ([a-z-]+): (?:started at (\S+)|ended at (\S+) after (\d+) s, exit status (\d+))$",
+    )
+    .unwrap();
+    let mut started = std::collections::BTreeMap::new();
+    let mut times = std::collections::BTreeMap::new();
+    for captures in stdout.lines().filter_map(|text| line.captures(text)) {
+        let step = captures[1].to_owned();
+        if let Some(time) = captures.get(2) {
+            let time: jiff::Timestamp = time.as_str().parse().unwrap();
+            assert!(
+                started.insert(step.clone(), time).is_none(),
+                "{step} started twice"
+            );
+        } else {
+            let start = started
+                .remove(&step)
+                .unwrap_or_else(|| panic!("{step} ended before it started"));
+            let ended: jiff::Timestamp = captures[3].parse().unwrap();
+            assert!(start <= ended, "{step} ended at {ended}, before {start}");
+            let step_times = StepTimes {
+                started: start,
+                ended,
+                seconds: captures[4].parse().unwrap(),
+                status: captures[5].parse().unwrap(),
+            };
+            assert!(
+                times.insert(step.clone(), step_times).is_none(),
+                "{step} ended twice"
+            );
+        }
+    }
+    (times, started.into_keys().collect())
+}
+
+/// Each step of a gate run logs when it started and ended, so a gate log
+/// says where its time went (the test-gate audit's option 6).
+#[rstest]
+#[case::all(
+    "all",
+    &[
+        "console-build", "perf", "linux", "visual", "dco", "commit-messages", "lint",
+        "feature-combinations", "audit", "commit-leaks", "fuzz-check", "proofs", "quick",
+        "pre-merge", "stress", "journeys-tasks", "features-tests", "tlc", "msrv", "miri",
+        "notices",
+    ],
+)]
+#[case::quick(
+    "quick",
+    &[
+        "dco", "commit-messages", "lint", "audit", "commit-leaks", "quick", "journeys-tasks",
+        "notices",
+    ],
+)]
+fn each_step_logs_when_it_started_and_ended(#[case] form: &str, #[case] steps: &[&str]) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    let before = jiff::Timestamp::now();
+
+    let run = pre_merge(&workspace, &stand_in, &[form]);
+
+    let after = jiff::Timestamp::now();
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let (times, unended) = step_times(&run.stdout);
+    assert!(unended.is_empty(), "never ended: {unended:?}");
+    let mut expected: Vec<&str> = if cfg!(target_os = "linux") {
+        vec!["os-services"]
+    } else {
+        vec![]
+    };
+    expected.extend(steps);
+    expected.sort_unstable();
+    assert_eq!(
+        times.keys().map(String::as_str).collect::<Vec<_>>(),
+        expected
+    );
+    // The log's times are whole seconds.
+    let floor = before
+        .checked_sub(jiff::SignedDuration::from_secs(1))
+        .unwrap();
+    for (step, step_times) in &times {
+        assert!(
+            floor <= step_times.started && step_times.ended <= after,
+            "{step}: {step_times:?} outside {before}..{after}"
+        );
+        assert_eq!(step_times.status, 0, "{step}");
+        assert!(
+            step_times.seconds <= after.duration_since(before).as_secs() + 1,
+            "{step}"
+        );
+    }
+}
+
+/// A failed step logs its end with its exit status, whether it ran on the
+/// host or beside it.
+#[rstest]
+#[case::host_step("lint", "lint")]
+#[case::beside("visual", "visual")]
+#[case::suite("_suite pre-merge all", "pre-merge")]
+fn a_failed_step_logs_its_end_with_its_exit_status(#[case] call: &str, #[case] step: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("failing"), call).unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, Some(3), "{}", run.stderr);
+    let (times, _) = step_times(&run.stdout);
+    assert_eq!(
+        times.get(step).map(|times| times.status),
+        Some(3),
+        "{}",
+        run.stdout
+    );
+}
+
 #[test]
 fn an_unknown_argument_is_refused_before_any_step() {
     let workspace = Workspace::from_fixture("empty");

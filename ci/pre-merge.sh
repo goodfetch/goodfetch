@@ -24,9 +24,24 @@
 # members' tests, that the change since then does not reach, and reruns the
 # rest; see the plan below. `GOODFETCH_GATE_FULL=1` reuses nothing.
 #
+# Each step logs when it started and when it ended, with its exit status,
+# so the gate's log says where its time went.
+#
 # Every step runs through the `just` on PATH, where the recipe puts its own.
 # It keeps to bash 3.2, which stock macOS runs.
 set -euo pipefail
+
+# Runs a step's command between the lines that say when it started and
+# ended, in UTC, and returns its exit status.
+timed() {
+  local step=$1 status=0 started
+  shift
+  started=$(date -u +%s)
+  echo "Gate step $step: started at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  "$@" || status=$?
+  echo "Gate step $step: ended at $(date -u +%Y-%m-%dT%H:%M:%SZ) after $(($(date -u +%s) - started)) s, exit status $status"
+  return "$status"
+}
 
 all=${1:-}
 case "$all" in
@@ -46,7 +61,7 @@ esac
 # silent fallback fails too.
 os_services() {
   [[ "$(uname -s)" == Linux ]] || return 0
-  just _os-services
+  timed os-services just _os-services
   set -a
   # shellcheck source=/dev/null
   source "${RUNNER_TEMP:-/tmp}/goodfetch-os-services/env"
@@ -60,14 +75,14 @@ if [[ $all == quick ]]; then
   trap 'just _skips-report' EXIT
   os_services
   echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build and Miri do not run (xtask affected's gate=quick, ADR 0135)."
-  just dco
-  just commit-messages
-  just lint
-  just audit
-  just commit-leaks
-  just _suite quick all
-  just journeys-tasks --check
-  just notices
+  timed dco just dco
+  timed commit-messages just commit-messages
+  timed lint just lint
+  timed audit just audit
+  timed commit-leaks just commit-leaks
+  timed quick just _suite quick all
+  timed journeys-tasks just journeys-tasks --check
+  timed notices just notices
   exit 0
 fi
 names=()
@@ -79,7 +94,7 @@ pids=()
 # `xtask perf build` and its `cargo bench` outlived it.
 beside() {
   set -m
-  just "$1" > >(awk -v mark="[$1] " '{ print mark $0; fflush() }') 2>&1 &
+  timed "$1" just "$1" > >(awk -v mark="[$1] " '{ print mark $0; fflush() }') 2>&1 &
   set +m
   names+=("$1")
   pids+=("$!")
@@ -178,7 +193,7 @@ record() {
 gated() {
   local step=$1 status=0
   shift
-  "$@" || status=$?
+  timed "$step" "$@" || status=$?
   record "$step" "$status"
   return "$status"
 }
@@ -188,7 +203,7 @@ whole() {
 }
 # Collie's executable embeds its Console build (ADR 0057), which the steps
 # beside, in their containers, find in the workspace they mount.
-just console-build
+timed console-build just console-build
 for step in perf linux visual; do
   if [[ $(action "$step") == reuse ]]; then reused "$step"; else beside "$step"; fi
 done
@@ -215,6 +230,8 @@ esac
 case $(action pre-merge) in
   reuse) reused pre-merge ;;
   *)
+    # shellcheck disable=SC2329 # called through timed
+    suite_and_audit() { just "${suite[@]}" && just features-audit; }
     if [[ $(action pre-merge) == part ]]; then
       read -ra members <<<"$(members_of pre-merge | tr '\n' ' ')"
       suite=(test pre-merge --shuffled-all "${members[@]}")
@@ -222,8 +239,7 @@ case $(action pre-merge) in
       suite=(_suite pre-merge "$all")
     fi
     status=0
-    just "${suite[@]}" || status=$?
-    [[ $status -ne 0 ]] || just features-audit || status=$?
+    timed pre-merge suite_and_audit || status=$?
     record pre-merge "$status"
     [[ $status -eq 0 ]] || exit "$status"
     ;;

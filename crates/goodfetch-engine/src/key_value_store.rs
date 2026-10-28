@@ -17,7 +17,7 @@
 //! `get` always means an absent key; both are refused with `value_invalid`,
 //! as is reading bytes with `get` or JSON with `get_bytes` (S2).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -410,16 +410,48 @@ async fn staged_for(
 /// Applies an attempt's staged `writes`, in order, inside the transaction
 /// of `connection` that commits the attempt (ADR 0093), and answers the
 /// kept files they took out, which [`forget_files`] forgets once that
-/// transaction committed.
+/// transaction committed. Bytes past [`INLINE_MAX_BYTES`] are kept as a
+/// file of the Run's folder `folder`, written now, so a discarded attempt
+/// leaves no file; the writer that runs this also runs every forget, so
+/// none deletes the file before its record commits.
 ///
 /// # Errors
 ///
-/// SQLite's.
-pub fn apply(connection: &Connection, writes: &[StagedWrite]) -> rusqlite::Result<Vec<String>> {
+/// SQLite's, and a kept file that cannot be written, which fails the
+/// commit.
+pub fn apply(
+    connection: &Connection,
+    folder: &Path,
+    writes: &[StagedWrite],
+) -> rusqlite::Result<Vec<String>> {
     let mut files = Vec::new();
     for write in writes {
         let removed = match write {
             StagedWrite::Set { key, value } => set(connection, key, value)?,
+            StagedWrite::SetBytes {
+                key,
+                content_type,
+                bytes,
+            } if bytes.len() > INLINE_MAX_BYTES => {
+                let (sha256, size) = run_files::store(folder, &mut bytes.as_slice())
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+                set_bytes(
+                    connection,
+                    key,
+                    content_type,
+                    &Content::File { sha256, size },
+                )?
+            }
+            StagedWrite::SetBytes {
+                key,
+                content_type,
+                bytes,
+            } => set_bytes(
+                connection,
+                key,
+                content_type,
+                &Content::Inline(bytes.clone()),
+            )?,
             StagedWrite::Delete { key } => delete(connection, key)?,
         };
         files.extend(removed.file);
@@ -506,6 +538,9 @@ async fn handle_get(
     let key = checked(params.key)?;
     match staged_for(&params.run_id, params.attempt.as_ref(), &key, &context).await? {
         StagedKey::Set(value) => return Ok(KeyValueStoreValue { value }),
+        StagedKey::SetBytes { .. } => {
+            return Err(value_invalid(key, ValueInvalidReason::ValueBytes));
+        }
         StagedKey::Deleted => return Ok(KeyValueStoreValue { value: Value::Null }),
         StagedKey::Untouched => {}
     }
@@ -627,6 +662,17 @@ async fn handle_get_bytes(
     let key = checked(params.key)?;
     match staged_for(&params.run_id, params.attempt.as_ref(), &key, &context).await? {
         StagedKey::Set(_) => return Err(value_invalid(key, ValueInvalidReason::ValueJson)),
+        StagedKey::SetBytes {
+            content_type,
+            bytes,
+        } => {
+            return Ok(KeyValueStoreBytesValue {
+                bytes: Some(KeyValueStoreBytes {
+                    content: KeyValueStoreContent::new(bytes),
+                    content_type,
+                }),
+            });
+        }
         StagedKey::Deleted => return Ok(KeyValueStoreBytesValue { bytes: None }),
         StagedKey::Untouched => {}
     }
@@ -693,6 +739,20 @@ async fn handle_set_bytes(
     let run = live(&params.run_id, &context).await?;
     let content_type = params.content_type;
     let bytes = params.content.into_bytes();
+    if let Some(attempt) = &params.attempt {
+        attempt_writes_of(&run)?
+            .stage(
+                &attempt.crawl_request_id,
+                attempt.lease_epoch,
+                StagedWrite::SetBytes {
+                    key,
+                    content_type,
+                    bytes,
+                },
+            )
+            .map_err(unstaged)?;
+        return Ok(KeyValueStoreSet {});
+    }
     let removed = if bytes.len() > INLINE_MAX_BYTES {
         set_kept(&run, key, content_type, bytes, &context).await?
     } else {
@@ -721,7 +781,7 @@ async fn handle_delete(
             )
             .map_err(unstaged)?;
         let existed = match before {
-            StagedKey::Set(_) => true,
+            StagedKey::Set(_) | StagedKey::SetBytes { .. } => true,
             StagedKey::Deleted => false,
             StagedKey::Untouched => {
                 let failed = |error: RunError| run_error(error, context.identity());

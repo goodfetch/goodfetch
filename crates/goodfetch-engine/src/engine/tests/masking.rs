@@ -20,7 +20,7 @@ use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
-use goodfetch_protocol::run::{RunId, RunWarning};
+use goodfetch_protocol::run::{RunId, RunKind, RunWarning, StartInput};
 use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
 use serde_json::{Value, json};
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -31,6 +31,7 @@ use crate::engine::Dependencies;
 use crate::log::LogEvents;
 use crate::mask::Masks;
 use crate::run_trace::RequestLog;
+use crate::runs::{EndedBy, Start, Started};
 
 /// The variable the Run's key-encryption key is read from.
 const KEY_VARIABLE: &str = "GF_TEST_RUN_KEY";
@@ -363,4 +364,107 @@ fn a_short_resolved_value_stays_in_a_read_and_is_masked_in_what_the_engine_keeps
         .find_map(|message| message["result"]["text"].as_str())
         .is_some_and(|text| text.starts_with(&format!("raw {key} |")));
     assert_eq!((leaks, returned), (Vec::<String>::new(), true));
+}
+
+/// Starts a Run of its own under `run_id`, tagged `tags` with the crawl
+/// seeds `seeds` as its inputs, as a crawl's start would.
+const START_TAGGED: Operation = Operation {
+    name: "test.start_tagged",
+    description: "Starts a Run with tags and seeds.",
+    ..REFLECT
+};
+
+async fn start_tagged(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let started = context
+        .runs()
+        .start(Start {
+            run_id: Some(RunId::parse(params["run_id"].as_str().unwrap()).unwrap()),
+            tags: serde_json::from_value(params["tags"].clone()).unwrap(),
+            kind: RunKind::Collie,
+            needs: Product::Collie,
+            inputs: [(StartInput::Seeds, params["seeds"].clone())].into(),
+            ended_by: EndedBy::Finish,
+            initialize: None,
+            policy_version: None,
+            weakened: Vec::new(),
+            binding: None,
+            clean_up_digest: None,
+            checkpoint_interval: None,
+            timeout: None,
+            settings: None,
+        })
+        .await;
+    Ok(match started {
+        Ok(Started::New(_)) => json!("new"),
+        Ok(Started::Existing(_)) => json!("existing"),
+        Err(error) => json!(error.to_string()),
+    })
+}
+
+/// A Run's tags and inputs, here a crawl's seeds, pass through the `Mask`
+/// before run state and the Run index keep them (spec #564): a value
+/// another Run resolved, its key-encryption key, is in no file once a Run
+/// tagged and seeded with it started, and the same start again still
+/// answers that Run rather than a conflict.
+/// Covers: story:4-56, setting:run_state.key_reference
+#[test]
+fn a_runs_tags_and_inputs_are_masked_in_what_the_engine_keeps() {
+    let env = TestEnv::new();
+    let mut canaries = Canaries::new(env.seed());
+    let key = canaries.plant(SecretKind::RunDataKey).value().to_owned();
+    let engine = engine_with(
+        Product::Collie,
+        Some(
+            Contribution::new("test-tagged")
+                .with_handler(Handler::new(&START_TAGGED, start_tagged)),
+        ),
+    );
+    let tagged = json!({
+        "run_id": "tagged",
+        "tags": [format!("token {key}")],
+        "seeds": [format!("https://shop.test/?token={key}")],
+    });
+
+    let answers = attached_with(
+        &engine,
+        || keyed(&env, &key),
+        |mut client: Client| async move {
+            let mut answers = Vec::new();
+            client
+                .send(&[json!({
+                    "jsonrpc": "2.0", "id": 0, "method": "hello",
+                    "params": {
+                        "protocol_version": "0.1", "surface": "sdk_typescript",
+                        "needs": "collie", "product_version": "1.4.0",
+                    },
+                })])
+                .await;
+            client.next().await;
+            for (id, (method, params)) in (1_i64..).zip([
+                ("run.start", json!({ "run_id": "masked" })),
+                ("test.start_tagged", tagged.clone()),
+                ("test.start_tagged", tagged),
+            ]) {
+                client
+                    .send(&[
+                        json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }),
+                    ])
+                    .await;
+                loop {
+                    let message = client.next().await.expect("the engine replies");
+                    if message["id"] == json!(id) {
+                        answers.push(message["result"].clone());
+                        break;
+                    }
+                }
+            }
+            answers
+        },
+    );
+
+    assert_eq!(
+        (leaks(&canaries, &env, &[]), &answers[1..]),
+        (Vec::<String>::new(), &[json!("new"), json!("existing")][..]),
+        "{answers:?}"
+    );
 }

@@ -36,7 +36,7 @@ fn crawl_keys() -> Vec<Key> {
 fn other(kind: &ValueKind, than: &Value) -> Value {
     let candidates = match kind {
         ValueKind::Boolean => vec![json!(true), json!(false)],
-        ValueKind::Count => vec![json!(3), json!(4)],
+        ValueKind::Count | ValueKind::CountUpTo(_) => vec![json!(3), json!(4)],
         ValueKind::Duration => vec![json!(1_000), json!(2_000)],
         ValueKind::Text => vec![json!("one"), json!("two")],
         ValueKind::Choice(words) => words.iter().map(|word| json!(word)).collect(),
@@ -211,7 +211,12 @@ const CAP: u64 = 7;
 fn an_operator_policy_caps_every_crawl_count_and_duration_against_every_higher_layer() {
     let capped: Vec<Key> = crawl_keys()
         .into_iter()
-        .filter(|key| matches!(key.setting.kind, ValueKind::Count | ValueKind::Duration))
+        .filter(|key| {
+            matches!(
+                key.setting.kind,
+                ValueKind::Count | ValueKind::CountUpTo(_) | ValueKind::Duration
+            )
+        })
         .collect();
     let mut failures = Vec::new();
     for key in &capped {

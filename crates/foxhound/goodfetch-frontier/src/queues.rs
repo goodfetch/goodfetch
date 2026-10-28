@@ -283,6 +283,13 @@ impl Gate for DomainQueues {
             .collect()
     }
 
+    fn waiting(&self) -> usize {
+        self.domains
+            .values()
+            .map(|domain| domain.waiting.len())
+            .sum()
+    }
+
     fn rule(&self, settings: &Resolved) -> Option<Arc<dyn PermitRule>> {
         Some(Arc::new(DomainRule::of(
             settings,

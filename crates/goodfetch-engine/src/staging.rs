@@ -20,6 +20,17 @@ pub enum StagedWrite {
         /// Its value, never a top-level null.
         value: Value,
     },
+    /// Sets the key to bytes of a content type, kept in its row or, past
+    /// what a row holds, as a file of the Run's folder written as the
+    /// attempt commits.
+    SetBytes {
+        /// The key.
+        key: String,
+        /// Their content type.
+        content_type: String,
+        /// The bytes.
+        bytes: Vec<u8>,
+    },
     /// Removes the key.
     Delete {
         /// The key.
@@ -31,15 +42,24 @@ impl StagedWrite {
     /// The key it writes.
     pub fn key(&self) -> &str {
         match self {
-            Self::Set { key, .. } | Self::Delete { key } => key,
+            Self::Set { key, .. } | Self::SetBytes { key, .. } | Self::Delete { key } => key,
         }
     }
 
-    /// What it leaves the key holding: its value, or none once deleted.
-    pub fn value(&self) -> Option<&Value> {
+    /// What it leaves the key holding, as a read through its attempt sees
+    /// it.
+    pub fn staged(&self) -> StagedKey {
         match self {
-            Self::Set { value, .. } => Some(value),
-            Self::Delete { .. } => None,
+            Self::Set { value, .. } => StagedKey::Set(value.clone()),
+            Self::SetBytes {
+                content_type,
+                bytes,
+                ..
+            } => StagedKey::SetBytes {
+                content_type: content_type.clone(),
+                bytes: bytes.clone(),
+            },
+            Self::Delete { .. } => StagedKey::Deleted,
         }
     }
 }
@@ -74,6 +94,13 @@ pub enum StagedKey {
     Untouched,
     /// The attempt staged it set to this value.
     Set(Value),
+    /// The attempt staged it set to these bytes, of this content type.
+    SetBytes {
+        /// Their content type.
+        content_type: String,
+        /// The bytes.
+        bytes: Vec<u8>,
+    },
     /// The attempt staged its removal.
     Deleted,
 }

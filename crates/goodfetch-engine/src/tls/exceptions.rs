@@ -72,6 +72,16 @@ pub enum ExceptionKind {
     Any,
 }
 
+impl ExceptionKind {
+    /// Its name in the Audit log and Provenance.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::TrustOnFirstUse => "trust_on_first_use",
+            Self::Any => "any",
+        }
+    }
+}
+
 /// The exception a response was fetched under, which its Provenance
 /// carries.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -297,7 +307,7 @@ impl CertificateExceptions {
             (Found::Unpinned, None) => return Ok(None),
             (Found::Unpinned, Some(failure)) if entry == Entry::Any => {
                 self.record_any(book, &host, &key, &failure).await;
-                self.reached.add(&host, key).await;
+                self.reached.add(&host, key, ExceptionKind::Any).await;
                 return Ok(Some(ExceptionUsed {
                     kind: ExceptionKind::Any,
                     certificate: key,
@@ -316,7 +326,9 @@ impl CertificateExceptions {
         };
         match found {
             Found::Pinned(pinned) if pinned == key => {
-                self.reached.add(&host, key).await;
+                self.reached
+                    .add(&host, key, ExceptionKind::TrustOnFirstUse)
+                    .await;
                 Ok(Some(ExceptionUsed {
                     kind: ExceptionKind::TrustOnFirstUse,
                     certificate: key,

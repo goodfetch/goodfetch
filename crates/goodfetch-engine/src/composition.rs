@@ -417,6 +417,18 @@ impl CallContext {
         self.connection.daemon.as_ref()
     }
 
+    /// The person the call acts for, as the Audit log names them: the one
+    /// the Console's sign-in driver signs in where the Daemon serves one,
+    /// else the OS user, its own name on a single-user install (#826).
+    pub(crate) fn person(&self) -> String {
+        self.daemon()
+            .and_then(|daemon| daemon.sign_ins())
+            .map_or_else(
+                || self.runs().person(),
+                |sign_ins| sign_ins.person().to_owned(),
+            )
+    }
+
     /// Cancelled when the call is: a handler that waits watches it at each
     /// cancellation point.
     pub fn cancellation(&self) -> &CancellationToken {
@@ -425,6 +437,10 @@ impl CallContext {
 }
 
 type Answer = Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+
+/// How a control's weakening is recorded: the Audit kind it records and
+/// the built-in value it names as the default.
+type Recorded = (&'static SharedTypeValue, fn() -> Value);
 
 /// What drives a kind of Run, such as Foxhound's crawl's delivery, given
 /// the Run, the context of the call that resumed it, whose Connection's
@@ -542,7 +558,7 @@ pub struct Contribution {
     progress_parts: Vec<Arc<dyn ProgressPart>>,
     clean_up_versions: Option<Arc<dyn CleanUpVersions>>,
     needs_you_sources: Vec<NeedsYouSource>,
-    controls: Vec<(&'static Setting, Option<&'static SharedTypeValue>)>,
+    controls: Vec<(&'static Setting, Option<Recorded>)>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
 }
 
@@ -577,16 +593,18 @@ impl Contribution {
 
     /// The same, recording a Run's value of `setting` that weakens as the
     /// Audit log kind `kind`, once per Run, with the value, its built-in
-    /// default and the layer that set it, warned of once through the host's
-    /// logging and listed in its report's `weakened`: Foxhound's Politeness
-    /// and Site-preferences values that press a site harder (ADR 0086).
+    /// default `built_in` and the layer that set it, warned of once through
+    /// the host's logging and listed in its report's `weakened`: Foxhound's
+    /// Politeness and Site-preferences values that press a site harder (ADR
+    /// 0086).
     #[must_use]
     pub fn with_recorded_weakening(
         mut self,
         setting: &'static Setting,
         kind: &'static SharedTypeValue,
+        built_in: fn() -> Value,
     ) -> Self {
-        self.controls.push((setting, Some(kind)));
+        self.controls.push((setting, Some((kind, built_in))));
         self
     }
 
@@ -889,7 +907,7 @@ impl Composition {
             .fold(
                 Controls::default(),
                 |controls, (setting, kind)| match kind {
-                    Some(kind) => controls.with_recorded(setting, kind),
+                    Some((kind, built_in)) => controls.with_recorded(setting, kind, built_in),
                     None => controls.with(setting),
                 },
             )

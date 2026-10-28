@@ -65,7 +65,7 @@ async fn accept(
     let audit = runs.audit().clone();
     let origin = Origin {
         actor: Actor::Person {
-            name: CALLER.to_owned(),
+            name: context.person(),
         },
         surface: Some(context.surface()),
         layer: None,
@@ -104,7 +104,7 @@ async fn forget(
     let audit = runs.audit().clone();
     let origin = Origin {
         actor: Actor::Person {
-            name: CALLER.to_owned(),
+            name: context.person(),
         },
         surface: Some(context.surface()),
         layer: None,

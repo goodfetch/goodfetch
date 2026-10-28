@@ -410,10 +410,7 @@ fn last_of(writes: &[StagedWrite], key: &str) -> StagedKey {
         .iter()
         .rev()
         .find(|write| write.key() == key)
-        .map_or(StagedKey::Untouched, |write| match write.value() {
-            Some(value) => StagedKey::Set(value.clone()),
-            None => StagedKey::Deleted,
-        })
+        .map_or(StagedKey::Untouched, StagedWrite::staged)
 }
 
 impl AttemptWrites for Staging {

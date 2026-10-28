@@ -124,9 +124,6 @@ pub enum DaemonConsole {
         sign_in: SignInPolicy,
         /// Its content origin, or none when it did not start.
         content: Option<ContentOrigin>,
-        /// `console.offline_cache`: whether its pages may cache run
-        /// summaries in the browser.
-        offline_cache: bool,
     },
     /// The Console did not start; the Daemon still serves its Clients.
     Failed(ConsoleFailure),

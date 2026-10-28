@@ -34,7 +34,6 @@ use crate::composition::{CallContext, CallError, Handler};
 use crate::durable;
 use crate::needs_you::NeedsYouError;
 use crate::run::settings_error;
-use crate::runs::CALLER;
 use crate::settings::{
     HostDefaults, Layers, MachineLayers, SettingsError, resolve, set, user_configuration,
 };
@@ -168,7 +167,7 @@ async fn allow_consent_domain(
         audit: runs.audit().clone(),
         origin: Origin {
             actor: Actor::Person {
-                name: CALLER.to_owned(),
+                name: context.person(),
             },
             surface: Some(context.surface()),
             layer: Some(SettingsLayer::UserConfiguration),

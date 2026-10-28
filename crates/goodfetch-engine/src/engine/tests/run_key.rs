@@ -29,8 +29,10 @@ use serde_json::{Value, json};
 
 use super::checkpoint::Talk;
 use super::{Client, attached_with, dependencies, engine_with};
+use crate::audit::AuditLog;
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::{Dependencies, Engine};
+use crate::home::Home;
 use crate::run_state::RunStateTables;
 use crate::runs::{EndedBy, Run, Start, Started};
 
@@ -542,6 +544,59 @@ fn with_an_os_keychain_the_key_comes_from_it_and_a_paused_run_resumes_with_it() 
             false
         )
     );
+}
+
+/// A Run resumed with `security.audit_chain` off writes its entries
+/// unchained from the resume on, its key-encryption key's use included
+/// (ADR 0016), and the log still verifies; the entries it wrote before,
+/// while its chain was on, stay chained.
+/// Covers: story:4-74, setting:security.audit_chain, operation:run.resume
+#[test]
+fn a_run_resumed_with_the_audit_chain_off_writes_its_entries_unchained() {
+    let env = TestEnv::new();
+    let store: Arc<keyring_core::CredentialStore> = keyring_core::mock::Store::new().unwrap();
+    let with_keychain = || Dependencies {
+        keychain: crate::secrets::Keychain::of(Arc::clone(&store)),
+        ..dependencies(&env)
+    };
+    let used = || {
+        let log = AuditLog::of(&Home::new(env.home().to_owned()), None);
+        assert!(log.verify().unwrap().intact, "the Audit log verifies");
+        log.export()
+            .unwrap()
+            .into_iter()
+            .filter(|exported| exported.entry.kind == "secret_reference_used")
+            .map(|exported| exported.entry.chained)
+            .collect::<Vec<_>>()
+    };
+    on(with_keychain, |mut talk| async move {
+        talk.ok(2, "test.keep", json!({ "run_id": "keyed" })).await;
+        talk.ok(
+            3,
+            "test.seal",
+            json!({ "run_id": "keyed", "row": 1, "value": "kept" }),
+        )
+        .await;
+        talk.ok(4, "run.pause", json!({ "run_id": "keyed" })).await;
+    });
+    let before = used();
+
+    on(with_keychain, |mut talk| async move {
+        talk.ok(
+            2,
+            "run.resume",
+            json!({ "run_id": "keyed", "settings": { "security": { "audit_chain": false } } }),
+        )
+        .await;
+        talk.ok(3, "run.finish", json!({ "run_id": "keyed" })).await;
+    });
+    let after = used();
+
+    assert!(
+        !before.is_empty() && before.iter().all(|chained| *chained),
+        "{before:?}"
+    );
+    assert_eq!(&after[before.len()..], &[false], "{after:?}");
 }
 
 /// Discarding a Run overwrites its wrapped data key in its run file before

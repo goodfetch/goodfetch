@@ -40,7 +40,7 @@ use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::console::{
     ADDRESS as CONSOLE_ADDRESS, CONSOLE_PORT_IN_USE, CONTENT_ADDRESS, CONTENT_PUBLIC_URL,
-    ConsoleFailure, ConsoleState, OFFLINE_CACHE, PUBLIC_URL, default_address,
+    ConsoleFailure, ConsoleState, PUBLIC_URL, default_address,
 };
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, IDLE_TIMEOUT};
 use goodfetch_protocol::people::{SIGN_IN_IDLE_EXPIRY, SIGN_IN_RATE};
@@ -278,15 +278,6 @@ fn sign_in_policy(settings: Option<&Resolved>) -> SignInPolicy {
     }
 }
 
-/// Whether the Console's pages may cache run summaries in the browser:
-/// `console.offline_cache`, from user configuration and the Operator
-/// policy, else on.
-fn offline_cache(settings: Option<&Resolved>) -> bool {
-    settings
-        .and_then(|settings| settings.value(OFFLINE_CACHE.name).as_bool())
-        .unwrap_or(true)
-}
-
 /// Where the Console's content origin listens and the origin it is
 /// reached at: `console.content_address` and
 /// `console.content_public_url`, when set.
@@ -470,7 +461,6 @@ async fn console_on(
                     public_url: public_url(settings),
                     sign_in: sign_in_policy(settings),
                     content,
-                    offline_cache: offline_cache(settings),
                 },
                 ConsoleState::Serving(url),
             )

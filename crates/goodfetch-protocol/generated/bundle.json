@@ -6665,6 +6665,18 @@
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
         },
+        "attempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyValueStoreAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The crawl attempt whose handler's `ctx.run` sets the bytes: the\nwrite is staged with the attempt and commits with it, a kept file\nwritten only then, or is discarded with it (ADR 0093). Absent, the\nbytes are committed at once."
+        },
         "content": {
           "$ref": "#/$defs/KeyValueStoreContent",
           "arrived_in": "0.1",
@@ -7703,6 +7715,13 @@
           "arrived_in": "0.1",
           "description": "What set it."
         },
+        "browsers": {
+          "arrived_in": "0.1",
+          "description": "What the browsers it counts use, in bytes, each process with its\ndescendants (PSS on Linux), summed; part of `used`, 0 with none.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "host": {
           "$ref": "#/$defs/GovernorLevel",
           "arrived_in": "0.1",
@@ -7720,6 +7739,7 @@
         "allowance",
         "allowance_source",
         "used",
+        "browsers",
         "host"
       ],
       "type": "object"
@@ -17428,7 +17448,8 @@
                     "type": "integer"
                   },
                   "max_json_depth": {
-                    "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside. 128 by default, and at most 1024 whatever it says; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+                    "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside, from 0 to 1024: 128 by default; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+                    "maximum": 1024,
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -18790,7 +18811,8 @@
                     "type": "integer"
                   },
                   "max_json_depth": {
-                    "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside. 128 by default, and at most 1024 whatever it says; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+                    "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside, from 0 to 1024: 128 by default; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+                    "maximum": 1024,
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -21388,7 +21410,8 @@
                     "type": "integer"
                   },
                   "max_json_depth": {
-                    "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside. 128 by default, and at most 1024 whatever it says; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+                    "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside, from 0 to 1024: 128 by default; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+                    "maximum": 1024,
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -24002,7 +24025,8 @@
                     "type": "integer"
                   },
                   "max_json_depth": {
-                    "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside. 128 by default, and at most 1024 whatever it says; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+                    "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside, from 0 to 1024: 128 by default; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+                    "maximum": 1024,
                     "minimum": 0,
                     "type": "integer"
                   },

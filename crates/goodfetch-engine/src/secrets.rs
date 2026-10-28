@@ -50,6 +50,7 @@ use crate::known_certificates::KeyHash;
 use crate::mask::{Mask, Masks, Reach, Redaction};
 use crate::settings::{HostDefaults, Resolved};
 use crate::tasks::TaskOwner;
+use crate::tls::ExceptionKind;
 
 /// A provider's answer to one reference, which the driver bounds by
 /// `timeout.secret`.
@@ -491,6 +492,11 @@ impl Secrets {
         &self.0.audit
     }
 
+    /// The engine's environment map.
+    pub(crate) fn environment(&self) -> &BTreeMap<OsString, OsString> {
+        &self.0.environment
+    }
+
     /// What one Run resolves through, each provider bounded by `timeout`,
     /// its `timeout.secret`, holding every value it resolved until its last
     /// handle drops, its values masked in its kept outputs too.
@@ -512,12 +518,13 @@ impl Secrets {
 }
 
 /// The hosts one Run reached through an invalid-certificate exception
-/// (ADR 0042), with the key each presented: the engine's client sends them
-/// no Session cookie and the driver resolves no value for them. Hosts are
-/// held as the URL parser leaves them, without a trailing dot. Clones share
-/// it.
+/// (ADR 0042), with the key each presented and the kind of exception: the
+/// engine's client sends them no Session cookie, the driver resolves no
+/// value for them, and the Run's end records them once in the Audit log.
+/// Hosts are held as the URL parser leaves them, without a trailing dot.
+/// Clones share it.
 #[derive(Clone, Debug, Default)]
-pub struct ExceptionHosts(Arc<tokio::sync::Mutex<BTreeMap<String, KeyHash>>>);
+pub struct ExceptionHosts(Arc<tokio::sync::Mutex<BTreeMap<String, (KeyHash, ExceptionKind)>>>);
 
 impl ExceptionHosts {
     /// The key `host` presented, when the Run reached it through an
@@ -527,16 +534,35 @@ impl ExceptionHosts {
     ///
     /// Dropping the future loses only the answer.
     pub async fn reached(&self, host: &str) -> Option<KeyHash> {
-        self.0.lock().await.get(&host_key(host)).copied()
+        self.0
+            .lock()
+            .await
+            .get(&host_key(host))
+            .map(|(key, _)| *key)
     }
 
-    /// Adds `host`, reached through an exception with `key`.
+    /// Adds `host`, reached through an exception of `kind` with `key`.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave the host out.
-    pub(crate) async fn add(&self, host: &str, key: KeyHash) {
-        self.0.lock().await.insert(host_key(host), key);
+    pub(crate) async fn add(&self, host: &str, key: KeyHash, kind: ExceptionKind) {
+        self.0.lock().await.insert(host_key(host), (key, kind));
+    }
+
+    /// Every host reached, in order, with the key it presented last and its
+    /// exception's kind.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub(crate) async fn used(&self) -> Vec<(String, KeyHash, ExceptionKind)> {
+        self.0
+            .lock()
+            .await
+            .iter()
+            .map(|(host, (key, kind))| (host.clone(), *key, *kind))
+            .collect()
     }
 }
 

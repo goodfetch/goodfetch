@@ -179,6 +179,13 @@ pub struct KeyValueStoreSetBytesParams {
     /// Their content type, such as `image/png`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub content_type: String,
+    /// The crawl attempt whose handler's `ctx.run` sets the bytes: the
+    /// write is staged with the attempt and commits with it, a kept file
+    /// written only then, or is discarded with it (ADR 0093). Absent, the
+    /// bytes are committed at once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub attempt: Option<KeyValueStoreAttempt>,
 }
 
 /// Bytes the store holds for a key, with their content type.

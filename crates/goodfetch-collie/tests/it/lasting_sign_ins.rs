@@ -335,8 +335,16 @@ fn on_a_single_user_daemon_the_audit_log_records_the_os_user_and_the_console() {
         "sign_in.revoke",
         &json!({ "id": id_of(&other) }),
     );
+    // An action outside the sign-in driver names the same person.
+    let written = call(
+        &mut socket,
+        2,
+        "config.user_write",
+        &json!({ "changes": [{ "key": "timeout.navigation", "value": 45_000 }] }),
+    );
 
     assert_eq!(revoked["result"], json!({ "revoked": true }), "{revoked}");
+    assert!(written.get("result").is_some(), "{written}");
     let entries = audit_entries(&env);
     let actions: Vec<(&Value, &Value, &Value)> = entries
         .iter()
@@ -350,6 +358,7 @@ fn on_a_single_user_daemon_the_audit_log_records_the_os_user_and_the_console() {
             (&json!("signed_in"), &ada, &console),
             (&json!("signed_in"), &ada, &console),
             (&json!("sign_in_revoked"), &ada, &console),
+            (&json!("user_configuration_written"), &ada, &console),
         ]
     );
     assert_eq!(entries[2]["details"]["sign_in"], json!(id_of(&other)));

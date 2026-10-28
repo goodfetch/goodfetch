@@ -1498,7 +1498,7 @@ Decided in [ADR 0072](docs/adr/0072-every-feature-in-a-generated-inventory-has-a
 | Release gate | `xtask release` | a Feature present in the release is untested (neither tested nor excepted) |
 
 - **Run `just features`** to see what the changed packages declare and miss, `just features-tests` for the check over every runner's declarations, and `just features-audit` after `just test pre-merge` for the exercise audit of the Rust tests that ran.
-- **The suites run the exercise audit as a gate, the justfile's `exercise_audit` verdict:** `just pre-merge` and CI's `pre-merge` job, `just release` and each Release cell, each over the tests its nextest run ran, so a quarantined test (ADR 0064) or one a cell cannot run, which leaves no record, never fails it; a finding fails the suite. `just features-audit <scope> report` lists the findings and fails nothing, for a local look.
+- **The suites run the exercise audit as a gate, the justfile's `exercise_audit` verdict:** `just pre-merge` and CI's `pre-merge` job, `just release` and each Release cell, each over the tests its nextest run ran, so a quarantined test (ADR 0064) or one a cell cannot run, which leaves no record, never fails it; a finding fails the suite. `just pre-merge` runs it after a red nextest run too: the Pre-merge suite still runs the doctests then and fails with 100 when they passed, the audit runs on that 100, and when it passes the incremental gate records green each crate that passed in full but those holding insta snapshots, whose unreferenced snapshots cargo-insta judges only once every test passed (the test-gate audit's option 4b). The step stays red. `just features-audit <scope> report` lists the findings and fails nothing, for a local look.
 
 ### The report
 

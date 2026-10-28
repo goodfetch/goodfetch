@@ -37,7 +37,7 @@
 
 mod rules;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex as SyncMutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
@@ -57,7 +57,7 @@ use tokio::sync::{OnceCell, mpsc, oneshot};
 
 use crate::borrowed::CdpUrl;
 use crate::driver::{
-    Behind, BorrowedBrowser, Carried, LocalBrowser, Origins, PageDriver, SessionDriver,
+    Behind, BorrowedBrowser, Carried, LocalBrowser, Lost, Origins, PageDriver, SessionDriver,
     SessionEgress, Visibility,
 };
 use crate::egress_relay::application_settings::ApplicationSettings;
@@ -82,6 +82,39 @@ pub(crate) struct Pool {
     shared: Arc<Shared>,
 }
 
+/// A browser of the Run that quit or crashed, which the pool took out of
+/// service, for the Sessions seated in it to take.
+#[derive(Debug)]
+pub(crate) struct BrowserLoss {
+    /// Where it was.
+    pub(crate) at: LostAt,
+    /// How it ended: a quit or a crash.
+    pub(crate) lost: Lost,
+}
+
+/// Where a browser that ended was.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LostAt {
+    /// The pool's browser of this number.
+    Browser(u64),
+    /// The Borrowed browser of the seat of this number, its one Session's.
+    Borrowed { seat: u64 },
+}
+
+impl LostAt {
+    /// The number its pages' browser goes by in the pool.
+    pub(crate) fn browser(self) -> u64 {
+        match self {
+            Self::Browser(number) => number,
+            Self::Borrowed { .. } => BORROWED,
+        }
+    }
+}
+
+/// How many browser losses wait for the Sessions unread: one per browser
+/// the Run launched at most, past which a follower waits.
+const LOSSES: usize = 16;
+
 struct Shared {
     run: Run,
     home: Home,
@@ -105,6 +138,8 @@ struct Shared {
     /// The Run trace's CDP log, which its browsers share.
     log: Arc<OnceCell<CommandLog>>,
     browsers: SyncMutex<Browsers>,
+    /// Where each browser that quit or crashed goes, for its Sessions.
+    losses: mpsc::Sender<BrowserLoss>,
 }
 
 #[derive(Default)]
@@ -115,6 +150,9 @@ struct Browsers {
     last: u64,
     /// The highest number a seat took.
     seats: u64,
+    /// The browsers whose crash was counted in Usage, each once, kept past
+    /// the browser's own entry: one per browser the Run launched at most.
+    crashes_counted: BTreeSet<u64>,
 }
 
 /// A browser of the pool.
@@ -146,6 +184,8 @@ struct Pooled {
     busy: u64,
     /// Whether an idle wait is on.
     waiting: bool,
+    /// Whether its connection is followed, for a quit or a crash.
+    followed: bool,
 }
 
 /// Where a browser of the pool is in its life.
@@ -207,8 +247,10 @@ fn lock(browsers: &SyncMutex<Browsers>) -> MutexGuard<'_, Browsers> {
 
 impl Pool {
     /// The browser pool of `run`, whose browsers come from the Browser
-    /// cache of `home` and the builds `pins` names.
-    pub(crate) fn new(run: Run, home: Home, pins: Pins) -> Self {
+    /// cache of `home` and the builds `pins` names, and where each of its
+    /// browsers that quits or crashes goes, out of service already.
+    pub(crate) fn new(run: Run, home: Home, pins: Pins) -> (Self, mpsc::Receiver<BrowserLoss>) {
+        let (losses, lost) = mpsc::channel(LOSSES);
         let limits = Limits::of(run.settings().map(RunSettings::resolved));
         let exceptions = exceptions_of(&run);
         let authority = authority_of(&run, &exceptions);
@@ -216,7 +258,7 @@ impl Pool {
             .settings()
             .and_then(|settings| Rotation::of(settings.resolved()))
             .map(Arc::new);
-        Self {
+        let pool = Self {
             shared: Arc::new(Shared {
                 run,
                 home,
@@ -229,8 +271,86 @@ impl Pool {
                 dns: OnceCell::new(),
                 log: Arc::default(),
                 browsers: SyncMutex::default(),
+                losses,
             }),
+        };
+        (pool, lost)
+    }
+
+    /// Follows the connection of the browser `number`, once it came up and
+    /// once per browser, until it is lost: a browser that quit or crashed
+    /// is taken out of service at once, whether or not it holds a page, and
+    /// its loss goes to its Sessions (spec #594's S8 and S9; ADR 0040).
+    fn follow(&self, number: u64) {
+        let browser = {
+            let mut browsers = lock(&self.shared.browsers);
+            let Some(pooled) = browsers.list.get_mut(&number) else {
+                return;
+            };
+            if pooled.followed {
+                return;
+            }
+            pooled.followed = true;
+            Arc::clone(&pooled.browser)
+        };
+        let pool = self.clone();
+        let stopping = self.shared.run.cancellation().clone();
+        self.shared.run.spawn(async move {
+            let lost = tokio::select! {
+                () = stopping.cancelled() => return,
+                lost = browser.ended() => lost,
+            };
+            drop(browser);
+            pool.lost(LostAt::Browser(number), lost).await;
+        });
+    }
+
+    /// Follows the Borrowed browser of the seat `seat`, `browser`, until its
+    /// connection ends: a quit, since the engine sees no exit of a browser it
+    /// did not launch (decision 11), which goes to the seat's Session.
+    fn follow_borrowed(&self, seat: u64, browser: Arc<BorrowedBrowser>) {
+        let pool = self.clone();
+        let stopping = self.shared.run.cancellation().clone();
+        self.shared.run.spawn(async move {
+            let lost = tokio::select! {
+                () = stopping.cancelled() => return,
+                lost = browser.ended() => lost,
+            };
+            drop(browser);
+            pool.lost(LostAt::Borrowed { seat }, lost).await;
+        });
+    }
+
+    /// A browser of the Run ended at `at`, as `lost` says: one that quit or
+    /// crashed opens no page any more and closes once none is left, and
+    /// its loss goes to the Sessions; one the engine closed was meant to.
+    async fn lost(&self, at: LostAt, lost: Lost) {
+        if !matches!(lost, Lost::BrowserQuit | Lost::BrowserCrashed(_)) {
+            return;
         }
+        if let LostAt::Browser(number) = at {
+            let mut browsers = lock(&self.shared.browsers);
+            if let Some(pooled) = browsers.list.get_mut(&number)
+                && pooled.stage == Stage::Serving
+            {
+                tracing::warn!(
+                    browser = number,
+                    ?lost,
+                    "a browser of the Run was lost: it opens no page any more"
+                );
+                pooled.stage = Stage::Retiring;
+            }
+            self.settle(&mut browsers, number);
+        }
+        // The Sessions stop following with their Run, and an unread loss
+        // goes with it.
+        let _ = self.shared.losses.send(BrowserLoss { at, lost }).await;
+    }
+
+    /// Whether the crash of the browser `number` is counted now: once per
+    /// browser, by the first of its Sessions to take it.
+    fn first_crash(&self, number: u64) -> bool {
+        lock(&self.shared.browsers).crashes_counted.insert(number)
     }
 
     /// What the Sessions' egress relays take of the Run's TLS settings:
@@ -369,7 +489,9 @@ impl Pool {
                     *number,
                     Seats {
                         contexts: u64::try_from(pooled.seated.len()).unwrap_or(u64::MAX),
-                        retiring: pooled.stage != Stage::Serving,
+                        // A browser whose connection ended takes no Session,
+                        // even before its follower took it out of service.
+                        retiring: pooled.stage != Stage::Serving || pooled.browser.is_lost(),
                         own: pooled.own,
                     },
                 )
@@ -403,6 +525,7 @@ impl Pool {
                     stage: Stage::Serving,
                     busy: 0,
                     waiting: false,
+                    followed: false,
                 },
             );
             number
@@ -798,6 +921,8 @@ const BORROWED: u64 = 0;
 struct Place {
     /// The browser it is seated in, by number, and its driver there.
     at: Option<(u64, Driver)>,
+    /// Set once its Session closed it: it is never seated again (#697).
+    closed: bool,
     /// What it takes to the next browser it is seated in.
     carried: Carried,
     /// Its browser contexts in recycled browsers, which still hold pages it
@@ -857,6 +982,22 @@ impl Seat {
             .run
             .spawn(self.shared.origins.clone().watch(events));
         in_browser
+    }
+
+    /// Whether the Session is seated where the browser lost at `at` was:
+    /// in the pool's browser of that number, or the Borrowed browser of its
+    /// own seat.
+    pub(crate) async fn was_at(&self, at: &LostAt) -> bool {
+        match *at {
+            LostAt::Browser(number) => self.is_in(number).await,
+            LostAt::Borrowed { seat } => self.shared.number == seat,
+        }
+    }
+
+    /// Whether the crash of the browser `number`, where a page of the
+    /// Session was, is counted now: once per browser (ADR 0040).
+    pub(crate) fn first_crash_of(&self, number: u64) -> bool {
+        self.shared.pool.first_crash(number)
     }
 
     /// Whether the Session is seated in the browser `number` now.
@@ -940,6 +1081,11 @@ async fn keep_place(seat: Weak<SeatShared>, mut commands: mpsc::Receiver<PlaceCo
             break;
         };
         match command {
+            // A seat its Session closed opens no browser context again,
+            // whatever asked before the close and arrives after it.
+            PlaceCommand::Seated { answer, .. } if place.closed => {
+                let _ = answer.send(Err(place_ended()));
+            }
             PlaceCommand::Seated { moving, answer } => {
                 let seated = seat.seated_moving(&mut place, moving).await;
                 // An asker that left drops what it asked for.
@@ -949,6 +1095,7 @@ async fn keep_place(seat: Weak<SeatShared>, mut commands: mpsc::Receiver<PlaceCo
                 let _ = answer.send(place.at.as_ref().is_some_and(|(at, _)| *at == number));
             }
             PlaceCommand::Close(answer) => {
+                place.closed = true;
                 place.carried = Carried::default();
                 let _ = answer.send((place.at.take(), std::mem::take(&mut place.left)));
             }
@@ -999,6 +1146,7 @@ impl SeatShared {
             ));
             driver.open().await?;
             place.at = Some((BORROWED, Arc::clone(&driver)));
+            self.pool.follow_borrowed(self.number, Arc::clone(borrowed));
             return Ok((BORROWED, driver, self.pool.opening(BORROWED)));
         }
         let (number, browser, opening) = self.pool.place(self);
@@ -1017,6 +1165,7 @@ impl SeatShared {
         place.carried = Carried::default();
         place.at = Some((number, Arc::clone(&driver)));
         self.pool.govern(number);
+        self.pool.follow(number);
         Ok((number, driver, opening))
     }
 

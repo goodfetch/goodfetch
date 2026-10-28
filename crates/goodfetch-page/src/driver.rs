@@ -179,6 +179,10 @@ pub(crate) struct Browser {
     process: Option<u32>,
     /// Cancelled once the engine closes it, so its exit is not a loss.
     closing: CancellationToken,
+    /// Whether the engine launched it, so its process's exit tells a quit
+    /// from a crash; a Borrowed browser's ended connection is its quit
+    /// (spec #594's decision 11).
+    launched: bool,
     /// Its service workers, which it attaches the engine to (ADR 0121).
     service_workers: Arc<service_workers::ServiceWorkerChoices>,
     /// What each browser context does with the popups its pages open.
@@ -405,6 +409,21 @@ impl BorrowedBrowser {
     }
 }
 
+impl BorrowedBrowser {
+    /// Waits until the browser, once connected to, is lost: its connection
+    /// ended, a quit (decision 11), or the engine closed it with its Run.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing: it only reads.
+    pub(crate) async fn ended(&self) -> Lost {
+        match self.connected.get() {
+            Some(browser) => browser.ended().await,
+            None => Lost::EngineClosed,
+        }
+    }
+}
+
 impl Connect for BorrowedBrowser {
     async fn connect(&self) -> Result<Browser, CallError> {
         self.connected
@@ -435,6 +454,7 @@ impl Connect for BorrowedBrowser {
                     identity: None,
                     process: None,
                     closing: self.run.cancellation().child_token(),
+                    launched: false,
                     service_workers: Arc::default(),
                     popups: Arc::default(),
                     hidden: Arc::default(),
@@ -510,6 +530,26 @@ impl LocalBrowser {
     pub(crate) fn process(&self) -> Option<u32> {
         self.launched.get().and_then(|browser| browser.process)
     }
+
+    /// Whether it came up and its connection ended since.
+    pub(crate) fn is_lost(&self) -> bool {
+        self.launched
+            .get()
+            .is_some_and(|browser| browser.connection.is_closed())
+    }
+
+    /// Waits until the browser, once it came up, is lost, and says how: it
+    /// quit, it crashed, or the engine closed it.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing: it only reads.
+    pub(crate) async fn ended(&self) -> Lost {
+        match self.launched.get() {
+            Some(browser) => browser.ended().await,
+            None => Lost::EngineClosed,
+        }
+    }
 }
 
 /// A browser launched and not yet up: closed, then killed, unless it comes
@@ -574,6 +614,7 @@ impl Connect for LocalBrowser {
                     identity: None,
                     process: launched.process,
                     closing: attempt,
+                    launched: true,
                     service_workers: Arc::default(),
                     popups: Arc::default(),
                     hidden: Arc::default(),
@@ -1544,7 +1585,7 @@ impl PageDriver {
                         // A `javascript:` URL runs in the document, which
                         // the browser answers as an aborted navigation:
                         // no document loads.
-                        (Some(_), None) if is_javascript(&url) => Ok(None),
+                        (Some(_), None) if navigation::runs_a_script(&url) => Ok(None),
                         (Some(error), loader) => navigation::refused(
                             &NetError::of(&error),
                             loader,
@@ -1913,15 +1954,6 @@ impl PageDriver {
         })
     }
 }
-
-/// Whether `url` is a `javascript:` URL, which runs in a frame's document.
-fn is_javascript(url: &str) -> bool {
-    url.get(..JAVASCRIPT.len())
-        .is_some_and(|scheme| scheme.eq_ignore_ascii_case(JAVASCRIPT))
-}
-
-/// The scheme of a URL that runs a script, with its colon.
-const JAVASCRIPT: &str = "javascript:";
 
 /// What a navigation that answers at `wait_until` waits for, as its
 /// `deadline_exceeded` names it: the state, as the call spells it.

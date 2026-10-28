@@ -2,14 +2,9 @@
 //! 0113): a call in flight raises the code its object's end names, a later
 //! call raises `closed`, or `page_crashed` again after a crash, and a
 //! Session's states are emitted as `tracing` events.
-#![expect(
-    clippy::disallowed_types,
-    reason = "the test's log writer holds its bytes behind a standard Mutex, outside any loom model"
-)]
 
 use std::future::pending;
-use std::io;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::CallError;
@@ -18,9 +13,10 @@ use goodfetch_protocol::connection::{
     CALL_CANCELLED, CallCancelledDetails, ClosedValue, StoppedBy,
 };
 use goodfetch_protocol::page::{BrowserExit, PageId, SessionId};
-use goodfetch_test_support::{runtime, subscriber_writing_to};
+use goodfetch_test_support::{CapturedLog, runtime, subscriber_writing_to};
 use rstest::rstest;
 use serde_json::{Value, json};
+use tokio::sync::watch;
 
 use super::{Ending, PageLife, SessionLife};
 use crate::errors::{network_error, renderer_crashed};
@@ -42,7 +38,107 @@ const KILLED: BrowserExit = BrowserExit {
 };
 
 fn page() -> PageLife {
-    PageLife::new(PageId("page-1".to_owned()), None)
+    PageLife::new(PageId("page-1".to_owned()), None, no_routes())
+}
+
+/// How many of a page's requests wait on a route handler, for a page none
+/// of whose requests ever does.
+fn no_routes() -> watch::Receiver<usize> {
+    watch::channel(0).1
+}
+
+/// What ran, in order, on a page with a navigation pending when a second
+/// call arrived, `routed` of its requests waiting on a route handler: the
+/// second call's work, the navigation's end, or both in the order they
+/// ran.
+fn behind_a_pending_navigation(second: PageEvent, routed: usize) -> Vec<&'static str> {
+    let (held, routed_now) = watch::channel(routed);
+    let life = PageLife::new(PageId("page-1".to_owned()), None, routed_now);
+    let ran = std::cell::RefCell::new(Vec::new());
+    runtime().block_on(async {
+        let (navigated, navigation) = tokio::sync::oneshot::channel::<()>();
+        let navigating = life.call(PageEvent::Goto, async {
+            let _ = navigation.await;
+            ran.borrow_mut().push("navigation");
+            Ok(())
+        });
+        let other = life.call(second, async {
+            ran.borrow_mut().push("second call");
+            Ok(())
+        });
+        let end = async {
+            for _ in 0..8 {
+                tokio::task::yield_now().await;
+            }
+            let _ = navigated.send(());
+        };
+        let _ = tokio::join!(navigating, other, end);
+    });
+    drop(held);
+    ran.into_inner()
+}
+
+/// A navigation call holds the page's gesture order (spec #594's P14,
+/// ADR 0085): a gesture sent while it is pending runs once it ended,
+/// unless one of the page's requests waits on a route handler, when the
+/// navigation gives up its turn; a read runs meanwhile, and a second
+/// navigation runs at once, interrupting the pending one (P37).
+///
+/// Covers: story:5-27
+#[rstest]
+#[case::a_gesture(PageEvent::Gesture, 0, vec!["navigation", "second call"])]
+#[case::a_gesture_while_a_route_handler_holds_a_request(PageEvent::Gesture, 1, vec!["second call", "navigation"])]
+#[case::a_read(PageEvent::Read, 0, vec!["second call", "navigation"])]
+#[case::a_second_navigation(PageEvent::Goto, 0, vec!["second call", "navigation"])]
+fn a_pending_navigation_holds_the_gesture_order(
+    #[case] second: PageEvent,
+    #[case] routed: usize,
+    #[case] expected: Vec<&'static str>,
+) {
+    assert_eq!(behind_a_pending_navigation(second, routed), expected);
+}
+
+/// A navigation that ended leaves its page `Open`, and one a second
+/// navigation interrupted leaves it `Navigating` until that one ends.
+///
+/// Covers: story:5-27
+#[test]
+fn a_page_is_navigating_while_its_latest_navigation_is_pending() {
+    let life = page();
+
+    let states = runtime().block_on(async {
+        let (first_ended, first) = tokio::sync::oneshot::channel::<()>();
+        let (second_ended, second) = tokio::sync::oneshot::channel::<()>();
+        let first = life.call(PageEvent::Goto, async {
+            let _ = first.await;
+            Ok(())
+        });
+        let second = life.call(PageEvent::Goto, async {
+            let _ = second.await;
+            Ok(())
+        });
+        let observe = async {
+            tokio::task::yield_now().await;
+            let pending = state_of(&life);
+            let _ = first_ended.send(());
+            for _ in 0..4 {
+                tokio::task::yield_now().await;
+            }
+            let interrupted = state_of(&life);
+            let _ = second_ended.send(());
+            (pending, interrupted)
+        };
+        let (_, _, states) = tokio::join!(first, second, observe);
+        states
+    });
+
+    assert_eq!(
+        (states, state_of(&life)),
+        (
+            (PageState::Navigating, PageState::Navigating),
+            PageState::Open
+        )
+    );
 }
 
 /// Where `life`'s page is, as its state watch holds it.
@@ -150,6 +246,53 @@ fn a_page_that_ends_ends_its_call_in_flight_and_refuses_the_next(
     assert_eq!((raised(&answered), raised(&refused)), (in_flight, later));
 }
 
+/// A page's target that went after the program asked the page to close,
+/// running its `beforeunload` handlers, closed as the program asked: its
+/// call in flight raises `call_cancelled` naming the program, and its end
+/// confirms that close (spec #594's P8 and P29). Unasked, the target's end
+/// is a close in the browser (P9).
+///
+/// Covers: story:5-27
+#[rstest]
+#[case::asked_by_the_program(
+    true,
+    ("call_cancelled", json!({ "by": "program", "closed": "page" })),
+    PageEffect::Confirm
+)]
+#[case::unasked(
+    false,
+    ("call_cancelled", json!({ "by": "browser", "closed": "page" })),
+    PageEffect::ClosedInBrowser
+)]
+fn a_target_that_went_after_the_program_asked_its_page_to_close_ends_as_its_close(
+    #[case] asked: bool,
+    #[case] in_flight: (&str, Value),
+    #[case] effect: PageEffect,
+) {
+    let life = page();
+    if asked {
+        life.ask_to_close();
+    }
+
+    let (answered, ended) = runtime().block_on(async {
+        let call = life.call(PageEvent::Gesture, pending::<Result<(), CallError>>());
+        let end = async {
+            tokio::task::yield_now().await;
+            life.destroyed()
+        };
+        tokio::join!(call, end)
+    });
+
+    assert_eq!(
+        (
+            raised(&answered.expect_err("the call in flight fails")),
+            ended.map_err(|error| error.code()),
+            state_of(&life),
+        ),
+        (in_flight, Ok(effect), PageState::Closed)
+    );
+}
+
 /// A call whose command its lease check withheld raises the lease check's
 /// error and moves its page to `Closing`, its next call raising `closed`
 /// (spec #594's P31, decision 13): the page then closes.
@@ -157,7 +300,11 @@ fn a_page_that_ends_ends_its_call_in_flight_and_refuses_the_next(
 /// Covers: story:5-135
 #[test]
 fn a_call_its_lease_withheld_moves_its_page_to_closing() {
-    let life = PageLife::new(PageId("page-1".to_owned()), Some(Arc::new(Ended)));
+    let life = PageLife::new(
+        PageId("page-1".to_owned()),
+        Some(Arc::new(Ended)),
+        no_routes(),
+    );
 
     let (answered, later, closing) = runtime().block_on(async {
         let answered = life
@@ -190,7 +337,11 @@ fn a_call_its_lease_withheld_moves_its_page_to_closing() {
 /// Covers: story:5-27
 #[test]
 fn a_failed_call_under_a_lease_that_holds_leaves_its_page_open() {
-    let life = PageLife::new(PageId("page-1".to_owned()), Some(Arc::new(Holds)));
+    let life = PageLife::new(
+        PageId("page-1".to_owned()),
+        Some(Arc::new(Holds)),
+        no_routes(),
+    );
 
     let answered = runtime().block_on(life.call(PageEvent::Gesture, async {
         Err::<(), _>(renderer_crashed())
@@ -281,7 +432,12 @@ fn a_navigation_that_failed_on_a_live_page_raises_its_own_failure() {
 #[case::a_crash_racing_a_close(
     Ending::Closed(ClosedValue::Page),
     Ending::BrowserCrash(Some(KILLED)),
-    (PageEffect::Nothing, PageState::Closed)
+    (PageEffect::CloseOvertaken, PageState::Closed)
+)]
+#[case::a_quit_racing_a_close(
+    Ending::Closed(ClosedValue::Page),
+    Ending::BrowserQuit,
+    (PageEffect::CloseOvertaken, PageState::Closed)
 )]
 fn a_second_ending_of_a_page_does_what_its_table_says(
     #[case] first: Ending,
@@ -326,6 +482,47 @@ fn a_call_on_an_opening_session_waits_for_its_open(
     });
 
     assert_eq!(answered.map_err(|error| error.code()), expected);
+}
+
+/// `close()` on a Session still opening abandons the open: a call that
+/// waited on it raises `call_cancelled` naming the program and the
+/// Session, and a call made once it is closing raises `closed` (spec
+/// #594's S3 and R).
+///
+/// Covers: story:5-28
+#[test]
+fn a_call_waiting_on_an_abandoned_open_raises_call_cancelled_and_a_later_one_closed() {
+    let life = SessionLife::new(
+        SessionId("run.session-1".to_owned()),
+        LAUNCHED,
+        SessionState::Opening,
+    );
+
+    let (waited, closed, later) = runtime().block_on(async {
+        let call = life.call();
+        let close = async {
+            tokio::task::yield_now().await;
+            life.apply(SessionEvent::Close, None)
+        };
+        let (waited, closed) = tokio::join!(call, close);
+        (waited, closed, life.call().await)
+    });
+
+    assert_eq!(
+        (
+            raised(&waited.expect_err("the waiting call is cancelled")),
+            closed.map_err(|error| error.code()),
+            raised(&later.expect_err("the later call is refused")),
+        ),
+        (
+            (
+                "call_cancelled",
+                json!({ "by": "program", "closed": "session" })
+            ),
+            Ok(SessionEffect::AbandonOpen),
+            ("closed", json!({ "session_id": "run.session-1" })),
+        )
+    );
 }
 
 /// A Session whose browser crashed raises `page_crashed` with how the
@@ -439,31 +636,13 @@ fn the_pool_retires_only_its_own_sessions_and_a_retire_racing_a_close_changes_no
     );
 }
 
-/// Bytes a test's subscriber writes.
-#[derive(Clone, Default)]
-struct Captured(Arc<Mutex<Vec<u8>>>);
-
-impl io::Write for Captured {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
 /// Each change of a Session's state is a `tracing` event the Simulation's
 /// scenarios read (ADR 0060).
 ///
 /// Covers: story:5-28
 #[test]
 fn a_sessions_change_of_state_is_a_tracing_event() {
-    let captured = Captured::default();
+    let captured = CapturedLog::default();
     let writer = captured.clone();
     let subscriber = subscriber_writing_to(|| SystemTime::UNIX_EPOCH, move || writer.clone());
     let life = SessionLife::new(
@@ -477,14 +656,7 @@ fn a_sessions_change_of_state_is_a_tracing_event() {
             .expect("an open Session takes its browser's crash");
     });
 
-    let written = String::from_utf8(
-        captured
-            .0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone(),
-    )
-    .expect("the log is UTF-8");
+    let written = String::from_utf8(captured.written()).expect("the log is UTF-8");
     let change = written
         .lines()
         .find(|line| line.contains("a Session changed state"))

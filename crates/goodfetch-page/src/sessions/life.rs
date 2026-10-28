@@ -8,10 +8,12 @@
 //! leaves that code for every later call (spec #594's decision 3).
 //!
 //! A navigation is admitted through its own event (`Goto`), but the page
-//! stays `Open` while it runs: the engine lets a later navigation supersede
-//! one not yet committed (#698, ADR 0085), where the table's `Navigating`
-//! row would have it wait, so `Navigating` is never entered, as ADR 0085's
-//! note of 2026-10-24 records for the owner to decide.
+//! stays `Open` while it runs: a navigation holds no place in the gesture
+//! order, so `Navigating` is never entered, as ADR 0085's note of
+//! 2026-10-24 records for the owner to decide. A later navigation
+//! supersedes one not yet committed either way: the engine's navigation
+//! code raises `navigation_interrupted` for the pending one (#698), as the
+//! table's `Navigating` row has it (P37, decision 15).
 
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -101,12 +103,26 @@ struct PageShared {
     lease: Option<Arc<dyn LeaseCheck>>,
     /// Set once its lease ended it, so its target closes.
     ended_by_lease: watch::Sender<bool>,
+    /// Set once the program asked it to close running its `beforeunload`
+    /// handlers, so its target's end is that close's.
+    close_asked: OnceLock<()>,
+    /// How many of its requests wait on a route handler now, while which a
+    /// pending navigation gives up its turn.
+    routed: watch::Receiver<usize>,
+    /// The number of its latest navigation call, which alone leaves
+    /// `Navigating` when it ends.
+    navigation: watch::Sender<u64>,
 }
 
 impl PageLife {
     /// The page `page_id`, `Open`, under the lease check `lease` when it is
-    /// a crawl handler's.
-    pub(crate) fn new(page_id: PageId, lease: Option<Arc<dyn LeaseCheck>>) -> Self {
+    /// a crawl handler's, `routed` counting its requests that wait on a
+    /// route handler.
+    pub(crate) fn new(
+        page_id: PageId,
+        lease: Option<Arc<dyn LeaseCheck>>,
+        routed: watch::Receiver<usize>,
+    ) -> Self {
         Self {
             shared: Arc::new(PageShared {
                 page_id,
@@ -116,6 +132,9 @@ impl PageLife {
                 past_cap: OnceLock::new(),
                 lease,
                 ended_by_lease: watch::Sender::new(false),
+                close_asked: OnceLock::new(),
+                routed,
+                navigation: watch::Sender::new(0),
             }),
         }
     }
@@ -150,6 +169,25 @@ impl PageLife {
             Err(refused) => tracing::error!(%refused, "a page's lease end was refused"),
         }
         error
+    }
+
+    /// Records that the program asked the page to close running its
+    /// `beforeunload` handlers, before the close is sent: the page stays
+    /// where it is, since a handler may keep it, and its target's end is
+    /// then that close's.
+    pub(crate) fn ask_to_close(&self) {
+        let _ = self.shared.close_asked.set(());
+    }
+
+    /// Applies its target's end: the confirmation of the program's close
+    /// (P8, then P29) once the program asked for one, else a close in the
+    /// browser (P9). Answers the last effect, or `internal` for a pair only
+    /// a bug sends.
+    pub(crate) fn destroyed(&self) -> Result<PageEffect, CallError> {
+        if self.shared.close_asked.get().is_some() {
+            self.end(&Ending::Closed(ClosedValue::Page))?;
+        }
+        self.end(&Ending::Destroyed)
     }
 
     /// Whether the page is found past its memory cap for the first time:
@@ -205,35 +243,90 @@ impl PageLife {
         work: impl Future<Output = Result<T, CallError>>,
     ) -> Result<T, CallError> {
         let _in_flight = InFlight::new(&self.shared.calls);
-        self.admit(event).await?;
+        let navigation = self.admit(event).await?;
+        let mut navigated = navigation.map(|number| Navigated {
+            life: self,
+            number,
+            committed: false,
+        });
         let mut ended = self.shared.ended.subscribe();
         let mut work = std::pin::pin!(work);
         tokio::select! {
             biased;
             answered = &mut work => match answered {
-                Ok(answer) => Ok(answer),
+                Ok(answer) => {
+                    if let Some(navigated) = &mut navigated {
+                        navigated.committed = true;
+                    }
+                    Ok(answer)
+                }
                 Err(error) => Err(self.withheld(self.settled(error).await)),
             },
             Some(error) = ending(&mut ended) => Err(error),
         }
     }
 
-    /// Waits until the page's table serves `event`.
-    async fn admit(&self, event: PageEvent) -> Result<(), CallError> {
+    /// Waits until the page's table serves `event`, and takes the state it
+    /// names: a navigation call's own number when it is one, its page
+    /// `Navigating` until the latest one ends. A gesture waits behind a
+    /// pending navigation (P14), which gives up its turn while one of the
+    /// page's requests waits on a route handler, so a handler's gesture
+    /// never deadlocks the navigation whose request it answers (ADR 0085).
+    async fn admit(&self, event: PageEvent) -> Result<Option<u64>, CallError> {
         let mut state = self.shared.state.subscribe();
+        let mut routed = self.shared.routed.clone();
+        // A count no route table holds any more never changes again.
+        let mut routes_live = true;
+        let mut waited = false;
         loop {
-            let now = *state.borrow_and_update();
-            match lifecycle::page(now, event) {
-                Ok((_, PageEffect::Serve)) => return Ok(()),
+            state.borrow_and_update();
+            let yielded = *routed.borrow_and_update() > 0;
+            let mut asked = None;
+            self.shared.state.send_if_modified(|now| {
+                let outcome = match lifecycle::page(*now, event) {
+                    Ok((next, PageEffect::Wait))
+                        if yielded
+                            && *now == PageState::Navigating
+                            && event == PageEvent::Gesture =>
+                    {
+                        Ok((next, PageEffect::Serve))
+                    }
+                    outcome => outcome,
+                };
+                let served = matches!(outcome, Ok((_, PageEffect::Serve | PageEffect::Interrupt)));
+                let navigation = (served && event == PageEvent::Goto).then(|| {
+                    self.shared.navigation.send_modify(|latest| *latest += 1);
+                    *self.shared.navigation.borrow()
+                });
+                let before = *now;
+                let changed = match outcome {
+                    Ok((next, _)) if served && next != *now => {
+                        *now = next;
+                        true
+                    }
+                    Ok(_) | Err(_) => false,
+                };
+                asked = Some((before, outcome, navigation));
+                changed
+            });
+            let (now, outcome, navigation) = asked.expect("invariant: the table was asked");
+            match outcome {
+                // A second navigation runs: the engine's navigation code
+                // interrupts the pending one, which raises
+                // `navigation_interrupted` (P37).
+                Ok((_, PageEffect::Serve | PageEffect::Interrupt)) => return Ok(navigation),
                 Ok((_, PageEffect::Wait)) => {
-                    let _ = state.changed().await;
+                    waited = true;
+                    tokio::select! {
+                        _ = state.changed() => {}
+                        changed = routed.changed(), if routes_live => routes_live = changed.is_ok(),
+                    }
                 }
                 Ok((
                     _,
                     effect @ (PageEffect::Nothing
                     | PageEffect::Commit
                     | PageEffect::FailNavigation
-                    | PageEffect::Interrupt
                     | PageEffect::Judge
                     | PageEffect::Defer
                     | PageEffect::Pause
@@ -244,6 +337,7 @@ impl PageLife {
                     | PageEffect::RendererCrash
                     | PageEffect::BrowserCrash
                     | PageEffect::Confirm
+                    | PageEffect::CloseOvertaken
                     | PageEffect::Release),
                 )) => {
                     return Err(invalid_transition(
@@ -252,9 +346,41 @@ impl PageLife {
                         &format!("{event:?} (effect {effect:?})"),
                     ));
                 }
-                Err(invalid) => return Err(self.refused(invalid)),
+                // A call that waited was in flight when its page ended: it
+                // raises what ended the page (P8).
+                Err(invalid) => {
+                    let ended = waited.then(|| self.shared.ended.borrow().clone());
+                    return Err(ended.flatten().unwrap_or_else(|| self.refused(invalid)));
+                }
             }
         }
+    }
+
+    /// Its navigation call `number` ended, `committed` or not: once it is
+    /// the latest, the page leaves `Navigating` (spec #594's `Committed`
+    /// and `NavFailed`); a navigation a later one interrupted leaves it to
+    /// that one.
+    fn navigated(&self, number: u64, committed: bool) {
+        if *self.shared.navigation.borrow() != number {
+            return;
+        }
+        let event = if committed {
+            PageEvent::Committed
+        } else {
+            PageEvent::NavFailed
+        };
+        self.shared.state.send_if_modified(|state| {
+            if *state != PageState::Navigating || *self.shared.navigation.borrow() != number {
+                return false;
+            }
+            match lifecycle::page(*state, event) {
+                Ok((next, _)) if next != *state => {
+                    *state = next;
+                    true
+                }
+                Ok(_) | Err(_) => false,
+            }
+        });
     }
 
     /// What a call the table refused raises.
@@ -353,6 +479,7 @@ impl PageLife {
                 | PageEffect::Pause
                 | PageEffect::EndPause
                 | PageEffect::Confirm
+                | PageEffect::CloseOvertaken
                 | PageEffect::Release,
                 _,
             ) => None,
@@ -377,6 +504,21 @@ impl<'a> InFlight<'a> {
 impl Drop for InFlight<'_> {
     fn drop(&mut self) {
         self.0.send_modify(|calls| *calls -= 1);
+    }
+}
+
+/// A navigation call on a page, which leaves the page's `Navigating` state
+/// once it ends, its future dropped included.
+struct Navigated<'a> {
+    life: &'a PageLife,
+    number: u64,
+    /// Whether its navigation answered.
+    committed: bool,
+}
+
+impl Drop for Navigated<'_> {
+    fn drop(&mut self) {
+        self.life.navigated(self.number, self.committed);
     }
 }
 
@@ -467,11 +609,13 @@ impl SessionLife {
     /// Dropping the future gives up the wait.
     pub(crate) async fn call(&self) -> Result<(), CallError> {
         let mut state = self.shared.state.subscribe();
+        let mut waited = false;
         loop {
             let now = *state.borrow_and_update();
             match lifecycle::session(now, SessionEvent::Call, self.shared.attributes) {
                 Ok((_, SessionEffect::Serve)) => return Ok(()),
                 Ok((_, SessionEffect::Wait)) => {
+                    waited = true;
                     let _ = state.changed().await;
                 }
                 Ok((
@@ -499,19 +643,42 @@ impl SessionLife {
                         &format!("Call (effect {effect:?})"),
                     ));
                 }
-                Err(invalid) => return Err(self.refused(&invalid)),
+                Err(invalid) => return Err(self.refused(&invalid, waited)),
             }
         }
     }
 
-    /// What a call the table refused raises.
-    fn refused(&self, invalid: &InvalidTransition<SessionState, SessionEvent>) -> CallError {
+    /// What a call on the Session that failed with `error` raises: once the
+    /// Session ended under it, such as its browser lost while the call ran,
+    /// the code its table gives a call now; else `error`. A call that
+    /// failed as its browser went waits for the Session to take the loss,
+    /// as a page's call does for its page's.
+    pub(crate) async fn settled(&self, error: CallError) -> CallError {
+        if error.code() == PAGE_CRASHED.name {
+            let _ = tokio::time::timeout(ENDING_WAIT, self.ended()).await;
+        }
+        match self.state() {
+            SessionState::Closing | SessionState::Closed | SessionState::Crashed => {
+                self.call().await.err().unwrap_or(error)
+            }
+            SessionState::Opening
+            | SessionState::Open
+            | SessionState::Lent
+            | SessionState::Offline(_) => error,
+        }
+    }
+
+    /// What a call the table refused raises: one that `waited` on the
+    /// Session's open raises what ended that open (S2, S3).
+    fn refused(
+        &self,
+        invalid: &InvalidTransition<SessionState, SessionEvent>,
+        waited: bool,
+    ) -> CallError {
         match invalid.refusal {
-            Refusal::Program(code) if code == CLOSED.name => self
-                .shared
-                .failed
-                .get()
-                .cloned()
+            Refusal::Program(code) if code == CLOSED.name => waited
+                .then(|| self.shared.failed.get().cloned())
+                .flatten()
                 .unwrap_or_else(|| session_closed(&self.shared.session)),
             Refusal::Program(code) if code == PAGE_CRASHED.name => self
                 .shared
@@ -542,11 +709,26 @@ impl SessionLife {
     pub(crate) fn apply(
         &self,
         event: SessionEvent,
-        exit: Option<BrowserExit>,
+        mut exit: Option<BrowserExit>,
     ) -> Result<SessionEffect, CallError> {
         let mut applied = None;
         self.shared.state.send_if_modified(|state| {
             let outcome = lifecycle::session(*state, event, self.shared.attributes);
+            // What the calls waiting on it raise is set before they wake:
+            // an abandoned open's `call_cancelled` (S3), a crash's
+            // `page_crashed` with how its browser exited (S21).
+            match outcome {
+                Ok((_, SessionEffect::AbandonOpen)) => {
+                    let _ = self
+                        .shared
+                        .failed
+                        .set(cancelled(StoppedBy::Program, ClosedValue::Session));
+                }
+                Ok((_, SessionEffect::Crash)) => {
+                    let _ = self.shared.crashed.set(browser_crashed(exit.take()));
+                }
+                Ok(_) | Err(_) => {}
+            }
             let changed = match outcome {
                 Ok((next, _)) if next != *state => {
                     tracing::info!(
@@ -566,12 +748,8 @@ impl SessionLife {
             changed
         });
         match applied.expect("invariant: the table was asked") {
-            Ok((_, SessionEffect::Crash)) => {
-                let _ = self.shared.crashed.set(browser_crashed(exit));
-                Ok(SessionEffect::Crash)
-            }
             Ok((_, effect)) => Ok(effect),
-            Err(invalid) => Err(self.refused(&invalid)),
+            Err(invalid) => Err(self.refused(&invalid, false)),
         }
     }
 }

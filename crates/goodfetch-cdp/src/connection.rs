@@ -240,6 +240,13 @@ impl Connection {
         }
         Subscription { events: receiver }
     }
+
+    /// Whether the connection ended: the browser closed it, or reading or
+    /// writing it failed. A subscription that ended while this is false fell
+    /// behind.
+    pub fn is_closed(&self) -> bool {
+        lock(&self.subscribers).ended
+    }
 }
 
 fn read<T: DeserializeOwned>(method: &'static str, answer: Value) -> Result<T, Failure> {

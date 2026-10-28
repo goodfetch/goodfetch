@@ -66,3 +66,21 @@ fn a_stop_after_the_requested_navigation_started_ends_it() {
 
     assert!(navigation.requested_ended());
 }
+
+/// A URL the URL Standard reads as `javascript:` runs a script in the
+/// frame, in every spelling the engine's egress check accepts: tabs and
+/// newlines anywhere and leading spaces dropped, its scheme in any case
+/// (ADR 0067; ticket #631).
+#[rstest::rstest]
+#[case::plain("javascript:void(0)", true)]
+#[case::its_scheme_in_capitals("JavaScript:void(0)", true)]
+#[case::a_tab_in_its_scheme("java\tscript:void(0)", true)]
+#[case::a_newline_in_its_scheme("java\nscript:void(0)", true)]
+#[case::leading_spaces("  javascript:void(0)", true)]
+#[case::a_network_url_naming_it("https://site.test/javascript:void(0)", false)]
+fn a_javascript_url_is_told_apart_as_the_egress_check_reads_it(
+    #[case] url: &str,
+    #[case] runs: bool,
+) {
+    assert_eq!(super::runs_a_script(url), runs);
+}

@@ -5,8 +5,10 @@
 //! holds no read transaction while it waits for one, so a reader that
 //! stops reading costs the crawl nothing: the crawl commits as if no
 //! reader were there. While this engine's writer works the Run, it waits
-//! for the next commit; it answers once the Run has ended, or has no live
-//! writer here, and it sent every Record.
+//! for the next commit, and while another engine's does, as a reader on
+//! the Daemon of a Run an Attached engine crawls, it looks at the run file
+//! again every second; it answers once the Run has ended, or has no live
+//! writer anywhere, and it sent every Record.
 
 use goodfetch_engine::run::run_error;
 use goodfetch_engine::runs::RunError;
@@ -47,7 +49,7 @@ async fn read_records(
         last: params.after.unwrap_or_default(),
     };
     loop {
-        let live = reader.is_live();
+        let live = reader.is_live().await;
         let (dataset, after) = (params.dataset.clone(), read.last);
         let page = reader
             .read(move |connection| {

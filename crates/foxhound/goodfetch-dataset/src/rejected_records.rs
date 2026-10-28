@@ -53,7 +53,7 @@ async fn rejected_records(
         .readable(&known)?;
     let mut after = params.after.unwrap_or_default();
     loop {
-        let live = reader.is_live();
+        let live = reader.is_live().await;
         let read = dataset.clone();
         let Page { records, next } = reader
             .read(move |connection| rejections::page(connection, &read, after))

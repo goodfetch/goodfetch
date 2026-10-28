@@ -3,19 +3,28 @@
 //! closed after it, so it never takes the writer lock and never holds the
 //! writer back, whichever engine wrote the file and whether or not one
 //! still does. While this engine's writer works the Run, the reader waits
-//! for its next commit or the Run's end; a Run with no live writer here has
-//! nothing more to come.
+//! for its next commit or the Run's end; while another engine's writer
+//! holds the Run's writer lock, as an Attached engine crawling a Run a
+//! reader on the Daemon follows, the reader looks at the run file again
+//! every [`ELSEWHERE_POLL`]; a Run with no live writer anywhere has nothing
+//! more to come (ADRs 0102 and 0103).
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use goodfetch_protocol::run::RunId;
 use rusqlite::Connection;
 use tokio::sync::watch;
 
 use super::folder::open_reader;
-use super::{Ended, RUN_FILE, RunError};
+use super::{Ended, RUN_FILE, RunError, Writer, test_writer};
+use crate::clock::Clock;
 use crate::tasks::TaskOwner;
+
+/// How often a reader looks at the run file again while another engine's
+/// writer works the Run, whose commits it is not told of.
+pub(super) const ELSEWHERE_POLL: Duration = Duration::from_secs(1);
 
 /// A reader of a Run's committed state.
 #[derive(Debug)]
@@ -25,6 +34,13 @@ pub struct RunReader {
     vfs: Option<String>,
     tasks: Arc<TaskOwner>,
     following: Option<Following>,
+    /// Whether this engine's writer worked the Run when the reader opened,
+    /// so its writer lock, while held, is this engine's own.
+    ours: bool,
+    /// Whether another engine's writer held the Run's writer lock at the
+    /// last [`RunReader::is_live`].
+    elsewhere: bool,
+    clock: Clock,
 }
 
 /// What opens a Run's state read-only, as a reader that takes no lock.
@@ -63,13 +79,17 @@ impl RunReader {
         vfs: Option<String>,
         tasks: Arc<TaskOwner>,
         following: Option<Following>,
+        clock: Clock,
     ) -> Self {
         Self {
             run_id,
             folder,
             vfs,
             tasks,
+            ours: following.is_some(),
             following,
+            elsewhere: false,
+            clock,
         }
     }
 
@@ -104,15 +124,33 @@ impl RunReader {
     }
 
     /// Whether more may be committed: this engine's writer still works the
-    /// Run. Read it before a read, so that read sees every commit made
-    /// before the answer turned `false`.
-    pub fn is_live(&mut self) -> bool {
+    /// Run, or, for a Run this engine did not work when the reader opened,
+    /// another engine's writer holds its writer lock, which the reader
+    /// tests without taking it. Read it before a read, so that read sees
+    /// every commit made before the answer turned `false`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future only stops waiting.
+    pub async fn is_live(&mut self) -> bool {
         if let Some(following) = &self.following
             && following.report.borrow().is_some()
         {
             self.following = None;
         }
-        self.following.is_some()
+        if self.following.is_some() {
+            return true;
+        }
+        if self.ours {
+            return false;
+        }
+        let folder = self.folder.clone();
+        self.elsewhere = self
+            .tasks
+            .blocking(move || test_writer(&folder))
+            .await
+            .is_ok_and(|writer| writer == Writer::Live);
+        self.elsewhere
     }
 
     /// Runs `work` on a read-only connection of the run file's committed
@@ -162,6 +200,7 @@ impl RunReader {
     }
 
     /// Waits for a commit after the last read began, or for the Run's end;
+    /// while another engine's writer works the Run, for [`ELSEWHERE_POLL`];
     /// returns at once when nothing more comes.
     ///
     /// # Cancel safety
@@ -169,6 +208,9 @@ impl RunReader {
     /// Dropping the future only stops waiting.
     pub async fn changed(&mut self) {
         let Some(Following { commits, report }) = &mut self.following else {
+            if self.elsewhere {
+                self.clock.sleep(ELSEWHERE_POLL).await;
+            }
             return;
         };
         let ended = report.wait_for(Option::is_some);

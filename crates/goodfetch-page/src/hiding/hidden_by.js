@@ -1,4 +1,5 @@
-// Which live-hiding rules hide a locator's target (ADR 0047), called in the
+// Which hiding rules hide a locator's target (ADRs 0047 and 0048), live
+// hiding's or the Consent prompt runner's, called in the
 // guard's isolated world when the guard finds the target not visible: each of
 // `rules` that matches the target or an element holding it, through the
 // shadow roots it sits in, and that element's computed `display` is `none`.

@@ -41,7 +41,7 @@ use serde::Deserialize;
 
 use self::check::{CHECK, Seen, Target};
 use crate::driver::{PageDriver, Turn, Unanswered};
-use crate::hiding::PageHiding;
+use crate::hiding::Hidden;
 
 /// The disarm, which says where the gesture landed.
 const DISARM: &str = include_str!("guard/disarm.js");
@@ -111,8 +111,9 @@ pub(crate) struct Request<'a> {
     pub(crate) window: Window,
     /// The Client's surface, in whose language its errors show targets.
     pub(crate) surface: Surface,
-    /// The page's live hiding, when it hides anything.
-    pub(crate) hiding: Option<&'a PageHiding>,
+    /// What hides elements on the page, which the guard lifts from the
+    /// target: its live hiding and the Consent prompt runner's rules.
+    pub(crate) hiding: Hidden<'a>,
 }
 
 /// Where a gesture landed.
@@ -259,9 +260,9 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
             },
             Seen::Ready { .. } => return Err(mismatched(&seen)),
             Seen::Invalid { message } => return Err(unparsed(request.selector, &message)),
-            Seen::Waiting { ref step, .. } if step == "visible" && request.hiding.is_some() => {
-                let hiding = request.hiding.expect("invariant: matched as some");
-                match hiding
+            Seen::Waiting { ref step, .. } if step == "visible" => {
+                match request
+                    .hiding
                     .lift(&mut turn, request.selector, request.operation)
                     .await
                 {

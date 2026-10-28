@@ -215,3 +215,42 @@ fn live_hiding_waits_in_a_new_document_until_the_runners_first_pass_ends() {
         )
     );
 }
+
+/// When the guard finds an action's target hidden by the Consent prompt
+/// runner, that rule is lifted from the document's sheet (ADR 0048 hides
+/// as ADR 0047 does): the runner's later texts keep it out, extraction
+/// still removes what the runner hid, and the document's next load holds
+/// it again.
+#[test]
+fn a_rule_of_the_runner_the_guard_lifts_stays_out_of_its_documents_sheet() {
+    let mut documents = Documents::default();
+    let main = key("page", "main");
+    documents.navigated(&main.0, &main.1, "loader-1");
+    let runner = "#cmp { display: none !important }\n.cmp-wall { opacity: 0 !important }";
+    set(&mut documents, &main, Part::Consent, runner, "s1");
+
+    let lifted = documents.lift_consent(&main, &["#cmp".to_owned()]);
+    let lifted_text = lifted.as_ref().map(|write| write.text.clone());
+    if let Some(write) = &lifted {
+        documents.written(write, "s1".to_owned());
+    }
+    let rewritten = documents.set(&main, Part::Consent, runner.to_owned());
+    let extracted = documents.consent_selectors(&main);
+    documents.navigated(&main.0, &main.1, "loader-2");
+    let next_load = documents.set(&main, Part::Consent, runner.to_owned());
+
+    assert_eq!(
+        (
+            lifted_text,
+            rewritten,
+            extracted,
+            next_load.map(|write| write.text)
+        ),
+        (
+            Some(".cmp-wall { opacity: 0 !important }".to_owned()),
+            None,
+            vec!["#cmp".to_owned(), ".cmp-wall".to_owned()],
+            Some(runner.to_owned()),
+        )
+    );
+}

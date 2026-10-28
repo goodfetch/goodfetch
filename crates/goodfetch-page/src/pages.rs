@@ -98,6 +98,7 @@ use crate::browser_fetch;
 use crate::dialogs::{self, Dialogs};
 use crate::driver::{Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
+use crate::hiding::Hidden;
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Matches, Pending, Registered};
@@ -1140,7 +1141,13 @@ impl Pages {
             action,
             window: Window { limit, duration },
             surface: context.surface(),
-            hiding: page.hiding.as_deref(),
+            hiding: Hidden {
+                live: page.hiding.as_deref(),
+                sheets: &page.sheets,
+                run: &page.run,
+                page_id: &locator.page_id,
+                session_id: &page.session,
+            },
         };
         let acted = page
             .life

@@ -25,6 +25,7 @@ mod documents;
 mod sheets;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
 use goodfetch_cdp::generated::{css, dom, page};
@@ -108,8 +109,11 @@ pub(crate) struct PageHiding {
     cosmetic: Cosmetic,
     sheets: Arc<Sheets>,
     session: Arc<SessionHiding>,
-    /// The rules each frame's sheet holds now.
-    frames: Mutex<BTreeMap<page::FrameId, Vec<CssRule>>>,
+    /// The rules each frame's sheet holds now, with the order of the
+    /// refresh that wrote them.
+    frames: Mutex<BTreeMap<page::FrameId, (u64, Vec<CssRule>)>>,
+    /// The order of the next refresh of a frame's sheet.
+    refreshes: AtomicU64,
 }
 
 /// What [`COLLECT`] answers.
@@ -171,6 +175,7 @@ impl Hiding {
             sheets: Arc::clone(sheets),
             session: Arc::clone(&session),
             frames: Mutex::new(BTreeMap::new()),
+            refreshes: AtomicU64::new(0),
         });
         session
             .pages
@@ -241,13 +246,20 @@ async fn follow(mut events: Subscription, page: Arc<PageHiding>) {
 
 impl PageHiding {
     /// Writes the sheet of `frame`'s document as the document stands, but
-    /// for the rules lifted for the Session.
+    /// for the rules lifted for the Session. Refreshes of one frame may run
+    /// at once: the sheets send the last one begun, and the frame keeps its
+    /// rules, never an earlier one's.
     async fn refresh(&self, frame: &page::FrameId) {
-        let mut frames = self.frames.lock().await;
+        let order = self.refreshes.fetch_add(1, Ordering::AcqRel);
         let lifted = self.session.lifted.lock().await.clone();
-        match self.write(frame, &lifted).await {
+        let written = self.write(frame, &lifted, order).await;
+        let mut frames = self.frames.lock().await;
+        if frames.get(frame).is_some_and(|(newest, _)| *newest > order) {
+            return;
+        }
+        match written {
             Ok(Some(rules)) => {
-                frames.insert(frame.clone(), rules);
+                frames.insert(frame.clone(), (order, rules));
             }
             Ok(None) => {
                 frames.remove(frame);
@@ -259,12 +271,14 @@ impl PageHiding {
         }
     }
 
-    /// Writes `frame`'s sheet, and answers the rules it holds; none for a
-    /// document no rule applies to, such as `about:blank`.
+    /// Writes `frame`'s sheet as the refresh of `order` read it, and
+    /// answers the rules it holds; none for a document no rule applies to,
+    /// such as `about:blank`.
     async fn write(
         &self,
         frame: &page::FrameId,
         lifted: &BTreeSet<String>,
+        order: u64,
     ) -> Result<Option<Vec<CssRule>>, Failure> {
         let Some(read) = self
             .driver
@@ -285,67 +299,50 @@ impl PageHiding {
             .css_rules(&classes, &ids);
         self.sheets
             .set(
-                self.driver.session(),
-                frame,
+                (self.driver.session(), frame),
                 Part::Hiding,
                 hiding::sheet(&rules, lifted),
+                Some(order),
             )
             .await?;
         Ok(Some(rules))
     }
 
-    /// The selectors of the cosmetic rules the sheet of the page's main
-    /// frame applies now, but for those lifted for its Session.
-    pub(crate) async fn applied(&self) -> Vec<String> {
+    /// The cosmetic rules the sheet of the page's main frame applies now,
+    /// but for those lifted for its Session.
+    async fn applied_rules(&self) -> Vec<CssRule> {
         let lifted = self.session.lifted.lock().await.clone();
         self.frames
             .lock()
             .await
             .get(self.driver.main_frame())
             .into_iter()
-            .flatten()
+            .flat_map(|(_, rules)| rules)
             .filter(|rule| !lifted.contains(&rule.selector))
-            .map(|rule| rule.selector.clone())
+            .cloned()
             .collect()
     }
 
-    /// When live hiding hid the target `selector` matches on the page's
-    /// main frame, lifts the rules that hid it for the page's Session,
-    /// writes every sheet of the Session's pages again without them and
-    /// records each in Provenance, for the action `operation`; answers
-    /// whether it lifted any, so that the guard looks again at once.
-    pub(crate) async fn lift(
+    /// The selectors of the cosmetic rules the sheet of the page's main
+    /// frame applies now, but for those lifted for its Session.
+    pub(crate) async fn applied(&self) -> Vec<String> {
+        self.applied_rules()
+            .await
+            .into_iter()
+            .map(|rule| rule.selector)
+            .collect()
+    }
+
+    /// Lifts the rules of `applied` whose selectors are in `hiding` for the
+    /// page's Session, writes every sheet of the Session's pages again
+    /// without them and records each in Provenance, for the action
+    /// `operation` on the target `selector`.
+    async fn lift_rules(
         &self,
-        turn: &mut Turn<'_>,
-        selector: &str,
-        operation: &str,
-    ) -> Result<bool, Unanswered> {
-        let applied: Vec<CssRule> = {
-            let lifted = self.session.lifted.lock().await.clone();
-            self.frames
-                .lock()
-                .await
-                .get(self.driver.main_frame())
-                .into_iter()
-                .flatten()
-                .filter(|rule| !lifted.contains(&rule.selector))
-                .cloned()
-                .collect()
-        };
-        if applied.is_empty() {
-            return Ok(false);
-        }
-        let selectors: Vec<&str> = applied.iter().map(|rule| rule.selector.as_str()).collect();
-        let answered = turn
-            .call(
-                HIDDEN_BY,
-                json!({ "selector": selector, "rules": selectors }),
-            )
-            .await?;
-        let hiding: Vec<String> = Vec::deserialize(&answered).unwrap_or_default();
-        if hiding.is_empty() {
-            return Ok(false);
-        }
+        applied: &[CssRule],
+        hiding: &[String],
+        (selector, operation): (&str, &str),
+    ) {
         self.session
             .lifted
             .lock()
@@ -382,6 +379,89 @@ impl PageHiding {
                 }),
             )
             .await;
+        }
+    }
+}
+
+/// What hides elements on one page, which the guard lifts from an action's
+/// target (ADRs 0047 and 0048): its live hiding, when it hides anything,
+/// and the Consent prompt runner's rules in its documents' sheets.
+#[derive(Clone, Copy)]
+pub(crate) struct Hidden<'a> {
+    /// The page's live hiding, when it hides anything.
+    pub(crate) live: Option<&'a PageHiding>,
+    /// Its documents' sheets, which the runner writes into.
+    pub(crate) sheets: &'a Sheets,
+    /// Its Run, whose Provenance records each lift.
+    pub(crate) run: &'a Run,
+    /// The page.
+    pub(crate) page_id: &'a PageId,
+    /// Its Session.
+    pub(crate) session_id: &'a SessionId,
+}
+
+impl Hidden<'_> {
+    /// When a rule hid the target `selector` matches on the page's main
+    /// frame, lifts it: a live-hiding rule for the page's Session, every
+    /// sheet of the Session's pages written again without it, and a rule of
+    /// the Consent prompt runner from the main document's sheet until its
+    /// next load; Provenance records each, for the action `operation`.
+    /// Answers whether it lifted any, so that the guard looks again at once.
+    pub(crate) async fn lift(
+        &self,
+        turn: &mut Turn<'_>,
+        selector: &str,
+        operation: &str,
+    ) -> Result<bool, Unanswered> {
+        let live = match self.live {
+            Some(page) => page.applied_rules().await,
+            None => Vec::new(),
+        };
+        let runner = self.sheets.runner_applied();
+        if live.is_empty() && runner.is_empty() {
+            return Ok(false);
+        }
+        let rules: Vec<&str> = live
+            .iter()
+            .map(|rule| rule.selector.as_str())
+            .chain(runner.iter().map(String::as_str))
+            .collect();
+        let answered = turn
+            .call(HIDDEN_BY, json!({ "selector": selector, "rules": rules }))
+            .await?;
+        let hiding: Vec<String> = Vec::deserialize(&answered).unwrap_or_default();
+        if hiding.is_empty() {
+            return Ok(false);
+        }
+        if let Some(page) = self.live
+            && live.iter().any(|rule| hiding.contains(&rule.selector))
+        {
+            page.lift_rules(&live, &hiding, (selector, operation)).await;
+        }
+        let runner: Vec<String> = runner
+            .into_iter()
+            .filter(|rule| hiding.contains(rule))
+            .collect();
+        if !runner.is_empty() {
+            if let Err(failure) = self.sheets.lift_runner(runner.clone()).await {
+                tracing::debug!(%failure, "the Consent prompt runner's lifted rules were not written: its document went");
+            }
+            for rule in &runner {
+                trace::provenance(
+                    self.run,
+                    &json!({
+                        "action": "live_hiding_lifted",
+                        "page_id": self.page_id,
+                        "session_id": self.session_id,
+                        "rule": rule,
+                        // A prompt the Consent prompt runner hid names no list.
+                        "list": "consent",
+                        "operation": operation,
+                        "target": selector,
+                    }),
+                )
+                .await;
+            }
         }
         Ok(true)
     }

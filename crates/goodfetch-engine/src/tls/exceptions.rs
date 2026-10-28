@@ -38,7 +38,7 @@ use super::{InvalidDomain, covered, domain_key};
 use crate::audit::{AuditLog, Origin};
 use crate::clock::Clock;
 use crate::composition::CallError;
-use crate::known_certificates::{Found, KeyHash, KnownCertificates, Pinned};
+use crate::known_certificates::{ExceptionKind, Found, KeyHash, KnownCertificates, Pinned};
 use crate::secrets::ExceptionHosts;
 use crate::tasks::TaskOwner;
 
@@ -58,28 +58,6 @@ pub struct PinBook {
     pub owner: Arc<TaskOwner>,
     /// What a first pin is dated by.
     pub clock: Clock,
-}
-
-/// The kind of exception a host was reached through, as Provenance marks
-/// what was fetched under it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum ExceptionKind {
-    /// Its domain was listed without a pin: the key pinned on first use.
-    TrustOnFirstUse,
-    /// Its domain was listed with `any`, and the host has no pin: any
-    /// certificate, none pinned.
-    Any,
-}
-
-impl ExceptionKind {
-    /// Its name in the Audit log and Provenance.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::TrustOnFirstUse => "trust_on_first_use",
-            Self::Any => "any",
-        }
-    }
 }
 
 /// The exception a response was fetched under, which its Provenance

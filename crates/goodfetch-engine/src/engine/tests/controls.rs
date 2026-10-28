@@ -36,8 +36,8 @@ use crate::audit::AuditLog;
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::{Dependencies, Engine};
 use crate::home::Home;
+use crate::known_certificates::ExceptionKind;
 use crate::known_certificates::KeyHash;
-use crate::tls::ExceptionKind;
 
 /// The variable the Run's key-encryption key is read from.
 const KEY_VARIABLE: &str = "GF_TEST_RUN_KEY";

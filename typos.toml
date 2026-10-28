@@ -18,6 +18,7 @@ extend-exclude = ["rnd/", "vendor/", "crates/goodfetch-cdp/protocol.json", "crat
 # as an HTML entity; and CDP's own misspelt `grantUniveralAccess`, as its
 # bindings name it; and the consent pages' German buttons and Cookiebot's
 # own element IDs (`…LevelOptinAllowAll`); and the value pages' German date
-# (`Februar`) and India's zone abbreviation (`IST`). And the Console's Lingui catalog keys its messages by a
+# (`Februar`) and India's zone abbreviation (`IST`); and ICU4X's
+# `writeable` crate and its `Writeable` trait. And the Console's Lingui catalog keys its messages by a
 # six-character hash of each, such as `"ypes-A": "Model calls"`, no word.
-extend-ignore-re = ["(?m)^  \"[A-Za-z0-9_-]{6}\": \"", "ThreatMetrix", "online-metrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-", "\\bndJson", "(?i)\\bcaf(\\\\u|%C3)", "\\bCaf&eacute;", "für alle", "ses raisons", "\\bgrant_univeral_access\\b", "Alle (akzeptieren|ablehnen)", "LevelOptin", "\\bFebruar\\b", "\\bIST\\b"]
+extend-ignore-re = ["(?m)^  \"[A-Za-z0-9_-]{6}\": \"", "ThreatMetrix", "online-metrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-", "\\bndJson", "(?i)\\bcaf(\\\\u|%C3)", "\\bCaf&eacute;", "für alle", "ses raisons", "\\bgrant_univeral_access\\b", "Alle (akzeptieren|ablehnen)", "LevelOptin", "\\bFebruar\\b", "\\bIST\\b", "\\bwriteable::Writeable\\b"]

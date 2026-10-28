@@ -28,6 +28,10 @@
 //! <run_id>/<body>?type=<shown>` with the file's address on the content
 //! origin (`content`), signed for that file and valid 5 minutes, shown in
 //! a sandboxed frame; the Console's policy frames that origin alone.
+//!
+//! Size: one concern, the Console listener's one `Site` and the routes it
+//! answers, kept whole so every answer passes the same sign-in check and
+//! the same production headers.
 
 use std::convert::Infallible;
 use std::net::IpAddr;

@@ -24,11 +24,11 @@ use std::time::Duration;
 use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
-use goodfetch_engine::known_certificates::KnownCertificates;
+use goodfetch_engine::known_certificates::{ExceptionKind, KnownCertificates};
 use goodfetch_engine::secrets::{Carried, Keychain, RunSecrets, Secrets};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::tls::{
-    CertificateExceptions, ClientCertificates, ExceptionKind, PinBook, Trust, read_certificates,
+    CertificateExceptions, ClientCertificates, PinBook, Trust, read_certificates,
 };
 use goodfetch_fetch_tier::{Hop, HttpProfile, Reqwest, Reuse, Transport, TransportFailure, Wreq};
 use goodfetch_protocol::run::RunId;

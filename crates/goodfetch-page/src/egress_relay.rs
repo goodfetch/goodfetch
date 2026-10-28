@@ -66,12 +66,13 @@ use goodfetch_engine::dns::Dns;
 use goodfetch_engine::egress::{self, EndpointPolicy, Policy, Refused};
 use goodfetch_engine::endpoint::{REFUSAL_TARGET, new_token};
 use goodfetch_engine::http_client::{self, LocalBinding, Resolve};
+use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::local_addresses::SessionAddresses;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved as ResolvedSettings;
 use goodfetch_engine::tls::{
-    CertificateExceptions, CertificateInvalid, Examiner, ExceptionKind, ExceptionUsed, Trust,
+    CertificateExceptions, CertificateInvalid, Examiner, ExceptionUsed, Trust,
 };
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::RequestFailed;

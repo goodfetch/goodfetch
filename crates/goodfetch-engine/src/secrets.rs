@@ -46,11 +46,10 @@ pub use keychain::Keychain;
 use crate::audit::{AuditError, AuditLog, Origin};
 use crate::clock::Clock;
 use crate::home::Home;
-use crate::known_certificates::KeyHash;
+use crate::known_certificates::{ExceptionKind, KeyHash};
 use crate::mask::{Mask, Masks, Reach, Redaction};
 use crate::settings::{HostDefaults, Resolved};
 use crate::tasks::TaskOwner;
-use crate::tls::ExceptionKind;
 
 /// A provider's answer to one reference, which the driver bounds by
 /// `timeout.secret`.

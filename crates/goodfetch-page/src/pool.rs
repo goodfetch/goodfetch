@@ -26,6 +26,10 @@
 //! so one with no open page closes at once. A Session being seated or
 //! opening a page counts as an open page there, so the governor never
 //! sheds a browser under a Session that is opening its first page.
+//!
+//! Size: one concern, a Run's browsers and the seats its Sessions hold in
+//! them, kept whole so seating, recycling, moving and closing run through
+//! one seat actor in arrival order.
 #![expect(
     clippy::disallowed_types,
     reason = "the pool's lock guards its browsers for one change at a time, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"

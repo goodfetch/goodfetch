@@ -47,6 +47,7 @@
       }
     }
     if (container && container.controller) {
+      // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a service worker's postMessage takes no target origin
       container.controller.postMessage("hold");
     }
     await send("register", registered);

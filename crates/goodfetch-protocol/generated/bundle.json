@@ -11093,7 +11093,7 @@
     },
     "ResponseBodyParams": {
       "additionalProperties": false,
-      "description": "What `response.body` takes: the page and the request whose response's\nbody it reads.",
+      "description": "What `response.body` takes: the page, the request whose response's\nbody it reads, and how long it waits for that request to end.",
       "properties": {
         "_meta": {
           "$ref": "#/$defs/TraceContext",
@@ -11108,6 +11108,16 @@
           "arrived_in": "0.1",
           "description": "The request, by the browser's ID.",
           "type": "string"
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the read may wait for its request to end and its body to\nbe read, in milliseconds, at least 1: absent for `timeout.wait`,\n`null` for none, though an enclosing timeout still applies (ADR\n0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [

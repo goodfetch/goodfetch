@@ -756,21 +756,34 @@ fn with_robots_txt_not_respected_a_handlers_goto_is_not_refused() {
 /// answers with `tdm-reservation: 1`.
 const TDMREP_HOST: &str = "5.access-policy.test";
 
+/// The `access-policy` family's host whose pages declare their signals in
+/// markup: none on page 1, a `TDMRep` `<meta>` on page 2, an RSL `Link`
+/// header on page 3 and an RSL `<link>` on page 4, the license prohibiting
+/// every AI use.
+const MARKUP_HOST: &str = "markup.access-policy.test";
+
 /// A handler's `goto` to a document whose `TDMRep` header reserves its
 /// rights, under `site_preferences`: answers the call and whether the page
 /// then holds any text.
 fn goto_reserved_document(site_preferences: &Value) -> (Value, Value) {
+    goto_declaring(TDMREP_HOST, "/catalog/2", site_preferences)
+}
+
+/// A handler's `goto` to `path` on `host`, from a page of the crawl of its
+/// first page, under `site_preferences`: answers the call and whether the
+/// page then holds any text.
+fn goto_declaring(host: &str, path: &str, site_preferences: &Value) -> (Value, Value) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
-    let reserved = proving_ground.url(TDMREP_HOST, "/catalog/2");
+    let reserved = proving_ground.url(host, path);
     let more = json!({ "site_preferences": site_preferences });
 
     let (mut went, mut text) = (Value::Null, Value::Null);
     let report = crawl_with(
         &mut engine,
         "signals",
-        &[json!({ "url": proving_ground.url(TDMREP_HOST, "/catalog/1"), "label": "page" })],
+        &[json!({ "url": proving_ground.url(host, "/catalog/1"), "label": "page" })],
         &settings(&proving_ground, &more),
         &mut |inside, handle| {
             let page_id = new_page(inside, handle);
@@ -815,6 +828,44 @@ fn a_handlers_goto_to_a_document_whose_use_signals_refuse_the_purpose_is_refused
         ),
         "{went}"
     );
+}
+
+/// The same holds for a document that declares its signals in its
+/// response's markup or names its license: a `TDMRep` `<meta>`, an RSL
+/// `Link` header or an RSL `<link>`, the license fetched once for the Run
+/// and prohibiting every AI use; a page of the same host declaring none
+/// loads.
+///
+/// Covers: story:5-134, error:site_preferences_refused, setting:site_preferences.respect_use_signals, setting:site_preferences.purpose, operation:page.goto, operation:page.evaluate
+#[rstest::rstest]
+#[case::a_tdmrep_meta("/catalog/2", false)]
+#[case::an_rsl_link_header("/catalog/3", false)]
+#[case::an_rsl_link_element("/catalog/4", false)]
+#[case::no_signal("/catalog/1", true)]
+fn a_handlers_goto_to_a_document_whose_markup_or_license_refuses_the_purpose_is_refused_blank(
+    #[case] path: &str,
+    #[case] loads: bool,
+) {
+    let (went, text) = goto_declaring(
+        MARKUP_HOST,
+        path,
+        &json!({ "respect_use_signals": true, "purpose": "ai-input" }),
+    );
+
+    let answered = if loads {
+        went["result"]["response"]["status"].clone()
+    } else {
+        json!([
+            went["error"]["data"]["code"],
+            went["error"]["data"]["reason"]
+        ])
+    };
+    let expected = if loads {
+        json!(200)
+    } else {
+        json!(["site_preferences_refused", "use_signals"])
+    };
+    assert_eq!((answered, text), (expected, json!(loads)), "{went}");
 }
 
 /// With `site_preferences.respect_use_signals` off, or a Purpose of

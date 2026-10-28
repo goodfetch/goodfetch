@@ -18,8 +18,8 @@ use std::time::Duration;
 use goodfetch_engine::CallError;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_page::page_value::{
-    Admission, DocumentResponse, HandlerPages, Kept, Navigation, NavigationGate, ObservedResponse,
-    Observer, PageValue, Permit, Refusal, ResponseObserver, Sending,
+    Admission, DocumentJudgment, DocumentResponse, HandlerPages, Kept, Navigation, NavigationGate,
+    ObservedResponse, Observer, PageValue, Permit, Refusal, ResponseObserver, Sending,
 };
 use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
 use goodfetch_protocol::page::{PageId, SessionId, SitePreference};
@@ -221,11 +221,11 @@ impl NavigationGate for RecordingGate {
         Box::pin(async {})
     }
 
-    fn judge_document(&self, response: &DocumentResponse<'_>) -> Result<(), Refusal> {
+    fn judge_document<'a>(&'a self, response: &'a DocumentResponse<'a>) -> DocumentJudgment<'a> {
         lock(&self.shared.records)
             .judged
             .push(response.url.to_owned());
-        match first_match(&lock(&self.shared.rules).refused_documents, response.url) {
+        let judged = match first_match(&lock(&self.shared.rules).refused_documents, response.url) {
             Some(reason) => Err(Refusal {
                 reason,
                 message: format!(
@@ -234,7 +234,8 @@ impl NavigationGate for RecordingGate {
                 ),
             }),
             None => Ok(()),
-        }
+        };
+        Box::pin(std::future::ready(judged))
     }
 }
 

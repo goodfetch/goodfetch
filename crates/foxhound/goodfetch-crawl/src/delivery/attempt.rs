@@ -308,6 +308,7 @@ impl Gating {
                 .as_ref()
                 .and_then(|settings| settings.duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name)),
             use_signals: settings.as_ref().and_then(honoured_purpose),
+            signal_files: self.signal_files.clone(),
             lease: Arc::new(HandlerLease {
                 lease: lease.clone(),
                 run: run.clone(),

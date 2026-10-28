@@ -335,6 +335,9 @@ pub type Admission<'a> = Pin<Box<dyn Future<Output = Result<Permit, Refusal>> + 
 /// The boxed future [`NavigationGate::sending`] answers.
 pub type Sending<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
+/// The boxed future [`NavigationGate::judge_document`] answers.
+pub type DocumentJudgment<'a> = Pin<Box<dyn Future<Output = Result<(), Refusal>> + Send + 'a>>;
+
 /// The navigation gate (ADRs 0087 and 0093): consulted at step 6 of the
 /// interception, after the domain policy and the Filter lists, for each
 /// request [`NavigationKind`] names. Time spent in [`NavigationGate::admit`]
@@ -355,14 +358,16 @@ pub trait NavigationGate: Debug + Send + Sync {
 
     /// Judges the document a main-frame navigation's response carries, for
     /// a signal the response itself sends (aipref's `Content-Usage` header,
-    /// `TDMRep`'s headers and `<meta>`, RSL's `Link` header): a refusal
-    /// raises from the call that asked for the navigation, and the page is
-    /// left on a blank document.
+    /// `TDMRep`'s headers and `<meta>`, RSL's `Link` header), which may
+    /// name a file the gate fetches first, such as an RSL license: a
+    /// refusal raises from the call that asked for the navigation, and the
+    /// page is left on a blank document. The response stays paused
+    /// meanwhile.
     ///
     /// # Errors
     ///
     /// The refusal.
-    fn judge_document(&self, response: &DocumentResponse<'_>) -> Result<(), Refusal>;
+    fn judge_document<'a>(&'a self, response: &'a DocumentResponse<'a>) -> DocumentJudgment<'a>;
 }
 
 /// What a page carries for Foxhound (ADR 0087): its navigation gate and its

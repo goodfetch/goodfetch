@@ -54,7 +54,8 @@ const HOST_SETUP: &[&str] = if cfg!(target_os = "linux") {
 
 /// A stand-in `just` that appends its arguments to `calls`, and them with
 /// the OS services' variables it was given to `variables`, and fails with
-/// status 3 when they are `failing`'s content. As `just _gate-plan` it
+/// status 3 when they are `failing`'s content, or with the status a
+/// `statuses` line `<arguments>=<status>` gives them. As `just _gate-plan` it
 /// prints `plan`'s content, the incremental gate's plan, when there is one.
 /// When they are `lingering`'s content, it starts a child, as `just perf`'s
 /// recipe starts `xtask perf build` and its `cargo bench`, its output
@@ -71,6 +72,10 @@ echo "$*" >>"{calls}"
 echo "$*|${{DBUS_SESSION_BUS_ADDRESS:-}}|${{GOODFETCH_OS_SERVICES:-}}|${{GOODFETCH_TEST_DNS_NAMESPACE:-}}" >>"{variables}"
 if [ "$1" = _gate-plan ] && [ -f "{plan}" ]; then
   cat "{plan}"
+fi
+if [ -f "{statuses}" ]; then
+  status=$(awk -v call="$*=" 'index($0, call) == 1 {{ print substr($0, length(call) + 1) }}' "{statuses}")
+  [ -z "$status" ] || exit "$status"
 fi
 if [ -f "{failing}" ] && [ "$*" = "$(cat "{failing}")" ]; then
   waited=0
@@ -102,6 +107,7 @@ fi
         variables = folder.join("variables").display(),
         plan = folder.join("plan").display(),
         failing = folder.join("failing").display(),
+        statuses = folder.join("statuses").display(),
         killing = folder.join("killing").display(),
         lingering = folder.join("lingering").display(),
         descendant = folder.join("descendant").display(),
@@ -656,6 +662,96 @@ fn a_failed_step_run_per_member_is_recorded_with_its_own_evidence(
         run.gate
     );
     assert!(!workspace.path().join(earlier).exists());
+}
+
+/// A Pre-merge suite that failed with 100, nextest's status for failed
+/// tests, which the suite's recipe gives once its doctests passed after a
+/// red nextest run, still runs the exercise audit; with the audit green, it
+/// is recorded with its nextest file, so its crates that passed in full
+/// record green (the test-gate audit's option 4b). A red audit, or another
+/// failure, records every member red, and the step stays red throughout.
+#[rstest]
+#[case::the_audit_passes(
+    "",
+    Some(100),
+    true,
+    "pre-merge fail --junit target/nextest/ci/junit.xml"
+)]
+#[case::the_audit_fails("features-audit=1\n", Some(1), true, "pre-merge fail")]
+#[case::another_failure("_suite pre-merge all=3\n", Some(3), false, "pre-merge fail")]
+fn a_pre_merge_suite_red_in_nextest_alone_still_runs_the_exercise_audit(
+    #[case] audit: &str,
+    #[case] code: Option<i32>,
+    #[case] audited: bool,
+    #[case] recorded: &str,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("plan"), "previous\tnone\nhead\tplanned\n").unwrap();
+    let suite = if audit.starts_with("_suite") {
+        String::new()
+    } else {
+        "_suite pre-merge all=100\n".to_owned()
+    };
+    std::fs::write(stand_in.join("statuses"), format!("{suite}{audit}")).unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, code, "{}", run.stderr);
+    assert_eq!(
+        run.calls.iter().any(|call| call == "features-audit"),
+        audited,
+        "{:?}",
+        run.calls
+    );
+    assert!(
+        run.gate
+            .contains(&format!("_gate-record planned {recorded}")),
+        "{:?}",
+        run.gate
+    );
+    assert!(
+        !run.calls.iter().any(|call| call == "stress"),
+        "{:?}",
+        run.calls
+    );
+}
+
+/// After a red nextest run, the Pre-merge suite's recipe still runs the
+/// crates' doctests, then fails with 100 when they passed, and with their
+/// status when they failed; Vitest, Playwright and pytest do not run after
+/// it, as before (the test-gate audit's option 4b).
+#[rstest]
+#[case::the_doctests_pass(None, Some(100))]
+#[case::the_doctests_fail(Some("101"), Some(101))]
+fn after_a_red_nextest_run_the_pre_merge_suite_still_runs_the_doctests(
+    #[case] doctests: Option<&str>,
+    #[case] code: Option<i32>,
+) {
+    let fixture = crate::head_order::fixture();
+    fixture.fail("insta", "1");
+    if let Some(status) = doctests {
+        fixture.fail("test", status);
+    }
+    fixture.workspace.commit_all();
+
+    let run = fixture.test(&["pre-merge"]);
+
+    assert_eq!(run.code, code, "{}", run.output);
+    assert!(
+        run.calls
+            .iter()
+            .any(|call| call.starts_with("cargo test --workspace --doc ")),
+        "{:?}",
+        run.calls
+    );
+    assert!(
+        !run.calls
+            .iter()
+            .any(|call| call.starts_with("pnpm exec") || call.starts_with("uv run pytest")),
+        "{:?}",
+        run.calls
+    );
 }
 
 /// A step beside the host's that ended before a host step failed keeps its

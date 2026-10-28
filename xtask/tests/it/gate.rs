@@ -489,17 +489,27 @@ fn record_with(workspace: &Workspace, records: &Path, head: &str, step: &str, ar
 /// file, beside the records, and perf, TLC, visual and the Pre-merge suite
 /// green; then commits a change that reaches no member.
 fn red_quick_suite_then_a_docs_change(workspace: &Workspace, records: &Path, junit: &str) {
+    red_suite_then_a_docs_change(workspace, records, "quick", junit);
+}
+
+/// Records the first run's `suite`, the Quick or the Pre-merge suite, red
+/// with `junit` as its nextest file, beside the records, and the other
+/// suite, perf, TLC and visual green; then commits a change that reaches no
+/// member.
+fn red_suite_then_a_docs_change(workspace: &Workspace, records: &Path, suite: &str, junit: &str) {
     let first = plan(workspace, records);
-    for step in ["perf", "tlc", "visual", "pre-merge"] {
-        record(workspace, records, &first.head, step, "pass");
+    for step in ["perf", "tlc", "visual", "pre-merge", "quick"] {
+        if step != suite {
+            record(workspace, records, &first.head, step, "pass");
+        }
     }
-    let file = records.with_file_name("quick-junit.xml");
+    let file = records.with_file_name(format!("{suite}-junit.xml"));
     std::fs::write(&file, junit).unwrap();
     record_with(
         workspace,
         records,
         &first.head,
-        "quick",
+        suite,
         &["--junit", &file.to_string_lossy()],
     );
     workspace.write("docs/index.md", b"# Changed\n");
@@ -532,6 +542,48 @@ fn a_red_quick_suite_records_red_only_the_crates_with_a_failing_test() {
     for passed in [
         "goodfetch-frontier",
         "goodfetch-conformance",
+        "goodfetch-sink-s3",
+        "goodfetch-proving-ground",
+    ] {
+        assert!(!rerun.contains(passed), "{passed} reran: {rerun:?}");
+    }
+}
+
+/// A red Pre-merge suite, red in nextest alone, records red the crates with
+/// a failing test and those holding insta snapshots, which cargo-insta
+/// judges unreferenced only once every test passed, and green the others
+/// (the test-gate audit's option 4b).
+#[test]
+fn a_red_pre_merge_suite_records_green_each_crate_that_passed_in_full_but_one_holding_snapshots() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    workspace.write(
+        "crates/goodfetch-conformance/tests/snapshots/it__a_case.snap",
+        b"---\nsource: tests/it.rs\n---\na case\n",
+    );
+    commit_all(&workspace, "Add a snapshot");
+    red_suite_then_a_docs_change(
+        &workspace,
+        &records,
+        "pre-merge",
+        &nextest_junit(
+            &[
+                ("goodfetch-engine", "dispatch::routes", false),
+                ("goodfetch-frontier", "claim::slices", true),
+                ("goodfetch-conformance::it", "a_case", true),
+            ],
+            true,
+        ),
+    );
+
+    let second = plan(&workspace, &records);
+
+    assert_eq!(action(&second, "pre-merge").0, "part");
+    let rerun = members(&second, "pre-merge");
+    for red in ["goodfetch-engine", "goodfetch-conformance"] {
+        assert!(rerun.contains(red), "{red} reused: {rerun:?}");
+    }
+    for passed in [
+        "goodfetch-frontier",
         "goodfetch-sink-s3",
         "goodfetch-proving-ground",
     ] {

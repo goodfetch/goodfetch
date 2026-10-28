@@ -9,15 +9,19 @@
 //!   test, each of a crate the step ran. nextest runs every test of the run
 //!   (`fail-fast = false`), and Vitest and pytest, which run after it, test
 //!   no crate, so each other crate of the step passed in full.
+//! - **The Pre-merge suite**, judged as the Quick suite, and handed its file
+//!   only when nextest's tests alone failed: its doctests and the exercise
+//!   audit, which still run after a red nextest run, passed (the test-gate
+//!   audit's option 4b). Its crates holding insta snapshots stay red, since
+//!   cargo-insta judges unreferenced snapshots only once every test passed
+//!   (`gate`'s `snapshot_holders`).
 //! - **The stress run** (its files with its selection): a crate passed in
 //!   full when each of its selected nextest tests passed as many times as
 //!   its count, with no failure, which is what a green stress run asks of
 //!   it; a test that failed or ran fewer times keeps its crate red.
 //!
 //! Only crates record green: Vitest, Playwright and pytest rerun every
-//! member in every run (ADR 0135), and the Pre-merge suite's crates are
-//! not judged in full after a red run, since their doctests and the
-//! exercise audit run only after their tests passed.
+//! member in every run (ADR 0135).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"

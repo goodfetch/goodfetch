@@ -183,15 +183,24 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 && step.per_member()
                 && (!junit.is_empty() || selection.is_some())
             {
-                let crates = WorkspaceMembers::read(&environment.cargo, root)?
+                let members = WorkspaceMembers::read(&environment.cargo, root)?;
+                let crates = members
                     .all()
                     .filter(|(_, kind)| *kind == affected::Kind::Crate)
                     .map(|(name, _)| name)
                     .collect();
+                // The Pre-merge suite judges unreferenced insta snapshots,
+                // which cargo-insta does only once every test passed.
+                let unjudged = if step == Step::PreMerge {
+                    snapshot_holders(root, &members)?
+                } else {
+                    BTreeSet::new()
+                };
                 Some(Evidence {
                     junit: junit.iter().map(|path| environment.path(path)).collect(),
                     selection: selection.map(|path| environment.path(&path)),
                     crates,
+                    unjudged,
                 })
             } else {
                 None
@@ -682,6 +691,25 @@ struct Evidence {
     junit: Vec<std::path::PathBuf>,
     selection: Option<std::path::PathBuf>,
     crates: BTreeSet<String>,
+    /// The crates a red run of the step does not judge in full whatever
+    /// their tests did: after a red Pre-merge suite, those holding insta
+    /// snapshots, whose unreferenced snapshots cargo-insta judges only
+    /// once every test passed.
+    unjudged: BTreeSet<String>,
+}
+
+/// The crates whose folders hold a committed insta snapshot (`.snap`).
+fn snapshot_holders(root: &Path, members: &WorkspaceMembers) -> Result<BTreeSet<String>> {
+    let crates: BTreeSet<String> = members
+        .all()
+        .filter(|(_, kind)| *kind == affected::Kind::Crate)
+        .map(|(name, _)| name)
+        .collect();
+    Ok(git(root, &["ls-files", "--", "*.snap"])?
+        .lines()
+        .filter_map(|path| members.owner(path))
+        .filter(|owner| crates.contains(owner))
+        .collect())
 }
 
 /// Appends a step's result to the record of the run on the planned head,
@@ -782,13 +810,26 @@ fn passed_in_full(step: Step, members: &[String], evidence: &Evidence) -> BTreeS
         .collect();
     match attribution::attribute(&crates, &evidence.junit, evidence.selection.as_deref()) {
         attribution::Attribution::Passed(passed) => {
-            let failed: BTreeSet<String> = crates.difference(&passed).cloned().collect();
+            let unjudged: BTreeSet<String> =
+                passed.intersection(&evidence.unjudged).cloned().collect();
+            let passed: BTreeSet<String> = passed.difference(&unjudged).cloned().collect();
+            let failed: BTreeSet<String> = crates
+                .difference(&passed)
+                .filter(|krate| !unjudged.contains(*krate))
+                .cloned()
+                .collect();
             output::error(&format!(
                 "Gate: {} failed in {}; its other crates passed in full and are recorded green: {}",
                 step.name(),
                 listed(&failed),
                 listed(&passed)
             ));
+            if !unjudged.is_empty() {
+                output::error(&format!(
+                    "Gate: {} hold insta snapshots, which cargo-insta judges unreferenced only once every test passed, so they are recorded red",
+                    listed(&unjudged)
+                ));
+            }
             passed
         }
         attribution::Attribution::Unattributed(why) => {

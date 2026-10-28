@@ -222,6 +222,9 @@ record() {
   local evidence=() folder
   case $1 in
     quick) evidence=(--junit target/nextest/quick/junit.xml) ;;
+    # Only after nextest's tests alone failed (the suite's 100, kept when
+    # the exercise audit passed).
+    pre-merge) [[ $2 -ne 100 ]] || evidence=(--junit target/nextest/ci/junit.xml) ;;
     stress)
       evidence=(--selection target/stress-selection.tsv)
       for folder in target/junit/repeat-*/; do
@@ -278,12 +281,21 @@ case $(action quick) in
   *) gated quick just _suite quick "$all" ;;
 esac
 # The Pre-merge suite's tests, then the exercise audit of the tests that
-# ran (ADR 0072): one step, recorded once both have ended.
+# ran (ADR 0072): one step, recorded once both have ended. The audit also
+# runs after the suite's 100, nextest's tests red and its doctests green,
+# which stays the step's status when the audit passes: `record` then judges
+# each crate by the run's JUnit file (the test-gate audit's option 4b).
 case $(action pre-merge) in
   reuse) reused pre-merge ;;
   *)
     # shellcheck disable=SC2329 # called through timed
-    suite_and_audit() { just "${suite[@]}" && just features-audit; }
+    suite_and_audit() {
+      local status=0
+      just "${suite[@]}" || status=$?
+      [[ $status -eq 0 || $status -eq 100 ]] || return "$status"
+      just features-audit || return
+      return "$status"
+    }
     if [[ $(action pre-merge) == part ]]; then
       read -ra members <<<"$(members_of pre-merge | tr '\n' ' ')"
       suite=(test pre-merge --shuffled-all "${members[@]}")

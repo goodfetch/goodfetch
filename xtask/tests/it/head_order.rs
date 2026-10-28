@@ -29,16 +29,17 @@ def test_second() -> None:
     assert SEEN == [1], "test_second ran before test_first"
 "#;
 
-struct Fixture {
-    workspace: Workspace,
+pub(crate) struct Fixture {
+    pub(crate) workspace: Workspace,
     stand_ins: PathBuf,
 }
 
 /// The repository's justfile and `ci/` in a workspace with two uv members:
 /// `ordered`, whose tests depend on their order, and `other`. cargo and
-/// pnpm are stand-ins that record their arguments; uv's stand-in records
+/// pnpm are stand-ins that record their arguments; cargo exits with the
+/// status [`Fixture::fail`] gave its subcommand. uv's stand-in records
 /// them too and runs `uv run pytest` with the repository's pytest.
-fn fixture() -> Fixture {
+pub(crate) fn fixture() -> Fixture {
     let workspace = Workspace::from_fixture("empty");
     workspace.link_installed_runners();
     let repository = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
@@ -71,8 +72,9 @@ fn fixture() -> Fixture {
         (
             "cargo",
             format!(
-                "#!/bin/sh\necho \"cargo $*\" >>\"{calls}\"\nmkdir -p target\necho '{{}}' >target/test-tools.json\n",
-                calls = calls.display()
+                "#!/bin/sh\necho \"cargo $*\" >>\"{calls}\"\nmkdir -p target\necho '{{}}' >target/test-tools.json\nif [ -f \"{stand_ins}/$1.status\" ]; then exit \"$(cat \"{stand_ins}/$1.status\")\"; fi\n",
+                calls = calls.display(),
+                stand_ins = stand_ins.display()
             ),
         ),
         (
@@ -98,15 +100,21 @@ fn fixture() -> Fixture {
     }
 }
 
-struct Run {
-    code: Option<i32>,
-    output: String,
-    calls: Vec<String>,
+pub(crate) struct Run {
+    pub(crate) code: Option<i32>,
+    pub(crate) output: String,
+    pub(crate) calls: Vec<String>,
 }
 
 impl Fixture {
+    /// Makes the cargo stand-in exit with `status` when its subcommand is
+    /// `subcommand` (`insta` for `cargo insta test`, `test` for `cargo test`).
+    pub(crate) fn fail(&self, subcommand: &str, status: &str) {
+        std::fs::write(self.stand_ins.join(format!("{subcommand}.status")), status).unwrap();
+    }
+
     /// Runs the real `just test <args>` with the stand-ins first on PATH.
-    fn test(&self, args: &[&str]) -> Run {
+    pub(crate) fn test(&self, args: &[&str]) -> Run {
         let _ = std::fs::remove_file(self.stand_ins.join("calls"));
         let path = format!(
             "{}:{}",

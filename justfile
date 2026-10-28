@@ -472,16 +472,22 @@ test suite *packages:
           unreferenced=warn
           echo "insta: unreferenced snapshots warn while the quarantine list skips a nextest test"
         fi
+        # A red nextest run still runs the doctests: the suite then fails
+        # with 100, nextest's status for failed tests, when they passed, so
+        # the incremental gate can judge each crate by the run's JUnit file
+        # (ADR 0135; the test-gate audit's option 4b). Vitest, Playwright and
+        # pytest do not run after it.
+        nextest=0
         if $rust && [[ ${#select_nextest[@]} -gt 0 ]]; then
           # `cargo insta test` hands nextest no filterset, so a selection runs
           # nextest itself: the selected tests' snapshots are still checked,
           # never written, and unreferenced ones are judged when all run.
           NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo nextest run "${packages[@]}" --profile ci \
-            --cargo-profile {{ test_profile }} "${select_nextest[@]}" ${skip_nextest[@]+"${skip_nextest[@]}"}
+            --cargo-profile {{ test_profile }} "${select_nextest[@]}" ${skip_nextest[@]+"${skip_nextest[@]}"} || nextest=$?
         elif $rust; then
           NEXTEST_NO_TESTS=pass INSTA_UPDATE=no cargo insta test "${packages[@]}" --check --unreferenced "$unreferenced" \
             --test-runner nextest --nextest-profile ci --profile {{ test_profile }} \
-            --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"}
+            --disable-nextest-doctest ${skip_nextest[@]+"${skip_nextest[@]}"} || nextest=$?
           # nextest runs no doctests; cargo-insta's own doctest pass would take
           # nextest's profile flag, which `cargo test` refuses. `cargo test
           # --doc` also refuses a selection with no library target ("no
@@ -501,6 +507,10 @@ test suite *packages:
           else
             echo "Doctests: no selected package has a library target"
           fi
+        fi
+        if [[ $nextest -ne 0 ]]; then
+          echo "nextest failed with status $nextest; Vitest, Playwright and pytest do not run after it" >&2
+          exit 100
         fi
         if $vitest_runs; then
           pnpm exec vitest run "${vitest_order[@]}" ${vitest[@]+"${vitest[@]}"} ${select_vitest[@]+"${select_vitest[@]}"} ${skip_vitest[@]+"${skip_vitest[@]}"}

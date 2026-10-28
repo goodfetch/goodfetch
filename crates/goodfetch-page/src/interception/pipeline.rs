@@ -893,9 +893,13 @@ impl PageContext {
     }
 
     /// `secret_input_refused` when the browser would send `url`'s request,
-    /// over TLS, a cookie of the Session's to a host its egress relay
-    /// terminates for an invalid-certificate exception: a cookie its own
-    /// host set alone goes back to it, as the site's own state.
+    /// over TLS, any cookie of the Session's to a host its egress relay
+    /// terminates for an invalid-certificate exception, the host's own
+    /// host-only cookies included: the engine cannot tell one the host set
+    /// through the exception from one the Session already held, so none
+    /// goes, as the engine's own client sends none (ADR 0042). `closed`
+    /// when the browser does not say which cookies it would send, so no
+    /// request leaves unchecked.
     async fn cookies_withheld(&self, url: &str) -> Option<CallError> {
         let relay = self.driver.relay()?;
         let parsed = url::Url::parse(url).ok()?;
@@ -914,14 +918,12 @@ impl PageContext {
             Err(failure) => {
                 tracing::debug!(
                     ?failure,
-                    "the browser named no cookies, so the request goes without a check"
+                    "the browser named no cookies, so the request to a terminated host is failed"
                 );
-                return None;
+                return Some(gone(url));
             }
         };
-        let session = cookies.into_iter().find(|cookie| {
-            cookie.domain.trim_start_matches('.') != host || cookie.domain.starts_with('.')
-        })?;
+        let session = cookies.into_iter().next()?;
         Some(CallError::new(
             &SECRET_INPUT_REFUSED,
             format!(

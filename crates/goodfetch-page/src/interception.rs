@@ -158,6 +158,18 @@ struct Shared {
     /// The domains each live Run learned blocking off for, while any of its
     /// pages holds them.
     learned: Mutex<BTreeMap<RunId, Weak<Learned>>>,
+    /// The cosmetic rules each live Run's served documents are read with,
+    /// held until the Run ends: a Run whose pages a fetch tier serves may
+    /// hold no Session that keeps its Filter lists loaded, and without
+    /// this each served document would compile them again.
+    served: Mutex<BTreeMap<RunId, ServedCosmetic>>,
+}
+
+/// The cosmetic rules of one live Run's served documents, made once.
+struct ServedCosmetic {
+    /// Cancelled once the Run ends.
+    live: tokio_util::sync::CancellationToken,
+    cosmetic: Arc<tokio::sync::OnceCell<Option<Cosmetic>>>,
 }
 
 impl Shared {
@@ -794,13 +806,33 @@ impl Interception {
     /// The cosmetic rules a document a fetch tier served `run` is read with,
     /// as in every tier, HTTP included (ADR 0047): those of the Run's
     /// Filter lists, when any is on, of the version it holds to.
+    ///
+    /// They are made on the Run's first served document and held until the
+    /// Run ends, so its Filter lists are compiled once for it.
     pub(crate) async fn served_cosmetic(&self, run: &Run) -> Option<Cosmetic> {
-        let choices = clean_up::choices(
-            run.settings().map(RunSettings::resolved),
-            &Values::default(),
-        );
-        let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
-        Cosmetic::of(&blocking, version)
+        let cell = {
+            let mut served = lock(&self.shared.served);
+            served.retain(|_, held| !held.live.is_cancelled());
+            Arc::clone(
+                &served
+                    .entry(run.id().clone())
+                    .or_insert_with(|| ServedCosmetic {
+                        live: run.cancellation().clone(),
+                        cosmetic: Arc::default(),
+                    })
+                    .cosmetic,
+            )
+        };
+        cell.get_or_init(|| async {
+            let choices = clean_up::choices(
+                run.settings().map(RunSettings::resolved),
+                &Values::default(),
+            );
+            let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
+            Cosmetic::of(&blocking, version)
+        })
+        .await
+        .clone()
     }
 
     /// Warns `run`, once for the Session `session`, that its

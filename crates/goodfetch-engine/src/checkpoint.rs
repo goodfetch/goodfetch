@@ -101,7 +101,9 @@ pub(crate) fn write(
 /// Makes the Checkpoint at `checkpoint` the run file at `run_file`, opened
 /// through the VFS `vfs`, replacing whatever it held: SQLite's online
 /// backup restores it in one transaction of the run file, so a crash leaves
-/// the earlier run file or the whole Checkpoint. It blocks: run it under a
+/// the earlier run file or the whole Checkpoint. Its kept files are written
+/// into the run file's folder first, so a Checkpoint whose files cannot be
+/// carried leaves the run file as it was. It blocks: run it under a
 /// blocking policy.
 ///
 /// # Errors
@@ -116,6 +118,7 @@ pub(crate) fn install(
     let from = open_checkpoint(checkpoint)?;
     if let Some(folder) = run_file.parent() {
         std::fs::create_dir_all(folder).map_err(|error| storage(&error, "make its folder"))?;
+        run_files::unpack(&from, folder).map_err(|error| carry_failed(error, checkpoint))?;
     }
     let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
         | OpenFlags::SQLITE_OPEN_CREATE
@@ -137,9 +140,6 @@ pub(crate) fn install(
                 }));
             }
         }
-    }
-    if let Some(folder) = run_file.parent() {
-        run_files::unpack(&from, folder).map_err(|error| carry_failed(error, checkpoint))?;
     }
     run_files::drop_chunks(&to).map_err(failed)
 }

@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::sync::{Arc, OnceLock};
 
-pub use client_certificates::{ClientCertificateFailure, ClientCertificates};
+pub use client_certificates::{ClientCertificateFailure, ClientCertificates, IdentityFiles};
 pub use exceptions::{
     CertificateChanged, CertificateExceptions, ExceptionKind, ExceptionUsed, PinBook, Presented,
 };

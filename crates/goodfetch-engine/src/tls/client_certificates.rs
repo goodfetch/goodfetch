@@ -23,7 +23,7 @@ use rustls::SignatureScheme;
 use rustls::client::ResolvesClientCert;
 use rustls::crypto::ring;
 use rustls::sign::CertifiedKey;
-use secrecy::ExposeSecret as _;
+use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::Value;
 use tokio::sync::OnceCell;
 
@@ -54,7 +54,37 @@ pub struct ClientCertificates {
 #[derive(Debug)]
 struct Listed {
     entry: ClientCertificateConfiguration,
-    loaded: OnceCell<Arc<CertifiedKey>>,
+    loaded: OnceCell<Arc<Loaded>>,
+}
+
+/// A listed domain's certificate and key, loaded: for rustls, and as its
+/// files hold them.
+#[derive(Debug)]
+struct Loaded {
+    certified: Arc<CertifiedKey>,
+    files: IdentityFiles,
+}
+
+/// A listed client certificate as its files hold it: the certificate
+/// file's bytes and the value of its key's reference, which is held for
+/// the Run as every value the driver resolved is.
+#[derive(Clone)]
+pub struct IdentityFiles {
+    /// The listed domain that gives it.
+    pub domain: String,
+    /// The certificate file's bytes, PEM.
+    pub certificate: Arc<[u8]>,
+    /// The value of its key's reference, PEM.
+    pub key: SecretString,
+}
+
+impl std::fmt::Debug for IdentityFiles {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("IdentityFiles")
+            .field("domain", &self.domain)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Why a listed client certificate cannot be presented.
@@ -185,6 +215,41 @@ impl ClientCertificates {
         &self,
         host: &str,
     ) -> Result<Option<Arc<CertifiedKey>>, ClientCertificateFailure> {
+        Ok(self
+            .loaded_for(host)
+            .await?
+            .map(|loaded| Arc::clone(&loaded.certified)))
+    }
+
+    /// The client certificate a handshake with `host` presents as its files
+    /// hold it, with the listed domain that gives it, loaded now if no
+    /// handshake has: none when no listed domain covers the host. For a TLS
+    /// library that takes a client identity as its files' bytes rather than
+    /// as a [`CertifiedKey`], such as `wreq`'s BoringSSL.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::for_host`]'s.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Self::for_host`]'s.
+    pub async fn files_for_host(
+        &self,
+        host: &str,
+    ) -> Result<Option<IdentityFiles>, ClientCertificateFailure> {
+        Ok(self
+            .loaded_for(host)
+            .await?
+            .map(|loaded| loaded.files.clone()))
+    }
+
+    /// What the listed domain of `host` loaded, loading it now if no
+    /// handshake has.
+    async fn loaded_for(
+        &self,
+        host: &str,
+    ) -> Result<Option<Arc<Loaded>>, ClientCertificateFailure> {
         let (Some((domain, listed)), Some(secrets)) = (self.entry_of(host), &self.secrets) else {
             return Ok(None);
         };
@@ -198,7 +263,7 @@ impl ClientCertificates {
             .loaded
             .get_or_try_init(|| self.load(host, domain, &listed.entry, secrets))
             .await
-            .map(|certified| Some(Arc::clone(certified)))
+            .map(|loaded| Some(Arc::clone(loaded)))
     }
 
     /// Loads the certificate `entry` lists for `domain`, with its key
@@ -209,7 +274,7 @@ impl ClientCertificates {
         domain: &str,
         entry: &ClientCertificateConfiguration,
         secrets: &RunSecrets,
-    ) -> Result<Arc<CertifiedKey>, ClientCertificateFailure> {
+    ) -> Result<Arc<Loaded>, ClientCertificateFailure> {
         let unusable = |reason: String| ClientCertificateFailure::Unusable {
             domain: domain.to_owned(),
             layer: self.layer,
@@ -243,7 +308,14 @@ impl ClientCertificates {
             .map_err(|error| unusable(format!("the value of its key's reference: {error}")))?;
         let certified = CertifiedKey::from_der(chain, key, &ring::default_provider())
             .map_err(|_| unusable("its key is not the key of its certificate".to_owned()))?;
-        Ok(Arc::new(certified))
+        Ok(Arc::new(Loaded {
+            certified: Arc::new(certified),
+            files: IdentityFiles {
+                domain: domain.to_owned(),
+                certificate: Arc::from(file),
+                key: value,
+            },
+        }))
     }
 
     /// The refusal of the client certificate listed for `host`, which was

@@ -392,81 +392,20 @@ fn every_trust_scope_of_a_stealth_session_presents_one_fingerprint() {
     );
 }
 
-/// `wreq`'s clients present no client certificate yet: a hop to a host a
-/// domain of `tls.client_certificates` covers is refused with
-/// `capability_unavailable` naming the setting before it connects, so the
-/// mutual-TLS host sees neither a handshake nor a request, rather than
-/// being sent one without the certificate it asks for; a host no listed
-/// domain covers is still answered.
-///
-/// Covers: setting:tls.client_certificates, error:capability_unavailable
-#[test]
-fn wreq_refuses_a_host_its_client_certificate_is_listed_for_rather_than_send_without_it() {
-    let fixture = fixture();
-    let own = fixture.proving_ground.client_certificate().unwrap();
-    let environment: BTreeMap<OsString, OsString> =
-        [(OsString::from("OWN_KEY"), OsString::from(&own.key))].into();
-    let listed = json!({
-        MUTUAL: { "certificate": own.certificate.display().to_string(), "key": "env:OWN_KEY" },
-    });
-    let transport = fixture.transport(
-        Stack::Wreq,
-        &[],
-        &[VERIFIED, "certificates.test"],
-        &json!({}),
-        &listed,
-        fixture.secrets(environment),
-    );
-
-    let (mutual, verified) = running_clock_runtime().block_on(async {
-        let mutual = sent(&*transport, &hop(&fixture.proving_ground, MUTUAL)).await;
-        let verified = sent(&*transport, &hop(&fixture.proving_ground, VERIFIED)).await;
-        (mutual, verified)
-    });
-
-    let refused = match mutual {
-        Err(TransportFailure::ClientCertificate(failure)) => {
-            let details = failure.0.details().unwrap();
-            (
-                failure.0.code().to_owned(),
-                details["key"].clone(),
-                details["layer"].clone(),
-            )
-        }
-        other => panic!("not refused: {other:?}"),
-    };
-    assert_eq!(
-        (
-            refused,
-            verified,
-            handshakes(&fixture.proving_ground)
-                .iter()
-                .any(|(sni, _)| sni == MUTUAL),
-            requested(&fixture.proving_ground)
-                .iter()
-                .any(|host| host.split(':').next() == Some(MUTUAL)),
-        ),
-        (
-            (
-                "capability_unavailable".to_owned(),
-                json!("tls.client_certificates"),
-                json!("run"),
-            ),
-            Ok((200, None)),
-            false,
-            false,
-        )
-    );
-}
-
-/// Story 4-34 on reqwest, which picks a client certificate without the
-/// server name: two domains listing two client certificates, each signed
-/// by another Proving ground's client authority, are each sent their own.
-/// Each mutual-TLS host answers the hop that presents its own authority's
-/// certificate, and refuses the handshake of the other one's.
-/// Covers: setting:tls.client_certificates
-#[test]
-fn two_domains_with_different_client_certificates_are_routed_by_host() {
+/// Story 4-34 on each transport, both of which pick a client certificate
+/// without the server name: two domains listing two client certificates,
+/// each signed by another Proving ground's client authority, are each sent
+/// their own. Each mutual-TLS host answers the hop that presents its own
+/// authority's certificate, and refuses the handshake of the other one's;
+/// a host no listed domain covers is answered too. `wreq` keeps a client
+/// per listed domain with the same profile, so its handshakes show one
+/// fingerprint whatever certificate they present (step 7 review, finding
+/// 563-565-3).
+/// Covers: story:4-34, setting:tls.client_certificates
+#[rstest]
+fn two_domains_with_different_client_certificates_are_routed_by_host(
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
+) {
     let fixture = fixture();
     let other = ProvingGround::start(&fixture.env, SEED + 1).unwrap();
     let (own, others) = (
@@ -483,7 +422,7 @@ fn two_domains_with_different_client_certificates_are_routed_by_host() {
         OTHER_MUTUAL: { "certificate": others.certificate.display().to_string(), "key": "env:OTHER_KEY" },
     });
     let transport = fixture.transport(
-        Stack::Reqwest,
+        stack,
         &[&other],
         &[VERIFIED, "certificates.test"],
         &json!({}),
@@ -491,14 +430,18 @@ fn two_domains_with_different_client_certificates_are_routed_by_host() {
         fixture.secrets(environment),
     );
 
-    let (mutual, other_mutual, crossed) = running_clock_runtime().block_on(async {
+    let (verified, mutual, other_mutual, crossed) = running_clock_runtime().block_on(async {
+        let verified = sent(&*transport, &hop(&fixture.proving_ground, VERIFIED)).await;
         let mutual = sent(&*transport, &hop(&fixture.proving_ground, MUTUAL)).await;
         let other_mutual = sent(&*transport, &hop(&other, OTHER_MUTUAL)).await;
         let crossed = sent(&*transport, &hop(&fixture.proving_ground, OTHER_MUTUAL)).await;
-        (mutual, other_mutual, crossed)
+        (verified, mutual, other_mutual, crossed)
     });
 
-    assert_eq!((mutual, other_mutual), (Ok((200, None)), Ok((200, None))));
+    assert_eq!(
+        (verified, mutual, other_mutual),
+        (Ok((200, None)), Ok((200, None)), Ok((200, None)))
+    );
     assert!(crossed.is_err(), "{crossed:?}");
     assert_eq!(
         (
@@ -507,4 +450,12 @@ fn two_domains_with_different_client_certificates_are_routed_by_host() {
         ),
         (json!([MUTUAL]), json!([OTHER_MUTUAL]))
     );
+    if matches!(stack, Stack::Wreq) {
+        let fingerprints: BTreeSet<String> = handshakes(&fixture.proving_ground)
+            .into_iter()
+            .chain(handshakes(&other))
+            .map(|(_, ja4)| ja4)
+            .collect();
+        assert_eq!(fingerprints.len(), 1, "{fingerprints:?}");
+    }
 }

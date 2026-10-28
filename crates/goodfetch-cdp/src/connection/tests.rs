@@ -4,7 +4,7 @@ use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, ReadHalf, WriteHalf};
 
-use super::{Connection, Driver, Ended, SessionId};
+use super::{Connection, Driver, Ended, SessionId, SubscriptionEnd};
 use crate::Failure;
 use crate::framing::{Framer, frame};
 use crate::generated::browser::GetVersionParams;
@@ -298,6 +298,79 @@ fn a_command_on_a_session_the_browser_detached_fails_at_once() {
                 }))
             ),
             "{failed:?}"
+        );
+    });
+}
+
+/// A target's session the browser detached, as when its page closed or its
+/// browser context was disposed, ends that session's subscriptions at
+/// once, while the connection and other sessions' subscriptions go on: its
+/// target sends nothing more.
+#[test]
+fn a_session_the_browser_detached_ends_its_subscriptions() {
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let (page, other) = (
+            SessionId("page".to_owned()),
+            SessionId("other".to_owned()),
+        );
+        let (_, (ended, why, still)) = tokio::join!(driver.run(), async {
+            let mut on_page = connection.subscribe(Some(&page));
+            let mut on_other = connection.subscribe(Some(&other));
+            browser
+                .send(&json!({ "method": "Target.detachedFromTarget", "params": { "sessionId": "page", "targetId": "target-1" } }))
+                .await;
+            browser
+                .send(&json!({ "method": "Page.loadEventFired", "params": { "timestamp": 1.0 }, "sessionId": "other" }))
+                .await;
+            let ended = tokio::time::timeout(TIMEOUT, on_page.next()).await;
+            let still = on_other.next().await.map(|event| event.method.clone());
+            let why = on_page.ended();
+            drop((connection, browser));
+            (ended, why, still)
+        });
+        assert_eq!(
+            (ended, why, still),
+            (
+                Ok(None),
+                Some(SubscriptionEnd::Detached),
+                Some("Page.loadEventFired".to_owned())
+            )
+        );
+    });
+}
+
+/// A subscription whose holder fell `EVENTS` behind ends saying so, so its
+/// holder knows the events it missed are lost, unlike one that ends with
+/// the connection.
+#[test]
+fn a_subscription_that_fell_behind_says_its_events_were_lost() {
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let page = SessionId("page".to_owned());
+        let (_, (behind, disconnected)) = tokio::join!(driver.run(), async {
+            let mut behind = connection.subscribe(Some(&page));
+            let mut on_browser = connection.subscribe(None);
+            for _ in 0..5_000 {
+                browser
+                    .send(&json!({ "method": "Page.loadEventFired", "params": { "timestamp": 1.0 }, "sessionId": "page" }))
+                    .await;
+            }
+            browser
+                .send(&json!({ "method": "Target.targetCreated", "params": {} }))
+                .await;
+            let _ = on_browser.next().await;
+            while behind.next().await.is_some() {}
+            drop((connection, browser));
+            while on_browser.next().await.is_some() {}
+            (behind.ended(), on_browser.ended())
+        });
+        assert_eq!(
+            (behind, disconnected),
+            (
+                Some(SubscriptionEnd::FellBehind),
+                Some(SubscriptionEnd::Disconnected)
+            )
         );
     });
 }

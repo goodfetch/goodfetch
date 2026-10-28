@@ -99,6 +99,29 @@ fn playwright_browsers(variables: &Variables) -> Option<PathBuf> {
 /// When Playwright has not installed the build, the platform has none, or
 /// the folder cannot be written.
 pub fn browser_cache(env: &TestEnv) -> Result<PathBuf, BrowserCacheError> {
+    chrome_for_testing_at(env.folder().join("browsers"))
+}
+
+/// The Browser cache's folder in a Goodfetch home, where an engine started
+/// without `GOODFETCH_BROWSERS_PATH` keeps its Browser cache (ADR 0098).
+const HOME_BROWSERS: &str = "browsers";
+
+/// [`browser_cache`]'s build laid out in `env`'s Goodfetch home, in the
+/// Browser cache an engine started without `GOODFETCH_BROWSERS_PATH` uses,
+/// so the test passes no variable: for a test that searches every file of
+/// the home, such as the reset gate (ADR 0001), whose search must take in
+/// the cache as a person's home holds it. Its root.
+///
+/// # Errors
+///
+/// As [`browser_cache`].
+pub fn browser_cache_in_home(env: &TestEnv) -> Result<PathBuf, BrowserCacheError> {
+    chrome_for_testing_at(env.home().join(HOME_BROWSERS))
+}
+
+/// A Browser cache at `root` holding the pinned Chrome for Testing build,
+/// as [`browser_cache`] describes it; `root`.
+fn chrome_for_testing_at(root: PathBuf) -> Result<PathBuf, BrowserCacheError> {
     let platform = platform_folder().ok_or(BrowserCacheError::NoBuild)?;
     let source = playwright_browsers(&Variables::from_process())
         .unwrap_or_default()
@@ -107,7 +130,6 @@ pub fn browser_cache(env: &TestEnv) -> Result<PathBuf, BrowserCacheError> {
     if !source.is_dir() {
         return Err(BrowserCacheError::NotInstalled(source));
     }
-    let root = env.folder().join("browsers");
     let entry = root
         .join("browser")
         .join("chrome-for-testing")

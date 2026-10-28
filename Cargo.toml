@@ -422,6 +422,19 @@ wreq = { path = "vendor/wreq" }
 [profile.dev.package.sha2]
 opt-level = 3
 
+# And for literal search: the reset gate searches every file of a Goodfetch
+# home for each Secret canary in a dozen encodings, the Browser cache's
+# 400 MB build included, which unoptimized takes some 26 s a search and
+# optimized 0.5 s (fix-queue 124).
+[profile.dev.package.memchr]
+opt-level = 3
+
+[profile.dev.package.aho-corasick]
+opt-level = 3
+
+[profile.dev.package.regex-automata]
+opt-level = 3
+
 # DuckDB's C++ sources, which the `duckdb` crate builds through
 # `libduckdb-sys`'s build script: unoptimized, a query of the SQL tab's
 # tests takes minutes, so its tests and a debug Foxhound run them optimized;

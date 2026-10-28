@@ -661,8 +661,8 @@ fn evaluate_all(
             |details| {
                 details.name.as_deref() == Some("ReferenceError")
                     && details.fix.is_some_and(|fix| {
-                        (fix.contains("locator.evaluate_all(\"(elements, programVariable)")
-                            || fix.contains("locator.evaluateAll((elements, programVariable)"))
+                        fix.contains("locator.evaluate_all(\"(elements, programVariable)")
+                            || fix.contains("locator.evaluateAll((elements, programVariable)")
                     })
             },
         ),

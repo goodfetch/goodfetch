@@ -20,6 +20,10 @@
 //! on demand, A05-45); `off` enables neither the `DOM` nor the `CSS`
 //! domain, so their cost goes too. Provenance records the choice for each
 //! page.
+#![expect(
+    clippy::disallowed_types,
+    reason = "the refresh counter only numbers a page's refreshes so the newest one's rules win; it guards no data and no lock, so there is no ordering to test under loom (ADR 0060)"
+)]
 
 mod documents;
 mod sheets;

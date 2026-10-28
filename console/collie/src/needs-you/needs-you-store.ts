@@ -31,6 +31,12 @@ function isChange(data: unknown): data is NeedsYouChange {
   );
 }
 
+/** The time `item.since` names, or after every time when it does not parse. */
+function at(item: NeedsYouItem): number {
+  const time = Date.parse(item.since);
+  return Number.isNaN(time) ? Number.POSITIVE_INFINITY : time;
+}
+
 /**
  * `items` the longest waiting first, by the time each `since` names rather
  * than its text, since sources write fractions of a second and offsets
@@ -38,10 +44,6 @@ function isChange(data: unknown): data is NeedsYouChange {
  * code unit. A `since` that does not parse goes last.
  */
 function ordered(items: Iterable<NeedsYouItem>): readonly NeedsYouItem[] {
-  const at = (item: NeedsYouItem): number => {
-    const time = Date.parse(item.since);
-    return Number.isNaN(time) ? Number.POSITIVE_INFINITY : time;
-  };
   return [...items].toSorted((left, right) => {
     const [since, other] = [at(left), at(right)];
     if (since !== other) {

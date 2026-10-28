@@ -208,19 +208,43 @@ members_of() {
 reused() {
   echo "Gate step $1: reused ($(field "$1" 4))"
 }
+# A failed Quick suite or stress run is recorded with the files its crates
+# are judged by, crate by crate (`xtask gate record --junit`): its nextest
+# JUnit and, for the stress run, its selection. Each crate that passed in
+# full records green, every other member red; a failure they do not account
+# for records every member red.
 record() {
   [[ $all == all && -n $planned ]] || return 0
   if [[ $2 -eq 0 ]]; then
     just _gate-record "$planned" "$1" pass
-  else
-    just _gate-record "$planned" "$1" fail
+    return
   fi
+  local evidence=() folder
+  case $1 in
+    quick) evidence=(--junit target/nextest/quick/junit.xml) ;;
+    stress)
+      evidence=(--selection target/stress-selection.tsv)
+      for folder in target/junit/repeat-*/; do
+        [[ ! -d $folder ]] || evidence+=(--junit "$folder")
+      done
+      ;;
+  esac
+  just _gate-record "$planned" "$1" fail ${evidence[@]+"${evidence[@]}"}
+}
+# Removes what an earlier run of a step left of the files its record reads,
+# so they are this run's.
+clear_evidence() {
+  case $1 in
+    quick) rm -f target/nextest/quick/junit.xml ;;
+    stress) rm -rf target/stress-selection.tsv target/junit/repeat-* ;;
+  esac
 }
 # Runs a step's command, records its result, and fails the suite when it
 # fails.
 gated() {
   local step=$1 status=0
   shift
+  clear_evidence "$step"
   timed "$step" "$@" || status=$?
   record "$step" "$status"
   return "$status"

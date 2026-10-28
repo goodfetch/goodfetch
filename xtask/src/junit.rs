@@ -154,6 +154,29 @@ pub(crate) fn test_cases(runner: &str, text: &str) -> Result<Vec<TestCase>> {
     Ok(cases)
 }
 
+/// How many test cases the file's `<testsuites>` element declares, its
+/// `tests` attribute; none when it has no such element or attribute.
+pub(crate) fn declared_tests(text: &str) -> Result<Option<usize>> {
+    let mut reader = Reader::from_str(text);
+    loop {
+        match reader.read_event().context("parsing the JUnit XML")? {
+            Event::Start(element) | Event::Empty(element)
+                if element.local_name().as_ref() == b"testsuites" =>
+            {
+                return attribute(&element, "tests")?
+                    .map(|tests| {
+                        tests
+                            .parse()
+                            .with_context(|| format!("<testsuites> declares `{tests}` tests"))
+                    })
+                    .transpose();
+            }
+            Event::Start(_) | Event::Empty(_) | Event::Eof => return Ok(None),
+            _ => {}
+        }
+    }
+}
+
 /// Records a child element of an open test case, and says where its text
 /// goes.
 fn child(case: &mut TestCase, element: &BytesStart<'_>) -> Result<Option<Capture>> {

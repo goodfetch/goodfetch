@@ -427,3 +427,189 @@ fn a_crate_with_a_test_target_whose_dep_info_is_missing_reruns() {
         second.why["pre-merge"]
     );
 }
+
+/// A nextest JUnit file of `cases`, each `(binary ID, test name, passed)`,
+/// as nextest writes it, or, when not `whole`, one that declares a case
+/// more than it holds, as a run stopped while writing it leaves it.
+fn nextest_junit(cases: &[(&str, &str, bool)], whole: bool) -> String {
+    use std::fmt::Write as _;
+    let failures = cases.iter().filter(|(_, _, passed)| !passed).count();
+    let declared = cases.len() + usize::from(!whole);
+    let mut text = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuites name=\"nextest-run\" tests=\"{declared}\" failures=\"{failures}\" errors=\"0\">\n"
+    );
+    for (binary, name, passed) in cases {
+        let _ = writeln!(text, "<testsuite name=\"{binary}\" tests=\"1\">");
+        if *passed {
+            let _ = writeln!(text, "<testcase name=\"{name}\" classname=\"{binary}\"/>");
+        } else {
+            let _ = writeln!(
+                text,
+                "<testcase name=\"{name}\" classname=\"{binary}\"><failure message=\"failed\">failed</failure></testcase>"
+            );
+        }
+        text.push_str("</testsuite>\n");
+    }
+    text.push_str("</testsuites>\n");
+    text
+}
+
+/// Records a step's result with the evidence `arguments` add.
+fn record_with(workspace: &Workspace, records: &Path, head: &str, step: &str, arguments: &[&str]) {
+    let records = records.to_string_lossy();
+    let mut command = vec![
+        "gate",
+        "record",
+        "--records",
+        &records,
+        "--head",
+        head,
+        "--now",
+        NOW,
+        "--step",
+        step,
+        "--status",
+        "fail",
+    ];
+    command.extend(arguments);
+    let outcome = workspace.xtask(&command);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// Records the first run's Quick suite red with `junit` as its nextest
+/// file, beside the records, and perf, TLC, visual and the Pre-merge suite
+/// green; then commits a change that reaches no member.
+fn red_quick_suite_then_a_docs_change(workspace: &Workspace, records: &Path, junit: &str) {
+    let first = plan(workspace, records);
+    for step in ["perf", "tlc", "visual", "pre-merge"] {
+        record(workspace, records, &first.head, step, "pass");
+    }
+    let file = records.with_file_name("quick-junit.xml");
+    std::fs::write(&file, junit).unwrap();
+    record_with(
+        workspace,
+        records,
+        &first.head,
+        "quick",
+        &["--junit", &file.to_string_lossy()],
+    );
+    workspace.write("docs/index.md", b"# Changed\n");
+    commit_all(workspace, "Change the docs");
+}
+
+/// A red Quick suite records red only the crates with a failing test: the
+/// others passed in full, so the next run reuses them where the change
+/// since does not reach them (the test-gate audit's option 4).
+#[test]
+fn a_red_quick_suite_records_red_only_the_crates_with_a_failing_test() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    red_quick_suite_then_a_docs_change(
+        &workspace,
+        &records,
+        &nextest_junit(
+            &[
+                ("goodfetch-engine", "dispatch::routes", false),
+                ("goodfetch-frontier", "claim::slices", true),
+            ],
+            true,
+        ),
+    );
+
+    let second = plan(&workspace, &records);
+
+    assert_eq!(action(&second, "quick").0, "part");
+    let rerun = members(&second, "quick");
+    assert!(rerun.contains("goodfetch-engine"), "{rerun:?}");
+    for passed in [
+        "goodfetch-frontier",
+        "goodfetch-conformance",
+        "goodfetch-sink-s3",
+        "goodfetch-proving-ground",
+    ] {
+        assert!(!rerun.contains(passed), "{passed} reran: {rerun:?}");
+    }
+}
+
+/// When the step's nextest file does not account for its failure, every
+/// member records red, as without the file: no test failed in it, so the
+/// failure was elsewhere; it is unfinished; or a failing test is of a crate
+/// the step did not run.
+#[rstest::rstest]
+#[case::no_failing_test(&[("goodfetch-engine", "dispatch::routes", true)], true)]
+#[case::unfinished(&[("goodfetch-engine", "dispatch::routes", false)], false)]
+#[case::a_crate_the_step_did_not_run(&[("goodfetch-elsewhere", "a::test", false)], true)]
+fn a_red_quick_suite_its_file_does_not_account_for_records_every_member_red(
+    #[case] cases: &[(&str, &str, bool)],
+    #[case] whole: bool,
+) {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    red_quick_suite_then_a_docs_change(&workspace, &records, &nextest_junit(cases, whole));
+
+    let second = plan(&workspace, &records);
+
+    assert_eq!(action(&second, "quick"), ("run", "-"));
+}
+
+/// A red stress run records green each crate whose every selected test
+/// passed its count of times, and red the crate of a test that failed or
+/// ran fewer times, across the run's files and its iterations' suites.
+#[test]
+fn a_red_stress_run_records_green_each_crate_whose_selected_tests_all_passed_their_count() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = plan(&workspace, &records);
+    for step in ["perf", "tlc", "visual", "pre-merge", "quick"] {
+        record(&workspace, &records, &first.head, step, "pass");
+    }
+    let folder = records.with_file_name("repeat-3");
+    std::fs::create_dir_all(&folder).unwrap();
+    let selection = records.with_file_name("stress-selection.tsv");
+    std::fs::write(
+        &selection,
+        "3\tnextest\tgoodfetch-engine dispatch::routes\n\
+         3\tnextest\tgoodfetch-frontier::it claim::slices\n\
+         3\tvitest\tsdk > a case\n",
+    )
+    .unwrap();
+    // The engine's test passed twice of three times; the frontier's three
+    // times, its iterations in a batch file of their own.
+    let engine = [
+        ("goodfetch-engine@stress-0", "dispatch::routes", true),
+        ("goodfetch-engine@stress-1", "dispatch::routes", true),
+    ];
+    let frontier = [
+        ("goodfetch-frontier::it@stress-0", "claim::slices", true),
+        ("goodfetch-frontier::it@stress-1", "claim::slices", true),
+        ("goodfetch-frontier::it@stress-2", "claim::slices", true),
+    ];
+    std::fs::write(
+        folder.join("nextest-ci.1.xml"),
+        nextest_junit(&engine, true),
+    )
+    .unwrap();
+    std::fs::write(
+        folder.join("nextest-ci.2.xml"),
+        nextest_junit(&frontier, true),
+    )
+    .unwrap();
+    record_with(
+        &workspace,
+        &records,
+        &first.head,
+        "stress",
+        &[
+            "--selection",
+            &selection.to_string_lossy(),
+            "--junit",
+            &folder.to_string_lossy(),
+        ],
+    );
+    workspace.write("docs/index.md", b"# Changed\n");
+    commit_all(&workspace, "Change the docs");
+
+    let second = plan(&workspace, &records);
+
+    assert_eq!(action(&second, "stress").0, "part");
+    let rerun = members(&second, "stress");
+    assert!(rerun.contains("goodfetch-engine"), "{rerun:?}");
+    assert!(!rerun.contains("goodfetch-frontier"), "{rerun:?}");
+}

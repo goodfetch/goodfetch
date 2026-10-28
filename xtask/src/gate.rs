@@ -14,12 +14,15 @@
 //!   selection misses; and writes the plan and the carried results into the
 //!   run's record.
 //! - **record**: appends a step's result to the run's record, only for the
-//!   planned head on a clean tree.
+//!   planned head on a clean tree. A failed step run per member records
+//!   green each crate its nextest JUnit files show passed in full, and its
+//!   other members red (`attribution`).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
 )]
 
+mod attribution;
 mod evidence;
 mod plan;
 mod runs;
@@ -100,6 +103,17 @@ pub(crate) enum Command {
         step: String,
         #[arg(long, value_enum)]
         status: Status,
+        /// A failed step run per member's nextest JUnit file, or a folder
+        /// of its `nextest*.xml` files, repeatable: each crate that passed
+        /// in full by them records green, its other members red
+        /// (`attribution`). Without it every member of a failed step is red.
+        #[arg(long)]
+        junit: Vec<std::path::PathBuf>,
+        /// The stress run's selection, its `<count>\t<runner>\t<test ID>`
+        /// lines: a crate passed in full when each of its selected nextest
+        /// tests passed its count of times in the `--junit` files.
+        #[arg(long)]
+        selection: Option<std::path::PathBuf>,
     },
 }
 
@@ -139,9 +153,29 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             now,
             step,
             status,
+            junit,
+            selection,
         } => {
             let Some(step) = Step::from_name(&step) else {
                 bail!("no gate step is named {step}");
+            };
+            // The step's crates are read only for a result they can change.
+            let evidence = if status == Status::Fail
+                && step.per_member()
+                && (!junit.is_empty() || selection.is_some())
+            {
+                let crates = WorkspaceMembers::read(&environment.cargo, root)?
+                    .all()
+                    .filter(|(_, kind)| *kind == affected::Kind::Crate)
+                    .map(|(name, _)| name)
+                    .collect();
+                Some(Evidence {
+                    junit: junit.iter().map(|path| environment.path(path)).collect(),
+                    selection: selection.map(|path| environment.path(&path)),
+                    crates,
+                })
+            } else {
+                None
             };
             record_run(
                 root,
@@ -151,6 +185,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     now,
                     step,
                     status,
+                    evidence,
                 },
             )?;
         }
@@ -606,6 +641,16 @@ struct Recorded {
     now: u64,
     step: Step,
     status: Status,
+    /// What a failed step run per member's crates are judged by.
+    evidence: Option<Evidence>,
+}
+
+/// A failed step's nextest files and, for the stress run, its selection,
+/// with the workspace's crates (`attribution`).
+struct Evidence {
+    junit: Vec<std::path::PathBuf>,
+    selection: Option<std::path::PathBuf>,
+    crates: BTreeSet<String>,
 }
 
 /// Appends a step's result to the record of the run on the planned head,
@@ -618,6 +663,7 @@ fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
         now,
         step,
         status,
+        evidence,
     } = recorded;
     let plan_file = runs::plan_file(records, head);
     let Ok(plan) = std::fs::read_to_string(&plan_file) else {
@@ -660,30 +706,77 @@ fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
             step.name()
         )
     })?;
-    let units: Vec<String> = if step.per_member() {
-        let members = match line.first().copied() {
+    let members = if step.per_member() {
+        match line.first().copied() {
             Some("run") => words(field("members").unwrap_or_default().first().unwrap_or(&"")),
             Some("part") => words(line.get(1).unwrap_or(&"")),
             _ => Vec::new(),
-        };
-        members
-            .iter()
-            .map(|member| unit(*step, Some(member)))
-            .collect()
+        }
     } else {
-        vec![unit(*step, None)]
+        Vec::new()
     };
-    let outcome = Outcome {
-        green: *status == Status::Pass,
+    let passed = match evidence {
+        Some(evidence) if *status == Status::Fail => passed_in_full(*step, &members, evidence),
+        _ => BTreeSet::new(),
+    };
+    let tree = git(root, &["rev-parse", "--verify", "HEAD^{tree}"])?;
+    let outcome = |green: bool| Outcome {
+        green,
         origin: head.clone(),
-        tree: git(root, &["rev-parse", "--verify", "HEAD^{tree}"])?,
+        tree: tree.clone(),
         at: *now,
     };
-    let text: String = units
-        .iter()
-        .map(|unit| runs::line(unit, &outcome))
-        .collect();
+    let text: String = if step.per_member() {
+        members
+            .iter()
+            .map(|member| {
+                let green = *status == Status::Pass || passed.contains(member);
+                runs::line(&unit(*step, Some(member)), &outcome(green))
+            })
+            .collect()
+    } else {
+        runs::line(&unit(*step, None), &outcome(*status == Status::Pass))
+    };
     output::append(&runs::file(records, head), &text)
+}
+
+/// The members of a failed step that passed in full: its crates the
+/// evidence shows passed, or none when it does not account for the failure.
+/// Says which in the run's log.
+fn passed_in_full(step: Step, members: &[String], evidence: &Evidence) -> BTreeSet<String> {
+    let crates: BTreeSet<String> = members
+        .iter()
+        .filter(|member| evidence.crates.contains(*member))
+        .cloned()
+        .collect();
+    match attribution::attribute(&crates, &evidence.junit, evidence.selection.as_deref()) {
+        attribution::Attribution::Passed(passed) => {
+            let failed: BTreeSet<String> = crates.difference(&passed).cloned().collect();
+            output::error(&format!(
+                "Gate: {} failed in {}; its other crates passed in full and are recorded green: {}",
+                step.name(),
+                listed(&failed),
+                listed(&passed)
+            ));
+            passed
+        }
+        attribution::Attribution::Unattributed(why) => {
+            output::error(&format!(
+                "Gate: {} failed and {why}, so each of its members is recorded red",
+                step.name()
+            ));
+            BTreeSet::new()
+        }
+    }
+}
+
+/// Crates as the log lists them: joined by spaces, or `none`.
+fn listed(crates: &BTreeSet<String>) -> String {
+    if crates.is_empty() {
+        "none".to_owned()
+    } else {
+        crates.iter().cloned().collect::<Vec<_>>().join(" ")
+    }
 }
 
 /// The commit `revision` names, in full.

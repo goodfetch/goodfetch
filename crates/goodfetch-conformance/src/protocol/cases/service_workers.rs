@@ -82,6 +82,11 @@ const CREDITS: u32 = 10_000;
 /// page's report.
 const POLL: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// The timeout of the `networkidle` wait while the worker's request is
+/// held: far shorter than the Proving ground's minute of hold, far longer
+/// than 500 ms of quiet.
+const IDLE_TIMEOUT_MS: u64 = 20_000;
+
 /// The trace event a service worker's own request is recorded under.
 const SERVICE_WORKER_REQUEST: &str = "service_worker.request";
 
@@ -180,6 +185,27 @@ impl<'connection> Watch<'connection> {
             self.read(POLL)?;
         }
         Ok(seen)
+    }
+
+    /// Serves the engine until the Proving ground received a request for
+    /// `target` on the page's host, or the wait runs out: whether it did.
+    fn until_received(&mut self, site: &Site, target: &str) -> Result<bool, Gone> {
+        let polls = BROWSER_DEADLINE.as_millis() / POLL.as_millis();
+        for _ in 0..polls {
+            let received = site
+                .proving_ground
+                .received_requests()
+                .unwrap_or_default()
+                .of_the_case()
+                .any(|request| {
+                    request["host"] == json!(IDENTITY_HOST) && request["target"] == json!(target)
+                });
+            if received {
+                return Ok(true);
+            }
+            self.read(POLL)?;
+        }
+        Ok(false)
     }
 
     /// Serves the engine until a `page.response` event arrived for each
@@ -283,8 +309,8 @@ fn under_the_interception(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-service-worker";
-    let (path, url) = page_of(site, "allow");
-    let query = "?case=allow";
+    let (path, url) = page_of(site, "allow&held");
+    let query = "?case=allow&held";
     start_run(connection, site, run_id, &settings(), checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
@@ -386,7 +412,13 @@ fn under_the_interception(
         "both calls arrive in the page's `response` event with `from_service_worker` true",
         from_worker(&cached) && from_worker(&network),
     );
-    waits_on_the_page(&mut watch, (cached_response, &cached), &page, checks)?;
+    let held = format!("/service-worker-held.json{query}");
+    waits_on_the_page(
+        &mut watch,
+        (cached_response, &cached, &held),
+        (site, &page),
+        checks,
+    )?;
     let requests = watch.data("page.request");
     let count = |suffix: &str| {
         requests
@@ -435,11 +467,12 @@ fn under_the_interception(
 /// The response waiter `armed`, armed before the navigation, got the
 /// call to `cached` the worker answered from its cache, and `page` reaches
 /// `networkidle`, which the worker's own requests, of no page, never hold
-/// back.
+/// back: while the request `held` the worker made is held in flight,
+/// within a timeout shorter than its hold.
 fn waits_on_the_page(
     watch: &mut Watch<'_>,
-    (armed, cached): (i64, &str),
-    page: &PageOpened,
+    (armed, cached, held): (i64, &str, &str),
+    (site, page): (&Site, &PageOpened),
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let waited = watch.answer(armed)?;
@@ -448,12 +481,19 @@ fn waits_on_the_page(
         url_of(&waited["result"]["response"]).ends_with(cached)
             && waited["result"]["response"]["from_service_worker"] == json!(true),
     );
+    let in_flight = watch.until_received(site, held)?;
+    checks.check(
+        format!("the worker's request {held} reached the Proving ground, which holds it"),
+        in_flight,
+    );
     let idle = watch.call(
         PAGE_WAIT_FOR_LOAD_STATE.name,
-        &json!({ "page_id": page.page_id, "state": "networkidle" }),
+        &json!({ "page_id": page.page_id, "state": "networkidle", "timeout": IDLE_TIMEOUT_MS }),
     )?;
     checks.check(
-        "the page reaches `networkidle`, which the worker's own requests do not hold back",
+        format!(
+            "the page reaches `networkidle` within {IDLE_TIMEOUT_MS} ms while the worker's own request is held for a minute ({idle})"
+        ),
         idle.get("result").is_some(),
     );
     Ok(())

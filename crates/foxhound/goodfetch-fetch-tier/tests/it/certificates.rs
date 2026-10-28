@@ -92,6 +92,7 @@ impl Fixture {
                 environment,
                 keychain: Keychain::absent(),
                 home,
+                entropy: goodfetch_engine::entropy::Entropy::seeded(0),
             },
             Arc::clone(&self.audit),
             Arc::clone(&self.owner),

@@ -74,6 +74,7 @@ impl SecretProvider for Hanging {
 mod files;
 mod keychain;
 mod racing;
+mod reuse;
 mod translations;
 
 fn driver(env: &TestEnv, variables: &[(&str, &str)]) -> Secrets {
@@ -91,6 +92,7 @@ fn driver_with(env: &TestEnv, variables: &[(&str, &str)], keychain: Keychain) ->
             environment,
             keychain,
             home: Home::new(env.home().to_path_buf()),
+            entropy: crate::entropy::Entropy::seeded(env.seed()),
         },
         Arc::new(AuditLog::of(&Home::new(env.home().to_path_buf()), None)),
         Arc::new(TaskOwner::root(BlockingPolicy::Inline)),

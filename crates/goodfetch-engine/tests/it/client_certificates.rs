@@ -88,6 +88,7 @@ fn fixture(with_key: bool) -> Fixture {
             environment,
             keychain: Keychain::absent(),
             home: home.clone(),
+            entropy: goodfetch_engine::entropy::Entropy::seeded(0),
         },
         Arc::clone(&audit),
         Arc::clone(&owner),

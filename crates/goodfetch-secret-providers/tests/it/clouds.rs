@@ -454,6 +454,7 @@ impl Fixture {
                             environment,
                             keychain: Keychain::absent(),
                             home: home.clone(),
+                            entropy: goodfetch_engine::entropy::Entropy::seeded(0),
                         },
                         Arc::new(AuditLog::of(&home, None)),
                         Arc::new(TaskOwner::root(BlockingPolicy::Inline)),

@@ -143,7 +143,7 @@ pub fn formats(
             MarkdownContent::Full => markdown(&body(&seen)),
             MarkdownContent::Fit => main
                 .as_deref()
-                .map(|main| markdown(&fit(main, &seen)))
+                .map(|main| markdown(&fit(main, &seen, document.base_url)))
                 .unwrap_or_default(),
         }),
         html: request.html.map(|format| match format.kind() {

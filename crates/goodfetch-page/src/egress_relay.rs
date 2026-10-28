@@ -262,6 +262,17 @@ fn session_policy(settings: Option<&ResolvedSettings>) -> io::Result<Policy> {
     }
 }
 
+/// The `network.resolve` mapping of a Session whose Run resolved
+/// `settings`, by lowercase host.
+fn mapping_of(settings: Option<&ResolvedSettings>) -> BTreeMap<String, Vec<IpAddr>> {
+    settings
+        .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(host, addresses)| (host.to_ascii_lowercase(), addresses))
+        .collect()
+}
+
 /// Whether `settings`, a Session's, send its browser through the relay:
 /// `security.raw_cdp_egress_proxy` on, its default.
 pub(crate) fn relayed(settings: &ResolvedSettings) -> bool {
@@ -311,12 +322,7 @@ impl EgressRelay {
             .settings()
             .map(goodfetch_engine::settings::RunSettings::resolved);
         let policy = session_policy(settings)?;
-        let mapping: BTreeMap<String, Vec<IpAddr>> = settings
-            .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(host, addresses)| (host.to_ascii_lowercase(), addresses))
-            .collect();
+        let mapping = mapping_of(settings);
         let RelayTls {
             authority,
             exceptions,

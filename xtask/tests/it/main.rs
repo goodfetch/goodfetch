@@ -40,6 +40,7 @@ mod features;
 mod features_report;
 mod fixture_size;
 mod gate;
+mod gate_backstop;
 mod head_order;
 mod image_pins;
 mod ingest;

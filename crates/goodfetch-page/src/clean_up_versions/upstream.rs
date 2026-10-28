@@ -6,19 +6,25 @@
 //! the three lists dropped before they are kept, since the Consent prompt
 //! runner handles those. The version they make is cached by the digest the
 //! engine computes of its files, and that digest is what a Run holds to.
+//! Runs that start together share one fetch, and a fetch that fails or
+//! outlasts `clean_up.fetch_timeout` leaves a Run the last version fetched.
 
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use goodfetch_clean_up_rules::rules::without_cookie_sections;
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::rule_sources;
 use goodfetch_protocol::clean_up_rules::{
     CleanUpRulesManifest, MANIFEST_FILE, RulesLists, RulesSource,
 };
 use goodfetch_protocol::formats::CLEAN_UP_RULES;
 use serde_json::json;
+use tokio::sync::OnceCell;
 
 use super::failures::Unobtained;
-use super::{FILE_LIMIT, Sources, Version};
+use super::{FILE_LIMIT, Sources, Version, lock, within};
 
 /// Each list: its key in `clean_up.lists` and in the manifest, and its file
 /// in the version.
@@ -32,10 +38,91 @@ const LISTS: [(&str, &str); 4] = [
 /// A list's expiry when it declares none.
 const DEFAULT_EXPIRY: Duration = Duration::from_hours(24);
 
-/// The newest version from the lists' URLs: the last one fetched from the
-/// same URLs while none of its lists expired, otherwise a new one; the
-/// last one when the fetch fails.
-pub(super) async fn newest(sources: &Sources, now: jiff::Timestamp) -> Result<Version, Unobtained> {
+/// The engine's fetches of the Filter lists: at most one in flight per set
+/// of sources, which every Run starting meanwhile waits on, so Runs that
+/// start together fetch each list once and hold to one version.
+#[derive(Default)]
+pub(super) struct Fetches {
+    /// The fetch in flight, by its sources' set; its outcome stays until
+    /// the first Run that waited on it takes it.
+    flights: Mutex<BTreeMap<String, Arc<Flight>>>,
+}
+
+/// One fetch of the lists, and its outcome once it landed.
+type Flight = OnceCell<Result<Version, Unobtained>>;
+
+impl Fetches {
+    /// The newest version from the lists' URLs: the last one fetched from
+    /// the same URLs while none of its lists expired, otherwise a new one,
+    /// fetched within `limit` on `clock`; the last one when that fetch
+    /// fails or takes longer, so `limit` bounds the fetch, never the reading
+    /// of the last one.
+    pub(super) async fn newest(
+        &self,
+        sources: &Sources,
+        now: jiff::Timestamp,
+        clock: Clock,
+        limit: Duration,
+    ) -> Result<Version, Unobtained> {
+        let last = match last(sources, now).await {
+            Last::Fresh(last) => return Ok(last),
+            Last::Stale(last) => last,
+        };
+        let fetched = within(
+            clock,
+            limit,
+            self.shared(&set_of(sources), || fresh_or_fetched(sources, now)),
+        )
+        .await;
+        match (fetched, last) {
+            (Ok(version), _) => Ok(version),
+            (Err(why), Some(last)) => {
+                tracing::warn!(%why, "the Filter lists were not fetched again: the Run holds to the last version fetched");
+                Ok(last)
+            }
+            (Err(why), None) => Err(why),
+        }
+    }
+
+    /// The outcome of the fetch of `set` in flight, or of `fetch` when none
+    /// is. A fetch stops when the caller that began it stops waiting, and a
+    /// caller still waiting, or the next one, fetches again.
+    async fn shared<Fetch, Fetching>(&self, set: &str, fetch: Fetch) -> Result<Version, Unobtained>
+    where
+        Fetch: FnOnce() -> Fetching,
+        Fetching: Future<Output = Result<Version, Unobtained>>,
+    {
+        let flight = Arc::clone(lock(&self.flights).entry(set.to_owned()).or_default());
+        let landed = flight.get_or_init(fetch).await.clone();
+        let mut flights = lock(&self.flights);
+        if flights
+            .get(set)
+            .is_some_and(|newest| Arc::ptr_eq(newest, &flight))
+        {
+            flights.remove(set);
+        }
+        landed
+    }
+}
+
+/// The set `sources` fetch from: the lists' URLs, and what a fetch of
+/// them may do, as it prints, so that Runs whose fetches could end
+/// otherwise, offline or trusting other authorities, never share one.
+fn set_of(sources: &Sources) -> String {
+    json!({ "lists": sources.lists, "fetching": format!("{:?}", sources.fetching) }).to_string()
+}
+
+/// The last version fetched from the lists' URLs, as the sources' state
+/// names it.
+enum Last {
+    /// Fetched from the same URLs, and none of its lists expired.
+    Fresh(Version),
+    /// Expired or fetched from other URLs, if any.
+    Stale(Option<Version>),
+}
+
+/// The last version fetched from `sources`' lists, at `now`.
+async fn last(sources: &Sources, now: jiff::Timestamp) -> Last {
     let state = sources.read_state().await;
     let last = match state["upstream"]["version"].as_str() {
         Some(digest) => sources
@@ -46,25 +133,21 @@ pub(super) async fn newest(sources: &Sources, now: jiff::Timestamp) -> Result<Ve
         None => None,
     };
     let same_urls = state["upstream"]["lists"] == json!(sources.lists);
-    if let Some(last) = &last
-        && same_urls
-        && !last.expired(now)
-    {
-        return Ok(last.clone());
+    match last {
+        Some(last) if same_urls && !last.expired(now) => Last::Fresh(last),
+        last => Last::Stale(last),
     }
-    let version = match fetched(sources, now).await {
-        Ok(version) => version,
-        Err(why) => {
-            return match last {
-                Some(last) => {
-                    tracing::warn!(%why, "the Filter lists were not fetched again: the Run holds to the last version fetched");
-                    Ok(last)
-                }
-                None => Err(why),
-            };
-        }
-    };
-    let mut state = state.clone();
+}
+
+/// The last version fetched while it is fresh, as a fetch that landed
+/// while this one waited to begin left it; otherwise a new one, fetched
+/// now, which the sources' state then names.
+async fn fresh_or_fetched(sources: &Sources, now: jiff::Timestamp) -> Result<Version, Unobtained> {
+    if let Last::Fresh(last) = last(sources, now).await {
+        return Ok(last);
+    }
+    let version = fetched(sources, now).await?;
+    let mut state = sources.read_state().await;
     state["upstream"] = json!({ "version": version.digest, "lists": sources.lists });
     sources.write_state(state).await;
     Ok(version)

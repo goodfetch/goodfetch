@@ -28,6 +28,7 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use super::checkpoint::two_machines_on;
+use super::disk_view::DiskView;
 use super::events::credit;
 use super::layout::{per_install_on, per_run_on};
 use super::run::call;
@@ -35,7 +36,6 @@ use super::storage::configure;
 use super::{attached_on, engine_with, hello};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::Engine;
-use crate::governor::{DiskView, System};
 use crate::run_files::FileKind;
 use crate::run_files_operations::keep_error;
 
@@ -565,7 +565,7 @@ fn a_file_kept_while_the_run_folder_is_at_critical_fails_and_writes_nothing() {
     let view = DiskView::default();
     let disk = view.mount(env.home(), 100_000_000, 50_000_000);
     let filled = view.clone();
-    let engine = engine().with_governor(System::os().with_disks(view.clone()));
+    let engine = engine().with_governor(view.system());
     let folder = env.home().join("1").join("runs").join("full");
 
     let failed = attached_on(&engine, &env, |mut client| async move {

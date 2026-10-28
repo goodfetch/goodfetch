@@ -50,11 +50,11 @@ mod system;
 pub use browsers::{BrowserUse, GovernedBrowser, PageHold};
 pub use ladder::{Weight, last_resort_run};
 pub use shares::{Permit, RunShare};
-pub use storage::{Filesystem, Held, StorageSample};
+pub use storage::{
+    Filesystem, FilesystemInodes, FilesystemReading, FilesystemSource, Held, StorageSample,
+};
 pub use system::{System, footprint_of};
 
-#[cfg(test)]
-pub(crate) use storage::DiskView;
 use storage::{Disks, Folders, Settled};
 
 use controller::{Bounds, Controller, Decision, Limits, Reading};

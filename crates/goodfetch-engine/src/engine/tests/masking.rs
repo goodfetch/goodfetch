@@ -29,11 +29,13 @@ use super::{Client, attached_with, dependencies, engine_with};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::Dependencies;
 use crate::log::LogEvents;
-use crate::mask::Masks;
 use crate::run_trace::RequestLog;
 
 /// The variable the Run's key-encryption key is read from.
 const KEY_VARIABLE: &str = "GF_TEST_RUN_KEY";
+
+/// A key-encryption key no canary holds, for the positive control.
+const UNPLANTED_KEY: &str = "a key-encryption key no canary holds";
 
 /// Logs, warns, traces and returns a text, as a page reflecting it would.
 const REFLECT: Operation = Operation {
@@ -124,25 +126,13 @@ fn keyed(env: &TestEnv, key: &str) -> Dependencies {
 /// Every message the Client received while a Run of `settings` started,
 /// reflected `text` and finished, its `hello` asking for `info` log lines.
 fn reflected(env: &TestEnv, key: &str, settings: &Value, text: &str) -> Vec<Value> {
-    reflected_through(env, key, settings, text, Masks::new())
-}
-
-/// As [`reflected`], the engine masking with `masks`.
-fn reflected_through(
-    env: &TestEnv,
-    key: &str,
-    settings: &Value,
-    text: &str,
-    masks: Masks,
-) -> Vec<Value> {
     let log_events = LogEvents::new();
     let subscriber = tracing_subscriber::registry().with(log_events.layer());
     let engine = engine_with(
         Product::Collie,
         Some(Contribution::new("test-reflect").with_handler(Handler::new(&REFLECT, reflect))),
     )
-    .with_log_events(log_events)
-    .with_masks(masks);
+    .with_log_events(log_events);
     let calls = [
         (
             "run.start",
@@ -299,18 +289,24 @@ fn with_redaction_off_a_resolved_credential_stays_only_in_the_run_trace() {
     );
 }
 
-/// The positive control of the searches above (spec #564): with the
-/// harness's `Mask` letting every value through, the same search finds the
-/// Run's key in every output the Run wrote it to, so a search that finds
-/// nothing proves what it claims.
+/// The positive control of the searches above (spec #564): the same Run
+/// reflects the canary, but resolves another key-encryption key, so no
+/// `Mask` knows the canary, and the same search finds it in every output
+/// the Run wrote it to. A search that finds nothing then proves what it
+/// claims, with no switch in the masking path.
 /// Covers: story:4-91
 #[test]
-fn with_the_mask_letting_values_through_the_search_finds_the_key_in_every_output() {
+fn with_the_reflected_value_resolved_by_no_run_the_search_finds_it_in_every_output() {
     let env = TestEnv::new();
     let mut canaries = Canaries::new(env.seed());
-    let key = canaries.plant(SecretKind::RunDataKey).value().to_owned();
+    let reflected_value = canaries.plant(SecretKind::RunDataKey).value().to_owned();
 
-    let received = reflected_through(&env, &key, &json!({}), &reflecting(&key), Masks::unmasked());
+    let received = reflected(
+        &env,
+        UNPLANTED_KEY,
+        &json!({}),
+        &reflecting(&reflected_value),
+    );
 
     let outputs: std::collections::BTreeSet<String> = leaks(&canaries, &env, &received)
         .into_iter()

@@ -27,12 +27,12 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::consent_walls::{audit_entries, configure, opened, write};
+use super::disk_view::DiskView;
 use super::needs_you::{Seen, listed};
 use super::run::call;
 use super::{Client, attached_on, engine_with};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::Engine;
-use crate::governor::{DiskView, System};
 
 const MB: u64 = 1_000_000;
 
@@ -78,7 +78,7 @@ fn stops() -> Contribution {
 fn stopping_engine(env: &TestEnv) -> Engine {
     let view = DiskView::default();
     view.mount(env.home(), 100 * MB, 50 * MB);
-    engine_with(Product::Collie, Some(stops())).with_governor(System::os().with_disks(view))
+    engine_with(Product::Collie, Some(stops())).with_governor(view.system())
 }
 
 /// The machine's settings files, by name in the per-major folder.

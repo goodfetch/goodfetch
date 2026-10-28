@@ -6,13 +6,12 @@
 //! OS; macOS's and Windows' come from their C calls.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::governor::{AllowanceSource, GovernorLevel};
 
-#[cfg(test)]
-use super::storage::DiskView;
-use super::storage::Disks;
+use super::storage::{Disks, FilesystemSource};
 
 mod linux;
 #[cfg(target_os = "macos")]
@@ -78,10 +77,12 @@ impl System {
         }
     }
 
-    /// The same, reading the filesystems through a test's `view`.
-    #[cfg(test)]
-    pub(crate) fn with_disks(mut self, view: DiskView) -> Self {
-        self.disks = Disks::View(view);
+    /// The same, reading the filesystems the Runs write to through
+    /// `source` in place of the OS's own calls, as it reads the machine
+    /// through [`Self::linux_files`]'s folder.
+    #[must_use]
+    pub fn with_filesystems(mut self, source: Arc<dyn FilesystemSource>) -> Self {
+        self.disks = Disks::Chosen(source);
         self
     }
 

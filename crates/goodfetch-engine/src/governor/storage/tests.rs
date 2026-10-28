@@ -10,13 +10,13 @@ use goodfetch_protocol::storage::StorageLevel;
 use proptest::prelude::*;
 use rstest::rstest;
 
-use super::{Inodes, Reading, Thresholds, level};
+use super::{FilesystemInodes, FilesystemReading, Thresholds, level};
 
 const GIB: u64 = 1 << 30;
 
 /// A filesystem of `size` with `free` left and no inode count.
-fn space(size: u64, free: u64) -> Reading {
-    Reading {
+fn space(size: u64, free: u64) -> FilesystemReading {
+    FilesystemReading {
         size,
         free,
         inodes: None,
@@ -24,11 +24,11 @@ fn space(size: u64, free: u64) -> Reading {
 }
 
 /// A 100 GiB filesystem with plenty of space and `free` of 1,000 inodes.
-fn inodes(free: u64) -> Reading {
-    Reading {
+fn inodes(free: u64) -> FilesystemReading {
+    FilesystemReading {
         size: 100 * GIB,
         free: 50 * GIB,
-        inodes: Some(Inodes { total: 1000, free }),
+        inodes: Some(FilesystemInodes { total: 1000, free }),
     }
 }
 
@@ -84,23 +84,23 @@ const BOTH_OFF: Thresholds = Thresholds {
 #[case::low_off_still_stops_at_critical(space(100 * GIB, GIB / 2), LOW_OFF, StorageLevel::Critical)]
 #[case::both_off_never_stop(space(100 * GIB, 0), BOTH_OFF, StorageLevel::Normal)]
 fn a_filesystems_level_follows_its_readings_and_the_two_settings(
-    #[case] reading: Reading,
+    #[case] reading: FilesystemReading,
     #[case] thresholds: Thresholds,
     #[case] expected: StorageLevel,
 ) {
     assert_eq!(level(&reading, &thresholds), expected);
 }
 
-fn reading() -> impl Strategy<Value = Reading> {
+fn reading() -> impl Strategy<Value = FilesystemReading> {
     (
         1_u64..=200 * GIB,
         any::<u64>(),
         proptest::option::of((1_u64..=1_000_000, any::<u64>())),
     )
-        .prop_map(|(size, free, inodes)| Reading {
+        .prop_map(|(size, free, inodes)| FilesystemReading {
             size,
             free: free % (size + 1),
-            inodes: inodes.map(|(total, free)| Inodes {
+            inodes: inodes.map(|(total, free)| FilesystemInodes {
                 total,
                 free: free % (total + 1),
             }),
@@ -126,7 +126,7 @@ proptest! {
         thresholds in thresholds(),
         more in any::<u64>(),
     ) {
-        let roomier = Reading {
+        let roomier = FilesystemReading {
             free: reading.free + more % (reading.size - reading.free + 1),
             ..reading
         };

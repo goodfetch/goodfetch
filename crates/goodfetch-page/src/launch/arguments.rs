@@ -69,7 +69,7 @@ const NO_SANDBOX: &str = "--no-sandbox";
 /// The variables the browser starts with beside the engine's own. On
 /// Linux, a character type of UTF-8 whatever the host's locale: under one
 /// whose character type is not, `C`, none, or a `LANG` naming a locale the
-/// system lacks, Chromium cannot open the LevelDB stores of a Browser data
+/// system lacks, Chromium cannot open the `LevelDB` stores of a Browser data
 /// folder whose path is not ASCII ("/LOCK: Access denied") and takes some
 /// 6.6 s more to exit once asked to close (fix-queue 127). `LC_ALL` changes
 /// only that: the browser's language still follows `LANG`.
@@ -106,7 +106,7 @@ pub(crate) struct Launch<'a> {
 /// The command line, the variables the browser starts with beside the
 /// engine's own, and the warnings it comes with.
 pub(crate) struct Arguments {
-    pub(crate) arguments: Vec<String>,
+    pub(crate) command_line: Vec<String>,
     pub(crate) environment: &'static [(&'static str, &'static str)],
     pub(crate) warnings: Vec<Warning>,
 }
@@ -190,7 +190,7 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
     arguments.push(format!("--host-resolver-rules={}", rules.join(", ")));
     arguments.push("about:blank".to_owned());
     Arguments {
-        arguments,
+        command_line: arguments,
         environment: ENVIRONMENT,
         warnings,
     }

@@ -351,7 +351,7 @@ async fn command_line(
     for warning in &built.warnings {
         tracing::warn!(%warning, "the Run's browser launches degraded");
     }
-    (built.arguments, built.environment)
+    (built.command_line, built.environment)
 }
 
 /// The size of `/dev/shm`, where Linux mounts one of its own.

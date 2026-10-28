@@ -69,6 +69,15 @@ const OPEN: Operation = Operation {
     ..KEEP
 };
 
+/// Stores a data key for a live Run that has made none, wrapped by the
+/// key-encryption key `kek`, and seals `value` into row `row` with it, as
+/// a making whose caller was dropped once its write was queued leaves it.
+const STORED_KEY: Operation = Operation {
+    name: "test.stored_key",
+    description: "Stores a Run's wrapped data key as a dropped making leaves it.",
+    ..KEEP
+};
+
 /// The secret table the tests seal values in.
 const SECRETS: RunStateTables = RunStateTables {
     name: "test-secrets",
@@ -154,6 +163,7 @@ fn sealing() -> Contribution {
                 Ok::<Value, CallError>(json!({ "data_key": data_key }))
             },
         ))
+        .with_handler(stored_key())
         .with_handler(Handler::new(
             &OPEN,
             |params: Value, context: CallContext| async move {
@@ -179,6 +189,44 @@ fn sealing() -> Contribution {
                 }))
             },
         ))
+}
+
+/// The handler of `test.stored_key`.
+fn stored_key() -> Handler {
+    Handler::new(
+        &STORED_KEY,
+        |params: Value, context: CallContext| async move {
+            let run = live(&context, &params).await;
+            let row = params["row"].as_i64().unwrap();
+            let kek = secrecy::SecretString::from(params["kek"].as_str().unwrap().to_owned());
+            let key = run_key::RunKey::generate(run.id().clone()).unwrap();
+            let stored = run_key::StoredKey {
+                wrapped: key.wrap(&kek).unwrap(),
+                key_reference: "secretfile:run-state-key".to_owned(),
+            };
+            let sealed = key
+                .seal(
+                    "test_secrets",
+                    "value",
+                    &row.to_string(),
+                    params["value"].as_str().unwrap().as_bytes(),
+                )
+                .unwrap();
+            run.state()
+                .write(move |connection| {
+                    run_key::store(connection, &stored)?;
+                    connection
+                        .execute(
+                            "INSERT INTO test_secrets (row, value) VALUES (?1, ?2)",
+                            (row, sealed),
+                        )
+                        .map(drop)
+                })
+                .await
+                .unwrap();
+            Ok::<Value, CallError>(json!({}))
+        },
+    )
 }
 
 /// The failure a call answers when its Run has no data key, so a test
@@ -364,6 +412,54 @@ fn a_sealed_value_is_in_no_byte_of_the_run_file_or_its_checkpoint_and_opens_back
             ),
         ),
         (json!({ "value": second }), Vec::new(), Vec::<String>::new())
+    );
+}
+
+/// A Run whose data key's making was dropped after its wrapped key was
+/// written, so its run state holds a key its Run never took, opens with
+/// that key at its next use instead of failing to store a second one.
+/// Covers: story:4-64
+#[test]
+fn a_key_a_dropped_making_stored_is_the_one_the_run_opens_with_next() {
+    let env = TestEnv::new();
+    let made = &env;
+    let opened = on(
+        || dependencies(&env),
+        |mut talk| async move {
+            talk.ok(2, "test.keep", json!({ "run_id": "first" })).await;
+            talk.ok(
+                3,
+                "test.seal",
+                json!({ "run_id": "first", "row": 1, "value": "made the engine's key" }),
+            )
+            .await;
+            talk.ok(4, "test.keep", json!({ "run_id": "dropped" }))
+                .await;
+            talk.ok(
+                5,
+                "test.stored_key",
+                json!({
+                    "run_id": "dropped",
+                    "row": 1,
+                    "value": "sealed by the dropped making's key",
+                    "kek": made_key(made),
+                }),
+            )
+            .await;
+            let opened = talk
+                .call(6, "test.open", json!({ "run_id": "dropped", "row": 1 }))
+                .await;
+            talk.ok(7, "run.finish", json!({ "run_id": "dropped" }))
+                .await;
+            talk.ok(8, "run.finish", json!({ "run_id": "first" })).await;
+            opened
+        },
+    );
+
+    assert_eq!(
+        opened.get("result"),
+        Some(&json!({ "value": "sealed by the dropped making's key" })),
+        "{opened}"
     );
 }
 

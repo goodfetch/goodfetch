@@ -1190,8 +1190,8 @@ impl Run {
     ///
     /// Dropping the future of the caller that makes the key abandons the
     /// making, and the next caller makes one again. A drop once the
-    /// wrapped key's write was queued may leave it stored, and the next
-    /// making then fails with the run state's error.
+    /// wrapped key's write was queued may leave it stored: the next making
+    /// then takes that key rather than store another.
     pub async fn key(&self) -> Result<&RunKey, RunKeyError> {
         self.shared.key.get_or_try_init(|| self.make_key()).await
     }
@@ -1214,10 +1214,21 @@ impl Run {
             wrapped: key.wrap(&kek)?,
             key_reference: reference.to_string(),
         };
-        self.state
-            .write(move |connection| run_key::store(connection, &stored))
+        // A making whose caller was dropped once its write was queued may
+        // have stored a key the Run never took: that one is the Run's key,
+        // and this making's is not stored (the check and the write are one
+        // job of the writer, so no second key can slip between them).
+        let earlier = self
+            .state
+            .write(move |connection| match run_key::stored(connection)? {
+                Some(earlier) => Ok(Some(earlier)),
+                None => run_key::store(connection, &stored).map(|()| None),
+            })
             .await?;
-        Ok(key)
+        match earlier {
+            Some(earlier) => Ok(RunKey::unwrap(self.id.clone(), &earlier.wrapped, &kek)?),
+            None => Ok(key),
+        }
     }
 
     /// The engine's clock.

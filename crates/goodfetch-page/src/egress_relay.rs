@@ -63,7 +63,7 @@ use std::sync::{Mutex, OnceLock};
 use data_encoding::BASE64;
 use goodfetch_engine::CallError;
 use goodfetch_engine::dns::Dns;
-use goodfetch_engine::egress::{Policy, Refused};
+use goodfetch_engine::egress::{self, EndpointPolicy, Policy, Refused};
 use goodfetch_engine::endpoint::{REFUSAL_TARGET, new_token};
 use goodfetch_engine::http_client::{self, LocalBinding, Resolve};
 use goodfetch_engine::local_addresses::SessionAddresses;
@@ -85,7 +85,7 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 use self::application_settings::ApplicationSettings;
 use self::authority::Authority;
 use self::client_hello::ClientHello;
-use self::serve::{Met, Network, Observe, Relaying, Resolved, Unreached, Upstream};
+use self::serve::{Met, Network, Observe, ProxyRefused, Relaying, Resolved, Unreached, Upstream};
 use self::terminate::{Stop, Terminating};
 
 /// The user name of every Session's relay credentials; the password is the
@@ -197,6 +197,11 @@ pub(crate) struct Chain {
     pub(crate) bypasses: Box<dyn Fn(&str) -> bool + Send + Sync>,
     /// Tells the proxy what a connection to it met.
     pub(crate) met: Box<dyn Fn(Met) + Send + Sync>,
+    /// How the proxy's own addresses are judged before each connection to
+    /// it, as an Operator-configured endpoint's (ADR 0017); none for the
+    /// Session's loopback relay, which the Session's open judged the proxy
+    /// behind.
+    pub(crate) judged: Option<EndpointPolicy>,
 }
 
 /// What the relay met on its latest connection to a Session's upstream
@@ -206,6 +211,9 @@ pub(crate) struct Chain {
 pub(crate) struct Latest {
     unreachable: AtomicBool,
     refused: AtomicBool,
+    /// Whether the relay answered the latest connection itself, with its
+    /// own `502` for a SOCKS5 proxy it could not use.
+    answered: AtomicBool,
 }
 
 impl Latest {
@@ -214,6 +222,7 @@ impl Latest {
     pub(crate) fn record(&self, met: Met) {
         self.unreachable
             .store(met == Met::Unreachable, Ordering::Relaxed);
+        self.answered.store(met != Met::Reached, Ordering::Relaxed);
         if met != Met::Unreachable {
             self.refused
                 .store(met == Met::CredentialsRefused, Ordering::Relaxed);
@@ -229,6 +238,27 @@ impl Latest {
     /// that reached it.
     pub(crate) fn refused(&self) -> bool {
         self.refused.load(Ordering::Relaxed)
+    }
+
+    /// Whether the relay answered the latest connection itself: a proxy
+    /// it could not reach, or one that refused what it asked.
+    pub(crate) fn answered(&self) -> bool {
+        self.answered.load(Ordering::Relaxed)
+    }
+}
+
+/// The egress policy of a Session whose Run resolved `settings`, every
+/// host allowed for a Run with none.
+///
+/// # Errors
+///
+/// An entry of a domain or private-range setting that is none.
+fn session_policy(settings: Option<&ResolvedSettings>) -> io::Result<Policy> {
+    match settings {
+        Some(settings) => Policy::of(settings).map_err(|invalid| {
+            io::Error::other(format!("`{}` holds `{}`", invalid.setting, invalid.entry))
+        }),
+        None => Policy::new(&["*"], &[] as &[&str]).map_err(|_| io::Error::other("no policy")),
     }
 }
 
@@ -256,13 +286,20 @@ impl EgressRelay {
         local: Option<Local>,
     ) -> io::Result<Self> {
         type Bypasses = Box<dyn Fn(&str) -> bool + Send + Sync>;
-        let (upstream, address, bypasses, met): (_, _, Bypasses, _) = match chain {
-            None => (Upstream::Direct, None, Box::new(|_: &str| false), None),
+        let (upstream, address, bypasses, met, judged): (_, _, Bypasses, _, _) = match chain {
+            None => (
+                Upstream::Direct,
+                None,
+                Box::new(|_: &str| false),
+                None,
+                None,
+            ),
             Some(chain) => (
                 chain.upstream,
                 Some(chain.address),
                 chain.bypasses,
                 Some(chain.met),
+                chain.judged,
             ),
         };
         let password = new_token().map_err(io::Error::other)?;
@@ -273,14 +310,7 @@ impl EgressRelay {
         let settings = run
             .settings()
             .map(goodfetch_engine::settings::RunSettings::resolved);
-        let policy = match settings {
-            Some(settings) => Policy::of(settings).map_err(|invalid| {
-                io::Error::other(format!("`{}` holds `{}`", invalid.setting, invalid.entry))
-            })?,
-            None => {
-                Policy::new(&["*"], &[] as &[&str]).map_err(|_| io::Error::other("no policy"))?
-            }
-        };
+        let policy = session_policy(settings)?;
         let mapping: BTreeMap<String, Vec<IpAddr>> = settings
             .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
             .unwrap_or_default()
@@ -314,6 +344,7 @@ impl EgressRelay {
         let network = Tcp {
             mapping,
             upstream: address,
+            judged,
             local: local.map(|local| LocalBinding::new(local.addresses, &local.dns)),
         };
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
@@ -681,6 +712,9 @@ struct Tcp {
     mapping: BTreeMap<String, Vec<IpAddr>>,
     /// The upstream proxy's host and port, when there is one.
     upstream: Option<(String, u16)>,
+    /// How the upstream proxy's own addresses are judged when the relay
+    /// connects to the proxy itself.
+    judged: Option<EndpointPolicy>,
     /// The Session's local addresses, when it has them.
     local: Option<LocalBinding>,
 }
@@ -716,12 +750,23 @@ impl Network for Tcp {
         let Some((host, port)) = &self.upstream else {
             return Err(io::ErrorKind::NotConnected.into());
         };
-        // The upstream proxy is an Operator-configured endpoint: its own
-        // address is not judged (ADR 0017).
+        // The proxy's own addresses are judged as an Operator-configured
+        // endpoint's before any connection, so an answer that changed since
+        // the Session's open reaches nothing (ADR 0017).
         let resolved = self
             .resolve(host, *port)
             .await
             .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        if let Some(judged) = self.judged {
+            let url = if host.contains(':') {
+                format!("http://[{host}]:{port}")
+            } else {
+                format!("http://{host}:{port}")
+            };
+            egress::judge_endpoint_addresses(&url, &resolved.addresses, judged).map_err(
+                |refused| io::Error::new(io::ErrorKind::PermissionDenied, ProxyRefused(refused)),
+            )?;
+        }
         let mut last = io::Error::from(io::ErrorKind::NotFound);
         for address in resolved.addresses {
             match self.connect(address).await {

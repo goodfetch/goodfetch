@@ -322,6 +322,100 @@ fn a_failing_proxy_raises_a_proxy_error_never_navigation_failed(
     );
 }
 
+/// How a failing SOCKS5 proxy is met by an `http:` navigation.
+#[derive(Clone, Copy, Debug)]
+enum FailingSocks5 {
+    /// Nothing listens where the proxy should, and the Session gives no
+    /// credentials: the egress relay speaks SOCKS5 to it itself.
+    Down,
+    /// Nothing listens where the proxy should, and the Session gives
+    /// credentials: its loopback relay authenticates to it.
+    DownWithCredentials,
+    /// The proxy refuses the Session's password.
+    WrongPassword,
+}
+
+/// A plain `http:` request through a SOCKS5 proxy goes through the
+/// Session's own relays, whose `502` for a proxy they could not use is
+/// never the site's answer (spec #577's pitfall H12; finding 577-1): a
+/// proxy that is down raises `proxy_unavailable` and one that refuses the
+/// password `proxy_auth_failed`, as an HTTP proxy's failures do.
+///
+/// Covers: story:5-88, setting:proxy.server, setting:proxy.username, setting:proxy.password
+#[cfg(unix)]
+#[rstest]
+/// Covers: error:proxy_unavailable
+#[case::a_proxy_that_is_down(FailingSocks5::Down, "proxy_unavailable", true)]
+/// Covers: error:proxy_unavailable
+#[case::a_proxy_that_is_down_behind_the_loopback_relay(
+    FailingSocks5::DownWithCredentials,
+    "proxy_unavailable",
+    true
+)]
+/// Covers: error:proxy_auth_failed
+#[case::a_wrong_password(FailingSocks5::WrongPassword, "proxy_auth_failed", false)]
+fn a_failing_socks5_proxy_raises_a_proxy_error_on_an_http_navigation(
+    #[case] failing: FailingSocks5,
+    #[case] code: &str,
+    #[case] retryable: bool,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let credentials = &proving_ground.description().fixtures.proxy_credentials;
+    let mut canaries = Canaries::new(env.seed());
+    let wrong = canaries.plant(SecretKind::ProxyPassword).value().to_owned();
+    let (name, username, password) = match failing {
+        FailingSocks5::Down => ("down", None, ""),
+        FailingSocks5::DownWithCredentials => {
+            ("down", Some(credentials.username.as_str()), wrong.as_str())
+        }
+        FailingSocks5::WrongPassword => (
+            "socks5",
+            Some(credentials.username.as_str()),
+            wrong.as_str(),
+        ),
+    };
+    let proxy = proxy_settings(&proving_ground, "socks5", name, username);
+    let mut engine = started_through(&env, &cache, &proving_ground, "socks", proxy, password);
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "socks" }),
+    ));
+    let navigated = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({
+            "page_id": page.page_id,
+            "url": proving_ground.url("scope.test", "/storage?mark=socks"),
+        }),
+    );
+    let arguments = crate::page::browser_command_lines(&env);
+    let _ = call(&mut engine, 4, "run.finish", &json!({ "run_id": "socks" }));
+    let (_, stderr) = engine.finish_with_stderr();
+
+    let data = &navigated["error"]["data"];
+    assert_eq!(
+        (
+            &data["code"],
+            &data["retryable"],
+            &data["proxy"],
+            leaks_of(&canaries, env.home(), &stderr, &arguments),
+        ),
+        (
+            &json!(code),
+            &json!(retryable),
+            &json!(format!("socks5://{}", proxy_address(&proving_ground, name))),
+            Vec::new(),
+        ),
+        "{navigated}"
+    );
+}
+
 /// The relays the Proving ground's proxies carried out for targets that
 /// hold `marker`, in arrival order: each one's proxy and target.
 fn relays_to(proving_ground: &ProvingGround, marker: &str) -> Vec<(String, String)> {

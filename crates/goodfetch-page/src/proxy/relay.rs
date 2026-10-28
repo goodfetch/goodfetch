@@ -137,6 +137,11 @@ struct Upstream {
     /// Whether the relay's latest connection to the proxy failed to open:
     /// a proxy that is down, whose failures refuse nothing.
     unreachable: AtomicBool,
+    /// Whether the relay answered its latest client itself, with its own
+    /// `502` for a SOCKS5 proxy it could not use: one that is down, that
+    /// refused the credentials or that refused the tunnel. A response the
+    /// relay wrote is the proxy's failure, never the site's answer.
+    answered: AtomicBool,
     /// What the bytes on the connections to the proxy are charged to, for
     /// a Proxy provider's proxy.
     usage: Option<Arc<ProxyUsage>>,
@@ -192,6 +197,7 @@ impl Relay {
             refusals: run.refusals(),
             refused: AtomicBool::new(false),
             unreachable: AtomicBool::new(false),
+            answered: AtomicBool::new(false),
             usage,
             refusal: keeps_refusals.then(|| Mutex::new(None)),
         });
@@ -228,6 +234,12 @@ impl Relay {
     /// Whether the relay's latest connection to the proxy failed to open.
     pub(crate) fn unreachable(&self) -> bool {
         self.upstream.unreachable.load(Ordering::Relaxed)
+    }
+
+    /// Whether the relay answered its latest client itself, with its own
+    /// `502` for a SOCKS5 proxy it could not use.
+    pub(crate) fn answered(&self) -> bool {
+        self.upstream.answered.load(Ordering::Relaxed)
     }
 
     /// The proxy's answer to the latest `CONNECT`, if it refused it and
@@ -478,8 +490,10 @@ async fn socks5(
     };
     // Whether the proxy refused the credentials is this connection's
     // answer, the latest, never one a connection before met.
+    let answered = |answered: bool| upstream.answered.store(answered, Ordering::Relaxed);
     let Some(proxy) = upstream.connect().await else {
         upstream.refused.store(false, Ordering::Relaxed);
+        answered(true);
         let _ = client.write_all(relay_unreachable().as_bytes()).await;
         return;
     };
@@ -489,6 +503,7 @@ async fn socks5(
         .refused
         .store(matches!(authenticated, Ok(false)), Ordering::Relaxed);
     if !matches!(authenticated, Ok(true)) || !proxy.charged().await {
+        answered(true);
         let _ = client
             .write_all(failed("502 Bad Gateway", "proxy_internal_error").as_bytes())
             .await;
@@ -502,11 +517,13 @@ async fn socks5(
         return;
     }
     if !matches!(opened, Ok(true)) {
+        answered(true);
         let _ = client
             .write_all(failed("502 Bad Gateway", "connection_refused").as_bytes())
             .await;
         return;
     }
+    answered(false);
     let started = match head.target {
         Target::Tunnel { .. } => client.write_all(ESTABLISHED).await,
         Target::Absolute { .. } => proxy.write_all(&head.forwarded(false, None)).await,

@@ -24,6 +24,7 @@ fn proxy(server: &str, bypass: Option<&str>) -> SessionProxy {
         provided: None,
         limits: None,
         through_relay: crate::egress_relay::Latest::default(),
+        judged: goodfetch_engine::egress::EndpointPolicy::default(),
     }
 }
 
@@ -69,6 +70,30 @@ fn only_a_response_the_proxy_forwarded_can_be_its_own(
         (party(answer), proxy.refusal(answer, Some(429))),
         (expected, refused)
     );
+}
+
+/// Through a SOCKS5 proxy, a plain response naming the Session's relay is
+/// the proxy's only when the relay recorded that it answered the latest
+/// connection itself (finding 577-1): a site's own field naming the relay,
+/// with the relay having reached the proxy, stays the site's.
+/// Covers: story:5-88, error:proxy_unavailable
+#[rstest]
+#[case::the_relay_answered(crate::egress_relay::serve::Met::Unreachable, Party::Proxy)]
+#[case::the_proxy_refused_the_tunnel(crate::egress_relay::serve::Met::Refused, Party::Proxy)]
+#[case::the_relay_reached_the_proxy(crate::egress_relay::serve::Met::Reached, Party::Site)]
+fn a_socks5_response_the_relay_wrote_is_the_proxys(
+    #[case] met: crate::egress_relay::serve::Met,
+    #[case] expected: Party,
+) {
+    let proxy = proxy("socks5://fwd:1080", None);
+    proxy.met_through_relay(met);
+
+    let answer = proxy.response(
+        "http://shop.example/",
+        Some("goodfetch-relay; error=connection_refused"),
+    );
+
+    assert_eq!(party(answer), expected);
 }
 
 /// Covers: story:5-90, setting:proxy.bypass

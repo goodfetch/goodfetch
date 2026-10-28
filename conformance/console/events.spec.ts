@@ -180,13 +180,17 @@ test(
     await expect(explain).toBeEnabled();
     const first = await carrier.through("config.explain");
 
+    // The banner alone: the page's other alerts, such as the Operator
+    // policy's read failing with `person_required` behind the Stub gateway,
+    // come and go with the calls each Connection answers.
+    const banner = page.getByRole("alert").filter({ hasText: BANNER });
     const release = carrier.hold();
     await first.drop();
 
-    await expect(page.getByRole("alert")).toHaveText(BANNER);
+    await expect(banner).toHaveText(BANNER);
     await expect(explain).toBeDisabled();
     release();
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(banner).toHaveCount(0);
     await expect(explain).toBeEnabled();
     expect(carrier.connections.length).toBeGreaterThan(1);
   },

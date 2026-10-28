@@ -1124,7 +1124,22 @@ impl On<'_> {
         };
         let encoding = read_by_browser(tiers, &page_id, navigated.response.as_ref());
         self.document.lock().await.clone_from(&navigated.response);
-        record_tier(run, leased, lease, &browser, how, encoding.clone(), None).await;
+        // A document the Session's egress relay reached under an
+        // invalid-certificate exception marks its Records (ADR 0042).
+        let certificate_exception = match &navigated.response {
+            Some(response) => tiers.browser_exception(&page_id, &response.url).await,
+            None => None,
+        };
+        record_tier(
+            run,
+            leased,
+            lease,
+            &browser,
+            how,
+            encoding.clone(),
+            certificate_exception,
+        )
+        .await;
         self.in_flight
             .lock()
             .await

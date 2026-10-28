@@ -858,6 +858,17 @@ impl BrowserPages for Opener {
         Box::pin(async move { self.pages.sessions.retire(run_id, pooled, context).await })
     }
 
+    fn certificate_exception<'a>(
+        &'a self,
+        page_id: &'a PageId,
+        host: &'a str,
+    ) -> Opening<'a, Option<goodfetch_engine::tls::ExceptionUsed>> {
+        Box::pin(async move {
+            let page = self.pages.sessions.page(page_id).await.ok()?;
+            page.driver.relay()?.exception(host)
+        })
+    }
+
     fn fetch<'a>(
         &'a self,
         run_id: &'a RunId,

@@ -87,6 +87,17 @@ pub trait BrowserPages: Send + Sync {
     /// Closes the page `page_id`, unless it is closed already.
     fn close<'a>(&'a self, page_id: &'a PageId) -> Opening<'a, ()>;
 
+    /// The invalid-certificate exception the browser page `page_id`
+    /// reached `host` through: the one its Session's egress relay
+    /// terminated the host's connections under (ADR 0042), for the
+    /// Provenance of what the page fetched; none for a host reached without
+    /// one, or once the page closed.
+    fn certificate_exception<'a>(
+        &'a self,
+        page_id: &'a PageId,
+        host: &'a str,
+    ) -> Opening<'a, Option<goodfetch_engine::tls::ExceptionUsed>>;
+
     /// Retires the Session of the Run `run_id` that the Product's Session
     /// pool names `pooled` (spec #594's `Retire`): its pages and browser
     /// context close, and the pool's next Session is a new one. One the

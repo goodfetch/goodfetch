@@ -1379,6 +1379,25 @@ impl FetchTiers {
         pages.open(run_id, pooled, url, context).await
     }
 
+    /// The invalid-certificate exception the browser page `page_id`
+    /// reached the host of `url`, its document's, through, as its Records'
+    /// Provenance marks it (ADR 0042): the one its Session's egress relay
+    /// terminated that host's connections under; none without one.
+    pub async fn browser_exception(
+        &self,
+        page_id: &PageId,
+        url: &str,
+    ) -> Option<CertificateExceptionMark> {
+        let pages = self.served.browser.get()?;
+        let url = Url::parse(url).ok()?;
+        let host = url.host_str()?;
+        pages
+            .certificate_exception(page_id, host)
+            .await
+            .as_ref()
+            .map(mark)
+    }
+
     /// Retires the browser context of the Session `pooled` of the Run
     /// `run_id`'s Session pool, once the pool retired that Session and no
     /// attempt holds it: its pages close, and the pool's replacement opens

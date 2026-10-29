@@ -4,9 +4,12 @@
 //! that commits every write its mailbox holds in one transaction. Each
 //! commit is accepted only under the writer's run epoch: a writer whose
 //! epoch the file no longer holds commits nothing. A commit that meets a full
-//! disk or an I/O error (`SQLITE_FULL`, `SQLITE_IOERR`) at any of its writes
-//! is rolled back with `ROLLBACK`, as SQLite advises, so the file is the
-//! same after any of them; nothing of it is acknowledged, and the writer
+//! disk or an I/O error (`SQLITE_FULL`, `SQLITE_IOERR`, and the
+//! `SQLITE_CORRUPT` SQLite reports for a read that met EIO) at any of its
+//! writes is rolled back with `ROLLBACK`, as SQLite advises, so the file is
+//! the same after any of them; the writes queued after the failing one never
+//! run, since SQLite may have ended the transaction already, and nothing of
+//! the commit is acknowledged, and the writer
 //! says so to whoever watches its storage failures, which stop its Run
 //! (ADR 0122). The file opens through a
 //! VFS named by a value, none in production, the crash VFS in tests. Each
@@ -195,8 +198,9 @@ pub enum RunStateError {
         /// minor refused this engine.
         install: Option<String>,
     },
-    /// The disk was full or failed an I/O at the commit (ADR 0122): it was
-    /// rolled back, and nothing of it is acknowledged.
+    /// The disk was full or failed an I/O at one of the commit's writes or at
+    /// the commit itself (ADR 0122): it was rolled back, and nothing of it is
+    /// acknowledged.
     #[error("run state at `{path}` could not be written to its storage: {message}")]
     Storage {
         /// The run file.
@@ -223,9 +227,11 @@ impl RunStateError {
 
 type Completion = Box<dyn FnOnce(Result<(), RunStateError>) + Send>;
 /// A write: given the transaction, it runs its work and answers how to
-/// report it once the commit ends, and whether its work met a full disk or
-/// an I/O error; given none, it reports the failure only.
-type QueuedWrite = Box<dyn FnOnce(Option<(&Connection, &Path)>) -> (Completion, bool) + Send>;
+/// report it once the commit ends, and the failure that ends its group when
+/// its work met a full disk or an I/O error or left the transaction in a
+/// state the writer cannot know; given none, it reports the failure only.
+type QueuedWrite =
+    Box<dyn FnOnce(Option<(&Connection, &Path)>) -> (Completion, Option<RunStateError>) + Send>;
 
 /// `work` as a write the writer's actor runs in its next commit, and the
 /// answer it sends once that commit ends.
@@ -236,18 +242,22 @@ where
 {
     let (answer, answered) = oneshot::channel();
     let job: QueuedWrite = Box::new(move |transaction: Option<(&Connection, &Path)>| {
-        let mut storage = false;
+        let mut ends_group = None;
         let done = match transaction {
-            Some((connection, path)) => run_in_savepoint(connection, work).map_err(|error| {
-                storage = is_storage(&error);
-                sqlite_error(path, &error)
-            }),
+            Some((connection, path)) => {
+                run_in_savepoint(connection, work).map_err(|Failed { error, ended }| {
+                    if ended {
+                        ends_group = Some(commit_error(path, &error));
+                    }
+                    sqlite_error(path, &error)
+                })
+            }
             None => Err(RunStateError::Closed),
         };
         let completion: Completion = Box::new(move |committed: Result<(), RunStateError>| {
             let _ = answer.send(committed.and(done));
         });
-        (completion, storage)
+        (completion, ends_group)
     });
     (job, answered)
 }
@@ -487,11 +497,17 @@ pub(crate) fn sqlite_error(path: &Path, error: &impl std::fmt::Display) -> RunSt
 }
 
 /// Whether `error` is a full disk or an I/O error, after which SQLite may
-/// have rolled the whole transaction back (ADR 0122).
+/// have rolled the whole transaction back (ADR 0122). A read that met an
+/// I/O error (EIO) counts: SQLite's Unix VFS reports it as
+/// `SQLITE_IOERR_CORRUPTFS`, which reaches its caller as `SQLITE_CORRUPT`.
 fn is_storage(error: &rusqlite::Error) -> bool {
     matches!(
         error.sqlite_error_code(),
-        Some(rusqlite::ErrorCode::DiskFull | rusqlite::ErrorCode::SystemIoFailure)
+        Some(
+            rusqlite::ErrorCode::DiskFull
+                | rusqlite::ErrorCode::SystemIoFailure
+                | rusqlite::ErrorCode::DatabaseCorrupt
+        )
     )
 }
 
@@ -603,21 +619,39 @@ pub(crate) fn check_format(format: &Format, found: &str) -> Result<(), RunStateE
     }
 }
 
-/// Runs `work` in a savepoint of its own, which an error rolls back.
+/// Why a write's savepoint failed.
+struct Failed {
+    /// SQLite's own error, or the write's.
+    error: rusqlite::Error,
+    /// Whether the group's transaction can go on: not after a full disk or
+    /// an I/O error, nor once SQLite ended the transaction, nor when the
+    /// savepoint's own statements failed, which leave its state unknown.
+    ended: bool,
+}
+
+/// Runs `work` in a savepoint of its own, which an error rolls back. A full
+/// disk or an I/O error can end the whole transaction in SQLite, closing
+/// its savepoints (ADR 0122); the savepoint is then never rolled back to,
+/// since a statement run after it would commit on its own.
 fn run_in_savepoint<T>(
     connection: &Connection,
     work: impl FnOnce(&Connection) -> rusqlite::Result<T>,
-) -> rusqlite::Result<T> {
-    connection.execute_batch("SAVEPOINT write")?;
+) -> Result<T, Failed> {
+    let ended = |error| Failed { error, ended: true };
+    connection.execute_batch("SAVEPOINT write").map_err(ended)?;
     match work(connection) {
         Ok(answer) => {
-            connection.execute_batch("RELEASE write")?;
+            connection.execute_batch("RELEASE write").map_err(ended)?;
             Ok(answer)
         }
-        Err(error) => {
-            connection.execute_batch("ROLLBACK TO write; RELEASE write")?;
-            Err(error)
-        }
+        Err(error) if is_storage(&error) || connection.is_autocommit() => Err(ended(error)),
+        Err(error) => match connection.execute_batch("ROLLBACK TO write; RELEASE write") {
+            Ok(()) => Err(Failed {
+                error,
+                ended: false,
+            }),
+            Err(_) => Err(ended(error)),
+        },
     }
 }
 
@@ -685,27 +719,35 @@ fn commit_writes(
             error => Err(error),
         });
     match found {
-        Err(error) => return Err(refuse(group, sqlite_error(path, &error))),
+        Err(error) => return Err(refuse(group, commit_error(path, &error))),
         Ok(Some(found)) if i64::try_from(epoch).ok() != Some(found) => {
             let found = u64::try_from(found).unwrap_or_default();
             return Err(refuse(group, RunStateError::Fenced { held: epoch, found }));
         }
         Ok(_) => {}
     }
-    let (completions, storage): (Vec<Completion>, Vec<bool>) = group
-        .into_iter()
-        .map(|job| job(Some((&transaction, path))))
-        .unzip();
-    let failed = if storage.contains(&true) {
-        Some(RunStateError::Storage {
-            path: path.to_owned(),
-            message: "a write met a full disk or an I/O error".to_owned(),
-        })
-    } else {
-        transaction
+    let mut completions = Vec::with_capacity(group.len());
+    let mut jobs = group.into_iter();
+    let mut ended = None;
+    for job in jobs.by_ref() {
+        let (completion, ends_group) = job(Some((&transaction, path)));
+        completions.push(completion);
+        if ends_group.is_some() {
+            ended = ends_group;
+            break;
+        }
+    }
+    let failed = match ended {
+        // The rest of the group never runs: in a transaction SQLite ended,
+        // each of its statements would commit on its own.
+        Some(error) => {
+            completions.extend(jobs.map(|job| job(None).0));
+            Some(error)
+        }
+        None => transaction
             .execute("UPDATE run SET journal_position = journal_position + 1", [])
             .err()
-            .map(|error| commit_error(path, &error))
+            .map(|error| commit_error(path, &error)),
     };
     if let Some(error) = failed {
         // SQLite may have rolled the transaction back already after a full

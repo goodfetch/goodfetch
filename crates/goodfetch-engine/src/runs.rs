@@ -3997,25 +3997,32 @@ impl Registry {
         let folder = self.folder(&run_id);
         let vfs = self.setup.run_state.vfs.clone();
         let install = self.setup.install.clone();
-        let (id, erasing) = (run_id.clone(), folder.clone());
-        let discarded = self
-            .owner
-            .blocking(move || {
-                discard::discard(id.as_str(), &erasing, vfs.as_deref(), install.as_deref())
-            })
-            .await
-            .map_err(|error| match error {
-                discard::DiscardError::Held => RunError::InUse {
-                    run_id: run_id.clone(),
-                    folder: folder.clone(),
-                },
-                discard::DiscardError::State(error) => RunError::of_state(&run_id, &folder, error),
-                discard::DiscardError::Io(error) => RunError::Unavailable {
-                    run_id: run_id.clone(),
-                    folder: folder.clone(),
-                    error,
-                },
-            })?;
+        let mut entropy = self.setup.entropy.fork();
+        let discarding = discard::Discarding {
+            owner: &self.owner,
+            clock: &self.setup.clock,
+            entropy: &mut entropy,
+        };
+        let discarded = discard::discard(
+            discarding,
+            run_id.as_str(),
+            &folder,
+            vfs.as_deref(),
+            install.as_ref(),
+        )
+        .await
+        .map_err(|error| match error {
+            discard::DiscardError::Held => RunError::InUse {
+                run_id: run_id.clone(),
+                folder: folder.clone(),
+            },
+            discard::DiscardError::State(error) => RunError::of_state(&run_id, &folder, error),
+            discard::DiscardError::Io(error) => RunError::Unavailable {
+                run_id: run_id.clone(),
+                folder: folder.clone(),
+                error,
+            },
+        })?;
         self.ended.remove(&run_id);
         self.found_ended.remove(&run_id);
         self.unrecorded.remove(&run_id);

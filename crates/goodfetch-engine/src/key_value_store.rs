@@ -255,7 +255,10 @@ pub fn delete(connection: &Connection, key: &str) -> rusqlite::Result<Removed> {
 
 /// At most `most` keys that start with `prefix`, after `after` when given,
 /// in the order of their Unicode scalar values: SQLite compares text by its
-/// UTF-8 bytes, which order as their scalar values do.
+/// UTF-8 bytes, which order as their scalar values do. A prefix's keys are
+/// therefore contiguous in the key index: a page searches it from its
+/// first key and stops at the first key past the prefix, so it reads only
+/// the keys it answers.
 ///
 /// # Errors
 ///
@@ -266,15 +269,31 @@ pub fn keys(
     after: Option<&str>,
     most: usize,
 ) -> rusqlite::Result<Vec<String>> {
-    let mut statement = connection.prepare(
-        "SELECT key FROM key_values
-         WHERE substr(key, 1, length(?1)) = ?1 AND (?2 IS NULL OR key > ?2)
-         ORDER BY key LIMIT ?3",
-    )?;
-    let most = i64::try_from(most).unwrap_or(i64::MAX);
-    statement
-        .query_map((prefix, after, most), |row| row.get(0))?
-        .collect()
+    let mut statement = match after {
+        Some(after) if after >= prefix => {
+            let mut statement =
+                connection.prepare("SELECT key FROM key_values WHERE key > ?1 ORDER BY key")?;
+            statement.raw_bind_parameter(1, after)?;
+            statement
+        }
+        _ => {
+            let mut statement =
+                connection.prepare("SELECT key FROM key_values WHERE key >= ?1 ORDER BY key")?;
+            statement.raw_bind_parameter(1, prefix)?;
+            statement
+        }
+    };
+    let mut rows = statement.raw_query();
+    let mut found = Vec::new();
+    while found.len() < most {
+        let Some(row) = rows.next()? else { break };
+        let key: String = row.get(0)?;
+        if !key.starts_with(prefix) {
+            break;
+        }
+        found.push(key);
+    }
+    Ok(found)
 }
 
 /// The store's operations' handlers.

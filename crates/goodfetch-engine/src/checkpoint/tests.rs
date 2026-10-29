@@ -272,6 +272,46 @@ fn an_installed_checkpoint_replaces_the_run_file_whole() {
     assert_eq!((items(&installed), epoch), (vec![4, 5], 1));
 }
 
+/// A Checkpoint whose kept files' chunks are damaged is refused before it
+/// touches the run file it would replace: that run file keeps its own
+/// state, and none of the Checkpoint's chunks.
+/// Covers: story:3-34
+#[test]
+fn a_checkpoint_whose_kept_files_cannot_be_carried_leaves_the_run_file_as_it_was() {
+    let (env, other) = (TestEnv::new(), TestEnv::new());
+    let checkpoint = env.folder().join("taken.sqlite");
+    with_run(&env, 1, None, &[4, 5], |source| {
+        write(source, None, &checkpoint, 7).unwrap()
+    });
+    let damaged = Connection::open(&checkpoint).unwrap();
+    for statement in crate::run_files::TABLES.statements {
+        damaged.execute(statement, []).unwrap();
+    }
+    damaged
+        .execute(
+            "INSERT INTO run_file_chunks (sha256, offset, data) VALUES (?1, 0, x'00')",
+            ["a".repeat(64)],
+        )
+        .unwrap();
+    drop(damaged);
+    let run_file = with_run(&other, 1, None, &[9], Path::to_owned);
+
+    let installed = install(&checkpoint, &run_file, None);
+
+    let kept = Connection::open(&run_file).unwrap();
+    let chunks: i64 = kept
+        .query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE name = 'run_file_chunks'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        (installed.is_err(), items(&kept), chunks),
+        (true, vec![9], 0)
+    );
+}
+
 mod checkpoint_file {
     goodfetch_test_support::fuzz_replay!(crate::checkpoint::fuzz_checkpoint, "fuzz/checkpoint");
 }

@@ -86,6 +86,8 @@ Nothing stops at `low`, and admission goes on. Holding new work, as ADR 0040 doe
 
 A quota, another process filling the disk between two samples, or a filesystem that misreports its space makes a write fail with no warning.
 - **The run file.** The writer issues `ROLLBACK` after `SQLITE_FULL` or `SQLITE_IOERR`, as SQLite advises, so the state is the same after any of them. Nothing in the failed commit is acknowledged.
+
+  > Note (agent decision, pending owner review), 2026-10-28, deep review 213-1: the writer also treats `SQLITE_CORRUPT` as a failed write, since SQLite's Unix VFS reports a read that meets EIO as `SQLITE_IOERR_CORRUPTFS`, which reaches the caller as `SQLITE_CORRUPT`, and the two cannot be told apart. A write of a group that meets any of these, or finds that SQLite ended the transaction, ends the group: the writes after it never run, since each would commit on its own outside the ended transaction, and every write of the group is answered with the storage failure.
 - **Then the Run stops as at `critical`,** from its last acknowledged commit:
   - its in-flight work is redone on resume, delivered at least once and made visible once (ADR 0003);
   - an Effect whose journal entry was not committed is checked first on resume, or reported uncertain, as after a crash (ADRs 0010, 0029, 0106).

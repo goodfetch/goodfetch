@@ -242,7 +242,7 @@ impl Started {
         let (link, reader) = connect(&runtime.endpoint)?;
         started.link = link;
         started.lines = read_lines(reader);
-        started.token = Some(runtime.token);
+        started.token = Some(runtime.token.expose().to_owned());
         started.endpoint = Some(runtime.endpoint);
         Ok(started)
     }

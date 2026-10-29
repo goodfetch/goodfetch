@@ -38,6 +38,8 @@ goodfetch-test-support.workspace = true
 gungraun.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
+# The learned rules' tests read the statements a re-keying runs (trace_v2).
+rusqlite = { workspace = true, features = ["cache", "trace"] }
 rstest.workspace = true
 # The Frontier at scale keeps its run file on disk, in a folder of its own.
 tempfile.workspace = true

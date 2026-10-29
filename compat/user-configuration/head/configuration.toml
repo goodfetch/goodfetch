@@ -255,6 +255,7 @@ max_crawl_delay = 30000
 sample_pages = 4
 handle_statuses = [4]
 content_types = ["example"]
+max_staged_enqueues = 4
 domain_keys = { "example.test" = "example" }
 keep_alive = true
 max_depth = 4

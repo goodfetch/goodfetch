@@ -365,6 +365,9 @@ fn daemon_status_counts_its_clients_and_live_runs() {
             call(&mut first, 1, "run.start", json!({ "run_id": "one" })).await;
             call(&mut second, 1, "run.start", json!({ "run_id": "two" })).await;
             let status = call(&mut first, 2, "daemon.status", json!({})).await;
+            // A CLI command's Run outlives its Connection and holds the
+            // Daemon from its idle stop, so it ends before the test does.
+            call(&mut first, 3, "run.finish", json!({ "run_id": "one" })).await;
             first.close().await;
             second.close().await;
             status
@@ -454,6 +457,56 @@ fn the_runs_a_cli_connection_starts_outlive_it() {
     assert_eq!(
         (live, index_row(&env, "lasting")["lifecycle"].clone()),
         (json!(1), json!("finished"))
+    );
+}
+
+/// A Run that outlives the CLI command that started it keeps the Daemon
+/// from its idle stop until it ends, with no Client connected, so a crawl
+/// started from the CLI runs to its end; once it ended, the Daemon stops
+/// idle as before (608-O1).
+///
+/// Covers: story:3-18, story:11-199, setting:daemon.idle_timeout
+#[test]
+fn a_run_that_outlived_its_cli_command_keeps_the_daemon_until_it_ends() {
+    let env = TestEnv::new();
+
+    let (end, (live, after)) = daemon(
+        &engine(Product::Collie),
+        &env,
+        the_pick(),
+        |dialer| async move {
+            let mut starting = opened(&dialer, cli_hello()).await;
+            call(
+                &mut starting,
+                1,
+                "run.start",
+                json!({ "run_id": "lasting" }),
+            )
+            .await;
+            starting.close().await;
+            while starting.next().await.is_some() {}
+            tokio::time::sleep(60 * MINUTE).await;
+            let mut next = opened(&dialer, cli_hello()).await;
+            let status = call(&mut next, 1, "daemon.status", json!({})).await;
+            call(&mut next, 2, "run.finish", json!({ "run_id": "lasting" })).await;
+            next.close().await;
+            while next.next().await.is_some() {}
+            tokio::time::sleep(11 * MINUTE).await;
+            (
+                status["result"]["live_runs"].clone(),
+                answers(&dialer).await,
+            )
+        },
+    );
+
+    assert_eq!(
+        (
+            live,
+            after,
+            index_row(&env, "lasting")["lifecycle"].clone(),
+            format!("{end:?}")
+        ),
+        (json!(1), false, json!("finished"), "Idle".to_owned())
     );
 }
 

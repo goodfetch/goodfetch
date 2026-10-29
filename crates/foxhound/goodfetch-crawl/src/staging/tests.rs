@@ -11,14 +11,15 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::staging::{AttemptWrites as _, StagedKey, StagedWrite};
 use goodfetch_frontier::{
     BOUNDS_TABLES, Candidate, Declared, Narrowing, Patterns, SCOPE_TABLES, Scope, ScopeStrategy,
-    VISITED_TABLES, admit, document_base,
+    VISITED_TABLES, document_base,
 };
 use goodfetch_protocol::foxhound::crawl::Seed;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
+use goodfetch_protocol::foxhound::outcomes::NotAddedAtCommit;
 use rusqlite::Connection;
 use serde_json::json;
 
-use super::{Answered, Staging};
+use super::{Answered, AttemptKey, Staging};
 use crate::work_items::{self, Adding, Positions};
 
 /// A run file in memory holding one seed, `https://shop.test/`, leased to
@@ -86,22 +87,23 @@ fn enqueue(
             depth: 1,
         };
         let scope = Scope::read(connection)?;
-        admit(connection, &scope, &every_host(), candidate, |url| {
-            work_items::add(
-                connection,
-                positions,
-                url,
-                Adding {
-                    method: &method,
-                    body: None,
-                    label: "page",
-                    payload: None,
-                    priority: 0,
-                    forefront: false,
-                    depth: 1,
-                },
-            )
-        })
+        let adding = Adding {
+            method: &method,
+            body: None,
+            label: "page",
+            payload: None,
+            priority: 0,
+            forefront: false,
+            depth: 1,
+        };
+        work_items::admit(
+            connection,
+            positions,
+            &scope,
+            &every_host(),
+            candidate,
+            adding,
+        )
         .map(|enqueued| Some(Ok(enqueued)))
     }
 }
@@ -145,7 +147,12 @@ fn a_staged_enqueue_is_answered_as_it_commits_and_keeps_its_id_through_the_commi
         &mut Positions::of(&connection).unwrap(),
     ));
     staging.discard("1", 7);
-    let writes = staging.take("1", 1).admit(&connection).unwrap().len();
+    let writes = staging
+        .take("1", 1)
+        .admit(&connection)
+        .unwrap()
+        .writes
+        .len();
 
     assert_eq!(
         (answers, staged, writes, work_items_of(&connection)),
@@ -237,6 +244,371 @@ fn an_enqueue_or_a_write_inside_an_effects_body_fails_with_effect_staging_refuse
             false,
         )
     );
+}
+
+thread_local! {
+    /// The statements the traced connection of this thread ran, each with
+    /// its parameters' values.
+    static RAN: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn record(event: rusqlite::trace::TraceEvent<'_>) {
+    if let rusqlite::trace::TraceEvent::Stmt(statement, _) = event {
+        let sql = statement
+            .expanded_sql()
+            .unwrap_or_else(|| statement.sql().into_owned());
+        RAN.with_borrow_mut(|ran| ran.push(sql));
+    }
+}
+
+/// What `act` answers, and each statement it ran on `connection`, in
+/// order, with its parameters' values.
+fn statements_of<T>(connection: &Connection, act: impl FnOnce() -> T) -> (T, Vec<String>) {
+    RAN.with_borrow_mut(Vec::clear);
+    connection.trace_v2(
+        rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+        Some(record),
+    );
+    let answered = act();
+    connection.trace_v2(rusqlite::trace::TraceEventCodes::empty(), None);
+    (answered, RAN.with_borrow_mut(std::mem::take))
+}
+
+/// Each step of the query plans of `statements` that scans `table`.
+fn scans_of(connection: &Connection, statements: &[String], table: &str) -> Vec<String> {
+    let scan = format!("SCAN {table}");
+    let mut scans = Vec::new();
+    for statement in statements
+        .iter()
+        .filter(|statement| !statement.starts_with("--") && statement.contains(table))
+    {
+        let mut plan = connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {statement}"))
+            .unwrap();
+        let steps: Vec<String> = plan
+            .query_map([], |row| row.get(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        scans.extend(
+            steps
+                .into_iter()
+                .filter(|step| step.starts_with(&scan))
+                .map(|step| format!("{step}: {statement}")),
+        );
+    }
+    scans
+}
+
+/// Fills the visited set with `count` identities of another host's
+/// requests, as a crawl that admitted that many leaves it.
+fn visited_elsewhere(connection: &Connection, count: u32) {
+    connection
+        .execute(
+            "WITH RECURSIVE n (i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?1)
+             INSERT INTO visited (identity, crawl_request)
+             SELECT 'GET https://elsewhere.test/item?id=' || i, 'elsewhere-' || i FROM n",
+            [count],
+        )
+        .unwrap();
+}
+
+/// A staged enqueue on a crawl that visited 100,000 URLs names the
+/// identity of the request it added, which a sample comparison weighs,
+/// without any statement that scans the visited set: its write holds the
+/// Run's one writer for one admission, whatever the crawl's size.
+///
+/// Covers: story:5-116, story:6-236
+#[test]
+fn a_staged_enqueue_names_its_identity_without_scanning_the_visited_set() {
+    let connection = leased();
+    visited_elsewhere(&connection, 100_000);
+    let staging = Staging::default();
+    staging.open("1", 1);
+
+    let (answered, statements) = statements_of(&connection, || {
+        answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/b")))
+    });
+
+    assert_eq!(
+        (
+            answered,
+            staging.pushed("1", 1).enqueues,
+            scans_of(&connection, &statements, "visited"),
+        ),
+        (
+            Enqueued::Added {
+                id: "2".to_owned(),
+                url: "https://shop.test/b".to_owned()
+            },
+            ["GET https://shop.test/b".to_owned()].into(),
+            Vec::<String>::new(),
+        )
+    );
+}
+
+/// n separate enqueues of one attempt run n admissions while they stage,
+/// one each, and n again at the commit, in order: an enqueue does not run
+/// the attempt's earlier ones again to answer, and joins what it did to
+/// what they did where it lies, never copying theirs.
+///
+/// Covers: story:6-236
+#[test]
+fn separate_enqueues_of_one_attempt_run_one_admission_each() {
+    let connection = leased();
+    let staging = Staging::default();
+    staging.open("1", 1);
+    let admissions = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = |url: &'static str| {
+        let admissions = std::sync::Arc::clone(&admissions);
+        let admission = enqueue(url);
+        move |connection: &Connection, positions: &mut Positions| {
+            admissions.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            admission(connection, positions)
+        }
+    };
+    let urls = [
+        "https://shop.test/1",
+        "https://shop.test/2",
+        "https://shop.test/3",
+        "https://shop.test/4",
+        "https://shop.test/5",
+        "https://shop.test/6",
+        "https://shop.test/7",
+        "https://shop.test/8",
+        "https://shop.test/9",
+        "https://shop.test/10",
+    ];
+
+    let mut places = std::collections::BTreeSet::new();
+    for url in urls {
+        answer(staging.admit(&connection, "1", 1, counted(url)));
+        let entries = staging.entries();
+        let entry = &entries[&AttemptKey::of("1", 1)];
+        places.insert(std::sync::Arc::as_ptr(&entry.staged) as usize);
+    }
+    let staged = admissions.swap(0, std::sync::atomic::Ordering::Relaxed);
+    staging.take("1", 1).admit(&connection).unwrap();
+    let committed = admissions.load(std::sync::atomic::Ordering::Relaxed);
+
+    assert_eq!(
+        (
+            staged,
+            committed,
+            work_items_of(&connection).len(),
+            places.len()
+        ),
+        (10, 10, 11, 1)
+    );
+}
+
+/// Two attempts that stage the same link are each answered `added` with an
+/// ID of its own; the commit of the second, when the first committed it
+/// meanwhile, does not add it twice, and names the ID its staging answered,
+/// why it was not added and the request it is a duplicate of, which its
+/// outcome then carries (ADR 0093).
+///
+/// Covers: story:6-236
+#[test]
+fn a_commit_names_each_staged_request_another_commit_added_first() {
+    let connection = leased();
+    let seed: Seed =
+        serde_json::from_value(json!({ "url": "https://shop.test/a", "label": "page" })).unwrap();
+    work_items::admit_seeds(
+        &connection,
+        &mut Positions::of(&connection).unwrap(),
+        &Scope::read(&connection).unwrap(),
+        &every_host(),
+        &[seed],
+    )
+    .unwrap();
+    let epoch = work_items::lease(&connection, &["2".to_owned()]).unwrap()[0].lease_epoch;
+    let staging = Staging::default();
+    staging.open("1", 1);
+    staging.open("2", epoch);
+    let answers = [
+        answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/b"))),
+        answer(staging.admit(&connection, "2", epoch, enqueue("https://shop.test/b"))),
+    ];
+
+    let second = staging
+        .take("2", epoch)
+        .admit(&connection)
+        .unwrap()
+        .not_added;
+    let first = staging.take("1", 1).admit(&connection).unwrap().not_added;
+
+    assert_eq!(
+        (answers, second, first, work_items_of(&connection)),
+        (
+            [
+                Enqueued::Added {
+                    id: "3".to_owned(),
+                    url: "https://shop.test/b".to_owned()
+                },
+                Enqueued::Added {
+                    id: "4".to_owned(),
+                    url: "https://shop.test/b".to_owned()
+                },
+            ],
+            Vec::new(),
+            vec![NotAddedAtCommit {
+                id: "3".to_owned(),
+                url: "https://shop.test/b".to_owned(),
+                reason: NotAddedReason::Duplicate,
+                duplicate_of: Some("4".to_owned()),
+            }],
+            vec![
+                ("1".to_owned(), "https://shop.test/".to_owned()),
+                ("2".to_owned(), "https://shop.test/a".to_owned()),
+                ("4".to_owned(), "https://shop.test/b".to_owned()),
+            ],
+        )
+    );
+}
+
+/// An attempt stages at most `crawl.max_staged_enqueues` admissions: one
+/// more fails with `staging_full`, naming the setting, and stages nothing,
+/// so the commit adds only those before it.
+///
+/// Covers: story:6-236, error:staging_full, setting:crawl.max_staged_enqueues
+#[test]
+fn an_admission_past_the_attempts_bound_fails_with_staging_full() {
+    let connection = leased();
+    let staging = Staging::bounded(2);
+    staging.open("1", 1);
+    answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/b")));
+    answer(staging.admit(&connection, "1", 1, enqueue("https://shop.test/c")));
+
+    let refused = staging
+        .admit(&connection, "1", 1, enqueue("https://shop.test/d"))
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    staging.take("1", 1).admit(&connection).unwrap();
+
+    assert_eq!(
+        (
+            refused.code(),
+            refused
+                .details()
+                .and_then(|details| details.get("limit"))
+                .cloned(),
+            work_items_of(&connection).len(),
+        ),
+        ("staging_full", Some(json!("crawl.max_staged_enqueues")), 3)
+    );
+}
+
+/// One admission of the crawl, as a staged call or a commit runs it.
+type Step = Box<dyn Fn(&Connection, &mut Positions) -> Answered<Enqueued> + Send + Sync>;
+
+/// Enqueues and a seed whose answers hang on the ones before them: a
+/// duplicate, a path budget and `crawl.max_requests` filling up, and a
+/// seed that widens the scope for a later link.
+fn dependent_steps() -> Vec<Step> {
+    let seed = |connection: &Connection, positions: &mut Positions| {
+        let seed: Seed =
+            serde_json::from_value(json!({ "url": "https://other.test/", "label": "page" }))
+                .unwrap();
+        let mut answers = work_items::admit_seeds(
+            connection,
+            positions,
+            &Scope::read(connection)?,
+            &every_host(),
+            &[seed],
+        )?;
+        Ok(Some(Ok(answers.pop().unwrap())))
+    };
+    vec![
+        Box::new(enqueue("https://shop.test/b")),
+        Box::new(enqueue("https://shop.test/b")),
+        Box::new(enqueue("https://other.test/early")),
+        Box::new(enqueue("https://shop.test/sale/1")),
+        Box::new(enqueue("https://shop.test/sale/2")),
+        Box::new(enqueue("https://shop.test/sale/3")),
+        Box::new(seed),
+        Box::new(enqueue("https://other.test/late")),
+        Box::new(enqueue("https://shop.test/c")),
+    ]
+}
+
+/// A run file as [`leased`] makes it, bounded at 6 requests and 2 under
+/// `/sale/*`.
+fn bounded() -> Connection {
+    let connection = leased();
+    connection
+        .execute_batch(
+            "INSERT INTO bounds (id, max_requests) VALUES (1, 6);
+             INSERT INTO bounds_path_budgets (position, pattern, max_requests)
+             VALUES (0, '/sale/*', 2);",
+        )
+        .unwrap();
+    connection
+}
+
+/// Separate staged admissions of one attempt are answered as admitting
+/// each in turn on the run file answers them, though none reached it: a
+/// duplicate of an earlier one, the path budget and `crawl.max_requests`
+/// counting the earlier ones, and a seed widening the scope for a later
+/// link; their commit then adds each as answered.
+///
+/// Covers: story:6-236
+#[test]
+fn staged_admissions_are_answered_as_admitting_them_in_turn_answers() {
+    let staged_run = bounded();
+    let direct_run = bounded();
+    let staging = Staging::default();
+    staging.open("1", 1);
+
+    let staged: Vec<Enqueued> = dependent_steps()
+        .into_iter()
+        .map(|step| answer(staging.admit(&staged_run, "1", 1, step)))
+        .collect();
+    let not_added = staging.take("1", 1).admit(&staged_run).unwrap().not_added;
+    let direct: Vec<Enqueued> = dependent_steps()
+        .into_iter()
+        .map(|step| answer(step(&direct_run, &mut Positions::of(&direct_run).unwrap())))
+        .collect();
+
+    assert_eq!(
+        (
+            staged.iter().map(named).collect::<Vec<_>>(),
+            staged,
+            not_added,
+            work_items_of(&staged_run),
+        ),
+        (
+            [
+                "added 2",
+                "duplicate",
+                "out_of_scope",
+                "added 3",
+                "added 4",
+                "path_budget",
+                "added 5",
+                "added 6",
+                "max_requests",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+            direct,
+            Vec::new(),
+            work_items_of(&direct_run),
+        )
+    );
+}
+
+/// An answer as `added <id>`, or the reason it was not added.
+fn named(enqueued: &Enqueued) -> String {
+    match enqueued {
+        Enqueued::Added { id, .. } => format!("added {id}"),
+        Enqueued::NotAdded { reason, .. } => serde_json::to_value(reason)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_owned(),
+    }
 }
 
 /// What an attempt staged so far names the Frontier identity of each

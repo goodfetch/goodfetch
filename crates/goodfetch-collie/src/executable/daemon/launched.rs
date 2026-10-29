@@ -42,7 +42,7 @@ use goodfetch_protocol::console::{
     ADDRESS as CONSOLE_ADDRESS, CONSOLE_PORT_IN_USE, CONTENT_ADDRESS, CONTENT_PUBLIC_URL,
     ConsoleFailure, ConsoleState, PUBLIC_URL, default_address,
 };
-use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, IDLE_TIMEOUT};
+use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, DaemonToken, IDLE_TIMEOUT};
 use goodfetch_protocol::people::{SIGN_IN_IDLE_EXPIRY, SIGN_IN_RATE};
 use goodfetch_protocol::settings::SETTING_INVALID;
 
@@ -188,7 +188,7 @@ pub(in crate::executable) fn launched(
         };
         let published = DaemonRuntimeFile {
             endpoint: endpoint.clone(),
-            token: token.clone(),
+            token: DaemonToken::new(token.clone()),
             version: identity.product_version.clone(),
             pid,
             console: console_state,

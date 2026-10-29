@@ -24,9 +24,7 @@ use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_fetch_tier::{FetchTiers, LinksUnread, ServedLinks};
 use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_frontier::trap_links::{self, Sight, Trap};
-use goodfetch_frontier::{
-    Candidate, Narrowing, Patterns, Scope, Url, admit, document_base, resolve_link,
-};
+use goodfetch_frontier::{Candidate, Narrowing, Patterns, Scope, Url, document_base, resolve_link};
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::frontier::{
@@ -434,22 +432,17 @@ fn add(
                     narrowing: batch.narrowing,
                     depth: depth + 1,
                 };
-                let enqueued = admit(connection, &scope, egress, candidate, |url| {
-                    work_items::add(
-                        connection,
-                        positions,
-                        url,
-                        Adding {
-                            method: &method,
-                            body: None,
-                            label: &params.label,
-                            payload: payload.as_ref(),
-                            priority: params.priority,
-                            forefront: false,
-                            depth: depth + 1,
-                        },
-                    )
-                })?;
+                let adding = Adding {
+                    method: &method,
+                    body: None,
+                    label: &params.label,
+                    payload: payload.as_ref(),
+                    priority: params.priority,
+                    forefront: false,
+                    depth: depth + 1,
+                };
+                let enqueued =
+                    work_items::admit(connection, positions, &scope, egress, candidate, adding)?;
                 match enqueued {
                     Enqueued::Added { id, url } => {
                         added += 1;

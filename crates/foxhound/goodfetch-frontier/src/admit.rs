@@ -39,6 +39,7 @@ use crate::bounds::{Bounds, count_admitted, count_refused};
 use crate::identity::{Declared, Key, Seen, identities, keyed, seen, visit_all};
 use crate::rules;
 use crate::scope::{Narrowing, Scope};
+use crate::staged::Admitting;
 use crate::url::{parse, parse_link};
 
 /// What the Frontier is asked to admit.
@@ -119,6 +120,33 @@ pub fn admit(
     candidate: Candidate<'_>,
     add: impl FnOnce(&Url) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
+    admit_in(
+        connection,
+        scope,
+        policy,
+        candidate,
+        &mut Admitting::RunFile,
+        add,
+    )
+}
+
+/// Admits `candidate` as [`admit`] does, against what `admitting` adds to
+/// the run file (ADR 0093): while an attempt stages, the visited
+/// identities, the counts and the seeds of its earlier admissions, and
+/// what this one does is noted there; at its commit, each URL this one
+/// does not add is noted there, with why.
+///
+/// # Errors
+///
+/// When the run file cannot be read or written, or what `add` fails with.
+pub fn admit_in(
+    connection: &Connection,
+    scope: &Scope,
+    policy: &Policy,
+    candidate: Candidate<'_>,
+    admitting: &mut Admitting,
+    add: impl FnOnce(&Url) -> rusqlite::Result<String>,
+) -> rusqlite::Result<Enqueued> {
     let Read {
         given,
         parsed,
@@ -127,54 +155,85 @@ pub fn admit(
         narrowing,
         depth,
     } = Read::of(candidate);
-    let not_added = |reason: NotAddedReason| Enqueued::NotAdded {
-        reason,
-        url: given.to_owned(),
-    };
     let url = match parsed {
         Ok(url) => url,
-        Err(reason) => return Ok(not_added(reason)),
+        Err(reason) => {
+            return Ok(Enqueued::NotAdded {
+                reason,
+                url: given.to_owned(),
+            });
+        }
     };
+    let not_added =
+        |admitting: &mut Admitting, reason: NotAddedReason, duplicate_of: Option<&str>| {
+            admitting.refused(&url, reason, duplicate_of);
+            Enqueued::NotAdded {
+                reason,
+                url: given.to_owned(),
+            }
+        };
     if let Some(narrowing) = narrowing
-        && !scope.admits(connection, &url, narrowing)?
+        && !scope.admits_in(connection, &url, narrowing, admitting.earlier())?
     {
-        return Ok(not_added(NotAddedReason::OutOfScope));
+        return Ok(not_added(admitting, NotAddedReason::OutOfScope, None));
     }
     let request = Request {
         url: url.as_str(),
         kind: RequestKind::Fetch,
     };
     if let Judgment::Refused(_) = judge(&request, policy) {
-        return Ok(not_added(NotAddedReason::DomainPolicy));
+        return Ok(not_added(admitting, NotAddedReason::DomainPolicy, None));
     }
     let key = Key::of(&url, declared.keeps_fragment);
     let identities = identities(connection, &key, declared)?;
-    match seen(connection, &identities)? {
+    match seen(connection, &identities, admitting.earlier())? {
         Seen::New => {}
-        Seen::Visited(_) => return Ok(not_added(NotAddedReason::Duplicate)),
-        Seen::Merged { rules, .. } => {
+        Seen::Visited(visitor) => {
+            return Ok(not_added(
+                admitting,
+                NotAddedReason::Duplicate,
+                Some(&visitor),
+            ));
+        }
+        Seen::Merged {
+            rules,
+            crawl_request,
+        } => {
             for rule in rules {
                 rules::merged(connection, rule, url.as_str())?;
             }
-            return Ok(not_added(NotAddedReason::Duplicate));
+            return Ok(not_added(
+                admitting,
+                NotAddedReason::Duplicate,
+                Some(&crawl_request),
+            ));
         }
     }
     if let Some((reason, rule)) = rules::refuses(connection, key.url())? {
         rules::merged(connection, rule, url.as_str())?;
-        return Ok(not_added(reason));
+        return Ok(not_added(admitting, reason, None));
     }
     let bounds = Bounds::read(connection)?;
     let budget = bounds.budget_of(&url);
-    if let Some(reason) = bounds.refuses(connection, &url, depth.into(), budget)? {
+    if let Some(reason) =
+        bounds.refuses(connection, &url, depth.into(), budget, admitting.earlier())?
+    {
         count_refused(connection, reason, budget)?;
-        return Ok(not_added(reason));
+        return Ok(not_added(admitting, reason, None));
     }
     let id = add(&url)?;
     count_admitted(connection, budget)?;
     visit_all(connection, &identities, &id)?;
+    admitting.admitted(
+        &id,
+        identities.plain(),
+        identities.learned(),
+        budget.map(|budget| budget.pattern.as_str()),
+    );
     rules::admitted(connection, key.url(), from.map(keyed).as_ref())?;
     if narrowing.is_none() {
         Scope::widen(connection, &url)?;
+        admitting.widened(&url);
     }
     Ok(Enqueued::Added {
         id,

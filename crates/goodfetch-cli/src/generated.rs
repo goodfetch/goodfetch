@@ -30,7 +30,8 @@
 //! chunk the call sends as it arrives, `name=value` fields on one line, or
 //! one JSON object per line under `--json`, until the call ends. A failure
 //! prints its message, code, retryability and `fix` on stderr, or under
-//! `--json` [`CommandFailed`] on stdout, and exits with its row of
+//! `--json` [`CommandFailed`](goodfetch_protocol::cli::CommandFailed) on
+//! stdout, and exits with its row of
 //! [`exit_codes`]. A command whose operation answers a Run report exits by
 //! how the Run ended ([`exit_codes::of_report`]): `20` for a Run that ended
 //! `stopped`, and under its `--require-verified` `21` for a Verdict other
@@ -51,13 +52,12 @@ use clap::error::ErrorKind;
 use clap::{Arg, ArgAction, ArgMatches, Args as _, Command, FromArgMatches, Subcommand};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::{
-    Deprecation, ErrorGroup, Operation, OperationKind, Product, Reach, SDK_ONLY,
+    Deprecation, Operation, OperationKind, Product, Reach, SDK_ONLY,
 };
-use goodfetch_protocol::cli::{CommandError, CommandFailed};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::events::EVENTS;
 use goodfetch_protocol::foxhound_names;
-use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure};
+use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::run::RunReport;
 use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value};
@@ -934,17 +934,17 @@ impl Call {
         let json = self.json;
         let offered = offer(self.operation);
         let params = Value::Object(std::mem::take(&mut self.params));
-        let mut print_sent = |method: &str, sent: &Value| follow(json, method, sent);
+        let mut print_sent = |method: &str, sent: &Value| Some(follow(json, method, sent));
         let mut kept = Vec::new();
         let mut keep_sent = |method: &str, sent: &Value| {
             let items = items(method, sent);
             let count = u32::try_from(items.len()).unwrap_or(u32::MAX);
             kept.extend(items.into_iter().cloned());
-            count
+            Some(count)
         };
         let mut print_answers = |method: &str, sent: &Value| {
             follow(json, method, sent);
-            0
+            Some(0)
         };
         let follower: Option<Follower<'_>> = match (offered, self.follow) {
             (Some(Offer::Follow | Offer::Committed), true) => Some(&mut print_sent),
@@ -1011,10 +1011,7 @@ impl Call {
             }
             Answer::Error(error) => self.fail(error, human),
             Answer::Refused(error) => self.fail_exiting(error, exit_codes::DAEMON_REFUSED, human),
-            Answer::Unanswered(problem) => {
-                tracing::error!("{problem}");
-                ExitCode::from(exit_codes::unanswered())
-            }
+            Answer::Unanswered(error) => output::fail(error, None, json, human),
             Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
         }
     }
@@ -1067,25 +1064,12 @@ impl Call {
     /// Prints the failure `error` and answers its exit code, its Error
     /// code's row of the table.
     fn fail(&self, error: ErrorObject, human: &Human) -> ExitCode {
-        let exit = exit_codes::of_error(&error.data.code, group(&error));
-        self.fail_exiting(error, exit, human)
+        output::fail(error, Some(self.operation.name), self.json, human)
     }
 
     /// Prints the failure `error` and answers `exit`.
     fn fail_exiting(&self, error: ErrorObject, exit: u8, human: &Human) -> ExitCode {
-        let group = group(&error);
-        let failed = CommandFailed {
-            error: CommandError {
-                code: error.data.code,
-                group,
-                retryable: error.data.retryable,
-                message: error.message,
-                operation: Some(self.operation.name.to_owned()),
-                details: error.data.details,
-            },
-        };
-        output::failed(&failed, self.json, human);
-        ExitCode::from(exit)
+        output::fail_exiting(error, Some(self.operation.name), exit, self.json, human)
     }
 }
 
@@ -1242,29 +1226,6 @@ fn text(value: &Value) -> String {
         Value::String(text) => text.clone(),
         value => value.to_string(),
     }
-}
-
-/// The group of `error`: its numeric class's, or for a failure of the
-/// protocol itself, the one ADR 0079 gives it.
-pub fn group(error: &ErrorObject) -> ErrorGroup {
-    ErrorGroup::ALL
-        .into_iter()
-        .find(|group| group.json_rpc_class() == error.code)
-        .or_else(|| {
-            [
-                ProtocolFailure::ParseError,
-                ProtocolFailure::InvalidRequest,
-                ProtocolFailure::MessageTooLarge,
-                ProtocolFailure::MessageTooDeep,
-                ProtocolFailure::MethodNotFound,
-                ProtocolFailure::InvalidParams,
-                ProtocolFailure::InternalError,
-            ]
-            .into_iter()
-            .find(|failure| failure.name() == error.data.code)
-            .map(ProtocolFailure::group)
-        })
-        .unwrap_or(ErrorGroup::Internal)
 }
 
 #[cfg(test)]

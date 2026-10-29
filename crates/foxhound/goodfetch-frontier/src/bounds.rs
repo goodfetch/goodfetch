@@ -42,6 +42,8 @@ use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::{Connection, OptionalExtension as _};
 use url::{Position, Url};
 
+use crate::staged::Staged;
+
 /// The bounds' values, one row, and the path budgets, in order; the count
 /// of requests admitted, one row; each bound's count of refusals, by its
 /// setting's name; and each path budget's counts, by its pattern.
@@ -225,24 +227,28 @@ impl Bounds {
 
     /// Why a request to `url` at `depth`, counted by the path budget
     /// `budget`, is not added, if it is not: a bound it is past, then a cap
-    /// on its shape.
+    /// on its shape. The requests `staged`, what an attempt's earlier staged
+    /// admissions did, counted are counted with the run file's.
     pub(crate) fn refuses(
         &self,
         connection: &Connection,
         url: &Url,
         depth: u64,
         budget: Option<&PathBudget>,
+        staged: Option<&Staged>,
     ) -> rusqlite::Result<Option<NotAddedReason>> {
         if self.max_depth.is_some_and(|max| depth > max) {
             return Ok(Some(NotAddedReason::MaxDepth));
         }
         if let Some(max) = self.max_requests
-            && admitted(connection)? >= max
+            && admitted(connection)? + staged.map_or(0, Staged::admitted) >= max
         {
             return Ok(Some(NotAddedReason::MaxRequests));
         }
         if let Some(budget) = budget
-            && path_admitted(connection, &budget.pattern)? >= budget.max_requests
+            && path_admitted(connection, &budget.pattern)?
+                + staged.map_or(0, |staged| staged.budget(&budget.pattern))
+                >= budget.max_requests
         {
             return Ok(Some(NotAddedReason::PathBudget));
         }

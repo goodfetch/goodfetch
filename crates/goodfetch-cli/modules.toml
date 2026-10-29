@@ -4,7 +4,7 @@ engine_choice = ["exit_codes"]
 exit_codes = []
 generated = ["engine_choice", "exit_codes", "output", "settings_flags"]
 other_product = ["exit_codes", "output"]
-output = []
+output = ["exit_codes"]
 settings_flags = []
 
 # Which of `generated`'s own modules may import which.

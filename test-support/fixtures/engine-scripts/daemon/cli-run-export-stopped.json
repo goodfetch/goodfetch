@@ -1,0 +1,102 @@
+{
+  "description": "Foxhound's CLI built from this commit runs run export with --out - on the Daemon: the Daemon answers run.export with an Export, and export.stream sends one chunk, which the CLI cannot write to its standard output; the CLI then cancels export.stream, and the Daemon answers it call_cancelled.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "cli",
+          "token": "scripted-daemon-token",
+          "needs": "foxhound",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.export",
+        "params": {
+          "run_id": "first",
+          "dataset": "pages",
+          "format": "jsonl"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "export_id": "export-1",
+          "format": "jsonl",
+          "compression": "none",
+          "records": 1,
+          "last_number": 1,
+          "size": 31,
+          "sha256": "84e01a32cfda4c4e7a2549c55e13128c2d19382b1504c26653ae2bc86b9904b9"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "export.stream",
+        "params": {
+          "export_id": "export-1"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/chunk",
+          "params": {
+            "id": 2,
+            "offset": 0,
+            "data": "eyJ1cmwiOiJodHRwczovL2V4YW1wbGUuY29tLyJ9Cg=="
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 2
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "The call was cancelled.",
+          "data": {
+            "code": "call_cancelled",
+            "retryable": true
+          }
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

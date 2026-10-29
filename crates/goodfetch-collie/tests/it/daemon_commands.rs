@@ -109,6 +109,15 @@ fn daemon_run_json_prints_its_daemon_status_once_it_listens() {
         ),
         (json!(endpoint.to_string()), true, Value::Null, true)
     );
+    // Its first line beyond the schema, the PID and the port it took
+    // replaced (608-5).
+    let mut shown = status;
+    shown["pid"] = json!("[pid]");
+    shown["address"] = json!("[address]");
+    goodfetch_test_support::__insta::assert_snapshot!(
+        "daemon_run_json_first_line",
+        serde_json::to_string_pretty(&shown).unwrap()
+    );
 }
 
 /// `daemon http-listener-token` prints the HTTP listener's token on stdout
@@ -145,8 +154,10 @@ fn daemon_http_listener_token_prints_the_credential_on_stdout_and_nowhere_else()
 }
 
 /// `daemon rotate-token` replaces the HTTP listener's token and the
-/// persistent token a foreground Daemon takes: one started after it
-/// refuses a Client with the old token and opens with the new one.
+/// persistent token a foreground Daemon takes, and stops the foreground
+/// Daemon that runs with the old one, so the old token stops working at
+/// once (608-O3): it exits by itself, and one started after it refuses a
+/// Client with the old token and opens with the new one.
 ///
 /// Covers: story:11-214, command:daemon.rotate-token, command:daemon.run
 #[test]
@@ -164,8 +175,19 @@ fn daemon_rotate_token_makes_the_old_token_refuse() {
     );
     let arguments: &[&str] = &["daemon", "rotate-token", "--json"];
 
-    let (rotated, _) = checked(&env, arguments, "TokenRotated");
-    assert!(first.terminate());
+    // The foreground Daemon took a free port, which `rotate-token` reaches
+    // it at as an operator's `GOODFETCH_DAEMON_ADDRESS` names it.
+    let goodfetch_test_support::DaemonEndpoint::Tcp(address) = &endpoint else {
+        unreachable!("a foreground Daemon listens on TCP");
+    };
+    let rotated = cli(&env, COLLIE)
+        .args(arguments)
+        .env("GOODFETCH_DAEMON_ADDRESS", address.to_string())
+        .json("TokenRotated")
+        .unwrap()
+        .output;
+    // The rotation stopped it: it exits with no signal.
+    assert!(first.exited(), "{:#?}", first.logged);
     let mut second = Foreground::start(&env, COLLIE, &[]);
     let endpoint = second.serving();
     let refused = RawClient::refused_at(&endpoint, &old);

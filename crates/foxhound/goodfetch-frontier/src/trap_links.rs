@@ -200,7 +200,9 @@ pub fn seen_again(
         keeps_fragment,
     };
     let identities = identities(connection, &Key::of(&url, keeps_fragment), declared)?;
-    let reached = match seen(connection, &identities)? {
+    // The run file only: a request an attempt staged holds no mark until
+    // its commit, which replays this admission in order on the run file.
+    let reached = match seen(connection, &identities, None)? {
         Visited::New => return Ok(()),
         Visited::Visited(crawl_request) | Visited::Merged { crawl_request, .. } => crawl_request,
     };

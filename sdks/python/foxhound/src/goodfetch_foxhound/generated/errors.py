@@ -171,6 +171,14 @@ class SampleCrawlRefusedError(RefusedError):
         super().__init__(message, code="sample_crawl_refused", group="refused", retryable=True)
 
 
+class StagingFullError(ProgramError):
+    """The call would stage one more admission (an enqueue, an `enqueueLinks` call or a seed added through `ctx.run`) with an attempt that already staged `crawl.max_staged_enqueues` of them, which the attempt holds in the engine's memory until it commits. Nothing was staged. Enqueue many links with one `enqueueLinks` call, or raise the setting, which `limit` names."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="staging_full", group="program", retryable=False)
+
+
 ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "attempt_ended": AttemptEndedError,
     "browser_required": BrowserRequiredError,
@@ -192,5 +200,6 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "response_not_ok": ResponseNotOKError,
     "response_unavailable": ResponseUnavailableError,
     "sample_crawl_refused": SampleCrawlRefusedError,
+    "staging_full": StagingFullError,
 }
 """The exception class of each Error code."""

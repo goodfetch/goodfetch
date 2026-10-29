@@ -5,13 +5,15 @@
 //! two each, the shape fair admission exists for (ADR 0004); every request
 //! is enqueued, admitted in round-robin turns and ended.
 
+use std::sync::Arc;
+
 use goodfetch_engine::admission::{Ended, Gate, Waiting};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::run_state::PAGE_CACHE_KIB;
 use goodfetch_frontier::{
-    BOUNDS_TABLES, Candidate, Declared, DomainKeys, DomainQueues, Narrowing, SCOPE_TABLES, Scope,
-    Url, VISITED_TABLES, admit, url_key,
+    Admitting, BOUNDS_TABLES, Candidate, Declared, DomainKeys, DomainQueues, Narrowing,
+    SCOPE_TABLES, Scope, Staged, Url, VISITED_TABLES, admit, admit_in, url_key,
 };
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
 use rusqlite::Connection;
@@ -124,6 +126,81 @@ pub(crate) fn admit_seeds(links: &[String]) -> usize {
         .expect("invariant: the visited set in memory is written");
         if matches!(answer, Enqueued::Added { .. }) {
             added += 1;
+        }
+    }
+    added
+}
+
+/// Stages `enqueues` separate enqueues of one attempt from [`SEED`]'s page,
+/// as a crawl's staging does (ADR 0093): each admission runs once, inside
+/// a savepoint rolled back after it, against what the attempt's earlier
+/// ones did, which it then joins; answers how many were added. A cost per
+/// enqueue that stays flat as `enqueues` grows is what its cases compare.
+pub(crate) fn stage(enqueues: usize) -> usize {
+    let connection =
+        Connection::open_in_memory().expect("invariant: SQLite opens a database in memory");
+    create_tables(&connection);
+    let scope = Scope::default();
+    let policy =
+        Policy::new(&["*"], &[] as &[&str]).expect("invariant: the default domain policy reads");
+    let get = HttpMethod::get();
+    let declared = Declared {
+        method: &get,
+        body: None,
+        key: None,
+        keeps_fragment: false,
+    };
+    let base = Url::parse(SEED).expect("invariant: the seed parses");
+    admit(
+        &connection,
+        &scope,
+        &policy,
+        Candidate::Seed {
+            url: SEED,
+            declared,
+        },
+        |_| Ok("1".to_owned()),
+    )
+    .expect("invariant: the run file in memory is written");
+    let mut staged = Arc::new(Staged::default());
+    let mut added = 0_usize;
+    let mut link = String::new();
+    for each in 0..enqueues {
+        synthetic(each, &mut link);
+        let candidate = Candidate::Enqueue {
+            url: &link,
+            base: &base,
+            from: &base,
+            declared,
+            narrowing: Narrowing::none(),
+            depth: 1,
+        };
+        let mut admitting = Admitting::Staging {
+            earlier: Arc::clone(&staged),
+            now: Staged::default(),
+        };
+        connection
+            .execute_batch("SAVEPOINT staging")
+            .expect("invariant: the run file opens a savepoint");
+        let answer = admit_in(
+            &connection,
+            &scope,
+            &policy,
+            candidate,
+            &mut admitting,
+            |_| Ok((added + 2).to_string()),
+        )
+        .expect("invariant: the run file in memory is written");
+        connection
+            .execute_batch("ROLLBACK TO staging; RELEASE staging")
+            .expect("invariant: the run file rolls the savepoint back");
+        if matches!(answer, Enqueued::Added { .. }) {
+            added += 1;
+        }
+        // Its `earlier` is dropped first, so joining copies nothing.
+        if let Admitting::Staging { earlier, now } = admitting {
+            drop(earlier);
+            Arc::make_mut(&mut staged).absorb(now);
         }
     }
     added

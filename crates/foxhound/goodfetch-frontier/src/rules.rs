@@ -39,7 +39,7 @@
 //! and what it teaches; every rule reads the same pages, pairs and rule
 //! rows, so their thresholds stay side by side.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Write as _;
 
 use goodfetch_engine::run_state::RunStateTables;
@@ -310,7 +310,117 @@ pub(crate) fn without_learned(
     connection: &Connection,
     key: &Url,
 ) -> rusqlite::Result<(Url, Vec<i64>)> {
-    let (mut merged, mut applied) = without_parameters(connection, key)?;
+    without_learned_by(&mut OnRunFile(connection), key)
+}
+
+/// The rules that merge on each host and still hold, read once per host
+/// from the run file and then kept: for one event that re-keys a host's
+/// visited identities, a rule learned or stopped, so each identity is
+/// keyed in memory rather than by queries of its own.
+pub(crate) struct Holding<'c> {
+    connection: &'c Connection,
+    hosts: HashMap<String, HostRules>,
+}
+
+/// The rules that merge on one host and still hold: its parameters with
+/// no effect, in the order of their IDs, and its forms, by name.
+struct HostRules {
+    parameters: Vec<(i64, String)>,
+    forms: Vec<(String, i64)>,
+}
+
+impl<'c> Holding<'c> {
+    /// The rules of the run file `connection` holds, none read yet.
+    pub(crate) fn of(connection: &'c Connection) -> Self {
+        Self {
+            connection,
+            hosts: HashMap::new(),
+        }
+    }
+
+    /// `key` under the rules that merge on its host and still hold, as
+    /// [`without_learned`] keys it.
+    ///
+    /// # Errors
+    ///
+    /// When the run file cannot be read.
+    pub(crate) fn without_learned(&mut self, key: &Url) -> rusqlite::Result<(Url, Vec<i64>)> {
+        without_learned_by(self, key)
+    }
+
+    fn host(&mut self, host: &str) -> rusqlite::Result<&HostRules> {
+        if !self.hosts.contains_key(host) {
+            let parameters = no_effect_parameters(self.connection, host)?;
+            let mut statement = self.connection.prepare_cached(
+                "SELECT form, id FROM learned_rules WHERE kind = ?1 AND host = ?2 AND path = ''
+                 AND parameter = '' AND contradiction IS NULL",
+            )?;
+            let forms = statement
+                .query_map((EQUIVALENT_FORM, host), |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })?
+                .collect::<rusqlite::Result<_>>()?;
+            self.hosts
+                .insert(host.to_owned(), HostRules { parameters, forms });
+        }
+        Ok(&self.hosts[host])
+    }
+}
+
+/// Where [`without_learned_by`] reads the rules that hold on a host.
+trait Lookup {
+    /// What `read` answers of the parameters learned to have no effect on
+    /// `host`, each with its rule, in the order of their IDs.
+    fn with_parameters<T>(
+        &mut self,
+        host: &str,
+        read: impl FnOnce(&[(i64, String)]) -> T,
+    ) -> rusqlite::Result<T>;
+
+    /// The rule about `form` on `host`, while it holds.
+    fn form(&mut self, host: &str, form: EquivalentForm) -> rusqlite::Result<Option<i64>>;
+}
+
+/// The rules as the run file holds them, read at each lookup.
+struct OnRunFile<'c>(&'c Connection);
+
+impl Lookup for OnRunFile<'_> {
+    fn with_parameters<T>(
+        &mut self,
+        host: &str,
+        read: impl FnOnce(&[(i64, String)]) -> T,
+    ) -> rusqlite::Result<T> {
+        Ok(read(&no_effect_parameters(self.0, host)?))
+    }
+
+    fn form(&mut self, host: &str, form: EquivalentForm) -> rusqlite::Result<Option<i64>> {
+        holding(self.0, host, Subject::Form(form))
+    }
+}
+
+impl Lookup for Holding<'_> {
+    fn with_parameters<T>(
+        &mut self,
+        host: &str,
+        read: impl FnOnce(&[(i64, String)]) -> T,
+    ) -> rusqlite::Result<T> {
+        Ok(read(&self.host(host)?.parameters))
+    }
+
+    fn form(&mut self, host: &str, form: EquivalentForm) -> rusqlite::Result<Option<i64>> {
+        let name = forms::name(form);
+        Ok(self
+            .host(host)?
+            .forms
+            .iter()
+            .find(|(held, _)| held == name)
+            .map(|(_, rule)| *rule))
+    }
+}
+
+/// `key` under the rules `rules` holds, as [`without_learned`] keys it.
+fn without_learned_by(rules: &mut impl Lookup, key: &Url) -> rusqlite::Result<(Url, Vec<i64>)> {
+    let (mut merged, mut applied) = without_parameters(rules, key)?;
     for form in forms::FORMS {
         let Some(kept) = forms::kept(form, &merged) else {
             continue;
@@ -319,7 +429,7 @@ pub(crate) fn without_learned(
         // form took that host's `www.` away.
         let hosts = [forms::rule_host(form, &merged), forms::rule_host(form, key)];
         for host in hosts.iter().flatten() {
-            if let Some(rule) = holding(connection, host, Subject::Form(form))? {
+            if let Some(rule) = rules.form(host, form)? {
                 applied.push(rule);
                 merged = kept;
                 break;
@@ -348,26 +458,18 @@ fn holding(
 
 /// `key` without the parameters learned to have no effect on its host,
 /// and the rules that took one away.
-fn without_parameters(connection: &Connection, key: &Url) -> rusqlite::Result<(Url, Vec<i64>)> {
+fn without_parameters(rules: &mut impl Lookup, key: &Url) -> rusqlite::Result<(Url, Vec<i64>)> {
     let parts = Parts::of(key);
     if parts.pairs.is_empty() {
         return Ok((key.clone(), Vec::new()));
     }
-    let mut statement = connection.prepare_cached(
-        "SELECT id, parameter FROM learned_rules
-         WHERE kind = ?1 AND host = ?2 AND contradiction IS NULL",
-    )?;
-    let learned = by_id(
-        statement
-            .query_map((NO_EFFECT_PARAMETER, parts.host), |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?,
-    );
-    let applied: Vec<(i64, String)> = learned
-        .into_iter()
-        .filter(|(_, parameter)| parts.has(parameter))
-        .collect();
+    let applied: Vec<(i64, String)> = rules.with_parameters(parts.host, |learned| {
+        learned
+            .iter()
+            .filter(|(_, parameter)| parts.has(parameter))
+            .cloned()
+            .collect()
+    })?;
     if applied.is_empty() {
         return Ok((key.clone(), Vec::new()));
     }
@@ -386,6 +488,25 @@ fn without_parameters(connection: &Connection, key: &Url) -> rusqlite::Result<(U
     Ok((
         stripped,
         applied.into_iter().map(|(rule, _)| rule).collect(),
+    ))
+}
+
+/// The parameters learned to have no effect on `host` that still hold,
+/// each with its rule, in the order of their IDs.
+fn no_effect_parameters(
+    connection: &Connection,
+    host: &str,
+) -> rusqlite::Result<Vec<(i64, String)>> {
+    let mut statement = connection.prepare_cached(
+        "SELECT id, parameter FROM learned_rules
+         WHERE kind = ?1 AND host = ?2 AND contradiction IS NULL",
+    )?;
+    Ok(by_id(
+        statement
+            .query_map((NO_EFFECT_PARAMETER, host), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?,
     ))
 }
 

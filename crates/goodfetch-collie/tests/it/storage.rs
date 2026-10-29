@@ -22,7 +22,9 @@
 //!   `/readyz` fails while the run folder's filesystem is at `critical`,
 //!   not at `low`, and succeeds once space is freed; the storage metrics
 //!   read its level, its free space and its free inodes, labelled by what
-//!   it holds.
+//!   it holds. In the per-install layout, with the run folders on a tmpfs
+//!   of their own inside the home's, `/readyz` and `holds="run_state"`
+//!   follow the install database's filesystem, the home's.
 //!
 //! The crawl and WARC lines are area 6's.
 #![expect(
@@ -396,9 +398,39 @@ fn daemon_with_ops(env: &TestEnv) -> (Foreground, SocketAddr, String) {
         "{LEVELS}daemon.address = \"{ANY_PORT}\"\nops.address = \"127.0.0.1:0\"\n"
     ));
     let mut command = tmpfs_mounted_home(env, SIZE, COLLIE);
+    command.args(["daemon", "run"]);
+    daemon_from(env, command)
+}
+
+/// A tmpfs of its own over the run folders, inside the home's tmpfs, in
+/// the same mount namespace: `RUNS_SIZE` bytes, more than the levels
+/// keep, so the run folders stay at `normal` while the home fills.
+const OWN_RUNS: &str = "set -e; mkdir -p \"$1\"; mount -t tmpfs -o \"size=$2\" tmpfs \"$1\"; \
+    shift 2; exec \"$@\"";
+
+/// The run folders' tmpfs's size.
+const RUNS_SIZE: u64 = 256 * MIB;
+
+/// [`daemon_with_ops`], in the per-install layout, its run folders on a
+/// tmpfs of their own while the install database stays on the home's.
+fn per_install_daemon_with_ops(env: &TestEnv) -> (Foreground, SocketAddr, String) {
+    env.user_configuration(&format!(
+        "{LEVELS}daemon.address = \"{ANY_PORT}\"\nops.address = \"127.0.0.1:0\"\n\
+         run_state.layout = \"per_install\"\n"
+    ));
+    let mut command = tmpfs_mounted_home(env, SIZE, "sh");
     command
-        .args(["daemon", "run"])
-        .env("GOODFETCH_BROWSERS_PATH", browser_cache(env).unwrap());
+        .args(["-c", OWN_RUNS, "sh"])
+        .arg(env.home().join("0.0").join("runs"))
+        .arg(RUNS_SIZE.to_string())
+        .args([COLLIE, "daemon", "run"]);
+    daemon_from(env, command)
+}
+
+/// The foreground Daemon `command` starts, with the pinned browser
+/// installed; where its ops listener listens, and its ops token.
+fn daemon_from(env: &TestEnv, mut command: Command) -> (Foreground, SocketAddr, String) {
+    command.env("GOODFETCH_BROWSERS_PATH", browser_cache(env).unwrap());
     let mut daemon = Foreground::spawned(env, &mut command);
     let address = daemon.record("the ops listener serves")["address"]
         .as_str()
@@ -534,6 +566,43 @@ fn readyz_fails_while_run_states_filesystem_is_critical_and_the_metrics_read_its
             [every.clone(), every.clone(), every],
             [true; 3],
         ),
+        "{critical:#?}"
+    );
+}
+
+/// `/readyz` and the metrics in the per-install layout, its run folders on
+/// a tmpfs of their own: run state is the install database, in the
+/// per-major folder on the home's filesystem, so `/readyz` fails and
+/// `holds="run_state"` reads `critical` while that filesystem is at
+/// `critical`, though the run folders' stays at `normal`, and `/readyz`
+/// succeeds again once space is freed.
+///
+/// Covers: story:13-45, story:13-46, setting:storage.critical_free, setting:run_state.layout
+#[test]
+fn in_the_per_install_layout_readyz_follows_the_install_databases_filesystem() {
+    let env = TestEnv::new();
+    let (mut daemon, address, token) = per_install_daemon_with_ops(&env);
+    let pid = daemon.process.child().id();
+
+    storage_at(address, &token, pid, env.home(), "0");
+    let ready_at_normal = get(address, "/readyz", None).0;
+    let filler = fill_filesystem(pid, env.home(), CRITICAL_ROOM);
+    let critical = storage_at(address, &token, pid, env.home(), "2");
+    let ready_at_critical = get(address, "/readyz", None).0;
+    let runs_left = left(&inside_mount(pid, &env.home().join("0.0").join("runs")));
+    let home_left = left(&inside_mount(pid, env.home()));
+    free_filesystem(&filler);
+    storage_at(address, &token, pid, env.home(), "0");
+    let ready_once_freed = get(address, "/readyz", None).0;
+    daemon.terminate();
+
+    assert_eq!(
+        (
+            (ready_at_normal, ready_at_critical, ready_once_freed),
+            critical.get(&("goodfetch_storage_level".to_owned(), "home".to_owned())),
+            runs_left.0 != home_left.0,
+        ),
+        ((200, 503, 200), Some(&"2".to_owned()), true),
         "{critical:#?}"
     );
 }

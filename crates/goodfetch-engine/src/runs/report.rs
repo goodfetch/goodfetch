@@ -374,11 +374,16 @@ pub(super) fn warn(connection: &Connection, warning: &RunWarning) -> rusqlite::R
     Ok(())
 }
 
-/// Whether the Run's report holds a warning of `code`.
-pub(super) fn warned(connection: &Connection, code: &str) -> rusqlite::Result<bool> {
+/// Whether the Run's report holds a warning of `code` for `folder`, or
+/// with no folder when `folder` is none.
+pub(super) fn warned(
+    connection: &Connection,
+    code: &str,
+    folder: Option<&str>,
+) -> rusqlite::Result<bool> {
     connection.query_row(
-        "SELECT EXISTS (SELECT 1 FROM warnings WHERE code = ?1)",
-        [code],
+        "SELECT EXISTS (SELECT 1 FROM warnings WHERE code = ?1 AND folder IS ?2)",
+        (code, folder),
         |row| row.get(0),
     )
 }

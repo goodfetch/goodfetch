@@ -39,6 +39,14 @@ pub struct Filesystem {
     pub limit: Option<SettingLimit>,
 }
 
+impl Filesystem {
+    /// Whether it is at `critical`, where every Run with an essential write
+    /// on it stops and no Run starts (ADR 0122).
+    pub fn is_critical(&self) -> bool {
+        self.level == StorageLevel::Critical
+    }
+}
+
 /// What a storage sample found: each filesystem holding a sampled folder,
 /// once; a folder whose filesystem cannot be read is in none.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

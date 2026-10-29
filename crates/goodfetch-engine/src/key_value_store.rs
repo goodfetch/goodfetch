@@ -717,41 +717,31 @@ async fn set_kept(
     run: &Run,
     key: String,
     content_type: String,
-    mut bytes: Vec<u8>,
+    bytes: Vec<u8>,
     context: &CallContext,
 ) -> Result<Removed, CallError> {
-    loop {
-        let folder = run.folder().to_owned();
-        let (given, kept) = run
-            .owner()
-            .blocking(move || {
-                let kept = run_files::store(&folder, &mut bytes.as_slice());
-                (bytes, kept)
-            })
-            .await;
-        bytes = given;
-        let (sha256, size) = kept.map_err(|error| unkept(run, &error, context))?;
-        let file = run_files::file(run.folder(), &sha256)
-            .expect("invariant: a SHA-256 in lowercase hex names a file");
-        let (key, content_type) = (key.clone(), content_type.clone());
-        let held = Content::File { sha256, size };
-        // A `forget` of the same bytes ordered before this write may have
-        // deleted the file just stored: then it is stored again.
-        let written = run
-            .state()
-            .write(move |connection| {
-                if file.exists() {
-                    set_bytes(connection, &key, &content_type, &held).map(Some)
-                } else {
-                    Ok(None)
-                }
-            })
-            .await
-            .map_err(|error| unwritten(run, &error, context))?;
-        if let Some(removed) = written {
-            return Ok(removed);
-        }
-    }
+    let folder = run.folder().to_owned();
+    let staged = run
+        .owner()
+        .blocking(move || run_files::stage(&folder, &mut bytes.as_slice()))
+        .await
+        .map_err(|error| unkept(run, &error, context))?;
+    let held = Content::File {
+        sha256: staged.sha256.clone(),
+        size: staged.size,
+    };
+    // Placed in the write that records it, so a `forget` of the same bytes
+    // ordered before it deletes no file the row names.
+    run.state()
+        .write(move |connection| {
+            if let Err(error) = staged.place() {
+                return Ok(Err(error));
+            }
+            set_bytes(connection, &key, &content_type, &held).map(Ok)
+        })
+        .await
+        .map_err(|error| unwritten(run, &error, context))?
+        .map_err(|error| unkept(run, &error, context))
 }
 
 async fn handle_set_bytes(

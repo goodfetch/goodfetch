@@ -31,7 +31,7 @@ use tokio::sync::Semaphore;
 
 use crate::clock::Clock;
 use crate::endpoint::{Refusals, names_an_address, same_token};
-use crate::runs::Runs;
+use crate::runs::{Runs, critical_among};
 use crate::tasks::TaskOwner;
 use crate::transport::OpsListener;
 
@@ -102,12 +102,21 @@ impl Health {
             };
         };
         let browsers = self.browsers.clone();
-        let (writable, installed) = self
+        let (folder, essential, governor) = (
+            registry.folder.clone(),
+            registry.essential.clone(),
+            registry.governor.clone(),
+        );
+        // The filesystems of the essential writes are read afresh, as a
+        // start reads them, so readiness and the start's refusal agree
+        // (ADRs 0050 and 0122).
+        let (writable, installed, storage_critical) = self
             .blocking
             .blocking(move || {
                 (
-                    writable(&registry.folder),
+                    writable(&folder),
                     browsers.is_none_or(|browsers| browsers.installed()),
+                    critical_among(&governor, essential).is_some(),
                 )
             })
             .await;
@@ -116,7 +125,7 @@ impl Health {
             (!writable, Unready::RunStateNotWritable),
             (!installed, Unready::BrowsersMissing),
             (registry.governor_last_resort, Unready::GovernorLastResort),
-            (registry.storage_critical, Unready::StorageCritical),
+            (storage_critical, Unready::StorageCritical),
         ]
         .into_iter()
         .filter_map(|(holds, reason)| holds.then_some(reason))

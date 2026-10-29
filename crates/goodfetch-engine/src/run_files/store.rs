@@ -119,30 +119,83 @@ fn is_digest(sha256: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// Writes what `source` reads as a file of the Run folder `folder`, whole
-/// before its name appears, and answers its SHA-256 and size.
+/// A file's bytes written whole and synced under a hidden name in a Run
+/// folder's kept files, not yet under the SHA-256 that names them: its
+/// record's write places it, so that a [`forget`] of the same bytes
+/// ordered before the record can never delete the file the record names.
+/// Dropped unplaced, it leaves nothing.
+#[derive(Debug)]
+pub(crate) struct Staged {
+    partial: tempfile::NamedTempFile,
+    files: PathBuf,
+    /// The SHA-256 of its bytes, in lowercase hex.
+    pub(crate) sha256: String,
+    /// Its size, in bytes.
+    pub(crate) size: u64,
+}
+
+impl Staged {
+    /// Renames it to the SHA-256 of its bytes, over a file of the same
+    /// bytes when one is there. Run it in the writer's order, in the write
+    /// that records it: a [`forget`] ordered before has then deleted only
+    /// the file it replaces.
+    ///
+    /// # Errors
+    ///
+    /// When the rename fails; the hidden file then goes.
+    pub(crate) fn place(self) -> io::Result<()> {
+        let kept = self.files.join(&self.sha256);
+        self.partial.persist(&kept).map_err(|error| error.error)?;
+        crate::durable::sync_folder(&self.files);
+        Ok(())
+    }
+
+    /// [`Staged::place`], answering its SHA-256 and size.
+    fn placed(self) -> io::Result<(String, u64)> {
+        let (sha256, size) = (self.sha256.clone(), self.size);
+        self.place()?;
+        Ok((sha256, size))
+    }
+}
+
+/// Writes what `source` reads as a kept file of the Run folder `folder`,
+/// whole and synced, for its record's write to place.
+///
+/// # Errors
+///
+/// When `source` cannot be read or the file cannot be written; no partial
+/// file is left.
+pub(crate) fn stage(folder: &Path, source: &mut dyn Read) -> io::Result<Staged> {
+    stage_in(&folder.join(FILES), source)
+}
+
+/// Writes what `source` reads as a kept file of the Run folder `folder`
+/// and places it at once, answering its SHA-256 and size: for a write the
+/// writer runs, whose record commits in the same order as any forget.
+///
+/// # Errors
+///
+/// As [`stage`]'s and [`Staged::place`]'s.
+pub(crate) fn store(folder: &Path, source: &mut dyn Read) -> io::Result<(String, u64)> {
+    stage(folder, source)?.placed()
+}
+
+/// Writes what `source` reads as an Export of the Run folder `folder`,
+/// whole before its name appears, under `exports/`, and answers its
+/// SHA-256 and size. No record names an Export, so nothing forgets it.
 ///
 /// # Errors
 ///
 /// When `source` cannot be read or the file cannot be written; no partial
 /// file is left under its name.
-pub(crate) fn store(folder: &Path, source: &mut dyn Read) -> io::Result<(String, u64)> {
-    store_in(&folder.join(FILES), source)
-}
-
-/// Writes what `source` reads as an Export of the Run folder `folder`, as
-/// [`store`] writes a kept file, under `exports/`.
-///
-/// # Errors
-///
-/// As [`store`]'s.
 pub(crate) fn store_export(folder: &Path, source: &mut dyn Read) -> io::Result<(String, u64)> {
-    store_in(&folder.join(EXPORTS), source)
+    stage_in(&folder.join(EXPORTS), source)?.placed()
 }
 
 /// Writes what `source` reads into the folder `files`, through a hidden
-/// temporary file, synced, then renamed to the SHA-256 of its bytes.
-fn store_in(files: &Path, source: &mut dyn Read) -> io::Result<(String, u64)> {
+/// temporary file, synced, which [`Staged::place`] renames to the SHA-256
+/// of its bytes.
+fn stage_in(files: &Path, source: &mut dyn Read) -> io::Result<Staged> {
     std::fs::DirBuilder::new().recursive(true).create(files)?;
     let mut partial = tempfile::Builder::new()
         .prefix(".")
@@ -165,11 +218,12 @@ fn store_in(files: &Path, source: &mut dyn Read) -> io::Result<(String, u64)> {
         size += u64::try_from(read).unwrap_or(u64::MAX);
     }
     partial.as_file().sync_all()?;
-    let sha256 = data_encoding::HEXLOWER.encode(&hasher.finalize());
-    let kept = files.join(&sha256);
-    partial.persist(&kept).map_err(|error| error.error)?;
-    crate::durable::sync_folder(files);
-    Ok((sha256, size))
+    Ok(Staged {
+        partial,
+        files: files.to_owned(),
+        sha256: data_encoding::HEXLOWER.encode(&hasher.finalize()),
+        size,
+    })
 }
 
 /// Records the kept file `name`, of `kind`, in the run state `connection`
@@ -247,8 +301,8 @@ pub(crate) fn unrecord(connection: &Connection, position: u64) -> rusqlite::Resu
 /// `folder` once no record of the run state `connection` holds names it:
 /// files are content-addressed, so another record may share it. Run it in
 /// the writer's order, after the commit that removed the last record, so
-/// that a record of the same bytes written beside it either keeps the file
-/// or finds it gone and writes it again. A file that cannot be deleted is
+/// that a record of the same bytes written beside it, which places its
+/// [`Staged`] file in the same write, keeps the file. A file that cannot be deleted is
 /// left in the Run's folder, which a discard removes.
 ///
 /// # Errors

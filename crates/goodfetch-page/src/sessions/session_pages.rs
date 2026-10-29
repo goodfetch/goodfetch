@@ -30,6 +30,7 @@ use goodfetch_protocol::page::session_pages::{
 };
 use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use goodfetch_protocol::settings::page_check::PageCheck;
+use tokio::sync::watch;
 
 use super::life::{Ending, PageLife, session_closed};
 use super::lifecycle::PageEffect;
@@ -249,7 +250,7 @@ impl Sessions {
         self.events.insert(page.clone(), events);
         self.dialogs
             .start(page.clone(), driver.clone(), &run, driver.events());
-        let (hiding, sheets) = self
+        let (hiding, sheets, routed) = self
             .hold(
                 (&page, session),
                 &driver,
@@ -263,8 +264,7 @@ impl Sessions {
             drop(state);
             return Err(session_closed(session));
         }
-        self.follow_popups(session, &open, &driver).await;
-        let life = PageLife::new(page.clone(), driver.value().lease().cloned());
+        let life = PageLife::new(page.clone(), driver.value().lease().cloned(), routed);
         let page_check = open.checking(driver.value().page_check());
         // Nothing awaits from here until the page is in the table.
         let in_browser = taken_in.kept();
@@ -286,6 +286,10 @@ impl Sessions {
         };
         state.pages.insert(page.clone(), opened.clone());
         drop(state);
+        // Its popups are followed once it is in the table, so the engine's
+        // Sessions lock is never held across the Session's frames' lock
+        // (STYLE.md); a popup it opens finds its opener there.
+        self.follow_popups(session, &open, &opened.driver).await;
         self.watch(page.clone(), opened, Arc::clone(&open), browser);
         if self.page_listeners.any(session) {
             stream
@@ -306,8 +310,9 @@ impl Sessions {
     /// with the Session's own `settings`, under the interception, live
     /// hiding and the Consent prompt runner, each of its out-of-process
     /// frames and dedicated workers held by them, and then by `in_frames`,
-    /// before it runs; answers its live hiding and the documents' hiding
-    /// sheets it shares with the runner.
+    /// before it runs; answers its live hiding, the documents' hiding
+    /// sheets it shares with the runner, and how many of its requests wait
+    /// on a route handler now.
     async fn hold(
         &self,
         (page, session): (&PageId, &SessionId),
@@ -315,7 +320,7 @@ impl Sessions {
         run: &Run,
         settings: &Values,
         (refusals, in_frames): (Refusals, Vec<OnChild>),
-    ) -> Result<(Option<Arc<PageHiding>>, Arc<Sheets>), CallError> {
+    ) -> Result<(Option<Arc<PageHiding>>, Arc<Sheets>, watch::Receiver<usize>), CallError> {
         let held = self
             .interception
             .start(page, session, driver, run, settings, refusals)
@@ -334,7 +339,7 @@ impl Sessions {
         let mut handlers = vec![held.children, consent];
         handlers.extend(in_frames);
         driver.follow_children(run, handlers).await?;
-        Ok((hiding, sheets))
+        Ok((hiding, sheets, held.routed))
     }
 
     /// Hands the page targets the pages of `driver`'s browser context open
@@ -430,7 +435,9 @@ impl Sessions {
         session: &SessionId,
         context: &CallContext,
     ) -> Result<SessionPages, CallError> {
-        self.session(session, context).await?;
+        // A crashed Session raises `page_crashed` again, and a closing one
+        // `closed` (S21, R).
+        self.session(session, context).await?.life.call().await?;
         let mut pages: Vec<PageId> = self
             .state
             .lock()
@@ -488,6 +495,8 @@ impl Sessions {
             }
         };
         if run_before_unload {
+            // Its target's end is then the program's close (P8, P29).
+            page.life.ask_to_close();
             return page
                 .driver
                 .close_running_before_unload(PAGE_CLOSE.name)

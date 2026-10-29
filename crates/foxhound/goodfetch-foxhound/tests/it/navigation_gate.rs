@@ -1449,12 +1449,28 @@ fn a_handlers_navigations_after_a_slow_robots_txt_wait_its_crawl_delay_from_its_
 /// Session's first request through the egress relay, in milliseconds.
 const RELAY_DELAY_MILLISECONDS: u64 = 1_000;
 
+/// How much sooner than the delay the second navigation of the fresh-relay
+/// case may arrive after the first, in microseconds: the first one's way
+/// to the site after the send the gate counts from, which the second, on
+/// the tunnel the first left open, has no part of. After its credentials
+/// the browser opens the relay's tunnel again, the relay dials the site,
+/// and the TLS handshake follows. On loopback under load it once came to
+/// 0.94 ms (#1735: a gap of 999,056 µs; the handshake alone measured
+/// 0.11 ms), while a gate counting from the first request's admission or
+/// from the command that first sent it on comes short by the relay's `407`
+/// and its credentials: 4 ms to 50 ms in #1613's measurements, 270 ms
+/// under heavier load.
+const RELAY_TRANSIT_MICROSECONDS: u64 = 2_000;
+
 /// A handler's navigations of one domain reach it the delay between starts
 /// apart, on the Proving ground's arrival times, the first included, its
 /// Session's first request through its egress relay: the browser sends it
 /// only once the relay answered `407` and got the Session's credentials,
 /// so its delay counts from that send, never from its admission, nor from
-/// the command that first sent it on (ADR 0086).
+/// the command that first sent it on (ADR 0086). The gate's sends are what
+/// it holds the delay apart; the arrival after the first may come sooner
+/// by that first request's own way to the site after its send
+/// ([`RELAY_TRANSIT_MICROSECONDS`]).
 ///
 /// Covers: story:5-134, setting:politeness.domain.delay, operation:page.goto, operation:run.new_page
 #[test]
@@ -1496,11 +1512,13 @@ fn a_handlers_navigations_through_a_fresh_egress_relay_reach_their_domain_the_de
         .windows(2)
         .map(|pair| pair[1].1 - pair[0].1)
         .collect();
-    // The gap after the relay's first request is held to the whole delay:
-    // a gate counting from that request's admission, or from the command
-    // that first sent it on, lets the second arrive short of it by the
-    // relay's `407` and its credentials. Between two later navigations, the
-    // arrivals may come a little closer than the sends (`too_soon`).
+    // The gap after the relay's first request is held to the delay, short
+    // of it only by that request's way to the site after its send
+    // (`RELAY_TRANSIT_MICROSECONDS`): a gate counting from its admission,
+    // or from the command that first sent it on, lets the second arrive
+    // short of it by the relay's `407` and its credentials. Between two
+    // later navigations, the arrivals may come a little closer than the
+    // sends (`too_soon`).
     let delay = RELAY_DELAY_MILLISECONDS * 1_000;
     let least = delay * 9 / 10;
     assert_eq!(
@@ -1508,7 +1526,8 @@ fn a_handlers_navigations_through_a_fresh_egress_relay_reach_their_domain_the_de
             &report["result"]["lifecycle"],
             statuses,
             arrived.len(),
-            gaps.first().map(|relay_gap| *relay_gap >= delay),
+            gaps.first()
+                .map(|relay_gap| *relay_gap >= delay - RELAY_TRANSIT_MICROSECONDS),
             gaps.iter().skip(1).filter(|gap| **gap < least).count(),
         ),
         (&json!("finished"), vec![json!(200); 3], 3, Some(true), 0),

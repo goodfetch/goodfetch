@@ -1,7 +1,10 @@
 //! The Daemon's health and the runtime's metrics through the engine's
 //! public interface over the in-memory network (spec #213's Seam 3), on the
 //! paused `Clock` (ADR 0050): `daemon.health` answers live and ready, or
-//! why the Daemon cannot take a Run, as its ops listener's probes check;
+//! why the Daemon cannot take a Run, as its ops listener's probes check,
+//! reading the filesystems of its essential writes (run state's, the
+//! install database's in the per-install layout, and the Goodfetch home's)
+//! afresh;
 //! and the meter the engine is given records its Clients, its Runs and its
 //! drain, which the Prometheus exporter the executables use renders.
 

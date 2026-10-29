@@ -2,7 +2,7 @@
 //! public interface over the in-memory network (spec #213's Seam 3; ADRs
 //! 0003, 0031, 0037's consequence and 0098): `run.abort` takes the writer
 //! lock, then the next run epoch, then writes the end; a reader's test that
-//! holds the lock for a moment never fails it; a lock another engine keeps
+//! holds the lock for a moment never fails it, nor a start or a resume; a lock another engine keeps
 //! fails it as `run_busy` once retried; a forwarded abort reaching an engine
 //! that does not own the Run answers `run_not_owned`; a Collie engine
 //! refuses a Run that needs Foxhound with `not_in_product`, its run file

@@ -6,7 +6,9 @@
 //! `resources_exhausted`, and a resume once space is freed goes on; at
 //! `low` a Run goes on, carries `storage_low` and its progress says so; two
 //! folders on one filesystem are read once per sample; a level set to `0`
-//! is listed in the report's `weakened`. A commit the crash VFS fails is
+//! is listed in the report's `weakened`; a Run resumed at `low` carries
+//! `storage_low` once. A Run whose end could not be recorded leaves
+//! `goodfetch.run.active`. A commit the crash VFS fails is
 //! rolled back and stops its Run as at `critical`, and when the commit
 //! recording the stop fails too, the waiting call raises
 //! `resources_exhausted`.

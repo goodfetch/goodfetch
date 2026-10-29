@@ -9,8 +9,9 @@
 //! no temporary file left beside it; a Daemon writes no path of the
 //! program's and sends the file in `$/chunk` notifications, one per
 //! credit; a file kept while the Run folder's filesystem is at `critical`
-//! fails with `file_write_failed`, side `engine`; and a discarded Run's
-//! files are gone from the Goodfetch home in either layout.
+//! fails with `file_write_failed`, side `engine`; a file kept beside a
+//! `forget` of the same bytes is kept; and a discarded Run's files are
+//! gone from the Goodfetch home in either layout.
 
 use std::collections::BTreeSet;
 use std::io::Cursor;

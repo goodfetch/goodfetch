@@ -3,7 +3,8 @@
 //! discarded Run leaves no state behind in either layout, and none of the
 //! Secret canaries planted in it is found anywhere in the Goodfetch home,
 //! raw or in any of Goodfetch's encodings (ADR 0067), while a Run kept
-//! beside it keeps its own.
+//! beside it keeps its own. A discard runs beside the Run registry, which
+//! answers meanwhile and refuses a resume of the Run being discarded.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -262,9 +263,10 @@ fn a_start_under_a_discarded_runs_id_begins_a_new_run_that_finds_none_of_its_sta
 
 /// A discard runs beside the Run registry, never in it (ADR 0050): while
 /// one waits for a reader's test of its Run's writer lock to let go, the
-/// Daemon still answers `daemon.health` live and ready, and a resume of the
-/// Run being discarded is refused with `run_in_use`; once the reader lets
-/// go, the discard ends and the Run is gone.
+/// Daemon still answers `daemon.health` live and ready, and a resume, a
+/// progress read and a start of the Run being discarded are refused with
+/// `run_in_use`; once the reader lets go, the discard ends and the Run is
+/// gone.
 /// Covers: story:3-39, story:3-102, operation:run.discard, operation:daemon.health, error:run_in_use
 #[test]
 fn a_discard_leaves_the_registry_answering_and_refuses_a_resume_of_its_run() {
@@ -299,18 +301,20 @@ fn a_discard_leaves_the_registry_answering_and_refuses_a_resume_of_its_run() {
                     request(3, "run.discard", json!({ "run_id": "discarded" })),
                     request(4, "daemon.health", json!({})),
                     request(5, "run.resume", json!({ "run_id": "discarded" })),
+                    request(6, "run.progress", json!({ "run_id": "discarded" })),
+                    request(7, "run.start", json!({ "run_id": "discarded" })),
                 ])
                 .await;
             let (mut order, mut replies) = (Vec::new(), BTreeMap::new());
             let mut reader = Some(reader);
-            while replies.len() < 3 {
+            while replies.len() < 5 {
                 let reply = client.next().await.unwrap();
                 let Some(id) = reply["id"].as_i64() else {
                     continue;
                 };
                 order.push(id);
                 replies.insert(id, reply);
-                if replies.contains_key(&4) && replies.contains_key(&5) {
+                if [4, 5, 6, 7].iter().all(|id| replies.contains_key(id)) {
                     // The reader's test lets go.
                     drop(reader.take());
                 }
@@ -322,17 +326,21 @@ fn a_discard_leaves_the_registry_answering_and_refuses_a_resume_of_its_run() {
 
     assert_eq!(
         (
-            order,
             &replies[&3]["result"],
             &replies[&4]["result"],
-            &replies[&5]["error"]["data"]["code"],
+            [5, 6, 7].map(|id| replies[&id]["error"]["data"]["code"].clone()),
+            order.last(),
             folder.exists(),
         ),
         (
-            vec![4, 5, 3],
             &json!({ "run_id": "discarded" }),
             &json!({ "live": true, "ready": true, "unready": [] }),
-            &json!("run_in_use"),
+            [
+                json!("run_in_use"),
+                json!("run_in_use"),
+                json!("run_in_use")
+            ],
+            Some(&3),
             false,
         ),
         "{replies:?}"

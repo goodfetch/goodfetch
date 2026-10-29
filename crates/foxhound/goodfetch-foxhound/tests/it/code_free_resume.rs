@@ -99,7 +99,7 @@ fn session(home: &Path, start: SystemTime, seed: u64, calls: &[(&str, Value)]) -
         let clock = Clock::paused(start);
         // The dispatch records go into the test's exercise record (ADR
         // 0072), timed by the engine's Clock.
-        let wall = clock.clone();
+        let wall = clock;
         let _subscriber =
             tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
                 wall.wall()

@@ -1,16 +1,19 @@
 //! The same-work check: before any figure counts, every trial of both tools
-//! fetched the same pages and was served the same bytes, as the Proving
-//! ground's own observations record them, never a tool's report (spec
-//! #152: the Proving ground is the benchmark's only source of bytes).
+//! fetched the site's own pages and was served the requests and bytes most
+//! trials were, as the Proving ground's own observations record them, never
+//! a tool's report (spec #152: the Proving ground is the benchmark's only
+//! source of bytes). No trial is the others' reference, so the trial that
+//! did other work is the one named, whichever ran first (ADR 0134's #1574
+//! note).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context as _, Result};
 use serde_json::Value;
 
 use crate::check::Finding;
 
-use super::trials::{Comparison, Tool};
+use super::trials::{Comparison, Tool, Trial};
 
 /// What the Proving ground saw one trial do on the site.
 #[derive(Debug, PartialEq, Eq)]
@@ -63,9 +66,29 @@ pub(crate) fn work_of(observations: &Value, host: &str, site: &str) -> Result<Wo
     Ok(work)
 }
 
+/// The paths of the site whose first page is `site`, `/sites/<n>/1`:
+/// `/sites/<n>/1` to `/sites/<n>/<n>`.
+fn site_pages(site: &str) -> Option<BTreeSet<String>> {
+    let size: u64 = site
+        .strip_prefix("/sites/")?
+        .strip_suffix("/1")?
+        .parse()
+        .ok()?;
+    Some(
+        (1..=size)
+            .map(|page| format!("/sites/{size}/{page}"))
+            .collect(),
+    )
+}
+
+fn subject(trial: &Trial) -> String {
+    format!("{} trial {}", trial.tool.name(), trial.number)
+}
+
 /// Each finding that keeps the trials' figures from counting: a tool short
-/// of or past its declared trials, and every trial whose pages or bytes
-/// differ from the first trial's.
+/// of or past its declared trials, every trial whose pages are not the
+/// declared site's, and every other trial whose requests and bytes are not
+/// the ones most trials share.
 pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
     let mut findings = Vec::new();
     for tool in Tool::ALL {
@@ -85,40 +108,59 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             ));
         }
     }
-    let Some(first) = trials.trials.first() else {
+    let Some(site) = site_pages(&trials.declared.site) else {
+        findings.push(Finding::new(
+            "unknown_site",
+            trials.declared.site.clone(),
+            "the declared site's first page is no `/sites/<n>/1`",
+        ));
         return findings;
     };
-    let reference: BTreeSet<&String> = first.pages.iter().collect();
-    for trial in &trials.trials[1..] {
-        let subject = format!("{} trial {}", trial.tool.name(), trial.number);
-        let pages: BTreeSet<&String> = trial.pages.iter().collect();
-        if pages != reference {
-            let missing = reference.difference(&pages).count();
-            let extra = pages.difference(&reference).count();
-            findings.push(Finding::new(
-                "different_pages",
-                subject,
-                format!(
-                    "{missing} of {} trial {}'s pages missing and {extra} other pages fetched",
-                    first.tool.name(),
-                    first.number
-                ),
-            ));
-        } else if trial.bytes != first.bytes || trial.requests != first.requests {
-            findings.push(Finding::new(
-                "different_bytes",
-                subject,
-                format!(
-                    "{} requests served {} bytes, where {} trial {}'s {} served {}",
-                    trial.requests,
-                    trial.bytes,
-                    first.tool.name(),
-                    first.number,
-                    first.requests,
-                    first.bytes
-                ),
-            ));
+    let mut whole = Vec::new();
+    for trial in &trials.trials {
+        let pages: BTreeSet<String> = trial.pages.iter().cloned().collect();
+        if pages == site {
+            whole.push(trial);
+            continue;
         }
+        let missing = site.difference(&pages).count();
+        let extra = pages.difference(&site).count();
+        findings.push(Finding::new(
+            "different_pages",
+            subject(trial),
+            format!(
+                "{missing} of the site's {} pages missing and {extra} other pages fetched",
+                site.len()
+            ),
+        ));
+    }
+    // The requests and bytes most of the trials that fetched the site share;
+    // none when two values are shared by as many trials.
+    let mut shared: BTreeMap<(u64, u64), usize> = BTreeMap::new();
+    for trial in &whole {
+        *shared.entry((trial.requests, trial.bytes)).or_default() += 1;
+    }
+    let most = shared.values().copied().max().unwrap_or(0);
+    let mut held = shared.iter().filter(|(_, count)| **count == most);
+    let reference = match (held.next(), held.next()) {
+        (Some((work, count)), None) => Some((*work, *count)),
+        _ => None,
+    };
+    for trial in whole {
+        let message = match reference {
+            Some((work, _)) if work == (trial.requests, trial.bytes) => continue,
+            Some(((requests, bytes), count)) => format!(
+                "{} requests served {} bytes, where {count} of the {} trials that fetched the site had {requests} requests served {bytes}",
+                trial.requests,
+                trial.bytes,
+                shared.values().sum::<usize>()
+            ),
+            None => format!(
+                "{} requests served {} bytes, and no count of requests and bytes is shared by more trials than another",
+                trial.requests, trial.bytes
+            ),
+        };
+        findings.push(Finding::new("different_bytes", subject(trial), message));
     }
     findings
 }

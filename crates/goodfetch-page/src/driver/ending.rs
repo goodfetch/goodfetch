@@ -1,14 +1,17 @@
 //! How a page's target ends without the engine closing its browser (ADR
 //! 0113; spec #594's `TargetDestroyed`, `RendererCrash`, `BrowserQuit` and
 //! `BrowserCrash`): its renderer's crash, its target destroyed, or its
-//! browser's connection ending, told apart by the process's exit status.
+//! browser's connection ending, told apart by the process's exit status for
+//! a browser the engine launched and read as a quit for a Borrowed one
+//! (decision 11). A browser's own connection is followed the same way, so
+//! its pool learns of its loss whether or not it holds a page.
 
 use std::time::Duration;
 
 use goodfetch_cdp::generated::target;
 use goodfetch_protocol::page::BrowserExit;
 
-use super::{PageDriver, navigation};
+use super::{Browser, PageDriver, navigation};
 
 /// How soon after a target's end its browser's connection ends when the
 /// browser quit: a quitting browser closes its windows, then exits at
@@ -79,13 +82,47 @@ impl PageDriver {
         if tokio::time::timeout(QUIT_WINDOW, ending).await.is_err() {
             return Lost::Destroyed;
         }
-        let mut exit = self.browser.exit.clone();
+        self.browser.loss().await
+    }
+}
+
+impl Browser {
+    /// Waits until the browser's connection ends, and says how the browser
+    /// ended: the browser's own follower, which a browser with no page has
+    /// too.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses nothing: it only reads.
+    pub(crate) async fn ended(&self) -> Lost {
+        loop {
+            let mut root = self.connection.subscribe(None);
+            while root.next().await.is_some() {}
+            // A subscription that fell behind ends with its connection open.
+            if self.connection.is_closed() {
+                return self.loss().await;
+            }
+        }
+    }
+
+    /// How the browser ended once its connection did: closed by the engine;
+    /// a Borrowed browser quit, since no exit of its separates a quit from a
+    /// crash (decision 11); a launched one quit when its process exited
+    /// with status 0, and crashed otherwise or with no exit seen in time.
+    async fn loss(&self) -> Lost {
+        if !self.launched {
+            if self.closing.is_cancelled() {
+                return Lost::EngineClosed;
+            }
+            return Lost::BrowserQuit;
+        }
+        let mut exit = self.exit.clone();
         let ended = tokio::time::timeout(QUIT_WINDOW, exit.wait_for(Option::is_some))
             .await
             .ok()
             .and_then(Result::ok)
             .and_then(|ended| ended.clone());
-        if self.browser.closing.is_cancelled() {
+        if self.closing.is_cancelled() {
             return Lost::EngineClosed;
         }
         match ended {

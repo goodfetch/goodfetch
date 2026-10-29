@@ -19,7 +19,7 @@ use std::time::SystemTime;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::secret_endpoint::SecretProviderEndpoint;
 use goodfetch_engine::secrets::{
-    ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider,
+    ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider, retry_after,
 };
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::secret_reference::SecretReference;
@@ -190,7 +190,12 @@ impl SecretProvider for AwsSecretsManager {
             if status == 200 {
                 value_of(answer.body(), key)
             } else {
-                Err(translate(status, answer.body()))
+                Err(translate(status, answer.body()).retrying_after(retry_after(
+                    answer
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|value| value.to_str().ok()),
+                )))
             }
         })
     }
@@ -431,7 +436,10 @@ pub(crate) fn translate(status: u16, body: &[u8]) -> ProviderFailure {
         Some(Meaning::Decryption) => refused(
             "the secret's KMS key could not decrypt it; allow the access key `kms:Decrypt` on that key.",
         ),
-        Some(Meaning::Throttled) => refused("the request rate was exceeded; try again later."),
+        Some(Meaning::Throttled) => ProviderFailure::Busy {
+            fix: format!("{SERVICE}: the request rate was exceeded; try again later."),
+            retry_after: None,
+        },
         Some(Meaning::ServiceFailed) => refused("the service failed; try again later."),
         None => {
             tracing::warn!(

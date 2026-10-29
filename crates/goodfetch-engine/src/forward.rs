@@ -16,10 +16,11 @@ use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::daemon::DaemonEndpoint;
-use goodfetch_protocol::jsonrpc::{ErrorObject, Message, Request, RequestId, Version};
+use goodfetch_protocol::jsonrpc::{ErrorObject, META, Message, Request, RequestId, Version};
 use goodfetch_protocol::run::{RunAbortParams, RunId, RunOwner, RunReport};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+use tracing::Instrument as _;
 
 use crate::attached::read_token;
 use crate::clock::Clock;
@@ -27,7 +28,7 @@ use crate::daemon::files::DaemonFiles;
 use crate::home::Home;
 use crate::runs::{Forwarder, ReadAnswer};
 use crate::tasks::TaskOwner;
-use crate::transport;
+use crate::{trace, transport};
 
 /// How long the owner has to answer `hello`: a live owner answers at once,
 /// and a Run's own abort then takes what its next safe point takes.
@@ -135,12 +136,47 @@ impl Forwarder for ToOwner {
 
 /// Opens a Connection to `owner`, says `hello`, sends `method` with
 /// `params` and reads its answer: its result, or the failure it answered;
-/// `Err` when it gave neither.
+/// `Err` when it gave neither. The call is a request the engine sends, so
+/// it opens a `CLIENT` span, whose Trace context its `_meta` carries (ADR
+/// 0132); `hello` opens the Connection and carries none.
 async fn call(
     owner: &DaemonEndpoint,
     hello: &HelloParams,
-    method: &str,
+    method: &'static str,
     params: &impl serde::Serialize,
+    clock: Clock,
+) -> Result<Result<Value, ErrorObject>, String> {
+    let span = trace::client_span(method);
+    let mut params = serde_json::to_value(params).expect("invariant: params encode");
+    if let (Some(meta), Value::Object(members)) = (trace::sent(&span), &mut params) {
+        members.insert(
+            META.to_owned(),
+            serde_json::to_value(meta).expect("invariant: a Trace context encodes as JSON"),
+        );
+    }
+    let answer = exchange(owner, hello, method, &params, clock)
+        .instrument(span.clone())
+        .await;
+    match &answer {
+        Ok(Ok(_)) => trace::record_id(&span, &RequestId::Number(CALL)),
+        Ok(Err(failure)) => {
+            trace::record_id(&span, &RequestId::Number(CALL));
+            trace::record_failure(&span, &failure.data.code, failure.code);
+        }
+        Err(_) => {}
+    }
+    answer
+}
+
+/// The id the forwarded call goes under, after `hello`'s `0`.
+const CALL: i64 = 1;
+
+/// [`call`]'s exchange on the Connection, under its span.
+async fn exchange(
+    owner: &DaemonEndpoint,
+    hello: &HelloParams,
+    method: &str,
+    params: &Value,
     clock: Clock,
 ) -> Result<Result<Value, ErrorObject>, String> {
     let connection = transport::connect_daemon(owner)
@@ -155,8 +191,8 @@ async fn call(
         }
         () = clock.sleep(HELLO_DEADLINE) => return Err("no answer to `hello`".to_owned()),
     }
-    send(&mut writer, 1, method, params).await?;
-    let answer = reply(&mut lines, 1).await?;
+    send(&mut writer, CALL, method, params).await?;
+    let answer = reply(&mut lines, CALL).await?;
     let _ = writer.shutdown().await;
     Ok(answer)
 }

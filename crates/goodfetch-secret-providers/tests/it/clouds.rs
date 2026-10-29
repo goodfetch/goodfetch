@@ -443,6 +443,11 @@ impl Fixture {
     /// `environment`, for a Run whose settings are `settings`.
     fn driver(&self, environment: BTreeMap<OsString, OsString>, settings: &Resolved) -> RunSecrets {
         let home = Home::new(self.env.home().to_path_buf());
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test's Secrets draw their retry jitter from a seeded Entropy (ADR 0059)"
+        )]
+        let entropy = goodfetch_engine::entropy::Entropy::seeded(0);
         self.runtime.block_on(async {
             Composition::default()
                 .with(goodfetch_secret_providers::contribution())
@@ -454,6 +459,7 @@ impl Fixture {
                             environment,
                             keychain: Keychain::absent(),
                             home: home.clone(),
+                            entropy,
                         },
                         Arc::new(AuditLog::of(&home, None)),
                         Arc::new(TaskOwner::root(BlockingPolicy::Inline)),

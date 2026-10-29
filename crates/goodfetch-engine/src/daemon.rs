@@ -490,7 +490,8 @@ pub(crate) async fn serve(
     let shared = Arc::new(Shared::new(&serving, options, owner.child(), endings));
     serving.metrics.draining(false);
     if let Some(ops) = ops {
-        owner.spawn(ops::serve(ops, shared.health.clone(), owner.child()));
+        let health = shared.health.clone();
+        owner.spawn(ops::serve(ops, health, owner.child(), serving.clock));
     }
     let connections_owner = owner.child();
     let (ended, mut endings_of_connections) = mpsc::unbounded_channel::<ConnectionId>();

@@ -109,7 +109,7 @@ export type RunWarningCode = "baseline_unavailable" | "block_resources_visible" 
  * - `browser_time`: The time a run held a browser, in milliseconds (ADR 0101).
  * - `model_calls`: Model calls a run made, retries and Repairs included (ADR 0101).
  * - `model_tokens`: Model tokens a run used, input and output (ADR 0101).
- * - `page_crashes`: Pages of a run that crashed: their renderer, or their browser's process (ADR 0040). A crash racing the page's close does not count.
+ * - `page_crashes`: Crashes of a run: one per renderer that crashed, and one per browser process that crashed, however many pages it held (ADR 0040). A crash racing the page's close does not count.
  * - `paid_solves`: Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.
  * - `proxy_bytes`: Bytes a run sent and received through a proxy, per proxy kind.
  * - `requests`: Requests a run sent: a crawl's Crawl requests, and a page's navigations.

@@ -73,6 +73,8 @@ impl SecretProvider for Hanging {
 
 mod files;
 mod keychain;
+mod racing;
+mod reuse;
 mod translations;
 
 fn driver(env: &TestEnv, variables: &[(&str, &str)]) -> Secrets {
@@ -90,6 +92,7 @@ fn driver_with(env: &TestEnv, variables: &[(&str, &str)], keychain: Keychain) ->
             environment,
             keychain,
             home: Home::new(env.home().to_path_buf()),
+            entropy: crate::entropy::Entropy::seeded(env.seed()),
         },
         Arc::new(AuditLog::of(&Home::new(env.home().to_path_buf()), None)),
         Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
@@ -173,6 +176,39 @@ fn a_set_variable_resolves_through_env_and_is_held_for_the_run() {
             "s3cr3t-value".to_owned(),
             vec![(KEY.to_owned(), "s3cr3t-value".to_owned())]
         )
+    );
+}
+
+/// A value resolved again for the same placeholder, as each Session's open
+/// resolves the proxy password, is held once: 100 resolutions of one
+/// value leave one held value, and a value resolved after it comes last.
+/// Covers: story:4-49
+#[test]
+fn a_value_resolved_again_for_its_placeholder_is_held_once() {
+    let env = TestEnv::new();
+    let secrets = goodfetch_test_support::runtime().block_on(async {
+        driver(
+            &env,
+            &[("SHOP_KEY", "s3cr3t-value"), ("OTHER_KEY", "other-value")],
+        )
+        .for_run(Duration::from_secs(30))
+    });
+
+    for _ in 0..100 {
+        resolved(&secrets, "env:SHOP_KEY").unwrap();
+    }
+    resolved(&secrets, "env:OTHER_KEY").unwrap();
+    resolved(&secrets, "env:SHOP_KEY").unwrap();
+
+    let held = goodfetch_test_support::runtime().block_on(secrets.held());
+    assert_eq!(
+        held.iter()
+            .map(|(name, value)| (name.clone(), value.expose_secret().to_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            (KEY.to_owned(), "other-value".to_owned()),
+            (KEY.to_owned(), "s3cr3t-value".to_owned())
+        ]
     );
 }
 

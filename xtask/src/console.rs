@@ -84,13 +84,21 @@ pub(crate) fn build(root: &Path) -> Result<()> {
     if !built.join(PAGE).is_file() {
         bail!("the build of {PACKAGE} wrote no {PAGE}");
     }
-    let compressed = staging.path().join("compressed");
+    // The compressed files are staged beside the build folder, not under
+    // `target`, so that the rename crosses no volume: the Windows cell's
+    // `target` is a junction to its Dev Drive, another volume.
+    let parent = out
+        .parent()
+        .context("the Console's build folder has a parent")?;
+    std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    let beside = tempfile::Builder::new()
+        .prefix(".console-build-")
+        .tempdir_in(parent)
+        .with_context(|| format!("creating a folder in {}", parent.display()))?;
+    let compressed = beside.path().join("compressed");
     compress_tree(&built, &compressed)?;
     if out.exists() {
         std::fs::remove_dir_all(&out).with_context(|| format!("removing {}", out.display()))?;
-    } else if let Some(folder) = out.parent() {
-        std::fs::create_dir_all(folder)
-            .with_context(|| format!("creating {}", folder.display()))?;
     }
     std::fs::rename(&compressed, &out).with_context(|| format!("writing {}", out.display()))?;
     if let Some(folder) = stamp.parent() {

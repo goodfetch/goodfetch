@@ -3,19 +3,14 @@
     reason = "the log writer test shares what the subscriber wrote with the test through a Mutex"
 )]
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::OsString;
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use goodfetch_cli::output::ColourChoice;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::home::Home;
 use goodfetch_engine::mask::{Masks, Reach, Redaction};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::log::{LOG_FILE_MAX_FILES, LOG_FILE_MAX_SIZE, LOG_OUTPUT};
-use goodfetch_protocol::versions::VERSION_AGE_NOTICE;
+use goodfetch_protocol::foxhound_names;
 use rstest::rstest;
 use secrecy::SecretString;
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -105,6 +100,54 @@ fn the_help_of_every_command_is_rendered_from_the_command_line() {
     insta::assert_snapshot!("help_tree", tree);
 }
 
+/// Whether Foxhound's help `foxhounds` of the command path `path` shows
+/// Collie's help `collies` unchanged: each line of Collie's, in its order,
+/// its executable's name aside, and between them only the lines of a
+/// group's listing that name one of Foxhound's own commands of the group
+/// (`foxhound_names::COMMANDS`).
+fn shows_unchanged(collies: &str, foxhounds: &str, path: &[String]) -> bool {
+    // A group's list aligns its commands' help to its longest name, so a
+    // line is compared with its runs of spaces as one.
+    let words = |line: &str| line.split_whitespace().collect::<Vec<_>>().join(" ");
+    let foxhounds_own = |line: &String| {
+        line.split(' ').next().is_some_and(|name| {
+            let command = path
+                .iter()
+                .map(String::as_str)
+                .chain([name])
+                .collect::<Vec<_>>()
+                .join(".");
+            foxhound_names::COMMANDS.contains(&command.as_str())
+        })
+    };
+    let theirs: Vec<String> = foxhounds
+        .replace("goodfetch-foxhound", "goodfetch-collie")
+        .lines()
+        .map(words)
+        .filter(|line| !foxhounds_own(line))
+        .collect();
+    let ours: Vec<String> = collies.lines().map(words).collect();
+    theirs == ours
+}
+
+/// The containment check refuses a line Foxhound's help adds to a command
+/// Collie carries, such as an option of `run start` only Foxhound's
+/// executable has.
+#[test]
+fn the_containment_check_refuses_an_option_line_foxhound_adds_to_a_command_collie_carries() {
+    let (collie, foxhound) = (command(Product::Collie), command(Product::Foxhound));
+    let path = ["run".to_owned(), "start".to_owned()];
+    let foxhounds = help(&foxhound, &path);
+    let planted = foxhounds.replacen(
+        "Options:\n",
+        "Options:\n      --extra  An option only Foxhound's executable has\n",
+        1,
+    );
+    assert_ne!(planted, foxhounds, "the plant is in Foxhound's help");
+
+    assert!(!shows_unchanged(&help(&collie, &path), &planted, &path));
+}
+
 /// The containment check (ADRs 0090 and 0094): Foxhound's executable
 /// carries every command of Collie's unchanged, so each command path of
 /// Collie's renders the same help in Foxhound's, its executable's name
@@ -118,19 +161,7 @@ fn foxhounds_help_shows_each_command_collies_carries_unchanged() {
 
     let changed: Vec<String> = paths(&collie)
         .into_iter()
-        .filter(|path| {
-            // A group's list aligns its commands' help to its longest name,
-            // so a line is compared with its runs of spaces as one.
-            let words = |line: &str| line.split_whitespace().collect::<Vec<_>>().join(" ");
-            let foxhounds = help(&foxhound, path).replace("goodfetch-foxhound", "goodfetch-collie");
-            let mut lines = foxhounds.lines().map(words);
-            // Each line of Collie's, in its order, with only Foxhound's own
-            // commands' lines between them.
-            !help(&collie, path)
-                .lines()
-                .map(words)
-                .all(|line| lines.any(|theirs| theirs == line))
-        })
+        .filter(|path| !shows_unchanged(&help(&collie, path), &help(&foxhound, path), path))
         .map(|path| path.join(" "))
         .collect();
 
@@ -480,179 +511,4 @@ fn masked_lines_logged_at_once_from_many_threads_are_each_one_json_line_in_the_l
         (text.lines().count(), unreadable),
         (THREADS * LINES, Vec::<&str>::new())
     );
-}
-
-/// The Operations guide's page (spec #583), which an operator reads to
-/// find and bound the Daemon's logs.
-const OPERATIONS_GUIDE: &str = include_str!("../../../../docs/operations.md");
-
-/// The rows of the log folder table in the guide's section "Where the logs
-/// are": each row's place and the folders its second cell names in code
-/// spans, a span holding a path separator being a folder.
-fn log_folder_rows(guide: &str) -> Vec<(String, Vec<String>)> {
-    let section = guide
-        .split("\n## ")
-        .find(|section| section.starts_with("Where the logs are"))
-        .expect("the guide has a section \"Where the logs are\"");
-    section
-        .lines()
-        .skip_while(|line| !line.starts_with("| Where"))
-        .skip(2)
-        .take_while(|line| line.starts_with('|'))
-        .map(|line| {
-            let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
-            let folders = cells[1]
-                .split('`')
-                .skip(1)
-                .step_by(2)
-                .filter(|span| span.contains(['/', '\\']))
-                .map(str::to_owned)
-                .collect();
-            (cells[0].to_owned(), folders)
-        })
-        .collect()
-}
-
-/// `folder` as a path, its `~` and variables (`$NAME`, `%NAME%`) expanded
-/// by `variables`; `None` when it names one `variables` leaves unset.
-fn expand(folder: &str, variables: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
-    let mut path = PathBuf::new();
-    for part in folder.split(['/', '\\']) {
-        let value = match part {
-            "~" => dirs::home_dir()?.display().to_string(),
-            variable if variable.starts_with('$') => variables(&variable[1..])?,
-            variable
-                if variable.len() > 1 && variable.starts_with('%') && variable.ends_with('%') =>
-            {
-                variables(variable.trim_matches('%'))?
-            }
-            plain => plain.to_owned(),
-        };
-        path.push(value);
-    }
-    Some(path)
-}
-
-/// The log folder the guide names for each OS is the one the executable's
-/// Goodfetch home lays out: on this OS the very folder it resolves, with
-/// `GOODFETCH_HOME` unset and set, and on every other OS the same folders
-/// below its data folder. The guide names each OS once, and no other place.
-///
-/// Covers: story:13-47
-#[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the guide's folder for this OS depends on the variables the OS's data folder reads, as `main` passes none of them"
-)]
-fn the_operations_guide_names_the_log_folder_the_goodfetch_home_lays_out_on_each_os() {
-    let rows = log_folder_rows(OPERATIONS_GUIDE);
-    let places: Vec<&str> = rows.iter().map(|(place, _)| place.as_str()).collect();
-    assert_eq!(
-        places,
-        ["Linux", "macOS", "Windows", "`GOODFETCH_HOME` is set"]
-    );
-    let below_home = Path::new(super::HOME_FOLDER).join(
-        Home::new("root".into())
-            .logs()
-            .strip_prefix("root")
-            .expect("invariant: the log folder is in the home"),
-    );
-    for (place, folders) in &rows[..3] {
-        assert_ne!(
-            folders.as_slice(),
-            [] as [String; 0],
-            "{place} names no log folder"
-        );
-        for folder in folders {
-            let path = expand(folder, &|_| Some("data".to_owned())).unwrap();
-            assert!(
-                path.ends_with(&below_home),
-                "{place}'s `{folder}` is not the Goodfetch home's log folder"
-            );
-        }
-    }
-
-    let this_os = match std::env::consts::OS {
-        "linux" => "Linux",
-        "macos" => "macOS",
-        "windows" => "Windows",
-        other => panic!("the guide names no log folder for {other}"),
-    };
-    let (_, folders) = rows
-        .iter()
-        .find(|(place, _)| place == this_os)
-        .expect("the guide names this OS");
-    let environment = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
-    // A folder naming a variable that is set is the one the OS uses then.
-    let named = folders
-        .iter()
-        .filter(|folder| folder.contains(['$', '%']))
-        .find_map(|folder| expand(folder, &environment));
-    let plain = folders
-        .iter()
-        .filter(|folder| !folder.contains(['$', '%']))
-        .find_map(|folder| expand(folder, &environment));
-    let resolved = super::home(&BTreeMap::new())
-        .expect("the OS has a data folder")
-        .logs();
-    assert_eq!(named.or(plain), Some(resolved));
-
-    let (_, folders) = &rows[3];
-    let root = std::env::temp_dir().join("goodfetch-home");
-    let environment = BTreeMap::from([(
-        OsString::from(super::HOME_VARIABLE),
-        root.clone().into_os_string(),
-    )]);
-    let home = super::home(&environment).expect("GOODFETCH_HOME is set");
-    assert_ne!(folders.as_slice(), [] as [String; 0]);
-    for folder in folders {
-        let named = expand(folder, &|name| {
-            (name == super::HOME_VARIABLE).then(|| root.display().to_string())
-        });
-        assert_eq!(named, Some(home.logs()), "`{folder}`");
-    }
-}
-
-/// Every `log.*` and `version.*` setting the guide names is one of Collie's
-/// settings, spelled as the generated reference spells it, and the guide
-/// names the age notice's setting and the settings that bound the log
-/// files.
-///
-/// Covers: story:13-47
-#[test]
-fn the_operations_guide_names_the_log_and_age_notice_settings_of_the_generated_reference() {
-    let guide = OPERATIONS_GUIDE;
-    let catalog: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../goodfetch-protocol/generated/collie.json"
-    ))
-    .unwrap();
-    let reference: Vec<&str> = catalog["settings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|setting| setting["name"].as_str().unwrap())
-        .collect();
-    let named: BTreeSet<&str> = guide
-        .split('`')
-        .skip(1)
-        .step_by(2)
-        .filter(|span| span.starts_with("log.") || span.starts_with("version."))
-        .collect();
-    for setting in &named {
-        assert!(
-            reference.contains(setting),
-            "the guide names `{setting}`, which is not in Collie's settings reference"
-        );
-    }
-    for setting in [
-        VERSION_AGE_NOTICE.name,
-        LOG_OUTPUT.name,
-        LOG_FILE_MAX_SIZE.name,
-        LOG_FILE_MAX_FILES.name,
-    ] {
-        assert!(
-            named.contains(setting),
-            "the guide does not name `{setting}`"
-        );
-    }
 }

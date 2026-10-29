@@ -5,13 +5,17 @@
 //! raw or in any of Goodfetch's encodings (ADR 0067), while a Run kept
 //! beside it keeps its own.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
 use serde_json::{Value, json};
 
+use super::daemon::{cli_hello, daemon, opened, the_pick};
+use super::engine;
 use super::layout::{Talk, install_file, per_install, per_run};
+use super::run::{call, run_folder};
 use crate::run_state::RunStateOptions;
 use crate::run_state::install::InstallDatabase;
 
@@ -254,6 +258,90 @@ fn a_start_under_a_discarded_runs_id_begins_a_new_run_that_finds_none_of_its_sta
             "present".to_owned(),
         )
     );
+}
+
+/// A discard runs beside the Run registry, never in it (ADR 0050): while
+/// one waits for a reader's test of its Run's writer lock to let go, the
+/// Daemon still answers `daemon.health` live and ready, and a resume of the
+/// Run being discarded is refused with `run_in_use`; once the reader lets
+/// go, the discard ends and the Run is gone.
+/// Covers: story:3-39, story:3-102, operation:run.discard, operation:daemon.health, error:run_in_use
+#[test]
+fn a_discard_leaves_the_registry_answering_and_refuses_a_resume_of_its_run() {
+    let env = TestEnv::new();
+    let folder = run_folder(&env, "discarded");
+    let watched = folder.clone();
+
+    let (_, (order, replies)) = daemon(
+        &engine(Product::Collie),
+        &env,
+        the_pick(),
+        |dialer| async move {
+            let mut client = opened(&dialer, cli_hello()).await;
+            call(
+                &mut client,
+                1,
+                "run.start",
+                json!({ "run_id": "discarded" }),
+            )
+            .await;
+            call(
+                &mut client,
+                2,
+                "run.finish",
+                json!({ "run_id": "discarded" }),
+            )
+            .await;
+            let reader = std::fs::File::open(watched.join("run.lock")).unwrap();
+            reader.try_lock_shared().unwrap();
+            client
+                .send(&[
+                    request(3, "run.discard", json!({ "run_id": "discarded" })),
+                    request(4, "daemon.health", json!({})),
+                    request(5, "run.resume", json!({ "run_id": "discarded" })),
+                ])
+                .await;
+            let (mut order, mut replies) = (Vec::new(), BTreeMap::new());
+            let mut reader = Some(reader);
+            while replies.len() < 3 {
+                let reply = client.next().await.unwrap();
+                let Some(id) = reply["id"].as_i64() else {
+                    continue;
+                };
+                order.push(id);
+                replies.insert(id, reply);
+                if replies.contains_key(&4) && replies.contains_key(&5) {
+                    // The reader's test lets go.
+                    drop(reader.take());
+                }
+            }
+            client.close().await;
+            (order, replies)
+        },
+    );
+
+    assert_eq!(
+        (
+            order,
+            &replies[&3]["result"],
+            &replies[&4]["result"],
+            &replies[&5]["error"]["data"]["code"],
+            folder.exists(),
+        ),
+        (
+            vec![4, 5, 3],
+            &json!({ "run_id": "discarded" }),
+            &json!({ "live": true, "ready": true, "unready": [] }),
+            &json!("run_in_use"),
+            false,
+        ),
+        "{replies:?}"
+    );
+}
+
+/// The JSON-RPC request `id` of `method` with `params`.
+fn request(id: i64, method: &str, params: Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
 }
 
 /// A Run this engine runs is not discarded, failing with `run_live`; one

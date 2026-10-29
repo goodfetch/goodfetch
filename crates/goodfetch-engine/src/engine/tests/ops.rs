@@ -18,11 +18,16 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::daemon::{cli_hello, daemon, draining, opened, stuck, the_pick};
+use super::disk_view::DiskView;
+use super::layout::install_file;
 use super::run::{call, run_folder};
+use super::storage::configure;
 use super::{engine, engine_with};
 use crate::daemon::DaemonOptions;
 use crate::metrics::{METER, Metrics};
 use crate::ops::{ConfiguredBrowsers, Ops};
+use crate::run_state::RunStateOptions;
+use crate::run_state::install::InstallDatabase;
 
 mod listener;
 
@@ -113,6 +118,139 @@ fn a_daemon_that_cannot_take_a_run_is_live_and_not_ready_and_says_why(
     );
 }
 
+const MB: u64 = 1_000_000;
+
+/// Where a Daemon's storage readiness tests put the filesystems: the
+/// Goodfetch home, its per-major folder, which holds the install database,
+/// and the run folders, each on a filesystem of its own.
+#[derive(Clone, Copy, Debug)]
+enum Critical {
+    /// The per-major folder's filesystem, in the per-install layout.
+    InstallDatabase,
+    /// The Goodfetch home's, in the per-run layout.
+    Home,
+}
+
+/// A Daemon whose essential writes are on a filesystem at `critical` is
+/// not ready, and its start of a Run is refused, naming that folder,
+/// wherever the run folders are (ADRs 0050 and 0122): in the per-install
+/// layout the filesystem of the install database, which holds run state,
+/// and in either layout the Goodfetch home's, which holds the Usage ledger
+/// and the Politeness file, without which no Run goes on.
+///
+/// Covers: story:3-102, story:3-104, operation:daemon.health, setting:storage.critical_free
+#[rstest]
+#[case::install_database(Critical::InstallDatabase)]
+#[case::home(Critical::Home)]
+fn a_daemon_whose_essential_writes_are_on_a_critical_filesystem_is_not_ready(
+    #[case] critical: Critical,
+) {
+    let env = TestEnv::new();
+    configure(
+        &env,
+        "storage.low_free = 2000000\nstorage.critical_free = 1000000\n",
+    );
+    let view = DiskView::default();
+    let (home, per_major) = (env.home().to_owned(), env.home().join("1"));
+    let runs = per_major.join("runs");
+    let (critical_folder, install) = match critical {
+        Critical::InstallDatabase => {
+            view.mount(&home, 100 * MB, 50 * MB);
+            view.mount(&per_major, 100 * MB, MB / 2);
+            std::fs::create_dir_all(&runs).unwrap();
+            let install =
+                InstallDatabase::open(&install_file(&env), &runs, &RunStateOptions::default())
+                    .unwrap();
+            (per_major.clone(), Some(install))
+        }
+        Critical::Home => {
+            view.mount(&home, 100 * MB, MB / 2);
+            view.mount(&per_major, 100 * MB, 50 * MB);
+            (home.clone(), None)
+        }
+    };
+    view.mount(&runs, 100 * MB, 50 * MB);
+    let options = DaemonOptions {
+        install,
+        ..the_pick()
+    };
+
+    let (_, (health, started)) = daemon(
+        &engine(Product::Collie).with_governor(view.system()),
+        &env,
+        options,
+        |dialer| async move {
+            let mut client = opened(&dialer, cli_hello()).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let health = call(&mut client, 1, "daemon.health", json!({})).await;
+            let started = call(&mut client, 2, "run.start", json!({ "run_id": "refused" })).await;
+            if started["result"].is_object() {
+                // A start this test expects refused, finished all the same.
+                call(&mut client, 3, "run.finish", json!({ "run_id": "refused" })).await;
+            }
+            client.close().await;
+            (health["result"].clone(), started)
+        },
+    );
+
+    assert_eq!(
+        (
+            health,
+            &started["error"]["data"]["code"],
+            &started["error"]["data"]["path"],
+        ),
+        (
+            json!({ "live": true, "ready": false, "unready": ["storage_critical"] }),
+            &json!("resources_exhausted"),
+            &json!(critical_folder.display().to_string()),
+        ),
+        "{started}"
+    );
+}
+
+/// Readiness reads run state's filesystem afresh, as a start does, rather
+/// than wait for the governor's next sample: a filesystem that crossed
+/// `storage.critical_free` since the last sample fails it at once.
+///
+/// Covers: story:3-102, operation:daemon.health, setting:storage.critical_free
+#[test]
+fn readiness_reads_run_states_filesystem_afresh_between_two_samples() {
+    let env = TestEnv::new();
+    let folder = env.home().join("1");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("configuration.toml"),
+        "version = \"0.1\"\n\n[settings]\ngovernor.sample_interval = 3600000\n\
+         storage.low_free = 2000000\nstorage.critical_free = 1000000\n",
+    )
+    .unwrap();
+    let view = DiskView::default();
+    let disk = view.mount(env.home(), 100 * MB, 50 * MB);
+    let filled = view.clone();
+
+    let (_, (before, after)) = daemon(
+        &engine(Product::Collie).with_governor(view.system()),
+        &env,
+        the_pick(),
+        |dialer| async move {
+            let mut client = opened(&dialer, cli_hello()).await;
+            let before = call(&mut client, 1, "daemon.health", json!({})).await;
+            filled.set_free(disk, MB / 2);
+            let after = call(&mut client, 2, "daemon.health", json!({})).await;
+            client.close().await;
+            (before["result"].clone(), after["result"].clone())
+        },
+    );
+
+    assert_eq!(
+        (before, after),
+        (
+            json!({ "live": true, "ready": true, "unready": [] }),
+            json!({ "live": true, "ready": false, "unready": ["storage_critical"] }),
+        )
+    );
+}
+
 /// A draining Daemon is live but takes no Run (ADR 0049), so it is not
 /// ready.
 ///
@@ -141,7 +279,7 @@ fn a_draining_daemon_is_live_and_not_ready() {
 }
 
 /// Every series of `registry`, as `name{label="value",…} value`.
-fn series(registry: &prometheus::Registry) -> BTreeSet<String> {
+pub(super) fn series(registry: &prometheus::Registry) -> BTreeSet<String> {
     registry
         .gather()
         .iter()

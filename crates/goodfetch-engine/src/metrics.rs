@@ -210,11 +210,16 @@ impl Metrics {
             .add(1, &[KeyValue::new("run_kind", kind.as_str())]);
     }
 
-    /// A live Run of `kind` ended as `report` says.
-    pub(crate) fn run_ended(&self, kind: RunKind, report: &RunReport) {
+    /// A live Run of `kind` ended as `report` says, or with no report when
+    /// its end could not be recorded (ADR 0122): either way it is no
+    /// longer live, and only a report counts an end by its three axes.
+    pub(crate) fn run_ended(&self, kind: RunKind, report: Option<&RunReport>) {
         self.0
             .run_active
             .add(-1, &[KeyValue::new("run_kind", kind.as_str())]);
+        let Some(report) = report else {
+            return;
+        };
         self.0.run_ended.add(
             1,
             &[

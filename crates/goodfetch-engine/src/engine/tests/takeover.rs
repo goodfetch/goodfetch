@@ -20,6 +20,7 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use goodfetch_test_support::TestEnv;
+use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -231,6 +232,50 @@ fn a_readers_test_at_the_moment_of_a_takeover_never_fails_it() {
             run_row(&folder)["epoch"].clone()
         ),
         (json!("stopped"), json!(2))
+    );
+}
+
+/// A reader's test that holds the lock as a start or a resume first tries
+/// it, then lets go, never fails it with `run_in_use`: the writer retries,
+/// as every writer that takes the lock does (ADR 0031).
+/// Covers: story:3-46
+#[rstest]
+/// Covers: operation:run.start
+#[case::start("run.start", "fresh")]
+/// Covers: operation:run.resume
+#[case::resume("run.resume", "orphan")]
+fn a_readers_test_at_the_moment_of_a_start_or_a_resume_never_fails_it(
+    #[case] method: &str,
+    #[case] run_id: &str,
+) {
+    let env = TestEnv::new();
+    killed_after(&env, &[("run.start", json!({ "run_id": "orphan" }))]);
+    let folder = run_folder(&env, run_id);
+    std::fs::create_dir_all(&folder).unwrap();
+    let reader = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(folder.join("run.lock"))
+        .unwrap();
+    reader.try_lock_shared().unwrap();
+    let params = json!({ "run_id": run_id });
+
+    let taken = attached_on(&engine(Product::Collie), &env, |mut client| async move {
+        client.send(&[hello("collie", "0.1")]).await;
+        client.next().await;
+        let let_go = async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            reader.unlock().unwrap();
+        };
+        let (taken, ()) = tokio::join!(call(&mut client, 1, method, params), let_go);
+        taken
+    });
+
+    assert_eq!(
+        (&taken["result"]["run_id"], &taken["error"]),
+        (&json!(run_id), &Value::Null),
+        "{taken}"
     );
 }
 

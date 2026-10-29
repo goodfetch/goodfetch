@@ -18,16 +18,20 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_test_support::{CrashVfs, IoFault, TestEnv};
+use opentelemetry::metrics::MeterProvider as _;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 
 use super::disk_view::DiskView;
 use super::events::credit;
+use super::ops::series;
 use super::run::{call, run_folder};
 use super::{Client, attached_on, attached_with, dependencies, engine, engine_with, hello};
 use crate::Dependencies;
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::Engine;
+use crate::metrics::{METER, Metrics};
 use crate::run_state::{RunStateOptions, RunStateTables};
 
 const MB: u64 = 1_000_000;
@@ -212,6 +216,49 @@ fn a_run_on_a_filesystem_past_low_goes_on_and_carries_storage_low() {
     );
 }
 
+/// A Run warned of `storage_low` for its folder and resumed while that
+/// filesystem is still at `low` carries the warning once: a resume hands
+/// over no second warning for a folder its report already names (ADR
+/// 0122).
+///
+/// Covers: row:RT-03, setting:storage.low_free, operation:run.resume
+#[test]
+fn a_run_resumed_on_a_filesystem_still_at_low_carries_storage_low_once() {
+    let env = TestEnv::new();
+    configure(&env, LEVELS);
+    let view = DiskView::default();
+    view.mount(env.home(), 100 * MB, MB * 3 / 2);
+
+    let finished = attached_on(&viewed(&view), &env, |mut client| async move {
+        opened(&mut client).await;
+        call(&mut client, 1, "run.start", json!({ "run_id": "warned" })).await;
+        samples().await;
+        call(&mut client, 2, "run.pause", json!({ "run_id": "warned" })).await;
+        call(&mut client, 3, "run.resume", json!({ "run_id": "warned" })).await;
+        samples().await;
+        call(&mut client, 4, "run.finish", json!({ "run_id": "warned" })).await
+    });
+
+    let folder = run_folder(&env, "warned").display().to_string();
+    let warnings: Vec<(&Value, &Value)> = finished["result"]["warnings"]
+        .as_array()
+        .map(|warnings| {
+            warnings
+                .iter()
+                .map(|warning| (&warning["code"], &warning["folder"]))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(
+        (&finished["result"]["lifecycle"], warnings),
+        (
+            &json!("finished"),
+            vec![(&json!("storage_low"), &json!(folder))]
+        ),
+        "{finished}"
+    );
+}
+
 /// The next `run.progress` that carries `storage`, answered as its
 /// `storage`.
 async fn next_storage(client: &mut Client) -> Value {
@@ -368,9 +415,23 @@ where
     F: FnOnce(Client) -> Fut,
     Fut: Future<Output = T>,
 {
+    crashing_on(
+        &engine_with(Product::Collie, Some(noting())),
+        env,
+        vfs,
+        client,
+    )
+}
+
+/// [`crashing`], with `engine`, which has `test.note`.
+fn crashing_on<F, Fut, T>(engine: &Engine, env: &TestEnv, vfs: &CrashVfs, client: F) -> T
+where
+    F: FnOnce(Client) -> Fut,
+    Fut: Future<Output = T>,
+{
     let name = vfs.name().to_owned();
     attached_with(
-        &engine_with(Product::Collie, Some(noting())),
+        engine,
         || Dependencies {
             run_state: RunStateOptions {
                 vfs: Some(name),
@@ -616,6 +677,61 @@ fn when_the_commit_recording_the_stop_fails_too_the_waiting_call_raises_resource
             &json!("resumed"),
             &json!("finished"),
             (vec![1, 2], "ok".to_owned()),
+        ),
+        "{stopped}"
+    );
+}
+
+/// A Run whose end its run file could not record, left interrupted with
+/// no live writer (ADR 0122), is no longer counted live: the runtime's
+/// `goodfetch.run.active` goes back down, as for an end that was recorded.
+///
+/// Covers: story:3-103, row:RT-03
+#[test]
+fn a_run_whose_end_could_not_be_recorded_is_no_longer_counted_active() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("storage-gauge"), env.seed()).unwrap();
+    let faulted = vfs.clone();
+    let registry = prometheus::Registry::new();
+    let exporter = opentelemetry_prometheus::exporter()
+        .with_registry(registry.clone())
+        .without_target_info()
+        .scope_info_enabled(false)
+        .build()
+        .unwrap();
+    let provider = SdkMeterProvider::builder().with_reader(exporter).build();
+    let engine = engine_with(Product::Collie, Some(noting()))
+        .with_metrics(Metrics::new(&provider.meter(METER)));
+    let active = move || {
+        series(&registry)
+            .into_iter()
+            .filter(|series| series.starts_with("goodfetch_run_active"))
+            .collect::<Vec<_>>()
+    };
+    let scraped = active.clone();
+
+    let (while_live, stopped) = crashing_on(&engine, &env, &vfs, |mut client| async move {
+        opened(&mut client).await;
+        call(&mut client, 1, "run.start", json!({ "run_id": "gauged" })).await;
+        let while_live = scraped();
+        faulted.fail_at(faulted.operations(), IoFault::Full);
+        call(
+            &mut client,
+            2,
+            "test.note",
+            json!({ "run_id": "gauged", "value": 1 }),
+        )
+        .await;
+        let stopped = call(&mut client, 3, "run.finish", json!({ "run_id": "gauged" })).await;
+        (while_live, stopped)
+    });
+
+    assert_eq!(
+        (while_live, &stopped["error"]["data"]["code"], active()),
+        (
+            vec![r#"goodfetch_run_active{run_kind="collie"} 1"#.to_owned()],
+            &json!("resources_exhausted"),
+            vec![r#"goodfetch_run_active{run_kind="collie"} 0"#.to_owned()],
         ),
         "{stopped}"
     );

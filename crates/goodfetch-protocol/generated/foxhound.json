@@ -22556,7 +22556,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "Pages of a run that crashed: their renderer, or their browser's process (ADR 0040). A crash racing the page's close does not count.",
+      "description": "Crashes of a run: one per renderer that crashed, and one per browser process that crashed, however many pages it held (ADR 0040). A crash racing the page's close does not count.",
       "name": "page_crashes",
       "product": "collie",
       "type": "usage_kind"

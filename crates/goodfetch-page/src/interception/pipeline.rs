@@ -1069,8 +1069,10 @@ impl PageContext {
         let Some(permit) = self.proxy_hop(Some(&failed.request_id)) else {
             return;
         };
+        let document = Arc::clone(&*lock(&self.document));
         let refused = self.driver.proxy().is_some_and(|proxy| {
             proxy.refusal(
+                &document,
                 proxy::Answer::Failure {
                     error: &failed.error_text,
                 },
@@ -1099,7 +1101,7 @@ impl PageContext {
             .find(|header| header.name.eq_ignore_ascii_case(PROXY_STATUS))
             .map(|header| header.value.as_str());
         let answer = proxy.response(&paused.request.url, proxy_status);
-        if !proxy.refusal(answer, Some(status)) {
+        if !proxy.refusal(&paused.request.url, answer, Some(status)) {
             return;
         }
         if let Some(permit) = self.proxy_hop(paused.network_id.as_ref()) {

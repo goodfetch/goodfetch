@@ -545,6 +545,12 @@ impl EndpointPolicy {
         }
     }
 
+    /// Whether it refuses every address that is not globally reachable:
+    /// `egress.no_private_endpoints` is on.
+    pub fn no_private_endpoints(self) -> bool {
+        self.no_private_endpoints
+    }
+
     /// The policy the resolved settings give: `egress.no_private_endpoints`,
     /// which only the Operator policy sets.
     pub fn of(settings: &Resolved) -> Self {

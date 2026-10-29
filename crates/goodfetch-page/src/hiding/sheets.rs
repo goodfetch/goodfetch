@@ -11,7 +11,6 @@
     reason = "the documents' lock guards one step of bookkeeping, never across an `.await` or another lock, so the page's event loops never wait on a command; there is no lock order to test under loom (ADR 0060)"
 )]
 
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use goodfetch_cdp::Failure;
@@ -71,8 +70,6 @@ enum Change {
 struct Sender {
     driver: PageDriver,
     documents: Arc<Mutex<Documents>>,
-    /// The order of the last ordered change sent, by document and part.
-    orders: BTreeMap<(Key, Part), u64>,
 }
 
 impl Sheets {
@@ -84,7 +81,6 @@ impl Sheets {
         let mut sender = Sender {
             driver: driver.clone(),
             documents: Arc::clone(&documents),
-            orders: BTreeMap::new(),
         };
         let live = run.cancellation().clone();
         run.spawn(async move {
@@ -258,14 +254,11 @@ impl Sender {
                 text,
                 order,
             } => {
-                if let Some(order) = order {
-                    let last = self.orders.entry((key.clone(), part)).or_insert(order);
-                    if order < *last {
-                        return Ok(());
-                    }
-                    *last = order;
+                let mut documents = self.documents();
+                if order.is_some_and(|order| !documents.ordered(&key, part, order)) {
+                    return Ok(());
                 }
-                self.documents().set(&key, part, text)
+                documents.set(&key, part, text)
             }
             Change::Release { key, loader } => self.documents().release(&key, loader.as_deref()),
             Change::LiftConsent { key, selectors } => {

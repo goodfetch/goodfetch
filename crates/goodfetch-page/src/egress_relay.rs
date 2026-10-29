@@ -49,6 +49,8 @@ pub(crate) mod application_settings;
 pub(crate) mod authority;
 pub(crate) mod capture;
 pub(crate) mod client_hello;
+pub(crate) mod cookies;
+pub(crate) mod deadlines;
 pub(crate) mod head;
 pub(crate) mod serve;
 pub(crate) mod terminate;
@@ -57,11 +59,13 @@ use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use data_encoding::BASE64;
 use goodfetch_engine::CallError;
+use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::dns::Dns;
 use goodfetch_engine::egress::{self, EndpointPolicy, Policy, Refused};
 use goodfetch_engine::endpoint::{REFUSAL_TARGET, new_token};
@@ -77,7 +81,7 @@ use goodfetch_engine::tls::{
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::RequestFailed;
 use goodfetch_protocol::security::SECURITY_RAW_CDP_EGRESS_PROXY;
-use goodfetch_protocol::settings::NETWORK_RESOLVE;
+use goodfetch_protocol::settings::{NETWORK_RESOLVE, TIMEOUT_NAVIGATION};
 use serde_json::json;
 use tokio::io::AsyncWriteExt as _;
 use tokio::net::{TcpListener, TcpStream};
@@ -187,6 +191,10 @@ pub(crate) struct RelayEndpoint<'a> {
     pub(crate) password: &'a str,
 }
 
+/// What tells the Session's upstream proxy what a connection for an
+/// authority met.
+pub(crate) type MetTold = Box<dyn Fn(&str, Met) + Send + Sync>;
+
 /// How a Session's relay chains through its upstream proxy.
 pub(crate) struct Chain {
     /// The protocol the relay speaks to the proxy.
@@ -197,7 +205,7 @@ pub(crate) struct Chain {
     /// Whether a URL goes around the proxy, as `proxy.bypass` says.
     pub(crate) bypasses: Box<dyn Fn(&str) -> bool + Send + Sync>,
     /// Tells the proxy what a connection to it met.
-    pub(crate) met: Box<dyn Fn(Met) + Send + Sync>,
+    pub(crate) met: MetTold,
     /// How the proxy's own addresses are judged before each connection to
     /// it, as an Operator-configured endpoint's (ADR 0017); none for the
     /// Session's loopback relay, which the Session's open judged the proxy
@@ -205,46 +213,95 @@ pub(crate) struct Chain {
     pub(crate) judged: Option<EndpointPolicy>,
 }
 
-/// What the relay met on its latest connection to a Session's upstream
-/// proxy: whether it failed to open, and whether the proxy refused the
-/// Session's credentials, which the proxy's failures are read from.
-#[derive(Default)]
-pub(crate) struct Latest {
-    unreachable: AtomicBool,
-    refused: AtomicBool,
-    /// Whether the relay answered the latest connection itself, with its
-    /// own `502` for a SOCKS5 proxy it could not use.
-    answered: AtomicBool,
+/// The most authorities a relay keeps what its connections met for.
+const KEPT_OUTCOMES: usize = 64;
+
+/// The longest a relay waits for a connection it opens, to a site or to
+/// the Session's upstream proxy, unless the Run's `timeout.navigation` is
+/// shorter ([`connect_deadline`]).
+const CONNECT_DEADLINE: Duration = Duration::from_secs(10);
+
+/// How long a relay of `run` waits for a connection it opens:
+/// [`CONNECT_DEADLINE`], or half the Run's `timeout.navigation` when that is
+/// shorter, so a proxy that never answers fails as the proxy's, with
+/// `proxy_unavailable`, before the navigation's own deadline (deep review
+/// finding 577-4).
+pub(crate) fn connect_deadline(run: &Run) -> Duration {
+    let navigation = Deadline::of_run(run, &TIMEOUT_NAVIGATION).duration();
+    CONNECT_DEADLINE.min(navigation / 2)
 }
 
-impl Latest {
-    /// Keeps `met`, a connection's: one that reached no proxy leaves the
-    /// credentials' answer as the latest that did.
-    pub(crate) fn record(&self, met: Met) {
-        self.unreachable
-            .store(met == Met::Unreachable, Ordering::Relaxed);
-        self.answered.store(met != Met::Reached, Ordering::Relaxed);
-        if met != Met::Unreachable {
-            self.refused
-                .store(met == Met::CredentialsRefused, Ordering::Relaxed);
+/// The latest value of each authority a relay's connections asked for, at
+/// most [`KEPT_OUTCOMES`], the oldest dropped first (STYLE.md: every buffer
+/// is bounded).
+pub(crate) struct ByAuthority<T>(Mutex<VecDeque<(String, T)>>);
+
+impl<T> Default for ByAuthority<T> {
+    fn default() -> Self {
+        Self(Mutex::new(VecDeque::new()))
+    }
+}
+
+impl<T: Clone> ByAuthority<T> {
+    /// Keeps `value` as `authority`'s latest.
+    pub(crate) fn keep(&self, authority: &str, value: T) {
+        let mut kept = lock(&self.0);
+        kept.retain(|(kept, _)| kept != authority);
+        if kept.len() >= KEPT_OUTCOMES {
+            kept.pop_front();
         }
+        kept.push_back((authority.to_owned(), value));
     }
 
-    /// Whether the latest connection reached no proxy.
-    pub(crate) fn unreachable(&self) -> bool {
-        self.unreachable.load(Ordering::Relaxed)
+    /// Forgets `authority`'s value.
+    pub(crate) fn forget(&self, authority: &str) {
+        lock(&self.0).retain(|(kept, _)| kept != authority);
+    }
+
+    /// `authority`'s latest value.
+    pub(crate) fn get(&self, authority: &str) -> Option<T> {
+        lock(&self.0)
+            .iter()
+            .find(|(kept, _)| kept == authority)
+            .map(|(_, value)| value.clone())
+    }
+}
+
+/// What a Session's relays met on their connections to its upstream proxy,
+/// by the authority each connection asked for: whether it reached no proxy,
+/// whether the proxy refused the Session's credentials, and whether the
+/// relay answered it itself, which a request's proxy failures are read
+/// from (deep review finding 577-5).
+#[derive(Default)]
+pub(crate) struct Outcomes(ByAuthority<Met>);
+
+impl Outcomes {
+    /// Keeps `met`, the latest connection's to `authority`.
+    pub(crate) fn record(&self, authority: &str, met: Met) {
+        self.0.keep(authority, met);
+    }
+
+    /// What the latest connection for `url` met, none when no connection
+    /// for its authority met the proxy.
+    fn of(&self, url: &str) -> Option<Met> {
+        self.0.get(&authority_of(url)?)
+    }
+
+    /// Whether the latest connection for `url` reached no proxy.
+    pub(crate) fn unreachable(&self, url: &str) -> bool {
+        self.of(url) == Some(Met::Unreachable)
     }
 
     /// Whether the proxy refused the credentials on the latest connection
-    /// that reached it.
-    pub(crate) fn refused(&self) -> bool {
-        self.refused.load(Ordering::Relaxed)
+    /// for `url`.
+    pub(crate) fn refused(&self, url: &str) -> bool {
+        self.of(url) == Some(Met::CredentialsRefused)
     }
 
-    /// Whether the relay answered the latest connection itself: a proxy
-    /// it could not reach, or one that refused what it asked.
-    pub(crate) fn answered(&self) -> bool {
-        self.answered.load(Ordering::Relaxed)
+    /// Whether the relay answered the latest connection for `url` itself:
+    /// a proxy it could not reach, or one that refused what it asked.
+    pub(crate) fn answered(&self, url: &str) -> bool {
+        self.of(url).is_some_and(|met| met != Met::Reached)
     }
 }
 
@@ -346,6 +403,8 @@ impl EgressRelay {
             upstream,
             bypasses,
             terminating: terminating.clone(),
+            clock: run.clock(),
+            connect_deadline: connect_deadline(run),
         };
         let addresses = local.as_ref().map(|local| local.addresses);
         let network = Tcp {
@@ -550,7 +609,7 @@ impl EgressRelay {
 }
 
 /// `url`'s host and port, as the relay keys its refusals.
-fn authority_of(url: &str) -> Option<String> {
+pub(crate) fn authority_of(url: &str) -> Option<String> {
     let url = url::Url::parse(url).ok()?;
     let host = match url.host()? {
         url::Host::Ipv6(address) => address.to_string(),
@@ -575,7 +634,7 @@ struct Record {
     run: Run,
     log: Arc<RequestLog>,
     /// Tells the Session's upstream proxy what a connection to it met.
-    met: Option<Box<dyn Fn(Met) + Send + Sync>>,
+    met: Option<MetTold>,
     /// Its latest refusals, each with its number and authority.
     refusals: Mutex<VecDeque<(u64, String, Refusal)>>,
     /// The sites it could not reach itself since it last reached them,
@@ -656,9 +715,9 @@ impl Observe for Record {
         self.keep(url, method, Refusal::Certificate(stop.clone()));
     }
 
-    fn upstream(&self, met: Met) {
+    fn upstream(&self, authority: &str, met: Met) {
         if let Some(tell) = &self.met {
-            tell(met);
+            tell(authority, met);
         }
     }
 

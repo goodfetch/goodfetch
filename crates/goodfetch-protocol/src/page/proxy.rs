@@ -523,6 +523,13 @@ impl ProxyProviderConfiguration {
             })
             .transpose()?;
         let endpoint = text("endpoint")?.map(ProxyServer::parse).transpose()?;
+        if let Some(endpoint) = endpoint.as_ref()
+            && endpoint.scheme == ProxyScheme::Https
+        {
+            return Err(format!(
+                "a Proxy provider's `endpoint` is `http://`, `socks5://` or `socks5h://`: the Session's loopback relay speaks no TLS to it, so its credentials would cross in clear, found `{endpoint}`"
+            ));
+        }
         let price = text("price")?
             .map(|price| {
                 PriceValue::parse(price).ok_or_else(|| {
@@ -709,7 +716,7 @@ fn no_providers() -> Value {
 /// `proxy.providers` (ADRs 0021, 0041 and 0101).
 pub const PROXY_PROVIDERS: Setting = Setting {
     name: "proxy.providers",
-    description: "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`); `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
+    description: "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`), an `http://`, `socks5://` or `socks5h://` URL, never `https://`, which the Session's loopback relay speaks no TLS to; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
     kind: ValueKind::Map(&ValueKind::Shape(&PROXY_PROVIDER_SHAPE)),
     default: no_providers,
     clearable: false,

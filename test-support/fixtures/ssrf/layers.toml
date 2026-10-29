@@ -81,6 +81,21 @@ not_run.redirect = "An Operator-configured endpoint's request follows no redirec
 not_run.rebinding = "An endpoint's export looks its host up on each connection through `http_client`'s lookup, the one the `http_client` layer's rebinding runner holds; an endpoint's own name is the Operator's, which the run's pages cannot answer."
 not_run.upstream_proxy = "An Operator-configured endpoint goes direct, never through the run's upstream proxy (ADR 0017's endpoint class)."
 
+[layers.session_proxy]
+summary = "A Session's upstream proxy at its open (`goodfetch-page`'s `proxy`, ADR 0017), in process, on every OS: each case's URL as the proxy's, its lookups answered in turn, one open for each of its fetches, under an Operator policy that sets `egress.no_private_endpoints`; the oracle is the addresses the loopback relay is given to dial, which it dials alone. The positive control is a proxy on loopback with the switch off."
+runners = [
+    { test = "crates/goodfetch-page/src/proxy/tests.rs::every_operator_endpoint_case_of_the_ssrf_table_is_refused_at_the_sessions_open", families = [
+        "operator_endpoint",
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+        "rebinding",
+    ] },
+]
+not_run.redirect = "A Session's open sends nothing to its proxy: it looks the proxy's host up and judges it, and no answer is read."
+not_run.upstream_proxy = "The family's cases are a site's address behind the proxy, which the `egress_relay` layer judges per connection; this layer judges the proxy's own address."
+
 [layers.egress_relay]
 summary = "A browser Session's egress relay (`goodfetch-page`'s `egress_relay`, ADR 0017) in process, on every OS: the browser end and the network beyond are in-memory streams, names resolve through the `ScriptedResolver`, and the oracle is the connections the relay opened, which stand for the Proving ground's record; each case sent as the browser sends it (a plain request in absolute form, a tunnel for `https:`) and as a tunnel, through the Session's upstream proxy for the proxy's cases."
 runners = [

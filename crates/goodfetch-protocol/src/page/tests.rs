@@ -22,6 +22,7 @@ fn request(value: Value) -> FormatsRequest {
 #[case::markdown_given(json!({ "url": "https://a.test/", "base_url": "https://a.test/", "main_content": "found", "markdown": "# A" }), true)]
 #[case::markdown_empty_with_no_main_content(json!({ "url": "https://a.test/", "base_url": "https://a.test/", "main_content": "none", "markdown": "" }), true)]
 #[case::markdown_missing(json!({ "url": "https://a.test/", "base_url": "https://a.test/", "main_content": "found" }), false)]
+#[case::main_content_missing(json!({ "url": "https://a.test/", "base_url": "https://a.test/", "markdown": "# A" }), false)]
 #[case::base_url_missing(json!({ "url": "https://a.test/", "main_content": "found", "markdown": "# A" }), false)]
 #[case::main_content_unknown(json!({ "url": "https://a.test/", "base_url": "https://a.test/", "main_content": "partial", "markdown": "# A" }), false)]
 #[case::a_format_not_asked(json!({ "url": "https://a.test/", "base_url": "https://a.test/", "main_content": "found", "markdown": "# A", "html": "<h1>A</h1>" }), false)]
@@ -36,8 +37,9 @@ fn the_schema_of_a_markdown_requests_result_holds_markdown_and_the_envelope(
 
 /// Covers: story:6-66, story:6-8
 #[rstest]
-#[case::the_envelope_alone(json!({ "url": "https://a.test/", "base_url": "https://a.test/", "main_content": "none" }), true)]
-#[case::markdown_not_asked(json!({ "url": "https://a.test/", "base_url": "https://a.test/", "main_content": "found", "markdown": "# A" }), false)]
+#[case::the_envelope_alone(json!({ "url": "https://a.test/", "base_url": "https://a.test/" }), true)]
+#[case::main_content_not_asked(json!({ "url": "https://a.test/", "base_url": "https://a.test/", "main_content": "none" }), false)]
+#[case::markdown_not_asked(json!({ "url": "https://a.test/", "base_url": "https://a.test/", "markdown": "# A" }), false)]
 fn the_schema_of_an_empty_requests_result_has_no_format(
     #[case] result: Value,
     #[case] holds: bool,
@@ -126,7 +128,6 @@ fn references_and_tables() -> Value {
     json!({
         "url": "https://a.test/",
         "base_url": "https://a.test/",
-        "main_content": "found",
         "links": [
             { "url": "https://a.test/b", "href": "b", "text": "B", "rel": ["next"] },
             { "url": null, "href": "http://[::1", "text": "Broken", "rel": [] },
@@ -190,7 +191,6 @@ fn metadata_and_contacts() -> Value {
     json!({
         "url": "https://a.test/",
         "base_url": "https://a.test/",
-        "main_content": "found",
         "metadata": {
             "title": "A",
             "description": null,

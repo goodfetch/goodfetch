@@ -548,6 +548,66 @@ fn a_download_is_saved_whole_after_its_run_resumed_on_another_machine() {
     );
 }
 
+/// An empty Download's file, kept by a Run, is carried by its Checkpoint
+/// like any other: after a resume from it on another machine, the resumed
+/// Run checkpoints again and the file is saved, empty.
+///
+/// Covers: story:6-17, operation:download.save_as, operation:run.checkpoint
+#[test]
+fn an_empty_download_survives_a_checkpoint_and_a_resume_on_another_machine() {
+    let (first, second) = (TestEnv::new(), TestEnv::new());
+    let path = second.folder().join("report.csv");
+    let asked = path.display().to_string();
+
+    let (checkpointed, saved) = two_machines_on(
+        &engine(),
+        &first,
+        &second,
+        |mut here, mut there| async move {
+            here.ok(2, "run.start", json!({ "run_id": "empty" })).await;
+            let kept = here
+                .ok(
+                    3,
+                    "test.keep_download",
+                    json!({ "run_id": "empty", "text": TEXT, "times": 0 }),
+                )
+                .await;
+            let paused = here.ok(4, "run.pause", json!({ "run_id": "empty" })).await;
+            there
+                .ok(
+                    2,
+                    "run.resume",
+                    json!({ "run_id": "empty", "checkpoint": paused["checkpoint"]["location"] }),
+                )
+                .await;
+            let checkpointed = there
+                .call(3, "run.checkpoint", json!({ "run_id": "empty" }))
+                .await;
+            let saved = there
+                .call(
+                    4,
+                    "download.save_as",
+                    json!({ "download_id": kept["download_id"], "path": asked }),
+                )
+                .await;
+            there
+                .ok(5, "run.finish", json!({ "run_id": "empty" }))
+                .await;
+            (checkpointed, saved)
+        },
+    );
+
+    assert_eq!(
+        (
+            checkpointed.get("error"),
+            &saved["result"]["written"],
+            std::fs::read(&path).ok()
+        ),
+        (None, &json!(true), Some(Vec::new())),
+        "{checkpointed} {saved}"
+    );
+}
+
 /// While the Run folder's filesystem is at the `critical` storage level, a
 /// file the Run keeps fails at once with `file_write_failed`, side
 /// `engine`, reason `storage_full`, naming the folder, and nothing of it

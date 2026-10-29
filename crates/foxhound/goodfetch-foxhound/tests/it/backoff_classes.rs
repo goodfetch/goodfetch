@@ -25,7 +25,9 @@ use std::net::TcpListener;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
+use goodfetch_test_support::{
+    BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
+};
 use rstest::rstest;
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
 use serde_json::{Value, json};
@@ -259,7 +261,7 @@ fn crawled(engine: &mut Attached, params: &Value) -> Value {
 #[case::a_504(Page::Status(504), true)]
 #[case::a_refused_connection(Page::Refused, true)]
 #[case::a_timed_out_connection(Page::TimedOut, true)]
-/// Covers: setting:tls.accept_invalid_certs
+/// Covers: setting:tls.trusted_cas
 #[case::enhance_your_calm(Page::Calm, true)]
 #[case::a_500(Page::Status(500), false)]
 fn a_failing_site_backs_its_domain_off_and_a_500_does_not(
@@ -277,12 +279,11 @@ fn a_failing_site_backs_its_domain_off_and_a_500_does_not(
         .map(|(host, address)| (*host, address.as_str()))
         .collect();
     // The browser reaches `fetch-edge.test` over TLS only through the
-    // relay's termination under the host's exception (ADR 0042), which
-    // passes the site's HTTP/2 frames on.
-    let more = match page {
-        Page::Calm => json!({ "tls": { "accept_invalid_certs": { "fetch-edge.test": null } } }),
-        _ => json!({}),
-    };
+    // relay's termination for the authority `home` trusts (ADR 0042),
+    // which passes the site's HTTP/2 frames on. An invalid-certificate
+    // exception would not: its host is reached over HTTP/1.1 alone, where
+    // no `ENHANCE_YOUR_CALM` is sent.
+    let more = json!({});
     let mut engine = engine(&env);
 
     let finished = crawled(
@@ -304,6 +305,20 @@ fn a_failing_site_backs_its_domain_off_and_a_500_does_not(
         "{finished} {:?}",
         ready_at(&file, key)
     );
+    // `ENHANCE_YOUR_CALM` is an HTTP/2 error: the page was asked for over
+    // HTTP/2, on either tier.
+    if matches!(page, Page::Calm) {
+        let observations = proving_ground.observations().unwrap();
+        let protocols: Vec<Value> = ReceivedRequests::of(&observations)
+            .of_the_case()
+            .filter(|request| request["target"] == json!("/calm"))
+            .map(|request| request["protocol"].clone())
+            .collect();
+        assert!(
+            !protocols.is_empty() && protocols.iter().all(|protocol| protocol == "h2"),
+            "{protocols:?}"
+        );
+    }
 }
 
 /// A crawl on each tier of a page whose 503 asks, in `Retry-After`, for no

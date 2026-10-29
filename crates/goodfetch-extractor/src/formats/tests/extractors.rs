@@ -48,7 +48,7 @@ fn the_two_built_ins_find_another_main_content_on_one_article() {
     let image = "![](https://kites.test/images/line.jpg)";
     let paragraph = "Braided polyester is the usual choice for single-line kites";
     for read in [&dom_smoothie, &trafilatura] {
-        assert_eq!(read.main_content, MainContent::Found);
+        assert_eq!(read.main_content, Some(MainContent::Found));
         assert!(read.markdown.as_deref().unwrap().contains(paragraph));
         assert!(read.text.as_deref().unwrap().contains(paragraph));
     }
@@ -77,7 +77,7 @@ fn a_document_with_text_outside_its_landmarks_has_main_content_whatever_the_step
 
     let read = read_with(html, built_in);
 
-    assert_eq!(read.main_content, MainContent::Found);
+    assert_eq!(read.main_content, Some(MainContent::Found));
     let markdown = read.markdown.unwrap();
     assert!(
         markdown.contains("[One](https://example.test/one)")
@@ -93,7 +93,7 @@ fn a_document_with_no_main_content_answers_none_whatever_the_step(
 ) {
     let read = read_with(include_str!("../fixtures/no-main-content.html"), built_in);
 
-    assert_eq!(read.main_content, MainContent::None);
+    assert_eq!(read.main_content, Some(MainContent::None));
     assert_eq!(read.markdown.as_deref(), Some(""));
     assert_eq!(read.text.as_deref(), Some(""));
 }

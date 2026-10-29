@@ -261,10 +261,12 @@ fn every_operator_endpoint_case_of_the_ssrf_table_is_refused_before_it_connects(
         "only {} cases",
         runner.cases().len()
     );
+    // A proxy's row is an Operator-configured endpoint too, sent here as
+    // the collector's URL: the `session_proxy` layer runs it as a proxy's.
     assert!(
         kinds.iter().all(|route| matches!(
             route,
-            Route::OperatorEndpoint { kind } if kind == "otlp"
+            Route::OperatorEndpoint { kind } if kind == "otlp" || kind == "proxy"
         )),
         "{kinds:?}"
     );

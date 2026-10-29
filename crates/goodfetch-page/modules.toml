@@ -71,9 +71,11 @@ application_settings = []
 authority = []
 capture = ["application_settings"]
 client_hello = []
+cookies = []
+deadlines = []
 head = []
-serve = ["client_hello", "head", "terminate"]
-terminate = ["application_settings", "authority", "client_hello"]
+serve = ["client_hello", "deadlines", "head", "terminate"]
+terminate = ["application_settings", "authority", "client_hello", "cookies"]
 
 # Which of `proxy`'s own modules may import which.
 [submodules.proxy]

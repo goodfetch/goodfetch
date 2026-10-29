@@ -289,6 +289,36 @@ fn a_metered_price_is_needed_under_a_currency_limit(
     );
 }
 
+/// A provider's `endpoint` is spoken to through the Session's loopback
+/// relay, which speaks no TLS to it, so an `https://` endpoint is refused as
+/// a `list` server's is, never spoken to in clear with the account's Basic
+/// credentials (deep review finding 599-14); `http://` and SOCKS5 ones
+/// stand.
+///
+/// Covers: setting:proxy.providers
+#[rstest]
+#[case::https("https://brd.superproxy.io:33335", false)]
+#[case::http("http://brd.superproxy.io:33335", true)]
+#[case::socks5("socks5://pr.oxylabs.io:7777", true)]
+fn an_https_endpoint_is_refused_as_an_https_list_server_is(
+    #[case] endpoint: &str,
+    #[case] read: bool,
+) {
+    let entry = json!({ "username": "me", "password": "env:PROXY_PASSWORD", "endpoint": endpoint });
+
+    let configuration = ProxyProviderConfiguration::read(&entry);
+
+    assert_eq!(
+        (
+            configuration.is_ok(),
+            configuration
+                .err()
+                .is_some_and(|reason| reason.contains("`endpoint`") && reason.contains(endpoint))
+        ),
+        (read, !read)
+    );
+}
+
 /// Covers: story:8-92
 #[test]
 fn a_tally_charges_bytes_and_their_price_rounded_up_never_twice() {

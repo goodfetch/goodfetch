@@ -56,6 +56,11 @@ export type CrawlRequestOutcome1 =
   | {
       kind: "succeeded";
       /**
+       * Each request its attempt's enqueues, `enqueueLinks` calls and
+       * seeds answered `added` that the commit did not add, in order.
+       */
+      not_added?: NotAddedAtCommit[];
+      /**
        * Why it committed no Record, when it committed none.
        */
       nothing_committed?: NothingCommitted | null;
@@ -973,6 +978,51 @@ export interface OutcomeRequest {
   label: string;
   /**
    * Its URL.
+   */
+  url: string;
+}
+/**
+ * A request an attempt's enqueue, `enqueueLinks` call or seed answered
+ * `added`, with its ID, that the attempt's commit did not add (ADR 0093):
+ * the commit admits each staged request again on the run file as it then
+ * stands, and another attempt's commit may have added the request
+ * meanwhile, or a rule learned since refuses it. Its ID names no crawl
+ * request.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "NotAddedAtCommit".
+ */
+export interface NotAddedAtCommit {
+  /**
+   * The crawl request it is a duplicate of, when another request was
+   * admitted under its identity first.
+   */
+  duplicate_of?: string | null;
+  /**
+   * The ID its staging answered.
+   */
+  id: string;
+  /**
+   * Why the commit did not add it.
+   */
+  reason:
+    | "duplicate"
+    | "out_of_scope"
+    | "domain_policy"
+    | "max_depth"
+    | "max_requests"
+    | "unsupported_scheme"
+    | "invalid_url"
+    | "max_url_length"
+    | "max_path_segments"
+    | "max_segment_repeats"
+    | "path_budget"
+    | "trap_path"
+    | "no_rule"
+    | "trap_link"
+    | "link_limit";
+  /**
+   * Its URL, as parsed.
    */
   url: string;
 }

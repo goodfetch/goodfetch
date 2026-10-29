@@ -70,6 +70,7 @@ fn succeeded() -> Ending {
             rejected: 0,
         }],
         nothing_committed: None,
+        not_added: Vec::new(),
     }
 }
 

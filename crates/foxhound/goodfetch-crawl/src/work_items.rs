@@ -30,12 +30,13 @@ use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::RunStateTables;
-use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit, payload, sitemap, trap_links};
+use goodfetch_frontier::{Candidate, Declared, Scope, Url, payload, sitemap, trap_links};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
 use goodfetch_protocol::foxhound::outcomes::{
-    AttemptError, CrawlRequestOutcome, Ending, NothingCommitted, OutcomeRequest, SkipReason,
+    AttemptError, CrawlRequestOutcome, Ending, NotAddedAtCommit, NothingCommitted, OutcomeRequest,
+    SkipReason,
 };
 use goodfetch_protocol::foxhound::provenance::{
     CertificateExceptionMark, EncodingProvenance, RecordProvenance, RobotsTxtMark, TierProvenance,
@@ -296,14 +297,18 @@ pub(crate) fn admit_seeds(
             let seed = match seed {
                 Seed::Request(seed) => seed,
                 Seed::Sitemap(seed) => {
-                    return sitemap::admit_seed(connection, policy, seed, |url| {
-                        add(
-                            connection,
-                            positions,
-                            url,
-                            from_sitemap(sitemap::Adding::Sitemap),
-                        )
-                    });
+                    let mut admitting = std::mem::take(&mut positions.admitting);
+                    let answer =
+                        sitemap::admit_seed_in(connection, policy, seed, &mut admitting, |url| {
+                            add(
+                                connection,
+                                positions,
+                                url,
+                                from_sitemap(sitemap::Adding::Sitemap),
+                            )
+                        });
+                    positions.admitting = admitting;
+                    return answer;
                 }
             };
             let declared = Declared {
@@ -316,42 +321,69 @@ pub(crate) fn admit_seeds(
                 url: &seed.url,
                 declared,
             };
-            admit(connection, scope, policy, candidate, |url| {
-                add(
-                    connection,
-                    positions,
-                    url,
-                    Adding {
-                        method: &seed.method,
-                        body: seed.body.as_ref(),
-                        label: &seed.label,
-                        payload: seed.payload.as_ref(),
-                        priority: seed.priority,
-                        forefront: seed.forefront,
-                        depth: 0,
-                    },
-                )
-            })
+            let adding = Adding {
+                method: &seed.method,
+                body: seed.body.as_ref(),
+                label: &seed.label,
+                payload: seed.payload.as_ref(),
+                priority: seed.priority,
+                forefront: seed.forefront,
+                depth: 0,
+            };
+            admit(connection, positions, scope, policy, candidate, adding)
         })
         .collect()
+}
+
+/// Admits `candidate` through the Frontier within `scope` and under the
+/// Run's domain policy `policy`, as a pending work item carrying `adding`
+/// when added, at its position from `positions`, against what `positions`
+/// holds beside the run file: an attempt's earlier staged admissions while
+/// it stages, what its commit does not add at the commit (ADR 0093).
+pub(crate) fn admit(
+    connection: &Connection,
+    positions: &mut Positions,
+    scope: &Scope,
+    policy: &Policy,
+    candidate: Candidate<'_>,
+    adding: Adding<'_>,
+) -> rusqlite::Result<Enqueued> {
+    let mut admitting = std::mem::take(&mut positions.admitting);
+    let answer = goodfetch_frontier::admit_in(
+        connection,
+        scope,
+        policy,
+        candidate,
+        &mut admitting,
+        |url| add(connection, positions, url, adding),
+    );
+    positions.admitting = admitting;
+    answer
 }
 
 /// The positions work items are added at, each its ID: after every work
 /// item the run file holds and every position reserved for one an attempt
 /// staged (ADR 0093), so a staged request keeps the ID its enqueue
 /// answered once its attempt commits, and a discarded one leaves a gap.
+/// Beside them, what the Frontier admits against beside the run file: an
+/// attempt's earlier staged admissions while it stages one more, and the
+/// URLs its commit does not add.
 #[derive(Debug)]
 pub(crate) struct Positions {
     /// The positions an earlier staging of the admission being replayed
     /// gave each URL it added.
     kept: BTreeMap<String, u64>,
+    /// The URLs of `kept` given their position again.
+    used: BTreeSet<String>,
     next: u64,
     /// The positions given since the last [`Positions::taken`], by URL.
     taken: BTreeMap<String, u64>,
+    admitting: goodfetch_frontier::Admitting,
 }
 
 impl Positions {
-    /// The positions after everything the run file `connection` holds.
+    /// The positions after everything the run file `connection` holds,
+    /// admitting against the run file alone.
     pub(crate) fn of(connection: &Connection) -> rusqlite::Result<Self> {
         let next: i64 = connection.query_row(
             "SELECT max(
@@ -363,8 +395,36 @@ impl Positions {
         )?;
         Ok(Self {
             kept: BTreeMap::new(),
+            used: BTreeSet::new(),
             next: u64::try_from(next).unwrap_or(1),
             taken: BTreeMap::new(),
+            admitting: goodfetch_frontier::Admitting::RunFile,
+        })
+    }
+
+    /// The same, admitting while an attempt stages, against what its
+    /// earlier staged admissions did, `earlier`.
+    pub(crate) fn staging(
+        connection: &Connection,
+        earlier: std::sync::Arc<goodfetch_frontier::Staged>,
+    ) -> rusqlite::Result<Self> {
+        Ok(Self {
+            admitting: goodfetch_frontier::Admitting::Staging {
+                earlier,
+                now: goodfetch_frontier::Staged::default(),
+            },
+            ..Self::of(connection)?
+        })
+    }
+
+    /// The same, admitting at an attempt's commit, which notes each URL it
+    /// does not add.
+    pub(crate) fn committing(connection: &Connection) -> rusqlite::Result<Self> {
+        Ok(Self {
+            admitting: goodfetch_frontier::Admitting::Commit {
+                refused: Vec::new(),
+            },
+            ..Self::of(connection)?
         })
     }
 
@@ -372,12 +432,17 @@ impl Positions {
     /// as an admission staged before is replayed.
     pub(crate) fn keeping(&mut self, kept: BTreeMap<String, u64>) {
         self.kept = kept;
+        self.used.clear();
         self.taken.clear();
+        if let goodfetch_frontier::Admitting::Commit { refused } = &mut self.admitting {
+            refused.clear();
+        }
     }
 
     /// The position of the work item added at `url`.
     fn take(&mut self, url: &str) -> u64 {
         if let Some(kept) = self.kept.get(url) {
+            self.used.insert(url.to_owned());
             return *kept;
         }
         let position = self.next;
@@ -386,15 +451,41 @@ impl Positions {
         position
     }
 
-    /// The positions given since the last [`Positions::taken`], which are
-    /// the IDs of the work items added at them.
-    pub(crate) fn given(&self) -> impl Iterator<Item = u64> + '_ {
-        self.taken.values().copied()
-    }
-
     /// The positions given since the last call, by URL.
     pub(crate) fn taken(&mut self) -> BTreeMap<String, u64> {
         std::mem::take(&mut self.taken)
+    }
+
+    /// What the staged admission did beside the run file, once it ran, as
+    /// the attempt's later admissions read it.
+    pub(crate) fn staged(self) -> goodfetch_frontier::Staged {
+        match self.admitting {
+            goodfetch_frontier::Admitting::Staging { now, .. } => now,
+            goodfetch_frontier::Admitting::RunFile
+            | goodfetch_frontier::Admitting::Commit { .. } => goodfetch_frontier::Staged::default(),
+        }
+    }
+
+    /// Each request the admission replayed at the commit kept a position
+    /// for and did not add, since [`Positions::keeping`]: the ID its
+    /// staging answered, its URL and why the commit did not add it.
+    pub(crate) fn not_added(&self) -> Vec<NotAddedAtCommit> {
+        let goodfetch_frontier::Admitting::Commit { refused } = &self.admitting else {
+            return Vec::new();
+        };
+        refused
+            .iter()
+            .filter(|refused| !self.used.contains(&refused.url))
+            .filter_map(|refused| {
+                let id = self.kept.get(&refused.url)?;
+                Some(NotAddedAtCommit {
+                    id: id.to_string(),
+                    url: refused.url.clone(),
+                    reason: refused.reason,
+                    duplicate_of: refused.duplicate_of.clone(),
+                })
+            })
+            .collect()
     }
 
     /// Reserves in the run file every position given so far, so that no
@@ -649,6 +740,8 @@ pub(crate) struct Committed<'a> {
     pub(crate) fields: &'a FieldsRead,
     pub(crate) masks: &'a Masks,
     pub(crate) ended_at: &'a PointInTime,
+    /// Each request the attempt staged that the commit did not add.
+    pub(crate) not_added: &'a [NotAddedAtCommit],
 }
 
 /// Commits an attempt's Records, once, each numbered in its Dataset and
@@ -668,6 +761,7 @@ pub(crate) fn commit(
         fields,
         masks,
         ended_at,
+        not_added,
     } = committed;
     if !still_leased(connection, id, lease_epoch)? {
         return Ok(false);
@@ -719,6 +813,7 @@ pub(crate) fn commit(
         Ending::Succeeded {
             records: counted,
             nothing_committed,
+            not_added: not_added.to_vec(),
         },
     )?;
     Ok(true)

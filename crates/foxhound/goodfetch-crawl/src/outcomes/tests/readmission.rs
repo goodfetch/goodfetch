@@ -123,6 +123,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                         fields: &work_items::FieldsRead::default(),
                         masks: &goodfetch_engine::mask::Masks::new(),
                         ended_at: &ended_at,
+                        not_added: &[],
                     },
                 )
             }

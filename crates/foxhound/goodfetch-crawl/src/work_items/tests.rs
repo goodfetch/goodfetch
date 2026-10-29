@@ -248,6 +248,7 @@ impl Subject {
                         fields: &super::FieldsRead::default(),
                         masks: &goodfetch_engine::mask::Masks::new(),
                         ended_at: &ended_at,
+                        not_added: &[],
                     },
                 )
             }

@@ -14,14 +14,20 @@
 //! commit left it.
 //!
 //! Each staged enqueue is answered as the Frontier will admit it: its
-//! admission runs on the run file as it stands, after the attempt's
-//! earlier ones, inside a savepoint that is then rolled back, so a link the
-//! attempt already enqueued is a `duplicate` and the bounds count what the
-//! attempt staged. Its added requests' positions, which are their IDs, are
-//! reserved in the run file at once, so the commit, which runs every staged
-//! admission again in order, gives each the ID its enqueue answered. A
-//! request another attempt's commit added meanwhile is not added twice; a
-//! discarded attempt leaves a gap among the IDs.
+//! admission runs once, on the run file as it stands, inside a savepoint
+//! that is then rolled back, against what the attempt's earlier
+//! admissions did, which the Frontier's `Staged` keeps beside the entry,
+//! so a link the attempt already enqueued is a `duplicate` and the bounds
+//! count what the attempt staged; a rule an earlier admission of the
+//! attempt would teach is learned at the commit. Its added requests'
+//! positions, which are their IDs, are reserved in the run file at once,
+//! so the commit, which runs every staged admission again in order, gives
+//! each the ID its enqueue answered. A request another attempt's commit
+//! added meanwhile, or a rule learned since refuses, is not added, and the
+//! outcome of the commit names its ID, with why; a discarded attempt
+//! leaves a gap among the IDs. An attempt stages at most
+//! `crawl.max_staged_enqueues` admissions: one more fails with
+//! `staging_full`.
 //!
 //! While a declared Effect's body runs in an attempt, a call that would
 //! stage an output with it fails with `effect_staging_refused` (ADR 0106).
@@ -37,7 +43,11 @@ use goodfetch_dataset::Checked;
 use goodfetch_engine::CallError;
 use goodfetch_engine::staging::{AttemptWrites, StagedKey, StagedWrite, Unstaged};
 use goodfetch_protocol::catalog::ErrorCodeDefinition;
-use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, EFFECT_STAGING_REFUSED};
+use goodfetch_protocol::foxhound::crawl::{
+    ATTEMPT_ENDED, CRAWL_MAX_STAGED_ENQUEUES, EFFECT_STAGING_REFUSED, STAGING_FULL,
+    StagingFullDetails,
+};
+use goodfetch_protocol::foxhound::outcomes::NotAddedAtCommit;
 use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
@@ -45,7 +55,7 @@ use serde_json::{Map, Value, json};
 use crate::work_items::{Fetched, FieldsRead, Positions};
 
 /// An admission through the Frontier that an attempt staged, run again at
-/// each later staging of the attempt and at its commit.
+/// its commit.
 type Admission = Arc<dyn Fn(&Connection, &mut Positions) -> rusqlite::Result<()> + Send + Sync>;
 
 /// What a staged call answers inside its write: `None` once its attempt
@@ -63,8 +73,10 @@ struct Admitted {
 #[derive(Default)]
 struct Entry {
     admitted: Vec<Admitted>,
-    /// The Frontier identities of the requests its admissions added.
-    enqueues: BTreeSet<String>,
+    /// What its admissions did beside the run file, the Frontier
+    /// identities of the requests they added among it, which its later
+    /// admissions read.
+    staged: Arc<goodfetch_frontier::Staged>,
     records: Checked,
     writes: Vec<StagedWrite>,
     fetched: Fetched,
@@ -94,9 +106,24 @@ impl AttemptKey {
 }
 
 /// The staging of every attempt of one crawl that holds its lease, by its
-/// work item and lease epoch.
-#[derive(Clone, Default)]
-pub(crate) struct Staging(Arc<Mutex<HashMap<AttemptKey, Entry>>>);
+/// work item and lease epoch, each staging at most `max` admissions
+/// (`crawl.max_staged_enqueues`).
+#[derive(Clone)]
+pub(crate) struct Staging {
+    entries: Arc<Mutex<HashMap<AttemptKey, Entry>>>,
+    max: u64,
+}
+
+impl Default for Staging {
+    /// A staging under `crawl.max_staged_enqueues`'s default.
+    fn default() -> Self {
+        Self::bounded(
+            (CRAWL_MAX_STAGED_ENQUEUES.default)()
+                .as_u64()
+                .expect("invariant: the setting's default is a count"),
+        )
+    }
+}
 
 /// What an attempt staged so far, as a sample comparison weighs it (ADR
 /// 0103): the Records it pushed, in order, and the Frontier identities of
@@ -120,17 +147,31 @@ pub(crate) struct Staged {
     fields: FieldsRead,
 }
 
+/// What a commit admitted of what its attempt staged: the Key-value store
+/// writes to apply in the same transaction, in order, and each request
+/// its staging answered `added` that the commit did not add.
+pub(crate) struct Replayed<'a> {
+    pub(crate) writes: &'a [StagedWrite],
+    pub(crate) not_added: Vec<NotAddedAtCommit>,
+}
+
 impl Staged {
     /// Admits every staged request again, in order, in `connection`'s
     /// transaction, each at the position its staging answered, and answers
-    /// the Key-value store writes, in order, to apply in it too.
-    pub(crate) fn admit(&self, connection: &Connection) -> rusqlite::Result<&[StagedWrite]> {
-        let mut positions = Positions::of(connection)?;
-        for admitted in &self.admitted {
-            positions.keeping(admitted.positions.clone());
-            (admitted.admission)(connection, &mut positions)?;
+    /// the Key-value store writes, in order, to apply in it too, with each
+    /// request it did not add.
+    pub(crate) fn admit(&self, connection: &Connection) -> rusqlite::Result<Replayed<'_>> {
+        let mut positions = Positions::committing(connection)?;
+        let mut not_added = Vec::new();
+        for staged in &self.admitted {
+            positions.keeping(staged.positions.clone());
+            (staged.admission)(connection, &mut positions)?;
+            not_added.extend(positions.not_added());
         }
-        Ok(&self.writes)
+        Ok(Replayed {
+            writes: &self.writes,
+            not_added,
+        })
     }
 
     /// How the attempt's run fetched its document.
@@ -159,8 +200,16 @@ impl std::fmt::Debug for Staging {
 }
 
 impl Staging {
+    /// A staging whose attempts each stage at most `max` admissions.
+    pub(crate) fn bounded(max: u64) -> Self {
+        Self {
+            entries: Arc::default(),
+            max,
+        }
+    }
+
     fn entries(&self) -> MutexGuard<'_, HashMap<AttemptKey, Entry>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        self.entries.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Opens the staging of the attempt of `work_item` under `lease_epoch`,
@@ -177,8 +226,8 @@ impl Staging {
         self.entries()
             .remove(&AttemptKey::of(work_item, lease_epoch))
             .map(|entry| SoFar {
+                enqueues: enqueues_of(&entry.staged),
                 records: entry.records,
-                enqueues: entry.enqueues,
             })
             .unwrap_or_default()
     }
@@ -189,7 +238,7 @@ impl Staging {
             .get(&AttemptKey::of(work_item, lease_epoch))
             .map(|entry| SoFar {
                 records: entry.records.clone(),
-                enqueues: entry.enqueues.clone(),
+                enqueues: enqueues_of(&entry.staged),
             })
             .unwrap_or_default()
     }
@@ -331,9 +380,11 @@ impl Staging {
 
     /// Stages `admission` with the attempt of `work_item` under
     /// `lease_epoch`, inside the write of `connection`, and answers what it
-    /// answers there after the attempt's earlier admissions, the run file
-    /// left as it was but for the positions it reserves. An admission that
-    /// answers the attempt ended or a refusal of its own is not staged.
+    /// answers there after the attempt's earlier admissions, which it reads
+    /// from what they did beside the run file, the run file left as it was
+    /// but for the positions it reserves. An admission that answers the
+    /// attempt ended or a refusal of its own is not staged; one past the
+    /// attempt's `crawl.max_staged_enqueues` fails with `staging_full`.
     pub(crate) fn admit<T>(
         &self,
         connection: &Connection,
@@ -347,30 +398,16 @@ impl Staging {
             Some(entry) if entry.effects > 0 => {
                 return Ok(Some(Err(refused_in_effect(work_item, lease_epoch))));
             }
-            Some(entry) => entry.admitted.clone(),
+            Some(entry) if u64::try_from(entry.admitted.len()).unwrap_or(u64::MAX) >= self.max => {
+                return Ok(Some(Err(full(work_item, lease_epoch, self.max))));
+            }
+            Some(entry) => Arc::clone(&entry.staged),
         };
-        let mut positions = Positions::of(connection)?;
+        let mut positions = Positions::staging(connection, earlier)?;
         connection.execute_batch("SAVEPOINT staging")?;
-        let answered = (|| -> rusqlite::Result<_> {
-            for admitted in &earlier {
-                positions.keeping(admitted.positions.clone());
-                (admitted.admission)(connection, &mut positions)?;
-            }
-            positions.keeping(BTreeMap::new());
-            let answered = admission(connection, &mut positions)?;
-            // The identities the requests it added were admitted with,
-            // read before the run file is rolled back.
-            let mut identities = BTreeSet::new();
-            for added in positions.given() {
-                identities.extend(goodfetch_frontier::admitted_identities(
-                    connection,
-                    &added.to_string(),
-                )?);
-            }
-            Ok((answered, identities))
-        })();
+        let answered = admission(connection, &mut positions);
         connection.execute_batch("ROLLBACK TO staging; RELEASE staging")?;
-        let (answered, identities) = answered?;
+        let answered = answered?;
         if !matches!(answered, Some(Ok(_))) {
             return Ok(answered);
         }
@@ -382,15 +419,38 @@ impl Staging {
             }),
             positions: positions.taken(),
         };
+        // Its `earlier` goes with it, so the entry's own is the one left.
+        let now = positions.staged();
         match self.entries().get_mut(&key) {
             Some(entry) => {
                 entry.admitted.push(admitted);
-                entry.enqueues.extend(identities);
+                Arc::make_mut(&mut entry.staged).absorb(now);
             }
             None => return Ok(None),
         }
         Ok(answered)
     }
+}
+
+/// The Frontier identities of the requests `staged`'s admissions added.
+fn enqueues_of(staged: &goodfetch_frontier::Staged) -> BTreeSet<String> {
+    staged.identities().map(str::to_owned).collect()
+}
+
+/// `staging_full` for a call of the attempt of `work_item` under
+/// `lease_epoch`, which staged `max` admissions.
+fn full(work_item: &str, lease_epoch: u64, max: u64) -> CallError {
+    CallError::new(
+        &STAGING_FULL,
+        format!(
+            "Attempt {lease_epoch} of crawl request `{work_item}` already staged {max} admissions, as many as `{}` lets one attempt stage, so nothing more was staged with it.",
+            CRAWL_MAX_STAGED_ENQUEUES.name
+        ),
+        &StagingFullDetails {
+            limit: CRAWL_MAX_STAGED_ENQUEUES.name.to_owned(),
+            max,
+        },
+    )
 }
 
 /// `effect_staging_refused` for a call of the attempt of `work_item` under

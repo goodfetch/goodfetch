@@ -20,6 +20,7 @@ use crate::block::BlockCause;
 use crate::catalog::{
     Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Stability, schema_of,
 };
+use crate::foxhound::frontier::NotAddedReason;
 use crate::run::{PointInTime, RunId};
 use crate::settings::ProjectSettings;
 
@@ -149,6 +150,30 @@ pub enum NothingCommitted {
     NoneKept,
 }
 
+/// A request an attempt's enqueue, `enqueueLinks` call or seed answered
+/// `added`, with its ID, that the attempt's commit did not add (ADR 0093):
+/// the commit admits each staged request again on the run file as it then
+/// stands, and another attempt's commit may have added the request
+/// meanwhile, or a rule learned since refuses it. Its ID names no crawl
+/// request.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NotAddedAtCommit {
+    /// The ID its staging answered.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub id: String,
+    /// Its URL, as parsed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// Why the commit did not add it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: NotAddedReason,
+    /// The crawl request it is a duplicate of, when another request was
+    /// admitted under its identity first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub duplicate_of: Option<String>,
+}
+
 /// How a crawl request ended, with what that ending carries.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -163,6 +188,11 @@ pub enum Ending {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[schemars(extend("arrived_in" = "0.1"))]
         nothing_committed: Option<NothingCommitted>,
+        /// Each request its attempt's enqueues, `enqueueLinks` calls and
+        /// seeds answered `added` that the commit did not add, in order.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        not_added: Vec<NotAddedAtCommit>,
     },
     /// Its last attempt failed, and no retry is left.
     Failed {

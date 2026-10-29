@@ -65,6 +65,7 @@ use std::time::Duration;
 
 use data_encoding::BASE64;
 use goodfetch_engine::CallError;
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::dns::Dns;
 use goodfetch_engine::egress::{self, EndpointPolicy, Policy, Refused};
@@ -120,6 +121,8 @@ pub(crate) struct EgressRelay {
     /// The per-host decision on a certificate the browser refused, made
     /// on its first use.
     examiner: OnceLock<Examiner>,
+    /// The Run's Clock, at whose time the examiner judges a certificate.
+    clock: Clock,
     /// The local addresses its connections leave from, when the Session
     /// has them.
     local: Option<SessionAddresses>,
@@ -391,7 +394,7 @@ impl EgressRelay {
             Arc::new(Terminating {
                 authority,
                 exceptions,
-                examiner: trust.examiner(),
+                examiner: trust.examiner(run.clock()),
                 trust: trust.clone(),
                 application_settings: Arc::clone(&application_settings),
                 sessions: Arc::default(),
@@ -447,6 +450,7 @@ impl EgressRelay {
             trust,
             application_settings,
             examiner: OnceLock::new(),
+            clock: run.clock(),
             local: addresses,
             _closed_when_dropped: stop.drop_guard(),
         })
@@ -556,7 +560,9 @@ impl EgressRelay {
         if !(200..300).contains(&answer.status) {
             return None;
         }
-        let examiner = self.examiner.get_or_init(|| self.trust.examiner());
+        let examiner = self
+            .examiner
+            .get_or_init(|| self.trust.examiner(self.clock));
         let mirror = terminate::Mirror {
             hello: &hello,
             application_settings: &self.application_settings,

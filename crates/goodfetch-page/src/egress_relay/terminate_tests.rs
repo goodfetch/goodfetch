@@ -270,7 +270,7 @@ fn terminating(stores: &Stores, trusted: &SiteAuthority) -> Terminating {
             ExceptionHosts::default(),
         )
         .unwrap(),
-        examiner: trust(trusted).examiner(),
+        examiner: trust(trusted).examiner(Clock::system()),
         trust: Trust::default_roots(),
         application_settings: Arc::default(),
         sessions: Arc::default(),
@@ -558,7 +558,7 @@ fn each_known_failure_of_a_sites_certificate_is_named_as_the_wire_names_it(
     let examiner = Trust::default_roots()
         .with_trusted_cas("listed.test", vec![trusted.der.clone().into()])
         .unwrap()
-        .examiner();
+        .examiner(Clock::system());
     let certificate = site_certificate(host, made, &trusted);
     let received = Received::default();
 
@@ -756,7 +756,12 @@ fn the_authoritys_leaf_for_a_host_outside_its_domains_is_rejected_by_a_verifier(
                 &[],
                 &ServerName::try_from(host.to_owned()).unwrap(),
                 &[],
-                UnixTime::now(),
+                UnixTime::since_unix_epoch(
+                    Clock::system()
+                        .wall()
+                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                        .unwrap(),
+                ),
             )
             .is_ok()
     };
@@ -891,7 +896,7 @@ fn a_stopped_connection_is_told_before_the_browser_sees_it_end() {
             ExceptionHosts::default(),
         )
         .unwrap(),
-        examiner: trust(&trusted).examiner(),
+        examiner: trust(&trusted).examiner(Clock::system()),
         trust: trust(&trusted),
         application_settings: Arc::default(),
         sessions: Arc::default(),

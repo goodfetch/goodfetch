@@ -28,6 +28,7 @@
 )]
 
 use std::process::Command;
+use std::time::Duration;
 
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use serde_json::{Map, Value, json};
@@ -40,6 +41,11 @@ const SEED: u64 = 731;
 
 /// What the call in flight writes to its page's console once it runs.
 const IN_FLIGHT: &str = "in flight";
+
+/// How long a body read has been in flight when the test kills its page's
+/// renderer: no console line can say a `response.body` is waiting, as
+/// [`IN_FLIGHT`] says for a page function.
+const BODY_READ_IN_FLIGHT: Duration = Duration::from_millis(1500);
 
 /// The page function of the call in flight: it writes [`IN_FLIGHT`], then
 /// never settles.
@@ -228,7 +234,7 @@ fn a_renderer_killed_under_a_body_read_raises_page_crashed_for_it_and_for_later_
         "response.body",
         &json!({ "page_id": page, "request_id": stream["result"]["request"]["request_id"], "timeout": null }),
     );
-    std::thread::sleep(IN_FLIGHT);
+    std::thread::sleep(BODY_READ_IN_FLIGHT);
 
     signal("KILL", &browser_processes(&env, renderer));
     let read = exchange.answer(reading);

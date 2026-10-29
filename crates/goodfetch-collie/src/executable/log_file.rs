@@ -3,7 +3,10 @@
 //! rotates when the next line would take it past `log.file.max_size`, to
 //! `<stem>.1.jsonl` and on, and `log.file.max_files` are kept, the one
 //! written included, so a file holds at most its size, or one line when a
-//! line is larger. A file opened again goes on from its size.
+//! line is larger. A file opened again goes on from its size. A process
+//! other than the Daemon writes a set of its own, `<executable>-<process
+//! ID>.jsonl`, and at its start keeps only its executable's newest
+//! `log.file.max_files` sets.
 //!
 //! The writer is lossy and never blocks: each line goes to a queue of its
 //! own thread, which writes it. A line that finds the queue full, or that
@@ -19,13 +22,14 @@
     reason = "one counter of dropped lines, which writers add to as they drop and the writer's thread takes, with nothing else under it: no lock order for loom to test (ADR 0060)"
 )]
 
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, SyncSender, TrySendError};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::clock::Clock;
 
@@ -91,6 +95,30 @@ impl LogFile {
                 }
             })?;
         Ok(Self { queue, dropped })
+    }
+
+    /// Opens the log file of `executable`'s process `process`, a process
+    /// other than the Daemon, `<executable>-<process>.jsonl` in `folder`,
+    /// a set of its own, as [`LogFile::open`] does; then keeps the newest
+    /// `max_files` sets of `executable`, its own included, by when each set
+    /// was last written, and removes the older ones (ADR 0122), so the
+    /// folder stays bounded. A file it cannot remove waits for the next
+    /// start.
+    ///
+    /// # Errors
+    ///
+    /// As [`LogFile::open`].
+    pub(super) fn open_of_process(
+        folder: &Path,
+        executable: &str,
+        process: u32,
+        rotation: Rotation,
+        clock: Clock,
+    ) -> io::Result<Self> {
+        let stem = format!("{executable}-{process}");
+        let opened = Self::open(folder, &stem, rotation, clock)?;
+        keep_newest_sets(folder, executable, &stem, rotation.max_files.max(1));
+        Ok(opened)
     }
 
     /// Waits until every line handed over before is written, at most a
@@ -216,6 +244,54 @@ impl Files {
         self.size = self.file.metadata()?.len();
         Ok(())
     }
+}
+
+/// Keeps the newest `keep` sets of `executable`'s per-process files in
+/// `folder`, `own` included whenever it was written, and removes the
+/// files of the others; a set is as new as its last written file.
+fn keep_newest_sets(folder: &Path, executable: &str, own: &str, keep: u64) {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return;
+    };
+    let mut sets: BTreeMap<String, (SystemTime, Vec<PathBuf>)> = BTreeMap::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(set) = name.to_str().and_then(|name| set_of(name, executable)) else {
+            continue;
+        };
+        if set == own {
+            continue;
+        }
+        let written = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let (newest, paths) = sets
+            .entry(set.to_owned())
+            .or_insert((SystemTime::UNIX_EPOCH, Vec::new()));
+        *newest = (*newest).max(written);
+        paths.push(entry.path());
+    }
+    let mut sets: Vec<(SystemTime, Vec<PathBuf>)> = sets.into_values().collect();
+    sets.sort_by_key(|(newest, _)| std::cmp::Reverse(*newest));
+    let others = usize::try_from(keep.saturating_sub(1)).unwrap_or(usize::MAX);
+    for path in sets.into_iter().skip(others).flat_map(|(_, paths)| paths) {
+        // Another process starting at once may have removed it already.
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// The set `name` belongs to, `<executable>-<process ID>`, when it is one
+/// of `executable`'s per-process files: `<executable>-<process ID>.jsonl`
+/// or a rotated `<executable>-<process ID>.<n>.jsonl`.
+fn set_of<'a>(name: &'a str, executable: &str) -> Option<&'a str> {
+    let rest = name
+        .strip_prefix(executable)?
+        .strip_prefix('-')?
+        .strip_suffix(".jsonl")?;
+    let (process, index) = rest.split_once('.').unwrap_or((rest, "1"));
+    let number = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    (number(process) && number(index)).then(|| &name[..executable.len() + 1 + process.len()])
 }
 
 /// The line that says `count` lines were dropped, at `clock`'s time.

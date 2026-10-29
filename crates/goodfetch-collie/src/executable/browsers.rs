@@ -25,7 +25,7 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::installed::{InstalledList, Seen, kept_inputs};
 use goodfetch_engine::pinned_download::Fetching;
-use goodfetch_engine::run::settings_error;
+use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{Layers, Resolved, SettingsError, SettingsFiles, resolve};
 use goodfetch_protocol::browser_cache::{
     ArtifactId, BrowserCleaned, BrowserInstalled, InstallOutcome, InstalledBuild, MAX_UNUSED_AGE,
@@ -110,7 +110,7 @@ fn max_unused_age(settings: &Resolved) -> MaxUnusedAge {
 /// and answers its exit code.
 fn refused(error: &SettingsError, identity: &Identity, json: bool, human: &Human) -> ExitCode {
     output::fail(
-        settings_error(error, identity).to_error_object(),
+        local_settings_error(error, identity).to_error_object(),
         None,
         json,
         human,

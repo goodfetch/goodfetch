@@ -8,9 +8,9 @@ use std::collections::BTreeSet;
 
 use rstest::rstest;
 
-use super::RepoPath;
 use super::selection::{Selection, select};
 use super::workspace::{Crate, Ecosystem, Embedded, Package, Workspace};
+use super::{RepoPath, WorkspaceMembers, select_with_readers};
 
 fn names(names: &[&str]) -> BTreeSet<String> {
     names.iter().map(|name| (*name).to_owned()).collect()
@@ -312,6 +312,47 @@ fn the_gate_is_quick_only_when_no_job_but_the_docs_runs(
     let selection = select_paths(paths);
 
     assert_eq!(value(&selection, "gate"), gate);
+}
+
+/// Writes `text` to `path` under `root`, its folders first.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
+)]
+fn write(root: &std::path::Path, path: &str, text: &str) {
+    let path = root.join(path);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
+}
+
+/// A test that reads a file no member owns names it in a string literal, as
+/// `TESTING.md`'s drift check does: a change to that file alone selects the
+/// test's member and the full gate, and one no file names stays quick
+/// (finding 586-9).
+#[rstest]
+#[case::a_test_names_it(r#"std::fs::read_to_string("../../TESTING.md")"#, "full", true)]
+#[case::no_test_names_it("// Reads nothing.", "quick", false)]
+fn a_file_only_a_tests_literal_names_selects_that_test(
+    #[case] source: &str,
+    #[case] gate: &str,
+    #[case] selected: bool,
+) {
+    let root = tempfile::tempdir().unwrap();
+    write(root.path(), "crates/goodfetch-collie/tests/it.rs", source);
+    let members = WorkspaceMembers::from_workspace(fixture());
+
+    let selection =
+        select_with_readers(root.path(), &members, &[RepoPath::new("TESTING.md")]).unwrap();
+
+    assert_eq!(
+        (
+            value(&selection, "gate"),
+            value(&selection, "crates")
+                .split(' ')
+                .any(|krate| krate == "goodfetch-collie"),
+        ),
+        (gate.to_owned(), selected)
+    );
 }
 
 #[rstest]

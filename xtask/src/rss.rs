@@ -145,6 +145,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 arguments.scenario.zip(arguments.needs),
                 arguments.address.as_deref(),
                 &arguments.command,
+                &environment.goodfetch_variables,
             )?;
             output::line(&format!("peak-bytes={bytes}"));
             Ok(ExitCode::SUCCESS)

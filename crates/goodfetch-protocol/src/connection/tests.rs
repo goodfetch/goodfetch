@@ -78,6 +78,7 @@ fn a_clients_hello_reads_with_the_product_it_needs() {
             needs: Some(Product::Foxhound),
             product_version: ProductVersion::parse("0.0.0").unwrap(),
             log_level: None,
+            client_surface: None,
         }
     );
 }
@@ -106,5 +107,5 @@ fn every_field_records_the_minor_that_added_it() {
         .values()
         .map(|field| &field["arrived_in"])
         .collect();
-    assert_eq!(minors, vec![&json!("0.1"); 7]);
+    assert_eq!(minors, vec![&json!("0.1"); 8]);
 }

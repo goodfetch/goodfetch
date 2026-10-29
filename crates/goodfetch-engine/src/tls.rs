@@ -40,9 +40,11 @@ use rustls::pki_types::pem::{self, PemObject as _};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::server::ParsedCertificate;
 use rustls::sign::CertifiedKey;
+use rustls::time_provider::TimeProvider;
 use rustls::{CertificateError, DigitallySignedStruct, OtherError, RootCertStore, SignatureScheme};
 use url::Host;
 
+use crate::clock::Clock;
 use crate::composition::CallError;
 use crate::known_certificates::KeyHash;
 
@@ -190,8 +192,8 @@ impl Trust {
     /// The rustls configuration of a connection under this trust, offering
     /// HTTP/1.1 alone in ALPN; a transport that speaks HTTP/2 offers it
     /// itself (Foxhound's HTTP fetch tier).
-    pub fn client_config(&self) -> rustls::ClientConfig {
-        self.connection_config(None, None)
+    pub fn client_config(&self, clock: Clock) -> rustls::ClientConfig {
+        self.connection_config(None, None, clock)
     }
 
     /// Each scope of this trust, for a TLS library that takes one store of
@@ -233,15 +235,17 @@ impl Trust {
     /// handshake goes on whatever its certificate, unless `seen` is to stop
     /// it before `client` would be sent. The handshake's signature is still
     /// checked against that key. `client` is the client certificate it
-    /// presents when the server asks for one.
+    /// presents when the server asks for one. The handshake judges the
+    /// certificate's dates at `clock`'s wall time.
     pub(crate) fn connection_config(
         &self,
         seen: Option<Arc<Seen>>,
         client: Option<Arc<CertifiedKey>>,
+        clock: Clock,
     ) -> rustls::ClientConfig {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let verifier = Verifier::new(self, &provider, seen);
-        let builder = rustls::ClientConfig::builder_with_provider(provider)
+        let builder = rustls::ClientConfig::builder_with_details(provider, OnClock::shared(clock))
             .with_safe_default_protocol_versions()
             .expect("invariant: ring supports rustls's default protocol versions")
             .dangerous()
@@ -332,7 +336,40 @@ fn authorities_in(file: &std::path::Path) -> Option<Vec<CertificateDer<'static>>
 /// to [`Examiner::examine`], which decides as the engine's own verifier
 /// does, so one implementation decides for both.
 #[derive(Debug)]
-pub struct Examiner(Verifier);
+pub struct Examiner {
+    verifier: Verifier,
+    /// Whose wall time a certificate's dates are judged at.
+    clock: Clock,
+}
+
+/// rustls's time source on the engine's [`Clock`] (ADR 0059): a handshake
+/// judges a certificate's dates at the Clock's wall time, so a test's paused
+/// Clock drives it.
+#[derive(Debug)]
+pub(crate) struct OnClock(Clock);
+
+impl OnClock {
+    pub(crate) fn shared(clock: Clock) -> Arc<dyn TimeProvider> {
+        Arc::new(Self(clock))
+    }
+}
+
+impl TimeProvider for OnClock {
+    fn current_time(&self) -> Option<UnixTime> {
+        Some(unix_time(&self.0))
+    }
+}
+
+/// `clock`'s wall time as rustls reads it; a time before the epoch, which
+/// no OS clock gives, reads as the epoch.
+fn unix_time(clock: &Clock) -> UnixTime {
+    UnixTime::since_unix_epoch(
+        clock
+            .wall()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap_or_default(),
+    )
+}
 
 /// A certificate chain an [`Examiner`] could not read.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -343,10 +380,14 @@ pub struct Unreadable {
 }
 
 impl Trust {
-    /// The decision of this trust for chains received outside rustls.
-    pub fn examiner(&self) -> Examiner {
+    /// The decision of this trust for chains received outside rustls,
+    /// judging a certificate's dates at `clock`'s wall time.
+    pub fn examiner(&self, clock: Clock) -> Examiner {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
-        Examiner(Verifier::new(self, &provider, None))
+        Examiner {
+            verifier: Verifier::new(self, &provider, None),
+            clock,
+        }
     }
 }
 
@@ -373,13 +414,13 @@ impl Examiner {
         let name = domain_key(host).unwrap_or_else(|| host.to_owned());
         let failure = match ServerName::try_from(name) {
             Ok(server_name) => self
-                .0
+                .verifier
                 .failure(
                     &end_entity,
                     &intermediates,
                     &server_name,
                     &[],
-                    UnixTime::now(),
+                    unix_time(&self.clock),
                 )
                 .map_err(|_| unreadable())?,
             Err(_) => Some(CertificateFailure::Known(

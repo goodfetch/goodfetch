@@ -584,7 +584,7 @@ pub(crate) fn terminated() -> Terminated {
         examiner: goodfetch_engine::tls::Trust::default_roots()
             .with_trusted_cas("example.test", vec![authority_der.into()])
             .expect("invariant: the domain is a domain")
-            .examiner(),
+            .examiner(goodfetch_engine::clock::Clock::system()),
         trust: goodfetch_engine::tls::Trust::default_roots(),
         application_settings: Arc::default(),
         sessions: Arc::default(),

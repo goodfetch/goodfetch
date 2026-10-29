@@ -303,7 +303,11 @@ impl Reqwest {
                 resolver: Arc::new(Resolver::new(&config, family)),
             })
             .collect();
-        let trust = SharedTrust::new(config.trust.clone(), config.exceptions.clone());
+        let trust = SharedTrust::new(
+            config.trust.clone(),
+            config.exceptions.clone(),
+            config.clock,
+        );
         let transport = Self {
             scopes: Scopes::default(),
             http1_origins: Http1Origins::default(),

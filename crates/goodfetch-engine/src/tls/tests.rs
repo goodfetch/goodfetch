@@ -1,11 +1,16 @@
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
+
 use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
 use rstest::rstest;
 use rustls::CertificateError;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+
+use crate::clock::Clock;
 
 use super::{
-    CertificateFileError, InvalidDomain, KeyFileError, Trust, TrustScope, failure_of,
-    read_certificates, read_private_key,
+    CertificateFileError, InvalidDomain, KeyFileError, Trust, TrustScope, certificate_failure,
+    failure_of, read_certificates, read_private_key,
 };
 
 /// `der` as a PEM block labelled `label`.
@@ -214,4 +219,144 @@ fn a_host_is_in_the_scope_of_the_most_specific_domain_listed_for_it(
         .unwrap();
 
     assert_eq!(trust.scope_of(host), scope);
+}
+
+/// The host the dated certificate is for.
+const DATED_HOST: &str = "site.test";
+
+/// A certificate of [`DATED_HOST`], valid through 2020 alone, its key and
+/// the authority that signed it.
+fn dated_certificate() -> (
+    CertificateDer<'static>,
+    CertificateDer<'static>,
+    PrivateKeyDer<'static>,
+) {
+    let authority_key = rcgen::KeyPair::generate().unwrap();
+    let mut authority = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+    authority
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, "dated authority");
+    authority.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    let authority_der = authority.self_signed(&authority_key).unwrap().der().clone();
+    let issuer = rcgen::Issuer::new(authority, authority_key);
+    let key = rcgen::KeyPair::generate().unwrap();
+    let mut leaf = rcgen::CertificateParams::new(vec![DATED_HOST.to_owned()]).unwrap();
+    leaf.not_before = rcgen::date_time_ymd(2020, 1, 1);
+    leaf.not_after = rcgen::date_time_ymd(2021, 1, 1);
+    let leaf_der = leaf.signed_by(&key, &issuer).unwrap().der().clone();
+    let key = PrivateKeyDer::try_from(key.serialize_der()).unwrap();
+    (authority_der, leaf_der, key)
+}
+
+/// A moment of `year`'s first of June, at midnight UTC.
+fn june_of(year: i16) -> SystemTime {
+    let seconds = jiff::civil::date(year, 6, 1)
+        .to_zoned(jiff::tz::TimeZone::UTC)
+        .unwrap()
+        .timestamp()
+        .as_second();
+    SystemTime::UNIX_EPOCH + Duration::from_secs(seconds.unsigned_abs())
+}
+
+/// The test Clock, paused at `year`'s first of June; made on the runtime it
+/// runs on.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test drives the engine's time through the test Clock (ADR 0059)"
+)]
+fn paused_in_june_of(year: i16) -> Clock {
+    Clock::paused(june_of(year))
+}
+
+/// The Examiner, the decision for chains received outside rustls, judges a
+/// certificate's dates at the engine's Clock, so a test's paused Clock
+/// drives it (ADR 0059).
+#[rstest]
+#[case::within_its_dates(2020, None)]
+#[case::past_its_end(
+    2022,
+    Some(CertificateFailure::Known(KnownCertificateFailure::Expired))
+)]
+fn the_examiner_judges_a_certificate_at_the_clocks_time(
+    #[case] year: i16,
+    #[case] failure: Option<CertificateFailure>,
+) {
+    let (authority, leaf, _) = dated_certificate();
+    let trust = Trust::default_roots()
+        .with_trusted_cas(DATED_HOST, vec![authority])
+        .unwrap();
+
+    let presented = goodfetch_test_support::runtime().block_on(async {
+        let examiner = trust.examiner(paused_in_june_of(year));
+        examiner.examine(DATED_HOST, &[leaf.to_vec()]).unwrap()
+    });
+
+    assert_eq!(presented.failure, failure);
+}
+
+/// The engine's own client judges a server's certificate at the engine's
+/// Clock: rustls's handshake reads its time from it, not the OS.
+#[rstest]
+#[case::within_its_dates(2020, Ok(()))]
+#[case::past_its_end(
+    2022,
+    Err(Some(CertificateFailure::Known(KnownCertificateFailure::Expired)))
+)]
+fn a_connection_judges_the_servers_certificate_at_the_clocks_time(
+    #[case] year: i16,
+    #[case] handshake: Result<(), Option<CertificateFailure>>,
+) {
+    let (authority, leaf, key) = dated_certificate();
+    let trust = Trust::default_roots()
+        .with_trusted_cas(DATED_HOST, vec![authority])
+        .unwrap();
+    let server = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_no_client_auth()
+    .with_single_cert(vec![leaf], key)
+    .unwrap();
+
+    let shaken = goodfetch_test_support::runtime().block_on(async {
+        let client = trust.connection_config(None, None, paused_in_june_of(year));
+        hand_shake(client, server)
+    });
+
+    assert_eq!(
+        shaken.map_err(|error| certificate_failure(&error)),
+        handshake
+    );
+}
+
+/// Runs a TLS handshake of `client` with `server` in memory, to its end.
+fn hand_shake(
+    client: rustls::ClientConfig,
+    server: rustls::ServerConfig,
+) -> Result<(), rustls::Error> {
+    let name = ServerName::try_from(DATED_HOST).unwrap();
+    let mut client = rustls::ClientConnection::new(Arc::new(client), name).unwrap();
+    let mut server = rustls::ServerConnection::new(Arc::new(server)).unwrap();
+    while client.is_handshaking() || server.is_handshaking() {
+        let mut bytes = Vec::new();
+        while client.wants_write() {
+            client.write_tls(&mut bytes).unwrap();
+        }
+        let mut sent = bytes.as_slice();
+        while !sent.is_empty() {
+            server.read_tls(&mut sent).unwrap();
+            server.process_new_packets()?;
+        }
+        let mut bytes = Vec::new();
+        while server.wants_write() {
+            server.write_tls(&mut bytes).unwrap();
+        }
+        let mut sent = bytes.as_slice();
+        while !sent.is_empty() {
+            client.read_tls(&mut sent).unwrap();
+            client.process_new_packets()?;
+        }
+    }
+    Ok(())
 }

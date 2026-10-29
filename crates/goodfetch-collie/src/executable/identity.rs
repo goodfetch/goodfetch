@@ -11,7 +11,7 @@ use clap::ValueEnum;
 use goodfetch_cli::output::{self, ColourChoice, Human};
 use goodfetch_cli::{exit_codes, other_product};
 use goodfetch_engine::CallError;
-use goodfetch_engine::run::settings_error;
+use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{SettingsError, check_environment, deployment_variable};
 use goodfetch_engine::{CHANNEL_VARIABLE, Channel, Identity};
 use goodfetch_protocol::catalog::Product;
@@ -129,7 +129,7 @@ fn failure_of(start: &Start, error: &SettingsError) -> ErrorObject {
             .and_then(Channel::named)
             .unwrap_or(Channel::CratesIo),
     };
-    settings_error(error, &identity).to_error_object()
+    local_settings_error(error, &identity).to_error_object()
 }
 
 /// The flag that prints the result, and a failure, as JSON.

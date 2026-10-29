@@ -6,6 +6,7 @@
 
 mod git;
 mod imports;
+mod readers;
 mod selection;
 mod workspace;
 
@@ -19,6 +20,7 @@ use crate::environment::Environment;
 use crate::output;
 
 pub(crate) use git::Range;
+pub(crate) use readers::literal_readers;
 pub(crate) use selection::{Job, Selection, selectable_job_ids};
 use workspace::{Ecosystem, Workspace};
 
@@ -51,8 +53,28 @@ impl RepoPath {
 /// The selection for `range` in the repository at `root`.
 pub(crate) fn select(cargo: &OsStr, root: &Path, range: &Range) -> Result<Selection> {
     let paths = changed_paths(root, range)?;
-    let workspace = workspace::read(cargo, root)?;
-    Ok(selection::select(&workspace, &paths))
+    let members = WorkspaceMembers::read(cargo, root)?;
+    select_with_readers(root, &members, &paths)
+}
+
+/// The selection for a change to `paths` in the repository at `root`, in
+/// which a member whose own files name a changed path no member owns is
+/// changed too: its test may read that file at run time (`TESTING.md`),
+/// which no build or import shows, and the quick gate runs no such test
+/// (ADR 0135). The gate's evidence widens its parts the same way.
+fn select_with_readers(
+    root: &Path,
+    members: &WorkspaceMembers,
+    paths: &[RepoPath],
+) -> Result<Selection> {
+    let mut widened = paths.to_vec();
+    widened.extend(
+        literal_readers(root, members, paths)?
+            .keys()
+            .filter_map(|member| members.folder(member))
+            .map(|folder| RepoPath::new(format!("{folder}/.evidence"))),
+    );
+    Ok(members.select(&widened))
 }
 
 /// The files under `folder` with one of `extensions`, outside installed

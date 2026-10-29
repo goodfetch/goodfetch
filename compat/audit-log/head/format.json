@@ -237,7 +237,7 @@
           },
           {
             "const": "cloud",
-            "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).",
+            "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).\nIts `hello` names in `client_surface` the surface of the Client it\nrelays, which every other rule of the Connection follows.",
             "type": "string"
           },
           {

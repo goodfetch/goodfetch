@@ -586,4 +586,36 @@ fn read_lines(stream: impl Read + Send + 'static) -> Receiver<Line> {
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    use rstest::rstest;
+    use secrecy::SecretString;
+
+    use super::Started;
+    use crate::protocol::gateway::{GatewayAddress, GatewayTarget};
+
+    /// A gateway that takes the TCP connection and never answers its
+    /// handshake, which the kernel's backlog accepts without the listener's
+    /// `accept`.
+    #[rstest]
+    #[case::its_websocket_handshake("http")]
+    #[case::its_tls_handshake("https")]
+    fn a_gateway_that_never_answers_its_handshake_fails_the_opener_at_its_deadline(
+        #[case] scheme: &str,
+    ) {
+        let silent = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = silent.local_addr().unwrap().port();
+        let target = GatewayTarget {
+            name: "silent".to_owned(),
+            address: GatewayAddress::parse(&format!("{scheme}://127.0.0.1:{port}")).unwrap(),
+            token: SecretString::from("a-token"),
+            trusted_certificates: Vec::new(),
+        };
+
+        let opened = Started::gateway_within(&target, Duration::from_millis(200));
+
+        assert!(opened.is_err());
+    }
+}

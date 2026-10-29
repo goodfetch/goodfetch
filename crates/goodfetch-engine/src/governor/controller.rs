@@ -9,8 +9,10 @@
 //! kind whose admissions fill its target rises by a twentieth of its
 //! ceiling, at least one, never past its ceiling; a target starts at its
 //! ceiling, as ADR 0004's fixed cap did, so a floor equal to the ceiling
-//! keeps it there. Above normal nothing new is admitted past a kind's
-//! floor, whatever its target. Memory critical with every target at its
+//! keeps it there. Under memory pressure, the allowance's or the host's,
+//! nothing new is admitted past a kind's floor, whatever its target; busy
+//! CPU or Tokio workers only halve each target, which a kind admits up to,
+//! since a machine at full CPU is working, not in danger. Memory critical with every target at its
 //! floor for `governor.last_resort_after` is the last resort.
 
 use std::time::Duration;
@@ -76,8 +78,9 @@ pub(crate) struct Decision {
     /// Each kind's target, in [`WorkKind::ALL`]'s order.
     pub(crate) targets: [u32; 3],
     /// How many of each kind may be held while new ones are admitted: its
-    /// target at normal; above it, its floor, since nothing new is
-    /// admitted at pressure (ADR 0040) but a kind never falls below its
+    /// target at normal and under busy CPU or Tokio workers; under memory
+    /// pressure, the allowance's or the host's, its floor, since nothing
+    /// new is admitted then (ADR 0040) but a kind never falls below its
     /// floor.
     pub(crate) admits: [u32; 3],
     pub(crate) last_resort: bool,
@@ -126,9 +129,13 @@ impl Controller {
         let last_resort = self
             .critical_at_floor_since
             .is_some_and(|since| reading.at.saturating_sub(since) >= limits.last_resort_after);
-        let admits = match level {
-            GovernorLevel::Normal => targets,
-            GovernorLevel::Pressure | GovernorLevel::Critical => {
+        // Only memory, the allowance's or the host's, is in danger: it holds
+        // each kind at its floor, at pressure as at critical, while busy CPU
+        // or Tokio workers, which reach pressure at most, only halve each
+        // target.
+        let admits = match source {
+            None | Some(PressureSource::Cpu | PressureSource::Tokio) => targets,
+            Some(PressureSource::Memory | PressureSource::HostMemory) => {
                 limits.bounds.map(|bounds| bounds.floor)
             }
         };

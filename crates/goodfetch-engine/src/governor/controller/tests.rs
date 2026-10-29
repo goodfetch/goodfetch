@@ -134,14 +134,26 @@ fn under_pressure_each_target_halves_down_to_its_floor() {
     );
 }
 
-/// At pressure nothing new is admitted past each kind's floor (ADR 0040's
-/// first step), while each target halves as before; at normal a kind
-/// admits up to its target.
+/// At memory pressure, the host's included, nothing new is admitted past
+/// each kind's floor (ADR 0040's first step), while each target halves as
+/// before; at normal a kind admits up to its target. CPU or Tokio workers
+/// busy past `governor.pressure` only halve each target, which a kind
+/// admits up to: a machine at full CPU is working, not in danger.
 #[rstest]
 #[case::at_normal(memory(0, percent(10)), [200, 32, 16])]
 #[case::at_pressure(memory(0, percent(90)), [1, 1, 1])]
 #[case::at_critical(memory(0, percent(99)), [1, 1, 1])]
-fn above_normal_nothing_is_admitted_past_each_floor(
+#[case::at_host_pressure(Reading { host: GovernorLevel::Pressure, ..memory(0, 0) }, [1, 1, 1])]
+#[case::busy_cpu_halves_each_target(Reading { cpu_busy: 90, ..memory(0, 0) }, [100, 16, 8])]
+#[case::busy_tokio_workers_halve_each_target(
+    Reading { tokio_busy: 90, ..memory(0, 0) },
+    [100, 16, 8]
+)]
+#[case::memory_pressure_with_busy_cpu_holds_each_floor(
+    Reading { cpu_busy: 100, ..memory(0, percent(90)) },
+    [1, 1, 1]
+)]
+fn above_normal_what_each_kind_admits_follows_the_source(
     #[case] reading: Reading,
     #[case] admits: [u32; 3],
 ) {

@@ -35,7 +35,10 @@ use serde_json::{Value, json};
 use self::cases::{Case, Checks, Site};
 use self::connection::{Connection, Gone};
 pub use self::fabricated::{FabricatedHelloError, FabricatedHelloOutcome, send_fabricated_hello};
-pub use self::gateway::{GatewaySuite, GatewaySuiteError, GatewayTarget, run_gateway_suite};
+pub use self::gateway::{
+    GatewayAddress, GatewayAddressError, GatewaySuite, GatewaySuiteError, GatewayTarget,
+    run_gateway_suite,
+};
 pub use self::target::{EngineMode, EngineTarget, StartError};
 use crate::case_list::{CaseList, DeclaredCapability};
 use crate::host::{RUNTIME, platform};

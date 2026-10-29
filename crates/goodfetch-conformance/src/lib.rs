@@ -24,9 +24,10 @@ mod writer;
 
 pub use case_list::{CaseList, DeclaredCapability, DeclaredCase};
 pub use protocol::{
-    EngineMode, EngineTarget, FabricatedHelloError, FabricatedHelloOutcome, GatewaySuite,
-    GatewaySuiteError, GatewayTarget, PROXY_PASSWORD_VARIABLE, ProtocolSuite, ProtocolSuiteError,
-    StartError, SuiteError, run_gateway_suite, run_protocol_suite, send_fabricated_hello,
+    EngineMode, EngineTarget, FabricatedHelloError, FabricatedHelloOutcome, GatewayAddress,
+    GatewayAddressError, GatewaySuite, GatewaySuiteError, GatewayTarget, PROXY_PASSWORD_VARIABLE,
+    ProtocolSuite, ProtocolSuiteError, StartError, SuiteError, run_gateway_suite,
+    run_protocol_suite, send_fabricated_hello,
 };
 pub use proving_ground::{
     OWN_TARGETS, ProvingGround, ProvingGroundError, ProxyCredentials, ReceivedRequests, Submission,

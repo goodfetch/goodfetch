@@ -246,7 +246,7 @@ fn daemon_run_refuses_an_address_that_is_not_loopback() {
     env.user_configuration("daemon.address = \"0.0.0.0:7900\"\n");
 
     let mut daemon = Foreground::start(&env, COLLIE, &[]);
-    let refusal = daemon.record("`daemon.address` is `0.0.0.0:7900`, which is not a loopback address: `daemon run` listens only on loopback until the Daemon terminates TLS; put a TLS-terminating proxy in front of a loopback address.");
+    let refusal = daemon.record("`daemon.address` is not valid in user_configuration: `0.0.0.0:7900` is not a loopback address: `daemon run` listens only on loopback until the Daemon terminates TLS; put a TLS-terminating proxy in front of a loopback address");
 
     let exited = daemon.process.child().wait().unwrap();
     assert_eq!(

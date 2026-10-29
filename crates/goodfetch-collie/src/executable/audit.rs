@@ -6,8 +6,9 @@
 //! the log it came from. Each reads the log through `audit.export` and
 //! `audit.verify` on the Daemon when one runs or `--daemon` is given, else
 //! on an Attached engine in this process (ticket #1183); `audit verify`
-//! prints what `audit.verify` answers, as JSON under `--json`, and a
-//! failure prints as every command's does.
+//! prints what `audit.verify` answers, as JSON under `--json`, and exits
+//! `22`, `audit_log_not_intact`, when it does not verify; a failure prints
+//! as every command's does.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -23,7 +24,7 @@ use goodfetch_engine::audit::verify_exported;
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::audit::{AUDIT_EXPORT, AUDIT_VERIFY, AuditVerified};
 use goodfetch_protocol::catalog::Operation;
-use goodfetch_protocol::cli::{CommandError, CommandFailed};
+use goodfetch_protocol::cli::AUDIT_LOG_NOT_INTACT;
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, ProtocolFailure};
 use serde_json::{Map, Value, json};
 
@@ -170,24 +171,40 @@ fn verify_file(file: &Path, json: bool, human: &Human) -> ExitCode {
                     details: Map::new(),
                 },
             };
-            fail(&unread, &AUDIT_VERIFY, json, human)
+            output::fail(unread, Some(AUDIT_VERIFY.name), json, human)
         }
     }
 }
 
 /// Prints what verifying a log found, `verified`: as JSON under `--json`,
-/// else each field on its line.
+/// else each field on its line; exits `22`, `audit_log_not_intact`, for a
+/// log or export that does not verify, as `sha256sum -c` exits non-zero on
+/// a mismatch, so a gate that reads only the exit code catches it (ADR
+/// 0069).
 fn print(verified: &Value, json: bool, human: &Human) -> ExitCode {
+    let read = serde_json::from_value::<AuditVerified>(verified.clone());
     if json {
         output::json(verified);
-    } else if let Ok(verified) = serde_json::from_value::<AuditVerified>(verified.clone()) {
+    } else if let Ok(verified) = &read {
         human.field("intact", &verified.intact.to_string());
         human.field("entries", &verified.entries.to_string());
         if let Some(sequence) = verified.first_broken {
             human.field("first_broken", &sequence.to_string());
         }
     }
-    ExitCode::from(exit_codes::SUCCESS)
+    match read {
+        Ok(verified) if verified.intact => ExitCode::from(exit_codes::SUCCESS),
+        Ok(_) => ExitCode::from(AUDIT_LOG_NOT_INTACT.code),
+        Err(problem) => output::fail(
+            exit_codes::internal(format!(
+                "The engine answered `{}` with no verification: {problem}.",
+                AUDIT_VERIFY.name
+            )),
+            Some(AUDIT_VERIFY.name),
+            json,
+            human,
+        ),
+    }
 }
 
 /// `operation`'s result on the engine `reach` chooses, the Daemon or an
@@ -213,60 +230,15 @@ fn call(
     let product = engine.identity().product;
     match engine_choice::call(engine, dependencies, product, reach, call) {
         Answer::Result(value) => Ok(value),
-        Answer::Error(error) => Err(fail(&error, operation, json, human)),
-        Answer::Refused(error) => Err(fail_exiting(
-            &error,
-            operation,
+        Answer::Error(error) => Err(output::fail(error, Some(operation.name), json, human)),
+        Answer::Refused(error) => Err(output::fail_exiting(
+            error,
+            Some(operation.name),
             exit_codes::DAEMON_REFUSED,
             json,
             human,
         )),
-        Answer::Unanswered(problem) => {
-            tracing::error!("{problem}");
-            Err(ExitCode::from(exit_codes::unanswered()))
-        }
+        Answer::Unanswered(error) => Err(output::fail(error, None, json, human)),
         Answer::Interrupted(interrupt) => Err(ExitCode::from(interrupt.exit_code())),
     }
-}
-
-/// Prints `error`, `operation`'s failure, as every command does: as
-/// [`CommandFailed`] on stdout under `--json`, else on stderr; answers its
-/// exit code.
-fn fail(error: &ErrorObject, operation: &Operation, json: bool, human: &Human) -> ExitCode {
-    let group = goodfetch_cli::generated::group(error);
-    let exit = exit_codes::of_error(&error.data.code, group);
-    fail_exiting(error, operation, exit, json, human)
-}
-
-/// Prints `error`, `operation`'s failure, as [`fail`] does, and answers
-/// `exit`.
-fn fail_exiting(
-    error: &ErrorObject,
-    operation: &Operation,
-    exit: u8,
-    json: bool,
-    human: &Human,
-) -> ExitCode {
-    let group = goodfetch_cli::generated::group(error);
-    if json {
-        output::json(&CommandFailed {
-            error: CommandError {
-                code: error.data.code.clone(),
-                group,
-                retryable: error.data.retryable,
-                message: error.message.clone(),
-                operation: Some(operation.name.to_owned()),
-                details: error.data.details.clone(),
-            },
-        });
-    } else {
-        human.failure(
-            &error.message,
-            &[
-                ("code", error.data.code.clone()),
-                ("retryable", error.data.retryable.to_string()),
-            ],
-        );
-    }
-    ExitCode::from(exit)
 }

@@ -62,6 +62,7 @@ mod log;
 mod navigation_egress;
 mod needs_you;
 mod offline_key;
+mod operations_guide;
 mod ops;
 mod other_product;
 mod page;

@@ -5,22 +5,27 @@
 //! after its Label on its domain's median browser-fetch latency, 500 ms
 //! before any; the first page that passes the Page check wins, the other is
 //! cancelled, both reach the site and count in Usage, and Provenance
-//! records the race. A handler that escalates browser-fetch's page runs
-//! again in the browser, and only that run's staged writes commit, with
-//! the attempt (ADR 0093). Judged by what the Proving ground received, the
-//! Run's Usage, its run file and its Provenance (ADR 0064): the only time
-//! the test sets is the Proving ground's hold, which keeps browser-fetch in
-//! flight past the navigation's start.
+//! records the race. A race does not feed the sample comparison, so a
+//! Label's first request on a domain takes its one sample
+//! (`fetch.sample.count: 1`) instead, and the requests its handler enqueues
+//! race on what it learned. A handler that escalates browser-fetch's page
+//! runs again in the browser, and only that run's staged writes commit,
+//! with the attempt (ADR 0093). Judged by what the Proving ground received,
+//! the Run's Usage, its run file and its Provenance (ADR 0064): the only
+//! time the test sets is the Proving ground's hold, which keeps
+//! browser-fetch in flight past the navigation's start.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+mod scripted;
+
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
-use crate::fetch_tiers::{engine, expecting, outcomes, provenance, recording, settings, tiers};
+use crate::fetch_tiers::{engine, expecting, outcomes, provenance, settings, tiers};
 use crate::frontier::{Inside, added, crawl_declaring};
 use crate::staging::{keys, run_file, work_items};
 
@@ -32,16 +37,20 @@ const HOST: &str = "tiers.test";
 
 /// The settings of a racing crawl of the Proving ground, two requests at a
 /// time on a domain with no delay, so a race's navigation has room beside
-/// its browser-fetch (ADR 0086).
+/// its browser-fetch (ADR 0086), and one sample per Label on a domain.
 fn racing(proving_ground: &ProvingGround) -> Value {
     settings(
         proving_ground,
         &json!({
-            "fetch": { "tier_race": true },
+            "fetch": { "tier_race": true, "sample": { "count": 1 } },
             "politeness": { "domain": { "concurrency": 2, "delay": 0 } },
         }),
     )
 }
+
+/// The static listing a Label first learns its tier on, by its sample,
+/// before its handler enqueues the requests that race.
+const LEARN: &str = "/products/8";
 
 /// How many requests for `target` on [`HOST`] the Proving ground received.
 fn received(proving_ground: &ProvingGround, target: &str) -> usize {
@@ -101,12 +110,13 @@ fn navigations_sent(env: &TestEnv, run_id: &str) -> u64 {
 /// navigation's request reaches the site only as browser-fetch's answer
 /// arrives, since Chrome holds a second request for a URL its Session's
 /// HTTP cache is already fetching. The case first checks the Proving
-/// ground held that answer 3 s, its one premise. The next
-/// request of the same Label waits its first's latency, the median of one,
-/// before its navigation, which never starts: its unheld browser-fetch won
-/// before. A first request of another Label warms the browser, so neither
-/// run of the held race waits for it to launch; that request's own race
-/// may go either way, so only its count is judged.
+/// ground held that answer 3 s, its one premise. The Label learned `http`
+/// first, on its sample of another static listing, whose handler enqueued
+/// the held one; the held one's enqueues the next request of the Label,
+/// which waits its first race's latency, the median of one, before its
+/// navigation, which never starts: its unheld browser-fetch won before.
+/// The winner's `fetch_tier` entry names it `browser_fetch`, as its race
+/// does.
 ///
 /// Covers: story:6-263, setting:fetch.tier_race, operation:crawl.start
 #[test]
@@ -114,7 +124,7 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
-    let warm = proving_ground.url(HOST, "/products/9");
+    let learn = proving_ground.url(HOST, LEARN);
     let held = proving_ground.url(HOST, "/products/1?hold=3000");
     let next = proving_ground.url(HOST, "/products/2");
 
@@ -122,14 +132,19 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
     let report = crawl_declaring(
         &mut engine,
         "won-by-fetch",
-        &[
-            json!({ "url": warm, "label": "warm" }),
-            json!({ "url": held, "label": "list" }),
-            json!({ "url": next, "label": "list" }),
-        ],
-        &json!({ "warm": {}, "list": {} }),
+        &[json!({ "url": learn, "label": "list" })],
+        &json!({ "list": {} }),
         &racing(&proving_ground),
-        &mut recording(&mut seen),
+        &mut |inside: &mut Inside<'_>, handle: &Value| {
+            let url = handle["crawl_request"]["url"].as_str().unwrap().to_owned();
+            if url == learn {
+                inside.enqueue(handle, &held, "list", None);
+            } else if url == held {
+                inside.enqueue(handle, &next, "list", None);
+            }
+            seen.push((url, handle["tier"].clone()));
+            json!({ "result": { "records": [] } })
+        },
     );
     let ended = outcomes(&mut engine, "won-by-fetch");
     assert!(engine.finish());
@@ -142,18 +157,11 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
         answered_after.is_some_and(|after| after >= 3_000),
         "the Proving ground held browser-fetch's answer {answered_after:?} ms, not 3000: its executable predates `tiers.test`'s `hold`; build the test tools again (`just test`)"
     );
-    let mut list_races: Vec<Value> = races(&env, "won-by-fetch")
-        .into_iter()
-        .filter(|race| race[0] == "list")
-        .collect();
+    let mut list_races = races(&env, "won-by-fetch");
     let next_delay = list_races[1][1].clone();
     list_races[1][1] = Value::Null;
-    let mut chosen: Vec<Value> = tiers(&env, "won-by-fetch")
-        .into_iter()
-        .filter(|entry| entry[0] == "list")
-        .collect();
+    let mut chosen = tiers(&env, "won-by-fetch");
     chosen.sort_by_key(Value::to_string);
-    seen.retain(|(url, _)| *url != warm);
     assert_eq!(
         (
             &report["result"]["lifecycle"],
@@ -171,7 +179,12 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
         ),
         (
             &json!("finished"),
-            vec![(held, json!("http")), (next, json!("http"))],
+            vec![
+                (learn.clone(), json!("http")),
+                (learn, json!("browser")),
+                (held, json!("http")),
+                (next, json!("http")),
+            ],
             vec![json!("succeeded"); 3],
             2,
             1,
@@ -180,20 +193,26 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
                 json!(["list", null, "won", "not_sent", "browser_fetch"]),
             ],
             true,
-            vec![json!(["list", "http", "race", null, null]); 2],
-            // Three crawl requests and each navigation sent.
+            vec![
+                json!(["list", "browser", "sample", null, null]),
+                json!(["list", "browser_fetch", "race", null, null]),
+                json!(["list", "browser_fetch", "race", null, null]),
+                json!(["list", "http", "sample", null, null]),
+            ],
+            // The sample's `http` run, the two races' browser-fetches and
+            // each navigation sent: a browser run counts none.
             &json!(3 + navigations_sent(&env, "won-by-fetch")),
         ),
     );
 }
 
-/// A script-rendered listing whose Label expects its entries: the document
-/// browser-fetch serves lacks them and fails the Page check, so the
-/// navigation started 500 ms after it wins, its page, where the script ran,
-/// passing; the handler is given the browser's page only. The site received
-/// both, and Usage counts both. A first request of another Label warms the
-/// browser, so browser-fetch does not wait for it to launch; that
-/// request's own race may go either way, so only its count is judged.
+/// A script-rendered listing whose Label expects its entries: the Label's
+/// sample of another of its listings fails the Page check on `http`, so the
+/// Label learns `browser`, and that sample's browser run enqueues the
+/// listing that races. The document browser-fetch serves lacks the entries
+/// and fails the Page check, so the navigation started 500 ms after it
+/// wins, its page, where the script ran, passing; the handler is given the
+/// browser's page only. The site received both, and Usage counts both.
 ///
 /// Covers: story:6-263, setting:fetch.tier_race, setting:session.page_check
 #[test]
@@ -201,29 +220,32 @@ fn a_navigation_wins_when_browser_fetch_fails_the_page_check() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
-    let warm = proving_ground.url(HOST, "/products/9");
+    let learn = proving_ground.url(HOST, "/blog/2");
     let blog = proving_ground.url(HOST, "/blog/1");
 
     let mut seen = Vec::new();
     let report = crawl_declaring(
         &mut engine,
         "won-by-navigation",
-        &[
-            json!({ "url": warm, "label": "warm" }),
-            json!({ "url": blog, "label": "blog" }),
-        ],
-        &json!({ "warm": {}, "blog": expecting("li.item", &json!({})) }),
+        &[json!({ "url": learn, "label": "blog" })],
+        &json!({ "blog": expecting("li.item", &json!({})) }),
         &racing(&proving_ground),
-        &mut recording(&mut seen),
+        &mut |inside: &mut Inside<'_>, handle: &Value| {
+            let url = handle["crawl_request"]["url"].as_str().unwrap().to_owned();
+            if url == learn {
+                inside.enqueue(handle, &blog, "blog", None);
+            }
+            seen.push((url, handle["tier"].clone()));
+            json!({ "result": { "records": [] } })
+        },
     );
     let ended = outcomes(&mut engine, "won-by-navigation");
     assert!(engine.finish());
 
-    seen.retain(|(url, _)| *url != warm);
-    let of_blog = |entries: Vec<Value>| -> Vec<Value> {
+    let raced = |entries: Vec<Value>| -> Vec<Value> {
         entries
             .into_iter()
-            .filter(|entry| entry[0] == "blog")
+            .filter(|entry| entry[2] == "race")
             .collect()
     };
     assert_eq!(
@@ -232,21 +254,25 @@ fn a_navigation_wins_when_browser_fetch_fails_the_page_check() {
             seen,
             ended,
             received(&proving_ground, "/blog/1"),
-            of_blog(races(&env, "won-by-navigation")),
-            of_blog(tiers(&env, "won-by-navigation")),
+            races(&env, "won-by-navigation"),
+            raced(tiers(&env, "won-by-navigation")),
             &report["result"]["usage"]["requests"],
         ),
         (
             &json!("finished"),
-            vec![(blog.clone(), json!("browser"))],
+            vec![
+                (learn.clone(), json!("browser")),
+                (blog.clone(), json!("browser"))
+            ],
             vec![
                 (blog, json!("succeeded"), Value::Null),
-                (warm, json!("succeeded"), Value::Null),
+                (learn, json!("succeeded"), Value::Null),
             ],
             2,
             vec![json!(["blog", 500, "failed", "won", "browser"])],
             vec![json!(["blog", "browser", "race", null, null])],
-            // Two crawl requests and each navigation sent.
+            // The sample's `http` run, the race's browser-fetch and each
+            // navigation sent: a browser run counts none.
             &json!(2 + navigations_sent(&env, "won-by-navigation")),
         ),
     );
@@ -257,9 +283,11 @@ fn a_navigation_wins_when_browser_fetch_fails_the_page_check() {
 /// code).
 type BlogRun = (Value, Value, Value);
 
-/// The crawl `run_id` of a racing Run whose warm-up request enqueues
-/// `/blog/1` of Label `blog`, so its race starts with the browser running
-/// and browser-fetch, given no hold, wins it. The blog's handler enqueues
+/// The crawl `run_id` of a racing Run whose first request, a static
+/// listing of Label `blog`, is its sample, which learns `http` and
+/// enqueues `/blog/1` of the same Label, so its race starts with the
+/// browser running and agreeing with the Label, and browser-fetch, given
+/// no hold, wins it. The blog's handler enqueues
 /// `/products/3?from=<tier>`, sets the key `<tier>` to its attempt through
 /// its `ctx.run`, waits for the posts, which escalates its `http` run to
 /// the browser, and answers a Record naming its tier, or, in the browser
@@ -271,21 +299,21 @@ fn race_escalating(
     run_id: &str,
     fails_in_browser: bool,
 ) -> (Value, Vec<BlogRun>) {
-    let warm = proving_ground.url(HOST, "/products/9");
+    let learn = proving_ground.url(HOST, LEARN);
     let blog = proving_ground.url(HOST, "/blog/1");
     let mut runs = Vec::new();
     let report = crawl_declaring(
         engine,
         run_id,
-        &[json!({ "url": warm, "label": "warm" })],
-        &json!({ "warm": {}, "blog": {}, "child": {} }),
+        &[json!({ "url": learn, "label": "blog" })],
+        &json!({ "blog": {}, "child": {} }),
         &racing(proving_ground),
         &mut |inside: &mut Inside<'_>, handle: &Value| {
-            let label = &handle["crawl_request"]["label"];
-            if label == "warm" {
+            if handle["crawl_request"]["url"] == learn.as_str() {
                 inside.enqueue(handle, &blog, "blog", None);
+                return json!({ "result": { "records": [] } });
             }
-            if label != "blog" {
+            if handle["crawl_request"]["label"] != "blog" {
                 return json!({ "result": { "records": [] } });
             }
             let tier = handle["tier"].as_str().unwrap().to_owned();
@@ -384,21 +412,17 @@ fn an_escalated_race_commits_what_its_browser_run_staged_once_and_nothing_of_its
             vec![
                 (
                     json!("http"),
-                    added("3", &url("/products/3?from=http")),
+                    added("4", &url("/products/3?from=http")),
                     json!("attempt_ended")
                 ),
                 (
                     json!("browser"),
-                    added("4", &url("/products/3?from=browser")),
+                    added("5", &url("/products/3?from=browser")),
                     json!(3)
                 ),
             ],
             vec![json!(["won", "browser_fetch"])],
-            vec![
-                url("/products/9"),
-                url("/blog/1"),
-                url("/products/3?from=browser")
-            ],
+            vec![url(LEARN), url("/blog/1"), url("/products/3?from=browser")],
             vec![("browser".to_owned(), "1".to_owned())],
             vec![json!({ "tier": "browser" })],
             vec![
@@ -408,7 +432,7 @@ fn an_escalated_race_commits_what_its_browser_run_staged_once_and_nothing_of_its
                     json!("succeeded"),
                     Value::Null
                 ),
-                (url("/products/9"), json!("succeeded"), Value::Null),
+                (url(LEARN), json!("succeeded"), Value::Null),
             ],
         ),
     );
@@ -445,22 +469,22 @@ fn an_escalated_race_that_fails_in_the_browser_commits_nothing_either_run_staged
             vec![
                 (
                     json!("http"),
-                    added("3", &url("/products/3?from=http")),
+                    added("4", &url("/products/3?from=http")),
                     json!("attempt_ended")
                 ),
                 (
                     json!("browser"),
-                    added("4", &url("/products/3?from=browser")),
+                    added("5", &url("/products/3?from=browser")),
                     json!(3)
                 ),
             ],
             vec![json!(["won", "browser_fetch"])],
-            vec![url("/products/9"), url("/blog/1")],
+            vec![url(LEARN), url("/blog/1")],
             Vec::new(),
             Vec::new(),
             vec![
                 (url("/blog/1"), json!("failed"), json!("handler_failed")),
-                (url("/products/9"), json!("succeeded"), Value::Null),
+                (url(LEARN), json!("succeeded"), Value::Null),
             ],
         ),
     );

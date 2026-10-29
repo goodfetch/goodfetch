@@ -36,5 +36,5 @@ id = 47
 title = "As an operator, I want the operations guide to name the Daemon's log folder for each OS, how each target rotates `daemon run`'s stdout, and the daily age notice and its setting, so that I find and bound the logs (ADRs 0030, 0122; pitfall O10)."
 milestone = "M1 Core"
 journey = false
-not_journey = "part"
+not_journey = "reach"
 status = "active"

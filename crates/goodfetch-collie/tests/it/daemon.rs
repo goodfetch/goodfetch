@@ -675,7 +675,10 @@ fn a_connection_dropped_mid_command_fails_the_command() {
         (
             output.exit,
             output.stdout.as_str(),
-            output.stderr.contains("code=\"connection_lost\""),
+            output
+                .stderr
+                .lines()
+                .any(|line| line == "code: connection_lost"),
         ),
         (Some(8), "", true),
         "{}",

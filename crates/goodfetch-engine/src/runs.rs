@@ -927,10 +927,7 @@ enum Command {
     Uses(RunId, Product),
     Ended(RunId, Box<Ended>),
     StopAll(oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
-    StopConnection(
-        ConnectionId,
-        oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>,
-    ),
+    StopConnection(ConnectionId, oneshot::Sender<ConnectionEnded>),
     Outlive(ConnectionId),
     LiveCount(oneshot::Sender<usize>),
     Health(oneshot::Sender<RegistryHealth>),
@@ -3181,12 +3178,14 @@ impl Runs {
 
     /// Stops every live Run the Connection `connection` started, as aborted
     /// by its Client (ADR 0078), and waits for their ends; the other
-    /// Connections' Runs go on.
+    /// Connections' Runs go on. Answers the ends of the live Runs it
+    /// started that outlive it instead, as a CLI command's do, which the
+    /// Daemon waits for before it may stop idle.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future after it was sent still stops them.
-    pub(crate) async fn stop_connection(&self, connection: ConnectionId) {
+    pub(crate) async fn stop_connection(&self, connection: ConnectionId) -> Outliving {
         let (answer, answered) = oneshot::channel();
         if self
             .commands
@@ -3194,11 +3193,16 @@ impl Runs {
             .await
             .is_err()
         {
-            return;
+            return Outliving::default();
         }
-        for report in answered.await.unwrap_or_default() {
+        let ConnectionEnded {
+            stopping,
+            outliving,
+        } = answered.await.unwrap_or_default();
+        for report in stopping {
             let _ = wait_for(report).await;
         }
+        outliving
     }
 
     /// Lets every Run the Daemon's Connection of these Runs starts or
@@ -3310,6 +3314,36 @@ fn location(per_major: &Path, folder: &Path) -> String {
         .unwrap_or(folder)
         .to_string_lossy()
         .replace('\\', "/")
+}
+
+/// What the end of a Daemon's Connection leaves: the ends of the Runs that
+/// stop with it and of those that outlive it.
+#[derive(Default)]
+struct ConnectionEnded {
+    stopping: Vec<watch::Receiver<Option<Ended>>>,
+    outliving: Outliving,
+}
+
+/// The live Runs that outlived the Daemon's Connection that started them.
+#[derive(Default)]
+pub(crate) struct Outliving(Vec<watch::Receiver<Option<Ended>>>);
+
+impl Outliving {
+    /// Whether no Run outlived it.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Resolves once each of them has ended, or the registry stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Cancel-safe: it only waits.
+    pub(crate) async fn ended(self) {
+        for mut report in self.0 {
+            let _ = report.wait_for(Option::is_some).await;
+        }
+    }
 }
 
 async fn wait_for(mut report: watch::Receiver<Option<Ended>>) -> Result<RunReport, RunError> {
@@ -3492,8 +3526,8 @@ impl Registry {
                     let _ = answer.send(self.stop_by_client(ids).await);
                 }
                 Command::StopConnection(connection, answer) => {
-                    let ids = self.stopping_with(connection);
-                    let _ = answer.send(self.stop_by_client(ids).await);
+                    let ended = self.connection_ended(connection).await;
+                    let _ = answer.send(ended);
                 }
                 Command::Outlive(connection) => _ = self.outliving.insert(connection),
                 Command::LiveCount(answer) => _ = answer.send(self.live.len()),
@@ -3916,6 +3950,28 @@ impl Registry {
             return Vec::new();
         }
         self.runs_of(connection)
+    }
+
+    /// Ends the Daemon's Connection `connection`: stops the live Runs that
+    /// stop with it, and answers their ends and those of the Runs that
+    /// outlive it, unless the engine drains, whose drain ends them.
+    async fn connection_ended(&mut self, connection: ConnectionId) -> ConnectionEnded {
+        let outlives = self.outliving.contains(&connection) && !self.draining;
+        let stopping = self.stopping_with(connection);
+        let stopping = self.stop_by_client(stopping).await;
+        let outliving = if outlives {
+            self.runs_of(connection)
+                .iter()
+                .filter_map(|run_id| self.live.get(run_id))
+                .map(|live| live.report.subscribe())
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        ConnectionEnded {
+            stopping,
+            outliving: Outliving(outliving),
+        }
     }
 
     /// The live Runs that the Client of `connection` started or resumed.

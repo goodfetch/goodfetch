@@ -73,7 +73,7 @@ fn a_refused_clients_fix_names_its_own_executables_daemon_restart(
 fn runtime_file(pid: u32) -> DaemonRuntimeFile {
     DaemonRuntimeFile {
         endpoint: DaemonEndpoint::Unix("daemon.sock".into()),
-        token: "token".to_owned(),
+        token: goodfetch_protocol::daemon::DaemonToken::new("token"),
         version: ProductVersion::parse("1.5.0").unwrap(),
         pid,
         console: ConsoleState::Serving("http://127.0.0.1:7801/".to_owned()),

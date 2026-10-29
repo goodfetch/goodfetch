@@ -282,3 +282,36 @@ fn browser_clean_never_cleans_a_read_only_goodfetch_browsers_path() {
     assert_eq!(output["removed"], json!([]));
     assert!(unused.join("entry.json").exists());
 }
+
+/// A setting `browser install` and `browser clean` cannot take fails them
+/// as every command's failure prints, `{ "error" }` under `--json`, and
+/// exits by its code's row, `3` for `setting_invalid`, as `config explain`
+/// does for the same setting (ADR 0069).
+///
+/// Covers: story:11-214, setting:browser_cache.max_unused_age, error:setting_invalid, exit:program
+#[rstest::rstest]
+/// Covers: command:browser.install
+#[case::install("install")]
+/// Covers: command:browser.clean
+#[case::clean("clean")]
+fn a_browser_command_fails_a_bad_setting_by_its_row(#[case] command: &str) {
+    let env = TestEnv::new();
+    fs::create_dir_all(env.home().join("0.0")).unwrap();
+    fs::write(
+        env.home().join("0.0").join("configuration.toml"),
+        "version = \"0.1\"\n\n[settings.browser_cache]\nmax_unused_age = \"soon\"\n",
+    )
+    .unwrap();
+
+    let output = cli(&env, COLLIE)
+        .args(["browser", command, "--json"])
+        .run()
+        .unwrap();
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (output.exit, printed["error"]["code"].clone()),
+        (Some(3), json!("setting_invalid")),
+        "{output}"
+    );
+}

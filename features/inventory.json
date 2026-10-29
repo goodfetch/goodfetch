@@ -1171,6 +1171,17 @@
       ]
     },
     {
+      "id": "error:daemon_unreachable",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:dataset_duplicate",
       "kind": "error",
       "area": 6,
@@ -2409,6 +2420,17 @@
       "id": "event:web_socket.frame_sent",
       "kind": "event",
       "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "exit:audit_log_not_intact",
+      "kind": "exit",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [

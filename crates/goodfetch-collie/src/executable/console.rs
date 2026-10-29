@@ -16,16 +16,16 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, ExitCode, Stdio};
 
-use goodfetch_cli::output;
+use goodfetch_cli::output::{self, Human};
 use goodfetch_protocol::console::ConsoleOpened;
 
 use super::daemon::Machine;
 
 /// `console`.
-pub(super) fn open(machine: &Machine<'_>, no_browser: bool, json: bool) -> ExitCode {
+pub(super) fn open(machine: &Machine<'_>, no_browser: bool, json: bool, human: &Human) -> ExitCode {
     let link = match machine.console_link() {
         Ok(link) => link,
-        Err(failure) => return failure.report(),
+        Err(failure) => return failure.print(json, human),
     };
     let console = link.split_once('#').map_or(link.as_str(), |(url, _)| url);
     let opened = if no_browser {

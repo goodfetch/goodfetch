@@ -170,20 +170,18 @@ fn under_daemon_a_daemon_refusing_the_version_fails_with_exit_11_and_its_daemon_
     stderr_snapshot(&env, "run_start_refused_version", &output.stderr);
 }
 
-/// With neither flag, a Daemon that refuses the command's protocol version
-/// and cannot hand over leaves it to an Attached engine, after a warning
-/// that names the refusal and its fix, as `engine: "auto"` does (ADR 0098).
+/// With neither flag, a Daemon that refuses the protocol version of a
+/// command with no value outliving it, and cannot hand over, leaves it to
+/// an Attached engine, after a warning that names the refusal and its fix,
+/// as `engine: "auto"` does (ADR 0098).
 ///
-/// Covers: story:11-199, command:run.start
+/// Covers: story:11-199, command:engine.info
 #[test]
-fn by_default_a_daemon_refusing_the_version_leaves_the_command_to_an_attached_engine() {
+fn by_default_a_daemon_refusing_the_version_leaves_a_passing_command_to_an_attached_engine() {
     let env = TestEnv::new();
     let scripted = scripted_daemon(&env, "daemon/cli-hello-refused.json");
 
-    let output = cli(&env, COLLIE)
-        .args(["run", "start", "--run-id", "first"])
-        .run()
-        .unwrap();
+    let output = cli(&env, COLLIE).args(["engine", "info"]).run().unwrap();
     scripted.child().wait().unwrap();
 
     let warning = output
@@ -198,14 +196,43 @@ fn by_default_a_daemon_refusing_the_version_leaves_the_command_to_an_attached_en
         })
         .unwrap_or_default();
     assert_eq!(
-        (output.exit, output.stdout.as_str(), warning.as_str()),
+        (output.exit, output.stdout.is_empty(), warning.as_str()),
         (
             Some(0),
-            "first\n",
+            false,
             "warning: the Daemon refused this command, which runs on an Attached engine instead: This Client speaks protocol 0.1, and this engine speaks 1.0: it accepts 1.0 to 1.0. Upgrade the Client to one that speaks protocol 1.x. Run `[COLLIE] daemon restart` to restart the Daemon on its major's pick."
         ),
         "{output}"
     );
+}
+
+/// With neither flag, a Daemon that refuses the protocol version of a
+/// command whose value outlives it ends the command with its refusal and
+/// `fix`, exit `11`, as under `--daemon`: an Attached engine would stop its
+/// Run with the command, after printing its Run ID (608-O6).
+///
+/// Covers: story:11-199, command:run.start, error:protocol_version_unsupported
+#[test]
+fn by_default_a_daemon_refusing_the_version_ends_a_lasting_command_with_exit_11() {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-hello-refused.json");
+
+    let output = cli(&env, COLLIE)
+        .args(["run", "start", "--run-id", "first"])
+        .run()
+        .unwrap();
+    scripted.child().wait().unwrap();
+
+    assert_eq!(
+        (
+            output.exit,
+            output.stdout.as_str(),
+            output.stderr.contains("warning:"),
+        ),
+        (Some(11), "", false),
+        "{output}"
+    );
+    stderr_snapshot(&env, "run_start_refused_version", &output.stderr);
 }
 
 /// A runtime file whose Daemon died is replaced: a command whose value
@@ -285,6 +312,45 @@ fn a_token_flag_is_a_usage_error() {
     );
 }
 
+/// `config explain --daemon` with `GOODFETCH_URL` set explains the remote
+/// Daemon's settings, as every command under `--daemon` reaches it, and
+/// starts no Daemon of the major (608-6).
+///
+/// Covers: story:11-199, command:config.explain
+#[cfg(unix)]
+#[test]
+fn config_explain_under_daemon_reaches_the_remote_daemon_goodfetch_url_names() {
+    let env = TestEnv::new();
+    // A Daemon of the major started by mistake stops soon, and with the test.
+    env.user_configuration(&format!(
+        "daemon.address = \"{ANY_PORT}\"\ndaemon.idle_timeout = 60000\n"
+    ));
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let mut remote = Foreground::start(&env, COLLIE, &[]);
+    let address = remote.serving();
+
+    let output = cli(&env, COLLIE)
+        .args(["config", "explain", "daemon", "--daemon", "--json"])
+        .env("GOODFETCH_URL", format!("ws://{address}"))
+        .env("GOODFETCH_TOKEN", token(&env))
+        .run()
+        .unwrap();
+    let started_one = runtime_file(&env).exists();
+    let drained = remote.terminate();
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            output.exit,
+            printed["settings"].is_array(),
+            started_one,
+            drained
+        ),
+        (Some(0), true, false, true),
+        "{output}"
+    );
+}
+
 /// The Exposed Daemon `GOODFETCH_URL` names, with `GOODFETCH_TOKEN`'s token:
 /// a command whose value outlives it runs there, and starts no Daemon of
 /// the major.
@@ -318,10 +384,11 @@ fn goodfetch_url_and_goodfetch_token_reach_a_remote_daemon() {
     );
 }
 
-/// A token the remote Daemon refuses fails the command, and the token's
-/// value is in no output, log or error (ADR 0083).
+/// A token the remote Daemon refuses fails the command with
+/// `daemon_unreachable`, exit `8`, its `fix` naming `GOODFETCH_TOKEN`, and
+/// the token's value is in no output, log or error (ADR 0083).
 ///
-/// Covers: story:11-199, command:engine.info
+/// Covers: story:11-199, command:engine.info, error:daemon_unreachable
 #[cfg(unix)]
 #[test]
 fn goodfetch_tokens_value_appears_in_no_output_log_or_error() {
@@ -359,7 +426,7 @@ fn goodfetch_tokens_value_appears_in_no_output_log_or_error() {
             output.stderr.contains("GOODFETCH_TOKEN"),
             drained,
         ),
-        (Some(1), false, false, false, true, true),
+        (Some(8), false, false, false, true, true),
         "{output}"
     );
 }

@@ -49,7 +49,6 @@ use std::process::ExitCode;
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use daemon_command::{DaemonCommand, daemon_command};
 use goodfetch_cli::engine_choice::EngineFlags;
-use goodfetch_cli::exit_codes;
 use goodfetch_cli::generated::{Call, Generated, Joined, Joining};
 use goodfetch_cli::output::{self, ColourChoice, ColourFlag, Human};
 use goodfetch_cli::settings_flags::SettingsFlags;
@@ -69,7 +68,6 @@ use goodfetch_engine::settings::deployment_variable;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Composition, Dependencies, Engine, Identity};
-use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use identity::{Refused, identity, refuse};
@@ -394,10 +392,7 @@ pub fn main(start: &Start) -> ExitCode {
     };
     let identity = match identity(start, &environment) {
         Ok(identity) => identity,
-        Err(Refused::Setting(error)) => {
-            tracing::error!(code = error.code(), "{error}");
-            return ExitCode::from(exit_codes::of_code(error.code()));
-        }
+        Err(Refused::Setting(error)) => return identity::refused_setting(start, &error, &human),
         Err(Refused::Version) => {
             tracing::error!(
                 version = start.version,
@@ -405,10 +400,6 @@ pub fn main(start: &Start) -> ExitCode {
             );
             return ExitCode::FAILURE;
         }
-    };
-    let pinned_by = PinnedBy {
-        product: start.product,
-        product_version: identity.product_version.clone(),
     };
     let engine = match Engine::new(identity, &(start.composition)()) {
         Ok(engine) => instrumented(engine, log_events, logs.audit_events()).with_masks(masks),
@@ -440,14 +431,7 @@ pub fn main(start: &Start) -> ExitCode {
         run_state: RunStateOptions::default(),
         politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
     };
-    run(
-        parsed,
-        &engine,
-        dependencies,
-        pinned_by,
-        &environment,
-        &human,
-    )
+    run(parsed, &engine, dependencies, &environment, &human)
 }
 
 /// The executable's name, the command `start`'s command line asks for and
@@ -602,7 +586,6 @@ fn run(
     parsed: Parsed,
     engine: &Engine,
     dependencies: Dependencies,
-    pinned_by: PinnedBy,
     environment: &BTreeMap<OsString, OsString>,
     human: &Human,
 ) -> ExitCode {
@@ -627,14 +610,14 @@ fn run(
         Command::Browser {
             command: BrowserCommand::Install { json },
             ..
-        } => browsers::install(pinned_by, environment, json),
+        } => browsers::install(engine.identity(), environment, json, human),
         Command::Browser {
             command: BrowserCommand::Clean { dry_run, json },
             ..
-        } => browsers::clean(pinned_by, environment, dry_run, json),
+        } => browsers::clean(engine.identity(), environment, (dry_run, json), human),
         Command::Console {
             no_browser, json, ..
-        } => console::open(&machine, no_browser, json),
+        } => console::open(&machine, no_browser, json, human),
         Command::Config {
             command:
                 ConfigCommand::Explain {
@@ -647,15 +630,16 @@ fn run(
                 },
             ..
         } => config_explain(
-            engine,
+            (engine, dependencies),
             &machine,
             daemon,
-            keys,
-            settings.run_layer(),
-            project,
+            (keys, settings.run_layer(), project),
             json,
+            human,
         ),
-        Command::Daemon { command, .. } => daemon_command(command, engine, dependencies, &machine),
+        Command::Daemon { command, .. } => {
+            daemon_command(command, engine, dependencies, &machine, human)
+        }
         Command::Runs {
             command: RunsCommand::Reindex { paths, json },
             ..
@@ -677,7 +661,7 @@ fn run(
             certs::run(command, engine, dependencies, &machine, human)
         }
         Command::UpgradeFiles { from, json, .. } => {
-            upgrade::upgrade(engine.identity(), &home, from.as_deref(), json)
+            upgrade::upgrade(engine.identity(), &home, from.as_deref(), json, human)
         }
     }
 }
@@ -736,21 +720,24 @@ fn warn_of_a_temporary_ledger(home: &Home, human: &Human) {
 }
 
 /// `config explain`, from the working folder: in this process, or through
-/// the Daemon's `config.explain` under `--daemon`.
+/// the Daemon's `config.explain` under `--daemon`, the remote Daemon
+/// `GOODFETCH_URL` names when it is set.
 fn config_explain(
-    engine: &Engine,
+    (engine, dependencies): (&Engine, Dependencies),
     machine: &daemon::Machine<'_>,
     through_daemon: bool,
-    keys: Vec<String>,
-    settings: serde_json::Map<String, serde_json::Value>,
-    project: Option<std::path::PathBuf>,
+    (keys, settings, project): (
+        Vec<String>,
+        serde_json::Map<String, serde_json::Value>,
+        Option<std::path::PathBuf>,
+    ),
     json: bool,
+    human: &Human,
 ) -> ExitCode {
     let Ok(folder) = std::env::current_dir() else {
         tracing::error!("the working folder cannot be read");
         return ExitCode::FAILURE;
     };
-    let identity = engine.identity();
     let request = config::Explain {
         keys,
         settings,
@@ -759,14 +746,14 @@ fn config_explain(
         json,
     };
     if through_daemon {
-        return config::explain_through(machine, &request);
+        return config::explain_through(engine, dependencies, machine, &request, human);
     }
     config::explain(
-        identity.product,
-        &identity.product_version,
+        engine.identity(),
         machine.home,
         machine.environment,
         &request,
+        human,
     )
 }
 
@@ -875,9 +862,11 @@ fn run_attached(
     let served = runtime.block_on(async {
         if let Some((endpoint, token)) = daemon {
             return match transport::connect_daemon(&endpoint).await {
-                Ok(connection) => Engine::relay_attached(Network::Os, connection, token)
-                    .await
-                    .map_err(|error| error.to_string()),
+                Ok(connection) => {
+                    Engine::relay_attached(Network::Os, connection, token.expose().to_owned())
+                        .await
+                        .map_err(|error| error.to_string())
+                }
                 Err(error) => Err(format!("the Daemon at {endpoint} does not answer: {error}")),
             };
         }

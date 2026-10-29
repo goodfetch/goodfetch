@@ -156,7 +156,7 @@ fn a_foxhound_installed_but_never_run_becomes_the_pick_when_the_fixs_daemon_rest
     );
     let values = SnapshotValues::of(&env).with_path(FOXHOUND, "[FOXHOUND]");
     snapshot_settings(&values).bind(|| {
-        insta::assert_snapshot!("busy_collie_daemon_refuses_foxhound", refused.stderr.trim());
+        insta::assert_snapshot!("busy_collie_daemon_refuses_foxhound", refused.stdout.trim());
     });
 }
 

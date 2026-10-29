@@ -2,14 +2,31 @@
 //! each case's expected value is the value the text prints, written by
 //! hand, and each text no value is a form the locale does not print.
 
+use jiff::civil;
 use rstest::rstest;
 
-use super::{date, date_time, number};
+use super::{DateTimes, Dates, Numbers};
+
+/// What `text` reads as under `locale`'s number forms.
+fn number(text: &str, locale: &str) -> Option<String> {
+    Numbers::of(locale)?.read(text)
+}
+
+/// What `text` reads as under `locale`'s date forms.
+fn date(text: &str, locale: &str) -> Option<String> {
+    Dates::of(locale)?.read(text)
+}
+
+/// What `text` reads as under `locale`'s date and time forms.
+fn date_time(text: &str, locale: &str) -> Option<civil::DateTime> {
+    DateTimes::of(locale)?.read(text)
+}
 
 /// A number printed with its locale's digits, separators and grouping,
 /// with a currency sign or a unit beside it, reads as the decimal it
-/// prints; a minus sign makes it negative, a dash a letter runs into does
-/// not.
+/// prints; a minus sign makes it negative, before its currency sign too,
+/// a dash a letter runs into does not; a decimal separator before its
+/// first digit reads as a zero whole part.
 #[rstest]
 #[case::de_de_grouped_with_a_currency_sign("1.099,98\u{a0}€", "de-DE", "1099.98")]
 #[case::en_us_grouped("$1,234,567.89", "en-US", "1234567.89")]
@@ -22,6 +39,13 @@ use super::{date, date_time, number};
 #[case::negative("-12,5 %", "de-DE", "-12.5")]
 #[case::an_integer("Preis: 42 €", "de-DE", "42")]
 #[case::a_dash_after_a_letter_is_no_minus_sign("SKU-5", "en-US", "5")]
+#[case::en_us_no_whole_part("$.99", "en-US", "0.99")]
+#[case::de_de_no_whole_part(",50 €", "de-DE", "0.50")]
+#[case::en_us_negative_with_no_whole_part("-.5", "en-US", "-0.5")]
+#[case::en_us_negative_before_its_currency_sign("-$1,234.56", "en-US", "-1234.56")]
+#[case::en_gb_negative_before_its_currency_sign("-£1,234.56", "en-GB", "-1234.56")]
+#[case::ja_jp_negative_before_its_currency_sign("-￥1,234", "ja-JP", "-1234")]
+#[case::de_de_negative_before_its_number("-1.234,56 €", "de-DE", "-1234.56")]
 fn a_printed_number_reads_as_its_locale_prints_it(
     #[case] text: &str,
     #[case] locale: &str,
@@ -32,13 +56,20 @@ fn a_printed_number_reads_as_its_locale_prints_it(
 
 /// A text that is not one number as the locale prints it is no number: a
 /// decimal separator the locale does not use, groups it does not make, two
-/// numbers, no digit, groups the locale does not make.
+/// numbers, no digit, groups the locale does not make, a group separator
+/// before its first digit, and a negative the locale does not print so: a
+/// minus sign after it, or accounting parentheses around it.
 #[rstest]
 #[case::another_locales_separators("1,099.98 €", "de-DE")]
 #[case::a_group_of_two("1,5", "en-US")]
 #[case::two_numbers("2 for 10 €", "en-US")]
 #[case::no_digit("free", "en-US")]
 #[case::groups_of_one("1.2.3", "de-DE")]
+#[case::a_group_separator_before_its_first_digit(",50", "en-US")]
+#[case::en_us_in_accounting_parentheses("(1,234.56)", "en-US")]
+#[case::en_us_currency_in_accounting_parentheses("($1,234.56)", "en-US")]
+#[case::de_de_minus_after_it("1.234,56-", "de-DE")]
+#[case::de_de_minus_after_its_currency_sign("1.234,56 €-", "de-DE")]
 fn a_text_the_locale_does_not_print_as_a_number_is_none(#[case] text: &str, #[case] locale: &str) {
     assert_eq!(number(text, locale), None);
 }

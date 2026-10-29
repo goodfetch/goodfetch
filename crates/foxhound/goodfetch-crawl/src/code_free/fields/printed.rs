@@ -6,8 +6,10 @@
 //! forms with the locale's hours and minutes, seconds or not. Each form is
 //! learned from ICU4X's CLDR data by formatting known values, so a text
 //! reads as the locale prints it, and anything else, a two-digit year, a
-//! decimal separator the locale does not use, two numbers, is no value:
-//! nothing is guessed.
+//! decimal separator the locale does not use, two numbers, a negative in
+//! accounting parentheses, is no value: nothing is guessed. A field learns
+//! its locale's forms once, as its crawl starts ([`Numbers`], [`Dates`] and
+//! [`DateTimes`]), and each page's text is then only matched against them.
 
 use fixed_decimal::Decimal;
 use icu_calendar::{Date, Gregorian};
@@ -47,6 +49,9 @@ struct Symbols {
     group: String,
     /// The minus sign it starts a negative number with.
     minus: String,
+    /// The minus sign it ends a negative number with, if it prints one
+    /// there.
+    minus_after: String,
 }
 
 impl Symbols {
@@ -77,15 +82,22 @@ impl Symbols {
         };
         let decimal = separator(printed("0.5")?);
         let group = separator(printed("1000000")?);
-        let minus: String = printed("-1")?
+        let negative = printed("-1")?;
+        let minus: String = negative
             .chars()
             .take_while(|character| !is_digit(character))
+            .collect();
+        let minus_after: String = negative
+            .chars()
+            .skip_while(|character| !is_digit(character))
+            .skip_while(is_digit)
             .collect();
         (!decimal.is_empty()).then_some(Self {
             digits,
             decimal,
             group,
             minus,
+            minus_after,
         })
     }
 
@@ -117,48 +129,117 @@ fn unmarked(text: &str) -> String {
         .collect()
 }
 
-/// The decimal `text` prints under `locale`, as plain ASCII with a dot
-/// (`-1099.98`), for the caller to write as an exact JSON number: one
-/// number in the locale's digits, its whole part grouped as the locale
-/// groups it or not grouped, its fraction after the locale's decimal
-/// separator, with a minus sign before it, and any text without digits,
-/// such as a currency sign or a unit, before or after it. `None` for any
-/// other text.
-pub(super) fn number(text: &str, locale: &str) -> Option<String> {
-    let locale: Locale = locale.parse().ok()?;
-    let symbols = Symbols::of(&locale)?;
-    let text = symbols.ascii(&unmarked(text));
-    let first = text.find(|character: char| character.is_ascii_digit())?;
-    let last = text.rfind(|character: char| character.is_ascii_digit())?;
-    let (before, core) = (&text[..first], &text[first..=last]);
-    let before = before.trim_end();
-    let minus = unmarked(&symbols.minus);
-    // A minus sign counts only where no letter or digit runs into it, so a
-    // reference such as `SKU-5` is no negative number.
-    let negative = std::iter::once(minus.as_str())
-        .filter(|sign| !sign.is_empty())
-        .chain(MINUS_SIGNS)
-        .any(|sign| {
-            before
-                .strip_suffix(sign)
-                .is_some_and(|rest| !rest.chars().next_back().is_some_and(char::is_alphanumeric))
-        });
-    let (whole, fraction) = match core.split_once(symbols.decimal.as_str()) {
-        Some((whole, fraction)) => (whole, Some(fraction)),
-        None => (core, None),
-    };
-    let whole = ungrouped(whole, &unmarked(&symbols.group))?;
-    let fraction = match fraction {
-        Some(fraction)
-            if !fraction.is_empty() && fraction.bytes().all(|byte| byte.is_ascii_digit()) =>
-        {
-            format!(".{fraction}")
+/// How a locale prints numbers, learned once: [`Numbers::read`] reads a
+/// text as it prints it.
+pub(super) struct Numbers {
+    symbols: Symbols,
+}
+
+impl Numbers {
+    /// `locale`'s, a BCP 47 tag; `None` for one ICU4X has no digits and
+    /// separators for.
+    pub(super) fn of(locale: &str) -> Option<Self> {
+        let locale: Locale = locale.parse().ok()?;
+        Symbols::of(&locale).map(|symbols| Self { symbols })
+    }
+
+    /// The decimal `text` prints, as plain ASCII with a dot (`-1099.98`),
+    /// for the caller to write as an exact JSON number: one number in the
+    /// locale's digits, its whole part grouped as the locale groups it or
+    /// not grouped, or left out before its decimal separator (`.99`), its
+    /// fraction after that separator, with a minus sign before it or
+    /// before the sign beside it (`-$1.5`), or after it where the locale
+    /// prints one there, and any text without digits, such as a currency
+    /// sign or a unit, before or after it. `None` for any other text: a
+    /// group separator or a decimal separator a letter runs into before
+    /// its first digit, a minus sign after it the locale does not print,
+    /// or accounting parentheses around it.
+    pub(super) fn read(&self, text: &str) -> Option<String> {
+        let symbols = &self.symbols;
+        let text = symbols.ascii(&unmarked(text));
+        let first = text.find(|character: char| character.is_ascii_digit())?;
+        let last = text.rfind(|character: char| character.is_ascii_digit())?;
+        let (mut before, core, after) = (&text[..first], &text[first..=last], &text[last + 1..]);
+        // A decimal separator right before the first digit opens the
+        // fraction of a number with no whole part, unless a letter or digit
+        // runs into it, as in `No.5`.
+        let core = match before.strip_suffix(symbols.decimal.as_str()) {
+            Some(rest) if rest.chars().next_back().is_some_and(char::is_alphanumeric) => {
+                return None;
+            }
+            Some(rest) => {
+                before = rest;
+                format!("0{}{core}", symbols.decimal)
+            }
+            None => core.to_owned(),
+        };
+        // A group separator there groups nothing; a space one is the
+        // space before the number.
+        let group = unmarked(&symbols.group);
+        if !group.trim().is_empty() && before.ends_with(group.as_str()) {
+            return None;
         }
-        Some(_) => return None,
-        None => String::new(),
-    };
-    let sign = if negative { "-" } else { "" };
-    Some(format!("{sign}{whole}{fraction}"))
+        let negative = self.negative(before.trim_end(), after.trim_start())?;
+        let (whole, fraction) = match core.split_once(symbols.decimal.as_str()) {
+            Some((whole, fraction)) => (whole, Some(fraction)),
+            None => (core.as_str(), None),
+        };
+        let whole = ungrouped(whole, &group)?;
+        let fraction = match fraction {
+            Some(fraction)
+                if !fraction.is_empty() && fraction.bytes().all(|byte| byte.is_ascii_digit()) =>
+            {
+                format!(".{fraction}")
+            }
+            Some(_) => return None,
+            None => String::new(),
+        };
+        let sign = if negative { "-" } else { "" };
+        Some(format!("{sign}{whole}{fraction}"))
+    }
+
+    /// Whether the number between `before` and `after`, the texts beside
+    /// it, is negative: a minus sign no letter or digit runs into before
+    /// it, alone or before a sign such as `$` or `US$`, or the one the
+    /// locale prints after a number. `None` for a negative the locale does
+    /// not print so: a minus sign after it, or parentheses around it.
+    fn negative(&self, before: &str, after: &str) -> Option<bool> {
+        let symbols = &self.symbols;
+        let minus = unmarked(&symbols.minus);
+        let minus_after = unmarked(&symbols.minus_after);
+        let signs = || {
+            std::iter::once(minus.as_str())
+                .filter(|sign| !sign.is_empty())
+                .chain(MINUS_SIGNS)
+        };
+        // A minus sign no letter or digit runs into after the number, even
+        // past its currency sign, as in `1.234,56 €-`.
+        let trailing = signs().any(|sign| {
+            after.match_indices(sign).any(|(at, _)| {
+                !after[..at]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_alphanumeric)
+            })
+        });
+        if trailing {
+            let printed_after = minus_after.trim();
+            return (!printed_after.is_empty() && after.starts_with(printed_after)).then_some(true);
+        }
+        let opened = before.rfind('(');
+        if opened.is_some() && opened > before.rfind(')') && after.contains(')') {
+            return None;
+        }
+        Some(signs().any(|sign| {
+            before.rfind(sign).is_some_and(|at| {
+                let (ahead, rest) = (&before[..at], before[at + sign.len()..].trim_start());
+                let sign_beside = rest.is_empty()
+                    || (!rest.contains(char::is_whitespace)
+                        && rest.contains(|character: char| !character.is_alphanumeric()));
+                !ahead.chars().next_back().is_some_and(char::is_alphanumeric) && sign_beside
+            })
+        }))
+    }
 }
 
 /// The digits of `whole`, a number's whole part written with no grouping
@@ -416,44 +497,77 @@ fn date_time_forms(locale: &Locale, symbols: &Symbols) -> Vec<Form> {
     forms
 }
 
-/// The ISO 8601 date, `YYYY-MM-DD`, that `text` prints under `locale` in
-/// one of its date forms; `None` for any other text or an impossible date.
-pub(super) fn date(text: &str, locale: &str) -> Option<String> {
-    let locale: Locale = locale.parse().ok()?;
-    let symbols = Symbols::of(&locale)?;
-    let text = symbols.ascii(&unmarked(text));
-    date_forms(&locale, &symbols).iter().find_map(|form| {
-        let [year, month, day, ..] = read_in(form, &text)?;
-        let date = civil::Date::new(
-            i16::try_from(year).ok()?,
-            i8::try_from(month).ok()?,
-            i8::try_from(day).ok()?,
-        )
-        .ok()?;
-        Some(date.to_string())
-    })
+/// How a locale prints dates, learned once: [`Dates::read`] reads a text
+/// as one of its forms prints it.
+pub(super) struct Dates {
+    symbols: Symbols,
+    forms: Vec<Form>,
 }
 
-/// The civil date and time `text` prints under `locale` in one of its
-/// date and time forms, which state no offset; `None` for any other text
-/// or an impossible date or time.
-pub(super) fn date_time(text: &str, locale: &str) -> Option<civil::DateTime> {
-    let locale: Locale = locale.parse().ok()?;
-    let symbols = Symbols::of(&locale)?;
-    let text = symbols.ascii(&unmarked(text));
-    date_time_forms(&locale, &symbols).iter().find_map(|form| {
-        let [year, month, day, hour, minute, second] = read_in(form, &text)?;
-        civil::DateTime::new(
-            i16::try_from(year).ok()?,
-            i8::try_from(month).ok()?,
-            i8::try_from(day).ok()?,
-            i8::try_from(hour).ok()?,
-            i8::try_from(minute).ok()?,
-            i8::try_from(second).ok()?,
-            0,
-        )
-        .ok()
-    })
+impl Dates {
+    /// `locale`'s short, medium and long date forms, a BCP 47 tag; `None`
+    /// for one ICU4X has no digits and separators for.
+    pub(super) fn of(locale: &str) -> Option<Self> {
+        let locale: Locale = locale.parse().ok()?;
+        let symbols = Symbols::of(&locale)?;
+        let forms = date_forms(&locale, &symbols);
+        Some(Self { symbols, forms })
+    }
+
+    /// The ISO 8601 date, `YYYY-MM-DD`, that `text` prints in one of the
+    /// locale's date forms; `None` for any other text or an impossible
+    /// date.
+    pub(super) fn read(&self, text: &str) -> Option<String> {
+        let text = self.symbols.ascii(&unmarked(text));
+        self.forms.iter().find_map(|form| {
+            let [year, month, day, ..] = read_in(form, &text)?;
+            let date = civil::Date::new(
+                i16::try_from(year).ok()?,
+                i8::try_from(month).ok()?,
+                i8::try_from(day).ok()?,
+            )
+            .ok()?;
+            Some(date.to_string())
+        })
+    }
+}
+
+/// How a locale prints dates and times, learned once: [`DateTimes::read`]
+/// reads a text as one of its forms prints it.
+pub(super) struct DateTimes {
+    symbols: Symbols,
+    forms: Vec<Form>,
+}
+
+impl DateTimes {
+    /// `locale`'s date and time forms, a BCP 47 tag; `None` for one ICU4X
+    /// has no digits and separators for.
+    pub(super) fn of(locale: &str) -> Option<Self> {
+        let locale: Locale = locale.parse().ok()?;
+        let symbols = Symbols::of(&locale)?;
+        let forms = date_time_forms(&locale, &symbols);
+        Some(Self { symbols, forms })
+    }
+
+    /// The civil date and time `text` prints in one of the locale's date
+    /// and time forms, which state no offset; `None` for any other text or
+    /// an impossible date or time.
+    pub(super) fn read(&self, text: &str) -> Option<civil::DateTime> {
+        let text = self.symbols.ascii(&unmarked(text));
+        self.forms.iter().find_map(|form| {
+            let [year, month, day, hour, minute, second] = read_in(form, &text)?;
+            civil::DateTime::new(
+                i16::try_from(year).ok()?,
+                i8::try_from(month).ok()?,
+                i8::try_from(day).ok()?,
+                i8::try_from(hour).ok()?,
+                i8::try_from(minute).ok()?,
+                i8::try_from(second).ok()?,
+                0,
+            )
+            .ok()
+        })
+    }
 }
 
 #[cfg(test)]

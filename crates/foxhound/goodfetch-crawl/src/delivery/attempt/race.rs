@@ -1,7 +1,9 @@
 //! An attempt's tier race (`fetch.tier_race`; ADR 0040; the crate's
 //! `tier_race` module): browser-fetch and a navigation started its race's
 //! delay later in the same Session, the first page that can win handed to
-//! the handler, the other cancelled, both counted, the race recorded.
+//! the handler, the other cancelled, both counted, the race recorded. A
+//! request a hidden link reached races with no navigation: a browser tier
+//! never follows such a link (ADR 0035).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,7 +13,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Room, SecondCopies};
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
-    Chosen, FetchTiers, HttpTier, Judged, PooledSession, Race, RaceEnd, record_race,
+    Chosen, FetchTiers, HttpTier, Judged, PooledSession, Race, RaceEnd, TierChoice, record_race,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::{PageId, PageResponse};
@@ -20,11 +22,18 @@ use serde_json::Map;
 use tokio::sync::oneshot;
 
 use super::{
-    Answer, BLOCKED, BROWSER, On, PAGE_CHECK_FAILED, RACED, Tiering, failed, judged, learn,
-    read_by_browser, record_tier, refused_type,
+    Answer, BLOCKED, BROWSER, On, PAGE_CHECK_FAILED, RACED, Served, Tiering, failed, judged, learn,
+    reached_through_trap, read_by_browser, record_tier, refused_type,
 };
 use crate::lease::WorkItemLease;
 use crate::tier_race::Raced;
+
+/// The tier the Provenance of a race browser-fetch won names: the
+/// `browser_fetch` its race names the winner, chosen by no one.
+const BROWSER_FETCH: TierChoice = TierChoice {
+    tier: FetchTier::BrowserFetch,
+    forced: None,
+};
 
 impl On<'_> {
     /// A race of the attempt's tiers (`fetch.tier_race`, ADR 0040):
@@ -53,44 +62,51 @@ impl On<'_> {
         let (cancel, cancelled) = oneshot::channel::<()>();
         let (navigated, mut navigation) = oneshot::channel::<Navigated>();
         let (sending, mut sent) = oneshot::channel::<()>();
-        run.spawn(
-            Navigation {
-                run: run.clone(),
-                tiers: tiers.clone(),
-                pooled: self.in_browser.clone(),
-                url: leased.crawl_request.url.clone(),
-                context: self.context.clone(),
-                second_copies: tiering.second_copies.clone(),
-                domain_key: leased.waiting.key.clone(),
-                at: started + raced.delay,
-            }
-            .run(cancelled, sending, navigated),
-        );
+        // A request a hidden link reached is a decoy on any browser tier:
+        // its race opens no navigation, which loses as a browser run of it
+        // ends.
+        let decoy = reached_through_trap(leased);
+        if decoy.is_none() {
+            run.spawn(
+                Navigation {
+                    run: run.clone(),
+                    tiers: tiers.clone(),
+                    pooled: self.in_browser.clone(),
+                    url: leased.crawl_request.url.clone(),
+                    context: self.context.clone(),
+                    second_copies: tiering.second_copies.clone(),
+                    domain_key: leased.waiting.key.clone(),
+                    at: started + raced.delay,
+                }
+                .run(cancelled, sending, navigated),
+            );
+        }
         let document = Box::pin(async {
-            let page_id = self
+            let served = self
                 .document(tiering, &fetching, &RACED, &hand_over)
                 .await?;
+            let page_id = served.page_id();
             let latency = run.clock().now().duration_since(started);
             // A document only a guess could read never wins: the
             // browser reads it (ADR 0119).
             // Nor does a Challenge: the navigation meets it in the
             // browser, and the domain learns the move (`escalation`).
-            let challenged = match tiers.block(&page_id).await {
+            let challenged = match tiers.block(page_id).await {
                 Some((block, _)) if block.checks_the_browser() => {
                     self.on_block(block.cause, &RACED);
                     true
                 }
                 _ => false,
             };
-            let passed = tiers.escalated(&page_id).is_none()
+            let passed = tiers.escalated(page_id).is_none()
                 && !challenged
                 && matches!(
-                    judged(run, tiering, &page_id).await,
+                    judged(run, tiering, page_id).await,
                     Some(Judged::Passed) | None
                 );
-            Ok::<_, Answer>((page_id, latency, passed && raced.agrees))
+            Ok::<_, Answer>((served, latency, passed && raced.agrees))
         });
-        let ended = first_to_win(document, &mut navigation, lease, tiers).await;
+        let ended = first_to_win(document, (&mut navigation, decoy.map(Lost::Decoy)), lease).await;
         // The loser is cancelled: browser-fetch's connection closed as its
         // future dropped, and a navigation not yet sent is never sent.
         drop(cancel);
@@ -129,7 +145,7 @@ impl On<'_> {
             Won::Ended(answer) => (answer, Vec::new()),
             Won::Neither => {
                 let answer = match ended.navigation_lost {
-                    Some(Lost::Failed(answer)) => Some(answer),
+                    Some(Lost::Failed(answer) | Lost::Decoy(answer)) => Some(answer),
                     _ => ended.fetch_lost,
                 };
                 (
@@ -145,7 +161,7 @@ impl On<'_> {
                     run,
                     leased,
                     self.lease,
-                    &RACED,
+                    &BROWSER_FETCH,
                     Chosen::Raced,
                     encoding,
                     certificate_exception,
@@ -217,6 +233,9 @@ enum Lost {
     Failed(Answer),
     /// Never sent.
     NotSent,
+    /// Never started: its request is a decoy on a browser tier, which ends
+    /// as this answer says.
+    Decoy(Answer),
 }
 
 impl RaceEnded {
@@ -233,7 +252,7 @@ impl RaceEnded {
         match (&self.won, &self.navigation_lost) {
             (Won::Navigation(..), _) => RaceEnd::Won,
             (_, Some(Lost::Failed(_))) => RaceEnd::Failed,
-            (_, Some(Lost::NotSent)) => RaceEnd::NotSent,
+            (_, Some(Lost::NotSent | Lost::Decoy(_))) => RaceEnd::NotSent,
             _ if sent => RaceEnd::Cancelled,
             _ => RaceEnd::NotSent,
         }
@@ -241,36 +260,36 @@ impl RaceEnded {
 }
 
 /// Waits for the first of a race's `document`, browser-fetch's page with
-/// its latency and whether it can win, and `navigation` that can win, or
-/// for both to lose, or for `lease` to end; `document` is dropped, and so
-/// cancelled, before it answers. A browser-fetch page that cannot win is
-/// closed on `tiers`.
-async fn first_to_win(
+/// its latency and whether it can win, and `navigation` that can win,
+/// unless it lost before it started (`lost`), or for both to lose, or for
+/// `lease` to end; `document` is dropped, and so cancelled, before it
+/// answers, closing a page it served. A browser-fetch page that cannot win
+/// is closed.
+async fn first_to_win<'t>(
     mut document: std::pin::Pin<
-        Box<impl Future<Output = Result<(PageId, Duration, bool), Answer>>>,
+        Box<impl Future<Output = Result<(Served<'t>, Duration, bool), Answer>>>,
     >,
-    navigation: &mut oneshot::Receiver<Navigated>,
+    (navigation, lost): (&mut oneshot::Receiver<Navigated>, Option<Lost>),
     lease: &WorkItemLease,
-    tiers: &FetchTiers,
 ) -> RaceEnded {
     let mut ended = RaceEnded {
         won: Won::Neither,
         latency: None,
         fetch_lost: None,
-        navigation_lost: None,
+        navigation_lost: lost,
     };
     ended.won = loop {
         tokio::select! {
             biased;
             _ = lease.ended() => break Won::Ended(Answer::LeaseEnded),
             fetched = &mut document, if ended.fetch_lost.is_none() => match fetched {
-                Ok((page_id, took, true)) => {
+                Ok((served, took, true)) => {
                     ended.latency = Some(took);
-                    break Won::BrowserFetch(page_id);
+                    break Won::BrowserFetch(served.keep());
                 }
-                Ok((page_id, took, false)) => {
+                Ok((served, took, false)) => {
                     ended.latency = Some(took);
-                    tiers.close(&page_id);
+                    drop(served);
                     ended.fetch_lost = Some(Answer::Failed {
                         code: PAGE_CHECK_FAILED.to_owned(),
                         retryable: false,

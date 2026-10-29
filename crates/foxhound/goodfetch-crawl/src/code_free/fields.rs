@@ -55,6 +55,65 @@ pub(crate) struct Read {
     pub(crate) unread: Option<UnreadField>,
 }
 
+/// What a field reads with, built once per crawl as it starts
+/// ([`Reader::of`]): its `match` pattern compiled, and its Value transform
+/// with the forms its locale prints, so each page's text is only matched
+/// against them.
+pub(crate) struct Reader {
+    /// Its `match` pattern and the group it picks.
+    matched: Option<(Regex, usize)>,
+    typed: Typed,
+}
+
+/// A field's Value transform, with what its locale prints learned: none
+/// for a locale ICU4X has no forms for, whose printed texts are no value.
+enum Typed {
+    Text,
+    Number {
+        locale: String,
+        printed: Option<printed::Numbers>,
+    },
+    Date {
+        locale: String,
+        printed: Option<printed::Dates>,
+    },
+    DateTime {
+        locale: String,
+        time_zone: Option<String>,
+        printed: Option<printed::DateTimes>,
+    },
+}
+
+impl Reader {
+    /// What `field` reads with: a `match` pattern that does not compile,
+    /// which [`check`] refused at the start, matches nothing.
+    pub(crate) fn of(field: &ExtractionField) -> Self {
+        let matched = field.matched.as_ref().and_then(|matched| {
+            Some((
+                Regex::new(&matched.pattern).ok()?,
+                usize::try_from(matched.group).ok()?,
+            ))
+        });
+        let typed = match &field.transform {
+            FieldTransform::Text => Typed::Text,
+            FieldTransform::Number { locale } => Typed::Number {
+                locale: locale.clone(),
+                printed: printed::Numbers::of(locale),
+            },
+            FieldTransform::Date { locale } => Typed::Date {
+                locale: locale.clone(),
+                printed: printed::Dates::of(locale),
+            },
+            FieldTransform::DateTime { locale, time_zone } => Typed::DateTime {
+                locale: locale.clone(),
+                time_zone: time_zone.clone(),
+                printed: printed::DateTimes::of(locale),
+            },
+        };
+        Self { matched, typed }
+    }
+}
+
 /// Where a field's text came from: an attribute in its invariant form, or
 /// a text written for people.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,10 +199,11 @@ fn pointer(name: &str) -> String {
 }
 
 /// What the field `name` reads of `element`, the first its locator found,
-/// in a document whose base URL is `base_url`.
+/// in a document whose base URL is `base_url`, with `reader`, the field's
+/// own.
 pub(crate) fn read(
     name: &str,
-    field: &ExtractionField,
+    (field, reader): (&ExtractionField, &Reader),
     element: Option<&FieldElement>,
     base_url: &str,
 ) -> Read {
@@ -182,12 +242,11 @@ pub(crate) fn read(
         _ => raw.clone(),
     };
     let mut read_text = raw;
-    if let Some(matched) = &field.matched {
+    if field.matched.is_some() {
         transforms.push(provenance(&text, ValueTransform::Match));
-        let group = Regex::new(&matched.pattern).ok().and_then(|regex| {
+        let group = reader.matched.as_ref().and_then(|(regex, group)| {
             let captures = regex.captures(&text)?;
-            let group = captures.get(usize::try_from(matched.group).ok()?)?;
-            Some(group.as_str().to_owned())
+            Some(captures.get(*group)?.as_str().to_owned())
         });
         let Some(group) = group else {
             return unread(UnreadReason::NoMatch, Some(text), transforms);
@@ -203,11 +262,7 @@ pub(crate) fn read(
             unread: None,
         };
     }
-    match typed(
-        &field.transform,
-        provenance(&text, ValueTransform::Text),
-        form,
-    ) {
+    match typed(&reader.typed, provenance(&text, ValueTransform::Text), form) {
         Ok((named, value)) => {
             transforms.push(named);
             Read {
@@ -225,40 +280,53 @@ pub(crate) fn read(
 /// transform: its locale, and the time zone that gave a date-time's
 /// offset; why the field is null otherwise.
 fn typed(
-    transform: &FieldTransform,
+    transform: &Typed,
     mut named: TransformProvenance,
     form: Form,
 ) -> Result<(TransformProvenance, Value), UnreadReason> {
     let invariant = form == Form::Invariant;
     let value = match transform {
-        FieldTransform::Text => Some(Value::String(named.text.clone())),
-        FieldTransform::Number { locale } => {
+        Typed::Text => Some(Value::String(named.text.clone())),
+        Typed::Number { locale, printed } => {
             named.transform = ValueTransform::Number;
             named.locale = Some(locale.clone());
             if invariant {
                 number(&named.text)
             } else {
-                printed::number(&named.text, locale).and_then(|read| number(&read))
+                printed
+                    .as_ref()
+                    .and_then(|printed| printed.read(&named.text))
+                    .and_then(|read| number(&read))
             }
         }
-        FieldTransform::Date { locale } => {
+        Typed::Date { locale, printed } => {
             named.transform = ValueTransform::Date;
             named.locale = Some(locale.clone());
             if invariant {
                 date(&named.text)
             } else {
-                printed::date(&named.text, locale).map(Value::String)
+                printed
+                    .as_ref()
+                    .and_then(|printed| printed.read(&named.text))
+                    .map(Value::String)
             }
         }
-        FieldTransform::DateTime { locale, time_zone } => {
+        Typed::DateTime {
+            locale,
+            time_zone,
+            printed,
+        } => {
             named.transform = ValueTransform::DateTime;
             named.locale = Some(locale.clone());
             let read = if invariant {
                 date_time(&named.text, time_zone.as_deref())
             } else {
-                printed::date_time(&named.text, locale).map_or(DateTime::NotParsed, |civil| {
-                    zoned(civil, None, time_zone.as_deref())
-                })
+                printed
+                    .as_ref()
+                    .and_then(|printed| printed.read(&named.text))
+                    .map_or(DateTime::NotParsed, |civil| {
+                        zoned(civil, None, time_zone.as_deref())
+                    })
             };
             match read {
                 DateTime::Given { value, zoned } => {

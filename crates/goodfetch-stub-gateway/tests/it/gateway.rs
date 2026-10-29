@@ -35,6 +35,9 @@ pub(crate) const TOKEN: &str = "stub-gateway-sign-in";
 /// This commit's Product version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// How long an interrupted gateway has to stop its engines and exit.
+const STOP_DEADLINE: Duration = Duration::from_secs(10);
+
 /// A started gateway and the addresses its ready file reports.
 pub(crate) struct Gateway {
     process: Process,
@@ -131,8 +134,11 @@ impl Gateway {
 }
 
 impl Drop for Gateway {
+    /// Interrupts the gateway, which kills and reaps its engines before it
+    /// exits, and reaps it: an engine shares the test's stderr, which
+    /// nextest counts as leaked until every holder has closed it.
     fn drop(&mut self) {
-        let _ = self.process.stop();
+        let _ = self.process.interrupt_and_wait(STOP_DEADLINE);
     }
 }
 
@@ -351,4 +357,52 @@ fn run_list_answers_every_run_its_index_holds_on_either_engine() {
     let mut expected = vec![on_collie.as_str(), on_foxhound.as_str()];
     expected.sort_unstable();
     assert_eq!(run_ids, expected);
+}
+
+/// Interrupted, the gateway kills each engine it started and exits only
+/// once it has reaped them, so no engine outlives it holding the test's
+/// stderr.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_interrupted_gateway_exits_once_it_has_reaped_its_engines() {
+    let env = TestEnv::new();
+    let gateway = Gateway::start(&env);
+    let mut console = gateway.connection();
+    console.start("run.start", &json!({}));
+    console.start("crawl.start", &crawl_of_nothing());
+    let engines = children_of(gateway.process.child().id());
+
+    let status = gateway.process.interrupt_and_wait(STOP_DEADLINE).unwrap();
+
+    let left: Vec<u32> = engines
+        .iter()
+        .copied()
+        .filter(|engine| Path::new(&format!("/proc/{engine}")).exists())
+        .collect();
+    assert_eq!(
+        (engines.len(), status.success(), left),
+        (2, true, Vec::new())
+    );
+}
+
+/// The processes whose parent is `pid`, from each process's `stat`.
+#[cfg(target_os = "linux")]
+fn children_of(pid: u32) -> Vec<u32> {
+    std::fs::read_dir("/proc")
+        .unwrap()
+        .filter_map(|entry| {
+            let child: u32 = entry.ok()?.file_name().to_str()?.parse().ok()?;
+            let stat = std::fs::read_to_string(format!("/proc/{child}/stat")).ok()?;
+            // The parent's ID is the second field after the command's
+            // closing parenthesis.
+            let parent: u32 = stat
+                .rsplit_once(')')?
+                .1
+                .split_whitespace()
+                .nth(1)?
+                .parse()
+                .ok()?;
+            (parent == pid).then_some(child)
+        })
+        .collect()
 }

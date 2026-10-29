@@ -254,6 +254,7 @@ max_crawl_delay = 30000
 sample_pages = 4
 handle_statuses = [4]
 content_types = ["example"]
+max_staged_enqueues = 4
 domain_keys = { "example.test" = "example" }
 keep_alive = true
 max_depth = 4
@@ -594,6 +595,7 @@ max_crawl_delay = 30000
 sample_pages = 4
 handle_statuses = [4]
 content_types = ["example"]
+max_staged_enqueues = 4
 domain_keys = { "example.test" = "example" }
 keep_alive = true
 max_depth = 4
@@ -784,6 +786,7 @@ max = 30000
 
 [cap.crawl]
 sample_pages = 4
+max_staged_enqueues = 4
 max_depth = 4
 max_requests = 4
 max_url_length = 4

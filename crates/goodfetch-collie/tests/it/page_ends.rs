@@ -15,6 +15,10 @@
 //! console, which the page's `console` event shows: the function never
 //! settles, so the call waits until its page or browser ends under it.
 #![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+#![expect(
     clippy::disallowed_methods,
     reason = "the test lists and signals its own browser's processes on its own thread, never an async worker"
 )]

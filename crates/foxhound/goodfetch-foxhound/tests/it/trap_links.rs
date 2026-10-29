@@ -16,7 +16,7 @@ use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
-use crate::fetch_tiers::{engine, expecting, provenance, settings};
+use crate::fetch_tiers::{engine, expecting, provenance, settings, tiers};
 use crate::frontier::{Inside, crawl_declaring};
 
 /// The Proving ground's seed.
@@ -369,5 +369,194 @@ fn a_noindex_page_failing_its_page_check_ends_decoy() {
                 ("/corpus/labyrinth?copy=1".to_owned(), decoy),
             ]
         )
+    );
+}
+
+/// The paths the Proving ground served on [`HOST`], robots.txt aside, each
+/// once.
+fn fetched_once(observations: &Value) -> Vec<String> {
+    let mut fetched: Vec<String> = ReceivedRequests::of(observations)
+        .of_the_case()
+        .filter(|request| request["host"] == HOST)
+        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|target| target != "/robots.txt")
+        .collect();
+    fetched.sort();
+    fetched.dedup();
+    fetched
+}
+
+/// A page a hidden link reaches before a visible one is also reached
+/// through a link a person sees, so it is no decoy: on the cards page,
+/// served over HTTP, item 1 and category 1 are linked first through links
+/// the markup hides, then visibly, and are fetched in the browser like
+/// item 2, whose visible link came first. Item 3, which only its hidden
+/// image link reaches, stays marked: it ends `blocked` with `decoy`, never
+/// fetched, and only its mark is written in Provenance, the others'
+/// cleared in the same call before it committed.
+///
+/// Covers: story:8-227, story:8-228, block-cause:decoy
+#[test]
+fn a_page_also_reached_through_a_visible_link_is_fetched_in_the_browser() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let seeds = [json!({ "url": proving_ground.url(HOST, "/cards"), "label": "cards" })];
+
+    let mut answered = Value::Null;
+    crawl_declaring(
+        &mut engine,
+        "trap-links-seen",
+        &seeds,
+        &json!({
+            "cards": { "settings": { "fetch": { "tier": "http" } } },
+            "item": { "settings": { "fetch": { "tier": "browser" } } },
+        }),
+        &settings(&proving_ground, &json!({})),
+        &mut enqueuing("cards", "item", &mut answered),
+    );
+    let ended = endings(&mut engine, "trap-links-seen");
+    let suspected = provenance(&env, "trap-links-seen", "trap_link_suspected");
+    let observations = proving_ground.observations().unwrap();
+    assert!(engine.finish());
+
+    let succeeded = json!(["succeeded", null, 1]);
+    let marked: Vec<String> = suspected
+        .iter()
+        .map(|entry| entry["url"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        (ended, fetched_once(&observations), marked),
+        (
+            vec![
+                ("/cards".to_owned(), succeeded.clone()),
+                ("/categories/1".to_owned(), succeeded.clone()),
+                ("/items/I-0001".to_owned(), succeeded.clone()),
+                ("/items/I-0002".to_owned(), succeeded),
+                ("/items/I-0003".to_owned(), json!(["blocked", "decoy", 1])),
+            ],
+            vec![
+                "/cards".to_owned(),
+                "/categories/1".to_owned(),
+                "/items/I-0001".to_owned(),
+                "/items/I-0002".to_owned(),
+            ],
+            vec![proving_ground.url(HOST, "/items/I-0003")],
+        ),
+        "{answered}"
+    );
+}
+
+/// A request marked as reached through a suspected trap, while its Label
+/// still samples, is a sample like any other: its browser run is weighed,
+/// never ended `decoy` on the mark alone, so it counts toward its Label's
+/// choice. Item 3, which only a hidden link on the cards page reaches, is
+/// the item Label's first sample; three matching samples move the Label to
+/// `http`, and every request succeeds.
+///
+/// Covers: story:8-227, story:5-114
+#[test]
+fn a_marked_request_in_a_sampling_label_is_weighed_and_never_a_decoy() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let seeds = [json!({ "url": proving_ground.url(HOST, "/cards"), "label": "cards" })];
+
+    let mut answered = Value::Null;
+    crawl_declaring(
+        &mut engine,
+        "trap-links-sampled",
+        &seeds,
+        &json!({
+            "cards": { "settings": { "fetch": { "tier": "http" } } },
+            "item": {},
+        }),
+        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &mut enqueuing("cards", "item", &mut answered),
+    );
+    let ended = endings(&mut engine, "trap-links-sampled");
+    let chosen: Vec<String> = tiers(&env, "trap-links-sampled")
+        .iter()
+        .filter(|entry| entry[0] == "item")
+        .map(|entry| {
+            format!(
+                "{} {}",
+                entry[1].as_str().unwrap(),
+                entry[2].as_str().unwrap()
+            )
+        })
+        .collect();
+    assert!(engine.finish());
+
+    let succeeded = json!(["succeeded", null, 1]);
+    assert_eq!(
+        (ended, chosen),
+        (
+            vec![
+                ("/cards".to_owned(), succeeded.clone()),
+                ("/categories/1".to_owned(), succeeded.clone()),
+                ("/items/I-0001".to_owned(), succeeded.clone()),
+                ("/items/I-0002".to_owned(), succeeded.clone()),
+                ("/items/I-0003".to_owned(), succeeded),
+            ],
+            [
+                "http sample",
+                "browser sample",
+                "http sample",
+                "browser sample",
+                "http sample",
+                "browser sample",
+                "http compared",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+        ),
+        "{answered}"
+    );
+}
+
+/// A run whose staging is discarded writes no `trap_link_suspected`
+/// Provenance entry: the cards page's Label samples, so its HTTP run,
+/// which adds the links its markup hides and marks them, is discarded for
+/// the browser's, which adds none of them (ADR 0103). The entries are
+/// written as an attempt commits, for the marks it committed.
+///
+/// Covers: story:8-228
+#[test]
+fn a_discarded_run_writes_no_suspected_trap_link_entry() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let seeds = [json!({ "url": proving_ground.url(HOST, "/cards"), "label": "cards" })];
+
+    let mut answered = Value::Null;
+    crawl_declaring(
+        &mut engine,
+        "trap-links-discarded",
+        &seeds,
+        &json!({
+            "cards": { "settings": { "fetch": { "tier": "auto" } } },
+            "item": { "settings": { "fetch": { "tier": "http" } } },
+        }),
+        &settings(&proving_ground, &json!({})),
+        &mut enqueuing("cards", "item", &mut answered),
+    );
+    let suspected = provenance(&env, "trap-links-discarded", "trap_link_suspected");
+    let ended = endings(&mut engine, "trap-links-discarded");
+    assert!(engine.finish());
+
+    let succeeded = json!(["succeeded", null, 1]);
+    assert_eq!(
+        (suspected, ended),
+        (
+            Vec::new(),
+            vec![
+                ("/cards".to_owned(), succeeded.clone()),
+                ("/categories/1".to_owned(), succeeded.clone()),
+                ("/items/I-0001".to_owned(), succeeded.clone()),
+                ("/items/I-0002".to_owned(), succeeded),
+            ],
+        ),
+        "{answered}"
     );
 }

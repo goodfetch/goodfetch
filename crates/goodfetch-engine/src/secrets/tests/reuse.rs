@@ -23,19 +23,19 @@ use crate::settings::{Layers, Values, resolve};
 
 const VAULT: &str = "vault:secret/shop#password";
 
-/// A provider that answers `busy` times that it is busy, after
+/// A provider that answers `times` times that it is busy, after
 /// `retry_after` when given, then the reference's own text, and keeps
 /// each moment it was asked at.
 struct Busy {
-    busy: u32,
+    times: u32,
     retry_after: Option<Duration>,
     asked: tokio::sync::Mutex<Vec<tokio::time::Instant>>,
 }
 
 impl Busy {
-    fn new(busy: u32, retry_after: Option<Duration>) -> Self {
+    fn new(times: u32, retry_after: Option<Duration>) -> Self {
         Self {
-            busy,
+            times,
             retry_after,
             asked: tokio::sync::Mutex::default(),
         }
@@ -51,7 +51,7 @@ impl SecretProvider for Busy {
                 reason = "the test reads the paused runtime's clock, which the driver's Clock follows (ADR 0059)"
             )]
             asked.push(tokio::time::Instant::now());
-            if asked.len() <= self.busy as usize {
+            if asked.len() <= self.times as usize {
                 return Err(ProviderFailure::Busy {
                     fix: "The server's rate limit refused the read; try again later.".to_owned(),
                     retry_after: self.retry_after,
@@ -108,7 +108,10 @@ fn a_value_resolved_once_is_reused_and_its_domain_binding_checked_at_each_use() 
 
     let (answers, asked) = goodfetch_test_support::runtime().block_on(async {
         let secrets = driver(&env, &[])
-            .with(Provider::Vault, counting.clone())
+            .with(
+                Provider::Vault,
+                std::sync::Arc::<Counting>::clone(&counting),
+            )
             .for_run(Duration::from_secs(30));
         let mut answers = Vec::new();
         for domain in ["shop.example", "shop.example", "elsewhere.example"] {
@@ -144,7 +147,7 @@ fn concurrent_resolutions_of_one_reference_make_one_call() {
 
     let asked = goodfetch_test_support::runtime().block_on(async {
         let secrets = driver(&env, &[])
-            .with(Provider::Vault, slow.clone())
+            .with(Provider::Vault, std::sync::Arc::<Slow>::clone(&slow))
             .for_run(Duration::from_secs(30));
         let purpose = for_the_key(None, &[]);
         let reference = reference(VAULT);
@@ -160,17 +163,17 @@ fn concurrent_resolutions_of_one_reference_make_one_call() {
     assert_eq!(asked, 1);
 }
 
-/// What resolving through a provider busy `busy` times answers, and how
-/// long after the first ask each later one came.
+/// What resolving through a provider busy `times` times answers, and how
+/// long each later ask came after the one before it.
 fn through_busy(
-    busy: u32,
+    times: u32,
     retry_after: Option<Duration>,
 ) -> (Result<String, SecretFailure>, Vec<Duration>) {
     let env = TestEnv::new();
-    let provider = std::sync::Arc::new(Busy::new(busy, retry_after));
+    let provider = std::sync::Arc::new(Busy::new(times, retry_after));
     goodfetch_test_support::runtime().block_on(async {
         let secrets = driver(&env, &[])
-            .with(Provider::Vault, provider.clone())
+            .with(Provider::Vault, std::sync::Arc::<Busy>::clone(&provider))
             .for_run(Duration::from_secs(30));
         let answer = secrets
             .resolve(&reference(VAULT), &for_the_key(None, &[]))
@@ -181,7 +184,7 @@ fn through_busy(
                 other => panic!("expected `secret_unavailable`, found {other:?}"),
             });
         let asked = provider.asked.lock().await;
-        let gaps = asked.iter().skip(1).map(|at| *at - asked[0]).collect();
+        let gaps = asked.windows(2).map(|pair| pair[1] - pair[0]).collect();
         (answer, gaps)
     })
 }
@@ -198,8 +201,8 @@ fn a_busy_provider_is_asked_again_with_backoff_until_it_answers() {
     assert_eq!(gaps.len(), 3);
     assert!(
         gaps[0] <= Duration::from_millis(200)
-            && gaps[1] - gaps[0] <= Duration::from_millis(400)
-            && gaps[2] - gaps[1] <= Duration::from_millis(800),
+            && gaps[1] <= Duration::from_millis(400)
+            && gaps[2] <= Duration::from_millis(800),
         "{gaps:?}"
     );
 }
@@ -255,7 +258,10 @@ fn a_reference_listed_to_resolve_at_each_use_asks_its_provider_each_time() {
 
     let asked = goodfetch_test_support::runtime().block_on(async {
         let secrets = driver(&env, &[])
-            .with(Provider::Vault, counting.clone())
+            .with(
+                Provider::Vault,
+                std::sync::Arc::<Counting>::clone(&counting),
+            )
             .for_run_under(
                 &settings,
                 Duration::from_secs(30),

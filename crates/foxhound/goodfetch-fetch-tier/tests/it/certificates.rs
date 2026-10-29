@@ -87,12 +87,17 @@ impl Fixture {
     /// A Run's Secrets, holding `environment`.
     fn secrets(&self, environment: BTreeMap<OsString, OsString>) -> RunSecrets {
         let home = Home::new(self.env.home().to_path_buf());
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test's Secrets draw their retry jitter from a seeded Entropy (ADR 0059)"
+        )]
+        let entropy = goodfetch_engine::entropy::Entropy::seeded(0);
         Secrets::new(
             Carried {
                 environment,
                 keychain: Keychain::absent(),
                 home,
-                entropy: goodfetch_engine::entropy::Entropy::seeded(0),
+                entropy,
             },
             Arc::clone(&self.audit),
             Arc::clone(&self.owner),

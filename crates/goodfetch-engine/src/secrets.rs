@@ -687,12 +687,15 @@ struct ForRun {
     /// The value resolved for each reference and placeholder, reused for
     /// the rest of the Run; a resolution in flight is waited for, so
     /// resolutions of one reference at once make one call.
-    values:
-        tokio::sync::Mutex<BTreeMap<(String, String), Arc<tokio::sync::OnceCell<SecretString>>>>,
+    values: tokio::sync::Mutex<BTreeMap<(String, String), Reused>>,
     /// The references resolved again at each use, its
     /// `secrets.resolve_each_use`.
     each_use: BTreeSet<String>,
 }
+
+/// A value a Run resolved once for a reference and placeholder, or the
+/// resolution of it in flight, which its later uses wait for.
+type Reused = Arc<tokio::sync::OnceCell<SecretString>>;
 
 impl std::fmt::Debug for RunSecrets {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

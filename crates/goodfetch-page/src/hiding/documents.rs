@@ -95,6 +95,8 @@ pub(super) struct Documents {
     /// While a click in a frame goes in, that frame's document: every other
     /// document's sheet is empty until it ends.
     lifted: Option<Key>,
+    /// The order of the last ordered change sent, by document and part.
+    orders: BTreeMap<(Key, Part), u64>,
 }
 
 impl Documents {
@@ -117,6 +119,17 @@ impl Documents {
                 ..Document::default()
             };
         }
+    }
+
+    /// Whether a change of `part` of `key`'s sheet made in `order` goes
+    /// out: only when no change of that part made later went out before it.
+    pub(super) fn ordered(&mut self, key: &Key, part: Part, order: u64) -> bool {
+        let last = self.orders.entry((key.clone(), part)).or_insert(order);
+        if order < *last {
+            return false;
+        }
+        *last = order;
+        true
     }
 
     /// `part` of `key`'s sheet becomes `text`; the write it needs, none when
@@ -262,15 +275,20 @@ impl Documents {
         keys.iter().filter_map(|key| self.write(key)).collect()
     }
 
-    /// The iframe target `session` detached.
+    /// The iframe target `session` detached: its documents go, with their
+    /// refresh orders.
     pub(super) fn forget_session(&mut self, session: &TargetSession) {
         self.styled.remove(session);
         self.by_key.retain(|(owner, _), _| owner != session);
+        self.orders.retain(|((owner, _), _), _| owner != session);
     }
 
-    /// `frame` of `session` detached.
+    /// `frame` of `session` detached: its document goes, with its refresh
+    /// orders.
     pub(super) fn forget_frame(&mut self, session: &TargetSession, frame: &FrameId) {
-        self.by_key.remove(&(session.clone(), frame.clone()));
+        let key = (session.clone(), frame.clone());
+        self.by_key.remove(&key);
+        self.orders.retain(|(document, _), _| *document != key);
     }
 }
 

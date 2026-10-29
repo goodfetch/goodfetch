@@ -25,7 +25,7 @@ use serde_json::json;
 
 /// Why a version of the Clean-up rules could not be had. Each has a stable
 /// name, which Provenance records as the reason of a fallback.
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 #[non_exhaustive]
 pub(crate) enum Unobtained {
     /// `clean_up.version` holds no `sha256:<hex>` digest.

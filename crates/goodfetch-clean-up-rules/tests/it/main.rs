@@ -3,6 +3,7 @@
 //! embedded Clean-up rules (ADR 0047), and what loading them holds.
 
 mod consent;
+mod hiding;
 mod matching;
 #[cfg(target_os = "linux")]
 mod memory;

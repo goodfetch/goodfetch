@@ -31,7 +31,6 @@
 )]
 
 use std::collections::BTreeMap;
-use std::convert::Infallible;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::Duration;
@@ -94,10 +93,17 @@ const STATE_FILE: &str = "clean-up-rules.json";
 pub(crate) struct Versions {
     home: OnceLock<Home>,
     /// Each version loaded or loading, by digest: the loads of one digest
-    /// wait on its cell, never on a lock held while it compiles.
-    loaded: Mutex<BTreeMap<String, Arc<OnceCell<Weak<FilterLists>>>>>,
+    /// wait on its cell, never on a lock held while it compiles; a load that
+    /// failed keeps its failure there for the loads that waited on it.
+    loaded: Mutex<BTreeMap<String, Arc<Loaded>>>,
     holding: Mutex<BTreeMap<RunId, Held>>,
+    /// The fetches of the Filter lists from their authors' URLs.
+    upstream: upstream::Fetches,
 }
+
+/// One version's load: the version once loaded, while a Run holds it, or
+/// why it did not load.
+type Loaded = OnceCell<Result<Weak<FilterLists>, Unobtained>>;
 
 /// The version one live Run holds to: its digest, and its files, held in
 /// the Browser cache so no clean-up removes them while the Run lives.
@@ -522,12 +528,10 @@ impl Versions {
         match asked.update {
             Update::Upstream => {
                 let sources = Sources::of(&context).await;
-                let newest = within(
-                    context.clock,
-                    asked.timeout,
-                    upstream::newest(&sources, now),
-                )
-                .await;
+                let newest = self
+                    .upstream
+                    .newest(&sources, now, context.clock, asked.timeout)
+                    .await;
                 Ok(match newest {
                     Ok(version) => Chosen {
                         digest: version.digest,
@@ -626,22 +630,29 @@ impl Versions {
     /// in the Browser cache, until it ends; the Runs that ended let theirs
     /// go.
     fn hold(&self, run: &Run, digest: &str, artifact: Option<HeldArtifact>) {
+        held_by(&mut lock(&self.holding), run, digest, artifact);
+    }
+
+    /// `run`, whose version of `digest` did not load, holds to the embedded
+    /// part from now on; whether this call moved it there, which only one of
+    /// the Run's pages that asked at once does.
+    fn fall_back(&self, run: &Run, digest: &str) -> bool {
         let mut holding = lock(&self.holding);
-        holding.retain(|_, held| !held.live.is_cancelled());
-        holding.insert(
-            run.id().clone(),
-            Held {
-                live: run.cancellation().clone(),
-                digest: digest.to_owned(),
-                artifact: artifact.map(Arc::new),
-            },
-        );
+        if holding
+            .get(run.id())
+            .is_some_and(|held| held.digest != digest)
+        {
+            return false;
+        }
+        held_by(&mut holding, run, EMBEDDED_DIGEST, None);
+        true
     }
 
     /// The Filter lists `run`'s pages match: the version it holds to,
     /// loaded once for every Run that holds to it, through `owner`'s
     /// blocking tasks; the embedded part, recorded in Provenance and warned
-    /// of, when its files no longer read. Each comes with its digest.
+    /// of once, however many of its pages asked at once, when its files no
+    /// longer read. Each comes with its digest.
     pub(crate) async fn lists(&self, run: &Run, owner: &TaskOwner) -> HeldLists {
         let held = lock(&self.holding)
             .get(run.id())
@@ -659,10 +670,9 @@ impl Versions {
             let loading = || self.load(&digest, artifact.clone(), run, owner);
             match self.loaded_once(&digest, loading).await {
                 Ok(lists) => return HeldLists { digest, lists },
-                Err(failure) => {
+                Err(failure) if self.fall_back(run, &digest) => {
                     let fallback =
                         fallback(&format!("the Run's Clean-up rules, {digest},"), &failure);
-                    self.hold(run, EMBEDDED_DIGEST, None);
                     trace::provenance(
                         run,
                         &json!({
@@ -676,14 +686,19 @@ impl Versions {
                     .await;
                     warn_of(run, &fallback).await;
                 }
+                // Another of the Run's pages fell back and recorded it.
+                Err(_) => {}
             }
         }
         let embedded = || async {
-            Ok::<_, Infallible>(owner.blocking(FilterLists::embedded).await.expect(
+            Ok(owner.blocking(FilterLists::embedded).await.expect(
                 "invariant: the build compiled the embedded Filter lists with this binary's own adblock",
             ))
         };
-        let Ok(lists) = self.loaded_once(EMBEDDED_DIGEST, embedded).await;
+        let lists = self
+            .loaded_once(EMBEDDED_DIGEST, embedded)
+            .await
+            .expect("invariant: the embedded part's loads never fail");
         HeldLists {
             digest: EMBEDDED_DIGEST.to_owned(),
             lists,
@@ -692,32 +707,39 @@ impl Versions {
 
     /// The version of `digest`, loaded by `load` unless a Run still holds
     /// it loaded: the loads of one digest run one at a time on its cell, so
-    /// each version is compiled once for every Run that holds to it, and a
-    /// load that failed leaves the next to try again.
-    async fn loaded_once<Load, Loading, Failure>(
+    /// each version is compiled once for every Run that holds to it; a load
+    /// that failed fails the loads that waited on it with it, and leaves the
+    /// next to try again.
+    async fn loaded_once<Load, Loading>(
         &self,
         digest: &str,
         load: Load,
-    ) -> Result<Arc<FilterLists>, Failure>
+    ) -> Result<Arc<FilterLists>, Unobtained>
     where
         Load: Fn() -> Loading,
-        Loading: Future<Output = Result<FilterLists, Failure>>,
+        Loading: Future<Output = Result<FilterLists, Unobtained>>,
     {
         loop {
             let cell = {
                 let mut loaded = lock(&self.loaded);
-                loaded.retain(|_, cell| cell.get().is_none_or(|lists| lists.strong_count() > 0));
+                loaded.retain(|_, cell| {
+                    cell.get().is_none_or(|lists| {
+                        lists.as_ref().is_ok_and(|lists| lists.strong_count() > 0)
+                    })
+                });
                 Arc::clone(loaded.entry(digest.to_owned()).or_default())
             };
             let mut compiled = None;
             let weak = cell
-                .get_or_try_init(|| async {
+                .get_or_init(|| async {
                     let lists = Arc::new(load().await?);
                     let weak = Arc::downgrade(&lists);
                     compiled = Some(lists);
                     Ok(weak)
                 })
-                .await?;
+                .await
+                .as_ref()
+                .map_err(Clone::clone)?;
             // A version another load compiled whose Runs all ended since
             // is loaded again.
             if let Some(lists) = compiled.or_else(|| weak.upgrade()) {
@@ -769,8 +791,28 @@ impl Versions {
     }
 }
 
-/// Warns in `run`'s report that its Clean-up rules are not the version
-/// asked for, for `fallback`.
+/// `run` holds to the version of `digest` in `holding`, whose files
+/// `artifact` holds in the Browser cache, until it ends; the Runs that
+/// ended let theirs go.
+fn held_by(
+    holding: &mut BTreeMap<RunId, Held>,
+    run: &Run,
+    digest: &str,
+    artifact: Option<HeldArtifact>,
+) {
+    holding.retain(|_, held| !held.live.is_cancelled());
+    holding.insert(
+        run.id().clone(),
+        Held {
+            live: run.cancellation().clone(),
+            digest: digest.to_owned(),
+            artifact: artifact.map(Arc::new),
+        },
+    );
+}
+
+/// Warns in `run`'s report, once, that its Clean-up rules are not the
+/// version asked for, for `fallback`.
 async fn warn_of(run: &Run, fallback: &Fallback) {
     let warning = RunWarning {
         code: CLEAN_UP_RULES_FALLBACK.to_owned(),
@@ -781,7 +823,7 @@ async fn warn_of(run: &Run, fallback: &Fallback) {
         sessions: Vec::new(),
         folder: None,
     };
-    if let Err(error) = run.warn(warning).await {
+    if let Err(error) = run.warn_once(warning).await {
         tracing::warn!(%error, "the warning of the Run's Clean-up rules was not kept");
     }
 }

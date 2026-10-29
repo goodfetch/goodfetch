@@ -11,6 +11,12 @@
 //! chose, and copy the decrypted bytes both ways unchanged: the site sees
 //! the browser's own HTTP/2 or HTTP/1.1, and the relay links no HTTP stack.
 //!
+//! A host an exception lists, which no Session cookie may reach (ADR 0042),
+//! is held to HTTP/1.1 on both sides, the one protocol the upstream
+//! handshake offers it, and each request head is read before it goes up:
+//! the first that carries a `Cookie` header ends the connection
+//! ([`cookies`]), a WebSocket handshake's as any other's.
+//!
 //! The relay is a translation point (ADR 0127): how the site's handshake
 //! failed becomes the `certificate_invalid` failure [`failure_of`] names.
 
@@ -43,6 +49,7 @@ use tokio_btls::SslStream;
 use super::application_settings::{self, ApplicationSettings};
 use super::authority::Authority;
 use super::client_hello::{self, ClientHello};
+use super::cookies::{self, Guarded, HTTP_1_1};
 
 /// What a Session's relay terminates, and how it decides upstream.
 pub(crate) struct Terminating {
@@ -122,7 +129,8 @@ pub(crate) enum Terminated {
     /// It passed, and its bytes went both ways: these many from the
     /// browser and to it.
     Relayed { up: u64, down: u64 },
-    /// The relay stopped it, and told why first.
+    /// The relay stopped it, and told why first; or a request to a host an
+    /// exception lists carried a Session cookie, which never went up.
     Stopped,
     /// It ended otherwise: the browser sent no ClientHello, or a side
     /// closed.
@@ -178,8 +186,12 @@ where
         return Terminated::Failed;
     };
     browser.replay(raw);
+    // A host an exception lists is held to HTTP/1.1, whose request heads
+    // the relay reads for Session cookies (ADR 0042).
+    let guarded = terminating.exceptions.covers(host);
+    let held = guarded.then(|| http_1_1_only(&hello));
     let mirror = Mirror {
-        hello: &hello,
+        hello: held.as_ref().unwrap_or(&hello),
         application_settings: &terminating.application_settings,
         sessions: Some(&terminating.sessions),
     };
@@ -210,8 +222,66 @@ where
     let Ok(mut browser) = accept(browser, host, &terminating.authority, chosen).await else {
         return Terminated::Failed;
     };
-    let (up, down) = both_ways(&mut browser, &mut up.stream).await;
+    if !guarded {
+        let (up, down) = both_ways(&mut browser, &mut up.stream).await;
+        return Terminated::Relayed { up, down };
+    }
+    let Some((up, down)) = without_cookies(&mut browser, &mut up.stream).await else {
+        tracing::warn!(
+            host,
+            "the egress relay ended a connection whose request carried a Session cookie to a host reached through an invalid-certificate exception (ADR 0042)"
+        );
+        return Terminated::Stopped;
+    };
     Terminated::Relayed { up, down }
+}
+
+/// `hello`, offering HTTP/1.1 alone, as the relay offers a host an
+/// exception lists: no other protocol, and no ALPS, which only HTTP/2 uses.
+fn http_1_1_only(hello: &ClientHello) -> ClientHello {
+    ClientHello {
+        alpn: hello
+            .alpn
+            .iter()
+            .filter(|protocol| protocol.as_slice() == HTTP_1_1)
+            .cloned()
+            .collect(),
+        alps: Vec::new(),
+        ..hello.clone()
+    }
+}
+
+/// Copies the decrypted bytes both ways as [`both_ways`] does, each of the
+/// browser's request heads read before it goes up ([`cookies`]): the bytes
+/// copied from `browser` and to it; none when a request carried a Session
+/// cookie, and the connection ends there.
+async fn without_cookies<B, S>(browser: &mut B, site: &mut S) -> Option<(u64, u64)>
+where
+    B: AsyncRead + AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let (mut browser_reads, mut browser_writes) = tokio::io::split(browser);
+    let (mut site_reads, mut site_writes) = tokio::io::split(site);
+    let up = cookies::requests_without_cookies(&mut browser_reads, &mut site_writes);
+    let down = one_way(&mut site_reads, &mut browser_writes);
+    tokio::pin!(up, down);
+    let mut copied = None;
+    let guarded = loop {
+        tokio::select! {
+            guarded = &mut up => break guarded,
+            down = &mut down, if copied.is_none() => copied = Some(down),
+        }
+    };
+    match guarded {
+        Guarded::Withheld => None,
+        Guarded::Ended(sent) => Some((
+            sent,
+            match copied {
+                Some(copied) => copied,
+                None => down.await,
+            },
+        )),
+    }
 }
 
 /// Copies the decrypted bytes both ways until each side ends, by a close

@@ -47,6 +47,10 @@ mod check;
     reason = "the scenario's relay reads ClientHellos off streams, never parses one from bytes"
 )]
 mod client_hello;
+#[path = "../src/egress_relay/cookies.rs"]
+mod cookies;
+#[path = "../src/egress_relay/deadlines.rs"]
+mod deadlines;
 #[path = "../src/egress_relay/head.rs"]
 mod head;
 #[path = "../src/egress_relay/serve.rs"]
@@ -410,7 +414,7 @@ impl serve::Observe for Unobserved {
     fn unreached(&self, _: &str, _: serve::Unreached) {}
     fn reached(&self, _: &str) {}
     fn refused(&self, _: &goodfetch_engine::egress::Refused, _: &str) {}
-    fn upstream(&self, _: serve::Met) {}
+    fn upstream(&self, _: &str, _: serve::Met) {}
     fn unauthenticated(&self, _: bool) {}
     fn terminated(&self, _: &str, _: Option<&goodfetch_engine::tls::ExceptionUsed>) {}
     fn stopped(&self, _: &str, _: &str, _: &terminate::Stop) {}
@@ -430,6 +434,8 @@ fn relaying() -> serve::Relaying {
         upstream: serve::Upstream::Direct,
         bypasses: Box::new(|_| false),
         terminating: None,
+        clock: goodfetch_engine::clock::Clock::system(),
+        connect_deadline: Duration::from_secs(10),
     }
 }
 
@@ -627,8 +633,10 @@ async fn tls_site(stream: DuplexStream, (certificate, key): &(Vec<u8>, Vec<u8>))
 }
 
 /// One terminated connection: the browser's authenticated `CONNECT`, its
-/// TLS handshake through the relay, then `sent` bytes, which the site
-/// reads to the end; returns the bytes the site read.
+/// TLS handshake through the relay, then one request whose body is `sent`
+/// bytes, its head read by the relay as a host an exception lists has its
+/// heads read (ADR 0042), which the site reads to the end; returns the
+/// bytes the site read.
 async fn terminated_connection(
     fixture: &Terminated,
     network: &InMemory,
@@ -670,6 +678,13 @@ async fn terminated_connection(
                 .connect()
                 .await
                 .expect("invariant: the relay finishes the handshake");
+            let head = format!(
+                "POST / HTTP/1.1\r\nHost: site-7.example.test\r\nContent-Length: {sent}\r\n\r\n"
+            );
+            stream
+                .write_all(head.as_bytes())
+                .await
+                .expect("invariant: the connection carries the head");
             let mut left = sent;
             while left > 0 {
                 let part = left.min(chunk.len());

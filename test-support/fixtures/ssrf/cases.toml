@@ -908,6 +908,24 @@ lookups = [{ name = "webhook.ssrf.test", answers = ["127.0.0.1", "10.0.0.1"] }]
 target = "127.0.0.1"
 refusal = { code = "egress_refused", rule = "private_address" }
 
+# A Session's upstream proxy whose name rebinds between two lookups (ADR
+# 0067's "rebinding; the upstream proxy path"; deep review finding 577-1):
+# what a connection is given to dial is the answer that was judged, so the
+# private answer is refused on the use after it changed.
+
+[[cases]]
+name = "proxy_endpoint_that_rebinds"
+family = "operator_endpoint"
+url = "http://rebind-proxy.ssrf.test/"
+route = { via = "operator_endpoint", kind = "proxy" }
+lookups = [
+    { name = "rebind-proxy.ssrf.test", answers = ["public"] },
+    { name = "rebind-proxy.ssrf.test", answers = ["127.0.0.1"] },
+]
+fetches = 2
+target = "127.0.0.1"
+refusal = { code = "egress_refused", rule = "private_address" }
+
 # A Lent page's client: a browser context with its own proxy, or an
 # extension, would leave through no relay; the endpoint refuses both (ADR
 # 0089).

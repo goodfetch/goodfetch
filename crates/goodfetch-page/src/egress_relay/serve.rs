@@ -4,19 +4,25 @@
 //! every address the connection may use, which the relay resolves itself,
 //! then the connection opened to those addresses alone, or through the
 //! Session's upstream proxy, and the bytes passed both ways unchanged, a
-//! tunnel's ClientHello noted as it passes.
+//! tunnel's ClientHello noted as it passes. A client that sends no request
+//! head within [`HEAD_DEADLINE`] is dropped, and each connection the relay
+//! opens has its connect deadline, so a proxy that never answers is the
+//! proxy's failure.
 
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_engine::endpoint::same_token;
 use goodfetch_engine::tls::ExceptionUsed;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
 use super::client_hello::{ClientHello, Noting};
+use super::deadlines::{HEAD_DEADLINE, within, within_or_none};
 use super::head::{self, Head, Target, Unread};
 use super::terminate::{self, Stop, Terminated, Terminating};
 
@@ -138,8 +144,8 @@ pub(crate) trait Observe: Sync {
     /// The relay refused a connection `method` asked for, before any byte
     /// left for its target.
     fn refused(&self, refused: &Refused, method: &str);
-    /// A connection met the upstream proxy as `met`.
-    fn upstream(&self, met: Met);
+    /// A connection for `authority` met the upstream proxy as `met`.
+    fn upstream(&self, authority: &str, met: Met);
     /// A client gave no credentials, or wrong ones when `given`.
     fn unauthenticated(&self, given: bool);
     /// The relay terminated a connection to `host` and relayed it, through
@@ -166,6 +172,29 @@ pub(crate) struct Relaying {
     pub(crate) bypasses: Box<dyn Fn(&str) -> bool + Send + Sync>,
     /// The hosts it terminates, and how, when the Run lists any.
     pub(crate) terminating: Option<Arc<Terminating>>,
+    /// The Run's clock, which its deadlines run on.
+    pub(crate) clock: Clock,
+    /// How long a connection it opens, to a site or to the upstream
+    /// proxy, may take to open.
+    pub(crate) connect_deadline: Duration,
+}
+
+impl Relaying {
+    /// A connection to `address` on `network`, within the connect deadline.
+    async fn connect<N: Network>(&self, network: &N, address: SocketAddr) -> io::Result<N::Stream> {
+        within(&self.clock, self.connect_deadline, network.connect(address)).await
+    }
+
+    /// A connection to the upstream proxy on `network`, within the connect
+    /// deadline.
+    async fn connect_upstream<N: Network>(&self, network: &N) -> io::Result<N::Stream> {
+        within(
+            &self.clock,
+            self.connect_deadline,
+            network.connect_upstream(),
+        )
+        .await
+    }
 }
 
 /// How one connection ended.
@@ -212,7 +241,11 @@ where
     N: Network,
     O: Observe,
 {
-    let (head, rest) = match head::read(&mut browser).await {
+    let reading = head::read(&mut browser);
+    let Some(read) = within_or_none(&relaying.clock, HEAD_DEADLINE, reading).await else {
+        return Served::Failed;
+    };
+    let (head, rest) = match read {
         Ok(read) => read,
         Err(Unread::Closed) => return Served::Failed,
         Err(Unread::Malformed) => {
@@ -364,7 +397,7 @@ where
     let mut site = None;
     let mut last = Unreached::ConnectionFailed;
     for address in addresses {
-        match network.connect(*address).await {
+        match relaying.connect(network, *address).await {
             Ok(stream) => {
                 site = Some(stream);
                 break;
@@ -406,12 +439,12 @@ where
     N: Network,
     O: Observe,
 {
-    let mut proxy = match network.connect_upstream().await {
+    let mut proxy = match relaying.connect_upstream(network).await {
         Ok(proxy) => proxy,
         Err(error) => return unconnected(&mut browser, head, &error, observe).await,
     };
     if let Target::Absolute { .. } = head.target {
-        observe.upstream(Met::Reached);
+        observe.upstream(&head.target.authority(), Met::Reached);
         if proxy
             .write_all(&head.forwarded(true, authorization))
             .await
@@ -430,24 +463,27 @@ where
     }
     request.push_str("\r\n");
     if proxy.write_all(request.as_bytes()).await.is_err() {
-        observe.upstream(Met::Unreachable);
+        observe.upstream(&head.target.authority(), Met::Unreachable);
         let _ = browser
             .write_all(&failed("502 Bad Gateway", "connection_refused"))
             .await;
         return Served::Failed;
     }
     let Ok(answer) = head::answer(&mut proxy).await else {
-        observe.upstream(Met::Reached);
+        observe.upstream(&head.target.authority(), Met::Reached);
         let _ = browser
             .write_all(&failed("502 Bad Gateway", "http_response_incomplete"))
             .await;
         return Served::Failed;
     };
-    observe.upstream(if answer.status == 407 {
-        Met::CredentialsRefused
-    } else {
-        Met::Reached
-    });
+    observe.upstream(
+        &head.target.authority(),
+        if answer.status == 407 {
+            Met::CredentialsRefused
+        } else {
+            Met::Reached
+        },
+    );
     if !(200..300).contains(&answer.status) {
         let _ = browser.write_all(&answer.to_browser).await;
         return Served::Failed;
@@ -472,24 +508,27 @@ where
     N: Network,
     O: Observe,
 {
-    let mut proxy = match network.connect_upstream().await {
+    let mut proxy = match relaying.connect_upstream(network).await {
         Ok(proxy) => proxy,
         Err(error) => return unconnected(&mut browser, head, &error, observe).await,
     };
     if let Err(error) = socks5_connect(&mut proxy, head.target.host(), head.target.port()).await {
         // A proxy that asks for a method other than none asks for
         // credentials the Session does not give.
-        observe.upstream(if error.kind() == io::ErrorKind::PermissionDenied {
-            Met::CredentialsRefused
-        } else {
-            Met::Refused
-        });
+        observe.upstream(
+            &head.target.authority(),
+            if error.kind() == io::ErrorKind::PermissionDenied {
+                Met::CredentialsRefused
+            } else {
+                Met::Refused
+            },
+        );
         let _ = browser
             .write_all(&failed("502 Bad Gateway", "proxy_internal_error"))
             .await;
         return Served::Failed;
     }
-    observe.upstream(Met::Reached);
+    observe.upstream(&head.target.authority(), Met::Reached);
     let opened = match head.target {
         Target::Tunnel { .. } => browser.write_all(ESTABLISHED).await,
         Target::Absolute { .. } => proxy.write_all(&head.forwarded(false, None)).await,
@@ -522,10 +561,13 @@ where
         )
         .await;
     }
-    observe.upstream(Met::Unreachable);
-    let _ = browser
-        .write_all(&failed("502 Bad Gateway", "connection_refused"))
-        .await;
+    observe.upstream(&head.target.authority(), Met::Unreachable);
+    let named = if error.kind() == io::ErrorKind::TimedOut {
+        "connection_timeout"
+    } else {
+        "connection_refused"
+    };
+    let _ = browser.write_all(&failed("502 Bad Gateway", named)).await;
     Served::Failed
 }
 

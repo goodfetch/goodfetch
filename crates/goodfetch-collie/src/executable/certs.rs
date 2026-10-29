@@ -22,7 +22,7 @@ use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::{ErrorGroup, Operation};
 use goodfetch_protocol::cli::{CommandError, CommandFailed};
 use goodfetch_protocol::connection::PERSON_REQUIRED;
-use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::tls::{
     CERTS_ACCEPT, CERTS_FORGET, CERTS_LIST, CertificatePin, CertsAcceptParams, CertsForgetParams,
     CertsListed,
@@ -319,35 +319,21 @@ fn call(
         input: None,
     };
     let product = engine.identity().product;
+    // A person-only command takes no `--json`: its failure prints on
+    // stderr, as every command's does.
     match engine_choice::call(engine, dependencies, product, reach, call) {
         Answer::Result(value) => Ok(value),
-        Answer::Error(error) => {
-            let group = goodfetch_cli::generated::group(&error);
-            Err(failed(
-                &error,
-                exit_codes::of_error(&error.data.code, group),
-                human,
-            ))
-        }
-        Answer::Refused(error) => Err(failed(&error, exit_codes::DAEMON_REFUSED, human)),
-        Answer::Unanswered(problem) => {
-            tracing::error!("{problem}");
-            Err(ExitCode::from(exit_codes::unanswered()))
-        }
+        Answer::Error(error) => Err(output::fail(error, Some(operation.name), false, human)),
+        Answer::Refused(error) => Err(output::fail_exiting(
+            error,
+            Some(operation.name),
+            exit_codes::DAEMON_REFUSED,
+            false,
+            human,
+        )),
+        Answer::Unanswered(error) => Err(output::fail(error, None, false, human)),
         Answer::Interrupted(interrupt) => Err(ExitCode::from(interrupt.exit_code())),
     }
-}
-
-/// Prints `error` on stderr and answers `exit`.
-fn failed(error: &ErrorObject, exit: u8, human: &Human) -> ExitCode {
-    human.failure(
-        &error.message,
-        &[
-            ("code", error.data.code.clone()),
-            ("retryable", error.data.retryable.to_string()),
-        ],
-    );
-    ExitCode::from(exit)
 }
 
 /// Refuses `operation`, a person's answer, with `person_required`: as JSON

@@ -3183,6 +3183,18 @@
             "null"
           ]
         },
+        "console_error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConsoleFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Why its Console did not start, the failure `daemon start` exits\nby; absent while it serves one or carries none."
+        },
         "console_url": {
           "arrived_in": "0.1",
           "description": "Where its Console is served, or `None` when it serves none, as\n`daemon run`'s, or its Console did not start.",

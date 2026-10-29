@@ -210,6 +210,14 @@ class DaemonDrainingError(UnavailableError):
         super().__init__(message, code="daemon_draining", group="unavailable", retryable=True)
 
 
+class DaemonUnreachableError(UnavailableError):
+    """No Daemon could be reached, so nothing was called: nothing answers where `GOODFETCH_URL` or its runtime file says it listens, it closed the Connection before it answered `hello`, as one does for a wrong `GOODFETCH_TOKEN`, it went away while the command connected, or its files cannot be read or its major's pick cannot be started. The message says which, and the `fix` what to do."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="daemon_unreachable", group="unavailable", retryable=True)
+
+
 class DialogAlreadyHandledError(ProgramError):
     """The dialog was answered already, by an earlier `accept` or `dismiss`, or it closed, its handler having ended or the dialog having got its default: the first answer stands and this one changed nothing."""
 
@@ -758,6 +766,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "connection_lost": ConnectionLostError,
     "console_port_in_use": ConsolePortInUseError,
     "daemon_draining": DaemonDrainingError,
+    "daemon_unreachable": DaemonUnreachableError,
     "dialog_already_handled": DialogAlreadyHandledError,
     "egress_refused": EgressRefusedError,
     "engine_exited": EngineExitedError,

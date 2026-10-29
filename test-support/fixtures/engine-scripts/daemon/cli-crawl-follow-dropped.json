@@ -1,0 +1,56 @@
+{
+  "description": "Foxhound's CLI built from this commit runs crawl start --follow on the Daemon: the Daemon answers crawl.start with the Run ID, then drops the Connection before it answers the first run.progress.read, a failure once the Run ID is printed.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "cli",
+          "token": "scripted-daemon-token",
+          "needs": "foxhound",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "run_id": "first",
+          "seeds": [{ "url": "https://example.com/", "label": "page" }],
+          "extraction": { "formats": { "markdown": true } }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "first",
+          "started_as": "started"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.progress.read",
+        "params": {
+          "run_id": "first"
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

@@ -39,15 +39,16 @@ use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use goodfetch_engine::ops::{ConfiguredBrowsers, Ops, OpsOptions};
 use goodfetch_engine::rpc::Authorities;
+use goodfetch_engine::run::settings_error;
 use goodfetch_engine::settings::{Resolved, SettingsError};
 use goodfetch_engine::transport::{Network, listen_ops};
 use goodfetch_engine::{Dependencies, Engine, Identity};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::daemon::{
-    ADDRESS, DRAIN_GRACE, DaemonEndpoint, DaemonStatus, IDLE_TIMEOUT,
+    ADDRESS, DRAIN_GRACE, DaemonEndpoint, DaemonStatus, DaemonToken, IDLE_TIMEOUT,
 };
 use goodfetch_protocol::ops::{ADDRESS as OPS_ADDRESS, OTLP_METRICS_ENDPOINT};
-use goodfetch_protocol::settings::{SETTING_INVALID, SETTING_LOCKED, SettingsLayer};
+use goodfetch_protocol::settings::{SETTING_INVALID, SettingLimit, SettingsLayer};
 use tokio_util::sync::CancellationToken;
 
 use super::{Failure, Machine, Reach, multi_thread_runtime};
@@ -79,18 +80,24 @@ struct Configured {
     settings: Resolved,
 }
 
-/// Why the foreground Daemon did not start: an Error code and its message.
-struct Refused {
-    code: &'static str,
-    message: String,
-}
+/// Why the foreground Daemon did not start: a setting, or a deployment
+/// variable, it cannot take.
+struct Refused(SettingsError);
 
 impl From<SettingsError> for Refused {
     fn from(error: SettingsError) -> Self {
-        Self {
-            code: error.code(),
-            message: error.to_string(),
-        }
+        Self(error)
+    }
+}
+
+impl Refused {
+    /// `key`, a setting or a deployment variable, is not valid: `reason`.
+    fn invalid(key: &str, reason: String) -> Self {
+        Self(SettingsError::Invalid {
+            key: key.to_owned(),
+            layer: None,
+            reason,
+        })
     }
 }
 
@@ -104,8 +111,8 @@ pub(in crate::executable) fn run(
     let identity = engine.identity();
     let configured = match configured(machine) {
         Ok(configured) => configured,
-        Err(refused) => {
-            tracing::error!(code = refused.code, "{}", refused.message);
+        Err(Refused(error)) => {
+            tracing::error!(code = error.code(), "{error}");
             return ExitCode::FAILURE;
         }
     };
@@ -228,6 +235,7 @@ fn announce(
         version: Some(identity.product_version.clone()),
         address: Some(endpoint.to_string()),
         console_url: None,
+        console_error: None,
         service: None,
     });
 }
@@ -334,11 +342,11 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
         Some(milliseconds) => milliseconds
             .parse::<u64>()
             .map(Duration::from_millis)
-            .map_err(|_| Refused {
-                code: SETTING_INVALID.name,
-                message: format!(
-                    "`{DRAIN_GRACE_VARIABLE}` is `{milliseconds}`, which is no whole number of milliseconds."
-                ),
+            .map_err(|_| {
+                Refused::invalid(
+                    DRAIN_GRACE_VARIABLE,
+                    format!("`{milliseconds}` is no whole number of milliseconds"),
+                )
             })?,
         None => settings
             .duration(DRAIN_GRACE.name)
@@ -378,14 +386,9 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
 ///
 /// When `daemon.address` is invalid, or the token cannot be read.
 pub(super) fn reach(machine: &Machine<'_>) -> Result<Option<Reach>, Failure> {
-    let configured = configured(machine).map_err(|refused| Failure::Refused {
-        code: refused.code.to_owned(),
-        group: [&SETTING_INVALID, &SETTING_LOCKED]
-            .into_iter()
-            .find(|definition| definition.name == refused.code)
-            .map_or(SETTING_INVALID.group, |definition| definition.group),
-        message: refused.message,
-        fix: String::new(),
+    let configured = configured(machine).map_err(|Refused(error)| Failure::Refused {
+        error: settings_error(&error, machine.identity).to_error_object(),
+        operation: None,
     })?;
     let token = machine.files().read_token().map_err(|error| {
         Failure::Unavailable(format!(
@@ -394,7 +397,7 @@ pub(super) fn reach(machine: &Machine<'_>) -> Result<Option<Reach>, Failure> {
     })?;
     Ok(token.map(|token| Reach {
         endpoint: DaemonEndpoint::Tcp(configured.address),
-        token,
+        token: DaemonToken::new(token),
         service: false,
     }))
 }
@@ -402,11 +405,13 @@ pub(super) fn reach(machine: &Machine<'_>) -> Result<Option<Reach>, Failure> {
 /// `address` as the ops listener listens at it: any `host:port`, so a
 /// cluster's probes and scrapers reach it.
 fn parse_ops_address(address: &str) -> Result<SocketAddr, Refused> {
-    address.parse::<SocketAddr>().map_err(|_| Refused {
-        code: SETTING_INVALID.name,
-        message: format!(
-            "`ops.address` is `{address}`, which is no `host:port`; set an address and port such as `0.0.0.0:9464`."
-        ),
+    address.parse::<SocketAddr>().map_err(|_| {
+        Refused::invalid(
+            OPS_ADDRESS.name,
+            format!(
+                "`{address}` is no `host:port`; set an address and port such as `0.0.0.0:9464`"
+            ),
+        )
     })
 }
 
@@ -469,16 +474,22 @@ fn overridden(
     let Some(value) = goodfetch_engine::settings::deployment_variable(environment, variable) else {
         return Ok(None);
     };
-    if settings
+    if let Some(effective) = settings
         .get(key)
-        .is_some_and(|effective| effective.locked_by == Some(SettingsLayer::OperatorPolicy))
+        .filter(|effective| effective.locked_by == Some(SettingsLayer::OperatorPolicy))
     {
-        return Err(Refused {
-            code: SETTING_LOCKED.name,
-            message: format!(
-                "`{variable}` sets `{key}`, which the Operator policy locks: unset `{variable}`, or change the Operator policy."
-            ),
-        });
+        // The variable stands in for the machine's settings, the user
+        // configuration, whose value the lock refuses.
+        return Err(Refused(SettingsError::Locked {
+            key: key.to_owned(),
+            layer: SettingsLayer::UserConfiguration,
+            limit: SettingLimit {
+                key: key.to_owned(),
+                value: effective.value.clone(),
+                layer: SettingsLayer::OperatorPolicy,
+            },
+            fix: format!("`{variable}` sets it: unset `{variable}`, or change the Operator policy"),
+        }));
     }
     Ok(Some(text(value)))
 }
@@ -490,19 +501,21 @@ fn text(value: &OsStr) -> String {
 /// `address` as the foreground Daemon listens at it: a loopback `host:port`,
 /// until the Daemon terminates TLS (area 4).
 fn parse_address(address: &str) -> Result<SocketAddr, Refused> {
-    let parsed = address.parse::<SocketAddr>().map_err(|_| Refused {
-        code: SETTING_INVALID.name,
-        message: format!(
-            "`daemon.address` is `{address}`, which is no `host:port`; set an address and port such as `127.0.0.1:7900`."
-        ),
+    let parsed = address.parse::<SocketAddr>().map_err(|_| {
+        Refused::invalid(
+            ADDRESS.name,
+            format!(
+                "`{address}` is no `host:port`; set an address and port such as `127.0.0.1:7900`"
+            ),
+        )
     })?;
     if !parsed.ip().is_loopback() {
-        return Err(Refused {
-            code: SETTING_INVALID.name,
-            message: format!(
-                "`daemon.address` is `{address}`, which is not a loopback address: `daemon run` listens only on loopback until the Daemon terminates TLS; put a TLS-terminating proxy in front of a loopback address."
+        return Err(Refused::invalid(
+            ADDRESS.name,
+            format!(
+                "`{address}` is not a loopback address: `daemon run` listens only on loopback until the Daemon terminates TLS; put a TLS-terminating proxy in front of a loopback address"
             ),
-        });
+        ));
     }
     Ok(parsed)
 }
@@ -578,7 +591,7 @@ mod tests {
             "192.0.2.1:7900",
             "nowhere",
         ]
-        .map(|address| parse_address(address).map_or_else(|refused| refused.code, |_| "ok"));
+        .map(|address| parse_address(address).map_or_else(|refused| refused.0.code(), |_| "ok"));
 
         assert_eq!(
             codes,

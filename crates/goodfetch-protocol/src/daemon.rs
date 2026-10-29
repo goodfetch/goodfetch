@@ -11,6 +11,7 @@
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
 
+use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
@@ -23,9 +24,36 @@ use crate::catalog::{
 };
 pub use crate::connection::DaemonEndpoint;
 use crate::connection::ProductVersion;
-use crate::console::ConsoleState;
+use crate::console::{ConsoleFailure, ConsoleState};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
+
+/// A token a Daemon or its HTTP listener takes, which only the command
+/// whose output it is prints: plain text in JSON and in its schema, and
+/// `[REDACTED]` in `Debug`, so no log line or failed assertion shows it
+/// (STYLE.md).
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
+#[schemars(transparent, inline)]
+pub struct DaemonToken(String);
+
+impl DaemonToken {
+    /// The token `text`.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
+    /// Its text, for the `hello` or the output that carries it.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for DaemonToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("DaemonToken([REDACTED])")
+    }
+}
 
 /// The Daemon's runtime file, `daemon.json` in its per-major folder, mode
 /// `0600` (ADR 0024): where it listens, the token its Clients' `hello`
@@ -38,7 +66,7 @@ pub struct DaemonRuntimeFile {
     pub endpoint: DaemonEndpoint,
     /// The per-launch token every Client's `hello` carries.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub token: String,
+    pub token: DaemonToken,
     /// Its Product version.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub version: ProductVersion,
@@ -144,6 +172,29 @@ pub const NOT_A_DAEMON: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// No Daemon a CLI command could reach (ADRs 0024 and 0069): nothing
+/// answers where `GOODFETCH_URL` or the runtime file says it listens, it
+/// closed the Connection before it answered `hello`, it went away while
+/// the command connected, or its files cannot be read or its pick
+/// started.
+pub const DAEMON_UNREACHABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "daemon_unreachable",
+    description: "No Daemon could be reached, so nothing was called: nothing answers where `GOODFETCH_URL` or its runtime file says it listens, it closed the Connection before it answered `hello`, as one does for a wrong `GOODFETCH_TOKEN`, it went away while the command connected, or its files cannot be read or its major's pick cannot be started. The message says which, and the `fix` what to do.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `daemon_unreachable` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DaemonUnreachableDetails {
+    /// What to do, such as starting the Daemon `GOODFETCH_URL` names or
+    /// checking `GOODFETCH_TOKEN`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
 
 /// What `not_a_daemon` details.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -337,6 +388,11 @@ pub struct DaemonStatus {
     /// `daemon run`'s, or its Console did not start.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub console_url: Option<String>,
+    /// Why its Console did not start, the failure `daemon start` exits
+    /// by; absent while it serves one or carries none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub console_error: Option<ConsoleFailure>,
     /// The per-user service `daemon install` registered for the major;
     /// absent when none is installed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -416,7 +472,7 @@ pub struct TokenRotated {
 pub struct HttpListenerToken {
     /// The token.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub token: String,
+    pub token: DaemonToken,
 }
 
 /// Every entry this module defines.
@@ -425,10 +481,13 @@ pub const ENTRIES: Entries = Entries {
     operations: &[STATUS, STOP, HEALTH],
     events: &[],
     handler_requests: &[],
-    error_codes: &[NOT_A_DAEMON, DAEMON_DRAINING],
+    error_codes: &[NOT_A_DAEMON, DAEMON_DRAINING, DAEMON_UNREACHABLE],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[IDLE_TIMEOUT, ADDRESS, DRAIN_GRACE],
     hook_stages: &[],
     shared_type_values: &[],
 };
+
+#[cfg(test)]
+mod tests;

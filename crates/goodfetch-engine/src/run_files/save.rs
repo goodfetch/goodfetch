@@ -59,6 +59,19 @@ pub enum SaveError {
     Cancelled,
 }
 
+impl SaveError {
+    /// The storage's failure `error` while it did `doing`, whatever its
+    /// kind, such as a write to standard output, which has no path to
+    /// blame: `file_write_failed`, side `program`.
+    pub fn of_storage(error: &io::Error, doing: &str) -> Self {
+        Self::Storage {
+            reason: reason_of(error.kind()),
+            os_code: error.raw_os_error().and_then(os_code),
+            message: format!("could not {doing}: {error}"),
+        }
+    }
+}
+
 /// The reasons ADR 0116 gives `path_not_writable`; every other one is the
 /// storage's.
 const PATH_REASONS: [&str; 7] = [

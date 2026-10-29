@@ -13,8 +13,9 @@
 //! since the service's socket takes its place. `daemon rotate-token`
 //! replaces the persistent token, which a socket-activated Daemon and the
 //! foreground Daemon take, and the HTTP listener's token (spec #608); an
-//! installed service's Daemon stops with it, and any other Daemon refuses
-//! the old token from its next start. `daemon http-listener-token` prints
+//! installed service's Daemon and a running foreground Daemon stop with it,
+//! so the old persistent token stops working at once, and any other Daemon
+//! refuses the old tokens from its next start. `daemon http-listener-token` prints
 //! the HTTP listener's token on stdout, the one command that prints a
 //! credential, and logs nothing of it.
 #![expect(
@@ -34,21 +35,21 @@ use goodfetch_engine::installed::fingerprint;
 use goodfetch_engine::transport;
 use goodfetch_protocol::console::{ADDRESS as CONSOLE_ADDRESS, default_address};
 use goodfetch_protocol::daemon::{
-    DaemonStopping, DaemonUninstallOutput, HttpListenerToken, InstalledService, ServiceManager,
-    TokenRotated,
+    DaemonStopping, DaemonToken, DaemonUninstallOutput, HttpListenerToken, InstalledService,
+    ServiceManager, TokenRotated,
 };
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 
 use super::browsers;
 use super::daemon::{Failure, Machine};
-use goodfetch_cli::output;
+use goodfetch_cli::output::{self, Human};
 
 fn unavailable(what: &str) -> impl Fn(std::io::Error) -> Failure + '_ {
     move |error| Failure::Unavailable(format!("{what}: {error}"))
 }
 
 /// `daemon install`.
-pub(super) fn install(machine: &Machine<'_>, json: bool) -> ExitCode {
+pub(super) fn install(machine: &Machine<'_>, json: bool, human: &Human) -> ExitCode {
     match installed(machine) {
         Ok((service, stopped)) => {
             if json {
@@ -65,12 +66,12 @@ pub(super) fn install(machine: &Machine<'_>, json: bool) -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Err(failure) => failure.report(),
+        Err(failure) => failure.print(json, human),
     }
 }
 
 /// `daemon uninstall`.
-pub(super) fn uninstall(machine: &Machine<'_>, json: bool) -> ExitCode {
+pub(super) fn uninstall(machine: &Machine<'_>, json: bool, human: &Human) -> ExitCode {
     match uninstalled(machine) {
         Ok(uninstalled) => {
             if json {
@@ -90,12 +91,12 @@ pub(super) fn uninstall(machine: &Machine<'_>, json: bool) -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Err(failure) => failure.report(),
+        Err(failure) => failure.print(json, human),
     }
 }
 
 /// `daemon rotate-token`.
-pub(super) fn rotate_token(machine: &Machine<'_>, json: bool) -> ExitCode {
+pub(super) fn rotate_token(machine: &Machine<'_>, json: bool, human: &Human) -> ExitCode {
     match rotated(machine) {
         Ok(rotated) => {
             if json {
@@ -109,24 +110,26 @@ pub(super) fn rotate_token(machine: &Machine<'_>, json: bool) -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Err(failure) => failure.report(),
+        Err(failure) => failure.print(json, human),
     }
 }
 
 /// `daemon http-listener-token`: the token alone on stdout, or as
 /// `HttpListenerToken` under `--json`; nothing of it anywhere else.
-pub(super) fn http_listener_token(machine: &Machine<'_>, json: bool) -> ExitCode {
+pub(super) fn http_listener_token(machine: &Machine<'_>, json: bool, human: &Human) -> ExitCode {
     let token = match machine.files().http_listener_token() {
         Ok(token) => token,
         Err(error) => {
             return Failure::Unavailable(format!(
                 "the HTTP listener's token cannot be read or made: {error}"
             ))
-            .report();
+            .print(json, human);
         }
     };
     if json {
-        output::json(&HttpListenerToken { token });
+        output::json(&HttpListenerToken {
+            token: DaemonToken::new(token),
+        });
     } else {
         output::line(&token);
     }
@@ -279,6 +282,15 @@ fn rotated(machine: &Machine<'_>) -> Result<TokenRotated, Failure> {
         .service()
         .map_err(unavailable("the installed service's record cannot be read"))?
         .is_some_and(|service| service.socket.is_some());
+    // The foreground Daemon at `daemon.address` takes the persistent token
+    // too: reached with the old token before it is replaced, it stops once
+    // it is, so the old token stops working at once (ADR 0031's #221 note).
+    // One that refuses this Client takes no token of this major.
+    let foreground = match machine.foreground() {
+        Ok(foreground) => foreground,
+        Err(Failure::Refused { .. } | Failure::DaemonRefused(_)) => None,
+        Err(failure) => return Err(failure),
+    };
     files
         .rotate_token()
         .map_err(unavailable("the persistent token cannot be replaced"))?;
@@ -286,6 +298,10 @@ fn rotated(machine: &Machine<'_>) -> Result<TokenRotated, Failure> {
         .rotate_http_listener_token()
         .map_err(unavailable("the HTTP listener's token cannot be replaced"))?;
     let rotated_at = now();
+    if let Some(mut foreground) = foreground {
+        let _: DaemonStopping = foreground.call("daemon.stop", &serde_json::json!({}))?;
+        foreground.close();
+    }
     if activated {
         // Connections that opened with the old token close with their
         // Daemon; the next connection starts one that takes the new token.

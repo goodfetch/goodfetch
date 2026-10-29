@@ -52,7 +52,8 @@ impl ToOwner {
             RunOwner::Daemon(endpoint) => {
                 let files = DaemonFiles::of(&self.home, &self.version);
                 let running = tasks.blocking(move || files.running()).await.ok()??;
-                (&running.endpoint == endpoint).then_some((running.endpoint, running.token))
+                (&running.endpoint == endpoint)
+                    .then(|| (running.endpoint, running.token.expose().to_owned()))
             }
             RunOwner::Attached(private) => {
                 let token_file = private.token_file.clone();

@@ -6,11 +6,13 @@
 //! settings flags, `--set` and `--settings`; keys only the other Product honours are listed as that
 //! Product's. Its `--json` output is `goodfetch-protocol`'s type. The
 //! executable resolves in process, as its Attached engine does, or under
-//! `--daemon` asks the major's Daemon's `config.explain`, starting the
-//! Daemon if none runs, with the project configuration and flags it read.
+//! `--daemon` asks the Daemon's `config.explain`, with the project
+//! configuration and flags it read: the remote Daemon `GOODFETCH_URL` names
+//! when it is set, else the major's, started if none runs.
 //!
 //! A setting it cannot take, such as a key no Product knows in a file,
-//! exits with its Error code's row of the exit-code table (ADR 0069).
+//! prints as every command's failure does and exits with its Error code's
+//! row of the exit-code table (ADR 0069).
 //!
 //! The human output is one line per key, as `git config --show-origin`
 //! shows each value's origin: `key = value  (layer, locked by layer)`, a
@@ -28,15 +30,20 @@ use goodfetch_engine::settings::{
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::settings::{
-    ConfigExplainParams, ExplainedSetting, ProjectSettings, RunOrigin, SettingsExplanation,
-    SettingsFile, SettingsLayer,
+    CONFIG_EXPLAIN, ConfigExplainParams, ExplainedSetting, ProjectSettings, RunOrigin,
+    SettingsExplanation, SettingsFile, SettingsLayer,
 };
 use serde_json::{Map, Value};
 
-use super::daemon::{Failure, Machine};
-use goodfetch_cli::{exit_codes, output};
+use goodfetch_cli::engine_choice::{
+    self, Answer, Choice, CommandCall, Daemons, EngineChoice, Lifetime,
+};
+use goodfetch_cli::exit_codes;
+use goodfetch_cli::output::{self, Human};
 use goodfetch_engine::home::Home;
+use goodfetch_engine::run::settings_error;
 use goodfetch_engine::secrets::Keychain;
+use goodfetch_engine::{Dependencies, Engine, Identity};
 
 /// What `config explain` was asked.
 pub(super) struct Explain {
@@ -52,52 +59,97 @@ pub(super) struct Explain {
     pub(super) json: bool,
 }
 
-/// `config explain`.
+/// `config explain`, on the executable `identity` names.
 pub(super) fn explain(
-    product: Product,
-    version: &ProductVersion,
+    identity: &Identity,
     home: &Home,
     environment: &BTreeMap<OsString, OsString>,
     request: &Explain,
+    human: &Human,
 ) -> ExitCode {
-    match explanation(product, version, home, environment, request) {
+    match explanation(
+        identity.product,
+        &identity.product_version,
+        home,
+        environment,
+        request,
+    ) {
         Ok(explanation) => {
             print(&explanation, request.json);
             ExitCode::SUCCESS
         }
-        Err(error) => {
-            tracing::error!(code = error.code(), "{error}");
-            ExitCode::from(exit_codes::of_code(error.code()))
-        }
+        Err(error) => refused(&error, identity, request.json, human),
     }
 }
 
-/// `config explain --daemon`: the same, from the Daemon of the major.
-pub(super) fn explain_through(machine: &Machine<'_>, request: &Explain) -> ExitCode {
+/// `config explain --daemon`: the same, from the Daemon that `daemons`
+/// finds, as any command under `--daemon` reaches it: the remote one
+/// `GOODFETCH_URL` names when it is set, else the major's, started when
+/// none runs.
+pub(super) fn explain_through(
+    engine: &Engine,
+    dependencies: Dependencies,
+    daemons: &dyn Daemons,
+    request: &Explain,
+    human: &Human,
+) -> ExitCode {
+    let identity = engine.identity();
     let params = match daemon_params(request) {
         Ok(params) => params,
-        Err(error) => {
-            tracing::error!(code = error.code(), "{error}");
-            return ExitCode::from(exit_codes::of_code(error.code()));
-        }
+        Err(error) => return refused(&error, identity, request.json, human),
     };
-    let explained = machine
-        .connect(true, machine.identity.product)
-        .and_then(|connected| {
-            let mut connected = connected.ok_or_else(|| {
-                Failure::Unavailable("the Daemon stopped as soon as it started".to_owned())
-            })?;
-            let explanation = connected.call::<SettingsExplanation>("config.explain", &params);
-            connected.close();
-            explanation
-        });
-    match explained {
-        Ok(explanation) => {
-            print(&explanation, request.json);
-            ExitCode::SUCCESS
+    let call = CommandCall {
+        method: CONFIG_EXPLAIN.name,
+        params: serde_json::to_value(params).expect("invariant: the params serialize"),
+        cancellable: CONFIG_EXPLAIN.cancellable,
+        follower: None,
+        pager: None,
+        stopper: None,
+        input: None,
+    };
+    let warn = |text: &str| human.warning(text);
+    let reach = EngineChoice {
+        choice: Choice::Daemon,
+        lifetime: Lifetime::Passing,
+        daemons,
+        warn: &warn,
+    };
+    let operation = Some(CONFIG_EXPLAIN.name);
+    let json = request.json;
+    match engine_choice::call(engine, dependencies, identity.product, &reach, call) {
+        Answer::Result(value) => match serde_json::from_value::<SettingsExplanation>(value) {
+            Ok(explanation) => {
+                print(&explanation, json);
+                ExitCode::SUCCESS
+            }
+            Err(problem) => output::fail(
+                exit_codes::internal(format!(
+                    "The Daemon answered `{}` with no explanation: {problem}.",
+                    CONFIG_EXPLAIN.name
+                )),
+                operation,
+                json,
+                human,
+            ),
+        },
+        Answer::Error(error) => output::fail(error, operation, json, human),
+        Answer::Refused(error) => {
+            output::fail_exiting(error, operation, exit_codes::DAEMON_REFUSED, json, human)
         }
-        Err(failure) => failure.report(),
+        Answer::Unanswered(error) => output::fail(error, None, json, human),
+        Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
     }
+}
+
+/// Fails the command with the setting `error` refused, printed as every
+/// command's failure is.
+fn refused(error: &SettingsError, identity: &Identity, json: bool, human: &Human) -> ExitCode {
+    output::fail(
+        settings_error(error, identity).to_error_object(),
+        None,
+        json,
+        human,
+    )
 }
 
 /// What `config.explain` takes for `request`: the project configuration

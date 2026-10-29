@@ -16,6 +16,15 @@ pub(crate) fn origin(host: &str, port: Option<u16>) -> String {
     }
 }
 
+/// [`origin`] over TLS, which the same address serves: `https://<host>:<port>`,
+/// or `https://<host>` binding no port.
+pub(crate) fn secure_origin(host: &str, port: Option<u16>) -> String {
+    match port {
+        Some(port) => format!("https://{host}:{port}"),
+        None => format!("https://{host}"),
+    }
+}
+
 /// One task of a family: what a tool is asked to do, and what the oracle
 /// expects back.
 pub(crate) struct Task {
@@ -123,9 +132,9 @@ pub(crate) struct Expected {
     pub(crate) markdown_site: Option<&'static str>,
     /// A decompression bomb's declared sizes, present on a `bombs` task:
     /// the codings its body carries and the bytes it sends compressed
-    /// against the bytes it would decode to, so the task list names both and
-    /// a refusal at the ratio limit, not the decoded content, is the only
-    /// right result (ADR 0067).
+    /// against the bytes it would decode to, held in the task's expected
+    /// result, which its digest hashes, so a refusal at the ratio limit, not
+    /// the decoded content, is the only right result (ADR 0067).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) bomb: Option<Bomb>,
 }

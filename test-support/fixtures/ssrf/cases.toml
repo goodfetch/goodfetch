@@ -916,7 +916,7 @@ refusal = { code = "egress_refused", rule = "private_address" }
 [[cases]]
 name = "proxy_endpoint_that_rebinds"
 family = "operator_endpoint"
-url = "http://rebind-proxy.ssrf.test:1080/"
+url = "http://rebind-proxy.ssrf.test/"
 route = { via = "operator_endpoint", kind = "proxy" }
 lookups = [
     { name = "rebind-proxy.ssrf.test", answers = ["public"] },

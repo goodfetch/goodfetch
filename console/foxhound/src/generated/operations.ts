@@ -54,7 +54,7 @@ export const foxhoundOperationClasses: Readonly<
   "run.outcomes": "read",
   "run.records": "read",
   "run.rejected_records": "read",
-  "run.retry_failed": "idempotent_write",
+  "run.retry_failed": "effect",
   "run.seeds": "read",
   "sample.crawl": "effect",
 };

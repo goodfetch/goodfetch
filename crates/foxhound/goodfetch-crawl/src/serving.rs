@@ -5,7 +5,8 @@
 //! Connection that joins its live Run, and leases work items to it until
 //! it leaves, when its `crawl.serve` call ends, or its Connection ends. A
 //! handler's enqueue and a seed added to the running crawl reach the live
-//! crawl's Run through it too, and a seed added wakes its delivery. Each
+//! crawl's Run through it too, and a seed added wakes its delivery, while
+//! its intake is open: a crawl about to end closes it ([`Intake`]). Each
 //! live crawl's attempts stage their outputs in its staging, which its Run
 //! also takes the Key-value store writes made through an attempt in.
 
@@ -18,6 +19,7 @@ use goodfetch_engine::runs::Run;
 use goodfetch_protocol::run::RunId;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 
+use crate::intake::Intake;
 use crate::staging::Staging;
 
 /// A Connection that joined a crawl, and the sign that it left: the
@@ -38,6 +40,7 @@ struct Live {
     joining: mpsc::Sender<Server>,
     seeded: Arc<Notify>,
     staging: Staging,
+    intake: Intake,
 }
 
 /// What a seed added to a live crawl, or a handler's enqueue, reaches:
@@ -52,6 +55,9 @@ pub(crate) struct LiveCrawl {
     pub(crate) seeded: Arc<Notify>,
     /// Where its attempts stage their outputs.
     pub(crate) staging: Staging,
+    /// Whether it still takes new work, which a write giving it work
+    /// checks in its own job.
+    pub(crate) intake: Intake,
 }
 
 /// A crawl opened to Connections that join it and to seeds added to it.
@@ -64,6 +70,9 @@ pub(crate) struct Opened {
     pub(crate) staging: Staging,
     /// The Run's domain policy, which judges each redirect hop.
     pub(crate) egress: Arc<Policy>,
+    /// Whether it still takes new work, which its delivery closes before
+    /// it ends the Run.
+    pub(crate) intake: Intake,
 }
 
 /// How many joining Connections wait for a crawl's delivery to take them:
@@ -84,6 +93,7 @@ impl Crawls {
         let staging = Staging::default();
         run.stage_attempt_writes_through(Arc::new(staging.clone()));
         let egress = Arc::new(egress);
+        let intake = Intake::default();
         self.0.lock().await.insert(
             run.id().clone(),
             Live {
@@ -92,6 +102,7 @@ impl Crawls {
                 joining,
                 seeded: Arc::clone(&seeded),
                 staging: staging.clone(),
+                intake: intake.clone(),
             },
         );
         Opened {
@@ -99,6 +110,7 @@ impl Crawls {
             seeded,
             staging,
             egress,
+            intake,
         }
     }
 
@@ -109,6 +121,7 @@ impl Crawls {
             egress: Arc::clone(&live.egress),
             seeded: Arc::clone(&live.seeded),
             staging: live.staging.clone(),
+            intake: live.intake.clone(),
         })
     }
 

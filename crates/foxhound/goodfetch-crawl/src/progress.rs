@@ -13,13 +13,14 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use goodfetch_engine::admission::{Held, Queued};
+use goodfetch_engine::admission::{Held, QueuedGroup};
 use goodfetch_engine::runs::{ProgressPart, Run};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::foxhound::crawl::CRAWL_HANDLER_CONCURRENCY;
 use goodfetch_protocol::foxhound::progress::{
     BACKOFF, CrawlConcurrency, DOMAIN_CONCURRENCY, DOMAIN_DELAY, GOVERNOR, HANDLER_CONCURRENCY,
-    HELD_DOMAINS, HeldDomain, InFlightPhase, InFlightRequest, RequestProgress, WaitGroup,
+    HELD_DOMAINS, HeldDomain, InFlightPhase, InFlightRequest, POLITENESS_FILE, RequestProgress,
+    WaitGroup,
 };
 use goodfetch_protocol::foxhound::settings::{
     POLITENESS_BACKOFF_MAX, POLITENESS_DOMAIN_CONCURRENCY, POLITENESS_DOMAIN_DELAY,
@@ -82,7 +83,7 @@ pub(crate) fn room(held: bool, free: bool, starved: bool) -> Room {
 /// `crawl.handler.concurrency`; and that it is not idle.
 pub(crate) fn show(
     run: &Run,
-    (queued, now): (&[Queued], Instant),
+    (queued, now): (&[QueuedGroup], Instant),
     resolved: &Resolved,
     room: Room,
     (handlers, handler_concurrency): (usize, usize),
@@ -92,56 +93,61 @@ pub(crate) fn show(
     show_idle(run, false);
 }
 
-/// Sets the crawl's `waiting` from what its admission queues at `now`
-/// under `resolved`, with `room` for the requests no domain holds.
+/// Sets the crawl's `waiting` from the groups its admission queues at
+/// `now`, each with at most [`HELD_DOMAINS`] domains, under `resolved`,
+/// with `room` for the requests no domain holds: a few groups, whatever
+/// the number of domains.
 pub(crate) fn show_waits(
     run: &Run,
-    queued: &[Queued],
+    queued: &[QueuedGroup],
     resolved: &Resolved,
     now: Instant,
     room: Room,
 ) {
     let mut groups: BTreeMap<&'static str, WaitGroup> = BTreeMap::new();
     for queued in queued {
-        let (reason, until, setting) = match queued.held {
-            Some((Held::Concurrency, _)) => (
+        let first_until = queued.sample.first().and_then(|(_, until)| *until);
+        let (reason, setting) = match queued.held {
+            Some(Held::Concurrency) => (
                 DOMAIN_CONCURRENCY,
-                None,
                 setting(resolved, POLITENESS_DOMAIN_CONCURRENCY.name),
             ),
-            Some((Held::Delay, until)) => (
+            Some(Held::Delay) => (
                 DOMAIN_DELAY,
-                until,
                 setting(resolved, POLITENESS_DOMAIN_DELAY.name),
             ),
-            Some((Held::BackOff, until)) => (BACKOFF, until, backoff_setting(resolved, until, now)),
+            Some(Held::BackOff) => (BACKOFF, backoff_setting(resolved, first_until, now)),
+            Some(Held::PolitenessFile) => (POLITENESS_FILE, None),
             None => match room {
                 Room::Full => (
                     HANDLER_CONCURRENCY,
-                    None,
                     setting(resolved, CRAWL_HANDLER_CONCURRENCY.name),
                 ),
-                Room::Starved => (GOVERNOR, None, None),
+                Room::Starved => (GOVERNOR, None),
                 Room::Free | Room::None => continue,
             },
         };
-        let group = groups.entry(reason).or_insert_with(|| WaitGroup {
-            reason: reason.to_owned(),
-            count: 0,
-            domains: Vec::new(),
-            more_domains: 0,
-            setting,
-        });
-        group.count += u64::try_from(queued.requests).unwrap_or(u64::MAX);
-        if group.domains.len() < HELD_DOMAINS {
-            group.domains.push(HeldDomain {
-                domain: queued.key.clone(),
+        let shown: Vec<HeldDomain> = queued
+            .sample
+            .iter()
+            .take(HELD_DOMAINS)
+            .map(|(domain, until)| HeldDomain {
+                domain: domain.clone(),
                 next_admitted_at: until
                     .map(|until| run.point_in_time_after(until.saturating_duration_since(now))),
-            });
-        } else {
-            group.more_domains += 1;
-        }
+            })
+            .collect();
+        let more = queued.keys.saturating_sub(shown.len());
+        groups.insert(
+            reason,
+            WaitGroup {
+                reason: reason.to_owned(),
+                count: u64::try_from(queued.requests).unwrap_or(u64::MAX),
+                domains: shown,
+                more_domains: u64::try_from(more).unwrap_or(u64::MAX),
+                setting,
+            },
+        );
     }
     let waiting: Vec<WaitGroup> = groups.into_values().collect();
     run.set_progress_part(WAITING, encoded!(&waiting));

@@ -23,8 +23,8 @@
 //! that changes `crawl.keep_url_fragment` is refused with
 //! `setting_not_applicable`. Such a start that drops a Dataset holding
 //! Records is refused with `dataset_unknown`, and one that changes its key
-//! with `dataset_key_invalid` (ADR 0103); its declarations are recorded
-//! when the Run resumes.
+//! with `dataset_key_invalid` (ADR 0103); its declarations, a code-free
+//! crawl's extraction among them, are recorded when the Run resumes.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -195,7 +195,7 @@ async fn start(
         serde_json::to_value(&seeds).expect("invariant: seeds encode as JSON"),
     )]);
     let declared = params.labels;
-    let redeclaring = datasets.clone();
+    let redeclaring = (datasets.clone(), params.extraction.clone());
     let admitted = code_free::admitted(params.extraction.as_ref(), &seeds);
     let (recording, extraction) = (params.extraction.clone(), params.extraction);
     let started = context

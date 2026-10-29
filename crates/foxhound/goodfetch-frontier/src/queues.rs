@@ -24,7 +24,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use goodfetch_engine::admission::{Admitted, Ended, Gate, Gates, Held, Journal, Queued, Waiting};
+use goodfetch_engine::admission::{
+    Admitted, Ended, Gate, Gates, Held, Journal, QueuedGroup, Waiting,
+};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::PermitRule;
 use goodfetch_engine::run_state::RunStateTables;
@@ -91,6 +93,39 @@ struct Domain {
     held: Option<Held>,
     /// Whether the run file holds a row of it.
     journaled: bool,
+    /// The wait it was last counted under, by its place in
+    /// [`DomainQueues::waits`], while it has waiting requests, and until
+    /// when that wait lasts, if it ends by itself.
+    counted: Option<(usize, Option<Instant>)>,
+}
+
+/// Why a domain's waiting requests wait, as a Run's progress groups them:
+/// ready, then held for each reason, by its place in
+/// [`DomainQueues::waits`].
+const WAITS: [Option<Held>; 5] = [
+    None,
+    Some(Held::Concurrency),
+    Some(Held::Delay),
+    Some(Held::BackOff),
+    Some(Held::PolitenessFile),
+];
+
+/// The place of `held` in [`WAITS`].
+fn place_of(held: Option<Held>) -> usize {
+    match held {
+        None => 0,
+        Some(Held::Concurrency) => 1,
+        Some(Held::Delay) => 2,
+        Some(Held::BackOff) => 3,
+        Some(Held::PolitenessFile) => 4,
+    }
+}
+
+/// The domains counted under one wait, and their waiting requests.
+#[derive(Debug, Default)]
+struct Waits {
+    requests: usize,
+    domains: BTreeSet<String>,
 }
 
 impl Domain {
@@ -112,9 +147,29 @@ impl Domain {
     fn is_drained(&self, now: Instant) -> bool {
         self.waiting.is_empty() && self.in_flight == 0 && self.is_ready(now)
     }
+
+    /// Why its requests wait at `now`, and until when, if that wait ends by
+    /// itself: its hold while it lasts, for want of room when no reason
+    /// was given, else its backoff while it lasts, else nothing.
+    fn waits_at(&self, now: Instant) -> (Option<Held>, Option<Instant>) {
+        match (self.held_until, self.ready_at) {
+            (Some(until), _) if until > now => {
+                (Some(self.held.unwrap_or(Held::Concurrency)), Some(until))
+            }
+            (_, Some(ready_at)) if ready_at > now => (Some(Held::BackOff), Some(ready_at)),
+            _ => (None, None),
+        }
+    }
 }
 
 /// A crawl's per-domain queues.
+///
+/// They keep what a Run's progress shows of their waits as each change
+/// comes, so reading it costs the changes since the last read and not a
+/// walk of every domain (#1547): each domain with waiting requests is
+/// counted under the wait it was last found in, a domain whose hold, wake,
+/// end or queue changed is found anew at the next read, and so is one
+/// whose wait ended by itself, which `expiring` orders by its end.
 #[derive(Debug)]
 pub struct DomainQueues {
     keys: DomainKeys,
@@ -125,6 +180,14 @@ pub struct DomainQueues {
     ids: BTreeSet<String>,
     changed: BTreeSet<String>,
     entropy: SharedEntropy,
+    /// The requests waiting in every domain's queue.
+    waiting: usize,
+    /// The domains counted under each wait of [`WAITS`].
+    waits: [Waits; 5],
+    /// The domains to count anew at the next read.
+    recount: BTreeSet<String>,
+    /// The counted domains whose wait ends by itself, by when it ends.
+    expiring: BTreeSet<(Instant, String)>,
 }
 
 impl DomainQueues {
@@ -140,12 +203,70 @@ impl DomainQueues {
             ids: BTreeSet::new(),
             changed: BTreeSet::new(),
             entropy: SharedEntropy::new(entropy.into()),
+            waiting: 0,
+            waits: Default::default(),
+            recount: BTreeSet::new(),
+            expiring: BTreeSet::new(),
         }
     }
 
     /// How many domains it keeps state for; a released one counts no more.
     pub fn domains(&self) -> usize {
         self.domains.len()
+    }
+
+    /// The queue of `key` went from `before` waiting requests to `after`:
+    /// the wait it is counted under counts them, a domain left with none is
+    /// counted no more, and one that had none is counted at the next read.
+    fn queue_changed(&mut self, key: &str, before: usize, after: usize) {
+        self.waiting = self.waiting + after - before;
+        if before == 0 && after > 0 {
+            self.recount.insert(key.to_owned());
+        }
+        let Some(domain) = self.domains.get_mut(key) else {
+            return;
+        };
+        let Some((place, ends)) = domain.counted else {
+            return;
+        };
+        let waits = &mut self.waits[place];
+        waits.requests = waits.requests + after - before;
+        if after == 0 {
+            waits.domains.remove(key);
+            domain.counted = None;
+            if let Some(ends) = ends {
+                self.expiring.remove(&(ends, key.to_owned()));
+            }
+        }
+    }
+
+    /// Counts `key` under the wait it is in at `now`, in place of the one
+    /// it was counted under; none when its queue holds nothing.
+    fn recount(&mut self, key: &str, now: Instant) {
+        let Some(domain) = self.domains.get_mut(key) else {
+            return;
+        };
+        let requests = domain.waiting.len();
+        if let Some((place, ends)) = domain.counted.take() {
+            let waits = &mut self.waits[place];
+            waits.requests -= requests;
+            waits.domains.remove(key);
+            if let Some(ends) = ends {
+                self.expiring.remove(&(ends, key.to_owned()));
+            }
+        }
+        if requests == 0 {
+            return;
+        }
+        let (held, ends) = domain.waits_at(now);
+        let place = place_of(held);
+        domain.counted = Some((place, ends));
+        let waits = &mut self.waits[place];
+        waits.requests += requests;
+        waits.domains.insert(key.to_owned());
+        if let Some(ends) = ends {
+            self.expiring.insert((ends, key.to_owned()));
+        }
     }
 
     /// Releases each idle domain that holds nothing more at `now`: only a
@@ -192,9 +313,10 @@ impl Gate for DomainQueues {
         if domain.outside && domain.waiting.last().is_none_or(|last| place > *last) {
             return false;
         }
-        if domain.waiting.is_empty() {
+        let before = domain.waiting.len();
+        if before == 0 {
             self.idle.remove(&request.key);
-            self.turns.push_back(request.key);
+            self.turns.push_back(request.key.clone());
         }
         self.ids.insert(place.1.clone());
         domain.waiting.insert(place);
@@ -206,6 +328,8 @@ impl Gate for DomainQueues {
         {
             self.ids.remove(&put_out);
         }
+        let after = domain.waiting.len();
+        self.queue_changed(&request.key, before, after);
         true
     }
 
@@ -216,14 +340,17 @@ impl Gate for DomainQueues {
         let Some(domain) = self.domains.get_mut(key) else {
             return;
         };
+        let before = domain.waiting.len();
         domain.waiting.retain(|(_, waiting)| waiting != id);
-        if domain.waiting.is_empty() {
+        let after = domain.waiting.len();
+        if after == 0 {
             domain.outside = false;
             self.turns.retain(|turn| turn != key);
             if domain.in_flight == 0 {
                 self.idle.insert(key.to_owned());
             }
         }
+        self.queue_changed(key, before, after);
     }
 
     fn ready_at(&self, now: Instant) -> Option<Instant> {
@@ -249,6 +376,7 @@ impl Gate for DomainQueues {
         if let Some(domain) = self.domains.get_mut(key) {
             domain.held_until = Some(until);
             domain.held = Some(held);
+            self.recount.insert(key.to_owned());
         }
     }
 
@@ -256,38 +384,51 @@ impl Gate for DomainQueues {
         if let Some(domain) = self.domains.get_mut(key) {
             domain.held_until = None;
             domain.held = None;
+            self.recount.insert(key.to_owned());
         }
     }
 
-    fn queued(&self, now: Instant) -> Vec<Queued> {
-        self.turns
+    fn queued(&mut self, now: Instant, sample: usize) -> Vec<QueuedGroup> {
+        while let Some((ends, _)) = self.expiring.first()
+            && *ends <= now
+        {
+            if let Some((_, key)) = self.expiring.pop_first() {
+                self.recount.insert(key);
+            }
+        }
+        for key in std::mem::take(&mut self.recount) {
+            self.recount(&key, now);
+        }
+        WAITS
             .iter()
-            .filter_map(|key| {
-                let domain = self.domains.get(key)?;
-                let held = match (domain.held_until, domain.ready_at) {
-                    (Some(until), _) if until > now => {
-                        let held = domain.held.unwrap_or(Held::Concurrency);
+            .zip(&self.waits)
+            .filter(|(_, waits)| !waits.domains.is_empty())
+            .map(|(held, waits)| QueuedGroup {
+                held: *held,
+                requests: waits.requests,
+                keys: waits.domains.len(),
+                sample: waits
+                    .domains
+                    .iter()
+                    .take(sample)
+                    .map(|key| {
+                        let ends = self
+                            .domains
+                            .get(key)
+                            .and_then(|domain| domain.counted)
+                            .and_then(|(_, ends)| ends);
                         // A domain held for want of room waits for a wake,
                         // not for a known moment.
-                        Some((held, (held != Held::Concurrency).then_some(until)))
-                    }
-                    (_, Some(ready_at)) if ready_at > now => Some((Held::BackOff, Some(ready_at))),
-                    _ => None,
-                };
-                Some(Queued {
-                    key: key.clone(),
-                    requests: domain.waiting.len(),
-                    held,
-                })
+                        let shown = ends.filter(|_| *held != Some(Held::Concurrency));
+                        (key.clone(), shown)
+                    })
+                    .collect(),
             })
             .collect()
     }
 
     fn waiting(&self) -> usize {
-        self.domains
-            .values()
-            .map(|domain| domain.waiting.len())
-            .sum()
+        self.waiting
     }
 
     fn rule(&self, settings: &Resolved) -> Option<Arc<dyn PermitRule>> {
@@ -306,6 +447,7 @@ impl Gate for DomainQueues {
         self.release_drained(now);
         let key = self.turns.remove(turn)?;
         let domain = self.domains.get_mut(&key)?;
+        let before = domain.waiting.len();
         let (_, id) = domain.waiting.pop_first()?;
         domain.in_flight += 1;
         let drained = domain.waiting.is_empty();
@@ -314,6 +456,7 @@ impl Gate for DomainQueues {
         } else {
             self.turns.push_back(key.clone());
         }
+        self.queue_changed(&key, before, before - 1);
         self.ids.remove(&id);
         Some(Admitted {
             id,
@@ -358,6 +501,7 @@ impl Gate for DomainQueues {
         if wait_until.is_some() || backed_off || domain.journaled {
             self.changed.insert(key.to_owned());
         }
+        self.recount.insert(key.to_owned());
         self.release_drained(now);
     }
 

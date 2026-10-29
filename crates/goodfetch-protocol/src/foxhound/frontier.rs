@@ -491,7 +491,7 @@ pub struct RunSeedsAdded {
 /// `run.add_seed`.
 pub const RUN_ADD_SEED: Operation = Operation {
     name: "run.add_seed",
-    description: "Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl fails with `run_not_found`.",
+    description: "Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -507,7 +507,7 @@ pub const RUN_ADD_SEED: Operation = Operation {
 /// `run.add_seeds`.
 pub const RUN_ADD_SEEDS: Operation = Operation {
     name: "run.add_seeds",
-    description: "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl fails with `run_not_found`.",
+    description: "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::Sequence,
     reach: Reach::AllSurfaces,

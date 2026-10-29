@@ -837,13 +837,15 @@ async fn finish(params: RunWaitParams, context: CallContext) -> Result<RunReport
 /// program; the wait is bounded by `timeout.close`, or the call's own
 /// `timeout`, and only the wait ends past it (ADR 0102).
 async fn stop(params: RunWaitParams, context: CallContext) -> Result<RunReport, CallError> {
+    // The stop is asked before the call's first await, so a call its Client
+    // cancels still stops the Run; only the wait ends with it (#1743).
+    let stopping = context
+        .runs()
+        .stop_at_safe_point(params.run_id.clone(), StoppedBy::Program);
     let deadline = match params.timeout {
         Some(millis) => Deadline::given(&TIMEOUT_CLOSE, millis, SettingsLayer::Run),
         None => close_deadline(&context, &params.run_id).await,
     };
-    let stopping = context
-        .runs()
-        .stop_at_safe_point(params.run_id, StoppedBy::Program);
     let report = deadline
         .within(&context.runs().clock(), "Run's next safe point", stopping)
         .await?;

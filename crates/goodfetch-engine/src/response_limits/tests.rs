@@ -315,12 +315,30 @@ fn a_body_that_is_no_json_is_malformed() {
 }
 
 /// A zstd frame (RFC 8878) that regenerates `size` zero bytes from RLE
-/// blocks, single-segment, so its window is its whole content, as a bomb's
-/// is.
+/// blocks, single-segment, so its window is its whole content.
 fn zstd_rle(size: u32) -> Vec<u8> {
     let mut frame = 0xFD2F_B528_u32.to_le_bytes().to_vec();
     frame.push(0b1010_0000);
     frame.extend_from_slice(&size.to_le_bytes());
+    rle_blocks(&mut frame, size);
+    frame
+}
+
+/// A zstd frame (RFC 8878) that asks for a window of `2^window_log` bytes,
+/// not single-segment, and regenerates `size` zero bytes from RLE blocks.
+fn zstd_rle_windowed(window_log: u8, size: u32) -> Vec<u8> {
+    let mut frame = 0xFD2F_B528_u32.to_le_bytes().to_vec();
+    // No content size and no single segment; the Window_Descriptor's
+    // exponent is the window's log less 10, its mantissa 0.
+    frame.push(0);
+    frame.push((window_log - 10) << 3);
+    rle_blocks(&mut frame, size);
+    frame
+}
+
+/// Appends RLE blocks of zero bytes, 128 KiB each at most, that regenerate
+/// `size` bytes.
+fn rle_blocks(frame: &mut Vec<u8>, size: u32) {
     let mut remaining = size;
     while remaining > 0 {
         let block = remaining.min(128 * 1024);
@@ -329,12 +347,12 @@ fn zstd_rle(size: u32) -> Vec<u8> {
         frame.extend_from_slice(&header.to_le_bytes()[..3]);
         frame.push(0);
     }
-    frame
 }
 
+/// RFC 9659's window, 8 MiB, decodes.
 #[test]
-fn a_zstd_frame_whose_window_is_past_eight_mebibytes_but_within_the_size_is_decoded() {
-    let received = zstd_rle(10 * 1024 * 1024);
+fn a_zstd_frame_whose_window_is_eight_mebibytes_is_decoded() {
+    let received = zstd_rle_windowed(23, 10 * 1024 * 1024);
     let limits = Limits {
         max_decompression_ratio: 100_000,
         ..Limits::default()
@@ -345,15 +363,30 @@ fn a_zstd_frame_whose_window_is_past_eight_mebibytes_but_within_the_size_is_deco
     assert_eq!(read.unwrap().len(), 10 * MIB);
 }
 
-#[test]
-fn a_zstd_frame_whose_window_is_past_the_size_fails_to_decode() {
-    let received = zstd_rle(10 * 1024 * 1024);
+/// A window past RFC 9659's 8 MiB fails to decode whatever
+/// `network.max_body_size` allows, as Chromium refuses it
+/// (`ERR_ZSTD_WINDOW_SIZE_TOO_BIG`), so every path gives one frame one
+/// verdict (owner, 2026-10-28).
+#[rstest]
+#[case::single_segment_within_the_default_size(zstd_rle(10 * 1024 * 1024), Limits::default())]
+#[case::sixteen_mebibytes_under_a_larger_size(
+    zstd_rle_windowed(24, 1024 * 1024),
+    Limits { max_body_size: 1 << 30, ..Limits::default() }
+)]
+#[case::past_a_small_size(
+    zstd_rle(10 * 1024 * 1024),
+    Limits { max_body_size: MIB as u64, ..Limits::default() }
+)]
+fn a_zstd_frame_whose_window_is_past_eight_mebibytes_fails_to_decode(
+    #[case] received: Vec<u8>,
+    #[case] limits: Limits,
+) {
     let limits = Limits {
-        max_body_size: MIB as u64,
-        ..Limits::default()
+        max_decompression_ratio: 100_000,
+        ..limits
     };
 
-    let read = read(&["zstd"], &received, limits);
+    let read = read(&["zstd"], &received, limits).map(|body| body.len());
 
     assert!(matches!(read, Err(BodyFailure::Decoding)), "{read:?}");
 }

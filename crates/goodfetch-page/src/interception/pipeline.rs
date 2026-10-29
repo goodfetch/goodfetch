@@ -54,6 +54,7 @@ use crate::page_value::{
     DocumentResponse, Navigation, NavigationKind, Permit, ReadDocument, Reader, Reading, Refusal,
     SiteResponse,
 };
+use crate::paused_body;
 use crate::proxy::{self, PROXY_STATUS, ProxyPermit};
 
 /// Whose requests a pipeline holds.
@@ -424,8 +425,26 @@ enum Routed {
 enum Stage {
     /// Waiting for its first answer.
     Unanswered,
-    /// Sent on by `fetch`, its response paused at this interception ID.
-    Fetched,
+    /// Sent on by `fetch`, its response paused at this interception ID,
+    /// and what `fetch` took of it.
+    Fetched(Taken),
+}
+
+/// What a route's `fetch` took of the response it got.
+enum Taken {
+    /// Nothing: it was refused before its body was read, so the response
+    /// still goes on as it came.
+    Nothing,
+    /// Its body, read whole from the browser's stream: the response goes on
+    /// as this, its body after any content coding.
+    Body {
+        status: u16,
+        headers: Vec<fetch::HeaderEntry>,
+        body: Vec<u8>,
+    },
+    /// Part of its body, until a limit refused it: the rest is gone, so the
+    /// request fails rather than go on.
+    Refused,
 }
 
 impl PageContext {
@@ -609,14 +628,26 @@ impl PageContext {
                             .response_status_code
                             .and_then(|status| u16::try_from(status).ok())
                             .unwrap_or_default();
+                        // A document the gate judges is read whole, as the
+                        // gate reads it, and goes on as it came.
+                        let judged = held.navigation
+                            && self.driver.value().gate().is_some()
+                            && !(300..400).contains(&status);
+                        let read = if judged {
+                            Some(self.body(&paused.request_id).await)
+                        } else {
+                            None
+                        };
                         if held.navigation
-                            && let Some(refused) =
-                                self.refused_document(&paused, status, None, None).await
+                            && let Some(refused) = self
+                                .refused_document(&paused, status, None, read.as_deref())
+                                .await
                         {
                             return (Err(refused), Some(Routed::Ended));
                         }
-                        *stage = Stage::Fetched;
-                        (self.fetched(&paused).await, None)
+                        let (reply, taken) = self.fetched(&paused, read).await;
+                        *stage = Stage::Fetched(taken);
+                        (reply, None)
                     }
                     None => (Err(gone(held.url())), Some(Routed::Ended)),
                 }
@@ -630,23 +661,30 @@ impl PageContext {
                 (Ok(Reply::Answered), Some(Routed::Ended))
             }
             // After `fetch`, sending on passes the response it got.
-            (Answer::Continue(_) | Answer::Fallback(_), Stage::Fetched) => {
-                self.continue_response(&id).await;
+            (Answer::Continue(_) | Answer::Fallback(_), Stage::Fetched(taken)) => {
+                self.send_on_fetched(&id, taken).await;
                 (Ok(Reply::Answered), Some(Routed::Ended))
             }
-            (Answer::Fetch(_), Stage::Fetched) => (Err(already_handled(route_id)), None),
+            (Answer::Fetch(_), Stage::Fetched(_)) => (Err(already_handled(route_id)), None),
         }
     }
 
-    /// The response a `fetch` got, its body read once the Run's limits
-    /// allow it (ticket #644): a `Content-Length` past
+    /// The response a `fetch` got, its body read under the Run's limits
+    /// (ticket #644), and what was taken of it: a `Content-Length` past
     /// `network.max_body_size`, with no content coding, is refused before
-    /// the body is read, and the decoded body is judged once read.
+    /// the body is read; any other body is read from the browser's stream,
+    /// judged as it arrives and stopped at the first limit it passes, so
+    /// neither the browser nor the engine holds more. `read` is the body
+    /// when the navigation gate read it whole already.
     ///
     /// # Errors
     ///
     /// `response_limit_exceeded` naming the limit the body passed.
-    async fn fetched(&self, paused: &fetch::RequestPausedEvent) -> Result<Reply, CallError> {
+    async fn fetched(
+        &self,
+        paused: &fetch::RequestPausedEvent,
+        read: Option<Vec<u8>>,
+    ) -> (Result<Reply, CallError>, Taken) {
         let headers: BTreeMap<String, String> = paused
             .response_headers
             .iter()
@@ -658,31 +696,72 @@ impl PageContext {
             .settings()
             .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
         let url = &paused.request.url;
+        if let Err(refused) = paused_body::declared_within_limits(url, &headers, &limits) {
+            return (Err(refused), Taken::Nothing);
+        }
         let declared = headers
             .get("content-length")
             .and_then(|length| length.trim().parse::<u64>().ok());
-        let coded = headers
-            .get("content-encoding")
-            .is_some_and(|coding| !coding.trim().eq_ignore_ascii_case("identity"));
-        if let Some(length) = declared.filter(|_| !coded) {
-            limits
-                .judge_decoded(url, length, None)
-                .map_err(|exceeded| exceeded.error())?;
-        }
-        let read = self.body(&paused.request_id).await;
-        limits
-            .judge_decoded(url, u64::try_from(read.len()).unwrap_or(u64::MAX), declared)
-            .map_err(|exceeded| exceeded.error())?;
-        let body = BASE64.encode(&read);
-        Ok(Reply::Fetched(RouteFetched {
-            status: paused
-                .response_status_code
-                .and_then(|status| u16::try_from(status).ok())
-                .unwrap_or_default(),
+        let status = paused
+            .response_status_code
+            .and_then(|status| u16::try_from(status).ok())
+            .unwrap_or_default();
+        let (read, streamed) = match read {
+            Some(read) => {
+                let decoded = u64::try_from(read.len()).unwrap_or(u64::MAX);
+                if let Err(exceeded) = limits.judge_decoded(url, decoded, declared) {
+                    return (Err(exceeded.error()), Taken::Nothing);
+                }
+                (read, false)
+            }
+            None => {
+                match paused_body::streamed(
+                    &self.driver,
+                    &paused.request_id,
+                    url,
+                    declared,
+                    &limits,
+                )
+                .await
+                {
+                    Ok(read) => (read, true),
+                    Err(refused) => return (Err(refused), Taken::Refused),
+                }
+            }
+        };
+        let reply = Reply::Fetched(RouteFetched {
+            status,
             status_text: paused.response_status_text.clone().unwrap_or_default(),
             headers,
-            body,
-        }))
+            body: BASE64.encode(&read),
+        });
+        let taken = if streamed {
+            Taken::Body {
+                status,
+                headers: decoded_headers(paused),
+                body: read,
+            }
+        } else {
+            Taken::Nothing
+        };
+        (Ok(reply), taken)
+    }
+
+    /// Sends on the response paused at `id` after a route's `fetch` took
+    /// `taken` of it: as it came, as the body read, or failed when a limit
+    /// left only part of its body.
+    async fn send_on_fetched(&self, id: &fetch::RequestId, taken: &Taken) {
+        match taken {
+            Taken::Nothing => self.continue_response(id).await,
+            Taken::Body {
+                status,
+                headers,
+                body,
+            } => {
+                self.fulfill_whole(id, *status, headers.clone(), body).await;
+            }
+            Taken::Refused => self.fail(id, network::ErrorReason::Failed).await,
+        }
     }
 
     /// The handler of `route` replied `ended` before it answered `held`.
@@ -709,8 +788,8 @@ impl PageContext {
             // Ended without an answer: it falls back.
             (_, Stage::Unanswered) => Routed::Fallback(Overrides::default()),
             // Ended after `fetch`: the page gets the response it got.
-            (_, Stage::Fetched) => {
-                self.continue_response(id).await;
+            (_, Stage::Fetched(taken)) => {
+                self.send_on_fetched(id, taken).await;
                 Routed::Ended
             }
         }
@@ -1728,6 +1807,23 @@ impl PageContext {
             tracing::debug!(?failure, "a paused response went before it was sent on");
         }
     }
+}
+
+/// The headers of the response paused at `paused`, for its body after any
+/// content coding: its `Content-Encoding` and `Content-Length` go, as the
+/// body is answered decoded and whole.
+fn decoded_headers(paused: &fetch::RequestPausedEvent) -> Vec<fetch::HeaderEntry> {
+    paused
+        .response_headers
+        .iter()
+        .flatten()
+        .filter(|header| {
+            !["content-encoding", "content-length"]
+                .iter()
+                .any(|name| header.name.eq_ignore_ascii_case(name))
+        })
+        .cloned()
+        .collect()
 }
 
 /// The URL in `headers`' `Referer`, which names the document that sent the

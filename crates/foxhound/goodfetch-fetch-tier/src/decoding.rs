@@ -12,11 +12,20 @@
 //! 0118). Which codings a body names, and how `deflate` tells its zlib
 //! wrapper, are the engine's rule ([`ContentCoding`]), which its own
 //! readers decode by too. The charset order of a document's text is #764's.
+//!
+//! **Limits (ADR 0067, SC-05; pitfall H14):** every decoded byte counts
+//! against `network.max_body_size`, and past 1 MiB against
+//! `network.max_decompression_ratio` over the bytes received, judged as
+//! each decoder gives its bytes: a decompression bomb, stacked codings
+//! included, stops within one decoder's buffer of the limit. A zstd frame
+//! may ask for a window of 8 MiB, which RFC 9659 has every HTTP decoder
+//! support, or up to `network.max_body_size` rounded up to a power of two,
+//! as the engine's own readers allow; a larger one does not decode.
 
-use std::io::Read as _;
+use std::io::Read;
 
 use bytes::Bytes;
-use goodfetch_engine::response_limits::{ContentCoding, has_zlib_header};
+use goodfetch_engine::response_limits::{ContentCoding, LimitExceeded, Limits, has_zlib_header};
 
 /// Why a body did not decode as its codings say.
 #[derive(Debug, PartialEq, Eq)]
@@ -25,32 +34,125 @@ pub(crate) enum DecodingFailed {
     Corrupt,
     /// Its stream stops before its end: the body was cut (ADR 0118).
     Cut,
+    /// It decodes past one of the limits (ADR 0067).
+    Limit(LimitExceeded),
 }
 
-/// `body` decoded as `coding`; a stream of it that ends early is
-/// [`DecodingFailed::Cut`], anything else that does not decode
-/// [`DecodingFailed::Corrupt`].
-fn decoded(coding: ContentCoding, body: &[u8]) -> Result<Vec<u8>, DecodingFailed> {
+/// What a body may decode to: the limits of the Run it is read for, judged
+/// against the bytes it took on the wire, and how much of it is kept.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Bound<'a> {
+    /// The URL the body answered, which a refusal names.
+    pub(crate) url: &'a str,
+    /// `network.max_body_size` and `network.max_decompression_ratio`.
+    pub(crate) limits: &'a Limits,
+    /// The bytes the body took on the wire.
+    pub(crate) received: usize,
+    /// The most decoded bytes kept, past which the decoding stops: a
+    /// robots.txt's first 500 KiB (RFC 9309); `None` keeps the whole body.
+    pub(crate) keep: Option<usize>,
+}
+
+impl Bound<'_> {
+    /// Adds `decoded` to `out`: `true` once `out` holds all it keeps.
+    ///
+    /// # Errors
+    ///
+    /// [`DecodingFailed::Limit`] when `out` would pass a limit.
+    fn take(&self, out: &mut Vec<u8>, decoded: &[u8]) -> Result<bool, DecodingFailed> {
+        let (decoded, full) = match self.keep {
+            Some(keep) if out.len() + decoded.len() >= keep => {
+                (&decoded[..keep.saturating_sub(out.len())], true)
+            }
+            _ => (decoded, false),
+        };
+        let total = u64::try_from(out.len() + decoded.len()).unwrap_or(u64::MAX);
+        let received = u64::try_from(self.received).unwrap_or(u64::MAX);
+        self.limits
+            .judge_decoded(self.url, total, Some(received))
+            .map_err(DecodingFailed::Limit)?;
+        out.extend_from_slice(decoded);
+        Ok(full)
+    }
+
+    /// The bound of an inner coding of stacked ones, whose bytes another
+    /// coding still decodes: the limits apply, and it is kept whole.
+    fn inner(&self) -> Self {
+        Self {
+            keep: None,
+            ..*self
+        }
+    }
+}
+
+/// The bytes a decoder gives at once.
+const DECODER_BUFFER: usize = 64 * 1024;
+
+/// The window, as a power of two, a zstd frame may always ask for: 8 MiB
+/// (RFC 9659).
+const ZSTD_WINDOW_LOG_FLOOR: u32 = 23;
+
+/// The largest window, as a power of two, zstd's decoder takes on 64-bit
+/// hosts.
+const ZSTD_WINDOW_LOG_CEILING: u32 = 31;
+
+/// The largest window, as a power of two, a zstd frame may ask for under
+/// `limits`: `network.max_body_size` rounded up to a power of two, between
+/// 8 MiB and zstd's own ceiling, the engine's own readers' rule
+/// (`goodfetch_engine::response_limits`), so a frame gets one verdict on
+/// every HTTP path.
+fn zstd_window_log(limits: &Limits) -> u32 {
+    limits
+        .max_body_size
+        .saturating_sub(1)
+        .bit_width()
+        .clamp(ZSTD_WINDOW_LOG_FLOOR, ZSTD_WINDOW_LOG_CEILING)
+}
+
+/// What `reader`, a decoder, gives, under `bound`.
+fn bounded(mut reader: impl Read, bound: &Bound<'_>) -> Result<Vec<u8>, DecodingFailed> {
     let mut out = Vec::new();
-    let read = match coding {
+    let mut buffer = vec![0; DECODER_BUFFER];
+    loop {
+        let count = match reader.read(&mut buffer) {
+            Ok(0) => return Ok(out),
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(failure(&error)),
+        };
+        if bound.take(&mut out, &buffer[..count])? {
+            return Ok(out);
+        }
+    }
+}
+
+/// `body` decoded as `coding` under `bound`; a stream of it that ends
+/// early is [`DecodingFailed::Cut`], anything else that does not decode
+/// [`DecodingFailed::Corrupt`].
+fn decoded(
+    coding: ContentCoding,
+    body: &[u8],
+    bound: &Bound<'_>,
+) -> Result<Vec<u8>, DecodingFailed> {
+    match coding {
         // A body too short for gzip's header is cut only once it opens as
         // a gzip stream.
         ContentCoding::Gzip if !body.starts_with(&GZIP_MAGIC) => Err(DecodingFailed::Corrupt),
-        ContentCoding::Gzip => flate2::read::GzDecoder::new(body)
-            .read_to_end(&mut out)
-            .map_err(|error| failure(&error)),
-        ContentCoding::Deflate if has_zlib_header(body) => flate2::read::ZlibDecoder::new(body)
-            .read_to_end(&mut out)
-            .map_err(|error| failure(&error)),
-        ContentCoding::Deflate => flate2::read::DeflateDecoder::new(body)
-            .read_to_end(&mut out)
-            .map_err(|error| failure(&error)),
-        ContentCoding::Brotli => return brotli(body),
-        ContentCoding::Zstd => {
-            return zstd::stream::decode_all(body).map_err(|error| failure(&error));
+        ContentCoding::Gzip => bounded(flate2::read::GzDecoder::new(body), bound),
+        ContentCoding::Deflate if has_zlib_header(body) => {
+            bounded(flate2::read::ZlibDecoder::new(body), bound)
         }
-    };
-    read.map(|_| out)
+        ContentCoding::Deflate => bounded(flate2::read::DeflateDecoder::new(body), bound),
+        ContentCoding::Brotli => brotli(body, bound),
+        ContentCoding::Zstd => {
+            let mut decoder =
+                zstd::stream::read::Decoder::with_buffer(body).map_err(|error| failure(&error))?;
+            decoder
+                .window_log_max(zstd_window_log(bound.limits))
+                .map_err(|error| failure(&error))?;
+            bounded(decoder, bound)
+        }
+    }
 }
 
 /// The two bytes a gzip stream opens with (RFC 1952).
@@ -64,11 +166,11 @@ fn failure(error: &std::io::Error) -> DecodingFailed {
     }
 }
 
-/// `body` decoded as Brotli (RFC 7932), through the decoder's stream
-/// interface, which tells a stream that wants more input, a cut one, from
-/// an invalid one; its reader reports both alike. Bytes after the stream's
-/// end are invalid, as the reader holds them.
-fn brotli(body: &[u8]) -> Result<Vec<u8>, DecodingFailed> {
+/// `body` decoded as Brotli (RFC 7932) under `bound`, through the
+/// decoder's stream interface, which tells a stream that wants more input,
+/// a cut one, from an invalid one; its reader reports both alike. Bytes
+/// after the stream's end are invalid, as the reader holds them.
+fn brotli(body: &[u8], bound: &Bound<'_>) -> Result<Vec<u8>, DecodingFailed> {
     use brotli_decompressor::{BrotliDecompressStream, BrotliResult, BrotliState, StandardAlloc};
 
     let mut state = BrotliState::new(
@@ -77,7 +179,7 @@ fn brotli(body: &[u8]) -> Result<Vec<u8>, DecodingFailed> {
         StandardAlloc::default(),
     );
     let mut out = Vec::new();
-    let mut buffer = vec![0; 64 * 1024];
+    let mut buffer = vec![0; DECODER_BUFFER];
     let mut available_in = body.len();
     let mut input_offset = 0;
     let mut written = 0;
@@ -94,7 +196,9 @@ fn brotli(body: &[u8]) -> Result<Vec<u8>, DecodingFailed> {
             &mut written,
             &mut state,
         );
-        out.extend_from_slice(&buffer[..output_offset]);
+        if bound.take(&mut out, &buffer[..output_offset])? {
+            return Ok(out);
+        }
         match result {
             BrotliResult::NeedsMoreOutput => {}
             BrotliResult::ResultSuccess if available_in == 0 => return Ok(out),
@@ -137,18 +241,25 @@ fn is_text(content_type: &str) -> bool {
 }
 
 /// `body` with every coding of `codings` (each a `Content-Encoding` field's
-/// value, in order) decoded, the last applied first; a body no coding
+/// value, in order) decoded under `bound`, the last applied first, only the
+/// first-applied coding's bytes kept as `bound` says; a body no coding
 /// applies to is answered as it is, never copied.
 pub(crate) fn decode<'a>(
     codings: impl Iterator<Item = &'a str>,
     body: Bytes,
+    bound: &Bound<'_>,
 ) -> Result<Bytes, DecodingFailed> {
     let Some(listed) = ContentCoding::listed(codings) else {
         return Ok(body);
     };
-    listed.iter().rev().try_fold(body, |body, coding| {
-        decoded(*coding, &body).map(Bytes::from)
-    })
+    listed
+        .iter()
+        .enumerate()
+        .rev()
+        .try_fold(body, |body, (index, coding)| {
+            let bound = if index == 0 { *bound } else { bound.inner() };
+            decoded(*coding, &body, &bound).map(Bytes::from)
+        })
 }
 
 #[cfg(test)]

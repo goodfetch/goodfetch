@@ -29,7 +29,7 @@ use goodfetch_page::page_value::{DocumentReader, ReadDocument, Reading};
 
 use super::{Served, lock};
 use crate::charset::{self, Kind, Read, Source};
-use crate::content_types::{Accepts, is_document, typed};
+use crate::content_types::{Accepts, declared, is_document, typed};
 use crate::gate::HandOver;
 
 /// What the document reader learned of one browser page's documents.
@@ -101,8 +101,8 @@ impl DocumentReader for BrowserReader {
         let path = url::Url::parse(document.url)
             .map(|url| url.path().to_owned())
             .unwrap_or_default();
-        let (essence, charset) = match (header, body) {
-            (Some(_), _) => typed(header, &[], &path),
+        let (essence, charset) = match (declared(header), body) {
+            (Some(header), _) => typed(Some(header), &[], &path),
             (None, None) => return Reading::Body,
             (None, Some(body)) => typed(None, body, &path),
         };

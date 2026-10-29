@@ -16,7 +16,7 @@
     reason = "a Borrowed browser's connection is opened here alone, to the addresses its `cdp_url` was judged on, so no other lookup chooses where it goes (ADRs 0056 and 0060)"
 )]
 
-use futures_util::{SinkExt as _, StreamExt as _};
+use futures_util::{Sink, SinkExt as _, Stream, StreamExt as _};
 use goodfetch_cdp::{Connection, Framer, MAX_FRAME};
 use goodfetch_engine::CallError;
 use goodfetch_engine::egress::{
@@ -30,10 +30,11 @@ use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, NETWORK_RESOLVE, SESSION_SOURCE,
     SETTING_INVALID, SettingInvalidDetails,
 };
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, DuplexStream};
 use tokio::net::TcpStream;
 use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::{Bytes, Message, Utf8Bytes};
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use tokio_tungstenite::tungstenite::{Bytes, Error as WsError, Message, Utf8Bytes};
 use tokio_util::sync::CancellationToken;
 use url::{Host, Url};
 
@@ -104,9 +105,13 @@ pub(crate) async fn connect(run: &Run, cdp_url: &CdpUrl) -> Result<Connection, C
     let stream = TcpStream::connect(addresses.as_slice())
         .await
         .map_err(|error| unreachable(&address, &error.to_string()))?;
-    let (socket, _) = tokio_tungstenite::client_async(cdp_url.url.as_str(), stream)
-        .await
-        .map_err(|error| unreachable(&address, &error.to_string()))?;
+    let (socket, _) = tokio_tungstenite::client_async_with_config(
+        cdp_url.url.as_str(),
+        stream,
+        Some(websocket_config()),
+    )
+    .await
+    .map_err(|error| unreachable(&address, &error.to_string()))?;
     let (engine, bridge_end) = tokio::io::duplex(BUFFER);
     let (reader, writer) = tokio::io::split(engine);
     let (connection, driver) = Connection::new(reader, writer);
@@ -116,6 +121,16 @@ pub(crate) async fn connect(run: &Run, cdp_url: &CdpUrl) -> Result<Connection, C
     });
     run.spawn(bridge(socket, bridge_end, run.cancellation().clone()));
     Ok(connection)
+}
+
+/// The WebSocket's limits: a frame and a message as long as the debugging
+/// pipe's ([`MAX_FRAME`]), since Chromium sends each CDP message as one
+/// frame, and tungstenite's own 16 MiB frame cap ended the connection on a
+/// body of about 12 MiB (finding 563-3).
+fn websocket_config() -> WebSocketConfig {
+    WebSocketConfig::default()
+        .max_message_size(Some(MAX_FRAME))
+        .max_frame_size(Some(MAX_FRAME))
 }
 
 /// The Session policy a Run's settings give, whose private ranges a
@@ -173,59 +188,107 @@ fn unreachable(address: &str, why: &str) -> CallError {
 /// Carries the driver's messages between `end`, the engine's side, where
 /// each is NUL-terminated, and the browser's WebSocket `socket`, where each
 /// is a message, until either side ends or `stopping`; then the engine's
-/// own connection closes, and the browser stays.
+/// own connection closes, and the browser stays. Each way is carried apart
+/// and waits only on its own writes, so a large command the engine writes
+/// and a large message the browser sends cross without either waiting on
+/// the other (finding 563-2), and either way stops at `stopping` whatever
+/// it was writing.
 ///
 /// # Cancel safety
 ///
 /// Dropping the future drops the connection; the browser stays.
-async fn bridge(
-    mut socket: WebSocketStream<TcpStream>,
+async fn bridge<S: AsyncRead + AsyncWrite + Unpin>(
+    socket: WebSocketStream<S>,
     end: DuplexStream,
     stopping: CancellationToken,
 ) {
-    let (mut from_engine, mut to_engine) = tokio::io::split(end);
+    let (from_engine, to_engine) = tokio::io::split(end);
+    let (mut to_browser, from_browser) = socket.split();
+    // Either way's end ends the other.
+    let ended = stopping.child_token();
+    tokio::join!(
+        async {
+            carry_to_browser(from_engine, &mut to_browser, &ended).await;
+            ended.cancel();
+        },
+        async {
+            carry_to_engine(from_browser, to_engine, &ended).await;
+            ended.cancel();
+        },
+    );
+    if let Err(error) = to_browser.close().await {
+        tracing::debug!(%error, "a Borrowed browser's connection was gone already");
+    }
+}
+
+/// Carries each message the engine writes to `from_engine`, NUL-terminated,
+/// to the browser as one WebSocket message, until either side ends or
+/// `ended`.
+async fn carry_to_browser<S: Sink<Message> + Unpin>(
+    mut from_engine: impl AsyncRead + Unpin,
+    to_browser: &mut S,
+    ended: &CancellationToken,
+) {
     let mut framer = Framer::with_limit(MAX_FRAME);
     let mut buffer = vec![0; 64 * 1024];
     loop {
-        tokio::select! {
-            () = stopping.cancelled() => break,
-            message = socket.next() => {
-                let text = match message {
-                    Some(Ok(Message::Text(text))) => Bytes::from(text),
-                    Some(Ok(Message::Binary(bytes))) => bytes,
-                    Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => continue,
-                    Some(Ok(Message::Close(_)) | Err(_)) | None => break,
-                };
-                if to_engine.write_all(&text).await.is_err()
-                    || to_engine.write_all(&[0]).await.is_err()
-                {
-                    break;
-                }
-            }
-            read = from_engine.read(&mut buffer) => {
-                let Ok(read @ 1..) = read else { break };
-                framer.push(&buffer[..read]);
-                if !send_frames(&mut socket, &mut framer).await {
-                    break;
-                }
-            }
+        let read = tokio::select! {
+            () = ended.cancelled() => return,
+            read = from_engine.read(&mut buffer) => read,
+        };
+        let Ok(read @ 1..) = read else { return };
+        framer.push(&buffer[..read]);
+        let sent = tokio::select! {
+            () = ended.cancelled() => return,
+            sent = send_frames(to_browser, &mut framer) => sent,
+        };
+        if !sent {
+            return;
         }
     }
-    if let Err(error) = socket.close(None).await {
-        tracing::debug!(%error, "a Borrowed browser's connection was gone already");
+}
+
+/// Carries each WebSocket message the browser sends on `from_browser` to
+/// the engine, NUL-terminated, until either side ends or `ended`.
+async fn carry_to_engine(
+    mut from_browser: impl Stream<Item = Result<Message, WsError>> + Unpin,
+    mut to_engine: impl AsyncWrite + Unpin,
+    ended: &CancellationToken,
+) {
+    loop {
+        let message = tokio::select! {
+            () = ended.cancelled() => return,
+            message = from_browser.next() => message,
+        };
+        let text = match message {
+            Some(Ok(Message::Text(text))) => Bytes::from(text),
+            Some(Ok(Message::Binary(bytes))) => bytes,
+            Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => continue,
+            Some(Ok(Message::Close(_)) | Err(_)) | None => return,
+        };
+        let written = tokio::select! {
+            () = ended.cancelled() => return,
+            written = async {
+                to_engine.write_all(&text).await?;
+                to_engine.write_all(&[0]).await
+            } => written,
+        };
+        if written.is_err() {
+            return;
+        }
     }
 }
 
 /// Sends each whole message `framer` holds; false once the socket or a
 /// message failed.
-async fn send_frames(socket: &mut WebSocketStream<TcpStream>, framer: &mut Framer) -> bool {
+async fn send_frames<S: Sink<Message> + Unpin>(to_browser: &mut S, framer: &mut Framer) -> bool {
     loop {
         match framer.next_frame() {
             Ok(Some(frame)) => {
                 let Ok(text) = Utf8Bytes::try_from(frame) else {
                     return false;
                 };
-                if socket.send(Message::Text(text)).await.is_err() {
+                if to_browser.send(Message::Text(text)).await.is_err() {
                     return false;
                 }
             }
@@ -234,3 +297,6 @@ async fn send_frames(socket: &mut WebSocketStream<TcpStream>, framer: &mut Frame
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

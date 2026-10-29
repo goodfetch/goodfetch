@@ -790,6 +790,10 @@ impl From<ResolveFailure> for TransportFailure {
 /// would resolve the name again itself.
 struct Resolver {
     dns: Dns,
+    /// The route its lookups take: the engine's own resolver, from the
+    /// Session's local address, for a Session holding one, on every OS
+    /// (ADR 0044); the direct route otherwise.
+    route: Route,
     egress: Policy,
     /// Whether its connections go to the site directly, not through a
     /// proxy.
@@ -822,8 +826,14 @@ impl Resolver {
             Some(family) => vec![family],
             None => local.families(),
         });
+        let route = if config.local.is_some() {
+            Route::LocalAddress
+        } else {
+            Route::Direct
+        };
         Self {
             dns,
+            route,
             egress: config.egress.clone(),
             direct: config.proxy.is_none(),
             families,
@@ -850,7 +860,7 @@ impl Resolver {
         name: String,
     ) -> impl Future<Output = Result<Vec<SocketAddr>, ResolveFailure>> + Send + 'static {
         lookup(
-            self.dns.clone(),
+            (self.dns.clone(), self.route),
             self.direct.then(|| self.egress.clone()),
             self.families.clone(),
             name,
@@ -875,7 +885,7 @@ impl Resolver {
             return Ok(());
         };
         lookup(
-            self.dns.clone(),
+            (self.dns.clone(), self.route),
             Some(self.egress.clone()),
             None,
             name.to_owned(),
@@ -892,17 +902,17 @@ impl Resolver {
     }
 }
 
-/// The addresses `dns` gives `name`, the `network.resolve` mapping's as the
-/// resolver's, judged by `judged` when given, and only those of
-/// `families` when given: a name answering in none of them, with a
-/// Session holding one family, fails with the family held.
+/// The addresses `dns` gives `name` on `route`, the `network.resolve`
+/// mapping's as the resolver's, judged by `judged` when given, and only
+/// those of `families` when given: a name answering in none of them, with
+/// a Session holding one family, fails with the family held.
 async fn lookup(
-    dns: Dns,
+    (dns, route): (Dns, Route),
     judged: Option<Policy>,
     families: Option<Vec<IpFamily>>,
     name: String,
 ) -> Result<Vec<SocketAddr>, ResolveFailure> {
-    let Ok(Resolution::Addresses { addresses, .. }) = dns.lookup(&name, Route::Direct).await else {
+    let Ok(Resolution::Addresses { addresses, .. }) = dns.lookup(&name, route).await else {
         return Err(ResolveFailure::NotResolved);
     };
     let addresses: Vec<IpAddr> = match families {
@@ -996,7 +1006,7 @@ impl AddressCheck {
             Some(url::Host::Ipv4(address)) => Ok(vec![IpAddr::V4(address)]),
             Some(url::Host::Ipv6(address)) => Ok(vec![IpAddr::V6(address)]),
             Some(url::Host::Domain(name)) => lookup(
-                self.0.dns.clone(),
+                (self.0.dns.clone(), self.0.route),
                 Some(self.0.egress.clone()),
                 None,
                 name.to_owned(),

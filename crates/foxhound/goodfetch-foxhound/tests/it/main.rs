@@ -12,6 +12,7 @@ mod admission;
 mod attached;
 mod audit;
 mod backoff_classes;
+mod body_limits;
 mod bounds;
 mod browser;
 mod browser_fetch;

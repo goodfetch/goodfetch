@@ -273,3 +273,6 @@ async fn read_head(client: &mut TcpStream) -> io::Result<(Vec<u8>, Vec<u8>)> {
         read.extend_from_slice(&buffer[..count]);
     }
 }
+
+#[cfg(test)]
+mod tests;

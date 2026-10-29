@@ -3,6 +3,8 @@
 //! next response received, a redirect's included, whose URL its pattern
 //! matches, any when none, unless its deadline passes first.
 
+use std::sync::Arc;
+
 use goodfetch_engine::CallError;
 use goodfetch_protocol::page::events::{PageExchange, PageRequest};
 use tokio::sync::oneshot;
@@ -101,11 +103,12 @@ impl PageEvents {
             waiters.retain(|waiter| !waiter.answer.is_closed());
             waiters.push(Armed { pattern, answer });
         }
+        let shared = Arc::clone(&self.shared);
         async move {
             deadline
                 .within(waited_for, answered)
                 .await?
-                .map_err(|_| gone())
+                .map_err(|_| gone(&shared))
         }
     }
 }

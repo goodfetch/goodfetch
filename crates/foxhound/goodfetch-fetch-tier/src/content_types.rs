@@ -5,7 +5,11 @@
 //! - **A response's type** is its `Content-Type` essence; with none, the
 //!   type Chromium's sniffer gives its body (the `sniffing` module); with
 //!   neither a type nor a body, as a listed redirect often has, an empty
-//!   HTML document, so it reaches the handler.
+//!   HTML document, so it reaches the handler. A `Content-Type` naming no
+//!   type counts as none, so its body is sniffed (ADR 0119; the WHATWG
+//!   MIME Sniffing standard, section 7; Chromium's `IsUnknownMimeType`):
+//!   an empty one, one with no slash, `*/*`, `unknown/unknown` and
+//!   `application/unknown`.
 //! - **Which responses are judged:** those that would reach the handler, a
 //!   2xx or a status `crawl.handle_statuses` lists ([`Accepts`]). Another
 //!   type ends the request `skipped` with `content_type`, the driver
@@ -122,12 +126,27 @@ impl Accepts {
     }
 }
 
+/// The essences a `Content-Type` names no type by, beside an empty one and
+/// one with no slash: its body is sniffed.
+const UNKNOWN: [&str; 3] = ["*/*", "unknown/unknown", "application/unknown"];
+
+/// `header`, a response's `Content-Type`, when it names a type; `None` when
+/// it names none, as [`UNKNOWN`] and a value with no slash do, so the
+/// response's body is sniffed.
+pub(crate) fn declared(header: Option<&str>) -> Option<&str> {
+    header.filter(|value| {
+        let (essence, _) = content_type(value);
+        essence.contains('/') && !UNKNOWN.contains(&essence.as_str())
+    })
+}
+
 /// The type of a response whose `Content-Type` is `header`, its body
 /// `body` and its URL's path `path`: its essence, lower-cased, and its
-/// charset, if it names one. With no `Content-Type`, the type Chromium's
-/// sniffer gives the body, and `text/html` for no body at all.
+/// charset, if it names one. With no `Content-Type`, or one naming no type
+/// ([`declared`]), the type Chromium's sniffer gives the body, and
+/// `text/html` for no body at all.
 pub(crate) fn typed(header: Option<&str>, body: &[u8], path: &str) -> (String, Option<String>) {
-    match header {
+    match declared(header) {
         Some(value) => {
             let (essence, charset) = content_type(value);
             (essence, charset.map(str::to_owned))

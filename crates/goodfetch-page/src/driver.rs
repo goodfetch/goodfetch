@@ -47,6 +47,7 @@ use std::time::Duration;
 use goodfetch_cdp::generated::{browser, dom, emulation, input, network, page, runtime, target};
 use goodfetch_cdp::{
     Command, Connection, Failure, NetError, Refusal, SessionId as TargetSession, Subscription,
+    SubscriptionEnd,
 };
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::Pins;
@@ -1798,6 +1799,7 @@ impl PageDriver {
         let mut navigation = Navigation::of(self.frame.clone());
         let mut command = std::pin::pin!(command);
         let mut expected = None;
+        let mut reading = true;
         let outcome = loop {
             if let Some(expected) = &expected
                 && let Some(outcome) = navigation.outcome(expected, wait_until, superseded())
@@ -1810,10 +1812,15 @@ impl PageDriver {
                     Ok(None) => return Ok(Ok(Arrived::Document(None))),
                     Err(ended) => break Err(ended),
                 },
-                event = events.next() => match event {
+                event = events.next(), if reading => match event {
                     Some(event) => navigation.feed(&event),
+                    // A target the browser detached sends nothing more, and
+                    // the command in flight on it failed with it: its answer
+                    // says how the navigation ended.
+                    None if expected.is_none() && detached(events) => reading = false,
                     None => return Err(self.browser.failed(call, &Failure::Disconnected).await),
                 },
+                else => return Err(self.browser.failed(call, &Failure::Disconnected).await),
             }
         };
         match outcome {
@@ -1841,7 +1848,10 @@ impl PageDriver {
     /// written (~200 ms idle, longer under load), so the page's renderer is
     /// asked for its frame tree, the main frame's events read meanwhile: a
     /// live one answers, and a crashed one never does before its crash is
-    /// reported.
+    /// reported. A target the browser detached meanwhile, as when the
+    /// engine closes its browser, did not crash: the frame tree's answer,
+    /// failed with it, ends the check, so the navigation raises its own
+    /// failure, such as a Limit's that stopped the Run.
     async fn renderer_crashed(
         &self,
         events: &mut Subscription,
@@ -1852,14 +1862,16 @@ impl PageDriver {
             .browser
             .try_send(Some(&self.session), &page::GetFrameTreeParams {});
         let mut alive = std::pin::pin!(alive);
+        let mut reading = true;
         loop {
             if navigation.crashed() {
                 return Ok(true);
             }
             tokio::select! {
                 biased;
-                event = events.next() => match event {
+                event = events.next(), if reading => match event {
                     Some(event) => navigation.feed(&event),
+                    None if detached(events) => reading = false,
                     None => return Err(self.browser.failed(call, &Failure::Disconnected).await),
                 },
                 answered = &mut alive => return match answered {
@@ -1922,6 +1934,14 @@ fn is_javascript(url: &str) -> bool {
 
 /// The scheme of a URL that runs a script, with its colon.
 const JAVASCRIPT: &str = "javascript:";
+
+/// Whether `events`, which ended, ended because the browser detached its
+/// target, rather than with the connection: the commands in flight on that
+/// target failed with it before it ended, so their answers say what ended
+/// the call.
+pub(crate) fn detached(events: &mut Subscription) -> bool {
+    events.ended() == Some(SubscriptionEnd::Detached)
+}
 
 /// What a navigation that answers at `wait_until` waits for, as its
 /// `deadline_exceeded` names it: the state, as the call spells it.

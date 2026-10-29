@@ -371,19 +371,19 @@ fn waited(
     let tiers = tiers.clone();
     let page_id = page_id.clone();
     Box::pin(async move {
-        let html = page.document.html;
+        let document = Arc::clone(&page.document);
         let met = page
             .document
             .run
             .owner()
             .blocking(move || match wait {
                 Wait::Shown(state) => {
-                    let shown = shown(&html, &selector)?;
+                    let shown = shown(&document.html, &selector)?;
                     let met = shown == state || (state == Shown::Hidden && shown == Shown::Absent);
                     met.then(|| encoded(&Reached {}))
                 }
                 Wait::One | Wait::None | Wait::Count(_) => {
-                    let count = matches(&html, &selector)?;
+                    let count = matches(&document.html, &selector)?;
                     match wait {
                         Wait::One => (count == 1).then(|| encoded(&Reached {})),
                         Wait::None => (count == 0).then(|| encoded(&Reached {})),
@@ -481,7 +481,7 @@ async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, 
         let fetched = fetch(
             page.http.transport.as_ref(),
             &hop,
-            &page.http.deadlines,
+            &page.http.bounds,
             &run.clock(),
         )
         .await;

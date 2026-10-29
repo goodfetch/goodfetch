@@ -1,0 +1,214 @@
+//! The limits on what the HTTP tiers read (ADR 0067, SC-05, pitfall H14),
+//! on reqwest and `wreq` under the fetch driver, against the Proving
+//! ground: every page of the hostile-input limits table that serves a body
+//! ends in `response_limit_exceeded` naming its setting, the decompression
+//! bombs (stacked codings included), the body past 64 MiB and the endless
+//! bodies, while the driver stops reading at the limit; a normal
+//! compressed page passes. The table's JSON depth case is no fetch's: the
+//! driver parses no JSON.
+//!
+//! Covers: row:SC-05, error:response_limit_exceeded
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
+use goodfetch_engine::CallError;
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::response_limits::Limits;
+use goodfetch_fetch_tier::{
+    FetchBounds, Fetched, Hop, HttpProfile, Reqwest, Transport, Wreq, fetch,
+};
+use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
+use goodfetch_test_support::{
+    ExpectedError, HostileTables, LimitSetting, ProvingGround, ReceivedRequests, ServedBy, TestEnv,
+};
+use rstest::rstest;
+use url::Url;
+
+use crate::{Stack, running_clock_runtime};
+
+const SEED: u64 = 644;
+
+/// The hosts of the table's pages, reached over TLS.
+const HOSTS: [&str; 2] = ["bombs.test", "body-limits.test"];
+
+/// `stack`'s transport, trusting the Proving ground's authority for the
+/// table's hosts.
+fn transport(stack: Stack, proving_ground: &ProvingGround) -> Box<dyn Transport> {
+    let config = crate::config(proving_ground, None, &HOSTS);
+    match stack {
+        Stack::Reqwest => Box::new(Reqwest::new(config).unwrap()),
+        Stack::Wreq => Box::new(Wreq::new(config, HttpProfile::default()).unwrap()),
+    }
+}
+
+/// `timeout.first_byte` and `timeout.navigation` at 60 s each, so only a
+/// limit stops an endless body, read under `limits`.
+fn bounds(limits: Limits) -> FetchBounds {
+    FetchBounds {
+        first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 60_000, SettingsLayer::Run),
+        navigation: Deadline::given(&TIMEOUT_NAVIGATION, 60_000, SettingsLayer::Run),
+        limits,
+    }
+}
+
+/// Fetches the start page of the task `id` through `transport` under
+/// `limits`.
+fn fetched(
+    transport: &dyn Transport,
+    proving_ground: &ProvingGround,
+    id: &str,
+    limits: Limits,
+) -> Result<Fetched, CallError> {
+    let hop = Hop::get(Url::parse(&proving_ground.start_url(id).unwrap()).unwrap());
+    running_clock_runtime().block_on(fetch(transport, &hop, &bounds(limits), &Clock::system()))
+}
+
+/// The setting and limit a `response_limit_exceeded` names, or what the
+/// fetch gave instead.
+fn refusal(fetched: &Result<Fetched, CallError>) -> String {
+    match fetched {
+        Err(error) if error.code() == "response_limit_exceeded" => {
+            let details = error.details().unwrap();
+            format!(
+                "{}={}",
+                details["setting"].as_str().unwrap(),
+                details["limit"]
+            )
+        }
+        Err(error) => format!("{}: {}", error.code(), error.message()),
+        Ok(fetched) => format!(
+            "Ok: status {}, {} bytes",
+            fetched.status,
+            fetched.body.len()
+        ),
+    }
+}
+
+/// Every case of the committed limits table that a Proving ground page
+/// serves and that names a body setting, fetched on each transport: each
+/// is refused naming its setting and its value, every miss collected
+/// before the test fails.
+///
+/// Covers: setting:network.max_body_size, setting:network.max_decompression_ratio
+#[rstest]
+fn every_body_of_the_limits_table_ends_in_response_limit_exceeded_naming_its_setting(
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = transport(stack, &proving_ground);
+    let tables = HostileTables::committed().unwrap();
+    let cases: Vec<(String, String, String)> = tables
+        .limits
+        .cases
+        .iter()
+        .filter_map(|case| match (&case.served_by, &case.expected) {
+            (ServedBy::Page(task), ExpectedError::ResponseLimitExceeded { setting })
+                if *setting != LimitSetting::MaxJsonDepth =>
+            {
+                let wanted = match setting {
+                    LimitSetting::MaxBodySize => "network.max_body_size=67108864",
+                    _ => "network.max_decompression_ratio=100",
+                };
+                Some((case.name.clone(), task.clone(), wanted.to_owned()))
+            }
+            _ => None,
+        })
+        .collect();
+
+    let misses: Vec<String> = cases
+        .iter()
+        .filter_map(|(name, task, wanted)| {
+            let got = refusal(&fetched(
+                transport.as_ref(),
+                &proving_ground,
+                task,
+                Limits::default(),
+            ));
+            (got != *wanted).then(|| format!("{name} ({task}): wanted {wanted}, got {got}"))
+        })
+        .collect();
+
+    assert_eq!(cases.len(), 8, "the table's served body cases");
+    assert_eq!(misses, Vec::<String>::new());
+}
+
+/// The positive control: a page compressed well within the ratio is read
+/// whole on each transport.
+#[rstest]
+fn a_normal_compressed_page_is_read(#[values(Stack::Reqwest, Stack::Wreq)] stack: Stack) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = transport(stack, &proving_ground);
+
+    let page = fetched(
+        transport.as_ref(),
+        &proving_ground,
+        "bombs/6",
+        Limits::default(),
+    )
+    .unwrap();
+
+    let page = String::from_utf8(page.body.to_vec()).unwrap();
+    assert!(page.contains("<article class=\"record\""), "{page}");
+}
+
+/// The bytes the Proving ground sent for the requests to `host`, as its
+/// connection record has them once each answer ended.
+fn sent_to(proving_ground: &ProvingGround, host: &str) -> Vec<u64> {
+    let observations = proving_ground.observations().unwrap();
+    ReceivedRequests::of(&observations)
+        .every()
+        .filter(|request| {
+            request["host"]
+                .as_str()
+                .is_some_and(|at| at.starts_with(host))
+        })
+        .filter_map(|request| request["delivery"]["body_sent"].as_u64())
+        .collect()
+}
+
+/// An endless body is stopped at the size the Run sets: the driver stops
+/// reading there, so the Proving ground sends little more than it.
+///
+/// Covers: setting:network.max_body_size
+#[rstest]
+fn an_endless_body_is_stopped_at_the_size_the_run_sets(
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = transport(stack, &proving_ground);
+    let limits = Limits {
+        max_body_size: 1024 * 1024,
+        ..Limits::default()
+    };
+
+    let endless = proving_ground.start_url("body-limits/2").unwrap();
+    let host = Url::parse(&endless).unwrap().host_str().unwrap().to_owned();
+
+    let refused = fetched(transport.as_ref(), &proving_ground, "body-limits/2", limits);
+    drop(transport);
+    let sent = (0..200)
+        .find_map(|_| {
+            let sent = sent_to(&proving_ground, &host).first().copied();
+            if sent.is_none() {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "the test waits for the Proving ground's record of how the answer ended"
+                )]
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            sent
+        })
+        .expect("the Proving ground recorded the endless body's delivery");
+
+    assert_eq!(refusal(&refused), "network.max_body_size=1048576");
+    assert!(
+        sent < 16 * 1024 * 1024,
+        "the driver stopped reading near the limit, the Proving ground sent {sent} bytes"
+    );
+}

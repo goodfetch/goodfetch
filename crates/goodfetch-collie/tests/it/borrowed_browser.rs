@@ -63,6 +63,13 @@ const OPENER: &str = "/opener";
 /// closes the page itself, so the new popup's opener is gone at once.
 const POPUP: &str = "/popup";
 
+/// The site's large page: a plain-text body of [`LARGE_BYTES`].
+const LARGE: &str = "/large";
+
+/// The large page's bytes: 20 MiB, whose Base64 in one CDP message passes
+/// tungstenite's default frame cap of 16 MiB.
+const LARGE_BYTES: usize = 20 * 1024 * 1024;
+
 /// How long a redirect case waits for its hop once its page loaded: a
 /// refresh or a script hops once the page is in.
 const HOP_DEADLINE: Duration = Duration::from_secs(10);
@@ -215,6 +222,19 @@ fn answer(
     let path = text.split(' ').nth(1).unwrap_or("/");
     if let Some(redirect) = redirects.lock().unwrap().get(path) {
         let _ = stream.write_all(redirect.as_bytes());
+        return;
+    }
+    if path == LARGE {
+        let _ = write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {LARGE_BYTES}\r\nConnection: close\r\n\r\n"
+        );
+        let chunk = vec![b'a'; 1024 * 1024];
+        for _ in 0..LARGE_BYTES / chunk.len() {
+            if stream.write_all(&chunk).is_err() {
+                return;
+            }
+        }
         return;
     }
     let body = match path {
@@ -412,6 +432,41 @@ fn a_borrowed_browser_is_refused_a_private_address_at_interception_and_provenanc
             })],
         ),
         "{borrowed}"
+    );
+}
+
+/// A body whose Base64 passes 16 MiB reads with `page.request` on a
+/// Borrowed browser, as on a launched one, and the Session goes on:
+/// Chromium sends each CDP message as one WebSocket frame, and the
+/// connection takes one as long as the debugging pipe's (finding 563-3).
+///
+/// Covers: operation:page.request
+#[test]
+fn a_body_past_sixteen_mebibytes_reads_on_a_borrowed_browser_and_the_session_goes_on() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let site = Site::start();
+    let mut program = Program::start(&env, &cache, "sdk_python");
+    program.run("large", &[(SITE, &[PUBLIC])]);
+    let borrowed = program.borrow("large", &lent.cdp_url);
+    let page = program.new_page(&borrowed["result"]["session_id"]);
+
+    let read = program.call(
+        "page.request",
+        &json!({ "page_id": page, "url": site.url(SITE, LARGE) }),
+    );
+    let after = program.goto(&page, &site.url(SITE, "/"));
+    program.finish("large");
+    lent.stop();
+
+    assert_eq!(
+        (
+            &read["result"]["status"],
+            &after["result"]["response"]["status"]
+        ),
+        (&json!(200), &json!(200)),
+        "{read}"
     );
 }
 

@@ -36,6 +36,7 @@ const SUMMARIES: Readonly<Record<string, MessageDescriptor>> = {
   connection_lost: msg`The Connection to the engine dropped before the call was answered, so whether it took effect is unknown.`,
   console_port_in_use: msg`The Console did not start: another program holds its port.`,
   daemon_draining: msg`The Daemon is stopping, so it takes no run.`,
+  daemon_unreachable: msg`No Daemon answered, so the command reached no engine.`,
   deadline_exceeded: msg`The call's deadline passed before what it waited for came.`,
   dialog_already_handled: msg`The dialog was answered already.`,
   egress_refused: msg`The run's egress policy refused the request before it connected.`,

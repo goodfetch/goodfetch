@@ -10,6 +10,9 @@
 //! `path_not_writable`, and storage that fails `14`, `file_write_failed`
 //! of side `program`. Once written, it prints the Export, as JSON under
 //! `--json`; standard output holding the bytes, `--out -` takes no `--json`.
+//! A standard output that takes no more bytes stops `export.stream` at
+//! once: a pipe whose reader left ends the command quietly, and any other
+//! failure exits `14`, `file_write_failed` with no path.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -156,16 +159,30 @@ pub(super) fn run(
         })
     };
     let mut failed: Option<SaveError> = None;
-    let mut write = |method: &str, sent: &Value| -> u32 {
+    // Whether stdout's reader left, a closed pipe, which ends the command
+    // quietly once the call stopped.
+    let mut reader_left = false;
+    let mut write = |method: &str, sent: &Value| -> Option<u32> {
         if method != CHUNK {
-            return 0;
+            return Some(0);
         }
         let bytes = sent["data"]
             .as_str()
             .and_then(|data| data_encoding::BASE64.decode(data.as_bytes()).ok())
             .unwrap_or_default();
         match &mut sink {
-            Sink::Stdout => output::bytes(&bytes),
+            // A stdout that takes no more stops the call at once.
+            Sink::Stdout => match output::bytes(&bytes) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {
+                    reader_left = true;
+                    return None;
+                }
+                Err(error) => {
+                    failed = Some(SaveError::of_storage(&error, "write standard output"));
+                    return None;
+                }
+            },
             Sink::File(saving) if failed.is_none() => {
                 failed = saving.write(&bytes).err();
             }
@@ -173,7 +190,7 @@ pub(super) fn run(
             // the engine ends the call.
             Sink::File(_) => {}
         }
-        1
+        Some(1)
     };
     let command_call = CommandCall {
         method: call.operation.name,
@@ -189,31 +206,85 @@ pub(super) fn run(
     let reach = call.reach(daemons, &warn);
     let answer = engine_choice::call(engine, dependencies, call.product, &reach, command_call);
     drop(progress);
-    match answer {
-        Answer::Result(_) => {
-            if let Out::Path(path) = &flags.out {
-                let written = match (failed, sink) {
-                    (Some(error), _) => Err(error),
-                    (None, Sink::File(saving)) => saving.finish(),
-                    (None, Sink::Stdout) => Ok(()),
-                };
-                if let Err(error) = written {
-                    return call.fail(save_failed(error, path), human);
-                }
-                if let Some(export) = &export {
-                    call.print(export, human);
-                }
-            }
-            ExitCode::from(exit_codes::SUCCESS)
+    if let (Out::Stdout, false) = (&flags.out, matches!(answer, Answer::Interrupted(_))) {
+        // The call stopped because stdout took no more: what the engine
+        // answered then is no news.
+        if let Some(error) = failed.take() {
+            return call.fail(stdout_failed(error), human);
         }
+        if reader_left {
+            return ExitCode::from(exit_codes::SUCCESS);
+        }
+    }
+    match answer {
+        Answer::Result(_) => finished(call, &flags.out, (failed, sink), export.as_ref(), human),
         Answer::Error(error) => call.fail(error, human),
         Answer::Refused(error) => call.fail_exiting(error, exit_codes::DAEMON_REFUSED, human),
-        Answer::Unanswered(problem) => {
-            tracing::error!("{problem}");
-            ExitCode::from(exit_codes::unanswered())
-        }
+        Answer::Unanswered(error) => output::fail(error, None, call.json, human),
         Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
     }
+}
+
+/// The exit code of `call` once `export.stream` ended: for a path, the
+/// file `sink` wrote finished, unless a write `failed`, and the Export
+/// `export` printed.
+fn finished(
+    call: &Call,
+    out: &Out,
+    (failed, sink): (Option<SaveError>, Sink),
+    export: Option<&Value>,
+    human: &Human,
+) -> ExitCode {
+    if let Out::Path(path) = out {
+        let written = match (failed, sink) {
+            (Some(error), _) => Err(error),
+            (None, Sink::File(saving)) => saving.finish(),
+            (None, Sink::Stdout) => Ok(()),
+        };
+        if let Err(error) = written {
+            return call.fail(save_failed(error, path), human);
+        }
+        if let Some(export) = export {
+            call.print(export, human);
+        }
+    }
+    ExitCode::from(exit_codes::SUCCESS)
+}
+
+/// The failure of a write of the Export's bytes to standard output that
+/// failed with `error` (ADR 0116): `file_write_failed` of side `program`,
+/// which names no path.
+fn stdout_failed(error: SaveError) -> ErrorObject {
+    let (reason, os_code, message) = match error {
+        SaveError::Path {
+            reason,
+            os_code,
+            message,
+        }
+        | SaveError::Storage {
+            reason,
+            os_code,
+            message,
+        }
+        | SaveError::Source {
+            reason,
+            os_code,
+            message,
+        } => (reason, os_code, message),
+        SaveError::Cancelled => ("other", None, "the write stopped".to_owned()),
+    };
+    failure(
+        &FILE_WRITE_FAILED,
+        format!(
+            "The Export's bytes could not be written to standard output ({message}); what it holds is incomplete. Free space where it goes, then run the command again."
+        ),
+        &FileWriteFailedDetails {
+            reason: reason.to_owned(),
+            os_code: os_code.map(str::to_owned),
+            path: None,
+            side: WriteSide::Program,
+        },
+    )
 }
 
 /// The failure of a write of `path` that failed with `error` (ADR 0116):

@@ -4,6 +4,7 @@
 use std::process::ExitCode;
 
 use clap::Subcommand;
+use goodfetch_cli::output::Human;
 use goodfetch_engine::{Dependencies, Engine};
 
 use super::{daemon, service};
@@ -125,17 +126,24 @@ pub(super) fn daemon_command(
     engine: &Engine,
     dependencies: Dependencies,
     machine: &daemon::Machine<'_>,
+    human: &Human,
 ) -> ExitCode {
     match command {
-        DaemonCommand::Start { keep_alive, json } => daemon::start(machine, keep_alive, json),
-        DaemonCommand::Stop { json } => daemon::stop(machine, json),
-        DaemonCommand::Restart { keep_alive, json } => daemon::restart(machine, keep_alive, json),
-        DaemonCommand::Status { json } => daemon::status(machine, json),
-        DaemonCommand::Health { live, json } => daemon::health(machine, live, json),
-        DaemonCommand::Install { json } => service::install(machine, json),
-        DaemonCommand::Uninstall { json } => service::uninstall(machine, json),
-        DaemonCommand::RotateToken { json } => service::rotate_token(machine, json),
-        DaemonCommand::HttpListenerToken { json } => service::http_listener_token(machine, json),
+        DaemonCommand::Start { keep_alive, json } => {
+            daemon::start(machine, keep_alive, json, human)
+        }
+        DaemonCommand::Stop { json } => daemon::stop(machine, json, human),
+        DaemonCommand::Restart { keep_alive, json } => {
+            daemon::restart(machine, keep_alive, json, human)
+        }
+        DaemonCommand::Status { json } => daemon::status(machine, json, human),
+        DaemonCommand::Health { live, json } => daemon::health(machine, live, json, human),
+        DaemonCommand::Install { json } => service::install(machine, json, human),
+        DaemonCommand::Uninstall { json } => service::uninstall(machine, json, human),
+        DaemonCommand::RotateToken { json } => service::rotate_token(machine, json, human),
+        DaemonCommand::HttpListenerToken { json } => {
+            service::http_listener_token(machine, json, human)
+        }
         DaemonCommand::Run { json, reaped } => {
             daemon::run(engine, dependencies, machine, reaped, json)
         }

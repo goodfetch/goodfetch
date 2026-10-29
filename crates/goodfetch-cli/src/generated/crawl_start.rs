@@ -13,10 +13,14 @@
 //!
 //! Under `--follow` it then reads the Run's progress on the same
 //! Connection until the Run ends, and exits by how it ended, as a command
-//! that answers a Run report does: `20` for a Run that ended `stopped`, and
-//! under `--require-verified` `21` for a Verdict other than `verified`. A
-//! first interrupt then stops the Run with a Checkpoint, `run.stop`, and
-//! exits `130` once it is answered; a second exits at once.
+//! that answers a Run report does: by the row of the error a `failed` Run
+//! ended with, `20` for a Run that ended `stopped`, and under
+//! `--require-verified` `21` for a Verdict other than `verified`. A
+//! failure once the Run ID is printed goes to stderr alone, naming the
+//! call that failed, so stdout under `--json` holds the Run ID alone (ADR
+//! 0069). A first interrupt then stops the Run with a Checkpoint,
+//! `run.stop`, and exits `130` once it is answered; a second exits at
+//! once.
 
 use std::cell::RefCell;
 use std::process::ExitCode;
@@ -26,7 +30,7 @@ use clap::{Arg, ArgAction, ArgMatches, Command};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::Operation;
 use goodfetch_protocol::page::FormatsRequest;
-use goodfetch_protocol::run::{RUN_PROGRESS_READ, RUN_REPORT, RUN_STOP, RunReport};
+use goodfetch_protocol::run::{Lifecycle, RUN_PROGRESS_READ, RUN_REPORT, RUN_STOP, RunReport};
 use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value, json};
 
@@ -391,23 +395,64 @@ pub(super) fn run(
     let reach = call.reach(daemons, &warn);
     let answer = engine_choice::call(engine, dependencies, call.product, &reach, command_call);
     drop(shown);
-    match answer {
-        Answer::Result(_) if !flags.follow => ExitCode::from(exit_codes::SUCCESS),
-        Answer::Result(report) => match serde_json::from_value::<RunReport>(report) {
-            Ok(report) => ExitCode::from(exit_codes::of_report(&report, flags.require_verified)),
-            Err(problem) => {
-                tracing::error!(%problem, "the engine answered no Run report");
-                ExitCode::from(exit_codes::unanswered())
-            }
-        },
-        Answer::Error(error) => call.fail(error, human),
-        Answer::Refused(error) => call.fail_exiting(error, exit_codes::DAEMON_REFUSED, human),
-        Answer::Unanswered(problem) => {
-            tracing::error!("{problem}");
-            ExitCode::from(exit_codes::unanswered())
+    // Once the Run ID is out, a failure goes to stderr alone, naming the
+    // call in flight.
+    let failing = match phase {
+        Phase::Starting => None,
+        Phase::Following => Some(RUN_PROGRESS_READ.name),
+        Phase::Reporting => Some(RUN_REPORT.name),
+    };
+    match (answer, failing) {
+        (Answer::Result(_), _) if !flags.follow => ExitCode::from(exit_codes::SUCCESS),
+        (Answer::Result(report), _) => ended(report, flags.require_verified, json, human),
+        (Answer::Error(error), None) => call.fail(error, human),
+        (Answer::Error(error), Some(operation)) => {
+            let exit = exit_codes::of_error(&error.data.code, exit_codes::group(&error));
+            output::failed_after(&output::command_failed(error, Some(operation)), json, human);
+            ExitCode::from(exit)
         }
-        Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
+        (Answer::Refused(error), _) => call.fail_exiting(error, exit_codes::DAEMON_REFUSED, human),
+        (Answer::Unanswered(error), _) => output::fail(error, None, json, human),
+        (Answer::Interrupted(interrupt), _) => ExitCode::from(interrupt.exit_code()),
     }
+}
+
+/// The exit code of a followed crawl whose `run.report` answered `report`:
+/// by how its Run ended (ADR 0069), and for a Run whose ending raised an
+/// error, that error, printed on stderr as `run.report`'s, as `run finish`
+/// fails with it.
+fn ended(report: Value, require_verified: bool, json: bool, human: &Human) -> ExitCode {
+    let report = match serde_json::from_value::<RunReport>(report) {
+        Ok(report) => report,
+        Err(problem) => {
+            let error = exit_codes::internal(format!(
+                "The engine answered `{}` with no Run report: {problem}.",
+                RUN_REPORT.name
+            ));
+            output::failed_after(
+                &output::command_failed(error, Some(RUN_REPORT.name)),
+                json,
+                human,
+            );
+            return ExitCode::from(exit_codes::unanswered());
+        }
+    };
+    let error = match (&report.error, report.lifecycle) {
+        (Some(error), _) => Some(exit_codes::of_ending(error)),
+        (None, Lifecycle::Failed) => Some(exit_codes::internal(format!(
+            "The crawl `{}` ended `failed`, and its report names no error.",
+            report.run_id
+        ))),
+        (None, _) => None,
+    };
+    if let Some(error) = error {
+        output::failed_after(
+            &output::command_failed(error, Some(RUN_REPORT.name)),
+            json,
+            human,
+        );
+    }
+    ExitCode::from(exit_codes::of_report(&report, require_verified))
 }
 
 /// The call of `operation`, a Run's read or its stop, with `params`.

@@ -1,10 +1,12 @@
 //! A crawl run from the command line alone (ADRs 0069, 0086, 0099 and
 //! 0116; spec #611's CLI), through Foxhound's executable: `crawl start
 //! <url>…` builds the code-free crawl from its flags and prints its Run ID,
-//! under `--follow` exits by how the Run ended, and checkpoints it at a
-//! first interrupt; `run export --out` writes the Export's file whole or
-//! not at all; and `config explain politeness` shows every Politeness value
-//! with its layer before a crawl starts.
+//! under `--follow` exits by how the Run ended, checkpoints it at a first
+//! interrupt, and prints a failure once the Run ID is out on stderr alone;
+//! `run export --out` writes the Export's file whole or not at all, and
+//! stops at a standard output that takes no more; and `config explain
+//! politeness` shows every Politeness value with its layer before a crawl
+//! starts. The Scripted engine plays the Daemon whose Connection fails.
 #![expect(
     clippy::disallowed_methods,
     reason = "a test writes the files its commands read and reads the files they write"
@@ -18,7 +20,8 @@ use std::io::{BufRead as _, BufReader};
 use std::process::Stdio;
 
 use goodfetch_test_support::{
-    Mode, ProvingGround, SnapshotValues, TestEnv, cli, record_command, snapshot_settings,
+    Mode, ProvingGround, SnapshotValues, TestEnv, Tool, cli, engine_script, record_command,
+    reported_address, snapshot_settings, tools,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -398,4 +401,112 @@ fn config_explain_politeness_lists_every_politeness_value_with_its_layer(#[case]
             serde_json::to_string_pretty(&explained.documents[0]).unwrap()
         );
     });
+}
+
+/// Starts the Scripted engine as the Daemon of the test's home, playing
+/// the corpus's `script`.
+fn scripted_daemon(env: &TestEnv, script: &str) -> goodfetch_test_support::Process {
+    let scripted = tools()
+        .unwrap()
+        .path(Tool::ScriptedEngine)
+        .unwrap()
+        .to_owned();
+    let mut command = env.process_command(scripted);
+    command
+        .arg("--script")
+        .arg(engine_script(script))
+        .args(["--mode", "socket"])
+        .stderr(Stdio::null());
+    let process = env.spawn(&mut command).unwrap();
+    reported_address(&mut process.child()).unwrap();
+    process
+}
+
+/// Under `--json`, a followed crawl whose Connection drops once its Run ID
+/// is printed keeps stdout to that Run ID alone, and prints the failure on
+/// stderr as one JSON line naming the call that failed,
+/// `run.progress`: `connection_lost`, exit `8` (ADR 0069).
+///
+/// Covers: story:11-1132, command:crawl.start, error:connection_lost, exit:unavailable
+#[test]
+fn a_failure_after_the_run_id_goes_to_stderr_naming_the_call_that_failed() {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-crawl-follow-dropped.json");
+
+    let output = cli(&env, FOXHOUND)
+        .args([
+            "crawl",
+            "start",
+            "https://example.com/",
+            "--run-id",
+            "first",
+        ])
+        .args(["--follow", "--json", "--daemon"])
+        .run()
+        .unwrap();
+    scripted.child().wait().unwrap();
+    let failure = output
+        .stderr
+        .lines()
+        .find_map(|line| serde_json::from_str::<Value>(line).ok())
+        .unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            output.exit,
+            output.stdout.as_str(),
+            failure["error"]["code"].clone(),
+            failure["error"]["operation"].clone(),
+        ),
+        (
+            Some(8),
+            "\"first\"\n",
+            json!("connection_lost"),
+            json!("run.progress"),
+        ),
+        "{output}"
+    );
+}
+
+/// `run export --out -` to a standard output that takes no bytes, a full
+/// device, stops `export.stream` at its first chunk and exits `14`,
+/// `file_write_failed`, rather than ending quietly or exporting on.
+///
+/// Covers: story:11-1132, command:run.export, error:file_write_failed, exit:file_write_failed
+#[cfg(target_os = "linux")]
+#[test]
+fn run_export_to_a_full_standard_output_stops_the_call_and_exits_14() {
+    const ARGUMENTS: [&str; 9] = [
+        "run", "export", "first", "pages", "--format", "jsonl", "--out", "-", "--daemon",
+    ];
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-run-export-stopped.json");
+    let full = std::fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/full")
+        .unwrap();
+    // `TestEnv::spawn` pipes stdout, so the command runs here, its stdout
+    // the full device; it ends with the call it makes.
+    let mut command = env.process_command(FOXHOUND);
+    let output = command
+        .args(ARGUMENTS)
+        .stdin(Stdio::null())
+        .stdout(full)
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+
+    record_command(&env, &ARGUMENTS, output.status.code()).unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let played = scripted.child().wait().unwrap();
+
+    assert_eq!(
+        (
+            output.status.code(),
+            stderr.contains("code: file_write_failed"),
+            played.success(),
+        ),
+        (Some(14), true, true),
+        "{stderr}"
+    );
 }

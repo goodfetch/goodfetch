@@ -17,7 +17,6 @@ use goodfetch_cli::exit_codes;
 use goodfetch_cli::output::{self, Human};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::connection::PERSON_REQUIRED;
-use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::run::Period;
 use goodfetch_protocol::usage::{USAGE_RAISE, UsageRaiseParams};
 use serde_json::Value;
@@ -79,29 +78,19 @@ pub(super) fn raise(
             output::line(&text(&value));
             ExitCode::from(exit_codes::SUCCESS)
         }
-        Answer::Error(error) => {
-            let group = goodfetch_cli::generated::group(&error);
-            failed(&error, exit_codes::of_error(&error.data.code, group), human)
-        }
-        Answer::Refused(error) => failed(&error, exit_codes::DAEMON_REFUSED, human),
-        Answer::Unanswered(problem) => {
-            tracing::error!("{problem}");
-            ExitCode::from(exit_codes::unanswered())
-        }
+        // A person-only command takes no `--json`: its failure prints on
+        // stderr, as every command's does.
+        Answer::Error(error) => output::fail(error, Some(USAGE_RAISE.name), false, human),
+        Answer::Refused(error) => output::fail_exiting(
+            error,
+            Some(USAGE_RAISE.name),
+            exit_codes::DAEMON_REFUSED,
+            false,
+            human,
+        ),
+        Answer::Unanswered(error) => output::fail(error, None, false, human),
         Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
     }
-}
-
-/// Prints `error` on stderr and answers `exit`.
-fn failed(error: &ErrorObject, exit: u8, human: &Human) -> ExitCode {
-    human.failure(
-        &error.message,
-        &[
-            ("code", error.data.code.clone()),
-            ("retryable", error.data.retryable.to_string()),
-        ],
-    );
-    ExitCode::from(exit)
 }
 
 /// The question the prompt asks: which Limit, raised to what.

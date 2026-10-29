@@ -1219,6 +1219,13 @@ number = 12
 kind = "error"
 prefix = "connection_lost"
 
+# Area 11, the Client surfaces (spec #608): the Error code a CLI command
+# fails with when no Daemon answers it (G14).
+[[area]]
+number = 11
+kind = "error"
+prefix = "daemon_unreachable"
+
 # Area 11, the Client surfaces (spec #608): the commands generated from the
 # catalog (#1174).
 [[area]]

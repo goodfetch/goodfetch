@@ -222,6 +222,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "No Daemon could be reached, so nothing was called: nothing answers where `GOODFETCH_URL` or its runtime file says it listens, it closed the Connection before it answered `hello`, as one does for a wrong `GOODFETCH_TOKEN`, it went away while the command connected, or its files cannot be read or its major's pick cannot be started. The message says which, and the `fix` what to do.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "daemon_unreachable",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The crawl declares a second Dataset of a name it already declares, so it was not started. The details name the Dataset. Give each Dataset its own name.",
       "exit_code": null,
       "group": "program",
@@ -1538,7 +1548,7 @@
     },
     {
       "code": 11,
-      "description": "The engine does not speak the protocol version the Client's `hello` names: it accepts its own major with the same or an older minor. Upgrade the older side.",
+      "description": "The Daemon refused the command's `hello`: by protocol version (`protocol_version_unsupported`), or, while it could not hand over, by Product (`not_in_product`, whose own row is for a call refused after `hello`). Run the `daemon restart` the refusal's `fix` names, or upgrade the Client.",
       "name": "protocol_version_unsupported",
       "product": "collie"
     },
@@ -1582,6 +1592,12 @@
       "code": 21,
       "description": "`--require-verified` was given and the Run, or the Agent's Success check, ended with a Verdict other than `verified`: `rejected` or `needs_review`.",
       "name": "verdict_not_verified",
+      "product": "collie"
+    },
+    {
+      "code": 22,
+      "description": "`audit verify` found an entry that does not verify: the Audit log, or the export it was given, was edited, deleted from, reordered or truncated at the sequence its output names.",
+      "name": "audit_log_not_intact",
       "product": "collie"
     },
     {

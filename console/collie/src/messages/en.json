@@ -191,6 +191,7 @@
   "1UzENP": "No",
   "nVkvLi": "No address was found for the host name.",
   "6ppVK1": "No connection to the engine: this page is read-only until the Console reconnects, which it does by itself.",
+  "stmvfW": "No Daemon answered, so the command reached no engine.",
   "HYsdJE": "No Effect is uncertain.",
   "irs7vn": "No engine executable was found to start.",
   "Ygvcgz": "No engine works this run: it was interrupted. Run this command to resume it from its committed state:",

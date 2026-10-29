@@ -29,6 +29,42 @@ fn a_kept_folder_is_listed_on_failure() {
     assert!(Path::new(kept).starts_with(env.folder()), "{kept}");
 }
 
+/// A failed in-memory test's folder is kept in the temporary folder on
+/// disk, not on the memory file system, where every kept folder would hold
+/// RAM until someone deletes it (TESTING.md, Shared helpers).
+#[cfg(target_os = "linux")]
+#[test]
+fn an_in_memory_folder_of_a_failed_test_is_kept_on_disk() {
+    let env = TestEnv::new();
+
+    let output = probe(&env, "probe::fails_with_an_in_memory_test_env")
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let kept = stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("goodfetch-test-folder-kept="))
+        .map_or_else(|| panic!("no kept folder listed: {stderr}"), Path::new);
+    let name = kept.file_name().unwrap();
+    let left_in_memory = Path::new("/dev/shm").join(name);
+    let still_there = left_in_memory.exists();
+    if still_there {
+        std::fs::remove_dir_all(&left_in_memory).unwrap();
+    }
+    assert!(!output.status.success());
+    assert!(
+        !still_there,
+        "{} is left in memory",
+        left_in_memory.display()
+    );
+    assert!(kept.starts_with(env.folder()), "{}", kept.display());
+    assert_eq!(
+        std::fs::read_to_string(kept.join("evidence.txt")).unwrap(),
+        "kept"
+    );
+}
+
 #[test]
 fn a_child_left_alive_after_teardown_fails_the_test() {
     let outer = TestEnv::new();

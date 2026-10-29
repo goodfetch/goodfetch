@@ -107,7 +107,9 @@ impl TestEnv {
     /// (fix-queue 123), and for the Daemon soak, whose HTTP crawls start no
     /// browser and whose Runs' stores a busy disk slowed past its cap
     /// (fix-queue 128). Any other test that starts a browser or an engine
-    /// keeps [`TestEnv::new`]: its copies would sit in memory.
+    /// keeps [`TestEnv::new`]: its copies would sit in memory. A failed
+    /// test's folder is kept on disk, in the temporary folder, and removed
+    /// from memory.
     ///
     /// # Panics
     ///
@@ -391,6 +393,52 @@ impl TestEnv {
     }
 }
 
+impl TestEnv {
+    /// Keeps the failed test's folder and returns where: a folder on the
+    /// memory file system is copied to the temporary folder on disk, under
+    /// its own name, and removed from memory when the value drops, since a
+    /// kept folder holds RAM there until someone deletes it; if the copy
+    /// fails, the folder stays in memory.
+    fn kept_folder(&mut self) -> PathBuf {
+        let folder = self.folder.path();
+        let in_memory = memory_folder().is_some_and(|memory| folder.starts_with(memory));
+        if in_memory && let Some(name) = folder.file_name() {
+            let on_disk = std::env::temp_dir().join(name);
+            match copy_folder(folder, &on_disk) {
+                Ok(()) => return on_disk,
+                // Best effort: whatever was copied goes, and the folder
+                // stays where it is.
+                Err(_) => {
+                    let _ = std::fs::remove_dir_all(&on_disk);
+                }
+            }
+        }
+        self.folder.disable_cleanup(true);
+        self.folder().to_owned()
+    }
+}
+
+/// Copies the folder `from` to `to`, which must not exist yet: its
+/// folders, files and, on Unix, symbolic links; a socket or other special
+/// file is left out.
+fn copy_folder(from: &Path, to: &Path) -> io::Result<()> {
+    std::fs::create_dir(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        let target = to.join(entry.file_name());
+        if kind.is_dir() {
+            copy_folder(&entry.path(), &target)?;
+        } else if kind.is_file() {
+            std::fs::copy(entry.path(), &target)?;
+        } else if kind.is_symlink() {
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(std::fs::read_link(entry.path())?, &target)?;
+        }
+    }
+    Ok(())
+}
+
 impl Default for TestEnv {
     fn default() -> Self {
         Self::new()
@@ -430,7 +478,7 @@ impl Drop for TestEnv {
         if !panicking && alive.is_empty() && dumps.is_empty() {
             return;
         }
-        self.folder.disable_cleanup(true);
+        let kept = self.kept_folder();
         let alive = ProcessesAlive { programs: alive };
         let dumps = CrashDumps { dumps };
         #[expect(
@@ -438,7 +486,7 @@ impl Drop for TestEnv {
             reason = "a failed test lists its kept folder and the failure's reasons, since a typed panic payload prints none (ADRs 0062 and 0069)"
         )]
         {
-            eprintln!("goodfetch-test-folder-kept={}", self.folder().display());
+            eprintln!("goodfetch-test-folder-kept={}", kept.display());
             if !alive.programs.is_empty() {
                 eprintln!("{alive}");
             }

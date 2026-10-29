@@ -5,8 +5,8 @@
 //! layout the install database then deletes the run folder's files; the
 //! run folder is removed last, with its run file, page bodies, browser
 //! profiles and Checkpoints, the lock file after every other entry, since
-//! Windows removes no file a handle holds. Its call blocks: the registry
-//! runs it under its owner's blocking policy.
+//! Windows removes no file a handle holds. Its blocking steps run under
+//! its owner's blocking policy.
 //!
 //! The Run's Run index row is the registry's to mark erased. A Profile
 //! directory a Run uses in place and a Borrowed browser are outside the run
@@ -17,13 +17,17 @@
 
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
 
 use super::RUN_FILE;
-use super::writer::{LOCK_FILE, LockError, take_lock};
+use super::writer::{LOCK_FILE, retried, try_lock};
+use crate::clock::Clock;
+use crate::entropy::Entropy;
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateError, sqlite_error};
+use crate::tasks::TaskOwner;
 
 /// What a discard found of a Run.
 #[derive(Debug, PartialEq, Eq)]
@@ -37,8 +41,9 @@ pub(super) enum Discarded {
 /// Why a Run's state was not erased.
 #[derive(Debug, thiserror::Error)]
 pub(super) enum DiscardError {
-    /// Another engine holds its writer lock.
-    #[error("another engine holds the Run's writer lock")]
+    /// Another engine holds its writer lock, or a reader kept its run
+    /// file's WAL from being truncated, through every retry.
+    #[error("another engine holds the Run's writer lock, or a reader its run file")]
     Held,
     /// Its run file or the install database could not be written.
     #[error(transparent)]
@@ -48,58 +53,120 @@ pub(super) enum DiscardError {
     Io(String),
 }
 
+/// What a discard needs beside the Run: its owner, under whose blocking
+/// policy it runs, and the clock and entropy its retries wait on.
+pub(super) struct Discarding<'a> {
+    pub(super) owner: &'a TaskOwner,
+    pub(super) clock: &'a Clock,
+    pub(super) entropy: &'a mut Entropy,
+}
+
 /// Erases the state of the Run `run_id` in `folder`, its run file opening
-/// through the VFS `vfs`, and from `install` in the per-install layout.
-pub(super) fn discard(
+/// through the VFS `vfs`, and from `install` in the per-install layout. A
+/// held writer lock and a WAL a reader keeps are each retried as every
+/// writer retries a held lock (ADR 0031), since a reader holds either only
+/// for a moment.
+pub(super) async fn discard(
+    discarding: Discarding<'_>,
     run_id: &str,
     folder: &Path,
     vfs: Option<&str>,
-    install: Option<&InstallDatabase>,
+    install: Option<&Arc<InstallDatabase>>,
 ) -> Result<Discarded, DiscardError> {
+    let Discarding {
+        owner,
+        clock,
+        entropy,
+    } = discarding;
+    let (id, at, held) = (run_id.to_owned(), folder.to_owned(), install.cloned());
+    let found = owner
+        .blocking(move || present(&id, &at, held.as_deref()))
+        .await?;
+    let Some(installed) = found else {
+        return Ok(Discarded::Absent);
+    };
+    let lock = match try_lock(owner, folder).await {
+        Ok(Some(lock)) => Ok(Some(lock)),
+        Ok(None) => retried(clock, entropy, || try_lock(owner, folder)).await,
+        Err(error) => Err(error),
+    };
+    let lock = lock.map_err(DiscardError::Io)?.ok_or(DiscardError::Held)?;
+    let file = folder.join(RUN_FILE);
+    let (at, opened_with) = (file.clone(), vfs.map(str::to_owned));
+    let keyed = owner
+        .blocking(move || destroy_key(&at, opened_with.as_deref(), installed))
+        .await?;
+    if keyed {
+        let truncate = || {
+            let (at, opened_with) = (file.clone(), vfs.map(str::to_owned));
+            owner.blocking(move || truncate_wal(&at, opened_with.as_deref()))
+        };
+        let truncated = match truncate().await? {
+            Some(()) => Some(()),
+            None => retried(clock, entropy, truncate).await?,
+        };
+        truncated.ok_or(DiscardError::Held)?;
+    }
+    let (id, at, held) = (run_id.to_owned(), folder.to_owned(), install.cloned());
+    owner
+        .blocking(move || {
+            if let Some(install) = held {
+                install.erase(&id)?;
+            }
+            remove_all_but_the_lock(&at).map_err(|error| DiscardError::Io(error.to_string()))?;
+            drop(lock);
+            remove_folder(&at).map_err(|error| DiscardError::Io(error.to_string()))
+        })
+        .await?;
+    Ok(Discarded::Erased)
+}
+
+/// Whether anything of the Run `run_id` is in `folder` or `install`: `None`
+/// when nothing is, and otherwise whether `install` holds its run file.
+fn present(
+    run_id: &str,
+    folder: &Path,
+    install: Option<&InstallDatabase>,
+) -> Result<Option<bool>, DiscardError> {
     let folder_exists =
         std::fs::exists(folder).map_err(|error| DiscardError::Io(error.to_string()))?;
     let installed = match install {
         Some(install) => install.runs()?.iter().any(|run| run == run_id),
         None => false,
     };
-    if !folder_exists && !installed {
-        return Ok(Discarded::Absent);
-    }
-    let lock = match take_lock(folder) {
-        Ok(lock) => lock,
-        Err(LockError::Held) => return Err(DiscardError::Held),
-        Err(LockError::Io(error)) => return Err(DiscardError::Io(error)),
-    };
-    destroy_key(&folder.join(RUN_FILE), vfs, installed)?;
-    if let Some(install) = install {
-        install.erase(run_id)?;
-    }
-    remove_all_but_the_lock(folder).map_err(|error| DiscardError::Io(error.to_string()))?;
-    drop(lock);
-    remove_folder(folder).map_err(|error| DiscardError::Io(error.to_string()))?;
-    Ok(Discarded::Erased)
+    Ok((folder_exists || installed).then_some(installed))
 }
 
-/// Overwrites the wrapped data key the run file at `file` holds, if any,
-/// with `secure_delete` on, then truncates its WAL (ADR 0015).
-fn destroy_key(file: &Path, vfs: Option<&str>, installed: bool) -> Result<(), RunStateError> {
-    let on_disk = std::fs::exists(file).unwrap_or(false);
-    if !on_disk && !installed {
-        return Ok(());
-    }
-    let failed = |error: rusqlite::Error| sqlite_error(file, &error);
+/// Opens the run file at `file` through the VFS `vfs`: `None` when it never
+/// came to be.
+fn open_run_file(file: &Path, vfs: Option<&str>) -> Result<Option<Connection>, RunStateError> {
     let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let connection = match vfs {
         Some(vfs) => Connection::open_with_flags_and_vfs(file, flags, vfs),
         None => Connection::open_with_flags(file, flags),
     };
-    let connection = match connection {
-        Ok(connection) => connection,
-        // A run folder whose run file never came to be holds no key.
+    match connection {
+        Ok(connection) => Ok(Some(connection)),
         Err(error) if error.sqlite_error_code() == Some(rusqlite::ErrorCode::CannotOpen) => {
-            return Ok(());
+            Ok(None)
         }
-        Err(error) => return Err(failed(error)),
+        Err(error) => Err(sqlite_error(file, &error)),
+    }
+}
+
+/// Overwrites the wrapped data key the run file at `file` holds, if any,
+/// with `secure_delete` on (ADR 0015): the zeroed page goes to its WAL,
+/// which [`truncate_wal`] then copies over the key. Answers whether there
+/// is a run file.
+fn destroy_key(file: &Path, vfs: Option<&str>, installed: bool) -> Result<bool, RunStateError> {
+    let on_disk = std::fs::exists(file).unwrap_or(false);
+    if !on_disk && !installed {
+        return Ok(false);
+    }
+    let failed = |error: rusqlite::Error| sqlite_error(file, &error);
+    // A run folder whose run file never came to be holds no key.
+    let Some(connection) = open_run_file(file, vfs)? else {
+        return Ok(false);
     };
     connection
         .pragma_update(None, "secure_delete", "ON")
@@ -118,10 +185,25 @@ fn destroy_key(file: &Path, vfs: Option<&str>, installed: bool) -> Result<(), Ru
             .execute("DELETE FROM run_key", [])
             .map_err(failed)?;
     }
+    Ok(true)
+}
+
+/// Copies the WAL of the run file at `file` into it and truncates it, at
+/// once: `None` while a reader keeps a snapshot the checkpoint cannot pass,
+/// so the run file may still hold the key's bytes.
+fn truncate_wal(file: &Path, vfs: Option<&str>) -> Result<Option<()>, RunStateError> {
+    let failed = |error: rusqlite::Error| sqlite_error(file, &error);
+    let Some(connection) = open_run_file(file, vfs)? else {
+        return Ok(Some(()));
+    };
+    // Each try answers at once; the retries wait on the engine's clock.
     connection
-        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+        .busy_timeout(std::time::Duration::ZERO)
         .map_err(failed)?;
-    Ok(())
+    let busy: i64 = connection
+        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))
+        .map_err(failed)?;
+    Ok((busy == 0).then_some(()))
 }
 
 /// Removes every entry of `folder` but its lock file.
@@ -155,3 +237,6 @@ fn remove_folder(folder: &Path) -> io::Result<()> {
         other => other,
     }
 }
+
+#[cfg(test)]
+mod tests;

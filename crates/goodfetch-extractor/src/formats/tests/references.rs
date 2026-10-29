@@ -297,6 +297,57 @@ fn links_read_the_document_as_it_stands_its_shadow_roots_included_and_no_rule_to
     assert!(!read.markdown.unwrap().contains("Buy now"));
 }
 
+/// An ad's image and video, which a cosmetic rule removes, are left out of
+/// `images` and `media`, which read the document after the Clean-up rules
+/// (ADR 0047); the ad's link stays in `links`.
+/// Covers: story:6-4, story:6-10
+#[test]
+fn images_and_media_read_the_document_after_the_clean_up_rules_and_links_before_them() {
+    let html = r#"<!doctype html><html><body>
+        <article><p>A kite line has to be strong enough for the pull of the kite. <img src="/images/line.jpg" alt="A line"></p><video src="/films/launch.webm"></video></article>
+        <div class="ad-slot"><a href="https://ads.test/buy"><img src="https://ads.test/banner.png" alt="Buy now"></a><video src="https://ads.test/spot.webm"></video></div>
+        </body></html>"#;
+
+    let read = formats(
+        &Document {
+            html,
+            url: URL,
+            base_url: URL,
+            serialization: Serialization::Dom,
+        },
+        &serde_json::from_value(json!({ "links": true, "images": true, "media": true })).unwrap(),
+        &Context {
+            clean_up: Some(&AdSlots),
+            ..Context::default()
+        },
+    );
+
+    assert_eq!(
+        (
+            read.links
+                .unwrap()
+                .into_iter()
+                .map(|link| link.href)
+                .collect::<Vec<_>>(),
+            read.images
+                .unwrap()
+                .into_iter()
+                .map(|image| image.src)
+                .collect::<Vec<_>>(),
+            read.media
+                .unwrap()
+                .into_iter()
+                .map(|media| media.src)
+                .collect::<Vec<_>>(),
+        ),
+        (
+            vec!["https://ads.test/buy".to_owned()],
+            vec!["/images/line.jpg".to_owned()],
+            vec!["/films/launch.webm".to_owned()],
+        )
+    );
+}
+
 /// HTML-escapes `value` for a double-quoted attribute.
 fn attribute(value: &str) -> String {
     value.replace('&', "&amp;").replace('"', "&quot;")

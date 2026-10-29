@@ -314,7 +314,7 @@ fn a_program_reads_the_main_content_of_its_page_as_markdown() {
                 "main_content": "found",
                 "markdown": "## Desk Lamp\n\n**Price:** 39 €\n\n## Specifications\n\n| Power | 8 W |\n| --- | --- |\n| Colour | Black |\n\n## In the box\n\n- Lamp\n- USB cable\n",
             }),
-            &json!({ "url": product, "base_url": product, "main_content": "found" }),
+            &json!({ "url": product, "base_url": product }),
             &json!({
                 "url": navigation,
                 "base_url": navigation,

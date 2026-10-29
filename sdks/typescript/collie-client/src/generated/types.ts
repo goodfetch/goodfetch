@@ -4665,7 +4665,8 @@ export interface PageFired {
 }
 /**
  * What `page.formats` answers: the formats the request asked for, and
- * none it did not, with the document's URL, its base URL and whether it
+ * none it did not, with the document's URL, its base URL and, when a
+ * format it asked for is read from the main content, whether the document
  * has main content. Text is as the document holds it, never repaired.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -4691,9 +4692,10 @@ export interface PageFormats {
    */
   links?: Link[];
   /**
-   * Whether it has main content.
+   * Whether it has main content, when the request asked for a format
+   * read from it ([`FormatsRequest::reads_main_content`]).
    */
-  main_content: "found" | "none";
+  main_content?: "found" | "none";
   /**
    * Its content as Markdown, when the request asked for it.
    */

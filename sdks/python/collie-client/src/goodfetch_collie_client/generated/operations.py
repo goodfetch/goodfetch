@@ -251,7 +251,7 @@ class AsyncCollieOperations:
         return Evaluated.model_construct(**_fields(await self._caller.call("page.evaluate", params)))
 
     async def page_formats(self, params: FormatsParams) -> PageFormats:
-        """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
+        """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and, when a format it names is read from the main content (`markdown` of the main content or fit, `html` of the main content, `text`), whether the document has main content. A document with no main content answers those formats empty and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -786,7 +786,7 @@ class CollieOperations:
         return Evaluated.model_construct(**_fields(self._caller.call("page.evaluate", params)))
 
     def page_formats(self, params: FormatsParams) -> PageFormats:
-        """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
+        """Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and, when a format it names is read from the main content (`markdown` of the main content or fit, `html` of the main content, `text`), whether the document has main content. A document with no main content answers those formats empty and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

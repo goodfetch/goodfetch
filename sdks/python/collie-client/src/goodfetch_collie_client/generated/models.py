@@ -6260,7 +6260,8 @@ class MicrodataItem(BaseModel):
 class PageFormats(BaseModel):
     """
     What `page.formats` answers: the formats the request asked for, and
-    none it did not, with the document's URL, its base URL and whether it
+    none it did not, with the document's URL, its base URL and, when a
+    format it asked for is read from the main content, whether the document
     has main content. Text is as the document holds it, never repaired.
     """
 
@@ -6280,8 +6281,11 @@ class PageFormats(BaseModel):
     """Its images, when the request asked for them."""
     links: list[Link] | None = None
     """Its links, when the request asked for them."""
-    main_content: MainContent
-    """Whether it has main content."""
+    main_content: MainContent | None = None
+    """
+    Whether it has main content, when the request asked for a format
+    read from it ([`FormatsRequest::reads_main_content`]).
+    """
     markdown: str | None = None
     """Its content as Markdown, when the request asked for it."""
     media: list[Media] | None = None

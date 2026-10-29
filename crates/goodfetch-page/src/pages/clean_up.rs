@@ -4,14 +4,17 @@
 //! page's Session's cosmetic rules and of the prompts the Consent prompt
 //! runner hid (ADR 0048), before the main-content step and the Markdown
 //! converter only. Each call is a Provenance entry of the Run trace: the
-//! version of the rules applied, what they removed and the share of the
-//! main content's text it took, flagged above a fifth (G6).
+//! version of the rules applied, what they removed and, when the call read
+//! the main content, the share of its text the removal took, flagged above
+//! a fifth (G6).
 
 use std::cell::RefCell;
 
 use goodfetch_clean_up_rules::removal::{self, Removed, Share};
 use goodfetch_engine::settings::{Resolved, Values};
-use goodfetch_extractor::{BuiltIn, CleanUp, Context, Document, Extractor, Serialization};
+use goodfetch_extractor::{
+    BuiltIn, CleanUp, Context, Document, Extractor, Measured, Serialization,
+};
 use goodfetch_protocol::page::{CONTENT_EXTRACTOR, FormatsRequest, PageFormats, PageId, SessionId};
 use serde_json::{Value, json};
 
@@ -136,15 +139,23 @@ pub(super) fn read(
         clean_up: (cosmetic.is_some() || !hidden.is_empty()).then_some(&matcher as &dyn CleanUp),
         extractor,
     };
-    let formats = goodfetch_extractor::formats(&of(&document.html), &request, &context);
+    let Measured {
+        formats,
+        main_content_length,
+    } = goodfetch_extractor::measured_formats(&of(&document.html), &request, &context);
     let removal = matcher.removal.into_inner();
     let (removed, removed_text, share) = match removal {
         Some(removal) if !removal.removed.is_empty() => {
-            let share = Share::of(
-                goodfetch_extractor::main_content_length(&of(&document.html), extractor),
-                goodfetch_extractor::main_content_length(&of(&removal.html), extractor),
-            );
-            (removal.removed, removal.removed_text, Some(share))
+            // The formats read the main content of the document the rules
+            // left; the share needs the served one's too. A call that read
+            // no main content measures no share (story 8).
+            let share = main_content_length.map(|after| {
+                Share::of(
+                    goodfetch_extractor::main_content_length(&of(&document.html), extractor),
+                    after,
+                )
+            });
+            (removal.removed, removal.removed_text, share)
         }
         Some(_) | None => (Vec::new(), 0, None),
     };
@@ -159,3 +170,6 @@ pub(super) fn read(
         },
     )
 }
+
+#[cfg(test)]
+mod tests;

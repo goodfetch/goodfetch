@@ -131,7 +131,7 @@ fn weakened_politeness(report: &Value) -> Vec<Value> {
 /// its own by the run, writes one `politeness_weakened` entry with the key,
 /// value, default and layer, and is listed in `weakened`.
 ///
-/// Covers: story:4-117, setting:politeness.domain.concurrency, setting:politeness.domain.delay, setting:politeness.backoff.enabled, setting:politeness.backoff.initial, setting:politeness.backoff.max, setting:site_preferences.respect_robots_txt, setting:site_preferences.robots_txt_user_agent
+/// Covers: story:4-117, setting:politeness.domain.concurrency, setting:politeness.domain.delay, setting:politeness.backoff.enabled, setting:politeness.backoff.initial, setting:politeness.backoff.max, setting:site_preferences.respect_robots_txt, setting:site_preferences.robots_txt_user_agent, setting:politeness.sharing
 #[rstest]
 #[case::concurrency_above_one(json!({ "politeness": { "domain": { "concurrency": 2 } } }), "politeness.domain.concurrency", json!(2), json!(1))]
 #[case::delay_below_a_second(json!({ "politeness": { "domain": { "delay": 500 } } }), "politeness.domain.delay", json!(500), json!(1_000))]
@@ -140,6 +140,7 @@ fn weakened_politeness(report: &Value) -> Vec<Value> {
 #[case::backoff_max_shortened(json!({ "politeness": { "backoff": { "max": 30_000 } } }), "politeness.backoff.max", json!(30_000), json!(60_000))]
 #[case::robots_txt_off(json!({ "site_preferences": { "respect_robots_txt": false } }), "site_preferences.respect_robots_txt", json!(false), json!(true))]
 #[case::robots_txt_user_agent(json!({ "site_preferences": { "robots_txt_user_agent": "operator-bot" } }), "site_preferences.robots_txt_user_agent", json!("operator-bot"), Value::Null)]
+#[case::politeness_not_shared(json!({ "politeness": { "sharing": "run" } }), "politeness.sharing", json!("run"), json!("shared"))]
 fn a_value_pressing_a_site_harder_is_recorded_once_with_its_default_and_layer(
     #[case] more: Value,
     #[case] key: &str,

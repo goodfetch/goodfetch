@@ -90,12 +90,37 @@ impl From<SettingsError> for Refused {
     }
 }
 
-impl Refused {
-    /// `key`, a setting or a deployment variable, is not valid: `reason`.
-    fn invalid(key: &str, reason: String) -> Self {
-        Self(SettingsError::Invalid {
-            key: key.to_owned(),
+/// Where a value the foreground Daemon reads came from: a setting's key
+/// and the layer that set it, or a deployment variable, of no layer.
+struct Source {
+    key: String,
+    layer: Option<SettingsLayer>,
+}
+
+impl Source {
+    fn variable(variable: &str) -> Self {
+        Self {
+            key: variable.to_owned(),
             layer: None,
+        }
+    }
+
+    fn setting(settings: &Resolved, key: &str) -> Self {
+        Self {
+            key: key.to_owned(),
+            layer: Some(
+                settings
+                    .get(key)
+                    .map_or(SettingsLayer::Default, |effective| effective.layer),
+            ),
+        }
+    }
+
+    /// Its value is not valid: `reason`.
+    fn invalid(&self, reason: String) -> Refused {
+        Refused(SettingsError::Invalid {
+            key: self.key.clone(),
+            layer: self.layer,
             reason,
         })
     }
@@ -319,20 +344,23 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
         machine.identity.product,
         &machine.identity.product_version,
     )?;
-    let address = overridden(
+    let (address, source) = match overridden(
         &settings,
         machine.environment,
         ADDRESS_VARIABLE,
         ADDRESS.name,
-    )?
-    .unwrap_or_else(|| {
-        settings
-            .value(ADDRESS.name)
-            .as_str()
-            .unwrap_or_default()
-            .to_owned()
-    });
-    let address = parse_address(&address)?;
+    )? {
+        Some(address) => (address, Source::variable(ADDRESS_VARIABLE)),
+        None => (
+            settings
+                .value(ADDRESS.name)
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            Source::setting(&settings, ADDRESS.name),
+        ),
+    };
+    let address = parse_address(&address, &source)?;
     let drain_grace = match overridden(
         &settings,
         machine.environment,
@@ -343,10 +371,9 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
             .parse::<u64>()
             .map(Duration::from_millis)
             .map_err(|_| {
-                Refused::invalid(
-                    DRAIN_GRACE_VARIABLE,
-                    format!("`{milliseconds}` is no whole number of milliseconds"),
-                )
+                Source::variable(DRAIN_GRACE_VARIABLE).invalid(format!(
+                    "`{milliseconds}` is no whole number of milliseconds"
+                ))
             })?,
         None => settings
             .duration(DRAIN_GRACE.name)
@@ -355,14 +382,21 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
     let idle_timeout = settings
         .duration(IDLE_TIMEOUT.name)
         .unwrap_or(Duration::from_secs(600));
-    let ops = overridden(
+    let ops = match overridden(
         &settings,
         machine.environment,
         OPS_ADDRESS_VARIABLE,
         OPS_ADDRESS.name,
-    )?
-    .or_else(|| settings.value(OPS_ADDRESS.name).as_str().map(str::to_owned))
-    .map(|address| parse_ops_address(&address))
+    )? {
+        Some(address) => Some((address, Source::variable(OPS_ADDRESS_VARIABLE))),
+        None => settings.value(OPS_ADDRESS.name).as_str().map(|address| {
+            (
+                address.to_owned(),
+                Source::setting(&settings, OPS_ADDRESS.name),
+            )
+        }),
+    }
+    .map(|(address, source)| parse_ops_address(&address, &source))
     .transpose()?;
     let otlp_metrics = settings
         .value(OTLP_METRICS_ENDPOINT.name)
@@ -404,14 +438,11 @@ pub(super) fn reach(machine: &Machine<'_>) -> Result<Option<Reach>, Failure> {
 
 /// `address` as the ops listener listens at it: any `host:port`, so a
 /// cluster's probes and scrapers reach it.
-fn parse_ops_address(address: &str) -> Result<SocketAddr, Refused> {
+fn parse_ops_address(address: &str, source: &Source) -> Result<SocketAddr, Refused> {
     address.parse::<SocketAddr>().map_err(|_| {
-        Refused::invalid(
-            OPS_ADDRESS.name,
-            format!(
-                "`{address}` is no `host:port`; set an address and port such as `0.0.0.0:9464`"
-            ),
-        )
+        source.invalid(format!(
+            "`{address}` is no `host:port`; set an address and port such as `0.0.0.0:9464`"
+        ))
     })
 }
 
@@ -500,22 +531,16 @@ fn text(value: &OsStr) -> String {
 
 /// `address` as the foreground Daemon listens at it: a loopback `host:port`,
 /// until the Daemon terminates TLS (area 4).
-fn parse_address(address: &str) -> Result<SocketAddr, Refused> {
+fn parse_address(address: &str, source: &Source) -> Result<SocketAddr, Refused> {
     let parsed = address.parse::<SocketAddr>().map_err(|_| {
-        Refused::invalid(
-            ADDRESS.name,
-            format!(
-                "`{address}` is no `host:port`; set an address and port such as `127.0.0.1:7900`"
-            ),
-        )
+        source.invalid(format!(
+            "`{address}` is no `host:port`; set an address and port such as `127.0.0.1:7900`"
+        ))
     })?;
     if !parsed.ip().is_loopback() {
-        return Err(Refused::invalid(
-            ADDRESS.name,
-            format!(
-                "`{address}` is not a loopback address: `daemon run` listens only on loopback until the Daemon terminates TLS; put a TLS-terminating proxy in front of a loopback address"
-            ),
-        ));
+        return Err(source.invalid(format!(
+            "`{address}` is not a loopback address: `daemon run` listens only on loopback until the Daemon terminates TLS; put a TLS-terminating proxy in front of a loopback address"
+        )));
     }
     Ok(parsed)
 }
@@ -580,10 +605,11 @@ impl Signals {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_address;
+    use super::{Source, parse_address};
 
     #[test]
     fn a_loopback_address_is_taken_and_any_other_refused() {
+        let source = Source::variable("GOODFETCH_DAEMON_ADDRESS");
         let codes = [
             "127.0.0.1:0",
             "[::1]:7900",
@@ -591,7 +617,9 @@ mod tests {
             "192.0.2.1:7900",
             "nowhere",
         ]
-        .map(|address| parse_address(address).map_or_else(|refused| refused.0.code(), |_| "ok"));
+        .map(|address| {
+            parse_address(address, &source).map_or_else(|refused| refused.0.code(), |_| "ok")
+        });
 
         assert_eq!(
             codes,

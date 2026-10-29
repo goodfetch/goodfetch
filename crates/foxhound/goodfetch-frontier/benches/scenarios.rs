@@ -197,7 +197,9 @@ pub(crate) fn stage(enqueues: usize) -> usize {
         if matches!(answer, Enqueued::Added { .. }) {
             added += 1;
         }
-        if let Admitting::Staging { now, .. } = admitting {
+        // Its `earlier` is dropped first, so joining copies nothing.
+        if let Admitting::Staging { earlier, now } = admitting {
+            drop(earlier);
             Arc::make_mut(&mut staged).absorb(now);
         }
     }

@@ -256,7 +256,7 @@ fn a_miss_carries_the_optimization_pass_write_up_for_it() {
 /// A write-up under a target or Product the file does not take would never
 /// reach its miss: the report refuses the file, naming the key.
 #[rstest]
-#[case::a_mistyped_target("[startup-to-helo.collie]", "startup-to-helo")]
+#[case::a_mistyped_target("[crawl-peaks.foxhound]", "crawl-peaks")]
 #[case::a_mistyped_product("[crawl-peak.foxhoud]", "foxhoud")]
 fn a_write_up_under_a_name_the_file_does_not_take_is_refused(
     #[case] table: &str,

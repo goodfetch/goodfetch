@@ -63,9 +63,10 @@ pub(crate) struct Limits {
 impl Limits {
     /// Half of Linux's limit on one argument, 128 KiB (`MAX_ARG_STRLEN`;
     /// macOS has none), and half of what `getconf ARG_MAX` leaves after this
-    /// process's environment. The other halves cover the command's own words
-    /// and the variables that Cargo, pnpm and uv add before the runner starts.
-    fn of_host() -> Result<Self> {
+    /// process's environment, whose variables take `environment` bytes. The
+    /// other halves cover the command's own words and the variables that
+    /// Cargo, pnpm and uv add before the runner starts.
+    fn of_host(environment: usize) -> Result<Self> {
         let output = Command::new("getconf")
             .arg("ARG_MAX")
             .output()
@@ -79,9 +80,6 @@ impl Limits {
             .trim()
             .parse()
             .context("reading `getconf ARG_MAX`")?;
-        let environment: usize = std::env::vars_os()
-            .map(|(name, value)| name.len() + value.len() + 2 + size_of::<usize>())
-            .sum();
         Ok(Self {
             argument: 64 * 1024,
             command: maximum.saturating_sub(environment) / 2,
@@ -413,7 +411,7 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
         (None, Some(path)) => Selection::Tests(read_tests(&environment.root.join(path))?),
         (None, None) => Selection::Tests(arguments.test),
     };
-    let limits = Limits::of_host()?;
+    let limits = Limits::of_host(environment.variables_bytes)?;
     for (runner, batch, argument) in self::arguments(
         &environment.root,
         selection,

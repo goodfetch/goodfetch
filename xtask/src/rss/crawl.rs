@@ -197,6 +197,15 @@ pub(crate) fn crawl(stdin: ChildStdin, stdout: ChildStdout, site: &Site<'_>) -> 
     if report["lifecycle"] != "finished" || report["completeness"] != "complete" {
         bail!("Foxhound's crawl did not finish complete: {report}");
     }
+    // A crawl that ends complete on fewer pages measures a smaller one:
+    // its robots.txt reading aside, it sends one request a page.
+    let requests = report["usage"]["requests"].as_u64().unwrap_or_default();
+    if requests < site.pages {
+        bail!(
+            "Foxhound's crawl sent {requests} requests, fewer than the site's {} pages",
+            site.pages
+        );
+    }
     let Engine { stdin, mut stdout } = engine;
     drop(stdin);
     // Its output stays open until it exits, so ending never fails a write.

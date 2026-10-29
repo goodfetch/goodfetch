@@ -18,13 +18,19 @@ use anyhow::{Context as _, Result, bail};
 
 /// Starts `command`, lets `drive` run it, waits for it to exit and returns
 /// its peak resident memory in bytes. A child that exits with a failure is
-/// an error, since what it measured is not the scenario's.
+/// an error, since what it measured is not the scenario's. When `drive`
+/// fails, the child is killed first: its figure is no scenario's, and a
+/// child such as a keep-alive Daemon never ends by itself.
 pub(crate) fn of(
     command: &mut Command,
     drive: impl FnOnce(&mut Child) -> Result<()>,
 ) -> Result<u64> {
     let mut child = command.spawn().context("starting the measured command")?;
     let driven = drive(&mut child);
+    if driven.is_err() {
+        // A child that already exited cannot be killed; its wait follows.
+        let _ = child.kill();
+    }
     let status = child.wait().context("waiting for the measured command")?;
     driven?;
     if !status.success() {

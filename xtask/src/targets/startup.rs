@@ -8,6 +8,7 @@
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
 )]
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -33,8 +34,9 @@ struct Tools {
 }
 
 /// Times each Product's Attached engine and writes hyperfine's export of
-/// each into `out`.
-pub(crate) fn measure(tools: &Path, out: &Path) -> Result<()> {
+/// each into `out`; the engine runs without `goodfetch_variables`, this
+/// process's Goodfetch variables.
+pub(crate) fn measure(tools: &Path, out: &Path, goodfetch_variables: &[OsString]) -> Result<()> {
     let text = std::fs::read(tools).with_context(|| format!("reading {}", tools.display()))?;
     let tools: Tools =
         serde_json::from_slice(&text).with_context(|| format!("parsing {}", tools.display()))?;
@@ -58,7 +60,7 @@ pub(crate) fn measure(tools: &Path, out: &Path) -> Result<()> {
             product.name()
         ));
         let mut hyperfine = Command::new("hyperfine");
-        as_shipped(&mut hyperfine, home.path());
+        as_shipped(&mut hyperfine, home.path(), goodfetch_variables);
         let status = hyperfine
             .args(["--shell=none", "--style", "basic", "--warmup"])
             .arg(WARMUP.to_string())

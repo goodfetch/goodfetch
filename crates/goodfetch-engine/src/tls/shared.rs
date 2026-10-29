@@ -39,7 +39,8 @@ use rustls::sign::CertifiedKey;
 use rustls::{CertificateError, DigitallySignedStruct, OtherError, SignatureScheme};
 
 use super::exceptions::{CertificateChanged, CertificateExceptions, ExceptionUsed, Presented};
-use super::{Rejected, Trust, Verifier, client_certificates, domain_key, failure_of};
+use super::{OnClock, Rejected, Trust, Verifier, client_certificates, domain_key, failure_of};
+use crate::clock::Clock;
 use crate::known_certificates::KeyHash;
 
 /// What a [`SharedTrust`]'s client learnt of one covered host.
@@ -63,6 +64,7 @@ enum Known {
 pub struct SharedTrust {
     trust: Trust,
     exceptions: CertificateExceptions,
+    clock: Clock,
     known: Arc<Mutex<BTreeMap<String, Known>>>,
 }
 
@@ -107,11 +109,13 @@ impl std::fmt::Display for Undecided {
 impl std::error::Error for Undecided {}
 
 impl SharedTrust {
-    /// The decision of `trust`, with `exceptions` for the hosts they cover.
-    pub fn new(trust: Trust, exceptions: CertificateExceptions) -> Self {
+    /// The decision of `trust`, with `exceptions` for the hosts they cover,
+    /// judging a certificate's dates at `clock`'s wall time.
+    pub fn new(trust: Trust, exceptions: CertificateExceptions, clock: Clock) -> Self {
         Self {
             trust,
             exceptions,
+            clock,
             known: Arc::default(),
         }
     }
@@ -126,11 +130,12 @@ impl SharedTrust {
             shared: self.clone(),
             presents: client.is_some(),
         };
-        let builder = rustls::ClientConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .expect("invariant: ring supports rustls's default protocol versions")
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(verifier));
+        let builder =
+            rustls::ClientConfig::builder_with_details(provider, OnClock::shared(self.clock))
+                .with_safe_default_protocol_versions()
+                .expect("invariant: ring supports rustls's default protocol versions")
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(verifier));
         let mut config = match client {
             Some(certified) => builder
                 .with_client_cert_resolver(Arc::new(client_certificates::Presenting(certified))),

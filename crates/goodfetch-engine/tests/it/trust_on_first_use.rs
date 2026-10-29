@@ -597,7 +597,12 @@ fn an_accepted_key_lets_the_host_through_in_the_next_run() {
         let key = KeyHash::from_text(&new_key).unwrap();
         fixture
             .store
-            .accept(PERSON, EXPIRED, &key, jiff::Timestamp::now())
+            .accept(
+                PERSON,
+                EXPIRED,
+                &key,
+                jiff::Timestamp::try_from(Clock::system().wall()).unwrap(),
+            )
             .unwrap();
         let accepted = fetched(&next_run, &url_on(&regenerated, EXPIRED)).await;
         let old = fetched(&next_run, &fixture.url(EXPIRED)).await;

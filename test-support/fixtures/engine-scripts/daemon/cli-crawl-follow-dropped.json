@@ -43,7 +43,7 @@
     },
     {
       "expect": {
-        "method": "run.progress.read",
+        "method": "run.progress",
         "params": {
           "run_id": "first"
         }

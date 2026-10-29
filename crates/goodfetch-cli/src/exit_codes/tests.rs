@@ -184,7 +184,7 @@ fn a_run_report_with_an_error_exits_by_its_row(
 /// code's group and retryability, and one this executable does not know
 /// is internal (611-2).
 #[rstest]
-#[case::known("file_write_failed", ErrorGroup::Unavailable, true)]
+#[case::known("file_write_failed", ErrorGroup::Unavailable, false)]
 #[case::unknown("made_up_code", ErrorGroup::Internal, false)]
 fn an_ending_error_fails_with_its_code(
     #[case] code: &str,

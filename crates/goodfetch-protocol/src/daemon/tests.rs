@@ -20,14 +20,28 @@ fn a_token_prints_in_json_and_never_in_debug() {
     );
 }
 
+/// The token's schema is the plain text the field held before the
+/// newtype, inline, so the bundle names no type for it.
 #[test]
 fn a_tokens_schema_is_plain_text() {
     let mut generator = SchemaGenerator::default();
 
-    let schema = generator.subschema_for::<DaemonToken>();
+    let schema = serde_json::to_value(generator.subschema_for::<HttpListenerToken>()).ok();
+    let token = generator
+        .definitions()
+        .get("HttpListenerToken")
+        .map(|definition| definition["properties"]["token"].clone());
 
     assert_eq!(
-        serde_json::to_value(schema).ok(),
-        Some(json!({ "type": "string" }))
+        (
+            token.map(|token| (token["type"].clone(), token.get("$ref").is_some())),
+            generator.definitions().contains_key("DaemonToken"),
+            schema,
+        ),
+        (
+            Some((json!("string"), false)),
+            false,
+            Some(json!({ "$ref": "#/$defs/HttpListenerToken" })),
+        )
     );
 }

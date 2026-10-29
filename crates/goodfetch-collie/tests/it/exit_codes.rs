@@ -70,7 +70,7 @@ fn a_command_that_reaches_no_daemon_prints_daemon_unreachable_and_exits_8() {
         (
             failed_with(&output),
             printed["error"]["retryable"].clone(),
-            printed["error"]["details"]["fix"].is_string(),
+            printed["error"]["fix"].is_string(),
         ),
         ((Some(8), json!("daemon_unreachable")), json!(true), true),
         "{output}"
@@ -95,10 +95,7 @@ fn a_goodfetch_url_that_is_not_loopback_is_refused_with_setting_invalid() {
     let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
 
     assert_eq!(
-        (
-            failed_with(&output),
-            printed["error"]["details"]["key"].clone()
-        ),
+        (failed_with(&output), printed["error"]["key"].clone()),
         ((Some(3), json!("setting_invalid")), json!("GOODFETCH_URL")),
         "{output}"
     );

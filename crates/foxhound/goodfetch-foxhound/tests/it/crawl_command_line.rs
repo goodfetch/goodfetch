@@ -425,7 +425,7 @@ fn scripted_daemon(env: &TestEnv, script: &str) -> goodfetch_test_support::Proce
 /// Under `--json`, a followed crawl whose Connection drops once its Run ID
 /// is printed keeps stdout to that Run ID alone, and prints the failure on
 /// stderr as one JSON line naming the call that failed,
-/// `run.progress.read`: `connection_lost`, exit `8` (ADR 0069).
+/// `run.progress`: `connection_lost`, exit `8` (ADR 0069).
 ///
 /// Covers: story:11-1132, command:crawl.start, error:connection_lost, exit:unavailable
 #[test]
@@ -462,7 +462,7 @@ fn a_failure_after_the_run_id_goes_to_stderr_naming_the_call_that_failed() {
             Some(8),
             "\"first\"\n",
             json!("connection_lost"),
-            json!("run.progress.read"),
+            json!("run.progress"),
         ),
         "{output}"
     );
@@ -476,8 +476,6 @@ fn a_failure_after_the_run_id_goes_to_stderr_naming_the_call_that_failed() {
 #[cfg(target_os = "linux")]
 #[test]
 fn run_export_to_a_full_standard_output_stops_the_call_and_exits_14() {
-    use std::io::Read as _;
-
     const ARGUMENTS: [&str; 9] = [
         "run", "export", "first", "pages", "--format", "jsonl", "--out", "-", "--daemon",
     ];
@@ -487,25 +485,24 @@ fn run_export_to_a_full_standard_output_stops_the_call_and_exits_14() {
         .write(true)
         .open("/dev/full")
         .unwrap();
+    // `TestEnv::spawn` pipes stdout, so the command runs here, its stdout
+    // the full device; it ends with the call it makes.
     let mut command = env.process_command(FOXHOUND);
-    command.args(ARGUMENTS).stdout(full).stderr(Stdio::piped());
-    let process = env.spawn(&mut command).unwrap();
-
-    let status = process.child().wait().unwrap();
-    record_command(&env, &ARGUMENTS, status.code()).unwrap();
-    let mut stderr = String::new();
-    process
-        .child()
-        .stderr
-        .take()
-        .unwrap()
-        .read_to_string(&mut stderr)
+    let output = command
+        .args(ARGUMENTS)
+        .stdin(Stdio::null())
+        .stdout(full)
+        .stderr(Stdio::piped())
+        .output()
         .unwrap();
+
+    record_command(&env, &ARGUMENTS, output.status.code()).unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
     let played = scripted.child().wait().unwrap();
 
     assert_eq!(
         (
-            status.code(),
+            output.status.code(),
             stderr.contains("code: file_write_failed"),
             played.success(),
         ),

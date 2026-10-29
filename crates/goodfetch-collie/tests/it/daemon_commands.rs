@@ -166,7 +166,17 @@ fn daemon_rotate_token_makes_the_old_token_refuse() {
     );
     let arguments: &[&str] = &["daemon", "rotate-token", "--json"];
 
-    let (rotated, _) = checked(&env, arguments, "TokenRotated");
+    // The foreground Daemon took a free port, which `rotate-token` reaches
+    // it at as an operator's `GOODFETCH_DAEMON_ADDRESS` names it.
+    let goodfetch_test_support::DaemonEndpoint::Tcp(address) = &endpoint else {
+        unreachable!("a foreground Daemon listens on TCP");
+    };
+    let rotated = cli(&env, COLLIE)
+        .args(arguments)
+        .env("GOODFETCH_DAEMON_ADDRESS", address.to_string())
+        .json("TokenRotated")
+        .unwrap()
+        .output;
     // The rotation stopped it: it exits with no signal.
     assert!(first.exited(), "{:#?}", first.logged);
     let mut second = Foreground::start(&env, COLLIE, &[]);

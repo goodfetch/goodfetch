@@ -9,10 +9,13 @@
 
 mod model;
 
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{CrashVfs, IoFault, TestEnv};
 use rusqlite::Connection;
 
-use super::{Durability, PAGE_CACHE_KIB, RunState, RunStateError, RunStateOptions, RunStateTables};
+use super::{
+    Durability, PAGE_CACHE_KIB, RunState, RunStateError, RunStateOptions, RunStateTables,
+    open_reader,
+};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// A contributed table the tests write through the writer.
@@ -191,6 +194,107 @@ fn a_failing_write_commits_nothing_and_leaves_its_group_committed() {
     });
 
     assert_eq!((answers, committed), ((true, false, true), vec![1, 3]));
+}
+
+/// A write of one row of `mib` MiB, many times the writer's page cache, so
+/// SQLite spills its pages to the WAL in the middle of its statement.
+fn blob(mib: u32) -> impl FnOnce(&Connection) -> rusqlite::Result<()> + Send + 'static {
+    move |connection| {
+        connection.execute("CREATE TABLE IF NOT EXISTS blobs (data)", [])?;
+        connection
+            .execute(
+                "INSERT INTO blobs (data) VALUES (randomblob(?1 * 1048576))",
+                [mib],
+            )
+            .map(drop)
+    }
+}
+
+/// The items committed to the run file of `env` and its integrity check,
+/// read through `vfs` once its writer stopped.
+fn committed_through(env: &TestEnv, vfs: &CrashVfs) -> (Vec<i64>, String) {
+    let reader = open_reader(&env.folder().join("run.sqlite"), Some(vfs.name())).unwrap();
+    let integrity = reader
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .unwrap();
+    (items(&reader).unwrap(), integrity)
+}
+
+/// A full disk met at a statement in the middle of a group, where a write
+/// spills past the writer's page cache, ends the group's transaction in
+/// SQLite: no write of the group commits, though a small one still fits in
+/// the room an earlier checkpoint left in the WAL, each is answered with the
+/// storage failure, and the writer reports it to whoever watches its storage
+/// failures, which stop its Run (ADR 0122).
+///
+/// Covers: row:RT-03
+#[test]
+fn a_full_disk_at_a_statement_fails_its_whole_group_as_a_storage_failure() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("statement-full"), env.seed()).unwrap();
+    let options = RunStateOptions {
+        vfs: Some(vfs.name().to_owned()),
+        ..RunStateOptions::default()
+    };
+
+    let (answers, reported) = with_writer_options(&env, &options, async |state| {
+        state.write(insert(0)).await.unwrap();
+        // Past SQLite's 1,000-page automatic checkpoint, whose WAL the next
+        // commit writes again from its start.
+        state.write(blob(5)).await.unwrap();
+        vfs.fail_at(vfs.operations(), IoFault::Full);
+        let first = state.reserve().await.unwrap().write(blob(8));
+        let second = state.reserve().await.unwrap().write(insert(2));
+        let answers = tokio::join!(first, second);
+        (answers, state.storage_failures().borrow().is_some())
+    });
+    vfs.free_space();
+
+    assert_eq!(
+        (
+            matches!(answers.0, Err(RunStateError::Storage { .. })),
+            matches!(answers.1, Err(RunStateError::Storage { .. })),
+            reported,
+            committed_through(&env, &vfs),
+        ),
+        (true, true, true, (vec![0], "ok".to_owned())),
+        "{answers:?}"
+    );
+}
+
+/// SQLite reports a read that met an I/O error (EIO) as `SQLITE_CORRUPT`
+/// (its Unix VFS's `SQLITE_IOERR_CORRUPTFS`): a write that meets it fails
+/// its group as a storage failure, as a full disk does.
+///
+/// Covers: row:RT-03
+#[test]
+fn a_write_whose_read_meets_a_damaged_disk_fails_its_group_as_a_storage_failure() {
+    let env = TestEnv::new();
+
+    let (answers, reported, committed) = with_writer(&env, 1, async |state| {
+        let damaged = state.reserve().await.unwrap().write(|connection| {
+            insert(1)(connection)?;
+            Err::<(), _>(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+                None,
+            ))
+        });
+        let other = state.reserve().await.unwrap().write(insert(2));
+        let answers = tokio::join!(damaged, other);
+        let reported = state.storage_failures().borrow().is_some();
+        (answers, reported, state.read(items).await.unwrap())
+    });
+
+    assert_eq!(
+        (
+            matches!(answers.0, Err(RunStateError::Storage { .. })),
+            matches!(answers.1, Err(RunStateError::Storage { .. })),
+            reported,
+            committed,
+        ),
+        (true, true, true, Vec::<i64>::new()),
+        "{answers:?}"
+    );
 }
 
 /// A writer whose run epoch the file no longer holds commits nothing

@@ -363,6 +363,10 @@ pub enum Resumed {
         kind: RunKind,
         /// The Product it needs.
         needs: Product,
+        /// The settings its report listed as weakened before this resume,
+        /// which a switch the resume's settings turn off is reported beyond
+        /// (ADR 0016).
+        listed: Vec<WeakenedSetting>,
     },
     /// The Run is live in this engine, or finished: answered as it is.
     Existing(RunStarted),
@@ -2671,15 +2675,39 @@ impl Runs {
         // With `security.audit_chain` off, the resumed Run's entries, from
         // its key's use on, are written unchained (ADR 0016); a resume
         // that takes no epoch chains them again.
-        let unchains = resume
+        let switched = resume
             .settings
             .as_ref()
-            .is_some_and(|settings| self.controls.switched_off(settings.resolved()).unchains());
+            .map(|settings| self.controls.switched_off(settings.resolved()))
+            .unwrap_or_default();
         let (audit, run_id) = (self.audit().clone(), resume.run_id.clone());
-        let newly_unchained = unchains && audit.unchain(run_id.clone());
+        let newly_unchained = switched.unchains() && audit.unchain(run_id.clone());
         let resumed = self.resume_unchained(resume).await;
-        if newly_unchained && !matches!(resumed, Ok(Resumed::New { .. })) {
-            audit.rechain(&run_id);
+        match &resumed {
+            // Each control it switches off that its report did not list
+            // yet is reported as a start's are (ADR 0016).
+            Ok(Resumed::New { listed, .. }) => {
+                let switched = switched.beyond(listed);
+                let now = jiff::Timestamp::try_from(self.limits.clock.wall())
+                    .unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+                let reported_for = run_id.clone();
+                let reported = self
+                    .limits
+                    .owner
+                    .blocking(move || switched.report(&audit, &reported_for, now))
+                    .await;
+                if let Err(error) = reported {
+                    tracing::error!(
+                        run_id = %run_id,
+                        %error,
+                        "a security control the resume switched off could not be recorded in the Audit log"
+                    );
+                }
+            }
+            _ if newly_unchained => {
+                audit.rechain(&run_id);
+            }
+            _ => {}
         }
         resumed
     }
@@ -5041,6 +5069,26 @@ impl Registry {
             .progress_message
             .as_deref()
             .and_then(ProgressMessage::parse);
+        // The settings the resume's own weaken join those its report
+        // lists, so that the report says what ran (ADR 0016).
+        let listed = recorded.weakened;
+        let mut weakened = listed.clone();
+        for setting in settings
+            .as_ref()
+            .map(|settings| settings.resolved().weakened())
+            .unwrap_or_default()
+        {
+            if !weakened.iter().any(|kept| kept.key == setting.key) {
+                weakened.push(setting);
+            }
+        }
+        if weakened.len() > listed.len() {
+            let recording = weakened.clone();
+            state
+                .write(move |connection| folder::record_weakened(connection, &recording))
+                .await
+                .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
+        }
         let run = self.new_run(&run_id, &folder, state, connection, settings, keys);
         run.shared
             .progress
@@ -5060,7 +5108,7 @@ impl Registry {
             },
             started_at: recorded.started_at,
             policy_version: recorded.policy_version,
-            weakened: recorded.weakened,
+            weakened,
             report: watch::Sender::new(None),
             writer,
             lock: Arc::new(lock),
@@ -5094,6 +5142,7 @@ impl Registry {
             run: Box::new(run),
             kind,
             needs,
+            listed,
         })
     }
 

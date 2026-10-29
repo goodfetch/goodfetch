@@ -950,7 +950,9 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
         .await
         .map_err(|error| run_error_of(error, context.identity(), RUN_RESUME.name))?;
     Ok(match resumed {
-        Resumed::New { run, kind, needs } => {
+        Resumed::New {
+            run, kind, needs, ..
+        } => {
             let started = RunStarted {
                 run_id: run.id().clone(),
                 started_as: StartedAs::Resumed,

@@ -135,6 +135,18 @@ impl SwitchedOff {
             .any(|(switched, _)| switched.key == SECURITY_AUDIT_CHAIN.name)
     }
 
+    /// The same, but for those `listed`, a Run report's `weakened`, already
+    /// names: what a resume reports beyond its start's (ADR 0016).
+    #[must_use]
+    pub fn beyond(self, listed: &[WeakenedSetting]) -> Self {
+        Self(
+            self.0
+                .into_iter()
+                .filter(|(switched, _)| !listed.iter().any(|weakened| weakened.key == switched.key))
+                .collect(),
+        )
+    }
+
     /// Reports each one for the new Run `run_id`, once: a chained entry in
     /// `audit`, recorded at `now`, and, for a switched-off control, a
     /// warning through the host's logging. Blocks on the Audit log.

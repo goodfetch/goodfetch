@@ -166,6 +166,7 @@ pub(crate) fn crawl(stdin: ChildStdin, stdout: ChildStdout, site: &Site<'_>) -> 
         product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
             .context("xtask's version is a Product version")?,
         log_level: None,
+        client_surface: None,
     })?;
     engine.call("hello", HELLO, &hello)?;
     let concurrency = site.concurrency;
@@ -196,6 +197,15 @@ pub(crate) fn crawl(stdin: ChildStdin, stdout: ChildStdout, site: &Site<'_>) -> 
     let report = engine.call("finish", "run.finish", &json!({ "run_id": "crawl" }))?;
     if report["lifecycle"] != "finished" || report["completeness"] != "complete" {
         bail!("Foxhound's crawl did not finish complete: {report}");
+    }
+    // A crawl that ends complete on fewer pages measures a smaller one:
+    // its robots.txt reading aside, it sends one request a page.
+    let requests = report["usage"]["requests"].as_u64().unwrap_or_default();
+    if requests < site.pages {
+        bail!(
+            "Foxhound's crawl sent {requests} requests, fewer than the site's {} pages",
+            site.pages
+        );
     }
     let Engine { stdin, mut stdout } = engine;
     drop(stdin);

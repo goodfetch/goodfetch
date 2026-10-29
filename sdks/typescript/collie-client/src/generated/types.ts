@@ -2958,6 +2958,15 @@ export interface GotoParams {
  */
 export interface HelloParams {
   /**
+   * On a gateway's `hello` (surface `cloud`), the surface of the Client
+   * whose Connection it relays, such as `mcp` for a model's: the engine
+   * holds the Connection to that surface's rules, a model's settings
+   * included (ADR 0092), and the gateway's mark only words
+   * `not_in_product` (ADR 0095). None on the gateway's own Connection;
+   * any other surface names none.
+   */
+  client_surface?: Surface | null;
+  /**
    * The form its user writes names in (ADR 0099); none until each
    * surface names its own.
    */

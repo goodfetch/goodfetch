@@ -29,6 +29,15 @@ fn fails_with_a_test_env() {
 }
 
 #[test]
+#[ignore = "run as a child by teardown::an_in_memory_folder_of_a_failed_test_is_kept_on_disk"]
+fn fails_with_an_in_memory_test_env() {
+    let env = TestEnv::in_memory();
+    std::fs::write(env.folder().join("evidence.txt"), "kept").unwrap();
+
+    panic!("the probe fails on purpose");
+}
+
+#[test]
 #[ignore = "run as a child by seeded_kill's tests"]
 fn sends_protocol_events_then_hangs() {
     for n in 1..=3 {

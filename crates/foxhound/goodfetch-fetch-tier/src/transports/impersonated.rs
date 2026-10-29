@@ -175,7 +175,11 @@ impl Wreq {
             .as_ref()
             .map(|proxy| wreq::Proxy::all(proxy.as_str()).map_err(refused))
             .transpose()?;
-        let decision = SharedTrust::new(config.trust.clone(), config.exceptions.clone());
+        let decision = SharedTrust::new(
+            config.trust.clone(),
+            config.exceptions.clone(),
+            config.clock,
+        );
         let verdicts = Verdicts::default();
         let builder = Arc::new(Builder {
             profile,
@@ -183,7 +187,7 @@ impl Wreq {
             local: config.local.clone(),
             proxy,
             decision: decision.clone(),
-            examiner: Arc::new(config.trust.examiner()),
+            examiner: Arc::new(config.trust.examiner(config.clock)),
             verdicts: verdicts.clone(),
         });
         let mut any = Scopes::new();

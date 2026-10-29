@@ -3,8 +3,9 @@
 //! serves Foxhound's Console build, taken by path from `xtask console
 //! build`'s output, under the production headers and beside a content
 //! origin, and signs a browser in with a configured token swapped for a
-//! cookie. Behind it, each run gets an Attached engine of the executable of
-//! the Product the routing rule picks (`goodfetch_protocol::routing`), both
+//! cookie, and a program in with the same token presented in its `hello`.
+//! Behind it, each run gets an Attached engine of the executable of the
+//! Product the routing rule picks (`goodfetch_protocol::routing`), both
 //! executables taken by path from the same commit, so it names no Foxhound
 //! crate. It answers `run.list` from its own index and forwards every other
 //! call to the engine that owns the run, to which its `hello` says it is the
@@ -122,7 +123,7 @@ async fn serve(arguments: Arguments, environment: Vec<(OsString, OsString)>) -> 
         Arc::clone(&owner),
     )
     .map_err(|error| format!("preparing the engines: {error}"))?;
-    let gateway = Arc::new(Gateway::new(engines, &mut entropy));
+    let gateway = Arc::new(Gateway::new(engines, token.clone(), &mut entropy));
     let site = Site::new(build, token, gateway, &console, &content, entropy)
         .map_err(|error| format!("reading the listeners' addresses: {error}"))?;
     let ready = serde_json::json!({

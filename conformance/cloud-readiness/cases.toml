@@ -7,18 +7,19 @@
 # one, joins with its cases. `goodfetch-conformance` runs each target
 # kind's capabilities (`GatewaySuite::embedded`) and writes one
 # `conformance` document per target. A gateway case opens its own
-# Connections as the Clients it names (a Collie or Foxhound Client, the
-# Console) and tells which engine a run landed on from what that engine
-# answers: `not_in_product` worded for the gateway and naming Collie comes
-# only from Collie's engine behind the gateway, and an answer to a
-# Foxhound-only call only from Foxhound's. `TESTING.md`'s subsection "The
+# Connections as the Clients it names (a Collie or Foxhound Client, a
+# model's Client through the MCP server, the Console), each presenting the
+# gateway's token in its `hello`, and tells which engine a run landed on
+# from what that engine answers: `not_in_product` naming Collie and no
+# install, worded for the gateway, comes only from Collie's engine behind
+# the gateway, and an answer to a Foxhound-only call only from Foxhound's. `TESTING.md`'s subsection "The
 # Cloud-readiness conformance suite" lists every case with its `covers`; a
 # new cloud-facing contract lands with its case in the same pull request.
 # Bump the version whenever a case changes.
 
 [suite]
 name = "cloud-readiness"
-version = "1"
+version = "2"
 
 [[capability]]
 name = "gateway.clients"
@@ -27,6 +28,14 @@ target = "gateway"
 [[capability.case]]
 id = "a-collie-client-and-a-foxhound-client-are-each-answered-as-their-product"
 covers = ["story:14-14", "story:14-15"]
+
+[[capability.case]]
+id = "a-client-of-another-protocol-version-is-refused-at-hello"
+covers = ["story:14-14"]
+
+[[capability.case]]
+id = "a-models-client-is-held-to-a-models-settings-behind-the-gateway"
+covers = ["story:14-14"]
 
 [[capability]]
 name = "gateway.routing"
@@ -66,6 +75,10 @@ covers = ["story:14-16"]
 
 [[capability.case]]
 id = "a-collie-programs-crawl-setting-answers-not-in-product-naming-the-runs-product"
+covers = ["story:14-16"]
+
+[[capability.case]]
+id = "a-collie-programs-crawl-setting-in-a-sessions-settings-answers-not-in-product-naming-the-runs-product"
 covers = ["story:14-16"]
 
 [[capability]]

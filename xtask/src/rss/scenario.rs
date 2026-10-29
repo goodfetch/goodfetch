@@ -5,13 +5,14 @@
 //! Performance target and how it drives the executable.
 #![expect(
     clippy::disallowed_methods,
-    reason = "xtask is synchronous: a scenario idles its child on a blocking sleep (STYLE.md)"
+    reason = "xtask is synchronous: a scenario idles its child on a blocking sleep and writes its home's configuration with blocking fs (STYLE.md)"
 )]
 
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::process::{ChildStdin, ChildStdout, Command};
+use std::process::{Child, ChildStdin, ChildStdout, Command};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
@@ -33,6 +34,13 @@ const IDLE: Duration = Duration::from_secs(1);
 /// than an Attached engine, since its listener, Console and timers start
 /// beside it.
 const DAEMON_IDLE: Duration = Duration::from_secs(3);
+
+/// How long a Daemon may take to exit once it answered `daemon.stop`: the
+/// deadline test support's `Daemon::stop` gives one.
+const STOP_DEADLINE: Duration = Duration::from_secs(10);
+
+/// How often the probe looks whether the stopped Daemon exited.
+const EXIT_POLL: Duration = Duration::from_millis(50);
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, clap::ValueEnum,
@@ -94,19 +102,23 @@ impl Scenario {
         self == Self::Crawl
     }
 
-    /// Drives the started executable through the scenario until it exits:
-    /// an Attached engine's input ends, a Daemon is stopped. `site` is the
-    /// Proving ground's, which only the crawl reads.
+    /// Drives the started executable, `child`, through the scenario until
+    /// it exits: an Attached engine's input ends, a Daemon is stopped.
+    /// `site` is the Proving ground's, which only the crawl reads.
     pub(crate) fn drive(
         self,
         needs: Product,
         site: Option<&Site<'_>>,
-        stdin: ChildStdin,
-        stdout: ChildStdout,
+        child: &mut Child,
     ) -> Result<()> {
+        let stdin = child.stdin.take().context("the engine's stdin is piped")?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("the engine's stdout is piped")?;
         match self {
             Self::IdleAttachedEngine => idle_attached_engine(needs, stdin, stdout),
-            Self::IdleDaemon => idle_daemon(needs, stdin, stdout),
+            Self::IdleDaemon => idle_daemon(needs, child, stdin, stdout),
             Self::Crawl => {
                 let site = site.context("the crawl needs the Proving ground's address")?;
                 crawl::crawl(stdin, stdout, site)
@@ -116,16 +128,49 @@ impl Scenario {
 }
 
 /// Runs the engine `command` starts as shipped: with `home` as its data
-/// folder and no other Goodfetch variable of this process's environment,
-/// since an engine stops on one it does not know and logs at its default
-/// level without `GOODFETCH_LOG`.
-pub(crate) fn as_shipped(command: &mut Command, home: &Path) {
-    for (name, _) in std::env::vars_os() {
-        if name.to_string_lossy().starts_with("GOODFETCH_") {
-            command.env_remove(name);
-        }
+/// folder and none of `goodfetch_variables`, this process's other Goodfetch
+/// variables, since an engine stops on one it does not know and logs at
+/// its default level without `GOODFETCH_LOG`.
+pub(crate) fn as_shipped(command: &mut Command, home: &Path, goodfetch_variables: &[OsString]) {
+    for name in goodfetch_variables {
+        command.env_remove(name);
     }
     command.env("GOODFETCH_HOME", home);
+}
+
+/// The user configuration's file in the per-major folder.
+const USER_CONFIGURATION: &str = "configuration.toml";
+
+/// The idle-Daemon scenario's user configuration: the Daemon's Console
+/// listens on a port the OS chooses, never on its major's fixed port
+/// (TESTING.md, Isolation), so scenarios run at once and beside a Daemon of
+/// the machine's own.
+const DAEMON_CONFIGURATION: &str =
+    "version = \"0.1\"\n\n[settings]\nconsole.address = \"127.0.0.1:0\"\n";
+
+/// Writes `home`'s user configuration for `scenario`: the idle Daemon's
+/// alone; an Attached engine's home has none, as shipped.
+pub(crate) fn configure(scenario: Scenario, home: &Path) -> Result<()> {
+    if scenario != Scenario::IdleDaemon {
+        return Ok(());
+    }
+    let major = home.join(major_folder(env!("CARGO_PKG_VERSION")));
+    std::fs::create_dir_all(&major).with_context(|| format!("creating {}", major.display()))?;
+    let configuration = major.join(USER_CONFIGURATION);
+    std::fs::write(&configuration, DAEMON_CONFIGURATION)
+        .with_context(|| format!("writing {}", configuration.display()))
+}
+
+/// The per-major folder's name of a Product version (ADR 0030): `1` for
+/// any `1.x.y`, `0.4` for any `0.4.y`, since during `0.y` each minor counts
+/// as a major.
+fn major_folder(product_version: &str) -> String {
+    let mut numbers = product_version.split(['.', '-']);
+    let major = numbers.next().unwrap_or("0");
+    match (major, numbers.next()) {
+        ("0", Some(minor)) => format!("0.{minor}"),
+        (major, _) => major.to_owned(),
+    }
 }
 
 /// The `hello` line a Client needing `needs` opens with, as the engine
@@ -150,6 +195,7 @@ fn hello_with(needs: Product, token: Option<String>) -> Result<Vec<u8>> {
             product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
                 .context("xtask's version is a Product version")?,
             log_level: None,
+            client_surface: None,
         })?),
     });
     let mut line = serde_json::to_vec(&hello)?;
@@ -189,17 +235,28 @@ enum Endpoint {
 }
 
 /// The parts of the runtime file a Daemon prints once ready that a Client
-/// needs.
+/// needs, and its Console's state.
 #[derive(Deserialize)]
 struct RuntimeFile {
     endpoint: Endpoint,
     token: String,
+    /// `{"serving": <url>}`, or `{"failed": <error>}` when the Console did
+    /// not start and the Daemon serves its Clients without it.
+    #[serde(default)]
+    console: Value,
 }
 
-/// Waits for the Daemon's runtime file, idles, then stops it over its own
-/// endpoint with `daemon.stop`, as `daemon stop` does, so no other process
-/// the probe waits for adds to the peak, and waits for its output to end.
-fn idle_daemon(needs: Product, stdin: ChildStdin, stdout: ChildStdout) -> Result<()> {
+/// Waits for the Daemon's runtime file, checks its Console serves, as a
+/// shipped Daemon's does, idles, then stops it over its own endpoint with
+/// `daemon.stop`, as `daemon stop` does, so no other process the probe
+/// waits for adds to the peak, and waits for it to exit, within
+/// [`STOP_DEADLINE`].
+fn idle_daemon(
+    needs: Product,
+    child: &mut Child,
+    stdin: ChildStdin,
+    stdout: ChildStdout,
+) -> Result<()> {
     let mut stdout = BufReader::new(stdout);
     let mut line = String::new();
     if stdout
@@ -215,6 +272,12 @@ fn idle_daemon(needs: Product, stdin: ChildStdin, stdout: ChildStdout) -> Result
             line.trim_end()
         )
     })?;
+    if !runtime.console["serving"].is_string() {
+        bail!(
+            "the Daemon's Console does not serve, so it is not the Daemon as shipped: {}",
+            runtime.console
+        );
+    }
     std::thread::sleep(DAEMON_IDLE);
     let (reader, mut writer) = connect(&runtime.endpoint)?;
     let mut reader = BufReader::new(reader);
@@ -234,7 +297,32 @@ fn idle_daemon(needs: Product, stdin: ChildStdin, stdout: ChildStdout) -> Result
     reply(&mut reader, "daemon.stop")?;
     drop((reader, writer));
     drop(stdin);
+    exits_within(child, STOP_DEADLINE)?;
+    // What it wrote last, which its exit closed.
     std::io::copy(&mut stdout, &mut std::io::sink()).context("reading the Daemon's output")?;
+    Ok(())
+}
+
+/// Waits for the stopped Daemon `child` to exit, for at most `deadline`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "xtask has no Clock handle (ADR 0059): the probe bounds its wait for the Daemon on the OS's monotonic clock, polling on a blocking sleep"
+)]
+fn exits_within(child: &mut Child, deadline: Duration) -> Result<()> {
+    let started = std::time::Instant::now();
+    while child
+        .try_wait()
+        .context("waiting for the Daemon to exit")?
+        .is_none()
+    {
+        if started.elapsed() >= deadline {
+            bail!(
+                "the Daemon did not exit within {} s of daemon.stop",
+                deadline.as_secs()
+            );
+        }
+        std::thread::sleep(EXIT_POLL);
+    }
     Ok(())
 }
 

@@ -1,11 +1,20 @@
 //! What every command reads from its process, which `main` alone gathers
 //! (ADR 0059): the workspace's folder, the Cargo that runs `xtask`,
-//! GitHub's token and whether the host has a LazyFS build.
+//! GitHub's token, whether the host has a LazyFS build, the Goodfetch
+//! variables a measured executable must not inherit and the bytes the
+//! environment takes in a child's arguments area.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 pub(crate) struct Environment {
+    /// The names of the process's `GOODFETCH_*` variables, which a
+    /// measured executable runs without, as shipped: an engine stops on one
+    /// it does not know.
+    pub(crate) goodfetch_variables: Vec<OsString>,
+    /// The bytes the process's variables take in the area `execve` copies
+    /// for a child: each name, `=`, value and NUL, and its pointer.
+    pub(crate) variables_bytes: usize,
     /// The workspace's folder: the current folder.
     pub(crate) root: PathBuf,
     /// The Cargo that runs `xtask`, or the one on `PATH`.
@@ -18,6 +27,34 @@ pub(crate) struct Environment {
 }
 
 impl Environment {
+    /// What `main` gathers from the process's `variables`, read once.
+    pub(crate) fn of(variables: &[(OsString, OsString)]) -> Self {
+        let variable = |name: &str| {
+            variables
+                .iter()
+                .find(|(found, _)| found == name)
+                .map(|(_, value)| value.clone())
+        };
+        Self {
+            root: PathBuf::from("."),
+            cargo: variable("CARGO").unwrap_or_else(|| OsString::from("cargo")),
+            github_token: variable("GITHUB_TOKEN")
+                .and_then(|token| token.into_string().ok())
+                .filter(|token| !token.is_empty()),
+            lazyfs: variable("GOODFETCH_LAZYFS").is_some(),
+            goodfetch_variables: variables
+                .iter()
+                .map(|(name, _)| name)
+                .filter(|name| is_goodfetch(name))
+                .cloned()
+                .collect(),
+            variables_bytes: variables
+                .iter()
+                .map(|(name, value)| name.len() + value.len() + 2 + size_of::<usize>())
+                .sum(),
+        }
+    }
+
     /// A path given on the command line, from the workspace's folder.
     pub(crate) fn path(&self, path: &Path) -> PathBuf {
         self.root.join(path)
@@ -26,4 +63,9 @@ impl Environment {
     pub(crate) fn token(&self) -> Option<&str> {
         self.github_token.as_deref()
     }
+}
+
+/// Whether `name` is a Goodfetch variable.
+fn is_goodfetch(name: &OsStr) -> bool {
+    name.to_string_lossy().starts_with("GOODFETCH_")
 }

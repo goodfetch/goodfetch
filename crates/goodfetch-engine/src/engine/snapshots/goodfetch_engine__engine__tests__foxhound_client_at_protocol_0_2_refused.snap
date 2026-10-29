@@ -8,6 +8,7 @@ expression: "pretty(&received[0])"
     "data": {
       "code": "not_in_product",
       "fix": "Connect to a Foxhound engine, or run with Foxhound, which contains everything Collie does (`cargo install goodfetch-foxhound --locked --features executable`).",
+      "install": "cargo install goodfetch-foxhound --locked --features executable",
       "needs": "foxhound",
       "product": "collie",
       "product_version": "1.4.0",

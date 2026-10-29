@@ -96,6 +96,22 @@ const SLEEP: Operation = Operation {
     ..WAIT
 };
 
+/// A call that answers the surface whose rules its Connection follows, and
+/// whether its `hello` came from the gateway.
+const SURFACE: Operation = Operation {
+    name: "test.surface",
+    description: "Answers its Connection's surface and gateway mark.",
+    ..WAIT
+};
+
+/// A call that refuses a setting only Foxhound carries, as every call that
+/// reads a Client's settings refuses it.
+const CRAWL_SETTING: Operation = Operation {
+    name: "test.crawl_setting",
+    description: "Refuses `crawl.max_requests` as Foxhound's.",
+    ..WAIT
+};
+
 fn test_operations() -> Contribution {
     Contribution::new("test")
         .with_handler(Handler::new(&WAIT, |_: Value, _: CallContext| async {
@@ -106,6 +122,28 @@ fn test_operations() -> Contribution {
             tokio::time::sleep(Duration::from_secs(60)).await;
             Ok::<Value, CallError>(json!({ "slept": true }))
         }))
+        .with_handler(Handler::new(
+            &SURFACE,
+            |_: Value, context: CallContext| async move {
+                Ok::<Value, CallError>(json!({
+                    "surface": context.surface().as_str(),
+                    "acts_for_model": context.surface().acts_for_model(),
+                    "behind_gateway": context.behind_gateway(),
+                }))
+            },
+        ))
+        .with_handler(Handler::new(
+            &CRAWL_SETTING,
+            |_: Value, context: CallContext| async move {
+                Err::<Value, CallError>(crate::run::settings_error(
+                    &crate::settings::SettingsError::NotInProduct {
+                        key: "crawl.max_requests".to_owned(),
+                        needs: Product::Foxhound,
+                    },
+                    &context,
+                ))
+            },
+        ))
 }
 
 fn engine(product: Product) -> Engine {
@@ -409,6 +447,83 @@ fn behind_the_gateway_not_in_product_gives_the_gateways_fix() {
     );
 
     insta::assert_snapshot!(pretty(&received[1]));
+}
+
+/// A gateway's `hello` names the surface of the Client it relays, whose
+/// rules the Connection then follows, a model's included (ADR 0092),
+/// while its mark still words `not_in_product` (ADR 0095).
+#[test]
+fn a_gateways_hello_holds_the_connection_to_the_surface_of_the_client_it_relays() {
+    let mut gateway = hello("collie", "0.1");
+    gateway["params"]["surface"] = json!("cloud");
+    gateway["params"]["client_surface"] = json!("mcp");
+
+    let received = exchange(
+        &engine(Product::Collie),
+        &[gateway, request(1, "test.surface")],
+    );
+
+    assert_eq!(
+        received[1]["result"],
+        json!({ "surface": "mcp", "acts_for_model": true, "behind_gateway": true })
+    );
+}
+
+#[rstest]
+#[case::from_no_gateway("rust", "mcp")]
+#[case::a_gateway_relaying_a_gateway("cloud", "cloud")]
+#[case::a_gateway_relaying_a_browser_host("cloud", "browser_host")]
+fn a_client_surface_only_a_gateway_names_for_a_client_is_invalid_and_closed(
+    #[case] surface: &str,
+    #[case] client_surface: &str,
+) {
+    let mut client = hello("collie", "0.1");
+    client["params"]["surface"] = json!(surface);
+    client["params"]["client_surface"] = json!(client_surface);
+
+    let received = exchange(
+        &engine(Product::Collie),
+        &[client, request(1, "engine.info")],
+    );
+
+    assert_eq!(
+        (received.len(), &received[0]["error"]["data"]["code"]),
+        (1, &json!("invalid_params"))
+    );
+}
+
+/// Every call that reads a Client's settings words a setting only Foxhound
+/// carries for the gateway behind it, naming no install (ADR 0096), and
+/// names the install command, as data, everywhere else.
+///
+/// Covers: error:not_in_product
+#[rstest]
+#[case::behind_the_gateway("cloud", None)]
+#[case::a_local_client(
+    "sdk_typescript",
+    Some("cargo install goodfetch-foxhound --locked --features executable")
+)]
+fn a_setting_only_foxhound_carries_is_worded_for_the_gateway_on_every_call_behind_it(
+    #[case] surface: &str,
+    #[case] install: Option<&str>,
+) {
+    let mut client = hello("collie", "0.1");
+    client["params"]["surface"] = json!(surface);
+
+    let received = exchange(
+        &engine(Product::Collie),
+        &[client, request(1, "test.crawl_setting")],
+    );
+
+    let data = &received[1]["error"]["data"];
+    assert_eq!(
+        (&data["code"], &data["product"], data.get("install")),
+        (
+            &json!("not_in_product"),
+            &json!("collie"),
+            install.map(|install| json!(install)).as_ref()
+        )
+    );
 }
 
 /// Covers: story:3-136, error:not_in_product

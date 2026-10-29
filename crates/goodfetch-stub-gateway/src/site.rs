@@ -3,9 +3,11 @@
 //! production headers, its policy naming the content origin, and the
 //! content origin's own. A browser signs in at `POST /sign-in` with the
 //! configured token, swapped for an `HttpOnly`, `SameSite=Strict` cookie;
-//! `GET /session` answers whether a request's cookie is a sign-in, and the
-//! Console's WebSocket at `/protocol` opens only with one, on the Console's
-//! own `Host` and `Origin`.
+//! `GET /session` answers whether a request's cookie is a sign-in, and a
+//! browser's WebSocket at `/protocol` opens only with one, on the Console's
+//! own `Host` and `Origin`. A program's WebSocket, which carries no
+//! `Origin`, opens there too, and signs in with the token its `hello`
+//! presents.
 
 use std::collections::HashSet;
 use std::convert::Infallible;
@@ -28,7 +30,7 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 use tokio_tungstenite::tungstenite::protocol::Role;
 
-use crate::relay::Gateway;
+use crate::relay::{Door, Gateway};
 
 /// Where the page swaps the token for its cookie.
 const SIGN_IN: &str = "/sign-in";
@@ -254,8 +256,10 @@ impl Site {
         self.plain(StatusCode::NO_CONTENT)
     }
 
-    /// `GET /protocol`: the Console's WebSocket, for a sign-in on the
-    /// Console's own origin, served by the gateway.
+    /// `GET /protocol`: a Client's WebSocket, served by the gateway. A
+    /// browser's, which carries an `Origin`, opens on the Console's own
+    /// origin with a sign-in's cookie; a program's, which carries none,
+    /// signs in with the token its `hello` presents (spec #586's duty 8).
     async fn protocol(
         &self,
         mut request: Request<Incoming>,
@@ -265,12 +269,17 @@ impl Site {
         if request.method() != Method::GET {
             return self.plain(StatusCode::METHOD_NOT_ALLOWED);
         }
-        if !self.own(headers) || headers.get(header::ORIGIN).is_none() {
-            return self.plain(StatusCode::FORBIDDEN);
-        }
-        if !self.signed_in(headers).await {
-            return self.plain(StatusCode::UNAUTHORIZED);
-        }
+        let door = if headers.get(header::ORIGIN).is_some() {
+            if !self.own(headers) {
+                return self.plain(StatusCode::FORBIDDEN);
+            }
+            if !self.signed_in(headers).await {
+                return self.plain(StatusCode::UNAUTHORIZED);
+            }
+            Door::Cookie
+        } else {
+            Door::Hello
+        };
         let Some(key) = headers
             .get(header::SEC_WEBSOCKET_KEY)
             .map(|key| derive_accept_key(key.as_bytes()))
@@ -288,7 +297,7 @@ impl Site {
                         None,
                     )
                     .await;
-                    gateway.serve(socket, connection).await;
+                    gateway.serve(socket, door, connection).await;
                 }
                 Err(error) => tracing::debug!(%error, "a Console's WebSocket did not open"),
             }

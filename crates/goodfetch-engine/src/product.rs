@@ -146,6 +146,7 @@ impl Identity {
                 Requested::Name(name) => Some(name.to_owned()),
             },
             fix,
+            install: (!behind_gateway).then_some(install),
             handover: false,
         };
         (message, details)

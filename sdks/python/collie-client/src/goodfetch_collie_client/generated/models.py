@@ -2793,6 +2793,8 @@ class Surface(StrEnum):
     """
     Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine
     takes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).
+    Its `hello` names in `client_surface` the surface of the Client it
+    relays, which every other rule of the Connection follows.
     """
     browser_host = "browser_host"
     """
@@ -3969,6 +3971,15 @@ class HelloParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    client_surface: Surface | None = None
+    """
+    On a gateway's `hello` (surface `cloud`), the surface of the Client
+    whose Connection it relays, such as `mcp` for a model's: the engine
+    holds the Connection to that surface's rules, a model's settings
+    included (ADR 0092), and the gateway's mark only words
+    `not_in_product` (ADR 0095). None on the gateway's own Connection;
+    any other surface names none.
+    """
     form: Form | None = None
     """
     The form its user writes names in (ADR 0099); none until each

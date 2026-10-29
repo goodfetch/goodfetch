@@ -69,7 +69,7 @@ async fn query(
         .settings()
         .open(Opening::default())
         .await
-        .map_err(|error| settings_error(&error, context.identity()))?;
+        .map_err(|error| settings_error(&error, &context))?;
     let resolved = settings.resolved();
     let mut selected = Vec::with_capacity(runs.len());
     let mut first = None;

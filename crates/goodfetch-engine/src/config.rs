@@ -70,7 +70,7 @@ async fn explain(
             acting_for_model: context.surface().acts_for_model(),
         })
         .await
-        .map_err(|error| settings_error(&error, context.identity()))?;
+        .map_err(|error| settings_error(&error, &context))?;
     let mut files = machine.files;
     if let Some(project) = params.project {
         files.push(goodfetch_protocol::settings::SettingsFile {
@@ -160,7 +160,7 @@ async fn blocking<T: Send + 'static>(
     let owner = Arc::clone(&runs.limits().owner);
     owner.blocking(work).await.map_err(|refused| match refused {
         Refused::Settings(error) => {
-            settings_error(&runs.settings().files().named_in(error), context.identity())
+            settings_error(&runs.settings().files().named_in(error), context)
         }
         Refused::Conflict { read, current } => CallError::new(
             &POLICY_CONFLICT,
@@ -281,7 +281,7 @@ async fn user_write(
     let machine = settings
         .machine()
         .await
-        .map_err(|error| settings_error(&error, context.identity()))?;
+        .map_err(|error| settings_error(&error, &context))?;
     let host: HostDefaults = settings.host_defaults().await;
     let edit = Edit::of(&context, SettingsLayer::UserConfiguration);
     blocking(&context, move || {

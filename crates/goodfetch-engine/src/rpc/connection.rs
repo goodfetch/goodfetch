@@ -432,6 +432,7 @@ async fn serve_carried(
         identity: Arc::clone(&dispatch.identity),
         client,
         surface: OnceLock::new(),
+        behind_gateway: OnceLock::new(),
         drivers: Arc::clone(&dispatch.drivers),
         runs,
         events,
@@ -445,7 +446,6 @@ async fn serve_carried(
         completed,
         completions,
         in_flight: BTreeMap::new(),
-        behind_gateway: false,
         state: ConnectionState::Opening,
         connection,
         requests,
@@ -581,7 +581,6 @@ struct Session<'owner> {
     completed: mpsc::Sender<RequestId>,
     completions: mpsc::Receiver<RequestId>,
     in_flight: BTreeMap<RequestId, InFlight>,
-    behind_gateway: bool,
     /// Where it is, which only the engine's table changes (ADR 0128).
     state: ConnectionState,
     connection: Arc<ConnectionContext>,
@@ -865,7 +864,10 @@ impl Session<'_> {
                 self.connection.events.instance(),
                 &hello,
             )
-            .map(|accepted| (accepted, hello.surface, hello.log_level)),
+            .map(|accepted| {
+                let surface = accepted.surface;
+                (accepted, surface, hello.log_level)
+            }),
             Err(error) => Err(handshake::Refused::Invalid(error)),
         };
         let answered = match answered {
@@ -894,7 +896,7 @@ impl Session<'_> {
                     self.connection.runs.outlive_connection().await;
                 }
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface));
-                self.behind_gateway = accepted.behind_gateway;
+                let _ = self.connection.behind_gateway.set(accepted.behind_gateway);
                 if let Access::Attached(private_endpoint, console_link) = &self.access {
                     accepted
                         .result
@@ -968,7 +970,11 @@ impl Session<'_> {
                 &self.dispatch.identity,
                 Requested::Name(&method),
                 Product::Foxhound,
-                self.behind_gateway,
+                self.connection
+                    .behind_gateway
+                    .get()
+                    .copied()
+                    .unwrap_or(false),
             ))
         } else {
             Some(CallError::protocol(

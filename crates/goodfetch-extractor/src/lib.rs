@@ -25,7 +25,8 @@ mod tables;
 
 pub use extractor::{BuiltIn, Extractor};
 pub use formats::{
-    CleanUp, Context, Document, Serialization, formats, fuzz_formats, main_content_length,
+    CleanUp, Context, Document, Measured, Serialization, formats, fuzz_formats,
+    main_content_length, measured_formats,
 };
 pub use signature::page_signature;
 pub use social::SOCIAL_NETWORKS_VERSION;

@@ -188,9 +188,8 @@ pub(super) fn a_format_not_named_is_left_out(
             .and_then(Value::as_object)
             .map(|result| result.keys().cloned().collect());
         checks.check(
-            "the result holds the URL, the base URL and whether there is main content, and no format",
-            keys.as_deref()
-                == Some(&["base_url".to_owned(), "main_content".to_owned(), "url".to_owned()][..]),
+            "the result holds the URL and the base URL, and no format nor whether there is main content",
+            keys.as_deref() == Some(&["base_url".to_owned(), "url".to_owned()][..]),
         );
     }
     finish_run(connection, run_id)

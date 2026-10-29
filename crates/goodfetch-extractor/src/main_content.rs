@@ -20,10 +20,15 @@ const NOT_CONTENT: &str = "script, style, noscript, template, [hidden], nav, asi
 /// not the page's banner and content information (WAI-ARIA's HTML mapping).
 const SECTIONING: &str = "article, aside, main, nav, section";
 
-/// The main content `extractor` finds in `html`, read at `url`, as HTML;
-/// none when the document has no text a person reads it for.
-pub(crate) fn main_content(html: &str, url: &str, extractor: &dyn Extractor) -> Option<String> {
-    read(html, url, extractor).map(|(content, _)| content)
+/// The main content `extractor` finds in `html`, read at `url`, as HTML,
+/// and the length of its text, as [`main_text_length`] counts it; none
+/// when the document has no text a person reads it for.
+pub(crate) fn main_content(
+    html: &str,
+    url: &str,
+    extractor: &dyn Extractor,
+) -> Option<(String, usize)> {
+    read(html, url, extractor)
 }
 
 /// The length of the text of the main content `extractor` finds in `html`,

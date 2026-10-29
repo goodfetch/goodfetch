@@ -113,6 +113,33 @@ fn a_number_without_its_country_code_and_no_region_gets_no_e164() {
     );
 }
 
+/// Digits written as something else are no number, with a region or
+/// without: what libphonenumber's matcher leaves out (a date or a time
+/// stamp, whatever its separators, and a span an `:mm` follows), a year
+/// range, decimals, and an ISBN or an EAN whose check digit holds.
+///
+/// Covers: story:6-7
+#[rstest]
+#[case::no_region("en", vec![phone("020 7946 0958", "020 7946 0958", None)])]
+#[case::the_numbers_region("en-GB", vec![phone("020 7946 0958", "020 7946 0958", Some("+442079460958"))])]
+// In the United States, the time stamp's date and hour would make a valid
+// number, and the British one is none.
+#[case::where_the_time_stamp_is_valid("en-US", vec![])]
+fn digits_written_as_a_date_a_range_a_decimal_or_a_product_code_are_no_number(
+    #[case] lang: &str,
+    #[case] phones: Vec<Phone>,
+) {
+    let html = format!(
+        r#"<html lang="{lang}"><body>
+        <p>ISBN 978-3-16-148410-0, first printed as ISBN 0-306-40615-2; EAN 4006381333931.</p>
+        <p>Made 2005-2026, updated 2026-10-28 14:30, shipped 28 10 2026.</p>
+        <p>The shop stands at 48.8566 2.3522. Call 020 7946 0958.</p>
+        </body></html>"#
+    );
+
+    assert_eq!(contacts(&html).phones, phones);
+}
+
 /// Covers: story:6-7
 #[rstest]
 #[case::language_and_region("fr-FR", Some("+33142685300"))]

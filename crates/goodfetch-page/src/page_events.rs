@@ -257,6 +257,12 @@ const ENDED_LIMIT: usize = 1_024;
 /// the Run's folder; an older one answers `body_unavailable`.
 const KEPT_LIMIT: usize = 256;
 
+/// The `tracing` target of the event a body read logs at `debug` once it
+/// waits for its response to end (ADR 0132: Experimental): a Client's
+/// `$/log` then shows the read in flight, as a page function's console
+/// line shows its call.
+const BODY_READ_TARGET: &str = "goodfetch::page::body_read";
+
 #[derive(Default)]
 struct State {
     /// How many calls listen to each event.
@@ -642,6 +648,7 @@ impl PageEvents {
         surface: Surface,
     ) -> Result<BodyHandle, CallError> {
         let shared = &self.shared;
+        let mut waits = false;
         let (url, ended, received, expected) = loop {
             let changed = shared.changed.notified();
             {
@@ -663,6 +670,16 @@ impl PageEvents {
             }
             if *shared.gone.borrow() {
                 return Err(gone(shared));
+            }
+            if !waits {
+                // Once the read waits, the page's end wakes it: what a
+                // Client's `$/log` at `debug` shows of a read in flight.
+                tracing::debug!(
+                    target: BODY_READ_TARGET,
+                    request_id,
+                    "the body read waits for its response to end"
+                );
+                waits = true;
             }
             changed.await;
         };

@@ -109,7 +109,8 @@ impl TestEnv {
     /// (fix-queue 128). Any other test that starts a browser or an engine
     /// keeps [`TestEnv::new`]: its copies would sit in memory. A failed
     /// test's folder is kept on disk, in the temporary folder, and removed
-    /// from memory.
+    /// from memory; the folder of a test killed before its teardown is
+    /// moved there by the next in-memory setup.
     ///
     /// # Panics
     ///
@@ -169,7 +170,16 @@ impl TestEnv {
             eprintln!("goodfetch-test-seed={seed}");
         }
         let suite = variables.suite()?;
-        let prefix = format!("{} é ", folder_name(test));
+        // An in-memory folder's name carries its process, so a later setup
+        // can tell the folder of a test killed before its teardown.
+        let memory = memory_folder().filter(|memory| parent == Some(memory.as_path()));
+        let prefix = match memory {
+            Some(memory) => {
+                move_folders_of_killed_tests(&memory);
+                format!("{} é{OWNER_MARK}{}-", folder_name(test), std::process::id())
+            }
+            None => format!("{} é ", folder_name(test)),
+        };
         let mut builder = tempfile::Builder::new();
         builder.prefix(&prefix);
         let folder = match parent {
@@ -402,33 +412,83 @@ impl TestEnv {
     fn kept_folder(&mut self) -> PathBuf {
         let folder = self.folder.path();
         let in_memory = memory_folder().is_some_and(|memory| folder.starts_with(memory));
-        if in_memory && let Some(name) = folder.file_name() {
-            let on_disk = std::env::temp_dir().join(name);
-            match copy_folder(folder, &on_disk) {
-                Ok(()) => return on_disk,
-                // Best effort: whatever was copied goes, and the folder
-                // stays where it is.
-                Err(_) => {
-                    let _ = std::fs::remove_dir_all(&on_disk);
-                }
-            }
+        if in_memory && let Ok(on_disk) = copy_to_disk(folder) {
+            // The value's drop removes the folder from memory.
+            return on_disk;
         }
         self.folder.disable_cleanup(true);
         self.folder().to_owned()
     }
 }
 
-/// Copies the folder `from` to `to`, which must not exist yet: its
-/// folders, files and, on Unix, symbolic links; a socket or other special
-/// file is left out.
-fn copy_folder(from: &Path, to: &Path) -> io::Result<()> {
-    std::fs::create_dir(to)?;
+/// What an in-memory folder's name holds before its process's ID.
+const OWNER_MARK: &str = " pid";
+
+/// Moves to disk each in-memory test folder in `memory` whose process is
+/// gone: a test killed on its timeout runs no teardown, and its folder
+/// would hold RAM until someone deleted it. Each is listed on stderr as
+/// `goodfetch-test-folder-moved=<path>`. Best effort: a folder another
+/// setup is moving, or one that cannot be copied, stays.
+fn move_folders_of_killed_tests(memory: &Path) {
+    let Ok(entries) = std::fs::read_dir(memory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(owner) = owner_of(&name.to_string_lossy()) else {
+            continue;
+        };
+        if Path::new("/proc").join(owner.to_string()).exists() {
+            continue;
+        }
+        let left = entry.path();
+        if let Ok(on_disk) = copy_to_disk(&left) {
+            let _ = std::fs::remove_dir_all(&left);
+            #[expect(
+                clippy::print_stderr,
+                reason = "a killed test's folder is listed where it was moved to, as a kept folder is (ADR 0062)"
+            )]
+            {
+                eprintln!("goodfetch-test-folder-moved={}", on_disk.display());
+            }
+        }
+    }
+}
+
+/// The process ID an in-memory test folder's name holds, if it is one.
+fn owner_of(name: &str) -> Option<u32> {
+    let (_, rest) = name.rsplit_once(" é")?;
+    let (owner, _) = rest.strip_prefix(OWNER_MARK)?.split_once('-')?;
+    owner.parse().ok()
+}
+
+/// Copies `folder` to the temporary folder on disk under its own name and
+/// returns the copy. Fails when that name is taken, as by another setup
+/// moving the same folder, and removes a partial copy of its own.
+fn copy_to_disk(folder: &Path) -> io::Result<PathBuf> {
+    let name = folder
+        .file_name()
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let on_disk = std::env::temp_dir().join(name);
+    std::fs::create_dir(&on_disk)?;
+    if let Err(error) = copy_contents(folder, &on_disk) {
+        let _ = std::fs::remove_dir_all(&on_disk);
+        return Err(error);
+    }
+    Ok(on_disk)
+}
+
+/// Copies what the folder `from` holds into the folder `to`: its folders,
+/// files and, on Unix, symbolic links; a socket or other special file is
+/// left out.
+fn copy_contents(from: &Path, to: &Path) -> io::Result<()> {
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
         let kind = entry.file_type()?;
         let target = to.join(entry.file_name());
         if kind.is_dir() {
-            copy_folder(&entry.path(), &target)?;
+            std::fs::create_dir(&target)?;
+            copy_contents(&entry.path(), &target)?;
         } else if kind.is_file() {
             std::fs::copy(entry.path(), &target)?;
         } else if kind.is_symlink() {

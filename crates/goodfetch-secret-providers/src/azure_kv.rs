@@ -19,7 +19,7 @@ use std::ffi::OsString;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::secret_endpoint::SecretProviderEndpoint;
 use goodfetch_engine::secrets::{
-    ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider,
+    ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider, retry_after,
 };
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::secret_reference::SecretReference;
@@ -275,7 +275,12 @@ impl SecretProvider for AzureKeyVault {
             if status == 200 {
                 value_of(answer.body())
             } else {
-                Err(translate(status, answer.body()))
+                Err(translate(status, answer.body()).retrying_after(retry_after(
+                    answer
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|value| value.to_str().ok()),
+                )))
             }
         })
     }
@@ -347,7 +352,10 @@ fn failure_of(meaning: Meaning) -> ProviderFailure {
             AUTHORITY,
             "the Key Vault scope was refused; check that `secret_providers.azure_kv.endpoint` and `secret_providers.azure_kv.authority` name the same cloud.",
         ),
-        Meaning::Throttled => refused(SERVICE, "the request rate was exceeded; try again later."),
+        Meaning::Throttled => ProviderFailure::Busy {
+            fix: format!("{SERVICE}: the request rate was exceeded; try again later."),
+            retry_after: None,
+        },
     }
 }
 

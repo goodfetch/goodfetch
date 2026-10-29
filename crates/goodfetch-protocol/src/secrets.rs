@@ -222,7 +222,7 @@ pub const RUN_STATE_KEY_REFERENCE: Setting = Setting {
 /// `timeout.secret` (ADR 0092).
 pub const TIMEOUT_SECRET: Setting = Setting {
     name: "timeout.secret",
-    description: "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+    description: "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
     kind: ValueKind::Duration,
     default: thirty_seconds,
     clearable: false,
@@ -361,6 +361,22 @@ pub const SECRET_PROVIDERS_AZURE_KV_AUTHORITY: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn no_reference() -> Value {
+    json!([])
+}
+
+/// `secrets.resolve_each_use` (ADR 0014's note of 2026-10-28).
+pub const SECRETS_RESOLVE_EACH_USE: Setting = Setting {
+    name: "secrets.resolve_each_use",
+    description: "The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.",
+    kind: ValueKind::List(&ValueKind::SecretReference),
+    default: no_reference,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -379,6 +395,7 @@ pub const ENTRIES: Entries = Entries {
     settings: &[
         RUN_STATE_KEY_REFERENCE,
         TIMEOUT_SECRET,
+        SECRETS_RESOLVE_EACH_USE,
         SECRET_PROVIDERS_OP_COMMAND,
         SECRET_PROVIDERS_BW_COMMAND,
         SECRET_PROVIDERS_VAULT_ADDRESS,

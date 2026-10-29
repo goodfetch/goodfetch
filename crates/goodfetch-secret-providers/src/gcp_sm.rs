@@ -15,7 +15,7 @@ use std::ffi::OsString;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::secret_endpoint::SecretProviderEndpoint;
 use goodfetch_engine::secrets::{
-    ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider,
+    ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider, retry_after,
 };
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::secret_reference::SecretReference;
@@ -148,7 +148,12 @@ impl SecretProvider for GcpSecretManager {
             if status == 200 {
                 payload_of(answer.body())
             } else {
-                Err(translate(status, answer.body()))
+                Err(translate(status, answer.body()).retrying_after(retry_after(
+                    answer
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|value| value.to_str().ok()),
+                )))
             }
         })
     }
@@ -219,6 +224,10 @@ pub(crate) fn translate(status: u16, body: &[u8]) -> ProviderFailure {
     let refused = |fix: &str| ProviderFailure::Refused {
         fix: format!("{SERVICE}: {fix}"),
     };
+    let busy = |fix: &str| ProviderFailure::Busy {
+        fix: format!("{SERVICE}: {fix}"),
+        retry_after: None,
+    };
     match known {
         Some(Meaning::Missing) => ProviderFailure::Missing,
         Some(Meaning::Denied) => refused(
@@ -233,8 +242,8 @@ pub(crate) fn translate(status: u16, body: &[u8]) -> ProviderFailure {
         Some(Meaning::Invalid) => refused(
             "the reference names no valid project, secret or version; write it as `gcp-sm:project/secret/version`.",
         ),
-        Some(Meaning::Throttled) => refused("the request quota was exceeded; try again later."),
-        Some(Meaning::ServiceFailed) => refused("the service is unavailable; try again later."),
+        Some(Meaning::Throttled) => busy("the request quota was exceeded; try again later."),
+        Some(Meaning::ServiceFailed) => busy("the service is unavailable; try again later."),
         None => unrecognized(status, &text),
     }
 }

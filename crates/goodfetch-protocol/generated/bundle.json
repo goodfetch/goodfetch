@@ -17742,7 +17742,7 @@
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
                   },
                   "secret": {
-                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -19412,6 +19412,15 @@
                   "by_reference": {
                     "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
                     "type": "boolean"
+                  },
+                  "resolve_each_use": {
+                    "description": "The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.",
+                    "items": {
+                      "description": "A Secret reference, such as `env:NAME`.",
+                      "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                      "type": "string"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"
@@ -20225,7 +20234,7 @@
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
                   },
                   "secret": {
-                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -22011,6 +22020,15 @@
                   "by_reference": {
                     "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
                     "type": "boolean"
+                  },
+                  "resolve_each_use": {
+                    "description": "The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.",
+                    "items": {
+                      "description": "A Secret reference, such as `env:NAME`.",
+                      "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                      "type": "string"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"
@@ -22824,7 +22842,7 @@
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
                   },
                   "secret": {
-                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -24626,6 +24644,15 @@
                   "by_reference": {
                     "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
                     "type": "boolean"
+                  },
+                  "resolve_each_use": {
+                    "description": "The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.",
+                    "items": {
+                      "description": "A Secret reference, such as `env:NAME`.",
+                      "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                      "type": "string"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"
@@ -25439,7 +25466,7 @@
                     "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default."
                   },
                   "secret": {
-                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+                    "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
                     "minimum": 0,
                     "type": "integer"
                   },

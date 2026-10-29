@@ -37,7 +37,9 @@
       "reply": {
         "result": {
           "run_id": "first",
-          "started_as": "started"
+          "lifecycle": "running",
+          "needs": "foxhound",
+          "started_as": "new"
         }
       }
     },

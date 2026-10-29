@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_test_support::{ConsoleState, DAEMON_DEADLINE, Daemon, RuntimeFile, TestEnv, cli};
 use rstest::rstest;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::content_origin::Signed;
 use crate::daemon::{RawClient, StopsTheDaemon, validate};
@@ -351,7 +351,7 @@ fn a_daemon_on_port_zero_reports_its_consoles_address() {
     assert_eq!(status["console_url"], url.as_str());
 }
 
-/// Covers: story:12-3, setting:console.address, command:daemon.start, command:daemon.status
+/// Covers: story:12-3, setting:console.address, command:daemon.start, command:daemon.status, command:daemon.restart
 #[test]
 fn a_console_port_another_program_holds_fails_only_the_consoles_start() {
     let env = TestEnv::new();
@@ -365,21 +365,48 @@ fn a_console_port_another_program_holds_fails_only_the_consoles_start() {
         .run()
         .unwrap();
 
-    // `console_port_in_use` has no row of its own: its group's, `8`.
+    // `console_port_in_use` has no row of its own: its group's, `8`. Under
+    // `--json` the status printed carries the failure as `console_error`
+    // (608-O4), and a person reads it as every failure prints.
     assert_eq!(started.exit, Some(8), "{}", started.stderr);
     let printed: Value = serde_json::from_str(&started.stdout).unwrap();
+    let error = &printed["console_error"];
     assert_eq!(
-        (printed["pid"].is_u64(), printed["console_url"].clone()),
-        (true, Value::Null)
+        (
+            printed["pid"].is_u64(),
+            printed["console_url"].clone(),
+            error["code"].clone(),
+            error["fix"]
+                .as_str()
+                .is_some_and(|fix| fix.contains("`console.address`")),
+        ),
+        (true, Value::Null, json!("console_port_in_use"), true),
+        "{started}"
     );
-    assert!(started.stderr.contains("console_port_in_use"), "{started}");
-    assert!(started.stderr.contains("`console.address`"), "{started}");
     let status = cli(&env, COLLIE)
         .args(["daemon", "status", "--json"])
         .run()
         .unwrap();
     assert_eq!(status.exit, Some(0), "{}", status.stderr);
     let status: Value = serde_json::from_str(&status.stdout).unwrap();
-    assert_eq!(status["console_url"], Value::Null);
+    assert_eq!(
+        (
+            status["console_url"].clone(),
+            status["console_error"]["code"].clone()
+        ),
+        (Value::Null, json!("console_port_in_use"))
+    );
+    let restarted = cli(&env, COLLIE).args(["daemon", "restart"]).run().unwrap();
+    assert_eq!(
+        (
+            restarted.exit,
+            restarted
+                .stderr
+                .lines()
+                .any(|line| line == "code: console_port_in_use"),
+        ),
+        (Some(8), true),
+        "{restarted}"
+    );
     drop(held);
 }

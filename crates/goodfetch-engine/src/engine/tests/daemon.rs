@@ -365,6 +365,9 @@ fn daemon_status_counts_its_clients_and_live_runs() {
             call(&mut first, 1, "run.start", json!({ "run_id": "one" })).await;
             call(&mut second, 1, "run.start", json!({ "run_id": "two" })).await;
             let status = call(&mut first, 2, "daemon.status", json!({})).await;
+            // A CLI command's Run outlives its Connection and holds the
+            // Daemon from its idle stop, so it ends before the test does.
+            call(&mut first, 3, "run.finish", json!({ "run_id": "one" })).await;
             first.close().await;
             second.close().await;
             status

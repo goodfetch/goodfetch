@@ -163,6 +163,49 @@ fn a_refused_audit_command_shows_the_refusals_fix(#[case] command: &str) {
     );
 }
 
+/// The person-only commands, at a terminal, print the same refusal: `usage
+/// raise` once the person answered yes, `certs accept` and `certs forget`
+/// on the call that reads the pin, each with its `fix` line and exit `11`.
+///
+/// Covers: story:11-199, error:protocol_version_unsupported, exit:protocol_version_unsupported
+#[rstest]
+/// Covers: command:usage.raise
+#[case::usage_raise(&["usage", "raise", "--scope", "install", "--usage-kind", "requests", "--amount", "1000", "--daemon"], Some("y"))]
+/// Covers: command:certs.accept
+#[case::certs_accept(&["certs", "accept", "example.com", "--daemon"], None)]
+/// Covers: command:certs.forget
+#[case::certs_forget(&["certs", "forget", "example.com", "--daemon"], None)]
+fn a_refused_person_command_shows_the_refusals_fix(
+    #[case] arguments: &[&str],
+    #[case] answer: Option<&str>,
+) {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-hello-refused.json");
+
+    let mut asked = goodfetch_test_support::pty(&env, COLLIE)
+        .args(arguments)
+        .spawn()
+        .unwrap();
+    if let Some(answer) = answer {
+        asked.expect("[y/N]").unwrap();
+        asked.send_line(answer).unwrap();
+    }
+    let output = asked.finish().unwrap();
+    scripted.child().wait().unwrap();
+
+    let shown = output.stripped();
+    assert_eq!(
+        (
+            output.exit,
+            shown
+                .lines()
+                .any(|line| line.starts_with("fix:") && line.contains("daemon restart")),
+        ),
+        (Some(11), true),
+        "{shown}"
+    );
+}
+
 /// The corpus's script whose Daemon answers `config.explain` with an Error
 /// code, which each case replaces.
 const CALL_FAILED: &str = "daemon/cli-call-failed.json";

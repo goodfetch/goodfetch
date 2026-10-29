@@ -109,6 +109,15 @@ fn daemon_run_json_prints_its_daemon_status_once_it_listens() {
         ),
         (json!(endpoint.to_string()), true, Value::Null, true)
     );
+    // Its first line beyond the schema, the PID and the port it took
+    // replaced (608-5).
+    let mut shown = status;
+    shown["pid"] = json!("[pid]");
+    shown["address"] = json!("[address]");
+    goodfetch_test_support::__insta::assert_snapshot!(
+        "daemon_run_json_first_line",
+        serde_json::to_string_pretty(&shown).unwrap()
+    );
 }
 
 /// `daemon http-listener-token` prints the HTTP listener's token on stdout

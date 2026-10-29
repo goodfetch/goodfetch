@@ -41,7 +41,7 @@ use goodfetch_cli::engine_choice::{
 use goodfetch_cli::exit_codes;
 use goodfetch_cli::output::{self, Human};
 use goodfetch_engine::home::Home;
-use goodfetch_engine::run::settings_error;
+use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::secrets::Keychain;
 use goodfetch_engine::{Dependencies, Engine, Identity};
 
@@ -145,7 +145,7 @@ pub(super) fn explain_through(
 /// command's failure is.
 fn refused(error: &SettingsError, identity: &Identity, json: bool, human: &Human) -> ExitCode {
     output::fail(
-        settings_error(error, identity).to_error_object(),
+        local_settings_error(error, identity).to_error_object(),
         None,
         json,
         human,

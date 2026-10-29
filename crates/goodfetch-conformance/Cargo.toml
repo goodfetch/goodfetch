@@ -21,8 +21,14 @@ serde_json.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 # A gateway's WebSocket, which the gateway target reaches by address
-# (ADR 0096).
+# (ADR 0096): `ws` over TCP, or `wss` under rustls, which checks the
+# gateway's certificate against Mozilla's roots as ureq's rustls does.
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+secrecy.workspace = true
 tungstenite.workspace = true
+url.workspace = true
+webpki-roots.workspace = true
+# The Proving ground's HTTP API.
 ureq.workspace = true
 
 [dev-dependencies]

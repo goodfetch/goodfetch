@@ -5781,6 +5781,18 @@
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
         },
+        "client_surface": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Surface"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "On a gateway's `hello` (surface `cloud`), the surface of the Client\nwhose Connection it relays, such as `mcp` for a model's: the engine\nholds the Connection to that surface's rules, a model's settings\nincluded (ADR 0092), and the gateway's mark only words\n`not_in_product` (ADR 0095). None on the gateway's own Connection;\nany other surface names none."
+        },
         "form": {
           "anyOf": [
             {
@@ -15359,7 +15371,7 @@
         },
         {
           "const": "cloud",
-          "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).",
+          "description": "Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine\ntakes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).\nIts `hello` names in `client_surface` the surface of the Client it\nrelays, which every other rule of the Connection follows.",
           "type": "string"
         },
         {

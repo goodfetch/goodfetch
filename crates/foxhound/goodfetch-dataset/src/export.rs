@@ -286,7 +286,7 @@ async fn options(
             acting_for_model: context.surface().acts_for_model(),
         })
         .await
-        .map_err(|error| settings_error(&error, context.identity()))?;
+        .map_err(|error| settings_error(&error, context))?;
     let resolved = settings.resolved();
     let mut options = ExportOptions::of_run(params.run_id.as_str(), &params.dataset);
     match params.format {

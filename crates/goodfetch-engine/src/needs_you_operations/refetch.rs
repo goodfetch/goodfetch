@@ -75,7 +75,7 @@ impl Machine {
         let layers = settings
             .machine()
             .await
-            .map_err(|error| settings_error(&error, context.identity()))?;
+            .map_err(|error| settings_error(&error, context))?;
         Ok(Self {
             user_configuration: settings.files().user_configuration().to_owned(),
             operator_policy: settings.files().operator_policy().to_owned(),
@@ -187,10 +187,9 @@ impl Machine {
 /// The call error of a write that refused.
 fn refused(refused: Refused, context: &CallContext) -> CallError {
     match refused {
-        Refused::Settings(error) => settings_error(
-            &context.runs().settings().files().named_in(error),
-            context.identity(),
-        ),
+        Refused::Settings(error) => {
+            settings_error(&context.runs().settings().files().named_in(error), context)
+        }
         Refused::File(error) => CallError::protocol(
             ProtocolFailure::InternalError,
             format!("a settings file cannot be written: {error}"),

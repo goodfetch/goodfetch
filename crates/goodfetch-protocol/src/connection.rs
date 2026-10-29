@@ -48,6 +48,8 @@ pub enum Surface {
     Console,
     /// Goodfetch Cloud's gateway, or the Stub gateway, which a Collie engine
     /// takes as given to word `not_in_product`'s `fix` (ADRs 0095, 0096).
+    /// Its `hello` names in `client_surface` the surface of the Client it
+    /// relays, which every other rule of the Connection follows.
     Cloud,
     /// A Browser host, which is never a Client and needs no Product
     /// (ADR 0095).
@@ -262,6 +264,15 @@ pub struct HelloParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub log_level: Option<LogLevel>,
+    /// On a gateway's `hello` (surface `cloud`), the surface of the Client
+    /// whose Connection it relays, such as `mcp` for a model's: the engine
+    /// holds the Connection to that surface's rules, a model's settings
+    /// included (ADR 0092), and the gateway's mark only words
+    /// `not_in_product` (ADR 0095). None on the gateway's own Connection;
+    /// any other surface names none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub client_surface: Option<Surface>,
 }
 
 /// One engine process, new each time an engine starts (ADR 0031): the
@@ -433,6 +444,12 @@ pub struct NotInProductDetails {
     /// What to do instead.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub fix: String,
+    /// The command that installs the Product `needs` from the engine's own
+    /// channel, which `fix` names; none behind Goodfetch Cloud's gateway,
+    /// where an install would not help (ADR 0096).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub install: Option<String>,
     /// Whether the refusing engine is a Daemon handing over to its major's
     /// pick, which a Client of the major waits for and connects to (ADR
     /// 0098).

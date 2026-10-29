@@ -9,7 +9,7 @@
 //! loopback, as an SSH tunnel does.
 
 use goodfetch_cli::engine_choice::{Daemons, Reached};
-use goodfetch_engine::run::settings_error;
+use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{SettingsError, deployment_variable};
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonToken};
 use goodfetch_protocol::jsonrpc::ErrorObject;
@@ -60,7 +60,7 @@ impl Machine<'_> {
             layer: None,
             reason,
         };
-        settings_error(&error, self.identity).to_error_object()
+        local_settings_error(&error, self.identity).to_error_object()
     }
 }
 

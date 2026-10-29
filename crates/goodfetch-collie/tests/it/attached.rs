@@ -277,6 +277,7 @@ fn an_operation_only_foxhound_carries_is_refused_naming_foxhound_and_its_install
                 "needs": "foxhound",
                 "requested": "sample.crawl",
                 "fix": "Run it with Foxhound, which contains everything Collie does (`cargo install goodfetch-foxhound --locked --features executable`), or connect to a Foxhound engine.",
+                "install": "cargo install goodfetch-foxhound --locked --features executable",
             },
         })
     );

@@ -171,7 +171,7 @@ async fn start(
             acting_for_model: context.surface().acts_for_model(),
         })
         .await
-        .map_err(|error| settings_error(&error, context.identity()))?;
+        .map_err(|error| settings_error(&error, &context))?;
     let label_settings = goodfetch_fetch_tier::LabelSettings::of(&params.labels)?;
     servable::check(settings.resolved(), &label_settings)?;
     let fragments = labels::Fragments::of(settings.resolved(), &label_settings);

@@ -451,7 +451,7 @@ impl Reader<'_> {
                 paths.iter().map(|path| path.as_str().to_owned()).collect();
             found.extend(rust.reached(self.members, &changed));
         }
-        for (member, why) in evidence::literal_readers(self.root, self.members, &paths)? {
+        for (member, why) in affected::literal_readers(self.root, self.members, &paths)? {
             found.entry(member).or_insert(why);
         }
         // A member whose build or files read a changed file reaches its

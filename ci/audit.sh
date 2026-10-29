@@ -60,7 +60,17 @@ osv() {
 case "$mode-$ecosystem" in
   pinned-rust | live-rust)
     manifest=${target:-$repository/Cargo.toml}
-    lockfile="$(dirname "$manifest")/Cargo.lock"
+    folder=$(cd "$(dirname "$manifest")" && pwd)
+    lockfile="$folder/Cargo.lock"
+    # A lockfile outside the workspace, such as Spider's side of `just
+    # compare-spider` (xtask/compare-spider), keeps its own advisory
+    # exceptions beside it when it has any: a deny.toml of its own and a
+    # .cargo/audit.toml, which cargo-audit reads from its working folder, so
+    # they never reach the workspace's.
+    config="$repository/deny.toml"
+    audit_folder=$repository
+    [[ -f "$folder/deny.toml" ]] && config="$folder/deny.toml"
+    [[ -f "$folder/.cargo/audit.toml" ]] && audit_folder=$folder
     failed=0
     if [[ $mode == pinned ]]; then
       fetch
@@ -68,14 +78,14 @@ case "$mode-$ecosystem" in
       # cargo-audit's --stale accepts the pinned commit's age: the daily
       # live audit reads the newest.
       GOODFETCH_ADVISORY_DBS="$advisories/rustsec" cargo deny --offline --manifest-path "$manifest" \
-        --config "$repository/deny.toml" check advisories || failed=1
+        --config "$config" check advisories || failed=1
       # Unmaintained, unsound and yanked crates fail here as in cargo-deny.
-      cargo audit --db "$advisories/rustsec/$rustsec_folder" --no-fetch --stale \
-        --file "$lockfile" --deny warnings || failed=1
+      (cd "$audit_folder" && cargo audit --db "$advisories/rustsec/$rustsec_folder" --no-fetch --stale \
+        --file "$lockfile" --deny warnings) || failed=1
     else
       GOODFETCH_ADVISORY_DBS="${CARGO_HOME:-$HOME/.cargo}/advisory-dbs" cargo deny --manifest-path "$manifest" \
-        --config "$repository/deny.toml" check advisories || failed=1
-      cargo audit --file "$lockfile" --deny warnings || failed=1
+        --config "$config" check advisories || failed=1
+      (cd "$audit_folder" && cargo audit --file "$lockfile" --deny warnings) || failed=1
     fi
     exit "$failed"
     ;;

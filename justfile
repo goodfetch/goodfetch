@@ -68,6 +68,9 @@ lint: fmt-check
     ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh .githooks/pre-commit .githooks/pre-push
     ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources
     ci/tool.sh cargo-deny ci/deny/products.sh
+    # Spider's side of `just compare-spider`, no workspace member, which no
+    # gate builds: its lock's licenses, read without a build (ADR 0134).
+    ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses
     ci/tool.sh cargo-shear cargo shear
     cargo run --quiet -p xtask -- self-hosted check
     cargo run --quiet -p xtask -- egress check
@@ -310,6 +313,7 @@ mutants base="":
 # Makes every download the pull-request tier needs, before the egress deny.
 fetch:
     cargo fetch --locked
+    cargo fetch --locked --manifest-path xtask/compare-spider/Cargo.toml
     ci/fuzz-check.sh fetch
     pnpm install --frozen-lockfile
     uv sync --frozen --all-extras
@@ -1133,7 +1137,8 @@ zap phase="scan":
 notices *arguments:
     cargo run --quiet -p xtask -- notices {{ arguments }}
 
-# The security advisories of the Cargo, pnpm and uv lockfiles, against the
+# The security advisories of the Cargo, pnpm and uv lockfiles (the Cargo
+# ones the workspace's and Spider's side's, xtask/compare-spider), against the
 # advisory snapshot ci/advisories.toml pins (ADR 0064), offline:
 # cargo-deny's and cargo-audit's over RustSec's pinned commit, OSV-Scanner's
 # over OSV's pinned npm and PyPI databases (ci/audit.sh). Its first run
@@ -1141,6 +1146,7 @@ notices *arguments:
 # commit's.
 audit:
     ci/tool.sh cargo-audit ci/audit.sh rust
+    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-spider/Cargo.toml
     ci/tool.sh osv-scanner ci/audit.sh npm
     ci/tool.sh osv-scanner ci/audit.sh python
 

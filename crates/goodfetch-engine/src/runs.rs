@@ -2607,20 +2607,35 @@ impl Runs {
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future after the stop was sent still stops the Run.
-    pub async fn stop_at_safe_point(
+    /// The stop is asked when this is called, before its future is first
+    /// polled: dropping the future ends only the wait (#1743).
+    pub fn stop_at_safe_point(
         &self,
         run_id: RunId,
         by: StoppedBy,
-    ) -> Result<RunReport, RunError> {
+    ) -> impl Future<Output = Result<RunReport, RunError>> + Send + use<> {
         let (answer, answered) = oneshot::channel();
-        self.commands
-            .send(Command::SafeStop(run_id, by, answer))
-            .await
-            .map_err(|_| RunError::Stopped)?;
-        match answered.await.map_err(|_| RunError::Stopped)?? {
-            Waiting::Report(report) => wait_for(report).await,
-            Waiting::TakeOver(taken) => taken.await.map_err(|_| RunError::Stopped)?,
+        self.send_now(Command::SafeStop(run_id, by, answer));
+        async move {
+            match answered.await.map_err(|_| RunError::Stopped)?? {
+                Waiting::Report(report) => wait_for(report).await,
+                Waiting::TakeOver(taken) => taken.await.map_err(|_| RunError::Stopped)?,
+            }
+        }
+    }
+
+    /// Hands `command` to the registry now, whatever becomes of the caller:
+    /// while the registry's mailbox is full, a task of the engine's own
+    /// sends it. A registry that stopped drops it, and with it its answer.
+    fn send_now(&self, command: Command) {
+        match self.commands.try_send(command) {
+            Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => {}
+            Err(mpsc::error::TrySendError::Full(command)) => {
+                let commands = self.commands.clone();
+                self.limits.owner.spawn(async move {
+                    let _ = commands.send(command).await;
+                });
+            }
         }
     }
 

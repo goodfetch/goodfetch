@@ -118,7 +118,7 @@ use crate::serving::{Crawls, Opened, Server};
 use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices};
 use crate::tier_race::{Latencies, Raced};
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
-use goodfetch_protocol::foxhound::progress::{InFlightPhase, InFlightRequest};
+use goodfetch_protocol::foxhound::progress::{HELD_DOMAINS, InFlightPhase, InFlightRequest};
 
 mod attempt;
 mod politeness;
@@ -354,8 +354,8 @@ async fn deliver(
         let wake = (free && !starved)
             .then(|| admission.ready_at(run.clock().now()))
             .flatten();
-        let waits = [stop.is_some(), free, starved];
-        show(run, (&admission, &mut queued), &resolved, servers, waits);
+        let room = [stop.is_some(), free, starved];
+        show(run, (&mut admission, &mut queued), &resolved, servers, room);
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => {
@@ -394,7 +394,7 @@ async fn deliver(
 /// `goodfetch.work_item.queued` as its admission's queues stand.
 fn show(
     run: &Run,
-    (admission, count): (&Admission, &mut Level),
+    (admission, count): (&mut Admission, &mut Level),
     resolved: &Resolved,
     servers: &mut [Serving],
     [stopping, free, starved]: [bool; 3],
@@ -404,7 +404,7 @@ fn show(
     let room = progress::room(stopping || !serving, free, starved);
     let concurrency = CrawlPolicy::of(resolved).handler_concurrency;
     let now = run.clock().now();
-    let queued = admission.queued(now);
+    let queued = admission.queued(now, HELD_DOMAINS);
     count.set(admission.waiting());
     progress::show(run, (&queued, now), resolved, room, (handlers, concurrency));
 }
@@ -464,12 +464,14 @@ pub(crate) async fn resume(
     let retry_max = policy.retry_max;
     let bounds = Bounds::of_settings(settings.resolved());
     let resolved = settings.resolved().clone();
+    let lost = Failure::new(HANDLER_LOST.name, HANDLER_LOST.description);
+    let resumed_at = run.point_in_time();
     let left = run
         .state()
         .write(move |connection| {
             bounds.record(connection)?;
             goodfetch_frontier::payload::record_max_size(connection, &resolved)?;
-            work_items::recover_leases(connection, HANDLER_LOST.name, retry_max)?;
+            work_items::recover_leases(connection, &lost, retry_max, &resumed_at)?;
             Ok((
                 work_items::left(connection)?,
                 labels::read(connection)?,
@@ -889,7 +891,10 @@ enum Waited {
 /// cut as its Completeness reasons, unless `crawl.keep_alive`,
 /// read at each admission point as its policy is, holds it until
 /// `run.finish` lets it finish: until then it waits for new work, as the
-/// Run's own timeout and a stop still end it (RT-12).
+/// Run's own timeout and a stop still end it (RT-12). Before it finishes,
+/// it closes its intake in a job of the Run state's writer that looks once
+/// more for a pending work item: a re-admission or a seed added since its
+/// last look is delivered, and one coming later is refused (#914, #1005).
 async fn drained(
     run: &Run,
     resolved: &Resolved,
@@ -901,6 +906,20 @@ async fn drained(
         .boolean(CRAWL_KEEP_ALIVE.name)
         .expect("invariant: `crawl.keep_alive` resolves to a boolean");
     if !keeps_alive || run.is_let_finish() {
+        let intake = arrivals.intake.clone();
+        match run
+            .state()
+            .write(move |connection| intake.close_if_drained(connection))
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => return Waited::Again,
+            Err(error) => {
+                tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
+                end(run, admission, failed(run, &error)).await;
+                return Waited::Ended;
+            }
+        }
         let ending = match run.state().read(completeness::short_of_scope).await {
             Ok(reasons) => Ending::Finished(reasons),
             Err(error) => {

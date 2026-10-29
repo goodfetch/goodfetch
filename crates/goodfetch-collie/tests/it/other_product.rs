@@ -19,7 +19,7 @@
 use goodfetch_protocol::catalog::SharedType;
 use goodfetch_protocol::entries::product_of_value;
 use goodfetch_protocol::foxhound_names;
-use goodfetch_test_support::{TestEnv, cli, command};
+use goodfetch_test_support::{SnapshotValues, TestEnv, cli, command, snapshot_settings};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -231,6 +231,51 @@ fn a_foxhound_command_tells_a_person_to_install_foxhound() {
 
     assert_eq!((exit, stdout.as_str()), (Some(10), ""), "{stderr}");
     insta::assert_snapshot!("foxhound_command_human", stderr);
+}
+
+/// The refusal a person reads of a setting key and of a value of a shared
+/// type only Foxhound carries, given to commands of Collie's executable on
+/// an Attached engine: its message naming what was asked, then `code`,
+/// `retryable` and `fix` on lines of their own, on stderr only.
+///
+/// Covers: story:11-216, error:not_in_product, exit:not_in_product
+#[rstest]
+/// Covers: command:run.start
+#[case::setting_key(
+    "foxhound_setting_key_human",
+    &["run", "start", "--attached", "--set", "crawl.max_depth=1"],
+)]
+/// Covers: command:usage.set
+#[case::shared_type_value(
+    "foxhound_shared_type_value_human",
+    &["usage", "set", "--attached", "--scope", "install", "--usage-kind", "paid_fetch", "--amount", "1"],
+)]
+fn a_foxhound_setting_key_or_shared_type_value_tells_a_person_to_install_foxhound(
+    #[case] name: &str,
+    #[case] arguments: &[&str],
+) {
+    let env = TestEnv::new();
+
+    let output = cli(&env, COLLIE).args(arguments).run().unwrap();
+
+    assert_eq!(
+        (output.exit, output.stdout.as_str()),
+        (Some(10), ""),
+        "{}",
+        output.stderr
+    );
+    // The Attached engine's dispatch records, which the test's log level
+    // turns on for the exercise audit, are no part of the refusal.
+    let refusal = output
+        .stderr
+        .lines()
+        .filter(|line| !line.contains(" TRACE goodfetch::"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    snapshot_settings(
+        &SnapshotValues::of(&env).with_executable(env!("CARGO_PKG_VERSION"), "no-commit"),
+    )
+    .bind(|| insta::assert_snapshot!(name, refusal));
 }
 
 /// The `fix` names the install command of the channel the executable came

@@ -42,6 +42,7 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
         ProviderFailure::Refused { .. } => Meaning::Refused,
         ProviderFailure::Unrecognized(_) => Meaning::Unrecognized,
         ProviderFailure::ResolverFailed => panic!("no provider here answers for the caller"),
+        ProviderFailure::Busy { .. } => panic!("no OS provider here answers that it is busy"),
     }
 }
 
@@ -215,6 +216,7 @@ fn over(env: &TestEnv, keychain: Keychain) -> crate::secrets::RunSecrets {
                 environment: std::collections::BTreeMap::new(),
                 keychain,
                 home: home.clone(),
+                entropy: crate::entropy::Entropy::seeded(0),
             },
             Arc::new(AuditLog::of(&home, None)),
             Arc::new(TaskOwner::root(BlockingPolicy::Inline)),

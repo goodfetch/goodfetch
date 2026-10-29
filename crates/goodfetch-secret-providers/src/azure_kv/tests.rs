@@ -14,6 +14,7 @@ use super::{is_vault_name, translate, translate_token, value_of};
 enum Meaning {
     Missing,
     Refused,
+    Busy,
     Unrecognized,
 }
 
@@ -21,6 +22,7 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
     match failure {
         ProviderFailure::Missing => Meaning::Missing,
         ProviderFailure::Refused { .. } => Meaning::Refused,
+        ProviderFailure::Busy { .. } => Meaning::Busy,
         ProviderFailure::Unrecognized(_) => Meaning::Unrecognized,
         other => panic!("not a translation's answer: {other:?}"),
     }
@@ -35,7 +37,7 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
     r#"{"error":{"code":"Unauthorized","message":"AKV10032: Invalid issuer."}}"#,
     Meaning::Refused
 )]
-#[case::throttled(429, r#"{"error":{"code":"Throttled","message":"Request was not processed because too many requests were received."}}"#, Meaning::Refused)]
+#[case::throttled(429, r#"{"error":{"code":"Throttled","message":"Request was not processed because too many requests were received."}}"#, Meaning::Busy)]
 #[case::an_unknown_failure(
     409,
     r#"{"error":{"code":"Conflict","message":"new"}}"#,
@@ -58,7 +60,7 @@ fn each_known_vault_failure_has_its_meaning(
 #[case::unavailable(
     503,
     r#"{"error":"temporarily_unavailable","error_description":"AADSTS50196"}"#,
-    Meaning::Refused
+    Meaning::Busy
 )]
 #[case::an_unknown_failure(400, r#"{"error":"something_new"}"#, Meaning::Unrecognized)]
 #[case::no_json(502, "Bad Gateway", Meaning::Unrecognized)]

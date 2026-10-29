@@ -15,6 +15,7 @@ use super::{Credentials, Signing, authorization, translate, value_of};
 enum Meaning {
     Missing,
     Refused,
+    Busy,
     Unrecognized,
 }
 
@@ -22,6 +23,7 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
     match failure {
         ProviderFailure::Missing => Meaning::Missing,
         ProviderFailure::Refused { .. } => Meaning::Refused,
+        ProviderFailure::Busy { .. } => Meaning::Busy,
         ProviderFailure::Unrecognized(_) => Meaning::Unrecognized,
         other => panic!("not a translation's answer: {other:?}"),
     }
@@ -40,7 +42,7 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
 #[case::throttled(
     400,
     r#"{"__type":"ThrottlingException","message":"Rate exceeded"}"#,
-    Meaning::Refused
+    Meaning::Busy
 )]
 #[case::a_service_failure(
     500,

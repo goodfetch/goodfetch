@@ -19,14 +19,17 @@
 use std::convert::Infallible;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use goodfetch_protocol::daemon::{DaemonHealth, Unready};
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{self, HeaderMap, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioIo, TokioTimer};
+use tokio::sync::Semaphore;
 
+use crate::clock::Clock;
 use crate::endpoint::{Refusals, names_an_address, same_token};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
@@ -137,14 +140,30 @@ fn writable(folder: &Path) -> bool {
     made.is_ok() && tempfile::NamedTempFile::new_in(folder).is_ok()
 }
 
+/// How long a connection has to send a request head, the next one's on a
+/// kept-alive connection included, before the listener closes it.
+const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How many ops connections may be open at once: a kubelet and a scraper
+/// need a few, and past it a new one is closed as it is accepted, so no
+/// peer that reaches `ops.address` holds the Daemon's descriptors.
+const OPEN_AT_MOST: usize = 64;
+
+/// How long the listener waits before accepting again after a failure that
+/// is not one connection's own, such as running out of descriptors
+/// (`EMFILE`, `ENFILE`), which would fail again at once; as axum's server
+/// does.
+const ACCEPT_PAUSE: Duration = Duration::from_secs(1);
+
 /// Serves the ops listener of `options` until `owner` stops, each
-/// connection a task of its own.
+/// connection a task of its own: at most [`OPEN_AT_MOST`] at once, each
+/// closed when it sends no request head within [`HEADER_READ_TIMEOUT`].
 ///
 /// # Cancel safety
 ///
 /// Dropping the future stops accepting; the connections are `owner`'s,
 /// which its stop ends.
-pub(crate) async fn serve(options: OpsOptions, health: Health, owner: TaskOwner) {
+pub(crate) async fn serve(options: OpsOptions, health: Health, owner: TaskOwner, clock: Clock) {
     let OpsOptions {
         listener,
         token,
@@ -156,6 +175,7 @@ pub(crate) async fn serve(options: OpsOptions, health: Health, owner: TaskOwner)
         refusals: health.runs.refusals(),
         health,
     });
+    let open = Arc::new(Semaphore::new(OPEN_AT_MOST));
     loop {
         let accepted = tokio::select! {
             () = owner.token().cancelled() => return,
@@ -163,16 +183,25 @@ pub(crate) async fn serve(options: OpsOptions, health: Health, owner: TaskOwner)
         };
         match accepted {
             Ok(stream) => {
+                let Ok(permit) = Arc::clone(&open).try_acquire_owned() else {
+                    tracing::debug!("an ops connection past the ones open at once is closed");
+                    drop(stream);
+                    continue;
+                };
                 let stopping = owner.token().clone();
                 let serving = Arc::clone(&serving);
                 owner.spawn(async move {
-                    let connection = hyper::server::conn::http1::Builder::new().serve_connection(
-                        TokioIo::new(stream),
-                        hyper::service::service_fn(move |request: Request<Incoming>| {
-                            let serving = Arc::clone(&serving);
-                            async move { Ok::<_, Infallible>(serving.answer(&request).await) }
-                        }),
-                    );
+                    let _permit = permit;
+                    let connection = hyper::server::conn::http1::Builder::new()
+                        .timer(TokioTimer::new())
+                        .header_read_timeout(HEADER_READ_TIMEOUT)
+                        .serve_connection(
+                            TokioIo::new(stream),
+                            hyper::service::service_fn(move |request: Request<Incoming>| {
+                                let serving = Arc::clone(&serving);
+                                async move { Ok::<_, Infallible>(serving.answer(&request).await) }
+                            }),
+                        );
                     tokio::pin!(connection);
                     tokio::select! {
                         ended = connection.as_mut() => {
@@ -186,9 +215,27 @@ pub(crate) async fn serve(options: OpsOptions, health: Health, owner: TaskOwner)
             }
             Err(error) => {
                 tracing::warn!(%error, "the ops listener cannot accept a connection");
+                if !connections_own(&error) {
+                    tokio::select! {
+                        () = owner.token().cancelled() => return,
+                        () = clock.sleep(ACCEPT_PAUSE) => {}
+                    }
+                }
             }
         }
     }
+}
+
+/// Whether a failure to accept is the connection's own, such as a peer that
+/// reset it before it was accepted, after which the next accept may
+/// succeed at once.
+fn connections_own(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionRefused
+    )
 }
 
 /// What the ops listener answers with.

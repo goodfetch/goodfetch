@@ -5,8 +5,12 @@
 //! the Audit log with its placeholder, reference and receiving domain,
 //! never the value; the value is held for the rest of the run as a
 //! `SecretString`, zeroized once the last handle drops, where the run's
-//! `Mask` finds it; and a failure is one of [`SecretFailure`]'s variants,
-//! each leading to `secret_unavailable` with its fix.
+//! `Mask` finds it, and reused at the reference's later uses for the same
+//! placeholder, its binding checked again each time, unless
+//! `secrets.resolve_each_use` lists it; a provider that answers it is busy
+//! is asked again within `timeout.secret` (ADR 0014's note of 2026-10-28);
+//! and a failure is one of [`SecretFailure`]'s variants, each leading to
+//! `secret_unavailable` with its fix.
 //!
 //! A provider fills only two primitives, [`SecretProvider::resolve`] and
 //! [`SecretProvider::check_config`]. This module carries the providers
@@ -16,15 +20,19 @@
 //! which is also where `run_state.key_reference`'s default falls back to
 //! ([`host_defaults`]). Each is a translation point (ADR 0127): what its
 //! party answers becomes a [`ProviderFailure`] there and nowhere else.
+//!
+//! Size: one driver, the resolution's checks, reuse, retry, Audit record
+//! and hold, kept with the engine key's making that resolves through them;
+//! the providers live in their own modules.
 
 mod environment;
 mod keychain;
 mod secretfile;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -33,18 +41,20 @@ use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
 use goodfetch_protocol::secrets::{
-    KEY_REFERENCE_IN_FILE, KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure,
-    SecretInputRefusedReason,
+    KEY_REFERENCE_IN_FILE, KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE,
+    SECRETS_RESOLVE_EACH_USE, SecretFailure, SecretInputRefusedReason,
 };
 use goodfetch_protocol::settings::SettingsLayer;
 use jiff::Timestamp;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::json;
+use subtle::ConstantTimeEq as _;
 
 pub use keychain::Keychain;
 
 use crate::audit::{AuditError, AuditLog, Origin};
 use crate::clock::Clock;
+use crate::entropy::Entropy;
 use crate::home::Home;
 use crate::known_certificates::{ExceptionKind, KeyHash};
 use crate::mask::{Mask, Masks, Reach, Redaction};
@@ -90,6 +100,16 @@ pub enum ProviderFailure {
     Refused {
         /// What makes it answer, never a value.
         fix: String,
+    },
+    /// It is briefly unable to answer, such as a rate limit's 429 or a
+    /// 503, and may answer if asked again: the driver asks again within
+    /// `timeout.secret`, after `retry_after` when it gave one, and then
+    /// fails `provider_failed` with `fix`.
+    Busy {
+        /// What makes it answer, never a value.
+        fix: String,
+        /// How long it asked to be left alone, its `Retry-After`.
+        retry_after: Option<Duration>,
     },
     /// It failed in a way its translation point does not know (ADR 0127),
     /// logged at `warn` without its text: `provider_failed`.
@@ -154,7 +174,7 @@ pub const CARRIED: [Provider; 3] = [
 /// The providers every engine carries beside the ones a Product adds: the
 /// environment map `env:` reads, the OS keychain `keychain:` reads, and the
 /// Goodfetch home whose encrypted local files `secretfile:` reads.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Carried {
     /// The engine's environment map (ADR 0083).
     pub environment: BTreeMap<OsString, OsString>,
@@ -162,6 +182,9 @@ pub struct Carried {
     pub keychain: Keychain,
     /// The Goodfetch home.
     pub home: Home,
+    /// The engine's entropy, which the waits before a busy provider is
+    /// asked again draw from.
+    pub entropy: Entropy,
 }
 
 /// The defaults this host gives in place of the catalog's: the encrypted
@@ -281,6 +304,9 @@ struct Shared {
     /// engine makes its own key-encryption key.
     keychain: Keychain,
     secret_files: PathBuf,
+    /// The file whose lock the engine holds while it makes its own key in
+    /// the OS keychain.
+    key_lock: PathBuf,
     /// Each engine-owned key-encryption key ([`ENGINE_KEYS`]) once this
     /// driver made it or found it made: the first caller makes it, and
     /// every later or concurrent one waits for that making, so the engine
@@ -288,6 +314,8 @@ struct Shared {
     made: Arc<[tokio::sync::OnceCell<()>; 2]>,
     /// Every live Run's resolved values, which each Run's own join.
     masks: Masks,
+    /// Where the waits before a busy provider is asked again draw from.
+    entropy: Arc<tokio::sync::Mutex<Entropy>>,
 }
 
 impl std::fmt::Debug for Secrets {
@@ -311,6 +339,7 @@ impl Secrets {
     ) -> Self {
         let keychain = carried.keychain.clone();
         let secret_files = carried.home.secret_files();
+        let key_lock = carried.home.engine_key_lock();
         let mut providers = BTreeMap::new();
         let environment_map = carried.environment.clone();
         providers.insert(
@@ -340,8 +369,10 @@ impl Secrets {
             clock,
             keychain,
             secret_files,
+            key_lock,
             made: Arc::default(),
             masks: Masks::new(),
+            entropy: Arc::new(tokio::sync::Mutex::new(carried.entropy)),
         }))
     }
 
@@ -357,7 +388,10 @@ impl Secrets {
     /// key, unless it holds a value already: only for the items the engine
     /// owns, `run_state.key_reference`'s defaults ([`is_engine_key`]), in
     /// the OS keychain or the encrypted local file, whose identity it makes
-    /// too. The key is 32 bytes from the OS generator, in Base64.
+    /// too. The key is 32 bytes from the OS generator, in Base64. In the
+    /// keychain the item is read and stored under the home's
+    /// `engine-key.lock`, so two engines making it at once store one key,
+    /// which both then read.
     ///
     /// # Errors
     ///
@@ -415,6 +449,23 @@ impl Secrets {
                 .rest()
                 .split_once('/')
                 .expect("invariant: a `keychain:` reference parses as service/account");
+            // The item is read, then stored where it is missing, under a
+            // lock every engine of the user takes, so of two engines making
+            // it at once the second reads the first's key and stores none.
+            let path = self.0.key_lock.clone();
+            let _lock = self
+                .0
+                .owner
+                .blocking(move || lock_exclusive(&path))
+                .await
+                .map_err(|error| {
+                    unavailable(ProviderFailure::Refused {
+                        fix: format!(
+                            "The engine cannot lock `{}` while it makes its key-encryption key ({error}); check that the Goodfetch home is writable.",
+                            self.0.key_lock.display()
+                        ),
+                    })
+                })?;
             match self
                 .0
                 .keychain
@@ -497,7 +548,15 @@ impl Secrets {
                     .insert(*provider, Implementation(factory(&inputs)));
             }
         }
-        secrets.for_run_with(timeout, redaction)
+        let each_use = settings
+            .value(SECRETS_RESOLVE_EACH_USE.name)
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .collect();
+        secrets.for_run_reusing(timeout, redaction, each_use)
     }
 
     /// Every live Run's resolved values.
@@ -525,12 +584,25 @@ impl Secrets {
     /// The same, its values masked in its kept outputs unless `redaction`,
     /// its `security.redaction`, is off.
     pub fn for_run_with(&self, timeout: Duration, redaction: Redaction) -> RunSecrets {
+        self.for_run_reusing(timeout, redaction, BTreeSet::new())
+    }
+
+    /// The same, the references `each_use` names resolved again at each
+    /// use.
+    fn for_run_reusing(
+        &self,
+        timeout: Duration,
+        redaction: Redaction,
+        each_use: BTreeSet<String>,
+    ) -> RunSecrets {
         RunSecrets(Arc::new(ForRun {
             secrets: self.clone(),
             timeout,
             held: tokio::sync::Mutex::new(Vec::new()),
             exception_hosts: ExceptionHosts::default(),
             mask: self.0.masks.for_run(redaction),
+            values: tokio::sync::Mutex::default(),
+            each_use,
         }))
     }
 }
@@ -612,7 +684,18 @@ struct ForRun {
     exception_hosts: ExceptionHosts,
     /// The Run's mask, which every value it resolves joins.
     mask: Mask,
+    /// The value resolved for each reference and placeholder, reused for
+    /// the rest of the Run; a resolution in flight is waited for, so
+    /// resolutions of one reference at once make one call.
+    values: tokio::sync::Mutex<BTreeMap<(String, String), Reused>>,
+    /// The references resolved again at each use, its
+    /// `secrets.resolve_each_use`.
+    each_use: BTreeSet<String>,
 }
+
+/// A value a Run resolved once for a reference and placeholder, or the
+/// resolution of it in flight, which its later uses wait for.
+type Reused = Arc<tokio::sync::OnceCell<SecretString>>;
 
 impl std::fmt::Debug for RunSecrets {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -636,10 +719,12 @@ impl RunSecrets {
         &self.0.mask
     }
 
-    /// The value `reference` points to, resolved now for `purpose`: refused
-    /// for a domain its binding does not allow, bounded by `timeout.secret`,
-    /// recorded in the Audit log, held for the rest of the Run and masked
-    /// as `%placeholder%` wherever the engine returns, sends or keeps it.
+    /// The value `reference` points to for `purpose`: refused for a domain
+    /// its binding does not allow; the value resolved for its placeholder
+    /// earlier in the Run, unless `secrets.resolve_each_use` lists it, or
+    /// else asked of its provider now within `timeout.secret`; recorded in
+    /// the Audit log, held for the rest of the Run and masked as
+    /// `%placeholder%` wherever the engine returns, sends or keeps it.
     ///
     /// # Errors
     ///
@@ -676,6 +761,47 @@ impl RunSecrets {
                 domains: purpose.domains.to_vec(),
             });
         }
+        let value = if self.0.each_use.contains(reference.as_str()) {
+            self.fetch(reference, purpose).await?
+        } else {
+            let resolved = Arc::clone(
+                self.0
+                    .values
+                    .lock()
+                    .await
+                    .entry((
+                        reference.as_str().to_owned(),
+                        purpose.placeholder.to_owned(),
+                    ))
+                    .or_default(),
+            );
+            resolved
+                .get_or_try_init(|| self.fetch(reference, purpose))
+                .await?
+                .clone()
+        };
+        self.record(reference, purpose).await?;
+        self.0.mask.join(purpose.placeholder, &value, Reach::Value);
+        let mut held = self.0.held.lock().await;
+        held.retain(|held| !(held.placeholder == purpose.placeholder && same(&held.value, &value)));
+        held.push(Held {
+            placeholder: purpose.placeholder.to_owned(),
+            value: value.clone(),
+        });
+        drop(held);
+        Ok(value)
+    }
+
+    /// The value `reference` points to, asked of its provider now for
+    /// `purpose`, within `timeout.secret`: a provider that answers it is
+    /// busy is asked again, after its `Retry-After` or a wait drawn with
+    /// full jitter under a cap that doubles from [`FIRST_WAIT`] to
+    /// [`LONGEST_WAIT`], while the next ask still falls within it.
+    async fn fetch(
+        &self,
+        reference: &SecretReference,
+        purpose: &Purpose<'_>,
+    ) -> Result<SecretString, SecretError> {
         let unavailable = |failure: SecretFailure, fix: String| SecretError::Unavailable {
             placeholder: purpose.placeholder.to_owned(),
             reference: reference.clone(),
@@ -693,29 +819,43 @@ impl RunSecrets {
         if let Err(problem) = provider.check_config() {
             return Err(unavailable(SecretFailure::NotConfigured, problem.fix));
         }
-        let answer = tokio::select! {
-            answer = provider.resolve(reference) => answer,
-            () = self.0.secrets.0.clock.sleep(self.0.timeout) => {
-                return Err(unavailable(
-                    SecretFailure::TimedOut,
-                    format!(
-                        "The `{scheme}` provider gave no answer within `timeout.secret` ({} ms); check that it is reachable, or raise `timeout.secret`.",
-                        self.0.timeout.as_millis()
-                    ),
-                ));
+        let clock = self.0.secrets.0.clock;
+        let deadline = clock.now() + self.0.timeout;
+        let mut attempt: u32 = 0;
+        loop {
+            attempt = attempt.saturating_add(1);
+            let answer = tokio::select! {
+                answer = provider.resolve(reference) => answer,
+                () = clock.sleep_until(deadline) => {
+                    return Err(unavailable(
+                        SecretFailure::TimedOut,
+                        format!(
+                            "The `{scheme}` provider gave no answer within `timeout.secret` ({} ms); check that it is reachable, or raise `timeout.secret`.",
+                            self.0.timeout.as_millis()
+                        ),
+                    ));
+                }
+            };
+            match answer {
+                Ok(value) => return Ok(value),
+                Err(ProviderFailure::Busy { fix, retry_after }) => {
+                    let wait = match retry_after {
+                        Some(wait) => wait,
+                        None => {
+                            full_jitter(attempt, self.0.secrets.0.entropy.lock().await.next_u64())
+                        }
+                    };
+                    if clock.now() + wait >= deadline {
+                        return Err(unavailable(SecretFailure::ProviderFailed, fix));
+                    }
+                    clock.sleep(wait).await;
+                }
+                Err(failure) => {
+                    let (failure, fix) = failure_of(failure, reference);
+                    return Err(unavailable(failure, fix));
+                }
             }
-        };
-        let value = answer.map_err(|failure| {
-            let (failure, fix) = failure_of(failure, reference);
-            unavailable(failure, fix)
-        })?;
-        self.record(reference, purpose).await?;
-        self.0.mask.join(purpose.placeholder, &value, Reach::Value);
-        self.0.held.lock().await.push(Held {
-            placeholder: purpose.placeholder.to_owned(),
-            value: value.clone(),
-        });
-        Ok(value)
+        }
     }
 
     /// Every value the Run resolved, with the name it was resolved for, in
@@ -785,6 +925,29 @@ impl RunSecrets {
     }
 }
 
+impl ProviderFailure {
+    /// The same failure, waiting `wait` before it is asked again when it
+    /// is [`ProviderFailure::Busy`] and `wait` is some: the `Retry-After`
+    /// a translation point read beside the answer it translated.
+    #[must_use]
+    pub fn retrying_after(self, wait: Option<Duration>) -> Self {
+        match (self, wait) {
+            (Self::Busy { fix, .. }, Some(wait)) => Self::Busy {
+                fix,
+                retry_after: Some(wait),
+            },
+            (failure, _) => failure,
+        }
+    }
+}
+
+/// The wait a `Retry-After` header's `value` asks for: a whole number of
+/// seconds. An HTTP date, which needs the server's clock, asks none, and
+/// the driver's backoff waits instead.
+pub fn retry_after(value: Option<&str>) -> Option<Duration> {
+    value?.trim().parse::<u64>().ok().map(Duration::from_secs)
+}
+
 /// What a provider's failure on `reference` leads to: its variant and fix.
 fn failure_of(failure: ProviderFailure, reference: &SecretReference) -> (SecretFailure, String) {
     let scheme = reference.provider().as_str();
@@ -794,7 +957,9 @@ fn failure_of(failure: ProviderFailure, reference: &SecretReference) -> (SecretF
             format!("Store a value where `{reference}` points, then try again."),
         ),
         ProviderFailure::NotConfigured(problem) => (SecretFailure::NotConfigured, problem.fix),
-        ProviderFailure::Refused { fix } => (SecretFailure::ProviderFailed, fix),
+        ProviderFailure::Refused { fix } | ProviderFailure::Busy { fix, .. } => {
+            (SecretFailure::ProviderFailed, fix)
+        }
         ProviderFailure::Unrecognized(_) => (
             SecretFailure::ProviderFailed,
             format!("The `{scheme}` provider failed; its logs say why."),
@@ -804,6 +969,53 @@ fn failure_of(failure: ProviderFailure, reference: &SecretReference) -> (SecretF
             "Answer the reference from the program's `resolveSecret`.".to_owned(),
         ),
     }
+}
+
+/// The exclusive lock on the file at `path`, made if it is missing, once
+/// no other process holds it. Blocking: it runs on the tasks module's
+/// blocking policy.
+fn lock_exclusive(path: &Path) -> std::io::Result<std::fs::File> {
+    if let Some(folder) = path.parent() {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "it runs on the tasks module's blocking policy"
+        )]
+        std::fs::create_dir_all(folder)?;
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)?;
+    file.lock()?;
+    Ok(file)
+}
+
+/// The first wait's cap before a busy provider is asked again.
+const FIRST_WAIT: Duration = Duration::from_millis(200);
+
+/// The longest cap on a wait before a busy provider is asked again.
+const LONGEST_WAIT: Duration = Duration::from_secs(5);
+
+/// The wait before the ask after `attempt`, the first being 1, drawn from
+/// `draw` with full jitter: any whole millisecond from none to the cap,
+/// [`FIRST_WAIT`] doubled at each attempt up to [`LONGEST_WAIT`].
+fn full_jitter(attempt: u32, draw: u64) -> Duration {
+    let cap = FIRST_WAIT
+        .saturating_mul(1_u32 << attempt.saturating_sub(1).min(16))
+        .min(LONGEST_WAIT);
+    let cap_ms = u64::try_from(cap.as_millis()).unwrap_or(u64::MAX);
+    Duration::from_millis(draw % (cap_ms + 1))
+}
+
+/// Whether `one` and `other` are the same value, in time that depends only
+/// on their lengths.
+fn same(one: &SecretString, other: &SecretString) -> bool {
+    bool::from(
+        one.expose_secret()
+            .as_bytes()
+            .ct_eq(other.expose_secret().as_bytes()),
+    )
 }
 
 /// Whether `reference` names the item of the engine's own key-encryption

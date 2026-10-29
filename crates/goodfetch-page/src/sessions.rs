@@ -595,7 +595,12 @@ impl Sessions {
         let value = self.handler_pages.value(run.id(), session);
         lease_holds(&value)?;
         let admission = run.governor().admit(WorkKind::BrowserPage).await;
-        let (driver, in_browser) = open.seat.new_page(Visibility::Visible).await?;
+        // A Session closed while the page waited, or whose browser went
+        // under it, raises what its table says now (#697, S8, S9).
+        let (driver, in_browser) = match open.seat.new_page(Visibility::Visible).await {
+            Ok(opened) => opened,
+            Err(error) => return Err(open.life.settled(error).await),
+        };
         let driver = driver
             .with_value(value, run.clock())
             .with_reader(self.handler_pages.reader(run.id(), session));
@@ -981,7 +986,7 @@ impl Sessions {
             })
             .await
             .map_err(|error| unavailable(run, &error, context))?;
-        let pool = Pool::new(
+        let (pool, losses) = Pool::new(
             run.clone(),
             context.runs().home().clone(),
             Pins {
@@ -1050,6 +1055,7 @@ impl Sessions {
         }
         state.runs.insert(run.id().clone(), runs);
         drop(state);
+        self.follow_losses(run, losses);
         self.leave_with(run);
         self.end_pages_past_their_cap(run);
         Ok(())

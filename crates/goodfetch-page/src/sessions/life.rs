@@ -68,12 +68,16 @@ pub(crate) enum Ending {
     /// raised for the command it withheld, which its calls in flight raise
     /// too.
     LeaseEnded(CallError),
+    /// Its Run stopped (a `Close` the engine makes, S7): what the Run's
+    /// stop raises for its calls in flight, the Limit it reached or the
+    /// program's close of its Session.
+    RunStopped(CallError),
 }
 
 impl Ending {
     fn event(&self) -> PageEvent {
         match self {
-            Self::Closed(_) => PageEvent::Close,
+            Self::Closed(_) | Self::RunStopped(_) => PageEvent::Close,
             Self::Destroyed => PageEvent::TargetDestroyed,
             Self::RendererCrash => PageEvent::RendererCrash,
             Self::BrowserQuit => PageEvent::BrowserQuit,
@@ -455,7 +459,9 @@ impl PageLife {
             (PageEffect::Close, Ending::Closed(closed)) => {
                 Some(cancelled(StoppedBy::Program, *closed))
             }
-            (PageEffect::Close, Ending::LeaseEnded(withheld)) => Some(withheld.clone()),
+            (PageEffect::Close, Ending::LeaseEnded(withheld) | Ending::RunStopped(withheld)) => {
+                Some(withheld.clone())
+            }
             (PageEffect::Close, Ending::MemoryExceeded { memory, limit }) => Some(
                 page_memory_exceeded(&self.shared.page_id, *memory, limit.clone()),
             ),

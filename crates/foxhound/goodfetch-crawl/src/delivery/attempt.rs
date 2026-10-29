@@ -521,6 +521,40 @@ pub(super) async fn attempt(
     }
 }
 
+/// A page a tier served for an attempt, held until it is handed out
+/// ([`Served::keep`]): dropped before, as the future that holds it is when
+/// a race's navigation wins, it closes on its tiers, so no served page
+/// outlives its attempt, nor holds its Run's handles past the Run's end.
+struct Served<'t> {
+    tiers: &'t FetchTiers,
+    /// The page, until it is handed out.
+    page_id: Option<PageId>,
+}
+
+impl Served<'_> {
+    /// The page's ID.
+    fn page_id(&self) -> &PageId {
+        self.page_id
+            .as_ref()
+            .expect("invariant: a served page is held until it is handed out")
+    }
+
+    /// Hands the page out: its holder closes it from now on.
+    fn keep(mut self) -> PageId {
+        self.page_id
+            .take()
+            .expect("invariant: a served page is handed out once")
+    }
+}
+
+impl Drop for Served<'_> {
+    fn drop(&mut self) {
+        if let Some(page_id) = self.page_id.take() {
+            self.tiers.close(&page_id);
+        }
+    }
+}
+
 /// What a run on the `http` tier gave: the handler's answer, the call
 /// that escalated its page, if one did, whether its page held a document,
 /// the encoding it was read in (ADR 0119) and the URL its document came
@@ -841,7 +875,8 @@ impl On<'_> {
         let page_id = self
             .document(tiering, http, choice, &hand_over)
             .await
-            .map_err(|answer| (answer, Vec::new()))?;
+            .map_err(|answer| (answer, Vec::new()))?
+            .keep();
         *self.document.lock().await = tiers.response(&page_id);
         // A `discovered_api` page replays its Label's calls (ADR 0020).
         if let Some(plan) = plan {
@@ -982,14 +1017,16 @@ impl On<'_> {
     /// lease, served as `choice` says, once its origin's robots.txt was
     /// read, and opened as a served page, its pages gated with
     /// `hand_over`; one whose AI-use signals refuse the Run's Purpose is
-    /// closed unhandled. Answers the page, or how the attempt ended.
-    async fn document(
+    /// closed unhandled. Answers the page, held from the moment it was
+    /// served so that dropping the future closes it, or how the attempt
+    /// ended.
+    async fn document<'t>(
         &self,
-        tiering: &Tiering,
+        tiering: &'t Tiering,
         http: &HttpTier,
         choice: &TierChoice,
         hand_over: &Arc<HandOver>,
-    ) -> Result<PageId, Answer> {
+    ) -> Result<Served<'t>, Answer> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let requester = Requester {
             request_id: &leased.crawl_request.id,
@@ -1058,14 +1095,21 @@ impl On<'_> {
             } => document,
             _ = lease.ended() => Err(Answer::LeaseEnded),
         };
-        let page_id = fetched?;
-        if let Some(refused) =
-            use_signals_refusal(run, (tiers, http), &page_id, &self.gating.signal_files).await
+        let served = Served {
+            tiers,
+            page_id: Some(fetched?),
+        };
+        if let Some(refused) = use_signals_refusal(
+            run,
+            (tiers, http),
+            served.page_id(),
+            &self.gating.signal_files,
+        )
+        .await
         {
-            tiers.close(&page_id);
             return Err(refused);
         }
-        Ok(page_id)
+        Ok(served)
     }
 
     /// The handler request of the attempt on `tier`, given the page

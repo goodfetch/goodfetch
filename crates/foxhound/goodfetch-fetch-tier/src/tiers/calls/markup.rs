@@ -4,10 +4,12 @@
 //! `visibility` that says `hidden` or `collapse`, by sitting in the
 //! document's head, a `template`, a `script`, a `style` or a `noscript`,
 //! or as an `<input type="hidden">`; visible otherwise, when it holds text
-//! or an element the browser draws without text. A stylesheet's rules are
-//! not read, as the table says; an element with nothing to draw, which the
-//! browser gives no size, and one inside a closed `details` are left to
-//! the browser.
+//! or an element the browser draws without text, in a document that holds
+//! no `<style>` element and no stylesheet `<link>`. A stylesheet's rules
+//! are not read, so an element such a document holds, which one of them
+//! may hide, is left to the browser, as are an element with nothing to
+//! draw, which the browser gives no size, and one inside a closed
+//! `details`.
 
 use dom_query::{Document, Matcher, NodeRef};
 
@@ -37,7 +39,7 @@ const DRAWN: [&str; 13] = [
 /// matches; `None` when it cannot tell: a selector the matcher does not
 /// parse, a document with a declarative shadow root, more than one match,
 /// whose wait the browser refuses as not strict, or an element whose
-/// visibility needs layout.
+/// visibility needs layout or a stylesheet's rules.
 pub(crate) fn shown(html: &str, selector: &str) -> Option<Shown> {
     if html.to_ascii_lowercase().contains("shadowrootmode") {
         return None;
@@ -85,7 +87,19 @@ pub(crate) fn shown(html: &str, selector: &str) -> Option<Shown> {
         || std::iter::once(*element)
             .chain(element.descendants())
             .any(|node| DRAWN.contains(&name(&node).as_str()));
-    (draws && !in_closed_details).then_some(Shown::Visible)
+    (draws && !in_closed_details && !styled(&document)).then_some(Shown::Visible)
+}
+
+/// Whether `document` holds a stylesheet: a `<style>` element, or a
+/// `<link>` whose `rel` names `stylesheet`, an alternate one included.
+fn styled(document: &Document) -> bool {
+    !document.select("style").is_empty()
+        || document.select("link[rel]").nodes().iter().any(|link| {
+            link.attr("rel").is_some_and(|rel| {
+                rel.split_ascii_whitespace()
+                    .any(|kind| kind.eq_ignore_ascii_case("stylesheet"))
+            })
+        })
 }
 
 /// The value of the property `property` in `node`'s inline `style`, lower

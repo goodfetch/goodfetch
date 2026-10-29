@@ -2652,6 +2652,7 @@ dependencies = [
  "goodfetch-fetch-tier",
  "goodfetch-foxhound",
  "goodfetch-frontier",
+ "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-session-pool",
  "goodfetch-sql-tab",

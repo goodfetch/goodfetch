@@ -584,9 +584,10 @@ impl Fetching<'_> {
     /// How `leased`'s attempt runs, as its Label and the Run's
     /// `fetch.tier` choose and, under `auto`, on the browser for a domain a
     /// Challenge moved there, `to_browser` (ADR 0021), else, when the Run
-    /// races its tiers, as a race timed by its Label on its domain's
-    /// browser-fetch latencies, else as its Label on its domain learned,
-    /// and what it fetches its document with. Each request a learned choice
+    /// races its tiers, as a sample while its Label on its domain is due
+    /// one, else as a race timed by its Label on its domain's browser-fetch
+    /// latencies, else as its Label on its domain learned, and what it
+    /// fetches its document with. Each request a learned choice
     /// serves is counted in `run`'s file.
     async fn served(
         &self,
@@ -614,23 +615,29 @@ impl Fetching<'_> {
                 forced: None,
             }),
             Choosing::Alone | Choosing::Engine if self.races && !to_browser && !leased.sitemap => {
-                let learned = self.learned(run, leased, now).await;
-                AttemptPlan::Race(Raced {
-                    label: request.label.clone(),
-                    domain_key: leased.waiting.key.clone(),
-                    delay: self
-                        .latencies
-                        .lock()
-                        .await
-                        .delay(&request.label, &leased.waiting.key),
-                    agrees: !matches!(
-                        learned,
-                        AttemptPlan::On(TierChoice {
-                            tier: FetchTier::Browser,
-                            ..
-                        })
-                    ),
-                })
+                match self.learned(run, leased, now).await {
+                    // Until the sample comparison weighs a race's runs
+                    // (#768), a race learns nothing: a Label on its domain
+                    // due a sample takes it, so a racing Run learns its
+                    // choice as any other (ADR 0040's #945 note).
+                    sample @ AttemptPlan::Sample(_) => sample,
+                    learned => AttemptPlan::Race(Raced {
+                        label: request.label.clone(),
+                        domain_key: leased.waiting.key.clone(),
+                        delay: self
+                            .latencies
+                            .lock()
+                            .await
+                            .delay(&request.label, &leased.waiting.key),
+                        agrees: !matches!(
+                            learned,
+                            AttemptPlan::On(TierChoice {
+                                tier: FetchTier::Browser,
+                                ..
+                            })
+                        ),
+                    }),
+                }
             }
             Choosing::Alone => AttemptPlan::Alone,
             Choosing::Forced(choice) => AttemptPlan::On(choice),

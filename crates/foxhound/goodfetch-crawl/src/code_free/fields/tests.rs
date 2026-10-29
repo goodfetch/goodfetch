@@ -9,9 +9,19 @@ use goodfetch_protocol::foxhound::provenance::{TransformProvenance, UnreadField}
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{check, read, schema};
+use super::{Read, Reader, check, schema};
 
 const BASE: &str = "http://shop.test/kites/delta";
+
+/// What `field` reads of `element`, with the reader its crawl builds.
+fn read(
+    name: &str,
+    field: &ExtractionField,
+    element: Option<&FieldElement>,
+    base_url: &str,
+) -> Read {
+    super::read(name, (field, &Reader::of(field)), element, base_url)
+}
 
 fn field(value: Value) -> ExtractionField {
     serde_json::from_value(value).unwrap()

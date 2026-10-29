@@ -12,6 +12,10 @@ use goodfetch_protocol::catalog::Product;
 #[global_allocator]
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "main is the one place that reads the environment (ADR 0059)"
+)]
 fn main() -> ExitCode {
     start(&Start {
         product: Product::Collie,

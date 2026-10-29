@@ -13,6 +13,7 @@
 
 use std::future::Future;
 use std::io;
+use std::ops::ControlFlow;
 
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -115,18 +116,44 @@ impl TaskOwner {
     pub fn actor<M, H>(
         &self,
         name: &str,
-        mut mailbox: mpsc::Receiver<M>,
+        mailbox: mpsc::Receiver<M>,
         mut handle: H,
     ) -> io::Result<()>
     where
         M: Send + 'static,
         H: FnMut(Vec<M>) + Send + 'static,
     {
+        self.actor_until(name, mailbox, move |group| {
+            handle(group);
+            ControlFlow::Continue(())
+        })
+    }
+
+    /// Starts an actor as [`TaskOwner::actor`] does, which also ends once
+    /// `handle` breaks: its mailbox is dropped then, with every message it
+    /// still holds, so a sender's later message is refused, whoever holds a
+    /// sender still.
+    ///
+    /// # Errors
+    ///
+    /// When the OS refuses the dedicated thread.
+    pub fn actor_until<M, H>(
+        &self,
+        name: &str,
+        mut mailbox: mpsc::Receiver<M>,
+        mut handle: H,
+    ) -> io::Result<()>
+    where
+        M: Send + 'static,
+        H: FnMut(Vec<M>) -> ControlFlow<()> + Send + 'static,
+    {
         match self.policy {
             BlockingPolicy::Inline => {
                 self.tracker.spawn(async move {
                     while let Some(first) = mailbox.recv().await {
-                        handle(drain(first, &mut mailbox));
+                        if handle(drain(first, &mut mailbox)).is_break() {
+                            break;
+                        }
                     }
                 });
             }
@@ -141,8 +168,11 @@ impl TaskOwner {
                         .name(name.to_owned())
                         .spawn(move || {
                             while let Some(first) = mailbox.blocking_recv() {
-                                handle(drain(first, &mut mailbox));
+                                if handle(drain(first, &mut mailbox)).is_break() {
+                                    break;
+                                }
                             }
+                            drop(mailbox);
                             let _ = finished.send(());
                         })?;
                 self.tracker.spawn(async move {

@@ -1,10 +1,6 @@
 //! `run`: the declared trials of both tools in a random order, each against
 //! a fresh Proving ground whose observations then say what the trial did,
 //! written to the trials file.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
-)]
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -53,6 +49,10 @@ fn order(seed: u64) -> Vec<(Tool, u32)> {
 }
 
 /// The machine: OS and version, CPU, threads.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous: it asks the OS's own commands and files with blocking calls (STYLE.md)"
+)]
 fn machine() -> Machine {
     let read = |program: &str, arguments: &[&str]| {
         Command::new(program)
@@ -93,6 +93,10 @@ fn machine() -> Machine {
 
 /// Runs one trial through `xtask compare-spider trial` and returns its
 /// seconds and peak.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous: a trial runs as a blocking child process (STYLE.md)"
+)]
 fn trial(tool: Tool, executable: &Path, address: &str, pages: u64) -> Result<(f64, u64)> {
     let probe = std::env::current_exe().context("finding xtask's own executable")?;
     let output = Command::new(probe)
@@ -125,6 +129,17 @@ fn trial(tool: Tool, executable: &Path, address: &str, pages: u64) -> Result<(f6
     ))
 }
 
+/// The seed of the trials' order, drawn from the wall clock: any seed will
+/// do, and the one drawn is recorded with the trials.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "xtask has no Clock or Entropy handle (ADR 0059): a one-off comparison draws its recorded order seed from the wall clock"
+)]
+fn drawn_seed() -> u64 {
+    let now = jiff::Timestamp::now();
+    now.as_second().unsigned_abs() ^ u64::from(now.subsec_nanosecond().unsigned_abs()) << 32
+}
+
 /// Runs every declared trial and returns the trials file's contents.
 /// `spider_pages` gives Spider a site of another size, which the same-work
 /// check must refuse.
@@ -133,10 +148,7 @@ pub(crate) fn run(
     commit: String,
     spider_pages: Option<u64>,
 ) -> Result<Comparison> {
-    let now = jiff::Timestamp::now();
-    // Any seed will do; the one drawn is recorded with the trials.
-    let order_seed =
-        now.as_second().unsigned_abs() ^ u64::from(now.subsec_nanosecond().unsigned_abs()) << 32;
+    let order_seed = drawn_seed();
     let site = format!("/sites/{SITE_PAGES}/");
     let mut trials = Vec::new();
     for (tool, number) in order(order_seed) {

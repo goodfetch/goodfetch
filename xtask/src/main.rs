@@ -594,14 +594,8 @@ fn print_failed(
     reason = "main is the one place that reads the environment (ADR 0059)"
 )]
 fn read_environment() -> Environment {
-    Environment {
-        root: PathBuf::from("."),
-        cargo: std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")),
-        github_token: std::env::var("GITHUB_TOKEN")
-            .ok()
-            .filter(|token| !token.is_empty()),
-        lazyfs: std::env::var_os("GOODFETCH_LAZYFS").is_some(),
-    }
+    let variables: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    Environment::of(&variables)
 }
 
 fn main() -> ExitCode {

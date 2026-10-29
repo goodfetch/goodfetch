@@ -10,12 +10,12 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::Product;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-use crate::rss::peaks::{self, Peak};
+use crate::rss::peaks::{self, Peak, parse_name};
 use crate::rss::scenario::Scenario;
 
 /// The peaks file in the measured folder.
@@ -106,8 +106,34 @@ pub(crate) struct Measured {
     pub(crate) startup: BTreeMap<Product, Startup>,
     pub(crate) peaks: Vec<Peak>,
     pub(crate) spider: Option<SpiderReport>,
-    /// The write-ups, by target name and Product mark.
-    write_ups: BTreeMap<String, BTreeMap<String, WriteUp>>,
+    /// The write-ups, by target name and Product.
+    write_ups: BTreeMap<(String, Product), String>,
+}
+
+/// The write-ups file's shape: `[<target>.<product>]` tables, each holding
+/// one `write-up`.
+type WriteUps = BTreeMap<String, BTreeMap<String, WriteUp>>;
+
+/// The write-ups in `text`, each key checked as the ceilings file's are:
+/// the outer one among `targets`, the names of the targets, the inner one
+/// a Product's mark. A name the file does not take is refused, never a
+/// write-up dropped unseen.
+fn write_ups(text: &str, targets: &[&str]) -> Result<BTreeMap<(String, Product), String>> {
+    let file: WriteUps = toml::from_str(text)?;
+    let mut write_ups = BTreeMap::new();
+    for (target, products) in file {
+        if !targets.contains(&target.as_str()) {
+            bail!(
+                "`{target}` is no name this file takes: it takes {}",
+                targets.join(", ")
+            );
+        }
+        for (product, write_up) in products {
+            let product: Product = parse_name(&product)?;
+            write_ups.insert((target.clone(), product), write_up.write_up);
+        }
+    }
+    Ok(write_ups)
 }
 
 impl Measured {
@@ -123,14 +149,19 @@ impl Measured {
     /// The optimization pass's write-up of `target` on `product`.
     pub(crate) fn write_up(&self, target: &str, product: Product) -> Option<&str> {
         self.write_ups
-            .get(target)?
-            .get(product.as_str())
-            .map(|write_up| write_up.write_up.as_str())
+            .get(&(target.to_owned(), product))
+            .map(String::as_str)
     }
 }
 
-/// Reads what was measured; a file that does not exist is left out.
-pub(crate) fn read(folder: &Path, spider: &Path, gaps: &Path) -> Result<Measured> {
+/// Reads what was measured; a file that does not exist is left out. The
+/// write-ups file at `gaps` takes the target names `targets`.
+pub(crate) fn read(
+    folder: &Path,
+    spider: &Path,
+    gaps: &Path,
+    targets: &[&str],
+) -> Result<Measured> {
     let mut startup = BTreeMap::new();
     for product in [Product::Collie, Product::Foxhound] {
         let path = folder.join(startup_file(product));
@@ -151,7 +182,7 @@ pub(crate) fn read(folder: &Path, spider: &Path, gaps: &Path) -> Result<Measured
     };
     let write_ups = match text(gaps)? {
         Some(text) => {
-            toml::from_str(&text).with_context(|| format!("parsing {}", gaps.display()))?
+            write_ups(&text, targets).with_context(|| format!("parsing {}", gaps.display()))?
         }
         None => BTreeMap::new(),
     };

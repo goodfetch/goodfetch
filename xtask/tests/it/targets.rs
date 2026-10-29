@@ -7,6 +7,7 @@
 //! missed over it with the gap and the optimization pass's write-up, or not
 //! measured. It never fails on a miss. Measurements are fixtures here.
 
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::workspace::{Outcome, Workspace};
@@ -249,6 +250,32 @@ fn a_miss_carries_the_optimization_pass_write_up_for_it() {
     assert!(
         markdown.contains("The dynamic loader relocates 9,046 relative relocations."),
         "{markdown}"
+    );
+}
+
+/// A write-up under a target or Product the file does not take would never
+/// reach its miss: the report refuses the file, naming the key.
+#[rstest]
+#[case::a_mistyped_target("[startup-to-helo.collie]", "startup-to-helo")]
+#[case::a_mistyped_product("[crawl-peak.foxhoud]", "foxhoud")]
+fn a_write_up_under_a_name_the_file_does_not_take_is_refused(
+    #[case] table: &str,
+    #[case] name: &str,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    startup(&workspace, "collie", 0.012);
+    workspace.write(
+        "ci/performance-target-gaps.toml",
+        format!("{table}\nwrite-up = \"A write-up.\"\n").as_bytes(),
+    );
+
+    let (outcome, _) = report(&workspace);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert!(
+        outcome.stderr.contains(&format!("`{name}` is no name")),
+        "{}",
+        outcome.stderr
     );
 }
 

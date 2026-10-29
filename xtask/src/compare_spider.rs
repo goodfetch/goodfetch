@@ -145,6 +145,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     pages: arguments.pages,
                     concurrency: arguments.concurrency,
                 },
+                &environment.goodfetch_variables,
             )?;
             output::line(&format!("seconds={seconds} peak-bytes={peak}"));
             Ok(ExitCode::SUCCESS)

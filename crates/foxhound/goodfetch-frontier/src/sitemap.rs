@@ -48,6 +48,7 @@ use url::Url;
 
 use crate::admit::{Candidate, admit};
 use crate::scope::Scope;
+use crate::staged::Admitting;
 use crate::url::parse as parse_url;
 
 /// The crawl's sitemaps, each the fetch of one work item, with the rules
@@ -352,41 +353,89 @@ pub fn admit_seed(
     seed: &SitemapSeed,
     add: impl FnOnce(&Url) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
+    admit_seed_in(connection, policy, seed, &mut Admitting::RunFile, add)
+}
+
+/// Admits the sitemap seed `seed` as [`admit_seed`] does, against what
+/// `admitting` adds to the run file, as [`crate::admit_in`] admits a
+/// candidate: while an attempt stages, the sitemaps and seeds of its
+/// earlier admissions count as added.
+///
+/// # Errors
+///
+/// When the run file cannot be read or written, or what `add` fails with.
+pub fn admit_seed_in(
+    connection: &Connection,
+    policy: &Policy,
+    seed: &SitemapSeed,
+    admitting: &mut Admitting,
+    add: impl FnOnce(&Url) -> rusqlite::Result<String>,
+) -> rusqlite::Result<Enqueued> {
     let rules = serde_json::to_string(&seed.rules).expect("invariant: rules encode as JSON");
-    let answer = admit_fetch(connection, policy, &seed.sitemap, None, None, &rules, add)?;
+    let fetch = Fetch {
+        given: &seed.sitemap,
+        base: None,
+        seed: None,
+        rules: &rules,
+    };
+    let answer = admit_fetch(connection, policy, fetch, admitting, add)?;
     if let Enqueued::Added { url, .. } = &answer
         && let Ok(url) = Url::parse(url)
     {
         Scope::widen(connection, &url)?;
+        admitting.widened(&url);
     }
     Ok(answer)
 }
 
-/// Admits the fetch of the sitemap `given`, resolved against `base` when
-/// given, the seed `seed`'s (none for the seed itself) with `rules`.
+/// A sitemap's fetch to admit: the sitemap `given`, resolved against
+/// `base` when given, of the seed `seed` (none for the seed itself), with
+/// `rules`.
+#[derive(Clone, Copy)]
+struct Fetch<'a> {
+    given: &'a str,
+    base: Option<&'a Url>,
+    seed: Option<&'a str>,
+    rules: &'a str,
+}
+
+/// Admits the sitemap fetch `fetch`, against what `admitting` adds to the
+/// run file.
 fn admit_fetch(
     connection: &Connection,
     policy: &Policy,
-    given: &str,
-    base: Option<&Url>,
-    seed: Option<&str>,
-    rules: &str,
+    fetch: Fetch<'_>,
+    admitting: &mut Admitting,
     add: impl FnOnce(&Url) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
-    let not_added = |reason: NotAddedReason| Enqueued::NotAdded {
-        reason,
-        url: given.to_owned(),
-    };
+    let Fetch {
+        given,
+        base,
+        seed,
+        rules,
+    } = fetch;
     let url = match parse_url(given, base) {
         Ok(url) => url,
-        Err(reason) => return Ok(not_added(reason)),
+        Err(reason) => {
+            return Ok(Enqueued::NotAdded {
+                reason,
+                url: given.to_owned(),
+            });
+        }
+    };
+    let not_added = |admitting: &mut Admitting, reason: NotAddedReason| {
+        admitting.refused(&url, reason, None);
+        Enqueued::NotAdded {
+            reason,
+            url: given.to_owned(),
+        }
     };
     let request = Request {
         url: url.as_str(),
         kind: RequestKind::Fetch,
     };
     if let Judgment::Refused(_) = judge(&request, policy) {
-        return Ok(not_added(NotAddedReason::DomainPolicy));
+        return Ok(not_added(admitting, NotAddedReason::DomainPolicy));
     }
     let known = connection
         .query_row(
@@ -395,15 +444,19 @@ fn admit_fetch(
             |_| Ok(()),
         )
         .optional()?
-        .is_some();
+        .is_some()
+        || admitting
+            .earlier()
+            .is_some_and(|staged| staged.holds_sitemap(url.as_str()));
     if known {
-        return Ok(not_added(NotAddedReason::Duplicate));
+        return Ok(not_added(admitting, NotAddedReason::Duplicate));
     }
     let id = add(&url)?;
     connection.execute(
         "INSERT INTO sitemaps (work_item, url, seed, rules, read) VALUES (?1, ?2, ?3, ?4, 0)",
         (&id, url.as_str(), seed.unwrap_or(&id), rules),
     )?;
+    admitting.sitemap_added(url.as_str());
     Ok(Enqueued::Added {
         id,
         url: url.into(),
@@ -482,15 +535,16 @@ pub fn read(
     match document {
         Document::Sitemaps(sitemaps) => {
             for given in sitemaps {
-                let answer = admit_fetch(
-                    connection,
-                    policy,
+                let fetch = Fetch {
                     given,
-                    Some(&base),
-                    Some(&seed),
-                    &given_rules,
-                    |url| add(url, Adding::Sitemap),
-                )?;
+                    base: Some(&base),
+                    seed: Some(&seed),
+                    rules: &given_rules,
+                };
+                let answer =
+                    admit_fetch(connection, policy, fetch, &mut Admitting::RunFile, |url| {
+                        add(url, Adding::Sitemap)
+                    })?;
                 keep_refused_nesting(connection, &seed, &base, answer)?;
             }
         }

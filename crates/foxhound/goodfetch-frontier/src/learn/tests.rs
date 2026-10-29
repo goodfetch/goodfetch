@@ -911,3 +911,130 @@ fn a_contradicting_pair_stops_a_learned_parameter() {
         )
     );
 }
+
+thread_local! {
+    /// The statements the traced connection of this thread ran, each with
+    /// its parameters' values.
+    static RAN: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn record(event: rusqlite::trace::TraceEvent<'_>) {
+    if let rusqlite::trace::TraceEvent::Stmt(statement, _) = event {
+        let sql = statement
+            .expanded_sql()
+            .unwrap_or_else(|| statement.sql().into_owned());
+        RAN.with_borrow_mut(|ran| ran.push(sql));
+    }
+}
+
+impl Crawl {
+    /// Each statement `act` runs on the crawl's run file, in order, with
+    /// its parameters' values.
+    fn statements_of(&mut self, act: impl FnOnce(&mut Self)) -> Vec<String> {
+        RAN.with_borrow_mut(Vec::clear);
+        self.connection.trace_v2(
+            rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+            Some(record),
+        );
+        act(self);
+        self.connection
+            .trace_v2(rusqlite::trace::TraceEventCodes::empty(), None);
+        RAN.with_borrow_mut(std::mem::take)
+    }
+
+    /// Each step of the query plans of `statements` that scans one of
+    /// `tables`, with its statement.
+    fn scans_of(&self, statements: &[String], tables: &[&str]) -> Vec<String> {
+        let mut scans = Vec::new();
+        for statement in statements.iter().filter(|statement| {
+            !statement.starts_with("--") && tables.iter().any(|table| statement.contains(table))
+        }) {
+            let mut plan = self
+                .connection
+                .prepare(&format!("EXPLAIN QUERY PLAN {statement}"))
+                .unwrap();
+            let steps: Vec<String> = plan
+                .query_map([], |row| row.get(3))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            scans.extend(
+                steps
+                    .into_iter()
+                    .filter(|step| {
+                        tables
+                            .iter()
+                            .any(|table| step.starts_with(&format!("SCAN {table}")))
+                    })
+                    .map(|step| format!("{step}: {statement}")),
+            );
+        }
+        scans
+    }
+}
+
+/// What learning and then contradicting `ref` on `shop.test` ran, once
+/// the host holds `rows` more visited requests carrying `ref` beside the
+/// pairs, and other hosts hold requests of their own, one naming
+/// `shop.test` in its query: the crawl, the statements of the learning,
+/// then those of the contradiction.
+fn rekeying(rows: u32) -> (Crawl, Vec<String>, Vec<String>) {
+    let mut crawl = Crawl::new();
+    crawl.seed(&format!("{ITEM}?n=0"));
+    crawl.seed("http://other.test/item?n=1&ref=a");
+    crawl.seed("http://elsewhere.test/go?to=http://shop.test/item&ref=a");
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=7"));
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=7&ref=x"));
+    crawl.fetched(&format!("{ITEM}?n=7"), "Item 7");
+    let in_flight = crawl.ids[&format!("{ITEM}?n=7&ref=x")].clone();
+    crawl.requests.fetched.insert(in_flight);
+    for row in 0..rows {
+        crawl.enqueue(ITEM, &format!("{ITEM}?n={}&ref=r", 100 + row));
+    }
+    pair(&mut crawl, 1, "a", None);
+    pair(&mut crawl, 2, "b", None);
+    let learning = crawl.statements_of(|crawl| pair(crawl, 3, "c", None));
+    let contradicting = crawl.statements_of(|crawl| {
+        crawl.fetched(&format!("{ITEM}?n=7&ref=x"), "Item 7, as x sees it");
+    });
+    (crawl, learning, contradicting)
+}
+
+/// How many of `statements` read the learned rules.
+fn rule_reads(statements: &[String]) -> usize {
+    statements
+        .iter()
+        .filter(|statement| statement.contains("FROM learned_rules"))
+        .count()
+}
+
+/// A rule learned, then contradicted, re-keys its host's visited
+/// identities through reads bounded to that host's rows, never a scan of
+/// the visited set or of the learned identities, and reads the host's
+/// rules once per event: a host holding ten times the rows reads the
+/// learned rules as often, and the rule merges the same.
+///
+/// Covers: story:6-216, story:6-218
+#[test]
+fn a_learned_or_contradicted_rule_rekeys_its_host_through_bounded_reads() {
+    let (few, few_learning, few_contradicting) = rekeying(3);
+    let (many, many_learning, many_contradicting) = rekeying(30);
+
+    let tables = ["visited", "learned_identities"];
+    assert_eq!(
+        (
+            many.scans_of(&many_learning, &tables),
+            many.scans_of(&many_contradicting, &tables),
+            rule_reads(&many_learning),
+            rule_reads(&many_contradicting),
+            many.rules().remove(0).merged,
+        ),
+        (
+            Vec::<String>::new(),
+            Vec::<String>::new(),
+            rule_reads(&few_learning),
+            rule_reads(&few_contradicting),
+            few.rules().remove(0).merged,
+        )
+    );
+}

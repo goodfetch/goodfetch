@@ -33,6 +33,7 @@ mod rules;
 mod scope;
 pub mod seeds;
 pub mod sitemap;
+mod staged;
 pub mod trap_links;
 mod url;
 
@@ -41,12 +42,12 @@ use std::sync::Arc;
 use goodfetch_engine::Contribution;
 use goodfetch_protocol::foxhound::settings::{POLITENESS_WEAKENED, PRESSING_HARDER};
 
-pub use admit::{Candidate, admit};
+pub use admit::{Candidate, admit, admit_in};
 pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
 pub use domain_key::DomainKeys;
 pub use identity::{
-    Declared, Hop, TABLES as VISITED_TABLES, admitted_identities, fuzz_url_key, redirect_hop,
-    redirect_reached, rewrite, url_key,
+    Declared, Hop, TABLES as VISITED_TABLES, fuzz_url_key, redirect_hop, redirect_reached, rewrite,
+    url_key,
 };
 pub use learn::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
 pub use politeness::{
@@ -59,6 +60,7 @@ pub use rules::{
     TABLES as RULES_TABLES, completeness_reasons as learned_completeness_reasons, learned_rules,
 };
 pub use scope::{Narrowing, Patterns, Scope, Strategy as ScopeStrategy, TABLES as SCOPE_TABLES};
+pub use staged::{Admitting, Refused, Staged};
 pub use url::{document_base, resolve_link};
 
 /// A URL as the WHATWG URL Standard parsed it.

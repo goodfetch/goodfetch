@@ -13,11 +13,15 @@
 //! that refuses the command's `hello` by Product or protocol version and
 //! cannot hand over ends it under `--daemon` with the refusal, whose `fix`
 //! names this executable's `daemon restart`, and exit `11` whichever of the
-//! two refused it (ticket #1183); otherwise the command warns of
-//! the refusal and runs on an Attached engine, as `engine: "auto"` does
-//! (ADR 0098). A Daemon that hands over is waited for. A Connection to the
-//! Daemon that drops before the call is answered fails it with
-//! `connection_lost`. The token the Daemon takes never leaves its `hello`.
+//! two refused it (ticket #1183), and so does a command whose value
+//! outlives it, which an Attached engine would stop with the command;
+//! otherwise the command warns of the refusal and runs on an Attached
+//! engine, as `engine: "auto"` does (ADR 0098). A Daemon that hands over
+//! is waited for, and so is one that went away while it still stops. A
+//! Daemon that cannot be reached fails the command with
+//! `daemon_unreachable`, and a Connection to it that drops before the call
+//! is answered with `connection_lost`. The token the Daemon takes never
+//! leaves its `hello`.
 //!
 //! A followed call is granted credits as what it sends is printed (ADR
 //! 0024). An interrupt (`SIGINT`, Ctrl-C, or `CTRL_BREAK_EVENT` on Windows)
@@ -39,7 +43,9 @@ use goodfetch_protocol::connection::{
     CANCEL, CONNECTION_LOST, CancelParams, HELLO, HelloParams, NOT_IN_PRODUCT,
     PROTOCOL_VERSION_UNSUPPORTED, Surface,
 };
-use goodfetch_protocol::daemon::DaemonEndpoint;
+use goodfetch_protocol::daemon::{
+    DAEMON_UNREACHABLE, DaemonEndpoint, DaemonToken, DaemonUnreachableDetails,
+};
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::jsonrpc::{
     ErrorData, ErrorObject, Message, Notification, Request, RequestId, Version,
@@ -121,7 +127,7 @@ pub struct Reached {
     /// The Daemon's endpoint.
     pub endpoint: DaemonEndpoint,
     /// The token its `hello` carries, which nothing prints.
-    pub token: String,
+    pub token: DaemonToken,
     /// Whether it is a remote Daemon `GOODFETCH_URL` names, which no
     /// command starts, waits for or falls back from.
     pub remote: bool,
@@ -138,16 +144,29 @@ pub trait Daemons {
     ///
     /// # Errors
     ///
-    /// What kept it from finding or starting one, for people.
-    fn find(&self, start: bool) -> Result<Option<Reached>, String>;
+    /// What kept it from finding or starting one, with its Error code: a
+    /// `GOODFETCH_URL` or `GOODFETCH_TOKEN` it cannot take is
+    /// `setting_invalid`, and a Daemon it cannot read or start
+    /// `daemon_unreachable`.
+    fn find(&self, start: bool) -> Result<Option<Reached>, ErrorObject>;
 
     /// Waits until a Daemon that refused the command and hands over has
     /// started its major's pick.
     ///
     /// # Errors
     ///
-    /// What kept it from waiting, for people.
-    fn handed_over(&self) -> Result<(), String>;
+    /// What kept it from waiting, with its Error code.
+    fn handed_over(&self) -> Result<(), ErrorObject>;
+
+    /// Waits, at most as long as a Daemon's stop takes, until the Daemon
+    /// `found` of the major, which went away while the command connected,
+    /// has stopped: a stopping Daemon closes its listener first and stops
+    /// its Runs before it lets its runtime file go.
+    ///
+    /// # Errors
+    ///
+    /// What kept it from waiting, with its Error code.
+    fn went_away(&self, found: &Reached) -> Result<(), ErrorObject>;
 
     /// The `fix` of a refusal by Product or protocol version, whose own
     /// `fix` is `given`: ADR 0098's, naming this executable's `daemon
@@ -169,8 +188,10 @@ pub struct EngineChoice<'a> {
 }
 
 /// Receives each notification a followed call sends, by its method and
-/// params, and answers how many credits printing it used.
-pub type Follower<'a> = &'a mut dyn FnMut(&str, &Value) -> u32;
+/// params, and answers how many credits printing it used; `None` once the
+/// command can print nothing more, as when stdout takes no more bytes: the
+/// call is then cancelled, and the command ends once the engine answered.
+pub type Follower<'a> = &'a mut dyn FnMut(&str, &Value) -> Option<u32>;
 
 /// Receives each answer of a command's calls, and answers the call the
 /// command makes next on the same Connection, such as the next page of a
@@ -241,9 +262,12 @@ pub enum Answer {
     /// protocol version, its `fix` naming this executable's `daemon
     /// restart`: the command exits [`exit_codes::DAEMON_REFUSED`].
     Refused(ErrorObject),
-    /// No answer: the engine could not be reached, or the Connection ended
-    /// first.
-    Unanswered(String),
+    /// No call was made, for the reason its Error code says: no Daemon
+    /// could be reached (`daemon_unreachable`), a `GOODFETCH_URL` or
+    /// `GOODFETCH_TOKEN` it cannot take (`setting_invalid`), or an Attached
+    /// engine that took no Connection, a bug (`internal_error`). It prints
+    /// as an error does, naming no operation.
+    Unanswered(ErrorObject),
     /// The command was interrupted, or sent `SIGTERM`, and its call
     /// cancelled when it could be.
     Interrupted(Interrupt),
@@ -298,20 +322,22 @@ pub fn call(
             Err(problem) => return Answer::Unanswered(problem),
         };
         let hello = HelloParams {
-            token: Some(found.token.clone()),
+            token: Some(found.token.expose().to_owned()),
             ..hello(engine, needs)
         };
         match runtime.block_on(Link::open(&found.endpoint, &hello)) {
             Ok(mut link) => {
-                let method = call.method.to_owned();
                 let answer = runtime.block_on(async {
                     let answer = link.call(call).await;
                     let _ = link.writer.shutdown().await;
                     answer
                 });
                 return match answer {
+                    // The call in flight, the command's own or a later one
+                    // on the same Connection, is the one whose answer is
+                    // lost.
                     Answer::Unanswered(_) => {
-                        Answer::Error(connection_lost(&found.endpoint, &method))
+                        Answer::Error(connection_lost(&found.endpoint, &link.method))
                     }
                     answer => answer,
                 };
@@ -330,7 +356,9 @@ pub fn call(
                     .data
                     .details
                     .insert("fix".to_owned(), Value::from(fix));
-                if reach.choice == Choice::Daemon {
+                // An Attached engine stops with the command, so a value
+                // that outlives it cannot run on one.
+                if reach.choice == Choice::Daemon || reach.lifetime == Lifetime::Lasting {
                     return Answer::Refused(refusal);
                 }
                 (reach.warn)(&format!(
@@ -351,24 +379,56 @@ pub fn call(
                 }
             }
             Err(Opening::Gone) if found.remote => {
-                return Answer::Unanswered(format!(
-                    "the Daemon at {} closed the Connection before it answered `hello`: check that `GOODFETCH_TOKEN` holds its token",
-                    found.endpoint
+                return Answer::Unanswered(unreachable(
+                    format!(
+                        "The Daemon at {} closed the Connection before it answered `hello`, as it does for a token it does not take.",
+                        found.endpoint
+                    ),
+                    "Set `GOODFETCH_TOKEN` to the token the Daemon `GOODFETCH_URL` names takes, then run the command again.",
                 ));
             }
             Err(Opening::Unreachable) if found.remote => {
-                return Answer::Unanswered(format!(
-                    "nothing answers at {}, the Daemon `GOODFETCH_URL` names",
-                    found.endpoint
+                return Answer::Unanswered(unreachable(
+                    format!(
+                        "Nothing answers at {}, the Daemon `GOODFETCH_URL` names.",
+                        found.endpoint
+                    ),
+                    "Start the Daemon `GOODFETCH_URL` names, or unset `GOODFETCH_URL` to use this machine's, then run the command again.",
                 ));
             }
-            // It went away in between: look again.
-            Err(Opening::Gone | Opening::Unreachable) => {}
+            // It went away in between: once it stopped, look again.
+            Err(Opening::Gone | Opening::Unreachable) => {
+                if let Err(problem) = reach.daemons.went_away(&found) {
+                    return Answer::Unanswered(problem);
+                }
+            }
         }
     }
-    Answer::Unanswered(format!(
-        "the Daemon went away {ATTEMPTS} times while this command connected"
+    Answer::Unanswered(unreachable(
+        format!("The Daemon went away {ATTEMPTS} times while this command connected."),
+        "Run the command again; `daemon status` shows whether a Daemon runs.",
     ))
+}
+
+/// The failure of a command that reached no Daemon, as `message` says,
+/// and what to do, `fix`: `daemon_unreachable`, which exits its group's
+/// row, `8`.
+pub fn unreachable(message: String, fix: &str) -> ErrorObject {
+    let details = serde_json::to_value(DaemonUnreachableDetails {
+        fix: fix.to_owned(),
+    });
+    ErrorObject {
+        code: DAEMON_UNREACHABLE.group.json_rpc_class(),
+        message,
+        data: ErrorData {
+            code: DAEMON_UNREACHABLE.name.to_owned(),
+            retryable: DAEMON_UNREACHABLE.retryable,
+            details: match details {
+                Ok(Value::Object(details)) => details,
+                _ => Map::new(),
+            },
+        },
+    }
 }
 
 /// Calls `call` on an Attached engine in this process, `engine` on
@@ -390,7 +450,9 @@ pub fn call_attached(
         let client = async {
             match dialer.connect().await {
                 Ok(connection) => exchange(connection, &hello, call).await,
-                Err(error) => Answer::Unanswered(format!("the engine took no Connection: {error}")),
+                Err(error) => Answer::Unanswered(exit_codes::internal(format!(
+                    "The Attached engine took no Connection: {error}."
+                ))),
             }
         };
         let (served, answer) = tokio::join!(
@@ -398,9 +460,9 @@ pub fn call_attached(
             client
         );
         match (served, answer) {
-            (Err(error), Answer::Unanswered(_)) => {
-                Answer::Unanswered(format!("the Attached engine got no Connection: {error}"))
-            }
+            (Err(error), Answer::Unanswered(_)) => Answer::Unanswered(exit_codes::internal(
+                format!("The Attached engine got no Connection: {error}."),
+            )),
             (_, answer) => answer,
         }
     })
@@ -465,7 +527,12 @@ async fn exchange(connection: Connection, hello: &HelloParams, call: CommandCall
         Err(Opening::Gone | Opening::Unreachable) => closed(HELLO),
     };
     let _ = link.writer.shutdown().await;
-    answer
+    // The call was made: an Attached engine that ended it unanswered fails
+    // it, as a bug does.
+    match answer {
+        Answer::Unanswered(error) => Answer::Error(error),
+        answer => answer,
+    }
 }
 
 /// Why opening a Connection with `hello` failed.
@@ -486,6 +553,8 @@ enum Opening {
 struct Link {
     lines: Lines<BufReader<ConnectionReader>>,
     writer: ConnectionWriter,
+    /// The operation of the call in flight, or last made.
+    method: String,
 }
 
 impl Link {
@@ -494,6 +563,7 @@ impl Link {
         Self {
             lines: BufReader::new(reader).lines(),
             writer,
+            method: HELLO.to_owned(),
         }
     }
 
@@ -544,7 +614,9 @@ impl Link {
     /// command that makes more than one call, makes each next call the
     /// pager asks for, and answers the last one's answer. At its first
     /// interrupt, a command whose stopper gives a call makes it and ends
-    /// once it is answered; any other cancels its call when it can.
+    /// once it is answered; any other cancels its call when it can. A
+    /// follower that can print nothing more has its call cancelled, and the
+    /// command then ends with whatever the engine answers.
     #[expect(
         clippy::too_many_lines,
         reason = "one loop reads every message of the command's calls; splitting it would pass its state between functions"
@@ -554,11 +626,15 @@ impl Link {
         tokio::pin!(interrupt);
         let mut id = CALL_ID;
         let mut method = call.method;
+        call.method.clone_into(&mut self.method);
         let mut cancellable = call.cancellable;
         let params = std::mem::take(&mut call.params);
         if !self.send(&request(id, method, params)).await {
             return closed(method);
         }
+        // Once the follower printed nothing more, what the call sends is
+        // no longer given it.
+        let mut abandoned = false;
         // A call that takes a stream grants the credits itself, and a
         // command that makes more than one call credits only those its
         // pager says are followed.
@@ -617,6 +693,7 @@ impl Link {
                         };
                         id += 1;
                         method = next.method;
+                        next.method.clone_into(&mut self.method);
                         cancellable = next.cancellable;
                         if !self.send(&request(id, method, next.params)).await {
                             return closed(method);
@@ -648,10 +725,22 @@ impl Link {
                             }
                             continue;
                         }
+                        if abandoned {
+                            continue;
+                        }
                         let Some(follower) = call.follower.as_mut() else { continue };
-                        let used = follower(&sent.method, &params);
-                        if credited && used > 0 && !self.credit(id, used).await {
-                            return closed(method);
+                        if let Some(used) = follower(&sent.method, &params) {
+                            if credited && used > 0 && !self.credit(id, used).await {
+                                return closed(method);
+                            }
+                        } else {
+                            // It prints nothing more: the call stops, and
+                            // its answer ends the command.
+                            abandoned = true;
+                            let cancel = notification(CANCEL, &CancelParams { id: RequestId::Number(id) });
+                            if !cancellable || !self.send(&cancel).await {
+                                return closed(method);
+                            }
                         }
                     }
                     Some(_) => {}
@@ -787,8 +876,11 @@ fn notification(method: &str, params: &impl Serialize) -> Notification {
     }
 }
 
+/// The answer of a call whose Connection ended before `method` was
+/// answered: a Daemon's call fails with `connection_lost`; an Attached
+/// engine never ends it first but by a bug.
 fn closed(method: &str) -> Answer {
-    Answer::Unanswered(format!(
-        "the engine closed the Connection before it answered `{method}`"
-    ))
+    Answer::Unanswered(exit_codes::internal(format!(
+        "The engine closed the Connection before it answered `{method}`."
+    )))
 }

@@ -2656,6 +2656,7 @@ dependencies = [
  "goodfetch-fetch-tier",
  "goodfetch-foxhound",
  "goodfetch-frontier",
+ "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-session-pool",
  "goodfetch-sql-tab",
@@ -2674,6 +2675,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 1.1.8+spec-1.1.0",
+ "tracing",
  "zip",
  "zstd 0.14.3",
 ]

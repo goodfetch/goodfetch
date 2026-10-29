@@ -2,4 +2,7 @@
 source: crates/foxhound/goodfetch-foxhound/tests/it/daemon.rs
 expression: refused.stderr.trim()
 ---
-[INSTANT] ERROR goodfetch_collie::executable::daemon: This Client speaks protocol 0.1, and this engine speaks 1.0: it accepts 1.0 to 1.0. Upgrade the Client to one that speaks protocol 1.x. Run `[COLLIE] daemon restart` to restart the Daemon on its major's pick. Collie's executable would still not run the Daemon while a Foxhound of the major is installed: install Foxhound 0.0.0 or newer (`cargo install goodfetch-foxhound --locked --features executable`) and run its `daemon restart`. code="protocol_version_unsupported"
+This Client speaks protocol 0.1, and this engine speaks 1.0: it accepts 1.0 to 1.0.
+code: protocol_version_unsupported
+retryable: false
+fix: Upgrade the Client to one that speaks protocol 1.x. Run `[COLLIE] daemon restart` to restart the Daemon on its major's pick. Collie's executable would still not run the Daemon while a Foxhound of the major is installed: install Foxhound 0.0.0 or newer (`cargo install goodfetch-foxhound --locked --features executable`) and run its `daemon restart`.

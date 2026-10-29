@@ -625,6 +625,29 @@ pub const EFFECT_STAGING_REFUSED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A call that would stage one more admission with an attempt that holds
+/// `crawl.max_staged_enqueues` of them (ADR 0093).
+pub const STAGING_FULL: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "staging_full",
+    description: "The call would stage one more admission (an enqueue, an `enqueueLinks` call or a seed added through `ctx.run`) with an attempt that already staged `crawl.max_staged_enqueues` of them, which the attempt holds in the engine's memory until it commits. Nothing was staged. Enqueue many links with one `enqueueLinks` call, or raise the setting, which `limit` names.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `staging_full` names: the setting that bounds an attempt's staged
+/// admissions, and its value.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct StagingFullDetails {
+    /// The setting's name, `crawl.max_staged_enqueues`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: String,
+    /// How many admissions it lets one attempt stage.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub max: u64,
+}
+
 /// A commit refused because its attempt's lease ended (ADR 0003).
 pub const LEASE_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "lease_lost",
@@ -693,6 +716,22 @@ pub const CRAWL_RETRY_MAX: Setting = Setting {
     weakens: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// `crawl.max_staged_enqueues` (ADR 0093).
+pub const CRAWL_MAX_STAGED_ENQUEUES: Setting = Setting {
+    name: "crawl.max_staged_enqueues",
+    description: "How many admissions one attempt may stage before it commits: its enqueues, `enqueueLinks` calls and seeds added through `ctx.run`, each held in the engine's memory with the attempt until its commit or its discard. One more fails with `staging_full`, and nothing is staged. 10,000 by default.",
+    kind: ValueKind::Count,
+    default: ten_thousand,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn ten_thousand() -> Value {
+    Value::from(10_000_u64)
+}
 
 /// `crawl.retry.handler_failed` (ADR 0093).
 pub const CRAWL_RETRY_HANDLER_FAILED: Setting = Setting {
@@ -813,6 +852,7 @@ pub const ENTRIES: Entries = Entries {
         LEASE_LOST,
         ATTEMPT_ENDED,
         EFFECT_STAGING_REFUSED,
+        STAGING_FULL,
     ],
     plugin_kinds: &[],
     metrics: &[WORK_ITEM_QUEUED, WORK_ITEM_LEASED, WORK_ITEM_RETRIED],
@@ -822,6 +862,7 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_CONTENT_TYPES,
         CRAWL_RETRY_MAX,
         CRAWL_RETRY_HANDLER_FAILED,
+        CRAWL_MAX_STAGED_ENQUEUES,
         CRAWL_HANDLER_CONCURRENCY,
         CRAWL_DOMAIN_KEYS,
         CRAWL_KEEP_ALIVE,

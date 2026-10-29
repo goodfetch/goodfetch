@@ -11,7 +11,7 @@
 //! and nothing holds.
 //!
 //! Its root is `GOODFETCH_BROWSERS_PATH` when that is set, otherwise
-//! `browser` in Goodfetch home (ADR 0059).
+//! `browsers` in Goodfetch home (ADR 0059).
 
 mod artifact;
 mod clean_up;
@@ -63,7 +63,7 @@ pub struct CacheLocation(PathBuf);
 
 impl CacheLocation {
     /// `browsers_path`, from `GOODFETCH_BROWSERS_PATH`, when it is set;
-    /// otherwise `browser` in the Goodfetch home `home`.
+    /// otherwise `browsers` in the Goodfetch home `home`.
     pub fn new(home: &Path, browsers_path: Option<PathBuf>) -> Self {
         Self(browsers_path.unwrap_or_else(|| home.join(HOME_FOLDER)))
     }

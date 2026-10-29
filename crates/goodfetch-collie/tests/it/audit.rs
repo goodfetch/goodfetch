@@ -289,6 +289,60 @@ fn audit_export_answers_over_the_protocol_the_entries_the_cli_writes() {
     assert_eq!(answered["result"]["entries"], Value::Array(printed));
 }
 
+/// `audit verify` exits `22`, `audit_log_not_intact`, for a log or an
+/// export that does not verify, as `sha256sum -c` exits non-zero on a
+/// mismatch, and `0` for an intact one, so a gate that reads only the exit
+/// code catches an edit (ADR 0069).
+///
+/// Covers: story:4-70, story:4-71, command:audit.verify, exit:audit_log_not_intact
+#[test]
+fn audit_verify_exits_22_for_a_log_or_export_that_does_not_verify() {
+    let env = TestEnv::new();
+    let log = written(&env, 3);
+    let jsonl = exported(&env);
+    let file = env.folder().join("edited-export.jsonl");
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test writes the export it hands the command"
+    )]
+    std::fs::write(&file, jsonl.replace("SECRET_2", "SECRET_X")).unwrap();
+    let intact = cli(&env, COLLIE).args(["audit", "verify"]).run().unwrap();
+    Connection::open(log.path())
+        .unwrap()
+        .execute_batch(
+            "DROP TRIGGER entries_never_updated;
+             UPDATE entries SET entry = replace(entry, 'SECRET_2', 'SECRET_X') WHERE sequence = 2;",
+        )
+        .unwrap();
+
+    let edited = cli(&env, COLLIE)
+        .args(["audit", "verify", "--json"])
+        .run()
+        .unwrap();
+    let edited_export = cli(&env, COLLIE)
+        .args(["audit", "verify", "--file", file.to_str().unwrap()])
+        .run()
+        .unwrap();
+
+    assert_eq!(
+        (
+            intact.exit,
+            edited.exit,
+            serde_json::from_str::<Value>(&edited.stdout).ok(),
+            edited_export.exit,
+            edited_export.stdout.contains("first_broken: 2"),
+        ),
+        (
+            Some(0),
+            Some(22),
+            Some(json!({ "intact": false, "entries": 3, "first_broken": 2 })),
+            Some(22),
+            true,
+        ),
+        "{intact}\n{edited}\n{edited_export}"
+    );
+}
+
 /// The positive control and the tampered copy: the export as written
 /// verifies intact off the machine, and the same export with one entry
 /// edited is reported at it.

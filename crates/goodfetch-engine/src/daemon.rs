@@ -1,10 +1,11 @@
 //! The Daemon's lifetime (ADRs 0024, 0036, 0078 and 0098): one engine of a
 //! user's major that several Clients share, each Connection taken from its
 //! listener and opened by a `hello` carrying its per-launch token, each
-//! Client's Runs its own, stopped when that Client's Connection ends. It
-//! stops after `daemon.idle_timeout` with no Client connected, read on the
-//! `Clock`, unless it is kept alive (`--keep-alive`, a [`Held`] Schedule,
-//! an installed service); it stops when `daemon.stop` asks; and when it is
+//! Client's Runs its own, stopped when that Client's Connection ends, but
+//! for a CLI command's, which outlive it. It stops after
+//! `daemon.idle_timeout` with no Client connected and no such Run live,
+//! read on the `Clock`, unless it is kept alive (`--keep-alive`, a [`Held`]
+//! Schedule, an installed service); it stops when `daemon.stop` asks; and when it is
 //! not its major's pick, it hands over to the pick once it hosts no live
 //! Run and no Client but a Console, or when it refuses a Client by Product
 //! or version while idle, the refusal then telling that Client to wait for
@@ -261,6 +262,10 @@ struct Shared {
     idle_timeout: Duration,
     keep_alive: bool,
     holds: Holds,
+    /// One hold for each Connection whose live Runs outlive it, until
+    /// they end; not the kept-alive `daemon status` shows, which those
+    /// Runs show as live.
+    runs_held: Holds,
     succession: Arc<dyn Succession>,
     console: ConsoleState,
     websocket: Option<Arc<Authorities>>,
@@ -296,6 +301,7 @@ impl Shared {
             idle_timeout: options.idle_timeout,
             keep_alive: options.keep_alive,
             holds: options.holds,
+            runs_held: Holds::new(),
             succession: options.succession,
             console: serving.console.clone(),
             websocket: options.websocket.map(Arc::new),
@@ -615,6 +621,7 @@ fn serve_connection(
         serving.clock,
     );
     let websocket = shared.websocket.clone();
+    let runs_held = shared.runs_held.clone();
     let its_owner = connections.child();
     let cancelled = token.clone();
     connections.spawn(async move {
@@ -663,8 +670,20 @@ fn serve_connection(
             () = served => {}
         }
         its_owner.stop().await;
-        runs.stop_connection(id).await;
+        let outliving = runs.stop_connection(id).await;
+        // A Run that outlives the CLI command that started it holds the
+        // Daemon from its idle stop until it ends, so it runs to its end
+        // with no Client connected (ADR 0024's #1183 note).
+        let held = (!outliving.is_empty()).then(|| runs_held.hold());
         let _ = ended.send(id);
+        if let Some(held) = held {
+            tokio::select! {
+                biased;
+                () = cancelled.cancelled() => {}
+                () = outliving.ended() => {}
+            }
+            drop(held);
+        }
     });
     token
 }
@@ -724,26 +743,31 @@ async fn finish(end: DaemonEnd, connections: &TaskOwner, shared: &Shared) -> Dae
 }
 
 /// Resolves once no Client has been connected, and nothing has kept the
-/// Daemon alive, for `daemon.idle_timeout` on `clock`; never when it is
-/// kept alive by `--keep-alive` or a service.
+/// Daemon alive, neither a hold nor a live Run that outlived the CLI
+/// command that started it, for `daemon.idle_timeout` on `clock`; never
+/// when it is kept alive by `--keep-alive` or a service.
 async fn idle(shared: &Shared, clock: Clock) {
     if shared.keep_alive {
         return std::future::pending().await;
     }
     let mut presence = shared.presence.subscribe();
     let mut holds = shared.holds.0.subscribe();
+    let mut runs_held = shared.runs_held.0.subscribe();
     loop {
-        let quiet = presence.borrow_and_update().clients == 0 && *holds.borrow_and_update() == 0;
-        if quiet {
+        let clients = presence.borrow_and_update().clients;
+        let held = *holds.borrow_and_update() + *runs_held.borrow_and_update();
+        if clients == 0 && held == 0 {
             tokio::select! {
                 () = clock.sleep(shared.idle_timeout) => return,
                 _ = presence.changed() => {}
                 _ = holds.changed() => {}
+                _ = runs_held.changed() => {}
             }
         } else {
             tokio::select! {
                 _ = presence.changed() => {}
                 _ = holds.changed() => {}
+                _ = runs_held.changed() => {}
             }
         }
     }

@@ -2422,6 +2422,14 @@
               "const": "succeeded",
               "type": "string"
             },
+            "not_added": {
+              "arrived_in": "0.1",
+              "description": "Each request its attempt's enqueues, `enqueueLinks` calls and\nseeds answered `added` that the commit did not add, in order.",
+              "items": {
+                "$ref": "#/$defs/NotAddedAtCommit"
+              },
+              "type": "array"
+            },
             "nothing_committed": {
               "anyOf": [
                 {
@@ -3182,6 +3190,18 @@
             "string",
             "null"
           ]
+        },
+        "console_error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConsoleFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Why its Console did not start, the failure `daemon start` exits\nby; absent while it serves one or carries none."
         },
         "console_url": {
           "arrived_in": "0.1",
@@ -8433,6 +8453,40 @@
       },
       "required": [
         "run_id"
+      ],
+      "type": "object"
+    },
+    "NotAddedAtCommit": {
+      "description": "A request an attempt's enqueue, `enqueueLinks` call or seed answered\n`added`, with its ID, that the attempt's commit did not add (ADR 0093):\nthe commit admits each staged request again on the run file as it then\nstands, and another attempt's commit may have added the request\nmeanwhile, or a rule learned since refuses it. Its ID names no crawl\nrequest.",
+      "properties": {
+        "duplicate_of": {
+          "arrived_in": "0.1",
+          "description": "The crawl request it is a duplicate of, when another request was\nadmitted under its identity first.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "arrived_in": "0.1",
+          "description": "The ID its staging answered.",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/NotAddedReason",
+          "arrived_in": "0.1",
+          "description": "Why the commit did not add it."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its URL, as parsed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "url",
+        "reason"
       ],
       "type": "object"
     },
@@ -17149,6 +17203,11 @@
                     ],
                     "description": "How many times back to back a segment of a URL's path, or a run of segments, may appear (Heritrix's `maxRepetitions`), so `/a/a` passes and `/a/a/a` and `/a/b/a/b/a/b` do not, while numbers that recur apart, as in `/page/1/tag/1/sort/1`, do: a URL past it is not added, with `max_segment_repeats`, and a finished Run that refused one is `unverified`. 2 by default; `null` turns the cap off."
                   },
+                  "max_staged_enqueues": {
+                    "description": "How many admissions one attempt may stage before it commits: its enqueues, `enqueueLinks` calls and seeds added through `ctx.run`, each held in the engine's memory with the attempt until its commit or its discard. One more fails with `staging_full`, and nothing is staged. 10,000 by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "max_url_length": {
                     "anyOf": [
                       {
@@ -18115,6 +18174,11 @@
                     ],
                     "description": "How many times back to back a segment of a URL's path, or a run of segments, may appear (Heritrix's `maxRepetitions`), so `/a/a` passes and `/a/a/a` and `/a/b/a/b/a/b` do not, while numbers that recur apart, as in `/page/1/tag/1/sort/1`, do: a URL past it is not added, with `max_segment_repeats`, and a finished Run that refused one is `unverified`. 2 by default; `null` turns the cap off."
                   },
+                  "max_staged_enqueues": {
+                    "description": "How many admissions one attempt may stage before it commits: its enqueues, `enqueueLinks` calls and seeds added through `ctx.run`, each held in the engine's memory with the attempt until its commit or its discard. One more fails with `staging_full`, and nothing is staged. 10,000 by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "max_url_length": {
                     "anyOf": [
                       {
@@ -18581,7 +18645,7 @@
                     ]
                   },
                   "tier_race": {
-                    "description": "Whether a crawl request races its tiers: browser-fetch first, then the navigation after the Label-on-domain's median browser-fetch latency, the first result that passes the Page check and the Label's comparison winning, both counting in Politeness and Usage. The loser is cancelled, and Provenance records the race. Set for the Run only: a Label setting it is refused with `setting_not_applicable`, as is a Run switching it on while `politeness.domain.concurrency` is 1, where the navigation could never start. Off by default.",
+                    "description": "Whether a crawl request races its tiers: browser-fetch first, then the navigation after the Label-on-domain's median browser-fetch latency, the first result that passes the Page check and the Label's comparison winning, both counting in Politeness and Usage. The loser is cancelled, and Provenance records the race. A race does not feed the sample comparison, so a request whose Label on its domain is due a sample takes the sample instead, and a request a hidden link reached races with no navigation. Set for the Run only: a Label setting it is refused with `setting_not_applicable`, as is a Run switching it on while `politeness.domain.concurrency` is 1, where the navigation could never start. Off by default.",
                     "type": "boolean"
                   }
                 },
@@ -20723,6 +20787,11 @@
                     ],
                     "description": "How many times back to back a segment of a URL's path, or a run of segments, may appear (Heritrix's `maxRepetitions`), so `/a/a` passes and `/a/a/a` and `/a/b/a/b/a/b` do not, while numbers that recur apart, as in `/page/1/tag/1/sort/1`, do: a URL past it is not added, with `max_segment_repeats`, and a finished Run that refused one is `unverified`. 2 by default; `null` turns the cap off."
                   },
+                  "max_staged_enqueues": {
+                    "description": "How many admissions one attempt may stage before it commits: its enqueues, `enqueueLinks` calls and seeds added through `ctx.run`, each held in the engine's memory with the attempt until its commit or its discard. One more fails with `staging_full`, and nothing is staged. 10,000 by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "max_url_length": {
                     "anyOf": [
                       {
@@ -21189,7 +21258,7 @@
                     ]
                   },
                   "tier_race": {
-                    "description": "Whether a crawl request races its tiers: browser-fetch first, then the navigation after the Label-on-domain's median browser-fetch latency, the first result that passes the Page check and the Label's comparison winning, both counting in Politeness and Usage. The loser is cancelled, and Provenance records the race. Set for the Run only: a Label setting it is refused with `setting_not_applicable`, as is a Run switching it on while `politeness.domain.concurrency` is 1, where the navigation could never start. Off by default.",
+                    "description": "Whether a crawl request races its tiers: browser-fetch first, then the navigation after the Label-on-domain's median browser-fetch latency, the first result that passes the Page check and the Label's comparison winning, both counting in Politeness and Usage. The loser is cancelled, and Provenance records the race. A race does not feed the sample comparison, so a request whose Label on its domain is due a sample takes the sample instead, and a request a hidden link reached races with no navigation. Set for the Run only: a Label setting it is refused with `setting_not_applicable`, as is a Run switching it on while `politeness.domain.concurrency` is 1, where the navigation could never start. Off by default.",
                     "type": "boolean"
                   }
                 },
@@ -23347,6 +23416,11 @@
                     ],
                     "description": "How many times back to back a segment of a URL's path, or a run of segments, may appear (Heritrix's `maxRepetitions`), so `/a/a` passes and `/a/a/a` and `/a/b/a/b/a/b` do not, while numbers that recur apart, as in `/page/1/tag/1/sort/1`, do: a URL past it is not added, with `max_segment_repeats`, and a finished Run that refused one is `unverified`. 2 by default; `null` turns the cap off."
                   },
+                  "max_staged_enqueues": {
+                    "description": "How many admissions one attempt may stage before it commits: its enqueues, `enqueueLinks` calls and seeds added through `ctx.run`, each held in the engine's memory with the attempt until its commit or its discard. One more fails with `staging_full`, and nothing is staged. 10,000 by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "max_url_length": {
                     "anyOf": [
                       {
@@ -23813,7 +23887,7 @@
                     ]
                   },
                   "tier_race": {
-                    "description": "Whether a crawl request races its tiers: browser-fetch first, then the navigation after the Label-on-domain's median browser-fetch latency, the first result that passes the Page check and the Label's comparison winning, both counting in Politeness and Usage. The loser is cancelled, and Provenance records the race. Set for the Run only: a Label setting it is refused with `setting_not_applicable`, as is a Run switching it on while `politeness.domain.concurrency` is 1, where the navigation could never start. Off by default.",
+                    "description": "Whether a crawl request races its tiers: browser-fetch first, then the navigation after the Label-on-domain's median browser-fetch latency, the first result that passes the Page check and the Label's comparison winning, both counting in Politeness and Usage. The loser is cancelled, and Provenance records the race. A race does not feed the sample comparison, so a request whose Label on its domain is due a sample takes the sample instead, and a request a hidden link reached races with no navigation. Set for the Run only: a Label setting it is refused with `setting_not_applicable`, as is a Run switching it on while `politeness.domain.concurrency` is 1, where the navigation could never start. Off by default.",
                     "type": "boolean"
                   }
                 },

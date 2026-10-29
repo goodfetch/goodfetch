@@ -1739,36 +1739,6 @@ class CrawlRequestLinks(BaseModel):
     """The elements."""
 
 
-class CrawlRequestOutcome1(BaseModel):
-    """Its handler returned, and what it staged was committed."""
-
-    model_config = ConfigDict(
-        extra="allow",
-        arbitrary_types_allowed=True,
-    )
-    attempts: Annotated[int, Field(ge=0)]
-    """How many attempts it took: retries are a count, not an outcome."""
-    ended_at: PointInTime
-    """When it ended."""
-    errors: list[AttemptError]
-    """The error of each failed attempt, in order."""
-    position: Annotated[int, Field(ge=0)]
-    """
-    Its place in the Run's commit order, from 1, which `run.outcomes`'s
-    `after` takes.
-    """
-    request: OutcomeRequest
-    """The request it ends."""
-    kind: Literal["succeeded"]
-    nothing_committed: NothingCommitted | None = None
-    """Why it committed no Record, when it committed none."""
-    records: list[DatasetRecords]
-    """
-    Per Dataset its handler pushed into, the Records committed,
-    dropped and rejected.
-    """
-
-
 class CrawlRequestOutcome2(BaseModel):
     """Its last attempt failed, and no retry is left."""
 
@@ -1844,44 +1814,6 @@ class CrawlRequestOutcome4(BaseModel):
     cause: BlockCause
     """Why the site refused it."""
     kind: Literal["blocked"]
-
-
-class CrawlRequestOutcome(
-    RootModel[
-        CrawlRequestOutcome1
-        | CrawlRequestOutcome2
-        | CrawlRequestOutcome3
-        | CrawlRequestOutcome4
-    ]
-):
-    root: (
-        CrawlRequestOutcome1
-        | CrawlRequestOutcome2
-        | CrawlRequestOutcome3
-        | CrawlRequestOutcome4
-    )
-    """
-    How one crawl request ended (ADRs 0079 and 0102). A request that
-    `run.retry_failed` re-admits ends again, and its later outcome
-    supersedes this one: a reader keys outcomes by `request.id`.
-    """
-
-
-class CrawlRequestOutcomes(BaseModel):
-    """One page of `run.outcomes`."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    ended: bool
-    """
-    Whether the sequence is over: the Run has ended, or has no live
-    writer, and nothing committed after `next` matches.
-    """
-    next: Annotated[int, Field(ge=0)]
-    """The position the next page starts after."""
-    outcomes: list[CrawlRequestOutcome]
-    """The outcomes that match, in commit order."""
 
 
 class DatasetList(BaseModel):
@@ -2031,16 +1963,6 @@ class ExtractionField(BaseModel):
     """Its Value transform: `text` by default."""
 
 
-class FailedRequests(BaseModel):
-    """What `run.failed_requests` answers."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    requests: list[CrawlRequestOutcome]
-    """The latest outcome of each such request, in commit order."""
-
-
 class LearnedRule(BaseModel):
     """
     A URL rule the Frontier learned from the pages it fetched (ADRs 0005
@@ -2083,6 +2005,32 @@ class LearnedRule(BaseModel):
     `{hex}`, or the path of a listing whose cursor replaced its offset;
     absent for a rule of the whole host.
     """
+
+
+class NotAddedAtCommit(BaseModel):
+    """
+    A request an attempt's enqueue, `enqueueLinks` call or seed answered
+    `added`, with its ID, that the attempt's commit did not add (ADR 0093):
+    the commit admits each staged request again on the run file as it then
+    stands, and another attempt's commit may have added the request
+    meanwhile, or a rule learned since refuses it. Its ID names no crawl
+    request.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    duplicate_of: str | None = None
+    """
+    The crawl request it is a duplicate of, when another request was
+    admitted under its identity first.
+    """
+    id: str
+    """The ID its staging answered."""
+    reason: NotAddedReason
+    """Why the commit did not add it."""
+    url: str
+    """Its URL, as parsed."""
 
 
 class RecordFilter(BaseModel):
@@ -2239,6 +2187,79 @@ class CrawlExtraction(BaseModel):
     """Which pages the crawl fetches beyond its seeds: `scope` by default."""
     formats: FormatsRequest
     """The formats each page's Record holds, as `page.formats` takes them."""
+
+
+class CrawlRequestOutcome1(BaseModel):
+    """Its handler returned, and what it staged was committed."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    attempts: Annotated[int, Field(ge=0)]
+    """How many attempts it took: retries are a count, not an outcome."""
+    ended_at: PointInTime
+    """When it ended."""
+    errors: list[AttemptError]
+    """The error of each failed attempt, in order."""
+    position: Annotated[int, Field(ge=0)]
+    """
+    Its place in the Run's commit order, from 1, which `run.outcomes`'s
+    `after` takes.
+    """
+    request: OutcomeRequest
+    """The request it ends."""
+    kind: Literal["succeeded"]
+    not_added: list[NotAddedAtCommit] | None = None
+    """
+    Each request its attempt's enqueues, `enqueueLinks` calls and
+    seeds answered `added` that the commit did not add, in order.
+    """
+    nothing_committed: NothingCommitted | None = None
+    """Why it committed no Record, when it committed none."""
+    records: list[DatasetRecords]
+    """
+    Per Dataset its handler pushed into, the Records committed,
+    dropped and rejected.
+    """
+
+
+class CrawlRequestOutcome(
+    RootModel[
+        CrawlRequestOutcome1
+        | CrawlRequestOutcome2
+        | CrawlRequestOutcome3
+        | CrawlRequestOutcome4
+    ]
+):
+    root: (
+        CrawlRequestOutcome1
+        | CrawlRequestOutcome2
+        | CrawlRequestOutcome3
+        | CrawlRequestOutcome4
+    )
+    """
+    How one crawl request ended (ADRs 0079 and 0102). A request that
+    `run.retry_failed` re-admits ends again, and its later outcome
+    supersedes this one: a reader keys outcomes by `request.id`.
+    """
+
+
+class CrawlRequestOutcomes(BaseModel):
+    """One page of `run.outcomes`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ended: bool
+    """
+    Whether the sequence is over: the Run has ended, or has no live
+    writer, and nothing committed after `next` matches.
+    """
+    next: Annotated[int, Field(ge=0)]
+    """The position the next page starts after."""
+    outcomes: list[CrawlRequestOutcome]
+    """The outcomes that match, in commit order."""
 
 
 class CrawlRunReport(BaseModel):
@@ -2405,6 +2426,16 @@ class DatasetPageParams(BaseModel):
     committed when the first was read. Absent, the last number
     committed now.
     """
+
+
+class FailedRequests(BaseModel):
+    """What `run.failed_requests` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    requests: list[CrawlRequestOutcome]
+    """The latest outcome of each such request, in commit order."""
 
 
 class RecordProvenance(BaseModel):

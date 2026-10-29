@@ -22,7 +22,7 @@ use std::sync::{Arc, OnceLock};
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, Operation, Setting, SharedTypeValue};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::daemon::{DaemonHealth, DaemonState, DaemonStopping};
-use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
+use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, ProtocolFailure, RequestId};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -149,6 +149,21 @@ impl CallError {
                 details.clone(),
             ),
             Failure::Protocol { failure, .. } => (failure.code(), false, Map::new()),
+        }
+    }
+
+    /// Its error object, as the wire carries it and as a CLI command that
+    /// fails before any call prints it.
+    pub fn to_error_object(&self) -> ErrorObject {
+        let (code, retryable, details) = self.wire_parts();
+        ErrorObject {
+            code,
+            message: self.message().to_owned(),
+            data: ErrorData {
+                code: self.code().to_owned(),
+                retryable,
+                details,
+            },
         }
     }
 }

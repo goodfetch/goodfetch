@@ -248,6 +248,7 @@ impl Subject {
                         fields: &super::FieldsRead::default(),
                         masks: &goodfetch_engine::mask::Masks::new(),
                         ended_at: &ended_at,
+                        not_added: &[],
                     },
                 )
             }
@@ -262,7 +263,9 @@ impl Subject {
         self.state = None;
         self.runtime.block_on(self.owner.wait());
         let connection = after_crash(&self.vfs, &self.path).unwrap();
-        super::recover_leases(&connection, "handler_lost", u32::MAX).unwrap();
+        let lost = Failure::new("handler_lost", "the handler was lost");
+        let at = PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned());
+        super::recover_leases(&connection, &lost, u32::MAX, &at).unwrap();
         let now = tokio::time::Instant::now();
         let mut queues = DomainQueues::new(DomainKeys::default(), BOUND, Entropy::seeded(1));
         for waiting in super::waiting(&connection, None, BOUND).unwrap() {

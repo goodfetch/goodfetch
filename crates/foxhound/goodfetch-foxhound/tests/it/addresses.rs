@@ -102,6 +102,76 @@ fn a_redirect_to_a_name_that_resolves_to_a_private_address_ends_skipped_with_dom
     );
 }
 
+/// On the browser tier too, a seed whose name resolves to an address the
+/// policy refuses ends `skipped` with `domain_policy` before the browser
+/// opens anything, robots.txt obeyed as by default: nothing reaches the
+/// address, and the positive control is fetched in the browser.
+///
+/// Covers: story:4-98, setting:fetch.tier
+#[test]
+fn a_browser_tier_seed_whose_name_resolves_to_a_private_address_ends_skipped_unsent() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let port = proving_ground.address().port();
+    let refused = format!("http://localhost:{port}/catalog/1");
+    let control = proving_ground.url("scope.test", "/");
+    let settings = json!({
+        "fetch": { "tier": "browser" },
+        "network": { "resolve": { "scope.test": [proving_ground.address().ip().to_string()] } },
+        "egress": { "private_ranges": ["scope.test"] },
+    });
+    let mut engine = crate::fetch_tiers::engine(&env);
+
+    let mut handled = Vec::new();
+    crawl_with(
+        &mut engine,
+        "addressed-browser",
+        &[
+            json!({ "url": refused, "label": "page" }),
+            json!({ "url": control, "label": "page" }),
+        ],
+        &settings,
+        &mut |_, handle| {
+            handled.push(handle["crawl_request"]["url"].clone());
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let read = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "addressed-browser" }),
+        &mut |_| None,
+    );
+    let observations = proving_ground.observations().unwrap();
+    assert!(engine.finish());
+
+    let mut outcomes: Vec<(Value, Value, Value)> = read["result"]["outcomes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{read}"))
+        .iter()
+        .map(|outcome| {
+            (
+                outcome["request"]["url"].clone(),
+                outcome["kind"].clone(),
+                outcome["reason"].clone(),
+            )
+        })
+        .collect();
+    outcomes.sort_by_key(|outcome| outcome.0.to_string());
+    assert_eq!(
+        (outcomes, handled, requests_to(&observations, "localhost")),
+        (
+            vec![
+                (json!(refused), json!("skipped"), json!("domain_policy")),
+                (json!(control), json!("succeeded"), Value::Null),
+            ],
+            vec![json!(control)],
+            0,
+        ),
+        "{read}"
+    );
+}
+
 /// Covers: story:4-98, setting:fetch.tier
 #[test]
 fn a_seed_whose_name_resolves_to_a_private_address_ends_skipped_with_domain_policy_unsent() {

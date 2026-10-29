@@ -4,7 +4,10 @@
 //! the code and group coming from the Scripted engine run as a Daemon, which
 //! answers `config explain --daemon` with them; a Run that ended `stopped`
 //! exits `20` and resumes by its Run ID; and `SIGTERM` exits `143` once the
-//! call it interrupted is cancelled.
+//! call it interrupted is cancelled. A failure before any call, as a
+//! Daemon nothing answers for or a deployment variable the executable
+//! cannot take, prints as every failure does, `{ "error" }` under
+//! `--json`, and exits by its code's row.
 #![expect(
     clippy::disallowed_methods,
     reason = "a test writes the script its Scripted engine plays itself"
@@ -20,7 +23,188 @@ use goodfetch_test_support::{Process, TestEnv, cli, engine_script, reported_addr
 use rstest::rstest;
 use serde_json::{Value, json};
 
+use crate::daemon::scripted_daemon;
+
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
+
+/// A token for a Daemon that never reads it: no real token's shape.
+const UNREAD_TOKEN: &str = "not-a-real-token";
+
+/// The Error code and the exit of a failure printed as `{ "error" }` on
+/// stdout, as `--json` prints it, or what stdout held instead.
+fn failed_with(output: &goodfetch_test_support::CliOutput) -> (Option<i32>, Value) {
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+    (output.exit, printed["error"]["code"].clone())
+}
+
+/// A command whose Daemon nothing answers for, the remote one
+/// `GOODFETCH_URL` names at a loopback port nobody listens on, fails with
+/// `daemon_unreachable`, an `UnavailableError` whose `fix` says what to
+/// do: `{ "error" }` under `--json`, exit `8`, never exit `1` with a log
+/// line alone.
+///
+/// Covers: story:11-199, story:11-205, command:engine.info, error:daemon_unreachable, exit:unavailable
+#[test]
+fn a_command_that_reaches_no_daemon_prints_daemon_unreachable_and_exits_8() {
+    let env = TestEnv::new();
+    // A port the test took and let go, where nothing listens: a refused
+    // connection, never a fixed port.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the test finds a loopback port nobody listens on, outside the engine (ADR 0060)"
+    )]
+    let closed = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
+
+    let output = cli(&env, COLLIE)
+        .args(["engine", "info", "--json"])
+        .env("GOODFETCH_URL", format!("ws://{closed}"))
+        .env("GOODFETCH_TOKEN", UNREAD_TOKEN)
+        .run()
+        .unwrap();
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            failed_with(&output),
+            printed["error"]["retryable"].clone(),
+            printed["error"]["fix"].is_string(),
+        ),
+        ((Some(8), json!("daemon_unreachable")), json!(true), true),
+        "{output}"
+    );
+}
+
+/// A `GOODFETCH_URL` that is not loopback is refused with `setting_invalid`
+/// before any Connection, exit `3`, as the Daemon refuses such an address
+/// until it terminates TLS: its token would travel in clear (608-O2).
+///
+/// Covers: story:11-199, command:engine.info, error:setting_invalid, exit:program
+#[test]
+fn a_goodfetch_url_that_is_not_loopback_is_refused_with_setting_invalid() {
+    let env = TestEnv::new();
+
+    let output = cli(&env, COLLIE)
+        .args(["engine", "info", "--json"])
+        .env("GOODFETCH_URL", "ws://192.0.2.1:7900")
+        .env("GOODFETCH_TOKEN", UNREAD_TOKEN)
+        .run()
+        .unwrap();
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (failed_with(&output), printed["error"]["key"].clone()),
+        ((Some(3), json!("setting_invalid")), json!("GOODFETCH_URL")),
+        "{output}"
+    );
+}
+
+/// A deployment variable the executable cannot take fails the command
+/// before any engine starts as every failure prints, `{ "error" }` under
+/// `--json`, with no colour under `--color never`, and exits by its code's
+/// row: whether clap read the command line, or refused what only Foxhound
+/// carries.
+///
+/// Covers: story:11-205, error:setting_invalid, exit:program
+#[rstest]
+/// Covers: command:engine.info
+#[case::a_command_it_reads(&["engine", "info", "--json", "--color", "never"])]
+#[case::what_only_foxhound_carries(&["crawl", "start", "https://example.com/", "--json", "--color=never"])]
+fn a_bad_deployment_variable_fails_as_every_failure_prints(#[case] arguments: &[&str]) {
+    let env = TestEnv::new();
+
+    let output = cli(&env, COLLIE)
+        .args(arguments)
+        .env("GOODFETCH_CHANNEL", "nowhere")
+        .run()
+        .unwrap();
+
+    assert_eq!(
+        failed_with(&output),
+        (Some(3), json!("setting_invalid")),
+        "{output}"
+    );
+}
+
+/// Under `--daemon`, a Daemon that refuses `hello` by protocol version and
+/// cannot hand over fails `audit export` and `audit verify` as every
+/// command's refusal prints, its `fix` naming this executable's `daemon
+/// restart`, exit `11`.
+///
+/// Covers: story:11-199, error:protocol_version_unsupported, exit:protocol_version_unsupported
+#[rstest]
+/// Covers: command:audit.export
+#[case::export("export")]
+/// Covers: command:audit.verify
+#[case::verify("verify")]
+fn a_refused_audit_command_shows_the_refusals_fix(#[case] command: &str) {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-hello-refused.json");
+
+    let output = cli(&env, COLLIE)
+        .args(["audit", command, "--daemon"])
+        .run()
+        .unwrap();
+    scripted.child().wait().unwrap();
+
+    assert_eq!(
+        (
+            output.exit,
+            output.stdout.as_str(),
+            output
+                .stderr
+                .lines()
+                .any(|line| line.starts_with("fix:") && line.contains("daemon restart")),
+        ),
+        (Some(11), "", true),
+        "{output}"
+    );
+}
+
+/// The person-only commands, at a terminal, print the same refusal: `usage
+/// raise` once the person answered yes, `certs accept` and `certs forget`
+/// on the call that reads the pin, each with its `fix` line and exit `11`.
+///
+/// Covers: story:11-199, error:protocol_version_unsupported, exit:protocol_version_unsupported
+#[rstest]
+/// Covers: command:usage.raise
+#[case::usage_raise(&["usage", "raise", "--scope", "install", "--usage-kind", "requests", "--amount", "1000", "--daemon"], Some("y"))]
+/// Covers: command:certs.accept
+#[case::certs_accept(&["certs", "accept", "example.com", "--daemon"], None)]
+/// Covers: command:certs.forget
+#[case::certs_forget(&["certs", "forget", "example.com", "--daemon"], None)]
+fn a_refused_person_command_shows_the_refusals_fix(
+    #[case] arguments: &[&str],
+    #[case] answer: Option<&str>,
+) {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-hello-refused.json");
+
+    let mut asked = goodfetch_test_support::pty(&env, COLLIE)
+        .args(arguments)
+        .spawn()
+        .unwrap();
+    if let Some(answer) = answer {
+        asked.expect("[y/N]").unwrap();
+        asked.send_line(answer).unwrap();
+    }
+    let output = asked.finish().unwrap();
+    scripted.child().wait().unwrap();
+
+    let shown = output.stripped();
+    assert_eq!(
+        (
+            output.exit,
+            shown
+                .lines()
+                .any(|line| line.starts_with("fix:") && line.contains("daemon restart")),
+        ),
+        (Some(11), true),
+        "{shown}"
+    );
+}
 
 /// The corpus's script whose Daemon answers `config.explain` with an Error
 /// code, which each case replaces.

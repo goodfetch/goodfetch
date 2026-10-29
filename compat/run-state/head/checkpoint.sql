@@ -124,6 +124,12 @@ CREATE TABLE pool_tiers (
             proxy_tier TEXT NOT NULL,
             browser INTEGER NOT NULL
         ) STRICT;
+CREATE TABLE record_counts (
+            dataset TEXT NOT NULL PRIMARY KEY,
+            committed INTEGER NOT NULL,
+            dropped INTEGER NOT NULL,
+            rejected INTEGER NOT NULL
+        ) STRICT;
 CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
@@ -142,6 +148,12 @@ CREATE TABLE rejected_records (
             data TEXT NOT NULL,
             rejection TEXT NOT NULL,
             PRIMARY KEY (dataset, number)
+        ) STRICT;
+CREATE TABLE request_counts (
+            kind TEXT NOT NULL,
+            name TEXT NOT NULL,
+            count INTEGER NOT NULL,
+            PRIMARY KEY (kind, name)
         ) STRICT;
 CREATE TABLE rules_canonicals (
             host TEXT NOT NULL,

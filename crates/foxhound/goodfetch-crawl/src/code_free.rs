@@ -11,7 +11,9 @@
 //! `enqueueLinks` does, staged with the attempt, and under `follow:
 //! sitemap` the start seeds the sitemaps each seed's site names in its
 //! robots.txt, as a sitemap seed of that robots.txt. The extraction is
-//! kept in the run file, so a resumed crawl handles its requests alike.
+//! kept in the run file, so a resumed crawl handles its requests alike; a
+//! start under the Run's ID replaces it with its own once the Run resumes,
+//! as it replaces the Dataset `pages` generated from it.
 //! Its named `fields` are read from the first element each one's locator
 //! finds and given by its Value transform (ADR 0123, the `fields`
 //! module): the Record holds each, null where the page did not give it,
@@ -19,6 +21,7 @@
 //! null.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::{CallContext, CallError};
@@ -52,10 +55,13 @@ const KEY: &str = "url";
 const EVERY_ENTRY: &str = "**";
 
 /// What a code-free crawl's attempts handle their requests with: its
-/// extraction, and the live crawls and tiers whose pages they read.
+/// extraction, what each of its fields reads with, built once as the crawl
+/// starts, and the live crawls and tiers whose pages they read.
 #[derive(Clone)]
 pub(crate) struct CodeFree {
     pub(crate) extraction: CrawlExtraction,
+    /// Each field's reader, in the order of `extraction.fields`.
+    readers: Arc<[fields::Reader]>,
     pub(crate) crawls: Crawls,
     pub(crate) tiers: FetchTiers,
 }
@@ -90,6 +96,21 @@ pub(crate) fn record(
         params![extraction],
     )?;
     Ok(())
+}
+
+/// Records `extraction` again, a start's under the ID of the Run that
+/// resumes, in place of the one the run file holds: none takes it out, for
+/// a crawl whose program handles its requests from then on.
+///
+/// # Errors
+///
+/// The run file's, when the row cannot be written.
+pub(crate) fn record_again(
+    connection: &Connection,
+    extraction: Option<&CrawlExtraction>,
+) -> rusqlite::Result<()> {
+    connection.execute("DELETE FROM code_free_extraction", [])?;
+    record(connection, extraction)
 }
 
 /// The extraction [`record`] kept; none for a crawl whose program handles
@@ -270,7 +291,8 @@ pub(crate) fn record_of(
 
 impl CodeFree {
     /// What a crawl reading `extraction` handles its requests with, on the
-    /// live `crawls` and the pages of `tiers`; none for a crawl whose
+    /// live `crawls` and the pages of `tiers`, each field's `match` pattern
+    /// and locale's forms learned here, once; none for a crawl whose
     /// program handles them.
     pub(crate) fn of(
         extraction: Option<CrawlExtraction>,
@@ -278,6 +300,7 @@ impl CodeFree {
         tiers: &FetchTiers,
     ) -> Option<Self> {
         extraction.map(|extraction| Self {
+            readers: extraction.fields.values().map(fields::Reader::of).collect(),
             extraction,
             crawls: crawls.clone(),
             tiers: tiers.clone(),
@@ -398,8 +421,10 @@ impl CodeFree {
             })??;
         let mut values = Map::new();
         let mut read = FieldsRead::default();
-        for ((name, field), element) in declared.iter().zip(found.elements) {
-            let one = fields::read(name, field, element.as_ref(), &found.base_url);
+        for (((name, field), reader), element) in
+            declared.iter().zip(self.readers.iter()).zip(found.elements)
+        {
+            let one = fields::read(name, (field, reader), element.as_ref(), &found.base_url);
             values.insert(name.clone(), one.value);
             read.value_transforms.extend(one.transforms);
             read.unread.extend(one.unread);

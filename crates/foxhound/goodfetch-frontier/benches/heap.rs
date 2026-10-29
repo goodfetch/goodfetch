@@ -49,6 +49,17 @@ fn enqueue(urls: usize) -> usize {
 
 library_benchmark_group!(name = frontier, benchmarks = enqueue);
 
+// An attempt's staged enqueues (ADR 0093): what the attempt keeps in memory
+// beside its staging grows with what it added, by the same amount each.
+#[library_benchmark]
+#[bench::a_hundred_enqueues(100)]
+#[bench::a_thousand_enqueues(1_000)]
+fn stage(enqueues: usize) -> usize {
+    black_box(scenarios::stage(black_box(enqueues)))
+}
+
+library_benchmark_group!(name = staging, benchmarks = stage);
+
 // BoringSSL, which goodfetch-page's egress relay links, brings libstdc++,
 // whose emergency exception pool is allocated while the loader starts the
 // process, on a stack DHAT unwinds into frames with no location, which
@@ -58,5 +69,5 @@ main!(
     config = LibraryBenchmarkConfig::default()
         .default_tool(Tool::DHAT)
         .env("GLIBCXX_TUNABLES", "glibcxx.eh_pool.obj_count=0"),
-    library_benchmark_groups = [admission, identity, frontier]
+    library_benchmark_groups = [admission, identity, frontier, staging]
 );

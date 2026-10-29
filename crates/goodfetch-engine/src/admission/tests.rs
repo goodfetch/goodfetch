@@ -15,9 +15,15 @@ use rstest::rstest;
 use rusqlite::Connection;
 use tokio::time::Instant;
 
-use super::{BesideShared, RateCap, Room, SecondCopies};
+use goodfetch_protocol::catalog::Product;
+
+use super::{
+    Admission, Admitted, BesideShared, Ended, Gate, Held, Journal, RateCap, Room, SecondCopies,
+    Waiting,
+};
 use crate::clock::Clock;
 use crate::politeness::{Ending, Hold, Holder, PermitRule, Politeness, Taken, Verdict};
+use crate::settings::{Layers, Resolved, resolve};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// Offers `cap` a request at each of `offsets` from `start`, in order, and
@@ -292,4 +298,117 @@ fn a_second_copy_given_back_leaves_room_for_the_next() {
     });
 
     assert_eq!(rooms, ["full", "taken"]);
+}
+
+/// A Politeness file whose every take fails: its rule's check raises a
+/// storage error.
+struct Unreadable;
+
+impl PermitRule for Unreadable {
+    fn admit(&self, _: &Connection, _: &str, _: u64, _: SystemTime) -> rusqlite::Result<Verdict> {
+        Err(rusqlite::Error::InvalidQuery)
+    }
+
+    fn started(&self, _: &Connection, _: &str, _: SystemTime) -> rusqlite::Result<()> {
+        Ok(())
+    }
+
+    fn ended(
+        &self,
+        _: &Connection,
+        _: &str,
+        _: u64,
+        _: Ending,
+        _: SystemTime,
+    ) -> rusqlite::Result<Option<SystemTime>> {
+        Ok(None)
+    }
+}
+
+/// A gate of one key, `shop.test`, ready until held, which keeps each
+/// hold it is given.
+#[derive(Default)]
+struct OneKey {
+    holds: Arc<Mutex<Vec<(Instant, Held)>>>,
+}
+
+impl Gate for OneKey {
+    fn key(&self, _: &str) -> String {
+        "shop.test".to_owned()
+    }
+
+    fn bound(&self) -> usize {
+        1
+    }
+
+    fn enqueue(&mut self, _: Waiting) -> bool {
+        false
+    }
+
+    fn ready_at(&self, now: Instant) -> Option<Instant> {
+        let holds = self.holds.lock().unwrap();
+        Some(holds.last().map_or(now, |(until, _)| *until))
+    }
+
+    fn admit(&mut self, _: Instant) -> Option<Admitted> {
+        None
+    }
+
+    fn next_key(&self, _: Instant) -> Option<String> {
+        Some("shop.test".to_owned())
+    }
+
+    fn hold(&mut self, _: &str, until: Instant, held: Held) {
+        self.holds.lock().unwrap().push((until, held));
+    }
+
+    fn wake(&mut self, _: &str) {}
+
+    fn rule(&self, _: &Resolved) -> Option<Arc<dyn PermitRule>> {
+        Some(Arc::new(Unreadable))
+    }
+
+    fn ended(&mut self, _: &str, _: Instant, _: Ended) {}
+
+    fn journal(&mut self, _: SystemTime, _: Instant) -> Option<Journal> {
+        None
+    }
+}
+
+/// A key the Politeness file refuses a take for, as when the file is busy
+/// past its timeout, is held for that refusal until its Run tries it
+/// again, never as a key at its concurrency, so the Run's progress names
+/// the file, not `politeness.domain.concurrency`.
+///
+/// Covers: story:3-63
+#[test]
+fn a_key_the_politeness_file_refuses_is_held_for_the_refusal() {
+    let held = on_the_runtime(async |owner| {
+        let gate = OneKey::default();
+        let holds = Arc::clone(&gate.holds);
+        let settings = resolve(&Layers::default(), Product::Foxhound, Product::Foxhound).unwrap();
+        let politeness = Politeness::in_memory(Vec::new(), owner).await.unwrap();
+        let holder = Holder {
+            run_id: "crawl".to_owned(),
+            epoch: 1,
+            run_folder: "crawl".into(),
+        };
+        let clock = Clock::paused(SystemTime::UNIX_EPOCH + Duration::from_hours(500_000));
+        let mut admission =
+            Admission::new(Box::new(gate), &settings).sharing(politeness, holder, clock, &settings);
+        let now = Instant::now();
+        let admitted = admission.admit(now).await;
+        let held: Vec<(Duration, Held)> = holds
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(until, held)| (until.duration_since(now), *held))
+            .collect();
+        (admitted, held)
+    });
+
+    assert_eq!(
+        held,
+        (None, vec![(Duration::from_secs(30), Held::PolitenessFile)])
+    );
 }

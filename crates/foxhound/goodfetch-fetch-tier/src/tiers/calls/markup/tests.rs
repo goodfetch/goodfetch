@@ -3,7 +3,9 @@
 use super::{Shown, shown};
 
 /// The markup decides an element's visibility where it hides it itself,
-/// and leaves to the browser what needs layout or a strict single match.
+/// and leaves to the browser what needs layout or a strict single match,
+/// and an element it would call visible in a document a stylesheet may
+/// hide it in.
 #[rstest::rstest]
 #[case::text("<h1>title</h1>", "h1", Some(Shown::Visible))]
 #[case::absent("<h1>title</h1>", "h2", Some(Shown::Absent))]
@@ -42,6 +44,31 @@ use super::{Shown, shown};
     "<div><template shadowrootmode=\"open\"><p>a</p></template></div>",
     "div",
     None
+)]
+#[case::styled_by_a_style_element(
+    "<style>.modal { display: none }</style><p class=\"modal\">a</p>",
+    "p",
+    None
+)]
+#[case::styled_by_a_stylesheet(
+    "<head><link rel=\"Preload StyleSheet\" href=\"a.css\"></head><p>a</p>",
+    "p",
+    None
+)]
+#[case::hidden_whatever_its_stylesheet(
+    "<link rel=\"stylesheet\" href=\"a.css\"><p hidden>a</p>",
+    "p",
+    Some(Shown::Hidden)
+)]
+#[case::absent_whatever_its_stylesheet(
+    "<style>p { color: red }</style><p>a</p>",
+    "h2",
+    Some(Shown::Absent)
+)]
+#[case::a_link_that_is_no_stylesheet(
+    "<link rel=\"icon\" href=\"a.png\"><p>a</p>",
+    "p",
+    Some(Shown::Visible)
 )]
 fn an_elements_visibility_is_its_markups_or_unknown(
     #[case] html: &str,

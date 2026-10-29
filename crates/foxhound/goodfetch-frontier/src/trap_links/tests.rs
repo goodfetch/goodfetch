@@ -3,10 +3,15 @@
 //! the honeypot forms of the Proving ground's `traps` family and the links
 //! a person sees.
 
+use goodfetch_engine::egress::Policy;
+use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
 use rstest::rstest;
+use rusqlite::Connection;
 use serde_json::json;
+use url::Url;
 
-use super::{Seen, Trap, judge};
+use super::{Seen, TABLES, Trap, judge, seen_again, suspect, suspected};
+use crate::{Candidate, Declared, Patterns, Scope, ScopeStrategy, admit};
 
 const SEEN: Seen = Seen {
     no_box: false,
@@ -132,4 +137,69 @@ fn a_served_documents_markup_states_what_it_can_of_a_link(
         Seen::in_markup([link.as_slice(), holder.as_slice()]),
         expected
     );
+}
+
+/// A run file holding the Frontier's tables and the marks, in memory, with
+/// `https://shop.test/p/1` added as crawl request 1 and marked as reached
+/// through a suspected trap.
+fn marked_run_file() -> Connection {
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in crate::identity::TABLES
+        .statements
+        .iter()
+        .chain(crate::scope::TABLES.statements)
+        .chain(crate::bounds::TABLES.statements)
+        .chain(crate::rules::TABLES.statements)
+        .chain(TABLES.statements)
+    {
+        connection.execute(statement, []).unwrap();
+    }
+    let scope = Scope::new(
+        ScopeStrategy::SameHostname,
+        Patterns::default(),
+        Patterns::default(),
+    );
+    let policy = Policy::new(&["*"], &[] as &[&str]).unwrap();
+    let get = HttpMethod::get();
+    let added = admit(
+        &connection,
+        &scope,
+        &policy,
+        Candidate::Seed {
+            url: "https://shop.test/p/1",
+            declared: Declared {
+                method: &get,
+                body: None,
+                key: None,
+                keeps_fragment: false,
+            },
+        },
+        |_| Ok("1".to_owned()),
+    )
+    .unwrap();
+    assert!(matches!(added, Enqueued::Added { .. }), "{added:?}");
+    suspect(&connection, "1").unwrap();
+    connection
+}
+
+/// A link a person sees that reaches a marked request again, which the
+/// Frontier answers `duplicate`, clears its mark: the request is no longer
+/// reached through suspected traps alone (ADR 0035's #1153 note). One to a
+/// URL the Frontier never admitted clears nothing.
+///
+/// Covers: story:8-228
+#[rstest]
+#[case::the_same_url("/p/1", false)]
+#[case::its_fragment_dropped("https://shop.test/p/1#reviews", false)]
+#[case::another_url("/p/2", true)]
+fn a_link_a_person_sees_to_a_marked_request_clears_its_mark(
+    #[case] href: &str,
+    #[case] still_marked: bool,
+) {
+    let connection = marked_run_file();
+    let base = Url::parse("https://shop.test/list").unwrap();
+
+    seen_again(&connection, href, &base, encoding_rs::UTF_8, false).unwrap();
+
+    assert_eq!(suspected(&connection, "1").unwrap(), still_marked);
 }

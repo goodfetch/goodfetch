@@ -25,6 +25,10 @@ pub const CRAWL_DELAY: &str = "crawl_delay";
 /// connection refused or timed out, an HTTP/2 `ENHANCE_YOUR_CALM`, or a
 /// `Retry-After` (ADR 0118); never a proxy's own answer (ADR 0053).
 pub const BACKOFF: &str = "backoff";
+/// The reason a domain waits because the shared Politeness file refused
+/// its take, such as one busy past its timeout, until its Run tries it
+/// again (ADR 0053).
+pub const POLITENESS_FILE: &str = "politeness_file";
 /// The reason a domain waits for its robots.txt, not served yet.
 pub const ROBOTS_TXT: &str = "robots_txt";
 /// The reason `crawl.handler.concurrency` handlers already run.

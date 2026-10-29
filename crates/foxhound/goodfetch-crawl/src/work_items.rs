@@ -30,12 +30,13 @@ use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::RunStateTables;
-use goodfetch_frontier::{Candidate, Declared, Scope, Url, admit, payload, sitemap, trap_links};
+use goodfetch_frontier::{Candidate, Declared, Scope, Url, payload, sitemap, trap_links};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
 use goodfetch_protocol::foxhound::outcomes::{
-    AttemptError, CrawlRequestOutcome, Ending, NothingCommitted, OutcomeRequest, SkipReason,
+    AttemptError, CrawlRequestOutcome, DatasetRecords, Ending, NotAddedAtCommit, NothingCommitted,
+    OutcomeRequest, SkipReason,
 };
 use goodfetch_protocol::foxhound::provenance::{
     CertificateExceptionMark, EncodingProvenance, RecordProvenance, RobotsTxtMark, TierProvenance,
@@ -93,6 +94,24 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
         "CREATE TABLE IF NOT EXISTS work_item_positions (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             reserved INTEGER NOT NULL
+        ) STRICT",
+        // How many ended requests each latest outcome counts, by kind and
+        // by skip reason, Error code or Block cause (`name`, empty for
+        // `succeeded`), kept in the commit of each outcome and of each
+        // re-admission, so a progress read decodes no outcome (#1547).
+        "CREATE TABLE IF NOT EXISTS request_counts (
+            kind TEXT NOT NULL,
+            name TEXT NOT NULL,
+            count INTEGER NOT NULL,
+            PRIMARY KEY (kind, name)
+        ) STRICT",
+        // The Records each Dataset's succeeded requests committed, dropped
+        // and rejected, kept as `request_counts` is.
+        "CREATE TABLE IF NOT EXISTS record_counts (
+            dataset TEXT NOT NULL PRIMARY KEY,
+            committed INTEGER NOT NULL,
+            dropped INTEGER NOT NULL,
+            rejected INTEGER NOT NULL
         ) STRICT",
     ],
 };
@@ -296,14 +315,18 @@ pub(crate) fn admit_seeds(
             let seed = match seed {
                 Seed::Request(seed) => seed,
                 Seed::Sitemap(seed) => {
-                    return sitemap::admit_seed(connection, policy, seed, |url| {
-                        add(
-                            connection,
-                            positions,
-                            url,
-                            from_sitemap(sitemap::Adding::Sitemap),
-                        )
-                    });
+                    let mut admitting = std::mem::take(&mut positions.admitting);
+                    let answer =
+                        sitemap::admit_seed_in(connection, policy, seed, &mut admitting, |url| {
+                            add(
+                                connection,
+                                positions,
+                                url,
+                                from_sitemap(sitemap::Adding::Sitemap),
+                            )
+                        });
+                    positions.admitting = admitting;
+                    return answer;
                 }
             };
             let declared = Declared {
@@ -316,42 +339,69 @@ pub(crate) fn admit_seeds(
                 url: &seed.url,
                 declared,
             };
-            admit(connection, scope, policy, candidate, |url| {
-                add(
-                    connection,
-                    positions,
-                    url,
-                    Adding {
-                        method: &seed.method,
-                        body: seed.body.as_ref(),
-                        label: &seed.label,
-                        payload: seed.payload.as_ref(),
-                        priority: seed.priority,
-                        forefront: seed.forefront,
-                        depth: 0,
-                    },
-                )
-            })
+            let adding = Adding {
+                method: &seed.method,
+                body: seed.body.as_ref(),
+                label: &seed.label,
+                payload: seed.payload.as_ref(),
+                priority: seed.priority,
+                forefront: seed.forefront,
+                depth: 0,
+            };
+            admit(connection, positions, scope, policy, candidate, adding)
         })
         .collect()
+}
+
+/// Admits `candidate` through the Frontier within `scope` and under the
+/// Run's domain policy `policy`, as a pending work item carrying `adding`
+/// when added, at its position from `positions`, against what `positions`
+/// holds beside the run file: an attempt's earlier staged admissions while
+/// it stages, what its commit does not add at the commit (ADR 0093).
+pub(crate) fn admit(
+    connection: &Connection,
+    positions: &mut Positions,
+    scope: &Scope,
+    policy: &Policy,
+    candidate: Candidate<'_>,
+    adding: Adding<'_>,
+) -> rusqlite::Result<Enqueued> {
+    let mut admitting = std::mem::take(&mut positions.admitting);
+    let answer = goodfetch_frontier::admit_in(
+        connection,
+        scope,
+        policy,
+        candidate,
+        &mut admitting,
+        |url| add(connection, positions, url, adding),
+    );
+    positions.admitting = admitting;
+    answer
 }
 
 /// The positions work items are added at, each its ID: after every work
 /// item the run file holds and every position reserved for one an attempt
 /// staged (ADR 0093), so a staged request keeps the ID its enqueue
 /// answered once its attempt commits, and a discarded one leaves a gap.
+/// Beside them, what the Frontier admits against beside the run file: an
+/// attempt's earlier staged admissions while it stages one more, and the
+/// URLs its commit does not add.
 #[derive(Debug)]
 pub(crate) struct Positions {
     /// The positions an earlier staging of the admission being replayed
     /// gave each URL it added.
     kept: BTreeMap<String, u64>,
+    /// The URLs of `kept` given their position again.
+    used: BTreeSet<String>,
     next: u64,
     /// The positions given since the last [`Positions::taken`], by URL.
     taken: BTreeMap<String, u64>,
+    admitting: goodfetch_frontier::Admitting,
 }
 
 impl Positions {
-    /// The positions after everything the run file `connection` holds.
+    /// The positions after everything the run file `connection` holds,
+    /// admitting against the run file alone.
     pub(crate) fn of(connection: &Connection) -> rusqlite::Result<Self> {
         let next: i64 = connection.query_row(
             "SELECT max(
@@ -363,8 +413,36 @@ impl Positions {
         )?;
         Ok(Self {
             kept: BTreeMap::new(),
+            used: BTreeSet::new(),
             next: u64::try_from(next).unwrap_or(1),
             taken: BTreeMap::new(),
+            admitting: goodfetch_frontier::Admitting::RunFile,
+        })
+    }
+
+    /// The same, admitting while an attempt stages, against what its
+    /// earlier staged admissions did, `earlier`.
+    pub(crate) fn staging(
+        connection: &Connection,
+        earlier: std::sync::Arc<goodfetch_frontier::Staged>,
+    ) -> rusqlite::Result<Self> {
+        Ok(Self {
+            admitting: goodfetch_frontier::Admitting::Staging {
+                earlier,
+                now: goodfetch_frontier::Staged::default(),
+            },
+            ..Self::of(connection)?
+        })
+    }
+
+    /// The same, admitting at an attempt's commit, which notes each URL it
+    /// does not add.
+    pub(crate) fn committing(connection: &Connection) -> rusqlite::Result<Self> {
+        Ok(Self {
+            admitting: goodfetch_frontier::Admitting::Commit {
+                refused: Vec::new(),
+            },
+            ..Self::of(connection)?
         })
     }
 
@@ -372,12 +450,17 @@ impl Positions {
     /// as an admission staged before is replayed.
     pub(crate) fn keeping(&mut self, kept: BTreeMap<String, u64>) {
         self.kept = kept;
+        self.used.clear();
         self.taken.clear();
+        if let goodfetch_frontier::Admitting::Commit { refused } = &mut self.admitting {
+            refused.clear();
+        }
     }
 
     /// The position of the work item added at `url`.
     fn take(&mut self, url: &str) -> u64 {
         if let Some(kept) = self.kept.get(url) {
+            self.used.insert(url.to_owned());
             return *kept;
         }
         let position = self.next;
@@ -386,15 +469,41 @@ impl Positions {
         position
     }
 
-    /// The positions given since the last [`Positions::taken`], which are
-    /// the IDs of the work items added at them.
-    pub(crate) fn given(&self) -> impl Iterator<Item = u64> + '_ {
-        self.taken.values().copied()
-    }
-
     /// The positions given since the last call, by URL.
     pub(crate) fn taken(&mut self) -> BTreeMap<String, u64> {
         std::mem::take(&mut self.taken)
+    }
+
+    /// What the staged admission did beside the run file, once it ran, as
+    /// the attempt's later admissions read it.
+    pub(crate) fn staged(self) -> goodfetch_frontier::Staged {
+        match self.admitting {
+            goodfetch_frontier::Admitting::Staging { now, .. } => now,
+            goodfetch_frontier::Admitting::RunFile
+            | goodfetch_frontier::Admitting::Commit { .. } => goodfetch_frontier::Staged::default(),
+        }
+    }
+
+    /// Each request the admission replayed at the commit kept a position
+    /// for and did not add, since [`Positions::keeping`]: the ID its
+    /// staging answered, its URL and why the commit did not add it.
+    pub(crate) fn not_added(&self) -> Vec<NotAddedAtCommit> {
+        let goodfetch_frontier::Admitting::Commit { refused } = &self.admitting else {
+            return Vec::new();
+        };
+        refused
+            .iter()
+            .filter(|refused| !self.used.contains(&refused.url))
+            .filter_map(|refused| {
+                let id = self.kept.get(&refused.url)?;
+                Some(NotAddedAtCommit {
+                    id: id.to_string(),
+                    url: refused.url.clone(),
+                    reason: refused.reason,
+                    duplicate_of: refused.duplicate_of.clone(),
+                })
+            })
+            .collect()
     }
 
     /// Reserves in the run file every position given so far, so that no
@@ -649,6 +758,8 @@ pub(crate) struct Committed<'a> {
     pub(crate) fields: &'a FieldsRead,
     pub(crate) masks: &'a Masks,
     pub(crate) ended_at: &'a PointInTime,
+    /// Each request the attempt staged that the commit did not add.
+    pub(crate) not_added: &'a [NotAddedAtCommit],
 }
 
 /// Commits an attempt's Records, once, each numbered in its Dataset and
@@ -668,6 +779,7 @@ pub(crate) fn commit(
         fields,
         masks,
         ended_at,
+        not_added,
     } = committed;
     if !still_leased(connection, id, lease_epoch)? {
         return Ok(false);
@@ -719,6 +831,7 @@ pub(crate) fn commit(
         Ending::Succeeded {
             records: counted,
             nothing_committed,
+            not_added: not_added.to_vec(),
         },
     )?;
     Ok(true)
@@ -902,6 +1015,9 @@ fn write_outcome(
         |row| Ok(u64::try_from(row.get::<_, i64>(0)?).unwrap_or_default()),
     )?;
     let kind = ending.kind();
+    // The work item had no counted outcome: it was leased or pending, a
+    // re-admission having taken its last one out of the counts.
+    count(connection, &ending, 1)?;
     let outcome = CrawlRequestOutcome {
         position,
         request: OutcomeRequest {
@@ -928,6 +1044,100 @@ fn write_outcome(
         ),
     )?;
     Ok(())
+}
+
+/// What `ending` is counted under in `request_counts`: its kind, and its
+/// skip reason, Error code or Block cause, none for `succeeded`.
+fn counted_as(ending: &Ending) -> (&'static str, String) {
+    let name = match ending {
+        Ending::Succeeded { .. } => String::new(),
+        Ending::Failed { error } => error.code.clone(),
+        Ending::Skipped { reason, .. } => match serde_json::to_value(reason) {
+            Ok(Value::String(name)) => name,
+            _ => String::new(),
+        },
+        Ending::Blocked { cause } => cause.as_str().to_owned(),
+    };
+    (ending.kind().as_str(), name)
+}
+
+/// Counts `ending` once more, `by` 1, or once less, `by` -1, among the
+/// ended requests and, for a request that succeeded, its Records.
+pub(crate) fn count(connection: &Connection, ending: &Ending, by: i64) -> rusqlite::Result<()> {
+    let (kind, name) = counted_as(ending);
+    connection.execute(
+        "INSERT INTO request_counts (kind, name, count) VALUES (?1, ?2, ?3)
+         ON CONFLICT (kind, name) DO UPDATE SET count = count + excluded.count",
+        (kind, name, by),
+    )?;
+    if let Ending::Succeeded { records, .. } = ending {
+        let mut counted = connection.prepare(
+            "INSERT INTO record_counts (dataset, committed, dropped, rejected)
+             VALUES (?1, ?2 * ?5, ?3 * ?5, ?4 * ?5)
+             ON CONFLICT (dataset) DO UPDATE SET
+                 committed = committed + excluded.committed,
+                 dropped = dropped + excluded.dropped,
+                 rejected = rejected + excluded.rejected",
+        )?;
+        for dataset in records {
+            counted.execute((
+                &dataset.dataset,
+                integer(dataset.committed),
+                integer(dataset.dropped),
+                integer(dataset.rejected),
+                by,
+            ))?;
+        }
+    }
+    Ok(())
+}
+
+/// How many ended requests one kind of latest outcome and one skip reason,
+/// Error code or Block cause (empty for a success) count:
+/// `(kind, name, count)`.
+pub(crate) type KindCount = (String, String, u64);
+
+/// The ended requests, by the kind of each one's latest outcome and its
+/// skip reason, Error code or Block cause, and the Records their
+/// successes committed, dropped and rejected per Dataset, as their
+/// commits counted them; a request pending again counts in none.
+///
+/// # Errors
+///
+/// The run file's, when the counts cannot be read.
+pub(crate) fn ended_counts(
+    connection: &Connection,
+) -> rusqlite::Result<(Vec<KindCount>, Vec<DatasetRecords>)> {
+    let requests = connection
+        .prepare(
+            "SELECT kind, name, count FROM request_counts WHERE count > 0 ORDER BY kind, name",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                u64::try_from(row.get::<_, i64>(2)?).unwrap_or_default(),
+            ))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    let records = connection
+        .prepare(
+            "SELECT dataset, committed, dropped, rejected FROM record_counts ORDER BY dataset",
+        )?
+        .query_map([], |row| {
+            let count = |at: usize| {
+                row.get::<_, i64>(at)
+                    .map(|count| u64::try_from(count).unwrap_or_default())
+            };
+            Ok(DatasetRecords {
+                dataset: row.get(0)?,
+                committed: count(1)?,
+                dropped: count(2)?,
+                rejected: count(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok((requests, records))
 }
 
 /// The statuses of the work items `run.retry_failed` re-admits, which
@@ -966,7 +1176,8 @@ pub(crate) fn readmittable(connection: &Connection, blocked: bool) -> rusqlite::
 /// new outcome, and answers their IDs, in order: `run.retry_failed`'s
 /// re-admission. Each keeps its ID, Label, Payload and depth, and its
 /// attempts count on from where they are, with a fresh `crawl.retry.max`
-/// from there (ADR 0102).
+/// from there (ADR 0102). Each counts as pending from then on, its latest
+/// outcome taken out of the ended requests' counts until it ends again.
 pub(crate) fn readmit(connection: &Connection, blocked: bool) -> rusqlite::Result<Vec<String>> {
     let statuses = serde_json::to_string(readmitted(blocked)).expect("invariant: names encode");
     let mut ids = connection
@@ -978,6 +1189,22 @@ pub(crate) fn readmit(connection: &Connection, blocked: bool) -> rusqlite::Resul
         .query_map([statuses], |row| Ok((row.get::<_, i64>(1)?, row.get(0)?)))?
         .collect::<rusqlite::Result<Vec<(i64, String)>>>()?;
     ids.sort();
+    let mut latest = connection.prepare(
+        "SELECT outcome FROM outcomes WHERE work_item = ?1 ORDER BY position DESC LIMIT 1",
+    )?;
+    for (_, id) in &ids {
+        let outcome: Option<String> = latest.query_row([id], |row| row.get(0)).optional()?;
+        if let Some(outcome) = outcome {
+            let outcome: CrawlRequestOutcome = serde_json::from_str(&outcome).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })?;
+            count(connection, &outcome.ending, -1)?;
+        }
+    }
     Ok(ids.into_iter().map(|(_, id)| id).collect())
 }
 
@@ -1024,20 +1251,38 @@ pub(crate) fn left(connection: &Connection) -> rusqlite::Result<u64> {
 }
 
 /// Settles every work item still leased when its engine stopped without
-/// settling it, on a resume: its attempt counted, with the Error code
-/// `error_code`, it returns to pending while it has retries left of
-/// `retry_max` since its latest admission, and fails otherwise (ADR 0102).
+/// settling it, on a resume, as [`end`] settles a live attempt that failed
+/// with `failure`, ended at `ended_at`: its attempt counted and its error
+/// kept, it returns to pending while it has retries left of `retry_max`
+/// since its latest admission, and fails otherwise, with its outcome
+/// (ADR 0102).
 pub(crate) fn recover_leases(
     connection: &Connection,
-    error_code: &str,
+    failure: &Failure,
     retry_max: u32,
+    ended_at: &PointInTime,
 ) -> rusqlite::Result<()> {
-    connection.execute(
-        "UPDATE work_items SET error_code = ?1,
-             status = CASE WHEN attempts - retried_from <= ?2 THEN ?3 ELSE ?4 END
-         WHERE status = ?5",
-        (error_code, i64::from(retry_max), PENDING, FAILED, LEASED),
-    )?;
+    let lost = connection
+        .prepare(
+            "SELECT id, lease_epoch, attempts - retried_from <= ?1 FROM work_items
+             WHERE status = ?2 ORDER BY position",
+        )?
+        .query_map((i64::from(retry_max), LEASED), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                u64::try_from(row.get::<_, i64>(1)?).unwrap_or_default(),
+                row.get::<_, bool>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (id, lease_epoch, retried) in lost {
+        let unsuccessful = if retried {
+            Unsuccessful::Retried(failure.clone())
+        } else {
+            Unsuccessful::Failed(failure.clone())
+        };
+        end(connection, &id, lease_epoch, unsuccessful, ended_at)?;
+    }
     Ok(())
 }
 

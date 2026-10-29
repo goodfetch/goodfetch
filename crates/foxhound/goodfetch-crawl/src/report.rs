@@ -15,7 +15,9 @@ use std::collections::BTreeMap;
 
 use goodfetch_engine::runs::ReportPart;
 use goodfetch_protocol::foxhound::frontier::Enqueued;
-use goodfetch_protocol::foxhound::outcomes::{CrawlRequestOutcome, DatasetRecords, Ending};
+use goodfetch_protocol::foxhound::outcomes::{
+    CrawlRequestOutcome, DatasetRecords, Ending, OutcomeKind,
+};
 use goodfetch_protocol::foxhound::report::{CountOf, RequestCounts};
 use goodfetch_protocol::run::{Lifecycle, NothingDone, RunKind, RunReport, SeedsKept};
 use rusqlite::{Connection, OptionalExtension as _};
@@ -119,72 +121,34 @@ fn ended_as(ending: &Ending) -> String {
     }
 }
 
-/// How the crawl's requests ended, by each one's latest outcome, and its
-/// Records per Dataset.
+/// How the crawl's requests ended, by each ended one's latest outcome, as
+/// the commits of its outcomes and re-admissions counted them, a request
+/// pending again counted only pending, and its Records per Dataset: a few
+/// rows, whatever the number of requests, so each progress read is cheap.
 pub(crate) fn ended(
     connection: &Connection,
 ) -> rusqlite::Result<(RequestCounts, Vec<DatasetRecords>)> {
+    const SUCCEEDED: &str = OutcomeKind::Succeeded.as_str();
+    const FAILED: &str = OutcomeKind::Failed.as_str();
+    const SKIPPED: &str = OutcomeKind::Skipped.as_str();
+    const BLOCKED: &str = OutcomeKind::Blocked.as_str();
     let mut counts = RequestCounts {
         pending: crate::work_items::left(connection)?,
         ..RequestCounts::default()
     };
-    let (mut skips, mut codes, mut causes) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
-    let mut records: BTreeMap<String, DatasetRecords> = BTreeMap::new();
-    let mut statement = connection.prepare(
-        "SELECT outcome FROM outcomes WHERE position IN
-             (SELECT MAX(position) FROM outcomes GROUP BY work_item)",
-    )?;
-    let outcomes = statement.query_map([], |row| {
-        let text: String = row.get(0)?;
-        serde_json::from_str::<CrawlRequestOutcome>(&text)
-            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
-    })?;
-    for outcome in outcomes {
-        match outcome?.ending {
-            Ending::Succeeded {
-                records: committed, ..
-            } => {
-                counts.succeeded += 1;
-                for dataset in committed {
-                    let total =
-                        records
-                            .entry(dataset.dataset.clone())
-                            .or_insert_with(|| DatasetRecords {
-                                dataset: dataset.dataset.clone(),
-                                committed: 0,
-                                dropped: 0,
-                                rejected: 0,
-                            });
-                    total.committed += dataset.committed;
-                    total.dropped += dataset.dropped;
-                    total.rejected += dataset.rejected;
-                }
-            }
-            Ending::Failed { error } => {
-                counts.failed += 1;
-                *codes.entry(error.code).or_insert(0) += 1;
-            }
-            Ending::Skipped { reason, .. } => {
-                counts.skipped += 1;
-                *skips
-                    .entry(name_of(serde_json::to_value(reason)))
-                    .or_insert(0) += 1;
-            }
-            Ending::Blocked { cause } => {
-                counts.blocked += 1;
-                *causes.entry(cause.as_str().to_owned()).or_insert(0) += 1;
-            }
+    let (requests, records) = crate::work_items::ended_counts(connection)?;
+    for (kind, name, count) in requests {
+        let (total, by) = match kind.as_str() {
+            SUCCEEDED => (&mut counts.succeeded, None),
+            FAILED => (&mut counts.failed, Some(&mut counts.by_error_code)),
+            SKIPPED => (&mut counts.skipped, Some(&mut counts.by_skip_reason)),
+            BLOCKED => (&mut counts.blocked, Some(&mut counts.by_block_cause)),
+            _ => continue,
+        };
+        *total += count;
+        if let Some(by) = by {
+            by.push(CountOf { name, count });
         }
     }
-    counts.by_skip_reason = counted(skips);
-    counts.by_error_code = counted(codes);
-    counts.by_block_cause = counted(causes);
-    Ok((counts, records.into_values().collect()))
-}
-
-fn counted(counts: BTreeMap<String, u64>) -> Vec<CountOf> {
-    counts
-        .into_iter()
-        .map(|(name, count)| CountOf { name, count })
-        .collect()
+    Ok((counts, records))
 }

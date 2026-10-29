@@ -298,6 +298,15 @@ export class DaemonDrainingError extends UnavailableError {
 }
 
 /**
+ * No Daemon could be reached, so nothing was called: nothing answers where `GOODFETCH_URL` or its runtime file says it listens, it closed the Connection before it answered `hello`, as one does for a wrong `GOODFETCH_TOKEN`, it went away while the command connected, or its files cannot be read or its major's pick cannot be started. The message says which, and the `fix` what to do.
+ */
+export class DaemonUnreachableError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "daemon_unreachable", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The dialog was answered already, by an earlier `accept` or `dismiss`, or it closed, its handler having ended or the dialog having got its default: the first answer stands and this one changed nothing.
  */
 export class DialogAlreadyHandledError extends ProgramError {
@@ -912,6 +921,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   connection_lost: ConnectionLostError,
   console_port_in_use: ConsolePortInUseError,
   daemon_draining: DaemonDrainingError,
+  daemon_unreachable: DaemonUnreachableError,
   dialog_already_handled: DialogAlreadyHandledError,
   egress_refused: EgressRefusedError,
   engine_exited: EngineExitedError,

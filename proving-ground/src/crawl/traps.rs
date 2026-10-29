@@ -9,7 +9,14 @@
 //! every way a link hides from people (ADR 0035's trap links): the four,
 //! an `opacity` of 0, a link clipped to nothing and two invisible
 //! `nofollow` links, each under `/hp/`, beside three links a person sees,
-//! one plain, one `nofollow` and one in an ad (EasyList's `##.ad-slot`).
+//! one plain, one `nofollow` and one in an ad (EasyList's `##.ad-slot`);
+//! and `/cards`, which no page links either, a page whose markup hides
+//! some links to pages a person also reaches (spec #600's trap link
+//! cases): item 3's card links it only through an image link hidden from
+//! assistive technology (`aria-hidden`), an off-canvas menu marked
+//! `hidden` links category 1 before the visible menu does, and items 1
+//! and 2 are each linked twice, by the hidden image link and by the
+//! visible title link, in either order.
 //!
 //! The family records a `duplicate` finding for each page a task fetches
 //! again, a `trap` finding for each trap request past the task's allowance,
@@ -77,6 +84,9 @@ pub(super) fn respond(visit: &Visit<'_>, state: &State) -> Page {
     }
     if path == "/hidden-links" {
         return Page::ok(hidden_links(visit.seed));
+    }
+    if path == "/cards" {
+        return Page::ok(cards(visit.seed));
     }
     if path.starts_with("/hp/") {
         visit.find(Finding::Honeypot {
@@ -192,6 +202,37 @@ fn hidden_links(seed: u64) -> String {
     )
     .expect("invariant: writing to a String succeeds");
     document("Hidden links", &body)
+}
+
+/// The page of `/cards`: item 3's card, which links it only through an
+/// image link hidden from assistive technology; an off-canvas menu marked
+/// `hidden` linking category 1; the cards of items 1 and 2, each linking
+/// its item through that hidden image link and through its visible title,
+/// item 1's image first and item 2's title first; then the visible menu,
+/// linking category 1 again.
+fn cards(seed: u64) -> String {
+    let image = |number: u64| {
+        format!(
+            "<a href=\"/items/{}\" aria-hidden=\"true\" tabindex=\"-1\"><span class=\"picture\">Picture</span></a>",
+            item_id(number)
+        )
+    };
+    let title = |number: u64| {
+        format!(
+            "<h3><a href=\"/items/{}\">{}</a></h3>",
+            item_id(number),
+            item_name(seed, number)
+        )
+    };
+    let body = format!(
+        "<main>\n<h1>Cards</h1>\n<div class=\"card\">{}</div>\n<nav hidden><a href=\"/categories/1\">Category 1</a></nav>\n<div class=\"card\">{}{}</div>\n<div class=\"card\">{}{}</div>\n<nav><a href=\"/categories/1\">Category 1</a></nav>\n</main>\n",
+        image(3),
+        image(1),
+        title(1),
+        title(2),
+        image(2),
+    );
+    document("Cards", &body)
 }
 
 fn home(seed: u64) -> String {

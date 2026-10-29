@@ -29,8 +29,7 @@ mod websocket;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::jsonrpc::{
-    ErrorData, ErrorObject, ErrorResponse, META, Notification, ProtocolFailure, RequestId,
-    Response, TraceContext, Version,
+    ErrorResponse, META, Notification, ProtocolFailure, RequestId, Response, TraceContext, Version,
 };
 use goodfetch_protocol::log::{CONNECTION_SET_LOG_LEVEL, LogLevelSet, SetLogLevelParams};
 use serde_json::Value;
@@ -127,19 +126,10 @@ fn success_line(id: RequestId, result: Value) -> Vec<u8> {
 
 /// The line of a failure, the one conversion of an error for the wire.
 fn failure_line(id: Option<RequestId>, error: &CallError) -> Vec<u8> {
-    let (code, retryable, details) = error.wire_parts();
     line(&ErrorResponse {
         jsonrpc: Version,
         id,
-        error: ErrorObject {
-            code,
-            message: error.message().to_owned(),
-            data: ErrorData {
-                code: error.code().to_owned(),
-                retryable,
-                details,
-            },
-        },
+        error: error.to_error_object(),
     })
 }
 

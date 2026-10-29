@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
+use goodfetch_engine::Identity;
 use goodfetch_engine::browser_cache::{
     BROWSERS_PATH_VARIABLE, BrowserCache, CacheError, CacheLocation, CleanUp, MaxUnusedAge, Pins,
     Platform, kept_artifacts,
@@ -24,6 +25,7 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::installed::{InstalledList, Seen, kept_inputs};
 use goodfetch_engine::pinned_download::Fetching;
+use goodfetch_engine::run::settings_error;
 use goodfetch_engine::settings::{Layers, Resolved, SettingsError, SettingsFiles, resolve};
 use goodfetch_protocol::browser_cache::{
     ArtifactId, BrowserCleaned, BrowserInstalled, InstallOutcome, InstalledBuild, MAX_UNUSED_AGE,
@@ -34,7 +36,7 @@ use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::settings::NETWORK_RESOLVE;
 
-use goodfetch_cli::output;
+use goodfetch_cli::output::{self, Human};
 
 /// The variable that roots Goodfetch home (ADR 0059).
 const HOME_VARIABLE: &str = "GOODFETCH_HOME";
@@ -103,9 +105,16 @@ fn max_unused_age(settings: &Resolved) -> MaxUnusedAge {
     )
 }
 
-fn refused(error: &SettingsError) -> ExitCode {
-    tracing::error!(code = error.code(), "{error}");
-    ExitCode::FAILURE
+/// Prints the refusal of the machine's settings, `error`, on the
+/// executable that runs as `identity`, as every command's failure prints,
+/// and answers its exit code.
+fn refused(error: &SettingsError, identity: &Identity, json: bool, human: &Human) -> ExitCode {
+    output::fail(
+        settings_error(error, identity).to_error_object(),
+        None,
+        json,
+        human,
+    )
 }
 
 /// The time the command runs at.
@@ -129,30 +138,57 @@ fn runtime() -> tokio::runtime::Runtime {
         .expect("invariant: the OS gives the runtime its thread")
 }
 
-fn failed(error: &CacheError) -> ExitCode {
-    tracing::error!(code = error.code(), "{error}");
-    ExitCode::FAILURE
+/// Prints the Browser cache's failure `error` as every command's failure
+/// prints, and answers its exit code.
+fn failed(error: &CacheError, json: bool, human: &Human) -> ExitCode {
+    output::fail(error.to_call_error().to_error_object(), None, json, human)
 }
 
-fn no_home() -> ExitCode {
-    tracing::error!(
-        "no Goodfetch home: set {HOME_VARIABLE}, or {BROWSERS_PATH_VARIABLE} for the Browser cache alone"
-    );
-    ExitCode::FAILURE
+/// The Goodfetch home and the Browser cache the executable that runs as
+/// `identity` uses, or the failure it printed when the OS knows no home
+/// for it: `setting_invalid` for `GOODFETCH_HOME`.
+fn located(
+    identity: &Identity,
+    environment: &BTreeMap<OsString, OsString>,
+    json: bool,
+    human: &Human,
+) -> Result<(Home, CacheLocation), ExitCode> {
+    location(environment).ok_or_else(|| {
+        let error = SettingsError::Invalid {
+            key: HOME_VARIABLE.to_owned(),
+            layer: None,
+            reason: format!(
+                "the OS knows no data folder for Goodfetch home: set {HOME_VARIABLE}, or {BROWSERS_PATH_VARIABLE} for the Browser cache alone"
+            ),
+        };
+        refused(&error, identity, json, human)
+    })
+}
+
+/// What a Browser cache command's builds are pinned by: the executable
+/// that runs as `identity`.
+fn pinned_by(identity: &Identity) -> PinnedBy {
+    PinnedBy {
+        product: identity.product,
+        product_version: identity.product_version.clone(),
+    }
 }
 
 /// `browser install`.
 pub(super) fn install(
-    pinned_by: PinnedBy,
+    identity: &Identity,
     environment: &BTreeMap<OsString, OsString>,
     json: bool,
+    human: &Human,
 ) -> ExitCode {
-    let Some((home, location)) = location(environment) else {
-        return no_home();
+    let (home, location) = match located(identity, environment, json, human) {
+        Ok(located) => located,
+        Err(exit) => return exit,
     };
+    let pinned_by = pinned_by(identity);
     let settings = match machine_settings(&home, pinned_by.product, &pinned_by.product_version) {
         Ok(settings) => settings,
-        Err(error) => return refused(&error),
+        Err(error) => return refused(&error, identity, json, human),
     };
     let cache = BrowserCache::new(&location);
     let pins = Pins {
@@ -195,7 +231,7 @@ pub(super) fn install(
     });
     let outcomes = match installed {
         Ok(outcomes) => outcomes,
-        Err(error) => return failed(&error),
+        Err(error) => return failed(&error, json, human),
     };
     if json {
         output::json(&BrowserInstalled {
@@ -229,17 +265,19 @@ pub(super) fn install(
 
 /// `browser clean`.
 pub(super) fn clean(
-    pinned_by: PinnedBy,
+    identity: &Identity,
     environment: &BTreeMap<OsString, OsString>,
-    dry_run: bool,
-    json: bool,
+    (dry_run, json): (bool, bool),
+    human: &Human,
 ) -> ExitCode {
-    let Some((home, location)) = location(environment) else {
-        return no_home();
+    let (home, location) = match located(identity, environment, json, human) {
+        Ok(located) => located,
+        Err(exit) => return exit,
     };
+    let pinned_by = pinned_by(identity);
     let settings = match machine_settings(&home, pinned_by.product, &pinned_by.product_version) {
         Ok(settings) => settings,
-        Err(error) => return refused(&error),
+        Err(error) => return refused(&error, identity, json, human),
     };
     let cache = BrowserCache::new(&location);
     let pins = Pins {
@@ -257,7 +295,7 @@ pub(super) fn clean(
     };
     let report = match runtime().block_on(cache.clean_up(&request)) {
         Ok(report) => report,
-        Err(error) => return failed(&error),
+        Err(error) => return failed(&error, json, human),
     };
     let cleaned = BrowserCleaned {
         dry_run,

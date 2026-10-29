@@ -14,7 +14,7 @@ use encoding_rs::{EncoderResult, Encoding};
 use url::Url;
 
 /// The schemes a crawl fetches.
-const FETCHED: [&str; 2] = ["http", "https"];
+pub(crate) const FETCHED: [&str; 2] = ["http", "https"];
 
 /// Parses `input` as the WHATWG URL Standard does, against `base` when
 /// given: `invalid_url` when the parser refuses it, or when it is relative

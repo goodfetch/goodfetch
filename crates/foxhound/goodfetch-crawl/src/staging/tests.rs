@@ -19,7 +19,7 @@ use goodfetch_protocol::foxhound::outcomes::NotAddedAtCommit;
 use rusqlite::Connection;
 use serde_json::json;
 
-use super::{Answered, Staging};
+use super::{Answered, AttemptKey, Staging};
 use crate::work_items::{self, Adding, Positions};
 
 /// A run file in memory holding one seed, `https://shop.test/`, leased to
@@ -349,7 +349,8 @@ fn a_staged_enqueue_names_its_identity_without_scanning_the_visited_set() {
 
 /// n separate enqueues of one attempt run n admissions while they stage,
 /// one each, and n again at the commit, in order: an enqueue does not run
-/// the attempt's earlier ones again to answer.
+/// the attempt's earlier ones again to answer, and joins what it did to
+/// what they did where it lies, never copying theirs.
 ///
 /// Covers: story:6-236
 #[test]
@@ -379,16 +380,25 @@ fn separate_enqueues_of_one_attempt_run_one_admission_each() {
         "https://shop.test/10",
     ];
 
+    let mut places = std::collections::BTreeSet::new();
     for url in urls {
         answer(staging.admit(&connection, "1", 1, counted(url)));
+        let entries = staging.entries();
+        let entry = &entries[&AttemptKey::of("1", 1)];
+        places.insert(std::sync::Arc::as_ptr(&entry.staged) as usize);
     }
     let staged = admissions.swap(0, std::sync::atomic::Ordering::Relaxed);
     staging.take("1", 1).admit(&connection).unwrap();
     let committed = admissions.load(std::sync::atomic::Ordering::Relaxed);
 
     assert_eq!(
-        (staged, committed, work_items_of(&connection).len()),
-        (10, 10, 11)
+        (
+            staged,
+            committed,
+            work_items_of(&connection).len(),
+            places.len()
+        ),
+        (10, 10, 11, 1)
     );
 }
 

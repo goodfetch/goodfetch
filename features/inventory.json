@@ -2047,7 +2047,7 @@
     {
       "id": "error:staging_full",
       "kind": "error",
-      "area": null,
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [

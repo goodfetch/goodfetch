@@ -73,6 +73,11 @@ fn fixture() -> Fixture {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let home = Home::new(env.home().to_path_buf());
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test's Secrets draw their retry jitter from a seeded Entropy (ADR 0059)"
+    )]
+    let entropy = goodfetch_engine::entropy::Entropy::seeded(0);
     let audit = Arc::new(AuditLog::of(&home, None));
     let owner = Arc::new(TaskOwner::root(BlockingPolicy::Inline));
     let environment: BTreeMap<OsString, OsString> = [(
@@ -85,6 +90,7 @@ fn fixture() -> Fixture {
             environment,
             keychain: Keychain::absent(),
             home: home.clone(),
+            entropy,
         },
         Arc::clone(&audit),
         Arc::clone(&owner),

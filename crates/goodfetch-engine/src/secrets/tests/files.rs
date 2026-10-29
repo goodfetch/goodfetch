@@ -272,6 +272,40 @@ fn the_engines_own_key_is_made_once_in_the_encrypted_local_file_with_an_owner_on
     assert_eq!((decoded, first == second), (Ok(32), true));
 }
 
+/// A Run whose engine key was not configured at its first resolution, in a
+/// home with no encrypted local file yet, resolves it once the engine made
+/// it, as a Run's first seal does: the reuse within a Run keeps no failure.
+/// Covers: story:4-64, setting:run_state.key_reference
+#[test]
+fn a_key_missing_at_a_runs_first_resolution_resolves_in_that_run_once_made() {
+    let env = TestEnv::new();
+    let (secrets, run) = goodfetch_test_support::runtime().block_on(async {
+        let secrets = driver(&env, &[]);
+        let run = secrets.for_run(Duration::from_secs(30));
+        (secrets, run)
+    });
+
+    let first = resolved(&run, "secretfile:run-state-key");
+    goodfetch_test_support::runtime()
+        .block_on(secrets.make_key(&super::reference("secretfile:run-state-key")))
+        .unwrap();
+    let again = resolved(&run, "secretfile:run-state-key");
+
+    assert!(
+        matches!(
+            (&first, &again),
+            (
+                Err(SecretError::Unavailable {
+                    failure: SecretFailure::NotConfigured,
+                    ..
+                }),
+                Ok(_)
+            )
+        ),
+        "first {first:?}, again {again:?}"
+    );
+}
+
 /// The value `secretfile:run-state-key` resolves to in `env`'s home.
 fn resolved_key(env: &TestEnv) -> String {
     let secrets = goodfetch_test_support::runtime()

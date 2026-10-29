@@ -19,7 +19,7 @@ use std::ffi::OsString;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::secret_endpoint::{EndpointFailure, SecretProviderEndpoint};
 use goodfetch_engine::secrets::{
-    ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider,
+    ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider, retry_after,
 };
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::secret_reference::SecretReference;
@@ -156,7 +156,12 @@ impl SecretProvider for Vault {
             if status == 200 {
                 field_of(answer.body(), field)
             } else {
-                Err(translate(status, answer.body()))
+                Err(translate(status, answer.body()).retrying_after(retry_after(
+                    answer
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|value| value.to_str().ok()),
+                )))
             }
         })
     }
@@ -256,9 +261,11 @@ pub(crate) fn translate(status: u16, body: &[u8]) -> ProviderFailure {
             "The server refused the token: set `VAULT_TOKEN`, or `BAO_TOKEN`, in the engine's environment to a token that is valid and whose policy may read the secret's `data/` path.",
         ),
         Some(Meaning::Sealed) => refused("The server is sealed; unseal it, then try again."),
-        Some(Meaning::RateLimited) => refused(
-            "The server's rate limit quota refused the read; try again later, or raise the quota.",
-        ),
+        Some(Meaning::RateLimited) => ProviderFailure::Busy {
+            fix: "The server's rate limit quota refused the read; try again later, or raise the quota."
+                .to_owned(),
+            retry_after: None,
+        },
         None => {
             tracing::warn!(
                 provider = "vault",

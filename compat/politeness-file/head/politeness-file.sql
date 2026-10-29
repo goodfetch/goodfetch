@@ -16,8 +16,8 @@ CREATE TABLE domain_limits (
             last_start INTEGER,
             last_send INTEGER
         ) STRICT;
-INSERT INTO "domain_limits" VALUES('shop.test',1767603614773,9474,1,1767603600000,1767603620000,1767603620000);
-INSERT INTO "domain_limits" VALUES('hold.test',NULL,NULL,NULL,NULL,1767603605299,NULL);
+INSERT INTO "domain_limits" VALUES('shop.test',1767603620973,15588,1,1767603600000,1767603620000,1767603620000);
+INSERT INTO "domain_limits" VALUES('hold.test',NULL,NULL,NULL,NULL,1767603605385,NULL);
 CREATE TABLE domain_pacing (
             key TEXT NOT NULL PRIMARY KEY,
             latency INTEGER,
@@ -25,7 +25,7 @@ CREATE TABLE domain_pacing (
             interval INTEGER,
             theoretical_send INTEGER
         ) STRICT;
-INSERT INTO "domain_pacing" VALUES('shop.test',120,1767603607299,2000,1767603622000);
+INSERT INTO "domain_pacing" VALUES('shop.test',120,1767603607385,2000,1767603622000);
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('politeness-file','0.1');
 CREATE TABLE permits (
@@ -37,7 +37,7 @@ CREATE TABLE permits (
         engine TEXT NOT NULL,
         taken_at INTEGER NOT NULL
     ) STRICT;
-INSERT INTO "permits" VALUES(1,'hold.test','holding',1,'0.0/runs/holding','28bd8653e56a5d40',1767603605299);
+INSERT INTO "permits" VALUES(1,'hold.test','holding',1,'0.0/runs/holding','374ad8b83fe02477',1767603605385);
 CREATE TABLE proxy_limits (
             key TEXT NOT NULL PRIMARY KEY,
             ceiling INTEGER,

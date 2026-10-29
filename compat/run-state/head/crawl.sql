@@ -69,8 +69,8 @@ CREATE TABLE domains (
             ready_at INTEGER,
             backoffs INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "domains" VALUES('list.test',1767603651002,0);
-INSERT INTO "domains" VALUES('shop.test',1767603604536,0);
+INSERT INTO "domains" VALUES('list.test',1767603654489,0);
+INSERT INTO "domains" VALUES('shop.test',1767603604732,0);
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('run-state','0.1');
 CREATE TABLE key_values (key TEXT NOT NULL PRIMARY KEY, value TEXT, content BLOB, content_type TEXT, file INTEGER, CHECK ((value IS NULL) <> (content_type IS NULL)), CHECK (content_type IS NULL OR ((content IS NULL) <> (file IS NULL)))) STRICT;

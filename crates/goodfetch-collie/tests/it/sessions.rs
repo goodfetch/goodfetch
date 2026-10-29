@@ -19,7 +19,9 @@ use serde_json::{Value, json};
 
 use crate::attached::Attached;
 #[cfg(unix)]
-use crate::page::{opened, started};
+use crate::page::{opened, started, started_with};
+#[cfg(unix)]
+use crate::page_events::Exchange;
 use crate::run::call;
 
 /// The Proving ground's own seed for these tests.
@@ -270,6 +272,64 @@ fn a_closed_session_closes_its_pages_gives_their_admissions_back_and_closes_agai
             ],
             &json!("finished"),
         )
+    );
+}
+
+/// A page a Session asked for while the governor held it back, and the
+/// Session closed meanwhile, never seats the closed Session again: the call
+/// raises `closed`, and the
+/// browser keeps no context for it, so the Run's next Session takes the
+/// context it gave back in the same browser process (#697's criterion; the
+/// deep review's 577-2).
+///
+/// Covers: story:5-60, operation:session.close, operation:session.new_page, setting:governor.browser.contexts_per_process
+#[cfg(unix)]
+#[test]
+fn a_page_asked_for_across_its_sessions_close_gives_its_browser_context_back() {
+    let env = TestEnv::new();
+    // One browser page at a time, so the second Session's page waits for
+    // the first's to close.
+    env.user_configuration("[settings.governor.browser_page]\nfloor = 1\nceiling = 1\n");
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let settings = json!({ "governor": { "browser": { "contexts_per_process": 2 } } });
+    let engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "reseated",
+        settings.as_object().unwrap(),
+        |_| {},
+    );
+    let mut exchange = Exchange::new(engine);
+    let new_session = json!({ "run_id": "reseated" });
+    let first = exchange.call("run.new_session", &new_session)["result"]["session_id"].clone();
+    let second = exchange.call("run.new_session", &new_session)["result"]["session_id"].clone();
+    let first_page = opened(&exchange.call("session.new_page", &json!({ "session_id": first })));
+
+    let held = exchange.request("session.new_page", &json!({ "session_id": second }));
+    // A call answered after it shows the engine took the held one in.
+    let _ = exchange.call("session.pages", &json!({ "session_id": first }));
+    let closed = exchange.call("session.close", &json!({ "session_id": second }));
+    let _ = exchange.call("page.close", &json!({ "page_id": first_page.page_id }));
+    let held = exchange.answer(held);
+    let third = exchange.call("run.new_session", &new_session);
+    let browsers = crate::page::browser_command_lines(&env)
+        .iter()
+        .filter(|line| !line.contains("--type="))
+        .count();
+    let _ = exchange.call("run.finish", &json!({ "run_id": "reseated" }));
+    let _ = exchange.engine.finish();
+
+    assert_eq!(
+        (
+            &closed["result"],
+            &held["error"]["data"]["code"],
+            third["result"]["session_id"].is_string(),
+            browsers,
+        ),
+        (&json!({}), &json!("closed"), true, 1),
+        "{held} {third}"
     );
 }
 

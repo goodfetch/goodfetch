@@ -19,7 +19,7 @@ use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::route::{
     AbortReason, ROUTE_ALREADY_HANDLED, RouteAlreadyHandledDetails, RouteFetched, RouteId,
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use super::lock;
 pub(crate) use super::steps::Overrides;
@@ -60,10 +60,13 @@ pub(crate) enum Reply {
 /// An answer on its way to its request, with where its reply goes.
 pub(super) type Delivered = (Answer, oneshot::Sender<Result<Reply, CallError>>);
 
-/// Every open slot, by its number. Clones share them.
+/// Every open slot, by its number. Clones share them; a clone made for a
+/// page also counts how many of its requests have a slot open, which is
+/// while a route handler holds them.
 #[derive(Clone, Default)]
 pub(super) struct Answers {
     shared: Arc<Shared>,
+    waiting: Option<Arc<watch::Sender<usize>>>,
 }
 
 #[derive(Default)]
@@ -79,20 +82,34 @@ pub(super) struct Slot {
     number: u64,
     answers: mpsc::Receiver<Delivered>,
     shared: Arc<Shared>,
+    waiting: Option<Arc<watch::Sender<usize>>>,
 }
 
 impl Answers {
+    /// The same slots, counting the requests that have one open in
+    /// `waiting`.
+    pub(super) fn counting(&self, waiting: Arc<watch::Sender<usize>>) -> Self {
+        Self {
+            shared: Arc::clone(&self.shared),
+            waiting: Some(waiting),
+        }
+    }
+
     /// Opens the slot of a new request, and names it.
     pub(super) fn open(&self) -> (RouteId, Slot) {
         let number = self.shared.given.fetch_add(1, Ordering::Relaxed) + 1;
         let (sender, answers) = mpsc::channel(1);
         lock(&self.shared.slots).insert(number, sender);
+        if let Some(waiting) = &self.waiting {
+            waiting.send_modify(|waiting| *waiting += 1);
+        }
         (
             RouteId(format!("route-{number}")),
             Slot {
                 number,
                 answers,
                 shared: Arc::clone(&self.shared),
+                waiting: self.waiting.clone(),
             },
         )
     }
@@ -149,6 +166,9 @@ impl Slot {
 impl Drop for Slot {
     fn drop(&mut self) {
         lock(&self.shared.slots).remove(&self.number);
+        if let Some(waiting) = &self.waiting {
+            waiting.send_modify(|waiting| *waiting = waiting.saturating_sub(1));
+        }
     }
 }
 

@@ -8,7 +8,8 @@
 //! temporary folder (ADR 0071's run-state writes), and judging a fixed batch
 //! of URLs under a domain policy of a thousand entries (spec #564's egress
 //! decision), and masking a 1 MiB stream of event and log lines against
-//! fifty resolved values (spec #564's `Mask`). Inputs are literals; no network, no sleep, no work whose
+//! fifty resolved values, and joining one value a thousand times (spec
+//! #564's `Mask`). Inputs are literals; no network, no sleep, no work whose
 //! amount depends on timing.
 
 use std::io::Write as _;
@@ -377,4 +378,17 @@ pub(crate) fn mask_stream(masks: &Masks, stream: &[u8]) -> usize {
         .finish()
         .expect("invariant: a Vec takes every write")
         .len()
+}
+
+/// Joins one resolved value of one Run `joins` times, as each Session's
+/// open resolves the same proxy password (spec #564's `Mask`: a value
+/// already in it does not join again), and returns how many joins added
+/// it.
+pub(crate) fn mask_joins_of_one_value(joins: usize) -> usize {
+    let masks = Masks::new();
+    let mask = masks.for_run(Redaction::On);
+    let value = SecretString::from("a proxy password, 25 long");
+    (0..joins)
+        .filter(|_| mask.join("proxy.password", &value, Reach::Value))
+        .count()
 }

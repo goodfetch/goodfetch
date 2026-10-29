@@ -172,6 +172,35 @@ fn a_second_pin_of_a_host_keeps_the_first() {
     );
 }
 
+/// A lookup only reads: it answers while another engine's connection holds
+/// the store's write lock, as a pin or a backup tool would, and never waits
+/// for that writer.
+/// Covers: story:4-35
+#[rstest]
+#[case::find("find")]
+#[case::list("list")]
+#[case::waiting("waiting")]
+fn a_lookup_answers_while_another_connection_holds_the_stores_write_lock(#[case] lookup: &str) {
+    let env = TestEnv::new();
+    let store = store(&env);
+    store
+        .pin("os_user", "intranet.example", &key(1), None, now())
+        .unwrap();
+    store
+        .record_change("os_user", "intranet.example", &key(2), None, later())
+        .unwrap();
+    let writer = Connection::open(store.path()).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+
+    let answered = match lookup {
+        "find" => store.find("os_user", "intranet.example").map(|_| ()),
+        "list" => store.list("os_user").map(|_| ()),
+        _ => store.waiting("os_user").map(|_| ()),
+    };
+
+    assert_eq!(answered, Ok(()));
+}
+
 /// A moment an hour after [`now`], when a change is seen or accepted.
 fn later() -> Timestamp {
     "2026-01-05T10:00:00Z".parse().unwrap()

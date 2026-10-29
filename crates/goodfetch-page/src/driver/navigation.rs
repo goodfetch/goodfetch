@@ -27,10 +27,23 @@ use std::collections::{BTreeMap, BTreeSet};
 use goodfetch_cdp::generated::network::{self, LoaderId, RequestId, ResourceType};
 use goodfetch_cdp::generated::page::{self, FrameId, FrameStartedNavigatingNavigationType};
 use goodfetch_cdp::{NetError, RawEvent};
+use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_protocol::page::{PageResponse, WaitUntil};
 
 /// The event of a target whose renderer crashed.
 pub(super) const CRASHED: &str = "Inspector.targetCrashed";
+
+/// Whether `url` is a `javascript:` URL, which runs in a frame's document:
+/// the engine's egress check classifies it (ADR 0067), as the URL Standard
+/// and Chromium read it, so every spelling that check let run answers as
+/// a script, not as a navigation the browser aborted.
+pub(super) fn runs_a_script(url: &str) -> bool {
+    // Who asked decides only where a `file:` URL may go, never a script.
+    matches!(
+        egress::navigation(url, Navigator::default()),
+        Ok(egress::Destination::JavaScript)
+    )
+}
 
 /// Which navigation is the call's.
 #[derive(Clone, Debug, PartialEq, Eq)]

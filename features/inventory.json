@@ -7615,6 +7615,17 @@
       ]
     },
     {
+      "id": "setting:secrets.resolve_each_use",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:security.audit_chain",
       "kind": "setting",
       "area": 4,

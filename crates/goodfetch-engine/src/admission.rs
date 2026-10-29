@@ -14,7 +14,10 @@
 //! user, and gives it back once it ended: a key the Politeness refuses is
 //! held, until the moment it names or until a wake says a Permit came back
 //! (ADR 0053), and a key whose take the Politeness file could not answer is
-//! held for that, until the Run tries it again.
+//! held for that, until the Run tries it again. A key its Run refuses
+//! until a moment, its site having asked for a time further away than the
+//! Run waits (ADR 0118), comes with each of its requests refused until
+//! then, unsent, whatever the Politeness says meanwhile.
 //!
 //! What a gate's waiting requests need to survive a resume, it writes into
 //! the run file as a [`Journal`], and it opens again from it. Every rule
@@ -243,6 +246,10 @@ pub struct Admission {
     /// Shared with its second copies, which each take a share of it too.
     rate: SharedRate,
     shared: Option<Shared>,
+    /// The keys whose site asked for a time further away than the Run
+    /// waits, judged when it asked: until when their requests are refused,
+    /// and that time ([`Admission::refuse`]).
+    refused: BTreeMap<String, (Instant, SystemTime)>,
 }
 
 /// A Run's rate cap, which its admission and its second copies share.
@@ -310,6 +317,7 @@ impl Admission {
             gate,
             rate: Arc::new(Mutex::new(rate_cap_of(settings).map(RateCap::per_minute))),
             shared: None,
+            refused: BTreeMap::new(),
         }
     }
 
@@ -447,6 +455,13 @@ impl Admission {
             if self.ready_at(now)? > now {
                 return None;
             }
+            if let Some(key) = self.gate.next_key(now)
+                && let Some(asked) = self.refused_at(&key, now)
+            {
+                let mut admitted = self.gate.admit(now)?;
+                admitted.refused_until = Some(asked);
+                return Some(admitted);
+            }
             let Some(shared) = &mut self.shared else {
                 return self.admit_from_gate(now);
             };
@@ -497,21 +512,48 @@ impl Admission {
         Some(admitted)
     }
 
+    /// Refuses the requests of `key` it admits before `until`: each comes
+    /// with `asked`, the time its site asked for, as
+    /// [`Admitted::refused_until`], unsent, however late it is admitted.
+    /// Its Run judged that time further away than it waits at the moment
+    /// the site asked (ADR 0118), so the time its Run took to learn of it
+    /// never turns the refusal into a wait. Its gate holds the key for no
+    /// ending meanwhile, so its waiting requests end at once.
+    pub fn refuse(&mut self, key: &str, until: Instant, asked: SystemTime) {
+        self.refused.insert(key.to_owned(), (until, asked));
+    }
+
+    /// The time `key`'s site asked for, while [`Admission::refuse`] refuses
+    /// its requests at `now`.
+    fn refused_at(&mut self, key: &str, now: Instant) -> Option<SystemTime> {
+        match self.refused.get(key) {
+            Some((until, asked)) if *until > now => Some(*asked),
+            Some(_) => {
+                self.refused.remove(key);
+                None
+            }
+            None => None,
+        }
+    }
+
     /// A request it admitted, `id` of `key`, ended at `now`, as `ended`
     /// says: its Permit goes back to the Politeness it shares, whose rule
     /// says when its key may go again, for this Run and every other
-    /// sharing it.
+    /// sharing it. A key it refuses ([`Admission::refuse`]) is not held
+    /// for it.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave its Permit held until its Run ends.
     pub async fn ended(&mut self, id: &str, key: &str, now: Instant, ended: Ended) {
+        let refused = self.refused_at(key, now).is_some();
         let permit = self
             .shared
             .as_mut()
             .and_then(|shared| shared.permits.remove(id));
         let Some(permit) = permit else {
-            self.gate.ended(key, now, ended);
+            self.gate
+                .ended(key, now, if refused { Ended::Done } else { ended });
             return;
         };
         let wall = self.wall();
@@ -527,7 +569,7 @@ impl Admission {
         };
         let ready_at = self.give_back(permit, ending).await;
         let local = match ready_at.map(|ready_at| ready_at.duration_since(wall)) {
-            Some(Ok(wait)) if !wait.is_zero() => Ended::Until(now + wait),
+            Some(Ok(wait)) if !wait.is_zero() && !refused => Ended::Until(now + wait),
             _ => Ended::Done,
         };
         self.gate.ended(key, now, local);

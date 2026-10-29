@@ -412,3 +412,153 @@ fn a_key_the_politeness_file_refuses_is_held_for_the_refusal() {
         (None, vec![(Duration::from_secs(30), Held::PolitenessFile)])
     );
 }
+
+/// What a key admits in the refusal test: any request, its ending holding
+/// the key for half a second, a wait within any Run's bound.
+struct HalfASecond;
+
+impl PermitRule for HalfASecond {
+    fn admit(&self, _: &Connection, _: &str, _: u64, _: SystemTime) -> rusqlite::Result<Verdict> {
+        Ok(Verdict::Go)
+    }
+
+    fn started(&self, _: &Connection, _: &str, _: SystemTime) -> rusqlite::Result<()> {
+        Ok(())
+    }
+
+    fn ended(
+        &self,
+        _: &Connection,
+        _: &str,
+        _: u64,
+        _: Ending,
+        now: SystemTime,
+    ) -> rusqlite::Result<Option<SystemTime>> {
+        Ok(Some(now + Duration::from_millis(500)))
+    }
+}
+
+/// A gate of one key, `shop.test`, whose requests wait in order and are
+/// always ready, which keeps each hold an ending gives it.
+struct InOrder {
+    waiting: std::collections::VecDeque<&'static str>,
+    holds: Arc<Mutex<Vec<(Instant, Held)>>>,
+}
+
+impl Gate for InOrder {
+    fn key(&self, _: &str) -> String {
+        "shop.test".to_owned()
+    }
+
+    fn bound(&self) -> usize {
+        3
+    }
+
+    fn enqueue(&mut self, _: Waiting) -> bool {
+        false
+    }
+
+    fn ready_at(&self, now: Instant) -> Option<Instant> {
+        self.waiting.front().map(|_| now)
+    }
+
+    fn admit(&mut self, _: Instant) -> Option<Admitted> {
+        let id = self.waiting.pop_front()?;
+        Some(Admitted {
+            id: id.to_owned(),
+            key: "shop.test".to_owned(),
+            drained: self.waiting.is_empty(),
+            refused_until: None,
+        })
+    }
+
+    fn next_key(&self, _: Instant) -> Option<String> {
+        self.waiting.front().map(|_| "shop.test".to_owned())
+    }
+
+    fn hold(&mut self, _: &str, until: Instant, held: Held) {
+        self.holds.lock().unwrap().push((until, held));
+    }
+
+    fn wake(&mut self, _: &str) {}
+
+    fn rule(&self, _: &Resolved) -> Option<Arc<dyn PermitRule>> {
+        Some(Arc::new(HalfASecond))
+    }
+
+    fn ended(&mut self, key: &str, _: Instant, ended: Ended) {
+        if let Ended::Until(until) = ended {
+            self.hold(key, until, Held::BackOff);
+        }
+    }
+
+    fn journal(&mut self, _: SystemTime, _: Instant) -> Option<Journal> {
+        None
+    }
+}
+
+/// A key its Run refuses until a moment, its site having asked, when it
+/// asked, for a time further away than the Run waits, ends each request it
+/// admits before then unsent however late, naming the time the site asked,
+/// though the Politeness it shares would by then only hold the key; its
+/// ending holds the key for nothing, and once the moment passed its
+/// requests go (ADR 0118).
+///
+/// Covers: story:3-160, setting:politeness.retry_after.max
+#[test]
+fn a_key_its_run_refuses_ends_its_requests_unsent_until_the_moment_however_late() {
+    let start = SystemTime::UNIX_EPOCH + Duration::from_hours(500_000);
+    let asked = start + Duration::from_secs(2);
+    let (admitted, holds) = on_the_runtime(async |owner| {
+        let holds = Arc::new(Mutex::new(Vec::new()));
+        let gate = InOrder {
+            waiting: ["1", "2", "3"].into(),
+            holds: Arc::clone(&holds),
+        };
+        let settings = resolve(&Layers::default(), Product::Foxhound, Product::Foxhound).unwrap();
+        let politeness = Politeness::in_memory(Vec::new(), owner).await.unwrap();
+        let holder = Holder {
+            run_id: "crawl".to_owned(),
+            epoch: 1,
+            run_folder: "crawl".into(),
+        };
+        let clock = Clock::paused(start);
+        let mut admission =
+            Admission::new(Box::new(gate), &settings).sharing(politeness, holder, clock, &settings);
+        let now = Instant::now();
+        let first = admission.admit(now).await.unwrap();
+        let mut admitted = vec![(first.id.clone(), first.refused_until)];
+        admission.refuse("shop.test", now + Duration::from_secs(2), asked);
+        admission
+            .ended(
+                &first.id,
+                "shop.test",
+                now,
+                Ended::BackOff(Some(now + Duration::from_secs(2))),
+            )
+            .await;
+        for at in [Duration::from_millis(1_999), Duration::from_secs(2)] {
+            let next = admission.admit(now + at).await.unwrap();
+            admitted.push((next.id, next.refused_until));
+        }
+        let holds: Vec<Held> = holds
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, held)| *held)
+            .collect();
+        (admitted, holds)
+    });
+
+    assert_eq!(
+        (admitted, holds),
+        (
+            vec![
+                ("1".to_owned(), None),
+                ("2".to_owned(), Some(asked)),
+                ("3".to_owned(), None),
+            ],
+            Vec::new()
+        )
+    );
+}

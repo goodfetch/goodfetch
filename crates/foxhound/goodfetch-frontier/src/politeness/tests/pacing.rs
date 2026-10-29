@@ -264,6 +264,35 @@ fn a_send_waits_for_the_delay_after_the_sends_before_it(
     assert_eq!(answered, expected);
 }
 
+/// A send inside the millisecond before its delay or its rate's interval
+/// after the last send is over waits: the Politeness file keeps the last
+/// send at the next whole millisecond, so a send checked at its own next
+/// whole millisecond would go up to 1 ms before the delay, as #1735's
+/// crawl did. The first send goes 0.4 ms into 10 s, the second half a
+/// millisecond before the delay after that stored millisecond, still
+/// within the delay of the first; it waits until the delay after it.
+///
+/// Covers: story:6-247, setting:politeness.domain.delay
+#[rstest]
+#[case::the_delay(delayed(100), 100)]
+/// Covers: story:6-248, setting:politeness.domain.rate
+#[case::the_rate(rated(60, 1), 1_000)]
+fn a_send_inside_the_last_millisecond_of_the_wait_still_waits(
+    #[case] run: Value,
+    #[case] spacing: u64,
+) {
+    let file = file();
+    let pace = rule(run).pace;
+    let first = at(10) + Duration::from_micros(400);
+    let stored = at(10) + milliseconds(1);
+    let second = stored + milliseconds(spacing) - Duration::from_micros(500);
+
+    assert_eq!(send_taken(&file, KEY, first, Some(pace)).unwrap(), None);
+    let answered = send_taken(&file, KEY, second, Some(pace)).unwrap();
+
+    assert_eq!(answered, Some(stored + milliseconds(spacing)));
+}
+
 fn delayed(delay: u64) -> Value {
     json!({ "politeness": { "domain": { "delay": delay } } })
 }
@@ -282,6 +311,36 @@ fn mean(latencies: &[u64]) -> f64 {
 }
 
 proptest! {
+    /// Two crawl sends of a key start at least its delay apart by the wall
+    /// clock wherever in their milliseconds they fall: the second, from
+    /// 2 ms before the delay after the first to 1 ms past it, goes only once
+    /// that delay is over, else it waits until a moment that is, and a send
+    /// then goes.
+    ///
+    /// Covers: story:6-247, setting:politeness.domain.delay
+    #[test]
+    fn a_send_never_starts_sooner_than_the_delay_after_the_last_at_any_microsecond(
+        delay in 2_u64..2_000,
+        first in 0_u64..1_000,
+        around in 0_u64..3_000,
+    ) {
+        let file = file();
+        let pace = rule(delayed(delay)).pace;
+        let first = at(10) + Duration::from_micros(first);
+        let second = first + Duration::from_micros(delay * 1_000 + around - 2_000);
+        let spacing = milliseconds(delay);
+
+        prop_assert_eq!(send_taken(&file, KEY, first, Some(pace)).unwrap(), None);
+        match send_taken(&file, KEY, second, Some(pace)).unwrap() {
+            None => prop_assert!(second.duration_since(first).unwrap() >= spacing),
+            Some(until) => {
+                prop_assert!(until > second);
+                prop_assert!(until.duration_since(first).unwrap() >= spacing);
+                prop_assert_eq!(send_taken(&file, KEY, until, Some(pace)).unwrap(), None);
+            }
+        }
+    }
+
     /// The adaptive delay, a pure function of the wall reading, holds the
     /// key until the longer of the delay and the latency's weighted mean
     /// capped at the backoff's max, within 2 ms of the model (each step

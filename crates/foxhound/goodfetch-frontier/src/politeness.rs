@@ -598,19 +598,23 @@ pub async fn started_at_send(
 /// Takes in `connection` the start of a request of `key` sent at `now`, a
 /// crawl request's own by a run of `pace`; when the key's last send or
 /// sends leave that run's delay or rate unmet, it takes nothing and
-/// answers when to ask again.
+/// answers when to ask again. The send is checked at the whole millisecond
+/// it falls in and recorded at the next one: the last send is kept rounded
+/// up, so a check rounded up as well would let a send go up to 1 ms before
+/// the delay or the interval after it.
 pub(crate) fn send_taken(
     connection: &Connection,
     key: &str,
     now: SystemTime,
     pace: Option<Pace>,
 ) -> rusqlite::Result<Option<SystemTime>> {
+    let checked = milliseconds(now);
     let now = milliseconds_from(now);
     let mut limits = Limits::read(connection, key)?;
     if let Some(pace) = pace {
         let mut pacing = Pacing::read(connection, key)?;
         let crawl_delays = crawl_delays(connection, key)?;
-        if let Some(until) = pace.send_waits_until(&limits, &pacing, &crawl_delays, now) {
+        if let Some(until) = pace.send_waits_until(&limits, &pacing, &crawl_delays, checked) {
             return Ok(Some(moment(until)));
         }
         if let Some(rate) = pace.rate {

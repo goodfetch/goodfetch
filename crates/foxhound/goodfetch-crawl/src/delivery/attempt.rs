@@ -63,7 +63,7 @@
 //! handler the same request, response and Provenance.
 
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::CallContext;
 use goodfetch_engine::CallError;
@@ -408,6 +408,11 @@ pub(super) struct Attempt {
     /// fetched it, on any tier: its domain's Politeness reads it whatever
     /// the handler made of the page (the `backoff_classes` rule).
     pub(super) document: Option<PageResponse>,
+    /// When its handler request last went out: the moment a handler's
+    /// failure measures the time its site asked for against, so the time
+    /// the handler and the engine took to report it never counts against
+    /// the site's wait (ADR 0118). `None` when no handler request went.
+    pub(super) handed_at: Option<SystemTime>,
     /// Whether a Challenge met on a tier short of the browser moved it to
     /// the browser, which its domain then learns (`escalation`).
     pub(super) moved: bool,
@@ -432,9 +437,11 @@ pub(super) async fn attempt(
     in_flight: SharedInFlight,
 ) -> Attempt {
     let document = Mutex::new(None);
+    let handed = Mutex::new(None);
     let moved = OnceLock::new();
     let on = On {
         document: &document,
+        handed: &handed,
         moved: &moved,
         run: &run,
         context: &context,
@@ -462,8 +469,14 @@ pub(super) async fn attempt(
             let params = on.params(None, None, None);
             let hand_over = gating.hand_over(&run, &leased, &lease, &in_flight).await;
             let handed_over = gating.tiers.hand_over(hand_over);
-            let answer =
-                handled(&run, &context, gating.code_free.as_deref(), &params, &lease).await;
+            let answer = handled(
+                &run,
+                &context,
+                gating.code_free.as_deref(),
+                (&params, &handed),
+                &lease,
+            )
+            .await;
             drop(handed_over);
             answer
         }
@@ -508,6 +521,7 @@ pub(super) async fn attempt(
     };
     Attempt {
         document: document.into_inner(),
+        handed_at: handed.into_inner(),
         moved: moved.into_inner().is_some(),
         server,
         leased,
@@ -594,6 +608,8 @@ struct On<'a> {
     /// that fetched it met it, which its domain's Politeness reads (the
     /// `backoff_classes` rule).
     document: &'a Mutex<Option<PageResponse>>,
+    /// When its handler request last went out ([`Attempt::handed_at`]).
+    handed: &'a Mutex<Option<SystemTime>>,
     /// Whether a Challenge met on a tier short of the browser moved the
     /// request to the browser, set once it did.
     moved: &'a OnceLock<()>,
@@ -944,7 +960,7 @@ impl On<'_> {
             run,
             self.context,
             self.gating.code_free.as_deref(),
-            &params,
+            (&params, self.handed),
             lease,
         )
         .await;
@@ -1131,7 +1147,7 @@ impl On<'_> {
             self.run,
             self.context,
             self.gating.code_free.as_deref(),
-            &params,
+            (&params, self.handed),
             self.lease,
         )
         .await
@@ -1242,7 +1258,7 @@ impl On<'_> {
             run,
             self.context,
             self.gating.code_free.as_deref(),
-            &params,
+            (&params, self.handed),
             lease,
         )
         .await;
@@ -1459,14 +1475,16 @@ async fn record_tier(
 
 /// The handler request of one attempt, bounded by its lease: sent to the
 /// program's handler through `context`'s Client, or, for a code-free crawl,
-/// handled by the engine itself with `code_free` (ADR 0103).
+/// handled by the engine itself with `code_free` (ADR 0103). The moment it
+/// goes out is kept in `handed`.
 async fn handled(
     run: &Run,
     context: &CallContext,
     code_free: Option<&CodeFree>,
-    params: &CrawlRequestHandleParams,
+    (params, handed): (&CrawlRequestHandleParams, &Mutex<Option<SystemTime>>),
     lease: &WorkItemLease,
 ) -> Answer {
+    *handed.lock().await = Some(run.clock().wall());
     if let Some(code_free) = code_free {
         return tokio::select! {
             biased;

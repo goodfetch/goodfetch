@@ -76,6 +76,9 @@ pub(crate) enum Reply {
     Blocked(&'static str),
     /// Never answers.
     Silent,
+    /// Answers as the inner reply says once this much of the paused clock
+    /// passed, as a handler that took that long.
+    After(Duration, Box<Reply>),
     /// Sends these calls to the engine from inside the attempt, each
     /// method with its params, waiting for each reply, which
     /// [`Client::replies`] keeps, then answers as the inner reply says.
@@ -183,6 +186,10 @@ impl Client {
                     }
                     reply = *then;
                 }
+                while let Reply::After(took, then) = reply {
+                    tokio::time::sleep(took).await;
+                    reply = *then;
+                }
                 match reply {
                     Reply::Records(records) => {
                         let records: Vec<Value> = records
@@ -227,7 +234,9 @@ impl Client {
                         .await;
                     }
                     Reply::Silent => self.silent.push(message["id"].clone()),
-                    Reply::Calls(..) => unreachable!("invariant: the calls were sent above"),
+                    Reply::Calls(..) | Reply::After(..) => {
+                        unreachable!("invariant: the calls were sent and the waits waited above")
+                    }
                 }
             } else if message["id"] == json!(id) {
                 return message;

@@ -2216,7 +2216,7 @@ fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTim
         &BlockedDetails {
             cause: block.cause,
             url: response.url.clone(),
-            status: response.status,
+            status: Some(response.status),
             retry_after,
         },
     )

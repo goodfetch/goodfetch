@@ -405,9 +405,11 @@ pub struct BlockedDetails {
     /// The URL of the document that met it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: String,
-    /// Its HTTP status.
+    /// Its HTTP status; `null` for a document never fetched, as a crawl
+    /// request's page reached through a suspected trap link, a decoy a
+    /// browser tier never opens (ADR 0035).
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub status: u16,
+    pub status: Option<u16>,
     /// The time the site's `Retry-After` asks for, in RFC 3339, read in
     /// either of its forms; `null` when it asks for none. The engine never
     /// waits on it for a program's own navigation.

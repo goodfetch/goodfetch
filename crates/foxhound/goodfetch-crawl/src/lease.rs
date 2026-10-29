@@ -172,6 +172,18 @@ struct Held {
     expired: bool,
 }
 
+/// What an attempt's commit committed, for its caller to finish.
+#[derive(Debug, Default)]
+pub(crate) struct Committed {
+    /// The kept files of the Run's folder the staged Key-value store
+    /// writes took out, which the caller forgets.
+    pub(crate) files: Vec<String>,
+    /// The requests the attempt added through a link suspected a trap and
+    /// kept marked, each with its URL, whose `trap_link_suspected`
+    /// Provenance entries the caller writes (ADR 0035).
+    pub(crate) suspected: Vec<(String, String)>,
+}
+
 /// Why an attempt's commit did not count.
 #[derive(Debug)]
 pub(crate) enum CommitError {
@@ -347,8 +359,10 @@ impl WorkItemLease {
     /// outcome ended at `ended_at`, when it still holds, the run file
     /// holds it too and each of `records` holds for the Dataset it names,
     /// each Record naming its Provenance and keeping every value `masks`
-    /// holds as its `%name%`; answers the kept files of the Run's folder the staged Key-value
-    /// store writes took out, which the caller forgets.
+    /// holds as its `%name%`; answers what it committed: the kept files of the Run's folder the staged Key-value
+    /// store writes took out, which the caller forgets, and the requests
+    /// it added through a link suspected a trap and kept marked, whose
+    /// Provenance the caller writes (ADR 0035).
     ///
     /// # Errors
     ///
@@ -366,7 +380,7 @@ impl WorkItemLease {
         masks: &Masks,
         records: Vec<PushedRecord>,
         ended_at: PointInTime,
-    ) -> Result<Vec<String>, CommitError> {
+    ) -> Result<Committed, CommitError> {
         let lease = self.0.state.borrow().lease;
         if self.check().is_err() {
             self.trace("refuse_commit", &lease, Some("lease_lost"));
@@ -392,6 +406,7 @@ impl WorkItemLease {
                     Err(refused) => return Ok(Some(Err(refused))),
                 };
                 let writes = staged.admit(connection)?;
+                let suspected = staged.suspected(connection)?;
                 let files = goodfetch_engine::key_value_store::apply(connection, &folder, writes)?;
                 let fetched = staged.fetched().clone();
                 let fields = staged.fields().clone();
@@ -406,14 +421,14 @@ impl WorkItemLease {
                 };
                 Ok(
                     work_items::commit(connection, &work_item, epoch, committed)?
-                        .then_some(Ok(files)),
+                        .then_some(Ok(Committed { files, suspected })),
                 )
             })
             .await
         {
-            Ok(Some(Ok(files))) => {
+            Ok(Some(Ok(committed))) => {
                 self.trace("commit", &lease, None);
-                Ok(files)
+                Ok(committed)
             }
             Ok(Some(Err(refused))) => Err(CommitError::Refused(refused)),
             Ok(None) => {

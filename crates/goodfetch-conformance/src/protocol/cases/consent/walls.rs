@@ -98,7 +98,7 @@ fn walled(answer: &Value, path: &str) -> bool {
     blocked(answer).is_some_and(|details| {
         details.cause.as_str() == "consent_required"
             && details.url.ends_with(path)
-            && details.status == 200
+            && details.status == Some(200)
     })
 }
 

@@ -10,9 +10,15 @@
 //! a hidden ad is no trap; any other invisible link, `nofollow` or not, is
 //! a trap, answered "not added" with `trap_link`.
 
+use encoding_rs::Encoding;
 use goodfetch_engine::run_state::RunStateTables;
+use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::Value;
+use url::Url;
+
+use crate::identity::{Declared, Key, Seen as Visited, identities, seen};
+use crate::url::parse_link;
 
 /// The page function that reads what a person sees of each element a
 /// selector matches, called with `{ selector, cosmetic }`, `cosmetic` the
@@ -152,6 +158,55 @@ pub fn suspect(connection: &Connection, id: &str) -> rusqlite::Result<()> {
     connection.execute(
         "INSERT OR IGNORE INTO trap_link_suspected (work_item) VALUES (?1)",
         [id],
+    )?;
+    Ok(())
+}
+
+/// Clears the mark of the work item that the link `href`, resolved
+/// against `base` with its query in `encoding`, reaches again, once the
+/// Frontier answered it `duplicate`, when the link is one a person sees or
+/// whose markup hides nothing: the request the visited set names for it,
+/// or the one a learned rule merged it into, is then reached through a
+/// link that is not suspected, so it is no suspected trap (ADR 0035's
+/// #1153 note, as finding 600-1 scopes it). Run inside the admission that
+/// answered the link, so the clear commits or is discarded with it. A link
+/// to a URL the Frontier never admitted clears nothing.
+///
+/// # Errors
+///
+/// The run state's.
+pub fn seen_again(
+    connection: &Connection,
+    href: &str,
+    base: &Url,
+    encoding: &'static Encoding,
+    keeps_fragment: bool,
+) -> rusqlite::Result<()> {
+    let any_marked = connection
+        .query_row("SELECT 1 FROM trap_link_suspected LIMIT 1", [], |_| Ok(()))
+        .optional()?
+        .is_some();
+    if !any_marked {
+        return Ok(());
+    }
+    let Ok(url) = parse_link(href, base, encoding) else {
+        return Ok(());
+    };
+    let method = HttpMethod::get();
+    let declared = Declared {
+        method: &method,
+        body: None,
+        key: None,
+        keeps_fragment,
+    };
+    let identities = identities(connection, &Key::of(&url, keeps_fragment), declared)?;
+    let reached = match seen(connection, &identities)? {
+        Visited::New => return Ok(()),
+        Visited::Visited(crawl_request) | Visited::Merged { crawl_request, .. } => crawl_request,
+    };
+    connection.execute(
+        "DELETE FROM trap_link_suspected WHERE work_item = ?1",
+        [reached],
     )?;
     Ok(())
 }

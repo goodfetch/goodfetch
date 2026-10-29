@@ -132,7 +132,9 @@ fn blocked(answer: &Value) -> Option<BlockedDetails> {
 /// ending with `path`, answered with `status`.
 fn raised(answer: &Value, cause: &str, path: &str, status: u16) -> bool {
     blocked(answer).is_some_and(|details| {
-        details.cause.as_str() == cause && details.url.ends_with(path) && details.status == status
+        details.cause.as_str() == cause
+            && details.url.ends_with(path)
+            && details.status == Some(status)
     })
 }
 

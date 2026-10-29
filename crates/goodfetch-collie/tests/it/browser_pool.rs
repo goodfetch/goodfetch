@@ -19,7 +19,7 @@
 use std::time::{Duration, Instant};
 
 use goodfetch_protocol::page::{PageOpened, SessionId};
-use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
+use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, robots_txt_readings};
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
@@ -469,6 +469,47 @@ fn a_session_closed_while_its_robots_txt_read_waits_leaves_its_browser_idle() {
     let _ = engine.finish();
 
     assert_eq!((went, reading, once_idle), (json!(200), true, 0));
+}
+
+/// A robots.txt read whose body stalls past the Run's
+/// `timeout.navigation` broke off: Provenance records the file
+/// unreachable, never the start that arrived as the whole file. The
+/// stalled-robots host sends its robots.txt's head and the start of its
+/// body, then nothing.
+/// Covers: setting:timeout.navigation
+#[cfg(unix)]
+#[test]
+fn a_robots_txt_read_that_stalls_past_the_navigation_timeout_is_unreachable() {
+    const STALLED: &str = "stalled-robots.access-policy.test";
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut settings = Map::new();
+    settings.insert("timeout".to_owned(), json!({ "navigation": 3_000 }));
+    let mut engine = started_with(&env, &cache, &proving_ground, "stalls", &settings, |_| {});
+
+    let session = new_session(&mut engine, 2, "stalls");
+    let page = page_in(&mut engine, 3, &session);
+    let went = call(
+        &mut engine,
+        4,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url(STALLED, "/catalog/1") }),
+    )["result"]["response"]["status"]
+        .clone();
+    let deadline = Instant::now() + SETTLE;
+    let mut files: Vec<Value> = Vec::new();
+    while files.is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(100));
+        files = robots_txt_readings(&env, "stalls")
+            .iter()
+            .map(|entry| entry["file"].clone())
+            .collect();
+    }
+    let _ = call(&mut engine, 5, "run.finish", &json!({ "run_id": "stalls" }));
+    let _ = engine.finish();
+
+    assert_eq!((went, files), (json!(200), vec![json!("unreachable")]));
 }
 
 /// A browser is not idle while a Session is seated in it or opens a page

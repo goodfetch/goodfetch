@@ -9,6 +9,7 @@ use data_encoding::BASE64;
 use goodfetch_cdp::generated::{fetch, io};
 use goodfetch_engine::CallError;
 use goodfetch_engine::response_limits::Limits;
+use goodfetch_protocol::page::{RESPONSE_TRUNCATED, ResponseTruncatedDetails};
 
 use crate::driver::PageDriver;
 
@@ -53,7 +54,8 @@ pub(crate) fn declared_within_limits(
 /// by `limits` as it arrives: the stream closes at the first limit passed,
 /// so neither the browser nor the engine holds more than the limit and one
 /// chunk. A body the browser gives no stream of reads as empty, as one it
-/// gives no body of does.
+/// gives no body of does; a stream whose read fails, or whose chunk does
+/// not decode, broke off, and is never read as the whole body.
 ///
 /// The paused request cannot be sent on as it came once its body is taken,
 /// and the pinned Chromium then reports no network or decoding failure of
@@ -61,7 +63,8 @@ pub(crate) fn declared_within_limits(
 ///
 /// # Errors
 ///
-/// `response_limit_exceeded` naming the limit the body passed.
+/// `response_limit_exceeded` naming the limit the body passed;
+/// `response_truncated` for a stream that broke off.
 pub(crate) async fn streamed(
     driver: &PageDriver,
     id: &fetch::RequestId,
@@ -94,7 +97,7 @@ pub(crate) async fn streamed(
             Ok(chunk) => chunk,
             Err(failure) => {
                 tracing::debug!(%failure, "a paused response's body stream broke off");
-                break Ok(());
+                break Err(broke_off(url, &bytes, declared));
             }
         };
         if chunk.base64_encoded == Some(true) {
@@ -102,7 +105,7 @@ pub(crate) async fn streamed(
                 Ok(decoded) => bytes.extend_from_slice(&decoded),
                 Err(error) => {
                     tracing::warn!(%error, "the browser gave a body's chunk in Base64 that does not decode");
-                    break Ok(());
+                    break Err(broke_off(url, &bytes, declared));
                 }
             }
         } else {
@@ -120,4 +123,24 @@ pub(crate) async fn streamed(
         tracing::debug!(%failure, "a body's stream was closed already");
     }
     read.map(|()| bytes)
+}
+
+/// `response_truncated` for the body of `url`, whose stream broke off after
+/// `bytes`, decoded, of the `declared` bytes on the wire.
+fn broke_off(url: &str, bytes: &[u8], declared: Option<u64>) -> CallError {
+    let received = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    // `received` counts decoded bytes and `declared` the bytes as sent, so
+    // the two are never read as a fraction.
+    let of = declared.map_or_else(String::new, |declared| {
+        format!("; its `Content-Length` declared {declared} as sent")
+    });
+    CallError::new(
+        &RESPONSE_TRUNCATED,
+        format!("the body of {url} broke off after {received} bytes once decoded{of}"),
+        &ResponseTruncatedDetails {
+            url: url.to_owned(),
+            received,
+            expected: declared,
+        },
+    )
 }

@@ -155,8 +155,8 @@ fn disallowed(
 /// `network.max_body_size` once decoded, and past the browser pipe's frame.
 pub(super) const PAST_THE_SIZE_HOST: &str = "robots.body-limits.test";
 
-/// A `goto` to a page whose site's robots.txt decodes past
-/// `network.max_body_size` loads; the reading stops at the limit and
+/// On a Run whose `network.max_body_size` is 1 MiB, a `goto` to a page
+/// whose site's robots.txt decodes past it loads; the reading stops at the limit and
 /// Provenance records the file unreachable, naming the setting, and the
 /// page disallowed, as RFC 9309 reads an unreachable file. The browser's
 /// connection goes on: a second `goto` loads too.
@@ -171,7 +171,10 @@ fn past_the_size(
         checks.check("the Proving ground serves the case's pages", false);
         return Ok(());
     };
-    start_run(connection, site, run_id, &json!({}), checks)?;
+    // 1 MiB, so the read reaches the limit within a few chunks however
+    // loaded the machine.
+    let settings = json!({ "network": { "max_body_size": 1_048_576 } });
+    start_run(connection, site, run_id, &settings, checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };

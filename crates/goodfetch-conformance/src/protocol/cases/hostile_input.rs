@@ -305,11 +305,13 @@ fn request_limits(
     finish_run(connection, run_id)
 }
 
-/// `network.max_body_size`'s default: 64 MiB.
-const MAX_BODY_SIZE: u64 = 64 * 1024 * 1024;
+/// The Run's `network.max_body_size` in the coded body's case: 1 MiB, so a
+/// streamed read reaches it within a few chunks however loaded the machine,
+/// while the body still decodes far past the browser pipe's frame.
+const MAX_BODY_SIZE: u64 = 1024 * 1024;
 
 /// Whether `answer` raises `response_limit_exceeded` naming
-/// `network.max_body_size` and its default.
+/// `network.max_body_size` and [`MAX_BODY_SIZE`].
 fn past_the_size(answer: &Value) -> bool {
     code_of(answer) == &json!(RESPONSE_LIMIT_EXCEEDED.name)
         && answer["error"]["data"]["setting"] == json!("network.max_body_size")
@@ -322,10 +324,10 @@ fn empty_page(_fetched: &Value) -> Value {
     json!({ "status": 200, "content_type": "text/plain", "body": "" })
 }
 
-/// `page.request` to a gzip body within the ratio that decodes to 272 MiB,
-/// past the 256 MiB a browser's pipe frames in one message
-/// (`body-limits/6`), raises `response_limit_exceeded` naming
-/// `network.max_body_size`, and so does a route's `route.fetch` of the same
+/// On a Run whose `network.max_body_size` is 1 MiB, `page.request` to a
+/// gzip body within the ratio that decodes to 272 MiB, past the 256 MiB a
+/// browser's pipe frames in one message (`body-limits/6`), raises
+/// `response_limit_exceeded` naming `network.max_body_size`, and so does a route's `route.fetch` of the same
 /// body on a navigation; the browser's connection goes on, so a later
 /// `page.request` answers 200.
 fn coded_past_the_frame(
@@ -334,6 +336,7 @@ fn coded_past_the_frame(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-hostile-coded-past-the-frame";
+    let settings = json!({ "network": { "max_body_size": MAX_BODY_SIZE } });
     let (Some(coded), Some(small)) = (
         site.named_url("6.body-limits.test", "/"),
         site.named_url(PAST_THE_SIZE_HOST, "/page"),
@@ -341,7 +344,7 @@ fn coded_past_the_frame(
         checks.check("the Proving ground serves the case's pages", false);
         return Ok(());
     };
-    start_run(connection, site, run_id, &json!({}), checks)?;
+    start_run(connection, site, run_id, &settings, checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };

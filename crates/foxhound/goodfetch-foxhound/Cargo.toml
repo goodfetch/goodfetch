@@ -74,6 +74,11 @@ serde_json.workspace = true
 toml.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "io-util", "macros", "time"] }
+# The tier race on a scripted browser (tests/it/tier_race/scripted.rs): the
+# `BrowserPages` seam its fetch tiers are handed, and the test subscriber
+# its in-process engine records its dispatches through.
+goodfetch-page.workspace = true
+tracing.workspace = true
 
 [package.metadata.cargo-shear]
 # The dev-dependency on itself only turns its executable on for its tests.

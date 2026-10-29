@@ -2,4 +2,4 @@
 source: crates/foxhound/goodfetch-foxhound/tests/it/daemon.rs
 expression: refused.stdout.trim()
 ---
-{"error":{"code":"not_in_product","group":"unavailable","retryable":false,"message":"This Client needs Foxhound, and this engine is Collie 0.0.0.","operation":"config.explain","fix":"Connect to a Foxhound engine, or run with Foxhound, which contains everything Collie does (`cargo install goodfetch-foxhound --locked --features executable`). Run `[FOXHOUND] daemon restart` to restart the Daemon on its major's pick.","needs":"foxhound","product":"collie","product_version":"0.0.0"}}
+{"error":{"code":"not_in_product","group":"unavailable","retryable":false,"message":"This Client needs Foxhound, and this engine is Collie 0.0.0.","operation":"config.explain","fix":"Connect to a Foxhound engine, or run with Foxhound, which contains everything Collie does (`cargo install goodfetch-foxhound --locked --features executable`). Run `[FOXHOUND] daemon restart` to restart the Daemon on its major's pick.","install":"cargo install goodfetch-foxhound --locked --features executable","needs":"foxhound","product":"collie","product_version":"0.0.0"}}

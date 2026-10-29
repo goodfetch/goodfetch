@@ -450,8 +450,9 @@ fn a_session_closed_while_its_robots_txt_read_waits_leaves_its_browser_idle() {
         &json!({ "page_id": page.page_id, "url": proving_ground.url(STALLED, "/catalog/1") }),
     )["result"]["response"]["status"]
         .clone();
-    // The engine's page asked for the robots.txt's body, which never ends.
-    let reading = traced_once(&env, "stalled", "Fetch.getResponseBody");
+    // The engine's page took the robots.txt's body as a stream, which never
+    // ends.
+    let reading = traced_once(&env, "stalled", "Fetch.takeResponseBodyAsStream");
     let _ = call(
         &mut engine,
         5,

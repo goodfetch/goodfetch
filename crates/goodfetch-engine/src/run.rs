@@ -622,8 +622,7 @@ fn forwarded(failure: goodfetch_protocol::jsonrpc::ErrorObject) -> CallError {
     }
 }
 
-/// `run_in_use`: this engine discards the Run `run_id` in `folder`, whose
-/// writer lock its discard holds until it ends.
+/// `run_in_use`: this engine discards the Run `run_id`, holding its lock.
 fn discarding(run_id: RunId, folder: &std::path::Path) -> CallError {
     CallError::new(
         &RUN_IN_USE,

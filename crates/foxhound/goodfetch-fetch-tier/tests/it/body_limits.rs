@@ -2,10 +2,10 @@
 //! on reqwest and `wreq` under the fetch driver, against the Proving
 //! ground: every page of the hostile-input limits table that serves a body
 //! ends in `response_limit_exceeded` naming its setting, the decompression
-//! bombs (stacked codings included), the body past 64 MiB and the endless
-//! bodies, while the driver stops reading at the limit; a normal
-//! compressed page passes. The table's JSON depth case is no fetch's: the
-//! driver parses no JSON.
+//! bombs (stacked codings included), the bodies past 64 MiB (a gzip one
+//! within the ratio included) and the endless bodies, while the driver
+//! stops reading at the limit; a normal compressed page passes. The table's
+//! JSON depth case is no fetch's: the driver parses no JSON.
 //!
 //! Covers: row:SC-05, error:response_limit_exceeded
 #![expect(
@@ -90,7 +90,9 @@ fn refusal(fetched: &Result<Fetched, CallError>) -> String {
 /// Every case of the committed limits table that a Proving ground page
 /// serves and that names a body setting, fetched on each transport: each
 /// is refused naming its setting and its value, every miss collected
-/// before the test fails.
+/// before the test fails. The cases come from the table alone, so a case
+/// it gains runs here too; the test only checks that both body settings
+/// are among them.
 ///
 /// Covers: setting:network.max_body_size, setting:network.max_decompression_ratio
 #[rstest]
@@ -101,19 +103,18 @@ fn every_body_of_the_limits_table_ends_in_response_limit_exceeded_naming_its_set
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let transport = transport(stack, &proving_ground);
     let tables = HostileTables::committed().unwrap();
-    let cases: Vec<(String, String, String)> = tables
+    let cases: Vec<(&str, &str, LimitSetting, &str)> = tables
         .limits
         .cases
         .iter()
         .filter_map(|case| match (&case.served_by, &case.expected) {
-            (ServedBy::Page(task), ExpectedError::ResponseLimitExceeded { setting })
-                if *setting != LimitSetting::MaxJsonDepth =>
-            {
+            (ServedBy::Page(task), ExpectedError::ResponseLimitExceeded { setting }) => {
                 let wanted = match setting {
                     LimitSetting::MaxBodySize => "network.max_body_size=67108864",
-                    _ => "network.max_decompression_ratio=100",
+                    LimitSetting::MaxDecompressionRatio => "network.max_decompression_ratio=100",
+                    LimitSetting::MaxJsonDepth => return None,
                 };
-                Some((case.name.clone(), task.clone(), wanted.to_owned()))
+                Some((case.name.as_str(), task.as_str(), *setting, wanted))
             }
             _ => None,
         })
@@ -121,7 +122,7 @@ fn every_body_of_the_limits_table_ends_in_response_limit_exceeded_naming_its_set
 
     let misses: Vec<String> = cases
         .iter()
-        .filter_map(|(name, task, wanted)| {
+        .filter_map(|(name, task, _, wanted)| {
             let got = refusal(&fetched(
                 transport.as_ref(),
                 &proving_ground,
@@ -132,7 +133,15 @@ fn every_body_of_the_limits_table_ends_in_response_limit_exceeded_naming_its_set
         })
         .collect();
 
-    assert_eq!(cases.len(), 8, "the table's served body cases");
+    for setting in [
+        LimitSetting::MaxBodySize,
+        LimitSetting::MaxDecompressionRatio,
+    ] {
+        assert!(
+            cases.iter().any(|(_, _, served, _)| *served == setting),
+            "the table serves no body case naming {setting:?}"
+        );
+    }
     assert_eq!(misses, Vec::<String>::new());
 }
 

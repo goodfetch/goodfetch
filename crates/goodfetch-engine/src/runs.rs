@@ -372,6 +372,18 @@ pub enum Resumed {
     Existing(RunStarted),
 }
 
+impl Resumed {
+    /// The Run `run_id`, answered as it is: at `lifecycle`, needing `needs`.
+    fn existing(run_id: RunId, lifecycle: Lifecycle, needs: Product) -> Self {
+        Self::Existing(RunStarted {
+            run_id,
+            started_as: StartedAs::Existing,
+            lifecycle,
+            needs,
+        })
+    }
+}
+
 /// What a start found.
 #[expect(
     clippy::large_enum_variant,
@@ -3689,6 +3701,32 @@ enum MemoryStop {
     After(u64),
 }
 
+/// What a resumed Run's report lists as weakened: `listed`, what it listed,
+/// joined by the settings the resume's own `settings` weaken, recorded in
+/// `state` when they add any, so that the report says what ran (ADR 0016).
+async fn joined_weakened(
+    listed: &[WeakenedSetting],
+    settings: Option<&RunSettings>,
+    state: &RunState,
+) -> Result<Vec<WeakenedSetting>, RunStateError> {
+    let mut weakened = listed.to_vec();
+    for setting in settings
+        .map(|settings| settings.resolved().weakened())
+        .unwrap_or_default()
+    {
+        if !weakened.iter().any(|kept| kept.key == setting.key) {
+            weakened.push(setting);
+        }
+    }
+    if weakened.len() > listed.len() {
+        let recording = weakened.clone();
+        state
+            .write(move |connection| folder::record_weakened(connection, &recording))
+            .await?;
+    }
+    Ok(weakened)
+}
+
 impl Registry {
     async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
         // No command is answered before the reclaim ends, so a Run starts
@@ -3699,99 +3737,8 @@ impl Registry {
         self.reclaim().await;
         self.follow_governor();
         while let Some(command) = mailbox.recv().await {
-            let Some(command) = self.unless_discarding(command) else {
-                continue;
-            };
-            match command {
-                Command::Start(start, _, answer) if self.draining => {
-                    let (start, _, _) = *start;
-                    let _ = answer.send(Err(StartError::Draining {
-                        run_id: start.run_id,
-                    }));
-                }
-                Command::Resume(resume, _, answer) if self.draining => {
-                    let (resume, _, _, _) = *resume;
-                    let _ = answer.send(Err(RunError::Draining(resume.run_id)));
-                }
-                Command::Drain(answer) => {
-                    let _ = answer.send(self.drain().await);
-                }
-                Command::Start(start, connection, answer) => {
-                    let (start, secrets, link) = *start;
-                    let started = self.start(start, secrets, connection, &link).await;
-                    let _ = answer.send(started);
-                }
-                Command::Finish(run_id, letting, answer) => {
-                    let _ = answer.send(self.finish(&run_id, letting).await);
-                }
-                Command::ProgressMessage(run_id, message, answer) => {
-                    let _ = answer.send(self.progress_message(&run_id, message).await);
-                }
-                Command::Abort(run_id, by, forwarded, answer) => {
-                    let _ = answer.send(self.abort(&run_id, by, forwarded).await);
-                }
-                Command::End(run_id, end) => {
-                    let _ = self.end_or_report(&run_id, end).await;
-                }
-                Command::Uses(run_id, product) => self.uses(&run_id, product).await,
-                Command::Ended(run_id, ended) => self.ended(run_id, *ended),
-                Command::StopAll(answer) => {
-                    let ids: Vec<RunId> = self.live.keys().cloned().collect();
-                    let _ = answer.send(self.stop_by_client(ids).await);
-                }
-                Command::StopConnection(connection, answer) => {
-                    let ended = self.connection_ended(connection).await;
-                    let _ = answer.send(ended);
-                }
-                Command::Outlive(connection) => _ = self.outliving.insert(connection),
-                Command::LiveCount(answer) => _ = answer.send(self.live.len()),
-                Command::Health(answer) => {
-                    let _ = answer.send(self.health());
-                }
-                Command::Folder(run_id, answer) => _ = answer.send(self.folder(&run_id)),
-                Command::Governor(answer) => _ = answer.send(self.setup.governor.clone()),
-                Command::Live(run_id, answer) => _ = answer.send(self.live_run(run_id)),
-                Command::Checkpoint(run_id, location, answer) => {
-                    self.checkpoint(run_id, location, answer).await;
-                }
-                Command::Checkpointed(run_id, checkpoint) => {
-                    if let Some(live) = self.live.get_mut(&run_id) {
-                        let time = checkpoint.time.clone();
-                        live.progress
-                            .change(|progressing| progressing.checkpoint_at = Some(time));
-                        live.checkpoint = Some(*checkpoint);
-                    }
-                }
-                Command::Stop(run_id, reason, location, answer) => {
-                    let _ = answer.send(self.stop(&run_id, reason, location).await);
-                }
-                Command::GenerateId(answer) => _ = answer.send(self.generated_id()),
-                Command::StoredKey(run_id, checkpoint, answer) => {
-                    let _ = answer.send(self.stored_key(&run_id, checkpoint.as_deref()).await);
-                }
-                Command::Resume(resume, connection, answer) => {
-                    let (resume, link, keys, stored) = *resume;
-                    let resumed = self.resume(resume, keys, stored, connection).await;
-                    if let Ok(Resumed::New { run, .. }) = &resumed {
-                        link.add_to(run.span());
-                    }
-                    let _ = answer.send(resumed);
-                }
-                Command::Machine(answer) => {
-                    let _ = answer.send(self.machine().await);
-                }
-                Command::SafeStop(run_id, by, answer) => {
-                    let _ = answer.send(self.safe_stop(&run_id, by).await);
-                }
-                Command::Reader(run_id, answer) => _ = answer.send(Ok(self.reader(&run_id))),
-                Command::Progress(run_id, answer) => _ = answer.send(Ok(self.followed(&run_id))),
-                Command::Locate(run_id, answer) => _ = answer.send(Ok(self.locate(&run_id))),
-                Command::Index(answer) => _ = answer.send(self.index_at()),
-                Command::Discard(run_id, answer) => self.discard(run_id, answer),
-                Command::Discarded(erased, answer) => self.discarded(*erased, answer),
-                Command::Storage(sample) => self.storage(&sample),
-                Command::StorageFailed(folder) => self.storage_failed(&folder),
-                Command::LastResort(last_resort) => self.last_resort(last_resort),
+            if let Some(command) = self.unless_discarding(command) {
+                self.answer(command).await;
             }
         }
         self.readers.wait().await;
@@ -3799,11 +3746,108 @@ impl Registry {
         self.owner.wait().await;
     }
 
+    /// Handles `command`, one of a Run the engine is not discarding.
+    async fn answer(&mut self, command: Command) {
+        match command {
+            Command::Start(start, _, answer) if self.draining => {
+                let (start, _, _) = *start;
+                let _ = answer.send(Err(StartError::Draining {
+                    run_id: start.run_id,
+                }));
+            }
+            Command::Resume(resume, _, answer) if self.draining => {
+                let (resume, _, _, _) = *resume;
+                let _ = answer.send(Err(RunError::Draining(resume.run_id)));
+            }
+            Command::Drain(answer) => {
+                let _ = answer.send(self.drain().await);
+            }
+            Command::Start(start, connection, answer) => {
+                let (start, secrets, link) = *start;
+                let started = self.start(start, secrets, connection, &link).await;
+                let _ = answer.send(started);
+            }
+            Command::Finish(run_id, letting, answer) => {
+                let _ = answer.send(self.finish(&run_id, letting).await);
+            }
+            Command::ProgressMessage(run_id, message, answer) => {
+                let _ = answer.send(self.progress_message(&run_id, message).await);
+            }
+            Command::Abort(run_id, by, forwarded, answer) => {
+                let _ = answer.send(self.abort(&run_id, by, forwarded).await);
+            }
+            Command::End(run_id, end) => {
+                let _ = self.end_or_report(&run_id, end).await;
+            }
+            Command::Uses(run_id, product) => self.uses(&run_id, product).await,
+            Command::Ended(run_id, ended) => self.ended(run_id, *ended),
+            Command::StopAll(answer) => {
+                let ids: Vec<RunId> = self.live.keys().cloned().collect();
+                let _ = answer.send(self.stop_by_client(ids).await);
+            }
+            Command::StopConnection(connection, answer) => {
+                let ended = self.connection_ended(connection).await;
+                let _ = answer.send(ended);
+            }
+            Command::Outlive(connection) => _ = self.outliving.insert(connection),
+            Command::LiveCount(answer) => _ = answer.send(self.live.len()),
+            Command::Health(answer) => {
+                let _ = answer.send(self.health());
+            }
+            Command::Folder(run_id, answer) => _ = answer.send(self.folder(&run_id)),
+            Command::Governor(answer) => _ = answer.send(self.setup.governor.clone()),
+            Command::Live(run_id, answer) => _ = answer.send(self.live_run(run_id)),
+            Command::Checkpoint(run_id, location, answer) => {
+                self.checkpoint(run_id, location, answer).await;
+            }
+            Command::Checkpointed(run_id, checkpoint) => {
+                if let Some(live) = self.live.get_mut(&run_id) {
+                    let time = checkpoint.time.clone();
+                    live.progress
+                        .change(|progressing| progressing.checkpoint_at = Some(time));
+                    live.checkpoint = Some(*checkpoint);
+                }
+            }
+            Command::Stop(run_id, reason, location, answer) => {
+                let _ = answer.send(self.stop(&run_id, reason, location).await);
+            }
+            Command::GenerateId(answer) => _ = answer.send(self.generated_id()),
+            Command::StoredKey(run_id, checkpoint, answer) => {
+                let _ = answer.send(self.stored_key(&run_id, checkpoint.as_deref()).await);
+            }
+            Command::Resume(resume, connection, answer) => {
+                let (resume, link, keys, stored) = *resume;
+                let resumed = self.resume(resume, keys, stored, connection).await;
+                if let Ok(Resumed::New { run, .. }) = &resumed {
+                    link.add_to(run.span());
+                }
+                let _ = answer.send(resumed);
+            }
+            Command::Machine(answer) => {
+                let _ = answer.send(self.machine().await);
+            }
+            Command::SafeStop(run_id, by, answer) => {
+                let _ = answer.send(self.safe_stop(&run_id, by).await);
+            }
+            Command::Reader(run_id, answer) => _ = answer.send(Ok(self.reader(&run_id))),
+            Command::Progress(run_id, answer) => _ = answer.send(Ok(self.followed(&run_id))),
+            Command::Locate(run_id, answer) => _ = answer.send(Ok(self.locate(&run_id))),
+            Command::Index(answer) => _ = answer.send(self.index_at()),
+            Command::Discard(run_id, answer) => self.discard(run_id, answer),
+            Command::Discarded(erased, answer) => self.discarded(*erased, answer),
+            Command::Storage(sample) => self.storage(&sample),
+            Command::StorageFailed(folder) => self.storage_failed(&folder),
+            Command::LastResort(last_resort) => self.last_resort(last_resort),
+        }
+    }
+
     /// Has the governor sample the engine's own folders, and hands each of
     /// its storage samples to the registry (ADR 0122).
     fn sample_storage(&mut self) {
-        let sampled = self.engine_folders().sampled();
-        self.sampled = self.setup.governor.sample_together(sampled);
+        self.sampled = self
+            .setup
+            .governor
+            .sample_together(self.engine_folders().sampled());
         let mut samples = self.setup.governor.storage();
         let registry = self.runs.clone();
         let token = self.owner.token().clone();
@@ -4516,11 +4560,11 @@ impl Registry {
     /// engine may hold while it runs there; one found held, perhaps only by
     /// a reader's test, is retried as every writer retries it (ADR 0031).
     async fn lock(&mut self, run_id: &RunId, folder: &Path) -> Result<File, StartError> {
-        let mut entropy = self.setup.entropy.fork();
         let (owner, clock) = (&self.owner, &self.setup.clock);
         let taken = match try_lock(owner, folder).await {
             Ok(Some(lock)) => Ok(Some(lock)),
-            Ok(None) => retried(clock, &mut entropy, || try_lock(owner, folder)).await,
+            // Only a retry draws from the engine's `Entropy`.
+            Ok(None) => retried(clock, &mut self.setup.entropy, || try_lock(owner, folder)).await,
             Err(error) => Err(error),
         };
         match taken {
@@ -5280,12 +5324,7 @@ impl Registry {
         } = resume;
         // A Run this engine writes is answered as it is.
         if let Some(live) = self.live.get(&run_id) {
-            return Ok(Resumed::Existing(RunStarted {
-                run_id,
-                started_as: StartedAs::Existing,
-                lifecycle: live.lifecycle,
-                needs: live.needs,
-            }));
+            return Ok(Resumed::existing(run_id, live.lifecycle, live.needs));
         }
         let held = self
             .held_with_key(&run_id, checkpoint.as_deref(), stored)
@@ -5295,12 +5334,7 @@ impl Registry {
         let lifecycle = match lifecycle::apply(held.lifecycle, Resume::event(retry_failed)) {
             Ok(Next::To(next)) => next,
             Ok(Next::Unchanged) => {
-                return Ok(Resumed::Existing(RunStarted {
-                    run_id,
-                    started_as: StartedAs::Existing,
-                    lifecycle: held.lifecycle,
-                    needs: held.needs,
-                }));
+                return Ok(Resumed::existing(run_id, held.lifecycle, held.needs));
             }
             Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
         };
@@ -5315,26 +5349,10 @@ impl Registry {
             .progress_message
             .as_deref()
             .and_then(ProgressMessage::parse);
-        // The settings the resume's own weaken join those its report
-        // lists, so that the report says what ran (ADR 0016).
         let listed = recorded.weakened;
-        let mut weakened = listed.clone();
-        for setting in settings
-            .as_ref()
-            .map(|settings| settings.resolved().weakened())
-            .unwrap_or_default()
-        {
-            if !weakened.iter().any(|kept| kept.key == setting.key) {
-                weakened.push(setting);
-            }
-        }
-        if weakened.len() > listed.len() {
-            let recording = weakened.clone();
-            state
-                .write(move |connection| folder::record_weakened(connection, &recording))
-                .await
-                .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
-        }
+        let weakened = joined_weakened(&listed, settings.as_ref(), &state)
+            .await
+            .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
         let run = self.new_run(&run_id, &folder, state, connection, settings, keys);
         run.shared
             .progress

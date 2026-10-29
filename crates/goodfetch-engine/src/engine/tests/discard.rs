@@ -298,11 +298,11 @@ fn a_discard_leaves_the_registry_answering_and_refuses_a_resume_of_its_run() {
             reader.try_lock_shared().unwrap();
             client
                 .send(&[
-                    request(3, "run.discard", json!({ "run_id": "discarded" })),
-                    request(4, "daemon.health", json!({})),
-                    request(5, "run.resume", json!({ "run_id": "discarded" })),
-                    request(6, "run.progress", json!({ "run_id": "discarded" })),
-                    request(7, "run.start", json!({ "run_id": "discarded" })),
+                    request(3, "run.discard", &json!({ "run_id": "discarded" })),
+                    request(4, "daemon.health", &json!({})),
+                    request(5, "run.resume", &json!({ "run_id": "discarded" })),
+                    request(6, "run.progress", &json!({ "run_id": "discarded" })),
+                    request(7, "run.start", &json!({ "run_id": "discarded" })),
                 ])
                 .await;
             let (mut order, mut replies) = (Vec::new(), BTreeMap::new());
@@ -348,7 +348,7 @@ fn a_discard_leaves_the_registry_answering_and_refuses_a_resume_of_its_run() {
 }
 
 /// The JSON-RPC request `id` of `method` with `params`.
-fn request(id: i64, method: &str, params: Value) -> Value {
+fn request(id: i64, method: &str, params: &Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
 }
 

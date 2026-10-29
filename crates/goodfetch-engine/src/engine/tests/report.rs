@@ -389,8 +389,9 @@ fn a_stop_past_its_wait_fails_the_wait_and_the_run_still_stops(
 
 /// A `run.stop` its Client cancels at its first await, before the Run's
 /// `timeout.close` is read, still stops the Run: only its wait ends with the
-/// call (#1743).
-/// Covers: story:3-153, operation:run.stop
+/// call (#1743). The test calls `run.stop`'s handler itself, so no
+/// dispatch records the operation.
+/// Covers: story:3-153
 #[test]
 fn a_stop_cancelled_at_its_first_await_still_stops_the_run() {
     let env = TestEnv::new();

@@ -6,7 +6,9 @@
 # the JSON-RPC framing's `message_too_large` (16 MiB) and `message_too_deep`
 # (64). The decompression-bomb pages are the Proving ground's `bombs` family
 # (`bombs/1` to `bombs/5`), and the huge and endless bodies and the deep
-# JSON its `body-limits` family (`body-limits/1` to `body-limits/4`). A
+# JSON its `body-limits` family (`body-limits/1` to `body-limits/4`, and
+# `body-limits/6`, a gzip body within the ratio that decodes past the 256 MiB
+# a browser's pipe frames in one message). A
 # layer's runner pairs these with its own positive control: a normal page
 # (`bombs/6`, `body-limits/5`), and a message within the limits, pass.
 
@@ -45,6 +47,12 @@ name = "body_past_64_mib"
 input = { kind = "oversized_body", bytes = 67108865 }
 expected = { code = "response_limit_exceeded", setting = "network.max_body_size" }
 served_by = { page = "body-limits/1" }
+
+[[cases]]
+name = "coded_body_past_256_mib"
+input = { kind = "oversized_body", bytes = 285212672, content_encodings = ["gzip"] }
+expected = { code = "response_limit_exceeded", setting = "network.max_body_size" }
+served_by = { page = "body-limits/6" }
 
 [[cases]]
 name = "endless_chunked_body"

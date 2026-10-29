@@ -113,6 +113,12 @@ reason = "Declared for ADR 0069's exit-code table (#1188), but nothing raises it
 link = "https://github.com/goodfetch/goodfetch/issues/755"
 
 [[exception]]
+feature = "error:page_events_lost"
+evidence = "none"
+reason = "Raised only once the engine falls 4,096 CDP events behind a page it publishes events of, which no test can make a real browser and a real engine do on demand: `goodfetch-cdp`'s connection test proves a subscription that fell that far behind ends saying so, and the page's reader turns that end into this code. The deep review's 576-10 (#703) found the silent stop this code replaces."
+link = "https://github.com/goodfetch/goodfetch/issues/703"
+
+[[exception]]
 feature = "error:secret_unbound"
 evidence = "none"
 reason = "Declared with the Secret-provider driver (#615), but nothing raises it yet: a Secret placeholder with no binding raises it once placeholders are bound to Secret references and domains, in #654, whose test removes this exception."

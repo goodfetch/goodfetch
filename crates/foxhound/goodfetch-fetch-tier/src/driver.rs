@@ -35,7 +35,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_engine::happy_eyeballs::FamilyUnavailable;
-use goodfetch_engine::response_limits::{Decoding, Limits};
+use goodfetch_engine::response_limits::{BodyFailure, ContentCoding, Decoding, Limits};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::{CertificateChanged, CertificateInvalid, ExceptionUsed};
 use goodfetch_frontier::backoff_classes::Met;
@@ -47,8 +47,8 @@ use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_protocol::tls::CertificateFailure;
 use url::{Host, Url};
 
-use crate::content_types::{Accepts, typed};
-use crate::decoding::{self, DecodingFailed};
+use crate::content_types::{Accepts, declared, typed};
+use crate::decoding::{self, Bound, DecodingFailed};
 use crate::sniffing::MAX_BYTES_TO_SNIFF;
 
 #[cfg(test)]
@@ -461,24 +461,29 @@ pub struct Fetched {
     pub certificate_exception: Option<ExceptionUsed>,
 }
 
-/// The engine's timeouts a fetch waits under.
+/// The engine's timeouts a fetch waits under, and the limits it reads its
+/// body under (ADR 0067, SC-05).
 #[derive(Clone, Debug, PartialEq)]
-pub struct Deadlines {
+pub struct FetchBounds {
     /// `timeout.first_byte`: until the answer's head.
     pub first_byte: Deadline,
     /// `timeout.navigation`: until the whole document.
     pub navigation: Deadline,
+    /// `network.max_body_size` and `network.max_decompression_ratio`, judged
+    /// as the body is read and decoded.
+    pub limits: Limits,
 }
 
-impl Deadlines {
-    /// The timeouts a Run's resolved settings give, whose keys always hold
-    /// a duration.
+impl FetchBounds {
+    /// The timeouts and limits a Run's resolved settings give, whose
+    /// timeout keys always hold a duration.
     pub fn of(settings: &Resolved) -> Self {
         Self {
             first_byte: Deadline::of(settings, &TIMEOUT_FIRST_BYTE)
                 .expect("invariant: `timeout.first_byte` resolves to a duration"),
             navigation: Deadline::of(settings, &TIMEOUT_NAVIGATION)
                 .expect("invariant: `timeout.navigation` resolves to a duration"),
+            limits: Limits::of(settings),
         }
     }
 }
@@ -486,15 +491,17 @@ impl Deadlines {
 /// The codings a fetch asks for, as Chrome asks for them.
 const ACCEPT_ENCODING: &str = "gzip, deflate, br, zstd";
 
-/// Fetches `hop` through `transport` under `deadlines` on `clock`: its head
+/// Fetches `hop` through `transport` under `bounds` on `clock`: its head
 /// within `timeout.first_byte`, its whole body within `timeout.navigation`,
-/// then its content codings decoded. A hop that names no
+/// then its content codings decoded, every byte judged against the limits
+/// as it is read and decoded (ADR 0067). A hop that names no
 /// `Accept-Encoding` asks for every coding Chrome decodes.
 ///
 /// # Errors
 ///
-/// `deadline_exceeded` naming the timeout that passed, or the transport
-/// failure's own error ([`TransportFailure::error`]).
+/// `deadline_exceeded` naming the timeout that passed,
+/// `response_limit_exceeded` naming the limit the body passed, or the
+/// transport failure's own error ([`TransportFailure::error`]).
 ///
 /// # Cancel safety
 ///
@@ -502,10 +509,40 @@ const ACCEPT_ENCODING: &str = "gzip, deflate, br, zstd";
 pub async fn fetch(
     transport: &dyn Transport,
     hop: &Hop,
-    deadlines: &Deadlines,
+    bounds: &FetchBounds,
     clock: &Clock,
 ) -> Result<Fetched, CallError> {
-    fetch_on(transport, hop, Reuse::Allowed, deadlines, clock, None).await
+    fetch_on(transport, hop, Reuse::Allowed, bounds, clock, None, None).await
+}
+
+/// [`fetch`] keeping only the first `keep` bytes of the decoded body, the
+/// read stopped there: a robots.txt's or a signal file's first 500 KiB,
+/// which is all RFC 9309 has a crawler parse.
+///
+/// # Errors
+///
+/// As [`fetch`]'s.
+///
+/// # Cancel safety
+///
+/// As [`fetch`]'s.
+pub(crate) async fn fetch_start(
+    transport: &dyn Transport,
+    hop: &Hop,
+    bounds: &FetchBounds,
+    clock: &Clock,
+    keep: usize,
+) -> Result<Fetched, CallError> {
+    fetch_on(
+        transport,
+        hop,
+        Reuse::Allowed,
+        bounds,
+        clock,
+        None,
+        Some(keep),
+    )
+    .await
 }
 
 /// [`fetch`] of a crawl request's hop judged by `accepts`, its Label's
@@ -524,11 +561,11 @@ pub async fn fetch(
 pub(crate) async fn fetch_accepting(
     transport: &dyn Transport,
     hop: &Hop,
-    deadlines: &Deadlines,
+    bounds: &FetchBounds,
     clock: &Clock,
     accepts: Option<&Accepts>,
 ) -> Result<Fetched, CallError> {
-    fetch_on(transport, hop, Reuse::Allowed, deadlines, clock, accepts).await
+    fetch_on(transport, hop, Reuse::Allowed, bounds, clock, accepts, None).await
 }
 
 /// [`fetch`] on a new connection, never one an earlier hop left: a
@@ -544,22 +581,24 @@ pub(crate) async fn fetch_accepting(
 pub(crate) async fn fetch_anew(
     transport: &dyn Transport,
     hop: &Hop,
-    deadlines: &Deadlines,
+    bounds: &FetchBounds,
     clock: &Clock,
     accepts: Option<&Accepts>,
 ) -> Result<Fetched, CallError> {
-    fetch_on(transport, hop, Reuse::Never, deadlines, clock, accepts).await
+    fetch_on(transport, hop, Reuse::Never, bounds, clock, accepts, None).await
 }
 
 /// [`fetch`] whose first send goes on a connection `reuse` allows, judged
-/// by `accepts` as [`fetch_accepting`] says.
+/// by `accepts` as [`fetch_accepting`] says, keeping what `keep` says as
+/// [`fetch_start`] does.
 async fn fetch_on(
     transport: &dyn Transport,
     hop: &Hop,
     reuse: Reuse,
-    deadlines: &Deadlines,
+    bounds: &FetchBounds,
     clock: &Clock,
     accepts: Option<&Accepts>,
+    keep: Option<usize>,
 ) -> Result<Fetched, CallError> {
     let url = hop.url.as_str();
     let asked;
@@ -578,16 +617,19 @@ async fn fetch_on(
         &asked
     };
     let whole = async {
-        let mut sent = deadlines
+        let mut sent = bounds
             .first_byte
             .within(clock, "first_byte", answer(transport, hop, reuse))
             .await?
             .map_err(|failure| failure.error(url))?;
-        let declared = sent
-            .headers
-            .iter()
-            .find(|(name, _)| name == "content-type")
-            .map(|(_, value)| value.clone());
+        // A type that names none counts as none, so the body is sniffed.
+        let declared = declared(
+            sent.headers
+                .iter()
+                .find(|(name, _)| name == "content-type")
+                .map(|(_, value)| value.as_str()),
+        )
+        .map(str::to_owned);
         // A type the head names is judged before any byte of the body is
         // read: the body is dropped unread, its connection with it.
         if let (Some(accepts), Some(declared)) = (accepts, &declared)
@@ -614,7 +656,13 @@ async fn fetch_on(
             _ => None,
         };
         let answered = (sent.status, expected);
-        let body = match read_body(&mut *sent.body, hop, answered, &codings, sniffed).await? {
+        let reading = Reading {
+            codings: &codings,
+            sniffed,
+            limits: &bounds.limits,
+            keep,
+        };
+        let body = match read_body(&mut *sent.body, hop, answered, reading).await? {
             Read::Whole(body) => body,
             Read::Refused(refused) => {
                 return Ok(Fetched {
@@ -627,11 +675,7 @@ async fn fetch_on(
                 });
             }
         };
-        let received = body.len();
-        let body = decoding::decode(codings.into_iter(), body).map_err(|failed| match failed {
-            DecodingFailed::Cut => truncated(url, received, expected),
-            DecodingFailed::Corrupt => TransportFailure::ContentDecodingFailed.error(url),
-        })?;
+        let body = decoded(body, url, expected, reading)?;
         if decoding::still_compressed(declared.as_deref(), &body) {
             return Err(TransportFailure::ContentDecodingFailed.error(url));
         }
@@ -655,45 +699,67 @@ async fn fetch_on(
             certificate_exception: sent.certificate_exception,
         })
     };
-    deadlines
-        .navigation
-        .within(clock, "navigation", whole)
-        .await?
+    bounds.navigation.within(clock, "navigation", whole).await?
 }
 
 /// What reading an answer's body gave.
 enum Read {
-    /// The whole body as it arrived, no content coding decoded.
+    /// The whole body as it arrived, or the bytes of it kept, no content
+    /// coding decoded.
     Whole(Bytes),
     /// The type the sniffer gave its first bytes, which its Label does not
     /// take: the rest was left unread.
     Refused(String),
 }
 
-/// Reads the body of `hop`'s answer, `status`, as it arrives under
-/// `codings`, its `Content-Length` declaring `expected`. With `sniffed`,
-/// the answer named no type: its codings are decoded as its bytes arrive,
-/// and once the sniffer's 1,024 bytes are in (`kMaxBytesToSniff`), a type
-/// `sniffed` refuses stops the read. A body that does not decode is read
-/// whole, and its decoding then decides.
+/// How an answer's body is read: under the codings its head lists, the
+/// Label's types when the head named none, the Run's limits, and how much
+/// of it is kept.
+#[derive(Clone, Copy)]
+struct Reading<'a> {
+    /// The `Content-Encoding` fields' values, in order.
+    codings: &'a [&'a str],
+    /// The Label's types, when the answer named none.
+    sniffed: Option<&'a Accepts>,
+    /// `network.max_body_size`, which the bytes received never pass either.
+    limits: &'a Limits,
+    /// The most decoded bytes kept ([`fetch_start`]).
+    keep: Option<usize>,
+}
+
+/// Reads the body of `hop`'s answer, `status`, as it arrives as `reading`
+/// says, its `Content-Length` declaring `expected`. The bytes received
+/// never pass `network.max_body_size`, and a body that no coding decodes
+/// stops at the bytes it keeps. With a type to sniff, the answer named no
+/// type: its codings are decoded as its bytes arrive, and once the
+/// sniffer's 1,024 bytes are in (`kMaxBytesToSniff`), a type the Label
+/// refuses stops the read. A body that does not decode is read whole, and
+/// its decoding then decides.
 ///
 /// # Errors
 ///
-/// `response_truncated` when the body breaks off (ADR 0118).
+/// `response_truncated` when the body breaks off (ADR 0118);
+/// `response_limit_exceeded` once it passes a limit (ADR 0067).
 async fn read_body(
     body: &mut dyn Body,
     hop: &Hop,
     (status, expected): (u16, Option<u64>),
-    codings: &[&str],
-    sniffed: Option<&Accepts>,
+    reading: Reading<'_>,
 ) -> Result<Read, CallError> {
     let url = hop.url.as_str();
-    let mut sniffing = sniffed.map(|accepts| {
-        (
-            accepts,
-            Decoding::new(url, codings.iter().copied(), Limits::default()),
-        )
-    });
+    let Reading {
+        codings,
+        sniffed,
+        limits,
+        keep,
+    } = reading;
+    let plain =
+        ContentCoding::listed(codings.iter().copied()).is_none_or(|listed| listed.is_empty());
+    let mut sniffing = sniffed;
+    // What the bytes so far decode to, for the sniffer, and for a coded
+    // body kept for its first bytes, to stop once they are in.
+    let mut decoding = (sniffing.is_some() || (keep.is_some() && !plain))
+        .then(|| Decoding::new(url, codings.iter().copied(), *limits));
     let mut read = BytesMut::new();
     // Any failure once the head arrived cuts the body (ADR 0118).
     while let Some(chunk) = body
@@ -702,26 +768,89 @@ async fn read_body(
         .map_err(|_| truncated(url, read.len(), expected))?
     {
         read.extend_from_slice(&chunk);
-        let Some((accepts, decoding)) = sniffing.as_mut() else {
+        let received = u64::try_from(read.len()).unwrap_or(u64::MAX);
+        limits
+            .judge_decoded(url, received, None)
+            .map_err(|exceeded| exceeded.error())?;
+        if plain && keep.is_some_and(|keep| read.len() >= keep) {
+            break;
+        }
+        let Some(gauge) = decoding.as_mut() else {
             continue;
         };
-        let judged = decoding
+        let judged = gauge
             .push(&chunk)
-            .and_then(|()| decoding.decoded())
+            .and_then(|()| gauge.decoded())
             .map(|decoded| {
-                (decoded.len() >= MAX_BYTES_TO_SNIFF)
-                    .then(|| accepts.refused(status, &typed(None, decoded, hop.url.path()).0))
+                let full = keep.is_some_and(|keep| decoded.len() >= keep);
+                let sniffed = sniffing
+                    .filter(|_| decoded.len() >= MAX_BYTES_TO_SNIFF)
+                    .map(|accepts| {
+                        accepts.refused(status, &typed(None, decoded, hop.url.path()).0)
+                    });
+                (full, sniffed)
             });
         match judged {
-            Ok(Some(Some(refused))) => return Ok(Read::Refused(refused)),
-            // Judged and taken, or no stream of its codings, which the
-            // whole body's decoding then fails.
-            Ok(Some(None)) | Err(_) => sniffing = None,
+            // Kept for its first bytes, it passed the limits past them: the
+            // kept bytes' decoding judges them again.
+            Err(BodyFailure::Limit(_)) | Ok((true, _)) if keep.is_some() => break,
+            Err(BodyFailure::Limit(exceeded)) => return Err(exceeded.error()),
+            Ok((true, _)) => break,
+            Ok((false, Some(Some(refused)))) => return Ok(Read::Refused(refused)),
+            // Judged and taken: the rest is read whole.
+            Ok((false, Some(None))) => {
+                sniffing = None;
+                if keep.is_none() {
+                    decoding = None;
+                }
+            }
             // Too few bytes decoded yet.
-            Ok(None) => {}
+            Ok((false, None)) => {}
+            // No stream of its codings, which the whole body's decoding
+            // then fails.
+            Err(BodyFailure::Decoding) => {
+                sniffing = None;
+                decoding = None;
+            }
         }
     }
     Ok(Read::Whole(read.freeze()))
+}
+
+/// `body`, as `url` sent it, with its codings decoded as `reading` says,
+/// keeping only what it keeps, its `Content-Length` declaring `expected`.
+///
+/// # Errors
+///
+/// `response_truncated` for a compressed stream that stops before its end
+/// (ADR 0118), `navigation_failed` with `net::ERR_CONTENT_DECODING_FAILED`
+/// for one that does not decode, `response_limit_exceeded` past a limit
+/// (ADR 0067).
+fn decoded(
+    body: Bytes,
+    url: &str,
+    expected: Option<u64>,
+    reading: Reading<'_>,
+) -> Result<Bytes, CallError> {
+    let received = body.len();
+    let bound = Bound {
+        url,
+        limits: reading.limits,
+        received,
+        keep: reading.keep,
+    };
+    let mut body =
+        decoding::decode(reading.codings.iter().copied(), body, &bound).map_err(|failed| {
+            match failed {
+                DecodingFailed::Cut => truncated(url, received, expected),
+                DecodingFailed::Corrupt => TransportFailure::ContentDecodingFailed.error(url),
+                DecodingFailed::Limit(exceeded) => exceeded.error(),
+            }
+        })?;
+    if let Some(keep) = reading.keep {
+        body.truncate(keep);
+    }
+    Ok(body)
 }
 
 /// The length an answer's `Content-Length` declares, if it declares one.

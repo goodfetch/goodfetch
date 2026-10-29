@@ -42,10 +42,7 @@ impl HttpTier {
             &self.following,
             &gate,
             &clock,
-            |hop| {
-
-                async move { fetch(self.transport.as_ref(), &hop, &self.deadlines, &clock).await }
-            },
+            |hop| async move { fetch(self.transport.as_ref(), &hop, &self.bounds, &clock).await },
         )
         .await
         .map_err(|stop| match stop {

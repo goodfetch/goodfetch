@@ -8769,7 +8769,7 @@
     },
     "ResponseBodyParams": {
       "additionalProperties": false,
-      "description": "What `response.body` takes: the page and the request whose response's\nbody it reads.",
+      "description": "What `response.body` takes: the page, the request whose response's\nbody it reads, and how long it waits for that request to end.",
       "properties": {
         "_meta": {
           "$ref": "#/$defs/TraceContext",
@@ -8784,6 +8784,16 @@
           "arrived_in": "0.1",
           "description": "The request, by the browser's ID.",
           "type": "string"
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the read may wait for its request to end and its body to\nbe read, in milliseconds, at least 1: absent for `timeout.wait`,\n`null` for none, though an enclosing timeout still applies (ADR\n0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -14312,6 +14322,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The engine fell too far behind the browser's events of a page that is still open, and stopped reading them, so some are lost: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it. The page's other calls still work. Open another page to follow its events; a busy engine, as under heavy WebSocket or console traffic it publishes, falls behind sooner.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "page_events_lost",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A page function threw in the page, or did not parse, or is an expression given an argument, which only a function takes. The details give the error's name, its message and the page's stack. A page function sees only the page and its one argument, never the program's variables, so a `ReferenceError`'s fix names the argument: pass the value in it.",
       "exit_code": null,
       "group": "program",
@@ -17050,7 +17070,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole.",
+      "description": "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.",
       "events": [],
       "kind": "round_trip",
       "name": "response.body",

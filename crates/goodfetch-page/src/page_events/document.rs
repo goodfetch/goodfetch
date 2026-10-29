@@ -322,6 +322,7 @@ impl PageEvents {
             }
         }
         let mut gone_now = self.shared.gone.subscribe();
+        let shared = Arc::clone(&self.shared);
         async move {
             let reached = async move {
                 match answered.await {
@@ -348,7 +349,7 @@ impl PageEvents {
             };
             match deadline.within("url", outcome).await? {
                 Ok(true) => Ok(Reached {}),
-                Ok(false) => Err(gone()),
+                Ok(false) => Err(gone(&shared)),
                 Err(refused) => Err(refused),
             }
         }
@@ -366,6 +367,7 @@ impl PageEvents {
         let mut document = self.shared.document.subscribe();
         let already = document.borrow().reached(state);
         let mut gone_now = self.shared.gone.subscribe();
+        let shared = Arc::clone(&self.shared);
         async move {
             if already {
                 return Ok(Reached {});
@@ -376,7 +378,7 @@ impl PageEvents {
             if deadline.within(&name(state), reached).await? {
                 Ok(Reached {})
             } else {
-                Err(gone())
+                Err(gone(&shared))
             }
         }
     }

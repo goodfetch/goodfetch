@@ -5501,8 +5501,8 @@ export interface RequestSeed {
   url: string;
 }
 /**
- * What `response.body` takes: the page and the request whose response's
- * body it reads.
+ * What `response.body` takes: the page, the request whose response's
+ * body it reads, and how long it waits for that request to end.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "ResponseBodyParams".
@@ -5516,6 +5516,13 @@ export interface ResponseBodyParams {
    * The request, by the browser's ID.
    */
   request_id: string;
+  /**
+   * How long the read may wait for its request to end and its body to
+   * be read, in milliseconds, at least 1: absent for `timeout.wait`,
+   * `null` for none, though an enclosing timeout still applies (ADR
+   * 0080).
+   */
+  timeout?: number | null;
 }
 /**
  * What `events.resync` gives: the current state, from which the stream

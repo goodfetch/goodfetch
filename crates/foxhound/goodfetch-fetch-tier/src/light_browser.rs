@@ -27,6 +27,7 @@ use goodfetch_engine::browser_cache::{
 use goodfetch_engine::children::Children;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::pinned_download::Fetching;
+use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, PinnedBy};
 use goodfetch_protocol::page::{NAVIGATION_FAILED, NavigationFailedDetails};
@@ -298,12 +299,14 @@ pub(crate) fn arguments(url: &str, proxy: &str) -> Vec<String> {
 }
 
 /// Loads `url` in Lightpanda's `executable` for `run`, its requests
-/// through a bridge where `check` lets them go.
+/// through a bridge where `check` lets them go, its report read up to
+/// `limits`' `network.max_body_size` (ADR 0067).
 ///
 /// # Errors
 ///
 /// `navigation_failed` when Lightpanda cannot start, fails, or reaches no
-/// document.
+/// document; `response_limit_exceeded` when its report passes
+/// `network.max_body_size`.
 ///
 /// # Cancel safety
 ///
@@ -312,7 +315,7 @@ pub(crate) async fn render(
     run: &Run,
     executable: &std::path::Path,
     url: &str,
-    check: crate::transports::AddressCheck,
+    (check, limits): (crate::transports::AddressCheck, &Limits),
 ) -> Result<Rendered, CallError> {
     let failed = |reason: String| {
         CallError::new(
@@ -341,12 +344,17 @@ pub(crate) async fn render(
         .spawn(command)
         .map_err(|error| failed(format!("it does not start: {error}")))?;
     let mut output = Vec::new();
-    if let Some(mut stdout) = child.stdout.take() {
+    if let Some(stdout) = child.stdout.take() {
         stdout
+            .take(limits.max_body_size.saturating_add(1))
             .read_to_end(&mut output)
             .await
             .map_err(|error| failed(error.to_string()))?;
     }
+    let read = u64::try_from(output.len()).unwrap_or(u64::MAX);
+    limits
+        .judge_decoded(url, read, None)
+        .map_err(|exceeded| exceeded.error())?;
     let status = child
         .wait()
         .await

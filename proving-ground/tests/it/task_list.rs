@@ -56,7 +56,7 @@ const IDS: &str = "catalog/1 catalog/2 catalog/3 \
     content-coding/1 content-coding/2 content-coding/3 content-coding/4 content-coding/5 \
     content-coding/6 content-coding/7 content-coding/8 content-coding/9 \
     content-coding/10 content-coding/11 \
-    body-limits/1 body-limits/2 body-limits/3 body-limits/4 body-limits/5 \
+    body-limits/1 body-limits/2 body-limits/3 body-limits/4 body-limits/5 body-limits/6 \
     redirects/1 redirects/2 redirects/3 redirects/4 redirects/5 redirects/6 redirects/7 \
     redirects/8 redirects/9 redirects/10 redirects/11 redirects/12 redirects/13 redirects/14 \
     redirects/15 redirects/16 redirects/17 redirects/18 redirects/19 \
@@ -88,7 +88,7 @@ const KINDS: &str = "crawl extract submit \
     crawl crawl crawl crawl crawl crawl crawl crawl crawl \
     crawl crawl \
     extract extract extract extract extract extract extract extract extract extract extract \
-    extract extract extract extract extract \
+    extract extract extract extract extract extract \
     extract extract extract extract extract extract extract extract extract extract extract \
     extract extract extract extract extract extract extract extract \
     extract extract extract extract extract extract extract extract extract extract \

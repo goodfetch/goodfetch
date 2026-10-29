@@ -1494,6 +1494,17 @@
       ]
     },
     {
+      "id": "error:page_events_lost",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:page_function_failed",
       "kind": "error",
       "area": 5,

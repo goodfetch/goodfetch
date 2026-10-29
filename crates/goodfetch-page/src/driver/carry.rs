@@ -285,6 +285,7 @@ async fn commit(
     let mut navigate = std::pin::pin!(browser.send(Some(session), &params, call));
     let mut navigated = false;
     let mut committed = false;
+    let mut reading = true;
     while !(navigated && committed) {
         tokio::select! {
             answered = &mut navigate, if !navigated => {
@@ -293,8 +294,14 @@ async fn commit(
                 }
                 navigated = true;
             }
-            event = events.next() => {
+            event = events.next(), if reading => {
                 let Some(event) = event else {
+                    // A target the browser detached sends nothing more, and
+                    // the navigation in flight on it failed with it.
+                    if !navigated && super::detached(events) {
+                        reading = false;
+                        continue;
+                    }
                     return Err(browser.failed(call, &Failure::Disconnected).await);
                 };
                 if let Some(paused) = event.read::<fetch::RequestPausedEvent>() {
@@ -324,6 +331,7 @@ async fn commit(
                     committed = true;
                 }
             }
+            else => return Err(browser.failed(call, &Failure::Disconnected).await),
         }
     }
     Ok(true)

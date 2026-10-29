@@ -251,8 +251,8 @@ pub struct PageFired {
     pub page_id: PageId,
 }
 
-/// What `response.body` takes: the page and the request whose response's
-/// body it reads.
+/// What `response.body` takes: the page, the request whose response's
+/// body it reads, and how long it waits for that request to end.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ResponseBodyParams {
@@ -262,6 +262,17 @@ pub struct ResponseBodyParams {
     /// The request, by the browser's ID.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub request_id: String,
+    /// How long the read may wait for its request to end and its body to
+    /// be read, in milliseconds, at least 1: absent for `timeout.wait`,
+    /// `null` for none, though an enclosing timeout still applies (ADR
+    /// 0080).
+    #[serde(
+        default,
+        deserialize_with = "super::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub timeout: Option<Option<u64>>,
 }
 
 /// What `page.wait_for_request_finished` takes: the page, and the URLs of
@@ -307,6 +318,16 @@ pub struct BodyUnavailableDetails {
 pub const BODY_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "body_unavailable",
     description: "The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say \"Request content was evicted from inspector cache\". A retry finds the body gone all the same.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A page whose events the engine fell too far behind and stopped reading.
+pub const PAGE_EVENTS_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "page_events_lost",
+    description: "The engine fell too far behind the browser's events of a page that is still open, and stopped reading them, so some are lost: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it. The page's other calls still work. Open another page to follow its events; a busy engine, as under heavy WebSocket or console traffic it publishes, falls behind sooner.",
     group: ErrorGroup::Unavailable,
     retryable: false,
     exit_code: None,
@@ -464,7 +485,7 @@ pub const PAGE_ON: Operation = Operation {
 /// `response.body`.
 pub const RESPONSE_BODY: Operation = Operation {
     name: "response.body",
-    description: "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole.",
+    description: "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,

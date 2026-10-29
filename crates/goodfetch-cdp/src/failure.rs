@@ -82,6 +82,14 @@ pub enum Failure {
         /// The command's method.
         method: &'static str,
     },
+    /// The browser's answer was longer than the connection reads in one
+    /// message ([`crate::MAX_FRAME`]): it was dropped, and the connection
+    /// went on.
+    #[error("the browser's answer to `{method}` is longer than one message the connection reads")]
+    TooLarge {
+        /// The command's method.
+        method: &'static str,
+    },
     /// The browser's answer is not what the command returns.
     #[error("the browser's answer to `{method}` is not what it returns: {message}")]
     Unreadable {

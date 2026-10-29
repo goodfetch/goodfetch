@@ -150,7 +150,7 @@ fn every_page_of_the_limits_table_ends_in_response_limit_exceeded_naming_its_set
         misses
     });
 
-    assert_eq!(cases.len(), 9, "the table's served limit cases");
+    assert_eq!(cases.len(), 10, "the table's served limit cases");
     assert_eq!(misses, Vec::<String>::new());
 }
 

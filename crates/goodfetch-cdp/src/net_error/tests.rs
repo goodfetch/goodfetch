@@ -6,6 +6,7 @@ use super::NetError;
 #[case::aborted("net::ERR_ABORTED", NetError::Aborted)]
 #[case::too_many_redirects("net::ERR_TOO_MANY_REDIRECTS", NetError::TooManyRedirects)]
 #[case::decoding_failed("net::ERR_CONTENT_DECODING_FAILED", NetError::ContentDecodingFailed)]
+#[case::zstd_window_too_big("net::ERR_ZSTD_WINDOW_SIZE_TOO_BIG", NetError::ZstdWindowSizeTooBig)]
 #[case::response_code_failure(
     "net::ERR_HTTP_RESPONSE_CODE_FAILURE",
     NetError::HttpResponseCodeFailure
@@ -59,5 +60,26 @@ fn a_text_that_names_no_network_error_is_unrecognized_and_named_failed(#[case] t
     assert_eq!(
         (matches!(error, NetError::Unrecognized(_)), error.name()),
         (true, "net::ERR_FAILED")
+    );
+}
+
+/// A content coding that did not decode is a failure of its own, never a
+/// cut body (ADR 0118's #699 note): a zstd window past RFC 9659's 8 MB is
+/// one (finding V152-a read it as a cut body), and keeps its own name.
+#[rstest]
+#[case::decoding_failed("net::ERR_CONTENT_DECODING_FAILED", true)]
+#[case::zstd_window_too_big("net::ERR_ZSTD_WINDOW_SIZE_TOO_BIG", true)]
+#[case::length_mismatch("net::ERR_CONTENT_LENGTH_MISMATCH", false)]
+#[case::incomplete_chunked("net::ERR_INCOMPLETE_CHUNKED_ENCODING", false)]
+#[case::aborted("net::ERR_ABORTED", false)]
+fn a_content_coding_that_did_not_decode_is_told_from_a_cut_body(
+    #[case] text: &str,
+    #[case] fails_to_decode: bool,
+) {
+    let error = NetError::of(text);
+
+    assert_eq!(
+        (error.fails_to_decode(), error.name()),
+        (fails_to_decode, text)
     );
 }

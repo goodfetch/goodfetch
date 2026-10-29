@@ -104,7 +104,9 @@ async fn read(traffic: &PageTraffic, url: &str, json: bool) -> Result<usize, Str
 /// Every case of the committed limits table that a Proving ground page
 /// serves and that names a setting, read through the engine's client:
 /// each is refused naming its setting and its value, every miss collected
-/// before the test fails.
+/// before the test fails. The cases come from the table alone, so a case
+/// it gains runs here too; the test only checks that every setting is
+/// among them.
 #[test]
 fn every_page_of_the_limits_table_ends_in_response_limit_exceeded_naming_its_setting() {
     let env = TestEnv::new();
@@ -150,7 +152,16 @@ fn every_page_of_the_limits_table_ends_in_response_limit_exceeded_naming_its_set
         misses
     });
 
-    assert_eq!(cases.len(), 10, "the table's served limit cases");
+    for setting in [
+        TableSetting::MaxBodySize,
+        TableSetting::MaxDecompressionRatio,
+        TableSetting::MaxJsonDepth,
+    ] {
+        assert!(
+            cases.iter().any(|(_, _, served, _)| *served == setting),
+            "the table serves no case naming {setting:?}"
+        );
+    }
     assert_eq!(misses, Vec::<String>::new());
 }
 

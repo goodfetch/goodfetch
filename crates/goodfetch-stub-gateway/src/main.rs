@@ -15,7 +15,9 @@
 //! `transport` (ADRs 0059 and 0060). Once it serves, it writes its two
 //! addresses to the `--ready` file as `{"console": …, "content": …}`; it
 //! writes nothing to stdout, and logs through `tracing` to stderr. It runs
-//! until it is killed, and its engines die with it.
+//! until it is interrupted (`SIGINT`), when it kills its engines and exits
+//! once each has been reaped, or until it is killed, when its engines die
+//! with it.
 
 mod console_build;
 mod engines;
@@ -93,7 +95,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// Serves until the process is killed or interrupted.
+/// Serves until the process is killed or interrupted; interrupted, it
+/// kills and reaps its engines before it returns.
 async fn serve(arguments: Arguments, environment: Vec<(OsString, OsString)>) -> Result<(), String> {
     let build = console_build::read(&arguments.console_build)
         .await
@@ -124,8 +127,15 @@ async fn serve(arguments: Arguments, environment: Vec<(OsString, OsString)>) -> 
     )
     .map_err(|error| format!("preparing the engines: {error}"))?;
     let gateway = Arc::new(Gateway::new(engines, token.clone(), &mut entropy));
-    let site = Site::new(build, token, gateway, &console, &content, entropy)
-        .map_err(|error| format!("reading the listeners' addresses: {error}"))?;
+    let site = Site::new(
+        build,
+        token,
+        Arc::clone(&gateway),
+        &console,
+        &content,
+        entropy,
+    )
+    .map_err(|error| format!("reading the listeners' addresses: {error}"))?;
     let ready = serde_json::json!({
         "console": site.console_origin(),
         "content": site.content_origin(),
@@ -137,6 +147,7 @@ async fn serve(arguments: Arguments, environment: Vec<(OsString, OsString)>) -> 
     owner.spawn(Arc::clone(&site).serve_content(content, Arc::clone(&owner)));
     owner.spawn(site.serve_console(console, Arc::clone(&owner)));
     let _ = tokio::signal::ctrl_c().await;
+    gateway.stop().await;
     owner.cancel();
     Ok(())
 }

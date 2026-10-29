@@ -140,10 +140,9 @@ impl<'a> Document<'a> {
         let mut properties: BTreeMap<String, Vec<MicrodataValue>> = BTreeMap::new();
         for property in self.properties(element, &mut reading.left) {
             let mut value = self.property_value(property, reading);
-            for (place, name) in tokens(property.value().attr("itemprop"))
-                .into_iter()
-                .enumerate()
-            {
+            let names = tokens(property.value().attr("itemprop"));
+            let last = names.len().saturating_sub(1);
+            for (place, name) in names.into_iter().enumerate() {
                 // Each name past the first holds a copy of the value, which
                 // costs what the value did.
                 if place > 0
@@ -154,10 +153,18 @@ impl<'a> Document<'a> {
                         value = None;
                     }
                 }
+                // The last name takes the value itself: a copy for it would
+                // copy the item's whole subtree again at each level above
+                // it, work no step pays for.
+                let written = if place == last {
+                    value.take()
+                } else {
+                    value.clone()
+                };
                 properties
                     .entry(name)
                     .or_default()
-                    .push(value.clone().unwrap_or_else(error));
+                    .push(written.unwrap_or_else(error));
             }
         }
         reading.memory.pop();

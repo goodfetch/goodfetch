@@ -106,7 +106,7 @@ use self::reader::Following;
 use self::report::EndFacts;
 pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
-use self::writer::{LockError, take_lock};
+use self::writer::{LockError, retried, take_lock, try_lock};
 use crate::CallError;
 use crate::admission::{Admission, Gates};
 use crate::audit::{AuditEvents, AuditLog, Origin};
@@ -363,9 +363,25 @@ pub enum Resumed {
         kind: RunKind,
         /// The Product it needs.
         needs: Product,
+        /// The settings its report listed as weakened before this resume,
+        /// which a switch the resume's settings turn off is reported beyond
+        /// (ADR 0016).
+        listed: Vec<WeakenedSetting>,
     },
     /// The Run is live in this engine, or finished: answered as it is.
     Existing(RunStarted),
+}
+
+impl Resumed {
+    /// The Run `run_id`, answered as it is: at `lifecycle`, needing `needs`.
+    fn existing(run_id: RunId, lifecycle: Lifecycle, needs: Product) -> Self {
+        Self::Existing(RunStarted {
+            run_id,
+            started_as: StartedAs::Existing,
+            lifecycle,
+            needs,
+        })
+    }
 }
 
 /// What a start found.
@@ -439,6 +455,15 @@ pub enum StartError {
         /// The Run ID asked for, when the start named one.
         run_id: Option<RunId>,
     },
+    /// This engine is discarding the Run of this Run ID: its discard holds
+    /// its writer lock until it ends.
+    #[error("the Run `{run_id}` is being discarded")]
+    Discarding {
+        /// The Run ID.
+        run_id: RunId,
+        /// Its folder.
+        folder: PathBuf,
+    },
     /// The Run's transition table refused the start, which only a bug in
     /// Goodfetch causes (ADR 0128).
     #[error("the start of `{run_id}` was refused: {message}")]
@@ -480,10 +505,11 @@ pub struct StorageExhausted {
 /// with the first folder found on it.
 fn worst<'a>(
     sample: &'a StorageSample,
-    folders: [&'a PathBuf; 3],
+    folders: &[&'a PathBuf],
 ) -> Option<(&'a PathBuf, &'a Filesystem)> {
     folders
-        .into_iter()
+        .iter()
+        .copied()
         .filter_map(|folder| sample.of(folder).map(|filesystem| (folder, filesystem)))
         .fold(
             None,
@@ -492,6 +518,67 @@ fn worst<'a>(
                 _ => Some(found),
             },
         )
+}
+
+/// The engine's own folders the governor samples while the registry lives
+/// (ADR 0122), and what each holds.
+struct EngineFolders {
+    /// The folder of the filesystem holding run state: the per-major
+    /// folder, which holds the install database, in the per-install
+    /// layout, the run folders' otherwise.
+    run_state: PathBuf,
+    /// The run folders' folder, which holds each Run's lock, its page
+    /// bodies and its default Checkpoint in either layout.
+    runs: PathBuf,
+    /// The Goodfetch home, which holds the Usage ledger and the Politeness
+    /// file.
+    home: PathBuf,
+    /// The temporary folder.
+    temporary: PathBuf,
+}
+
+impl EngineFolders {
+    /// Each folder the runtime's metrics give series of, with what it
+    /// holds (ADR 0050).
+    fn labelled(&self) -> [(SampledFolder, &PathBuf); 3] {
+        [
+            (SampledFolder::RunState, &self.run_state),
+            (SampledFolder::Home, &self.home),
+            (SampledFolder::Temp, &self.temporary),
+        ]
+    }
+
+    /// Every folder sampled, each once.
+    fn sampled(&self) -> Vec<PathBuf> {
+        let mut sampled = Vec::new();
+        for folder in [&self.run_state, &self.runs, &self.home, &self.temporary] {
+            if !sampled.contains(folder) {
+                sampled.push(folder.clone());
+            }
+        }
+        sampled
+    }
+
+    /// The folders of the engine's essential writes, run state's first: no
+    /// Run goes on while one's filesystem is at `critical`, so none starts
+    /// and the Daemon is not ready (ADRs 0050 and 0122).
+    fn essential(&self) -> Vec<PathBuf> {
+        vec![self.run_state.clone(), self.home.clone()]
+    }
+}
+
+/// The first of `folders` whose filesystem `governor` reads at `critical`
+/// now, with it. It blocks: run it under a blocking policy.
+pub(crate) fn critical_among(
+    governor: &Governor,
+    folders: impl IntoIterator<Item = PathBuf>,
+) -> Option<(PathBuf, Filesystem)> {
+    folders.into_iter().find_map(|folder| {
+        let filesystem = governor
+            .storage_at(&folder)
+            .filter(Filesystem::is_critical)?;
+        Some((folder, filesystem))
+    })
 }
 
 /// The `storage_low` warning of a Run whose worst filesystem is `storage`
@@ -726,6 +813,15 @@ pub enum RunError {
     /// (ADR 0102).
     #[error("the Run `{0}` is interrupted")]
     Interrupted(RunId),
+    /// This engine is discarding the Run: its discard holds its writer
+    /// lock until it ends, and nothing of it is read meanwhile.
+    #[error("the Run `{run_id}` is being discarded")]
+    Discarding {
+        /// The Run ID.
+        run_id: RunId,
+        /// Its folder.
+        folder: PathBuf,
+    },
     /// The engine that works the Run answered a read forwarded to it with
     /// this failure (ADR 0102).
     #[error("the Run's owner answered `{}`", .0.data.code)]
@@ -959,11 +1055,12 @@ enum Command {
     Machine(oneshot::Sender<Result<String, RunError>>),
     GenerateId(oneshot::Sender<RunId>),
     SafeStop(RunId, StoppedBy, oneshot::Sender<Result<Waiting, RunError>>),
-    Reader(RunId, oneshot::Sender<RunReader>),
-    Progress(RunId, oneshot::Sender<Followed>),
-    Locate(RunId, oneshot::Sender<Option<Located>>),
+    Reader(RunId, oneshot::Sender<Result<RunReader, RunError>>),
+    Progress(RunId, oneshot::Sender<Result<Followed, RunError>>),
+    Locate(RunId, oneshot::Sender<Result<Option<Located>, RunError>>),
     Index(oneshot::Sender<IndexAt>),
     Discard(RunId, oneshot::Sender<Result<(), RunError>>),
+    Discarded(Box<Erased>, oneshot::Sender<Result<(), RunError>>),
     Drain(oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
     Storage(Arc<StorageSample>),
     StorageFailed(PathBuf),
@@ -971,7 +1068,8 @@ enum Command {
 }
 
 /// What the registry answers about the engine's health (ADR 0050): whether
-/// it drains, and the folder its run folders go in.
+/// it drains, the folder its run folders go in, and the folders of its
+/// essential writes, whose filesystems readiness reads afresh.
 pub(crate) struct RegistryHealth {
     /// Whether the engine drains, taking no Run (ADR 0049).
     pub(crate) draining: bool,
@@ -979,9 +1077,11 @@ pub(crate) struct RegistryHealth {
     pub(crate) folder: PathBuf,
     /// Whether the Resource governor is at its last resort (ADR 0040).
     pub(crate) governor_last_resort: bool,
-    /// Whether the governor's last storage sample found the filesystem of
-    /// the run folders at `critical` (ADR 0122).
-    pub(crate) storage_critical: bool,
+    /// The folders of the essential writes: run state's and the Goodfetch
+    /// home (ADR 0122).
+    pub(crate) essential: Vec<PathBuf>,
+    /// What reads their filesystems now.
+    pub(crate) governor: Governor,
 }
 
 /// Whether a wait for a Run's end lets it finish (ADR 0102): `run.finish`
@@ -1435,8 +1535,8 @@ impl Run {
     }
 
     /// Hands `warning` over to the Run's report unless it holds a warning
-    /// of the same code already, such as one an earlier run epoch handed
-    /// over before a resume.
+    /// of the same code for the same folder, or with no folder, already,
+    /// such as one an earlier run epoch handed over before a resume.
     ///
     /// # Errors
     ///
@@ -1450,7 +1550,7 @@ impl Run {
         let warning = self.masked(warning);
         self.state
             .write(move |connection| {
-                if report::warned(connection, &warning.code)? {
+                if report::warned(connection, &warning.code, warning.folder.as_deref())? {
                     return Ok(());
                 }
                 report::warn(connection, &warning)
@@ -1783,7 +1883,7 @@ impl Run {
             .storage
             .borrow()
             .of(&self.folder)
-            .is_some_and(|filesystem| filesystem.level == StorageLevel::Critical);
+            .is_some_and(Filesystem::is_critical);
         if critical {
             return Err(KeepError::Storage {
                 reason: "storage_full",
@@ -1796,16 +1896,25 @@ impl Run {
         }
         let folder = self.folder.clone();
         let mut source = source;
-        let (sha256, size) = self
+        let staged = self
             .owner
-            .blocking(move || run_files::store(&folder, &mut source))
+            .blocking(move || run_files::stage(&folder, &mut source))
             .await
             .map_err(|error| KeepError::io(&error, "keep the file in the Run's folder"))?;
+        let (sha256, size) = (staged.sha256.clone(), staged.size);
         let recorded = sha256.clone();
+        // Placed in the write that records it, so a forget of the same
+        // bytes ordered before it deletes no file the record names.
         let position = self
             .state
-            .write(move |connection| run_files::record(connection, kind, &name, &recorded, size))
-            .await?;
+            .write(move |connection| {
+                if let Err(error) = staged.place() {
+                    return Ok(Err(error));
+                }
+                run_files::record(connection, kind, &name, &recorded, size).map(Ok)
+            })
+            .await?
+            .map_err(|error| KeepError::io(&error, "keep the file in the Run's folder"))?;
         Ok(Kept {
             position,
             sha256,
@@ -2182,6 +2291,7 @@ impl Runs {
             outliving: std::collections::BTreeSet::new(),
             found_ended: std::collections::BTreeSet::new(),
             sampled: Vec::new(),
+            discarding: std::collections::BTreeSet::new(),
             unrecorded: BTreeMap::new(),
             memory_stop: MemoryStop::Idle,
         };
@@ -2686,15 +2796,39 @@ impl Runs {
         // With `security.audit_chain` off, the resumed Run's entries, from
         // its key's use on, are written unchained (ADR 0016); a resume
         // that takes no epoch chains them again.
-        let unchains = resume
+        let switched = resume
             .settings
             .as_ref()
-            .is_some_and(|settings| self.controls.switched_off(settings.resolved()).unchains());
+            .map(|settings| self.controls.switched_off(settings.resolved()))
+            .unwrap_or_default();
         let (audit, run_id) = (self.audit().clone(), resume.run_id.clone());
-        let newly_unchained = unchains && audit.unchain(run_id.clone());
+        let newly_unchained = switched.unchains() && audit.unchain(run_id.clone());
         let resumed = self.resume_unchained(resume).await;
-        if newly_unchained && !matches!(resumed, Ok(Resumed::New { .. })) {
-            audit.rechain(&run_id);
+        match &resumed {
+            // Each control it switches off that its report did not list
+            // yet is reported as a start's are (ADR 0016).
+            Ok(Resumed::New { listed, .. }) => {
+                let switched = switched.beyond(listed);
+                let now = jiff::Timestamp::try_from(self.limits.clock.wall())
+                    .unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+                let reported_for = run_id.clone();
+                let reported = self
+                    .limits
+                    .owner
+                    .blocking(move || switched.report(&audit, &reported_for, now))
+                    .await;
+                if let Err(error) = reported {
+                    tracing::error!(
+                        run_id = %run_id,
+                        %error,
+                        "a security control the resume switched off could not be recorded in the Audit log"
+                    );
+                }
+            }
+            _ if newly_unchained => {
+                audit.rechain(&run_id);
+            }
+            _ => {}
         }
         resumed
     }
@@ -2911,7 +3045,7 @@ impl Runs {
         let critical = owner
             .blocking(move || governor.storage_at(&sampled))
             .await
-            .is_some_and(|filesystem| filesystem.level == StorageLevel::Critical);
+            .is_some_and(|filesystem| filesystem.is_critical());
         if critical {
             return Err(KeepError::Storage {
                 reason: "storage_full",
@@ -2948,7 +3082,7 @@ impl Runs {
             .send(Command::Reader(run_id, answer))
             .await
             .map_err(|_| RunError::Stopped)?;
-        answered.await.map_err(|_| RunError::Stopped)
+        answered.await.map_err(|_| RunError::Stopped)?
     }
 
     /// The progress of the Run `run_id` (ADR 0102): without `after`, as it
@@ -2983,7 +3117,7 @@ impl Runs {
             mut reader,
             parts,
             clock,
-        } = answered.await.map_err(|_| RunError::Stopped)?;
+        } = answered.await.map_err(|_| RunError::Stopped)??;
         let Some(mut changes) = changes else {
             let folder = reader.folder().to_owned();
             let at = point_in_time(&clock);
@@ -3099,7 +3233,7 @@ impl Runs {
             .send(Command::Locate(run_id.clone(), answer))
             .await
             .map_err(|_| RunError::Stopped)?;
-        let Some(located) = answered.await.map_err(|_| RunError::Stopped)? else {
+        let Some(located) = answered.await.map_err(|_| RunError::Stopped)?? else {
             return Ok(None);
         };
         let Located {
@@ -3444,6 +3578,92 @@ struct Live {
     progress: Progress,
 }
 
+/// What a discard, which runs beside the registry, needs of it.
+struct Erasing {
+    /// Under whose blocking policy it runs.
+    owner: TaskOwner,
+    /// What its retries wait on.
+    clock: Clock,
+    entropy: Entropy,
+    /// The VFS run files open through.
+    vfs: Option<String>,
+    /// The install database, in the per-install layout.
+    install: Option<Arc<InstallDatabase>>,
+    /// The Run index, and the version whose rows it erases.
+    index: PathBuf,
+    version: ProductVersion,
+}
+
+/// How a discard went.
+struct Erased {
+    run_id: RunId,
+    /// Whether the Run's state is gone, so that the registry forgets its
+    /// end.
+    state_gone: bool,
+    /// What its caller is answered.
+    answered: Result<(), RunError>,
+}
+
+impl Erasing {
+    /// Erases the Run `run_id` in `folder` (ADRs 0001 and 0036): its state
+    /// under its writer lock, then its Run index row, marked *erased*.
+    async fn erase(mut self, run_id: RunId, folder: PathBuf) -> Erased {
+        let discarding = discard::Discarding {
+            owner: &self.owner,
+            clock: &self.clock,
+            entropy: &mut self.entropy,
+        };
+        let discarded = discard::discard(
+            discarding,
+            run_id.as_str(),
+            &folder,
+            self.vfs.as_deref(),
+            self.install.as_ref(),
+        )
+        .await
+        .map_err(|error| match error {
+            discard::DiscardError::Held => RunError::InUse {
+                run_id: run_id.clone(),
+                folder: folder.clone(),
+            },
+            discard::DiscardError::State(error) => RunError::of_state(&run_id, &folder, error),
+            discard::DiscardError::Io(error) => RunError::Unavailable {
+                run_id: run_id.clone(),
+                folder: folder.clone(),
+                error,
+            },
+        });
+        let discarded = match discarded {
+            Ok(discarded) => discarded,
+            Err(error) => {
+                return Erased {
+                    run_id,
+                    state_gone: false,
+                    answered: Err(error),
+                };
+            }
+        };
+        let (index, version, id) = (self.index, self.version, run_id.clone());
+        let listed = self
+            .owner
+            .blocking(move || run_index::erase(&index, &version, &id))
+            .await
+            .map_err(|error| RunError::of_state(&run_id, &folder, error));
+        let answered = match listed {
+            Ok(false) if discarded == discard::Discarded::Absent => {
+                Err(RunError::NotFound(run_id.clone()))
+            }
+            Ok(_) => Ok(()),
+            Err(error) => Err(error),
+        };
+        Erased {
+            run_id,
+            state_gone: true,
+            answered,
+        }
+    }
+}
+
 struct Registry {
     setup: RunsSetup,
     /// The gate in admission and the Politeness the engine's Runs share.
@@ -3478,6 +3698,9 @@ struct Registry {
     unrecorded: BTreeMap<RunId, Box<StorageExhausted>>,
     /// Where the governor's last resort stands: it stops one Run at a time.
     memory_stop: MemoryStop,
+    /// The Runs being discarded, beside the registry: no start, resume or
+    /// read of one is taken until its discard ends.
+    discarding: std::collections::BTreeSet<RunId>,
 }
 
 /// Where the governor's last resort stands (ADR 0040): it stops one Run at
@@ -3493,6 +3716,32 @@ enum MemoryStop {
     After(u64),
 }
 
+/// What a resumed Run's report lists as weakened: `listed`, what it listed,
+/// joined by the settings the resume's own `settings` weaken, recorded in
+/// `state` when they add any, so that the report says what ran (ADR 0016).
+async fn joined_weakened(
+    listed: &[WeakenedSetting],
+    settings: Option<&RunSettings>,
+    state: &RunState,
+) -> Result<Vec<WeakenedSetting>, RunStateError> {
+    let mut weakened = listed.to_vec();
+    for setting in settings
+        .map(|settings| settings.resolved().weakened())
+        .unwrap_or_default()
+    {
+        if !weakened.iter().any(|kept| kept.key == setting.key) {
+            weakened.push(setting);
+        }
+    }
+    if weakened.len() > listed.len() {
+        let recording = weakened.clone();
+        state
+            .write(move |connection| folder::record_weakened(connection, &recording))
+            .await?;
+    }
+    Ok(weakened)
+}
+
 impl Registry {
     async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
         // No command is answered before the reclaim ends, so a Run starts
@@ -3503,95 +3752,8 @@ impl Registry {
         self.reclaim().await;
         self.follow_governor();
         while let Some(command) = mailbox.recv().await {
-            match command {
-                Command::Start(start, _, answer) if self.draining => {
-                    let (start, _, _) = *start;
-                    let _ = answer.send(Err(StartError::Draining {
-                        run_id: start.run_id,
-                    }));
-                }
-                Command::Resume(resume, _, answer) if self.draining => {
-                    let (resume, _, _, _) = *resume;
-                    let _ = answer.send(Err(RunError::Draining(resume.run_id)));
-                }
-                Command::Drain(answer) => {
-                    let _ = answer.send(self.drain().await);
-                }
-                Command::Start(start, connection, answer) => {
-                    let (start, secrets, link) = *start;
-                    let started = self.start(start, secrets, connection, &link).await;
-                    let _ = answer.send(started);
-                }
-                Command::Finish(run_id, letting, answer) => {
-                    let _ = answer.send(self.finish(&run_id, letting).await);
-                }
-                Command::ProgressMessage(run_id, message, answer) => {
-                    let _ = answer.send(self.progress_message(&run_id, message).await);
-                }
-                Command::Abort(run_id, by, forwarded, answer) => {
-                    let _ = answer.send(self.abort(&run_id, by, forwarded).await);
-                }
-                Command::End(run_id, end) => {
-                    let _ = self.end_or_report(&run_id, end).await;
-                }
-                Command::Uses(run_id, product) => self.uses(&run_id, product).await,
-                Command::Ended(run_id, ended) => self.ended(run_id, *ended),
-                Command::StopAll(answer) => {
-                    let ids: Vec<RunId> = self.live.keys().cloned().collect();
-                    let _ = answer.send(self.stop_by_client(ids).await);
-                }
-                Command::StopConnection(connection, answer) => {
-                    let ended = self.connection_ended(connection).await;
-                    let _ = answer.send(ended);
-                }
-                Command::Outlive(connection) => _ = self.outliving.insert(connection),
-                Command::LiveCount(answer) => _ = answer.send(self.live.len()),
-                Command::Health(answer) => {
-                    let _ = answer.send(self.health());
-                }
-                Command::Folder(run_id, answer) => _ = answer.send(self.folder(&run_id)),
-                Command::Governor(answer) => _ = answer.send(self.setup.governor.clone()),
-                Command::Live(run_id, answer) => _ = answer.send(self.live_run(run_id)),
-                Command::Checkpoint(run_id, location, answer) => {
-                    self.checkpoint(run_id, location, answer).await;
-                }
-                Command::Checkpointed(run_id, checkpoint) => {
-                    if let Some(live) = self.live.get_mut(&run_id) {
-                        let time = checkpoint.time.clone();
-                        live.progress
-                            .change(|progressing| progressing.checkpoint_at = Some(time));
-                        live.checkpoint = Some(*checkpoint);
-                    }
-                }
-                Command::Stop(run_id, reason, location, answer) => {
-                    let _ = answer.send(self.stop(&run_id, reason, location).await);
-                }
-                Command::GenerateId(answer) => _ = answer.send(self.generated_id()),
-                Command::StoredKey(run_id, checkpoint, answer) => {
-                    let _ = answer.send(self.stored_key(&run_id, checkpoint.as_deref()).await);
-                }
-                Command::Resume(resume, connection, answer) => {
-                    let (resume, link, keys, stored) = *resume;
-                    let resumed = self.resume(resume, keys, stored, connection).await;
-                    if let Ok(Resumed::New { run, .. }) = &resumed {
-                        link.add_to(run.span());
-                    }
-                    let _ = answer.send(resumed);
-                }
-                Command::Machine(answer) => {
-                    let _ = answer.send(self.machine().await);
-                }
-                Command::SafeStop(run_id, by, answer) => {
-                    let _ = answer.send(self.safe_stop(&run_id, by).await);
-                }
-                Command::Reader(run_id, answer) => _ = answer.send(self.reader(&run_id)),
-                Command::Progress(run_id, answer) => _ = answer.send(self.followed(&run_id)),
-                Command::Locate(run_id, answer) => _ = answer.send(self.locate(&run_id)),
-                Command::Index(answer) => _ = answer.send(self.index_at()),
-                Command::Discard(run_id, answer) => self.discard(run_id, answer).await,
-                Command::Storage(sample) => self.storage(&sample),
-                Command::StorageFailed(folder) => self.storage_failed(&folder),
-                Command::LastResort(last_resort) => self.last_resort(last_resort),
+            if let Some(command) = self.unless_discarding(command) {
+                self.answer(command).await;
             }
         }
         self.readers.wait().await;
@@ -3599,20 +3761,109 @@ impl Registry {
         self.owner.wait().await;
     }
 
+    /// Handles `command`, one of a Run the engine is not discarding.
+    async fn answer(&mut self, command: Command) {
+        match command {
+            Command::Start(start, _, answer) if self.draining => {
+                let (start, _, _) = *start;
+                let _ = answer.send(Err(StartError::Draining {
+                    run_id: start.run_id,
+                }));
+            }
+            Command::Resume(resume, _, answer) if self.draining => {
+                let (resume, _, _, _) = *resume;
+                let _ = answer.send(Err(RunError::Draining(resume.run_id)));
+            }
+            Command::Drain(answer) => {
+                let _ = answer.send(self.drain().await);
+            }
+            Command::Start(start, connection, answer) => {
+                let (start, secrets, link) = *start;
+                let started = self.start(start, secrets, connection, &link).await;
+                let _ = answer.send(started);
+            }
+            Command::Finish(run_id, letting, answer) => {
+                let _ = answer.send(self.finish(&run_id, letting).await);
+            }
+            Command::ProgressMessage(run_id, message, answer) => {
+                let _ = answer.send(self.progress_message(&run_id, message).await);
+            }
+            Command::Abort(run_id, by, forwarded, answer) => {
+                let _ = answer.send(self.abort(&run_id, by, forwarded).await);
+            }
+            Command::End(run_id, end) => {
+                let _ = self.end_or_report(&run_id, end).await;
+            }
+            Command::Uses(run_id, product) => self.uses(&run_id, product).await,
+            Command::Ended(run_id, ended) => self.ended(run_id, *ended),
+            Command::StopAll(answer) => {
+                let ids: Vec<RunId> = self.live.keys().cloned().collect();
+                let _ = answer.send(self.stop_by_client(ids).await);
+            }
+            Command::StopConnection(connection, answer) => {
+                let ended = self.connection_ended(connection).await;
+                let _ = answer.send(ended);
+            }
+            Command::Outlive(connection) => _ = self.outliving.insert(connection),
+            Command::LiveCount(answer) => _ = answer.send(self.live.len()),
+            Command::Health(answer) => {
+                let _ = answer.send(self.health());
+            }
+            Command::Folder(run_id, answer) => _ = answer.send(self.folder(&run_id)),
+            Command::Governor(answer) => _ = answer.send(self.setup.governor.clone()),
+            Command::Live(run_id, answer) => _ = answer.send(self.live_run(run_id)),
+            Command::Checkpoint(run_id, location, answer) => {
+                self.checkpoint(run_id, location, answer).await;
+            }
+            Command::Checkpointed(run_id, checkpoint) => {
+                if let Some(live) = self.live.get_mut(&run_id) {
+                    let time = checkpoint.time.clone();
+                    live.progress
+                        .change(|progressing| progressing.checkpoint_at = Some(time));
+                    live.checkpoint = Some(*checkpoint);
+                }
+            }
+            Command::Stop(run_id, reason, location, answer) => {
+                let _ = answer.send(self.stop(&run_id, reason, location).await);
+            }
+            Command::GenerateId(answer) => _ = answer.send(self.generated_id()),
+            Command::StoredKey(run_id, checkpoint, answer) => {
+                let _ = answer.send(self.stored_key(&run_id, checkpoint.as_deref()).await);
+            }
+            Command::Resume(resume, connection, answer) => {
+                let (resume, link, keys, stored) = *resume;
+                let resumed = self.resume(resume, keys, stored, connection).await;
+                if let Ok(Resumed::New { run, .. }) = &resumed {
+                    link.add_to(run.span());
+                }
+                let _ = answer.send(resumed);
+            }
+            Command::Machine(answer) => {
+                let _ = answer.send(self.machine().await);
+            }
+            Command::SafeStop(run_id, by, answer) => {
+                let _ = answer.send(self.safe_stop(&run_id, by).await);
+            }
+            Command::Reader(run_id, answer) => _ = answer.send(Ok(self.reader(&run_id))),
+            Command::Progress(run_id, answer) => _ = answer.send(Ok(self.followed(&run_id))),
+            Command::Locate(run_id, answer) => _ = answer.send(Ok(self.locate(&run_id))),
+            Command::Index(answer) => _ = answer.send(self.index_at()),
+            Command::Discard(run_id, answer) => self.discard(run_id, answer),
+            Command::Discarded(erased, answer) => self.discarded(*erased, answer),
+            Command::Storage(sample) => self.storage(&sample),
+            Command::StorageFailed(folder) => self.storage_failed(&folder),
+            Command::LastResort(last_resort) => self.last_resort(last_resort),
+        }
+    }
+
     /// Has the governor sample the engine's own folders, and hands each of
     /// its storage samples to the registry (ADR 0122).
     fn sample_storage(&mut self) {
-        let governor = &self.setup.governor;
-        let location = self
+        self.sampled = self
             .setup
-            .location
-            .folder(&self.setup.home, &self.setup.version);
-        self.sampled = governor.sample_together([
-            location,
-            self.setup.home.root().to_owned(),
-            std::env::temp_dir(),
-        ]);
-        let mut samples = governor.storage();
+            .governor
+            .sample_together(self.engine_folders().sampled());
+        let mut samples = self.setup.governor.storage();
         let registry = self.runs.clone();
         let token = self.owner.token().clone();
         self.owner.spawn(async move {
@@ -3704,49 +3955,49 @@ impl Registry {
     /// next safe point; each Run's progress carries the worst level among
     /// its filesystems when it changes, and its report a `storage_low`
     /// warning for each folder found at `low` or worse. The runtime's
-    /// metrics record the filesystem of the run folders, of the Goodfetch
-    /// home and of the temporary folder, each labelled by what it holds,
-    /// so one filesystem holding several gives each its series.
+    /// metrics record the filesystem of run state (the install database's
+    /// in the per-install layout, the run folders' otherwise), of the
+    /// Goodfetch home and of the temporary folder, each labelled by what it
+    /// holds, so one filesystem holding several gives each its series.
     fn storage(&mut self, sample: &StorageSample) {
-        let home = self.setup.home.root().to_owned();
-        let temporary = std::env::temp_dir();
-        let runs = self
-            .setup
-            .location
-            .folder(&self.setup.home, &self.setup.version);
+        let folders = self.engine_folders();
         self.setup.metrics.storage(
-            [
-                (SampledFolder::RunState, &runs),
-                (SampledFolder::Home, &home),
-                (SampledFolder::Temp, &temporary),
-            ]
-            .into_iter()
-            .filter_map(|(holds, folder)| {
-                let filesystem = sample.of(folder)?;
-                Some(FolderStorage {
-                    holds,
-                    level: filesystem.level,
-                    free: filesystem.free,
-                    free_inodes: filesystem.free_inodes,
-                })
-            }),
+            folders
+                .labelled()
+                .into_iter()
+                .filter_map(|(holds, folder)| {
+                    let filesystem = sample.of(folder)?;
+                    Some(FolderStorage {
+                        holds,
+                        level: filesystem.level,
+                        free: filesystem.free,
+                        free_inodes: filesystem.free_inodes,
+                    })
+                }),
         );
+        let (home, temporary) = (&folders.home, &folders.temporary);
+        let install = self
+            .setup
+            .install
+            .as_ref()
+            .map(|install| install.folder().to_owned());
         for live in self.live.values_mut() {
             let Some(run) = &live.run else {
                 continue;
             };
-            let essential = [&live.folder, &home];
-            if let Some(folder) = essential.into_iter().find(|folder| {
-                sample
-                    .of(folder)
-                    .is_some_and(|filesystem| filesystem.level == StorageLevel::Critical)
-            }) {
+            let run_state = install.as_ref().unwrap_or(&live.folder);
+            let essential = [run_state, home];
+            if let Some(folder) = essential
+                .into_iter()
+                .find(|folder| sample.of(folder).is_some_and(Filesystem::is_critical))
+            {
                 run.stop(StopReason::Resources {
                     resource: goodfetch_protocol::run::Resource::Storage,
                     folder: Some(folder.display().to_string()),
                 });
             }
-            let Some((folder, filesystem)) = worst(sample, [&live.folder, &home, &temporary])
+            let Some((folder, filesystem)) =
+                worst(sample, &[&live.folder, run_state, home, temporary])
             else {
                 continue;
             };
@@ -3767,10 +4018,12 @@ impl Registry {
             }
             if storage.level >= StorageLevel::Low && live.warned_low.insert(storage.folder.clone())
             {
+                // Once per folder, whichever run epoch met it first (ADR
+                // 0122): a resume's starts empty in memory.
                 let warning = storage_low(&storage);
                 let warned = run.clone();
                 run.spawn(async move {
-                    if let Err(error) = warned.warn(warning).await {
+                    if let Err(error) = warned.warn_once(warning).await {
                         tracing::warn!(%error, run_id = %warned.id, "the Run's `storage_low` warning was not kept");
                     }
                 });
@@ -3780,8 +4033,8 @@ impl Registry {
 
     /// Whether this engine may resume the Run `run_id` that `held` holds in
     /// `folder`: one bound to its machine only there (ADR 0056), one of its
-    /// Product only, and none while its folder's filesystem is at `critical`
-    /// (ADR 0122).
+    /// Product only, and none while the filesystem of its run state or of
+    /// the Goodfetch home is at `critical` (ADR 0122).
     async fn may_resume(
         &mut self,
         run_id: &RunId,
@@ -3799,12 +4052,15 @@ impl Registry {
                 needs: held.needs,
             });
         }
-        match self.critical_at(folder.to_owned()).await {
-            Some(filesystem) => Err(RunError::ResourcesExhausted(Box::new(StorageExhausted {
-                run_id: run_id.clone(),
-                folder: folder.to_owned(),
-                filesystem,
-            }))),
+        let essential = vec![self.run_state_of(folder), self.setup.home.root().to_owned()];
+        match self.critical_among(essential).await {
+            Some((folder, filesystem)) => {
+                Err(RunError::ResourcesExhausted(Box::new(StorageExhausted {
+                    run_id: run_id.clone(),
+                    folder,
+                    filesystem,
+                })))
+            }
             None => Ok(()),
         }
     }
@@ -3821,13 +4077,13 @@ impl Registry {
         }
     }
 
-    /// The filesystem holding `path` now, when it is at `critical`.
-    async fn critical_at(&self, path: PathBuf) -> Option<Filesystem> {
+    /// The first of `folders` whose filesystem is at `critical` now, read
+    /// afresh rather than from the last sample (ADR 0122), with it.
+    async fn critical_among(&self, folders: Vec<PathBuf>) -> Option<(PathBuf, Filesystem)> {
         let governor = self.setup.governor.clone();
         self.owner
-            .blocking(move || governor.storage_at(&path))
+            .blocking(move || critical_among(&governor, folders))
             .await
-            .filter(|filesystem| filesystem.level == StorageLevel::Critical)
     }
 
     /// Takes no Run from now on, stops each live Run for the drain with a
@@ -3936,9 +4192,7 @@ impl Registry {
                 progressing.writer = RunWriter::Absent;
                 progressing.last = true;
             });
-            if let Some(report) = ended.report() {
-                self.setup.metrics.run_ended(kind, report);
-            }
+            self.setup.metrics.run_ended(kind, ended.report());
             waiters.send_replace(Some(ended.clone()));
         }
         match ended {
@@ -4055,61 +4309,104 @@ impl Registry {
         )
     }
 
-    /// Discards the Run `run_id` and sends `answer` how it went.
-    async fn discard(&mut self, run_id: RunId, answer: oneshot::Sender<Result<(), RunError>>) {
-        let _ = answer.send(self.erase(run_id).await);
-    }
-
-    /// Erases the Run `run_id` (ADRs 0001 and 0036): its state under its
-    /// writer lock, then its Run index row, marked *erased*, and its report.
-    async fn erase(&mut self, run_id: RunId) -> Result<(), RunError> {
+    /// Discards the Run `run_id` beside the registry, which answers every
+    /// other call meanwhile (ADR 0050), and has the registry send `answer`
+    /// how it went once it ended: a Run this engine runs is refused, and so
+    /// is one already being discarded.
+    fn discard(&mut self, run_id: RunId, answer: oneshot::Sender<Result<(), RunError>>) {
         if self.live.contains_key(&run_id) {
-            return Err(RunError::Live(run_id));
+            let _ = answer.send(Err(RunError::Live(run_id)));
+            return;
         }
         let folder = self.folder(&run_id);
-        let vfs = self.setup.run_state.vfs.clone();
-        let install = self.setup.install.clone();
-        let mut entropy = self.setup.entropy.fork();
-        let discarding = discard::Discarding {
-            owner: &self.owner,
-            clock: &self.setup.clock,
-            entropy: &mut entropy,
-        };
-        let discarded = discard::discard(
-            discarding,
-            run_id.as_str(),
-            &folder,
-            vfs.as_deref(),
-            install.as_ref(),
-        )
-        .await
-        .map_err(|error| match error {
-            discard::DiscardError::Held => RunError::InUse {
-                run_id: run_id.clone(),
-                folder: folder.clone(),
-            },
-            discard::DiscardError::State(error) => RunError::of_state(&run_id, &folder, error),
-            discard::DiscardError::Io(error) => RunError::Unavailable {
-                run_id: run_id.clone(),
-                folder: folder.clone(),
-                error,
-            },
-        })?;
-        self.ended.remove(&run_id);
-        self.found_ended.remove(&run_id);
-        self.unrecorded.remove(&run_id);
-        let path = self.setup.home.run_index(&self.setup.version);
-        let version = self.setup.version.clone();
-        let id = run_id.clone();
-        let listed = self
-            .owner
-            .blocking(move || run_index::erase(&path, &version, &id))
-            .await
-            .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
-        if discarded == discard::Discarded::Absent && !listed {
-            return Err(RunError::NotFound(run_id));
+        if !self.discarding.insert(run_id.clone()) {
+            let _ = answer.send(Err(RunError::Discarding { run_id, folder }));
+            return;
         }
-        Ok(())
+        let erasing = Erasing {
+            owner: self.owner.child(),
+            clock: self.setup.clock,
+            entropy: self.setup.entropy.fork(),
+            vfs: self.setup.run_state.vfs.clone(),
+            install: self.setup.install.clone(),
+            index: self.setup.home.run_index(&self.setup.version),
+            version: self.setup.version.clone(),
+        };
+        let registry = self.runs.clone();
+        self.owner.spawn(async move {
+            let erased = erasing.erase(run_id, folder).await;
+            if let Some(registry) = registry.upgrade() {
+                let _ = registry
+                    .send(Command::Discarded(Box::new(erased), answer))
+                    .await;
+            }
+        });
+    }
+
+    /// Takes the end of a discard: the Run is no longer being discarded,
+    /// and once its state is gone the registry forgets its end too.
+    fn discarded(&mut self, erased: Erased, answer: oneshot::Sender<Result<(), RunError>>) {
+        let Erased {
+            run_id,
+            state_gone,
+            answered,
+        } = erased;
+        self.discarding.remove(&run_id);
+        if state_gone {
+            self.ended.remove(&run_id);
+            self.found_ended.remove(&run_id);
+            self.unrecorded.remove(&run_id);
+        }
+        let _ = answer.send(answered);
+    }
+
+    /// `command`, unless it starts, resumes, ends or reads a Run being
+    /// discarded, which it then answers as refused with `Discarding`.
+    fn unless_discarding(&self, command: Command) -> Option<Command> {
+        let run_id = match &command {
+            Command::Start(start, _, _) => start.0.run_id.as_ref(),
+            Command::Resume(resume, _, _) => Some(&resume.0.run_id),
+            Command::Finish(run_id, ..)
+            | Command::Abort(run_id, ..)
+            | Command::SafeStop(run_id, ..)
+            | Command::Stop(run_id, ..)
+            | Command::Checkpoint(run_id, ..)
+            | Command::StoredKey(run_id, ..)
+            | Command::Reader(run_id, _)
+            | Command::Progress(run_id, _)
+            | Command::Locate(run_id, _) => Some(run_id),
+            _ => None,
+        };
+        let Some(run_id) = run_id.filter(|run_id| self.discarding.contains(*run_id)) else {
+            return Some(command);
+        };
+        let (run_id, folder) = (run_id.clone(), self.folder(run_id));
+        let refused = || RunError::Discarding {
+            run_id: run_id.clone(),
+            folder: folder.clone(),
+        };
+        match command {
+            Command::Start(_, _, answer) => {
+                let _ = answer.send(Err(StartError::Discarding {
+                    run_id: run_id.clone(),
+                    folder: folder.clone(),
+                }));
+            }
+            Command::Resume(_, _, answer) => _ = answer.send(Err(refused())),
+            Command::Finish(_, _, answer) | Command::Stop(_, _, _, answer) => {
+                _ = answer.send(Err(refused()));
+            }
+            Command::Abort(_, _, _, answer) | Command::SafeStop(_, _, answer) => {
+                _ = answer.send(Err(refused()));
+            }
+            Command::Checkpoint(_, _, answer) => _ = answer.send(Err(refused())),
+            Command::StoredKey(_, _, answer) => _ = answer.send(Err(refused())),
+            Command::Reader(_, answer) => _ = answer.send(Err(refused())),
+            Command::Progress(_, answer) => _ = answer.send(Err(refused())),
+            Command::Locate(_, answer) => _ = answer.send(Err(refused())),
+            other => return Some(other),
+        }
+        None
     }
 
     /// How a Run's run file opens under its `settings`: in the durability
@@ -4225,14 +4522,11 @@ impl Registry {
                 needs: found.needs,
             }));
         }
-        let location = self
-            .setup
-            .location
-            .folder(&self.setup.home, &self.setup.version);
-        if let Some(filesystem) = self.critical_at(location.clone()).await {
+        let essential = self.engine_folders().essential();
+        if let Some((folder, filesystem)) = self.critical_among(essential).await {
             return Err(StartError::ResourcesExhausted(Box::new(StorageExhausted {
                 run_id,
-                folder: location,
+                folder,
                 filesystem,
             })));
         }
@@ -4278,23 +4572,28 @@ impl Registry {
     }
 
     /// Takes the lock of the Run of `run_id` in `folder`, which no other
-    /// engine may hold while it runs there.
-    async fn lock(&self, run_id: &RunId, folder: &Path) -> Result<File, StartError> {
-        let lock_folder = folder.to_path_buf();
-        self.owner
-            .blocking(move || take_lock(&lock_folder))
-            .await
-            .map_err(|error| match error {
-                LockError::Held => StartError::InUse {
-                    run_id: run_id.clone(),
-                    folder: folder.to_path_buf(),
-                },
-                LockError::Io(error) => StartError::Unavailable {
-                    run_id: run_id.clone(),
-                    folder: folder.to_path_buf(),
-                    error,
-                },
-            })
+    /// engine may hold while it runs there; one found held, perhaps only by
+    /// a reader's test, is retried as every writer retries it (ADR 0031).
+    async fn lock(&mut self, run_id: &RunId, folder: &Path) -> Result<File, StartError> {
+        let (owner, clock) = (&self.owner, &self.setup.clock);
+        let taken = match try_lock(owner, folder).await {
+            Ok(Some(lock)) => Ok(Some(lock)),
+            // Only a retry draws from the engine's `Entropy`.
+            Ok(None) => retried(clock, &mut self.setup.entropy, || try_lock(owner, folder)).await,
+            Err(error) => Err(error),
+        };
+        match taken {
+            Ok(Some(lock)) => Ok(lock),
+            Ok(None) => Err(StartError::InUse {
+                run_id: run_id.clone(),
+                folder: folder.to_path_buf(),
+            }),
+            Err(error) => Err(StartError::Unavailable {
+                run_id: run_id.clone(),
+                folder: folder.to_path_buf(),
+                error,
+            }),
+        }
     }
 
     /// Whether a new Run placed at `placement` may start: every Limit that
@@ -4567,23 +4866,42 @@ impl Registry {
 
     /// What it answers about the engine's health.
     fn health(&self) -> RegistryHealth {
-        let folder = self
-            .setup
-            .location
-            .folder(&self.setup.home, &self.setup.version);
-        let storage_critical = self
-            .setup
-            .governor
-            .storage()
-            .borrow()
-            .of(&folder)
-            .is_some_and(|filesystem| filesystem.level == StorageLevel::Critical);
+        let folders = self.engine_folders();
         RegistryHealth {
             draining: self.draining,
             governor_last_resort: self.setup.governor.at_last_resort(),
-            storage_critical,
-            folder,
+            essential: folders.essential(),
+            governor: self.setup.governor.clone(),
+            folder: folders.runs,
         }
+    }
+
+    /// The engine's own folders the governor samples.
+    fn engine_folders(&self) -> EngineFolders {
+        let runs = self
+            .setup
+            .location
+            .folder(&self.setup.home, &self.setup.version);
+        EngineFolders {
+            run_state: self
+                .setup
+                .install
+                .as_ref()
+                .map_or_else(|| runs.clone(), |install| install.folder().to_owned()),
+            runs,
+            home: self.setup.home.root().to_owned(),
+            temporary: std::env::temp_dir(),
+        }
+    }
+
+    /// The folder of the filesystem holding the run state of the Run whose
+    /// run folder is `folder`: the install database's in the per-install
+    /// layout, its run folder's otherwise (ADRs 0002 and 0122).
+    fn run_state_of(&self, folder: &Path) -> PathBuf {
+        self.setup
+            .install
+            .as_ref()
+            .map_or_else(|| folder.to_owned(), |install| install.folder().to_owned())
     }
 
     /// A handle to the registry for a Run of `connection`.
@@ -5021,12 +5339,7 @@ impl Registry {
         } = resume;
         // A Run this engine writes is answered as it is.
         if let Some(live) = self.live.get(&run_id) {
-            return Ok(Resumed::Existing(RunStarted {
-                run_id,
-                started_as: StartedAs::Existing,
-                lifecycle: live.lifecycle,
-                needs: live.needs,
-            }));
+            return Ok(Resumed::existing(run_id, live.lifecycle, live.needs));
         }
         let held = self
             .held_with_key(&run_id, checkpoint.as_deref(), stored)
@@ -5036,12 +5349,7 @@ impl Registry {
         let lifecycle = match lifecycle::apply(held.lifecycle, Resume::event(retry_failed)) {
             Ok(Next::To(next)) => next,
             Ok(Next::Unchanged) => {
-                return Ok(Resumed::Existing(RunStarted {
-                    run_id,
-                    started_as: StartedAs::Existing,
-                    lifecycle: held.lifecycle,
-                    needs: held.needs,
-                }));
+                return Ok(Resumed::existing(run_id, held.lifecycle, held.needs));
             }
             Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
         };
@@ -5056,6 +5364,10 @@ impl Registry {
             .progress_message
             .as_deref()
             .and_then(ProgressMessage::parse);
+        let listed = recorded.weakened;
+        let weakened = joined_weakened(&listed, settings.as_ref(), &state)
+            .await
+            .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
         let run = self.new_run(&run_id, &folder, state, connection, settings, keys);
         run.shared
             .progress
@@ -5075,7 +5387,7 @@ impl Registry {
             },
             started_at: recorded.started_at,
             policy_version: recorded.policy_version,
-            weakened: recorded.weakened,
+            weakened,
             report: watch::Sender::new(None),
             writer,
             lock: Arc::new(lock),
@@ -5109,6 +5421,7 @@ impl Registry {
             run: Box::new(run),
             kind,
             needs,
+            listed,
         })
     }
 
@@ -5217,6 +5530,9 @@ impl Registry {
                 },
                 StartError::ResourcesExhausted(exhausted) => {
                     RunError::ResourcesExhausted(exhausted)
+                }
+                StartError::Discarding { run_id, folder } => {
+                    RunError::Discarding { run_id, folder }
                 }
                 StartError::Conflict { .. }
                 | StartError::LimitReached(_)
@@ -5396,7 +5712,7 @@ impl Taking {
             .tasks
             .blocking(move || governor.storage_at(&destination))
             .await
-            .is_some_and(|filesystem| filesystem.level == StorageLevel::Critical);
+            .is_some_and(|filesystem| filesystem.is_critical());
         if critical {
             return Err(RunError::WriteFailed {
                 run_id: self.run_id,

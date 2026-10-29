@@ -102,6 +102,9 @@ pub(crate) struct Engines {
     environment: Vec<(OsString, OsString)>,
     state: PathBuf,
     children: Mutex<Children>,
+    /// One for each engine started, sent once its process has exited and
+    /// been reaped.
+    exits: Mutex<Vec<oneshot::Receiver<()>>>,
     started: Mutex<u64>,
     owner: Arc<TaskOwner>,
 }
@@ -124,9 +127,24 @@ impl Engines {
             environment,
             state,
             children: Mutex::new(Children::new()?),
+            exits: Mutex::default(),
             started: Mutex::new(0),
             owner,
         })
+    }
+
+    /// Kills every engine started, and returns once each has exited and
+    /// been reaped, so that none outlives the gateway: an engine shares
+    /// the gateway's stderr, which a test's runner watches until every
+    /// holder has closed it.
+    pub(crate) async fn stop(&self) {
+        self.children.lock().await.kill_all();
+        let exits = std::mem::take(&mut *self.exits.lock().await);
+        for exit in exits {
+            // An error means the wait's task ended without seeing the exit,
+            // which leaves nothing to wait for.
+            let _ = exit.await;
+        }
     }
 
     /// Whether the gateway can run an engine of `product`.
@@ -173,10 +191,13 @@ impl Engines {
             return Err(io::Error::other("the engine's stdio is not piped"));
         };
         let own = Line::open(BufReader::new(stdout), stdin, None, &self.owner);
+        let (exited, exit) = oneshot::channel();
+        self.exits.lock().await.push(exit);
         self.owner.spawn(async move {
             if let Err(error) = child.wait().await {
                 tracing::debug!(%error, "an engine's exit was not seen");
             }
+            let _ = exited.send(());
         });
         let params = serde_json::to_value(hello(product, None, relayed))?;
         let answered = own.call_within(HELLO, params, HELLO_DEADLINE).await?;

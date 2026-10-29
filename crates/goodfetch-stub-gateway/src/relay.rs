@@ -93,6 +93,11 @@ impl Gateway {
         }
     }
 
+    /// Kills its engines, and returns once each has exited and been reaped.
+    pub(crate) async fn stop(&self) {
+        self.engines.stop().await;
+    }
+
     /// Serves one Client's WebSocket, signed in through `door`, until it
     /// closes, its tasks `owner`'s.
     ///

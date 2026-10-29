@@ -166,6 +166,7 @@ pub(crate) fn crawl(stdin: ChildStdin, stdout: ChildStdout, site: &Site<'_>) -> 
         product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
             .context("xtask's version is a Product version")?,
         log_level: None,
+        client_surface: None,
     })?;
     engine.call("hello", HELLO, &hello)?;
     let concurrency = site.concurrency;

@@ -426,6 +426,7 @@ fn hello(engine: &Engine, needs: Product) -> HelloParams {
         needs: Some(needs),
         product_version: engine.identity().product_version.clone(),
         log_level: None,
+        client_surface: None,
     }
 }
 

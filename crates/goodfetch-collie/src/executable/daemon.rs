@@ -470,6 +470,7 @@ impl Machine<'_> {
             needs: Some(needs),
             product_version: self.identity.product_version.clone(),
             log_level: None,
+            client_surface: None,
         };
         match opened.call(0, "hello", &hello).await {
             Ok(_) => Ok(opened),

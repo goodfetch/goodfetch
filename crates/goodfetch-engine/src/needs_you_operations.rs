@@ -153,7 +153,7 @@ async fn allow_consent_domain(
     let machine = settings
         .machine()
         .await
-        .map_err(|error| settings_error(&error, context.identity()))?;
+        .map_err(|error| settings_error(&error, &context))?;
     let limits = runs.limits().clone();
     let warning = consent_domain_warning(&domain);
     let answer = Answer {
@@ -182,10 +182,7 @@ async fn allow_consent_domain(
         Ok(Written::Added) => true,
         Ok(Written::Listed) => false,
         Err(Refused::Settings(error)) => {
-            return Err(settings_error(
-                &settings.files().named_in(error),
-                context.identity(),
-            ));
+            return Err(settings_error(&settings.files().named_in(error), &context));
         }
         Err(Refused::Params(message)) => {
             return Err(CallError::protocol(ProtocolFailure::InvalidParams, message));

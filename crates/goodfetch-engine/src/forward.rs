@@ -76,6 +76,7 @@ impl ToOwner {
             needs: Some(needs),
             product_version: self.version.clone(),
             log_level: None,
+            client_surface: None,
         }
     }
 }

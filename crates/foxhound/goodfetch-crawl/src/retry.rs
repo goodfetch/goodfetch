@@ -91,7 +91,7 @@ async fn reopened(
             acting_for_model: context.surface().acts_for_model(),
         })
         .await
-        .map_err(|error| settings_error(&error, context.identity()))?;
+        .map_err(|error| settings_error(&error, &context))?;
     let resumed = context
         .runs()
         .resume(Resume {

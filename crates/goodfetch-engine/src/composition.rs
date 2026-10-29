@@ -196,6 +196,9 @@ pub(crate) struct ConnectionContext {
     pub(crate) identity: Arc<Identity>,
     pub(crate) client: Client,
     pub(crate) surface: OnceLock<Surface>,
+    /// Whether its `hello` came from Goodfetch Cloud's gateway, which words
+    /// `not_in_product` for it (ADR 0096); set with the surface.
+    pub(crate) behind_gateway: OnceLock<bool>,
     /// The driver of each kind of Run that has one, which a resume starts
     /// again.
     pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,
@@ -299,6 +302,17 @@ impl CallContext {
             .get()
             .copied()
             .expect("invariant: a call runs only on a Connection whose `hello` was answered")
+    }
+
+    /// Whether the Connection's `hello` came from Goodfetch Cloud's gateway
+    /// (or the Stub gateway), on whose runs `not_in_product` names the run's
+    /// Product rather than an install (ADR 0096).
+    pub fn behind_gateway(&self) -> bool {
+        self.connection
+            .behind_gateway
+            .get()
+            .copied()
+            .unwrap_or(false)
     }
 
     /// The driver of Runs of `kind`, when the composition has one.

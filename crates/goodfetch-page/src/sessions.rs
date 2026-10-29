@@ -1177,7 +1177,7 @@ fn own_settings(
         return Ok(Values::default());
     }
     let mut values = Values::read(SettingsLayer::Run, settings, context.identity().product)
-        .map_err(|error| settings_error(&error, context.identity()))?
+        .map_err(|error| settings_error(&error, context))?
         .from_origin(RunOrigin::Settings);
     if context.surface().acts_for_model() {
         values = values.from_model();
@@ -1205,7 +1205,7 @@ fn own_settings(
                 layer: SettingsLayer::Run,
                 fix: fix.to_owned(),
             },
-            context.identity(),
+            context,
         ));
     }
     not_locked(values, run, "Session", context)
@@ -1239,7 +1239,7 @@ fn not_locked(
                 ),
                 limit,
             },
-            context.identity(),
+            context,
         )),
         None => Ok(values),
     }
@@ -1260,7 +1260,7 @@ fn page_settings(
         return Ok(Values::default());
     }
     let mut values = Values::read(SettingsLayer::Run, settings, context.identity().product)
-        .map_err(|error| settings_error(&error, context.identity()))?
+        .map_err(|error| settings_error(&error, context))?
         .from_origin(RunOrigin::Settings);
     if context.surface().acts_for_model() {
         values = values.from_model();
@@ -1272,7 +1272,7 @@ fn page_settings(
                 layer: SettingsLayer::Run,
                 fix: "set it on the page's Session or its Run, whose pages all take it".to_owned(),
             },
-            context.identity(),
+            context,
         ));
     }
     not_locked(values, run, "page", context)
@@ -1298,7 +1298,7 @@ async fn open_proxy(
                     layer: SettingsLayer::Run,
                     fix: "start the Run with its settings".to_owned(),
                 },
-                context.identity(),
+                context,
             )),
             None => Ok(None),
         };
@@ -1309,7 +1309,7 @@ async fn open_proxy(
         settings
             .resolved()
             .beneath(own)
-            .map_err(|error| settings_error(&error, context.identity()))?
+            .map_err(|error| settings_error(&error, context))?
     };
     // A Proxy provider's price must be in the currency of each currency
     // Limit on `proxy_bytes` that holds the Run (ADR 0101).

@@ -4665,7 +4665,8 @@ export interface PageFired {
 }
 /**
  * What `page.formats` answers: the formats the request asked for, and
- * none it did not, with the document's URL, its base URL and whether it
+ * none it did not, with the document's URL, its base URL and, when a
+ * format it asked for is read from the main content, whether the document
  * has main content. Text is as the document holds it, never repaired.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -4691,9 +4692,10 @@ export interface PageFormats {
    */
   links?: Link[];
   /**
-   * Whether it has main content.
+   * Whether it has main content, when the request asked for a format
+   * read from it ([`FormatsRequest::reads_main_content`]).
    */
-  main_content: "found" | "none";
+  main_content?: "found" | "none";
   /**
    * Its content as Markdown, when the request asked for it.
    */
@@ -5499,8 +5501,8 @@ export interface RequestSeed {
   url: string;
 }
 /**
- * What `response.body` takes: the page and the request whose response's
- * body it reads.
+ * What `response.body` takes: the page, the request whose response's
+ * body it reads, and how long it waits for that request to end.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "ResponseBodyParams".
@@ -5514,6 +5516,13 @@ export interface ResponseBodyParams {
    * The request, by the browser's ID.
    */
   request_id: string;
+  /**
+   * How long the read may wait for its request to end and its body to
+   * be read, in milliseconds, at least 1: absent for `timeout.wait`,
+   * `null` for none, though an enclosing timeout still applies (ADR
+   * 0080).
+   */
+  timeout?: number | null;
 }
 /**
  * What `events.resync` gives: the current state, from which the stream

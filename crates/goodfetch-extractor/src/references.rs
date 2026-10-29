@@ -3,9 +3,9 @@
 //! lol-html, no tree built (ADR 0007): each `href` or `src` decoded and
 //! resolved against the document's base URL by the WHATWG URL Standard
 //! (the `url` crate, ADR 0120's parser), a value that does not parse kept
-//! as written with no URL. The pass reads the document as it stands, so a
-//! shadow root a browser serialized as a `<template shadowrootmode>` is
-//! read with its host's page, and no Clean-up rule reaches it.
+//! as written with no URL. The pass reads the HTML it is given as it
+//! stands, so a shadow root a browser serialized as a
+//! `<template shadowrootmode>` is read with its host's page.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;

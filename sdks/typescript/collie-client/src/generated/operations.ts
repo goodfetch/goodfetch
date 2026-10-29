@@ -394,7 +394,7 @@ export class CollieOperations {
   }
 
   /**
-   * Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
+   * Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and, when a format it names is read from the main content (`markdown` of the main content or fit, `html` of the main content, `text`), whether the document has main content. A document with no main content answers those formats empty and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
    *
    * @experimental
    */
@@ -529,7 +529,7 @@ export class CollieOperations {
   }
 
   /**
-   * Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole.
+   * Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.
    *
    * @experimental
    */

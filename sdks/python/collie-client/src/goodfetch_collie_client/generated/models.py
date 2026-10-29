@@ -1820,8 +1820,8 @@ class Resource(StrEnum):
 
 class ResponseBodyParams(BaseModel):
     """
-    What `response.body` takes: the page and the request whose response's
-    body it reads.
+    What `response.body` takes: the page, the request whose response's
+    body it reads, and how long it waits for that request to end.
     """
 
     model_config = ConfigDict(
@@ -1831,6 +1831,13 @@ class ResponseBodyParams(BaseModel):
     """The page."""
     request_id: str
     """The request, by the browser's ID."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the read may wait for its request to end and its body to
+    be read, in milliseconds, at least 1: absent for `timeout.wait`,
+    `null` for none, though an enclosing timeout still applies (ADR
+    0080).
+    """
 
 
 class ResponseOrigin1(BaseModel):
@@ -6260,7 +6267,8 @@ class MicrodataItem(BaseModel):
 class PageFormats(BaseModel):
     """
     What `page.formats` answers: the formats the request asked for, and
-    none it did not, with the document's URL, its base URL and whether it
+    none it did not, with the document's URL, its base URL and, when a
+    format it asked for is read from the main content, whether the document
     has main content. Text is as the document holds it, never repaired.
     """
 
@@ -6280,8 +6288,11 @@ class PageFormats(BaseModel):
     """Its images, when the request asked for them."""
     links: list[Link] | None = None
     """Its links, when the request asked for them."""
-    main_content: MainContent
-    """Whether it has main content."""
+    main_content: MainContent | None = None
+    """
+    Whether it has main content, when the request asked for a format
+    read from it ([`FormatsRequest::reads_main_content`]).
+    """
     markdown: str | None = None
     """Its content as Markdown, when the request asked for it."""
     media: list[Media] | None = None

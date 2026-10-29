@@ -4,7 +4,7 @@ use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, ReadHalf, WriteHalf};
 
-use super::{Connection, Driver, Ended, SessionId};
+use super::{Connection, Driver, Ended, SessionId, SubscriptionEnd};
 use crate::Failure;
 use crate::framing::{Framer, frame};
 use crate::generated::browser::GetVersionParams;
@@ -302,6 +302,131 @@ fn a_command_on_a_session_the_browser_detached_fails_at_once() {
     });
 }
 
+/// A target's session the browser detached, as when its page closed or its
+/// browser context was disposed, ends that session's subscriptions at
+/// once, while the connection and other sessions' subscriptions go on: its
+/// target sends nothing more.
+#[test]
+fn a_session_the_browser_detached_ends_its_subscriptions() {
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let (page, other) = (
+            SessionId("page".to_owned()),
+            SessionId("other".to_owned()),
+        );
+        let (_, (ended, why, still)) = tokio::join!(driver.run(), async {
+            let mut on_page = connection.subscribe(Some(&page));
+            let mut on_other = connection.subscribe(Some(&other));
+            browser
+                .send(&json!({ "method": "Target.detachedFromTarget", "params": { "sessionId": "page", "targetId": "target-1" } }))
+                .await;
+            browser
+                .send(&json!({ "method": "Page.loadEventFired", "params": { "timestamp": 1.0 }, "sessionId": "other" }))
+                .await;
+            let ended = tokio::time::timeout(TIMEOUT, on_page.next()).await;
+            let still = on_other.next().await.map(|event| event.method.clone());
+            let why = on_page.ended();
+            drop((connection, browser));
+            (ended, why, still)
+        });
+        assert_eq!(
+            (ended, why, still),
+            (
+                Ok(None),
+                Some(SubscriptionEnd::Detached),
+                Some("Page.loadEventFired".to_owned())
+            )
+        );
+    });
+}
+
+/// When a detach ends a session's subscription, the commands in flight on
+/// that session already hold their failure: a holder that reads the end
+/// as its target gone, not the connection's, waits on them for what ended
+/// its call, such as a Limit that stopped the Run as it closed the
+/// browser.
+#[test]
+fn a_detached_sessions_commands_fail_before_its_subscriptions_end() {
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let page = SessionId("page".to_owned());
+        let (_, (ended, why, answered)) = tokio::join!(driver.run(), async {
+            let mut on_page = connection.subscribe(Some(&page));
+            let (ended, why, answered) = {
+                let mut command = std::pin::pin!(connection.send(
+                    Some(&page),
+                    &GetVersionParams {},
+                    TIMEOUT
+                ));
+                tokio::select! {
+                    biased;
+                    answered = &mut command => panic!("answered before it was sent: {answered:?}"),
+                    _ = browser.received() => {}
+                }
+                browser
+                    .send(&json!({ "method": "Target.detachedFromTarget", "params": { "sessionId": "page", "targetId": "target-1" } }))
+                    .await;
+                let ended = tokio::time::timeout(TIMEOUT, on_page.next()).await;
+                let why = on_page.ended();
+                // Polled once, without the driver running in between.
+                let answered = tokio::time::timeout(Duration::ZERO, &mut command).await;
+                (ended, why, answered)
+            };
+            drop((connection, browser));
+            (ended.map(|event| event.is_none()), why, answered)
+        });
+        assert!(
+            matches!(
+                (&ended, &why, &answered),
+                (
+                    Ok(true),
+                    Some(SubscriptionEnd::Detached),
+                    Ok(Err(Failure::Refused {
+                        refusal: crate::Refusal::TargetGone,
+                        ..
+                    }))
+                )
+            ),
+            "{ended:?} {why:?} {answered:?}"
+        );
+    });
+}
+
+/// A subscription whose holder fell `EVENTS` behind ends saying so, so its
+/// holder knows the events it missed are lost, unlike one that ends with
+/// the connection.
+#[test]
+fn a_subscription_that_fell_behind_says_its_events_were_lost() {
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let page = SessionId("page".to_owned());
+        let (_, (behind, disconnected)) = tokio::join!(driver.run(), async {
+            let mut behind = connection.subscribe(Some(&page));
+            let mut on_browser = connection.subscribe(None);
+            for _ in 0..5_000 {
+                browser
+                    .send(&json!({ "method": "Page.loadEventFired", "params": { "timestamp": 1.0 }, "sessionId": "page" }))
+                    .await;
+            }
+            browser
+                .send(&json!({ "method": "Target.targetCreated", "params": {} }))
+                .await;
+            let _ = on_browser.next().await;
+            while behind.next().await.is_some() {}
+            drop((connection, browser));
+            while on_browser.next().await.is_some() {}
+            (behind.ended(), on_browser.ended())
+        });
+        assert_eq!(
+            (behind, disconnected),
+            (
+                Some(SubscriptionEnd::FellBehind),
+                Some(SubscriptionEnd::Disconnected)
+            )
+        );
+    });
+}
+
 #[test]
 fn events_reach_the_subscribers_of_their_session_only() {
     runtime().block_on(async {
@@ -448,4 +573,51 @@ fn an_event_whose_params_do_not_read_is_logged_at_warn_with_its_method() {
         (true, 1),
         "{warnings:?}"
     );
+}
+
+/// A frame's target detached on its page's session ends the frame's
+/// subscriptions only: the page's own goes on, the detach included, so a
+/// page whose out-of-process frame went is not read as gone.
+#[test]
+fn a_frame_detached_on_its_page_session_ends_only_the_frame_subscriptions() {
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let (page, frame) = (
+            SessionId("page".to_owned()),
+            SessionId("frame".to_owned()),
+        );
+        let (_, (frame_ended, why, on_page)) = tokio::join!(driver.run(), async {
+            let mut on_page = connection.subscribe(Some(&page));
+            let mut on_frame = connection.subscribe(Some(&frame));
+            browser
+                .send(&json!({ "method": "Target.detachedFromTarget", "params": { "sessionId": "frame", "targetId": "frame-1" }, "sessionId": "page" }))
+                .await;
+            browser
+                .send(&json!({ "method": "Page.loadEventFired", "params": { "timestamp": 1.0 }, "sessionId": "page" }))
+                .await;
+            let frame_ended = tokio::time::timeout(TIMEOUT, on_frame.next()).await;
+            let why = on_frame.ended();
+            let mut seen = Vec::new();
+            for _ in 0..2 {
+                seen.push(on_page.next().await.map(|event| event.method.clone()));
+            }
+            let still_open = on_page.ended();
+            drop((connection, browser));
+            (frame_ended, why, (seen, still_open))
+        });
+        assert_eq!(
+            (frame_ended, why, on_page),
+            (
+                Ok(None),
+                Some(SubscriptionEnd::Detached),
+                (
+                    vec![
+                        Some("Target.detachedFromTarget".to_owned()),
+                        Some("Page.loadEventFired".to_owned())
+                    ],
+                    None
+                )
+            )
+        );
+    });
 }

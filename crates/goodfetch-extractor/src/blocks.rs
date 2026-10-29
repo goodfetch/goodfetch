@@ -2,19 +2,80 @@
 //! content's text a paragraph per block, and the main content "fit"
 //! (`Crawl4AI`'s meaning, spec #580): without its link-dense blocks, those
 //! with more than half their text in links, its image-only blocks and the
-//! navigation lists the document repeats. Lengths are counted in
+//! navigation lists the document repeats, each link compared by its target
+//! resolved against the document's base URL. Lengths are counted in
 //! characters, white space aside.
 
 use dom_query::{Document, NodeRef};
+use url::{Position, Url};
 
-/// The elements that hold no text a person reads.
-const NOT_TEXT: [&str; 6] = ["head", "script", "style", "noscript", "template", "title"];
+/// The elements that hold no text a person reads: `noscript`, and those
+/// the HTML Standard's rendering hides that can hold text.
+const NOT_TEXT: [&str; 10] = [
+    "datalist", "head", "noembed", "noframes", "noscript", "rp", "script", "style", "template",
+    "title",
+];
 
-/// The elements that run inside a block, which every other element is.
-const INLINE: [&str; 30] = [
-    "a", "abbr", "b", "bdi", "bdo", "cite", "code", "data", "del", "dfn", "em", "font", "i", "img",
-    "ins", "kbd", "label", "mark", "q", "s", "samp", "small", "span", "strong", "sub", "sup",
-    "time", "u", "var", "wbr",
+/// The elements that end the paragraph before and after them: those the
+/// HTML Standard's rendering lays out as blocks, list items, table parts
+/// and a list box's rows. Every other element, a phrasing one or one the
+/// Standard does not name, runs inside its paragraph.
+const BLOCK: [&str; 55] = [
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "body",
+    "caption",
+    "center",
+    "col",
+    "colgroup",
+    "dd",
+    "details",
+    "dialog",
+    "dir",
+    "div",
+    "dl",
+    "dt",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hgroup",
+    "hr",
+    "html",
+    "legend",
+    "li",
+    "listing",
+    "main",
+    "menu",
+    "nav",
+    "ol",
+    "optgroup",
+    "option",
+    "p",
+    "plaintext",
+    "pre",
+    "search",
+    "section",
+    "summary",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "tr",
+    "ul",
+    "xmp",
 ];
 
 /// The blocks "fit" may leave out; headings and code are kept whatever
@@ -71,7 +132,7 @@ impl Blocks {
             self.end();
             return;
         }
-        let block = !INLINE.contains(&name);
+        let block = BLOCK.contains(&name);
         if block {
             self.end();
         }
@@ -98,37 +159,49 @@ impl Blocks {
 
 /// `main`, the main content's HTML, without its link-dense blocks, its
 /// image-only blocks and the lists whose links another list of `document`
-/// (the whole page) repeats, in order.
-pub(crate) fn fit(main: &str, document: &str) -> String {
+/// (the whole page, whose base URL is `base_url`) repeats, in order.
+pub(crate) fn fit(main: &str, document: &str, base_url: &str) -> String {
+    let base = Url::parse(base_url).ok();
     let page = Document::from(document);
     let page_lists: Vec<Vec<String>> = page
         .select(LIST)
         .nodes()
         .iter()
-        .map(targets)
+        .map(|list| targets(list, base.as_ref()))
         .filter(|targets| !targets.is_empty())
         .collect();
+    let lists = PageLists {
+        base: base.as_ref(),
+        targets: &page_lists,
+    };
     let content = Document::from(main);
     let root = content.select("body");
     for node in root.nodes() {
-        prune(node, &page_lists);
+        prune(node, &lists);
     }
     root.inner_html().to_string()
 }
 
+/// The page's lists, each as its links' targets, and the base URL they
+/// were resolved against.
+struct PageLists<'a> {
+    base: Option<&'a Url>,
+    targets: &'a [Vec<String>],
+}
+
 /// Takes out of `node`'s descendants, from the outermost, each candidate
 /// block "fit" leaves out.
-fn prune(node: &NodeRef<'_>, page_lists: &[Vec<String>]) {
+fn prune(node: &NodeRef<'_>, lists: &PageLists<'_>) {
     for child in node.element_children() {
-        if child.is(CANDIDATE) && left_out(&child, page_lists) {
+        if child.is(CANDIDATE) && left_out(&child, lists) {
             child.remove_from_parent();
         } else {
-            prune(&child, page_lists);
+            prune(&child, lists);
         }
     }
 }
 
-fn left_out(block: &NodeRef<'_>, page_lists: &[Vec<String>]) -> bool {
+fn left_out(block: &NodeRef<'_>, lists: &PageLists<'_>) -> bool {
     let all = length(&block.text());
     if all == 0 {
         return block.descendants_it().any(|node| node.is(IMAGE));
@@ -142,35 +215,31 @@ fn left_out(block: &NodeRef<'_>, page_lists: &[Vec<String>]) -> bool {
     if linked * 2 > all {
         return true;
     }
-    block.is(LIST) && repeated(block, page_lists)
+    block.is(LIST) && repeated(block, lists)
 }
 
 /// Whether the list `list`'s link targets, in order, are those of at least
 /// two lists of the page: itself, and another it repeats.
-fn repeated(list: &NodeRef<'_>, page_lists: &[Vec<String>]) -> bool {
-    let own = targets(list);
-    !own.is_empty() && page_lists.iter().filter(|other| **other == own).count() >= 2
+fn repeated(list: &NodeRef<'_>, lists: &PageLists<'_>) -> bool {
+    let own = targets(list, lists.base);
+    !own.is_empty() && lists.targets.iter().filter(|other| **other == own).count() >= 2
 }
 
-/// The targets of `list`'s links, each as its path, so that an absolute
-/// target and a relative one to the same page compare equal.
-fn targets(list: &NodeRef<'_>) -> Vec<String> {
+/// The targets of `list`'s links, each resolved against `base` and read as
+/// its path, query and fragment, so that an absolute target and a relative
+/// one to the same page compare equal; a target that does not resolve is
+/// read as written.
+fn targets(list: &NodeRef<'_>, base: Option<&Url>) -> Vec<String> {
     list.descendants_it()
         .filter(|node| node.is("a[href]"))
         .filter_map(|link| link.attr("href"))
-        .map(|href| path_of(&href).to_owned())
+        .map(|href| {
+            base.and_then(|base| base.join(&href).ok()).map_or_else(
+                || href.to_string(),
+                |url| url[Position::BeforePath..].to_owned(),
+            )
+        })
         .collect()
-}
-
-/// The path, query and fragment of `href`, or `href` when it has no
-/// scheme and host.
-fn path_of(href: &str) -> &str {
-    let Some(after) = href.find("://").map(|at| at + "://".len()) else {
-        return href;
-    };
-    href[after..]
-        .find('/')
-        .map_or("/", |at| &href[after + at..])
 }
 
 /// The characters of `text`, white space aside.

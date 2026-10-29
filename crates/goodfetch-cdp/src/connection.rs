@@ -3,7 +3,9 @@
 //! a [`Connection`] sends commands through it and subscribes to the events
 //! of one target's session (CDP's flat sessions, `Target.attachToTarget`
 //! with `flatten`). When the browser closes its end, every command in
-//! flight fails with [`Failure::Disconnected`] and every subscription ends.
+//! flight fails with [`Failure::Disconnected`] and every subscription ends;
+//! when it detaches a target's session, that session's commands in flight
+//! fail and its subscriptions end, each saying why ([`SubscriptionEnd`]).
 //!
 //! Nothing waits on the driver without a bound: a command's whole wait,
 //! for the driver and for its answer, is under its timeout, a subscription
@@ -75,16 +77,50 @@ impl Event {
 #[derive(Debug)]
 pub struct Subscription {
     events: mpsc::Receiver<Arc<Event>>,
+    /// Why the driver ended it, which it says before it drops its sender.
+    why: oneshot::Receiver<SubscriptionEnd>,
+    /// Why it ended, once known.
+    ended: Option<SubscriptionEnd>,
+}
+
+/// Why a subscription ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SubscriptionEnd {
+    /// The browser detached its session's target: the target sends nothing
+    /// more.
+    Detached,
+    /// Its holder fell [`EVENTS`] events behind, so the events after it
+    /// stopped are lost while its target may still send more.
+    FellBehind,
+    /// The connection ended.
+    Disconnected,
 }
 
 impl Subscription {
-    /// The next event; `None` once the connection ended.
+    /// The next event; `None` once it ended: the connection ended, its
+    /// session's target detached, or its holder fell [`EVENTS`] behind,
+    /// which [`ended`](Self::ended) tells apart.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses no event.
     pub async fn next(&mut self) -> Option<Arc<Event>> {
         self.events.recv().await
+    }
+
+    /// Why it ended, once [`next`](Self::next) answered `None`; `None`
+    /// while it goes on.
+    pub fn ended(&mut self) -> Option<SubscriptionEnd> {
+        if self.ended.is_none() && self.events.is_closed() && self.events.is_empty() {
+            // The driver says why before it drops the events' sender, so a
+            // sender dropped without a word is the connection's end.
+            self.ended = Some(match self.why.try_recv() {
+                Ok(why) => why,
+                Err(_) => SubscriptionEnd::Disconnected,
+            });
+        }
+        self.ended
     }
 }
 
@@ -95,12 +131,29 @@ struct Request {
     answer: oneshot::Sender<Result<Value, Failure>>,
 }
 
+/// One subscription as the driver holds it.
+#[derive(Debug)]
+struct Subscriber {
+    /// The session whose events it takes.
+    session: Option<SessionId>,
+    events: mpsc::Sender<Arc<Event>>,
+    /// Where the driver says why it ended it.
+    why: oneshot::Sender<SubscriptionEnd>,
+}
+
+impl Subscriber {
+    /// Ends it, saying `why`.
+    fn end(self, why: SubscriptionEnd) {
+        let _ = self.why.send(why);
+    }
+}
+
 /// The subscriptions of the connection, which every handle adds to and the
 /// driver hands each event to.
 #[derive(Debug, Default)]
 struct Subscribers {
     /// Each subscription's session and the sender of its events.
-    list: Vec<(Option<SessionId>, mpsc::Sender<Arc<Event>>)>,
+    list: Vec<Subscriber>,
     /// Whether the connection ended, so a new subscription ends at once.
     ended: bool,
 }
@@ -230,15 +283,25 @@ impl Connection {
 
     /// The events of `session` (the browser's own when `None`) the driver
     /// reads from now on, without waiting for the driver; it ends with the
-    /// connection, or once its holder fell [`EVENTS`] events behind.
+    /// connection, once the browser detached its session's target, or once
+    /// its holder fell [`EVENTS`] events behind.
     pub fn subscribe(&self, session: Option<&SessionId>) -> Subscription {
         let (events, receiver) = mpsc::channel(EVENTS);
+        let (why, said) = oneshot::channel();
         let mut subscribers = lock(&self.subscribers);
         // A connection that ended gives a subscription that ends at once.
         if !subscribers.ended {
-            subscribers.list.push((session.cloned(), events));
+            subscribers.list.push(Subscriber {
+                session: session.cloned(),
+                events,
+                why,
+            });
         }
-        Subscription { events: receiver }
+        Subscription {
+            events: receiver,
+            why: said,
+            ended: None,
+        }
     }
 }
 
@@ -365,44 +428,56 @@ fn dispatch(bytes: &[u8], pending: &mut BTreeMap<u64, Pending>, subscribers: &Sh
         method,
         params: message.get_mut("params").map_or(Value::Null, Value::take),
     });
-    if session.is_none() && event.method == DETACHED {
-        detached(&event.params, pending);
+    // A target's detach comes on its parent's session: the browser's own
+    // for a page, the page's for a frame it auto-attached.
+    let gone = (event.method == DETACHED)
+        .then(|| event.params.get("sessionId").and_then(Value::as_str))
+        .flatten()
+        .map(|gone| SessionId(gone.to_owned()));
+    if let Some(gone) = &gone {
+        detached(gone, pending);
     }
-    lock(subscribers).list.retain(|(subscribed, events)| {
-        if events.is_closed() {
-            return false;
+    let mut subscribers = lock(subscribers);
+    for subscriber in std::mem::take(&mut subscribers.list) {
+        if subscriber.events.is_closed() {
+            continue;
         }
-        if *subscribed != session {
-            return true;
+        if gone
+            .as_ref()
+            .is_some_and(|gone| subscriber.session.as_ref() == Some(gone))
+        {
+            subscriber.end(SubscriptionEnd::Detached);
+            continue;
         }
-        match events.try_send(Arc::clone(&event)) {
-            Ok(()) => true,
-            Err(mpsc::error::TrySendError::Closed(_)) => false,
+        if subscriber.session != session {
+            subscribers.list.push(subscriber);
+            continue;
+        }
+        match subscriber.events.try_send(Arc::clone(&event)) {
+            Ok(()) => subscribers.list.push(subscriber),
+            Err(mpsc::error::TrySendError::Closed(_)) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {
                 tracing::warn!(
                     method = event.method,
                     "a subscription of the browser's connection fell too far behind and ends"
                 );
-                false
+                subscriber.end(SubscriptionEnd::FellBehind);
             }
         }
-    });
+    }
 }
 
-/// Fails at once each command in flight on the session the browser
-/// detached, as `params` of its `Target.detachedFromTarget` name it: the
-/// browser never answers one, and its target is gone.
-fn detached(params: &Value, pending: &mut BTreeMap<u64, Pending>) {
-    let Some(gone) = params.get("sessionId").and_then(Value::as_str) else {
-        return;
-    };
+/// Fails at once each command in flight on the session `gone` the browser
+/// detached, as its `Target.detachedFromTarget` names it: the browser
+/// never answers one, and its target is gone.
+fn detached(gone: &SessionId, pending: &mut BTreeMap<u64, Pending>) {
     let ids: Vec<u64> = pending
         .iter()
         .filter(|(_, command)| {
             command
                 .session
                 .as_ref()
-                .is_some_and(|session| session.0 == gone)
+                .is_some_and(|session| session == gone)
         })
         .map(|(id, _)| *id)
         .collect();

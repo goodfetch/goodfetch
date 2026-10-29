@@ -868,6 +868,12 @@ number = 5
 kind = "error"
 prefix = "page_crashed"
 
+# A page's events the engine fell behind (#703).
+[[area]]
+number = 5
+kind = "error"
+prefix = "page_events_lost"
+
 [[area]]
 number = 5
 kind = "error"

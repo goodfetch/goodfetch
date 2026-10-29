@@ -164,29 +164,141 @@ fn read_link(
     false
 }
 
-/// Reads the e-mail addresses and telephone numbers `text` writes: a
-/// number with its country code, or national in the document's region, is
-/// one when libphonenumber finds it valid, and gets its E.164; with
-/// neither, no country is guessed, so any span written as a number is
-/// one, with no E.164, unless it is a date.
+/// Reads the e-mail addresses and telephone numbers `text` writes. A span
+/// written as another value is no number (O27). Otherwise, a number with
+/// its country code, or national in the document's region, is one when
+/// libphonenumber finds it valid, and gets its E.164; with neither, no
+/// country is guessed, so the span is one, with no E.164.
 fn read_text(text: &str, region: Option<Id>, found: &mut Found) {
     for address in emails(text) {
         found.email(address, address);
     }
-    for number in numbers(text) {
+    for (number, after) in numbers(text) {
+        if written_as_another_value(number, after) {
+            continue;
+        }
         if number.starts_with('+') || region.is_some() {
             if let Some(e164) = e164(number, region) {
                 found.phone(number, number, Some(e164));
             }
-        } else if !is_date(number) {
+        } else {
             found.phone(number, number, None);
         }
     }
 }
 
+/// Whether the span `span`, which `after` follows, is written as a value
+/// other than a telephone number: what libphonenumber's matcher leaves out
+/// (a date or a time stamp, whatever its separators, and a span an `:mm`
+/// follows), a range of years, decimals, or an ISBN or an EAN.
+fn written_as_another_value(span: &str, after: &str) -> bool {
+    followed_by_minutes(after)
+        || is_date(span)
+        || is_year_range(span)
+        || is_decimals(span)
+        || is_product_code(span)
+}
+
+/// Whether `after` begins with the minutes of a time, `:00` to `:59`, so
+/// that the span before it ends on an hour.
+fn followed_by_minutes(after: &str) -> bool {
+    let mut characters = after.chars();
+    characters.next() == Some(':')
+        && characters
+            .next()
+            .is_some_and(|tens| ('0'..='5').contains(&tens))
+        && characters.next().is_some_and(|ones| ones.is_ascii_digit())
+}
+
+/// Whether `span` is two years joined by a hyphen, the first before the
+/// second (`2005-2026`).
+fn is_year_range(span: &str) -> bool {
+    let year = |part: &str| {
+        (part.len() == 4 && part.chars().all(|character| character.is_ascii_digit()))
+            .then(|| part.parse::<u16>().ok())
+            .flatten()
+            .filter(|year| (1800..=2199).contains(year))
+    };
+    span.split_once('-')
+        .and_then(|(first, second)| Some((year(first)?, year(second)?)))
+        .is_some_and(|(first, second)| first < second)
+}
+
+/// Whether a word of `span`, its parts between spaces, is a decimal
+/// number: digits, one dot, digits (`48.8566 2.3522`). A number grouped by
+/// dots has more than one.
+fn is_decimals(span: &str) -> bool {
+    span.split(|character: char| character.is_whitespace())
+        .any(|word| {
+            word.split_once('.').is_some_and(|(whole, fraction)| {
+                !whole.is_empty()
+                    && !fraction.is_empty()
+                    && whole.chars().all(|character| character.is_ascii_digit())
+                    && fraction.chars().all(|character| character.is_ascii_digit())
+            })
+        })
+}
+
+/// Whether `span` is written as an ISBN or an EAN whose check digit holds:
+/// 13 digits beginning with an ISBN's `978` or `979`, or 13 digits written
+/// together (a number dialled from abroad, `00` first, aside); or an
+/// ISBN-10 written in hyphenated groups, its check digit a group of its
+/// own. A telephone number is rarely written either way, so a number whose
+/// digits happen to check stays one.
+fn is_product_code(span: &str) -> bool {
+    let digits: Vec<u32> = span
+        .chars()
+        .filter_map(|character| character.to_digit(10))
+        .collect();
+    let together = span.chars().all(|character| character.is_ascii_digit());
+    match digits.as_slice() {
+        [first, second, third, ..] if digits.len() == 13 => {
+            let isbn =
+                [*first, *second, *third] == [9, 7, 8] || [*first, *second, *third] == [9, 7, 9];
+            let abroad = [*first, *second] == [0, 0];
+            (isbn || (together && !abroad)) && ean_checks(&digits)
+        }
+        _ if digits.len() == 10 => {
+            span.contains('-')
+                && span
+                    .rsplit('-')
+                    .next()
+                    .is_some_and(|group| group.len() == 1)
+                && isbn_10_checks(&digits)
+        }
+        _ => false,
+    }
+}
+
+/// Whether the 13 digits `digits` end on their EAN-13 check digit.
+fn ean_checks(digits: &[u32]) -> bool {
+    let sum: u32 = digits
+        .iter()
+        .enumerate()
+        .map(|(place, digit)| {
+            if place.is_multiple_of(2) {
+                *digit
+            } else {
+                digit * 3
+            }
+        })
+        .sum();
+    sum.is_multiple_of(10)
+}
+
+/// Whether the 10 digits `digits` end on their ISBN-10 check digit.
+fn isbn_10_checks(digits: &[u32]) -> bool {
+    let sum: u32 = digits
+        .iter()
+        .zip((1..=10).rev())
+        .map(|(digit, weight)| digit * weight)
+        .sum();
+    sum.is_multiple_of(11)
+}
+
 /// Whether `span` is a date written with digits alone: a year of four
-/// digits, a month and a day, in either order, joined by one hyphen or
-/// dot each (`2026-10-26`, `26.10.2026`).
+/// digits, a month and a day, in either order, joined by one hyphen, dot
+/// or space each (`2026-10-26`, `26.10.2026`, `26 10 2026`).
 fn is_date(span: &str) -> bool {
     let Some(separator) = span.chars().find(|character| !character.is_ascii_digit()) else {
         return false;
@@ -204,7 +316,7 @@ fn is_date(span: &str) -> bool {
         number(month, 1..=2).is_some_and(|month| (1..=12).contains(&month))
             && number(day, 1..=2).is_some_and(|day| (1..=31).contains(&day))
     };
-    matches!(separator, '-' | '.')
+    matches!(separator, '-' | '.' | ' ' | '\u{a0}' | '\u{202f}')
         && ((number(first, 4..=4).is_some() && month_and_day(second, third))
             || (number(third, 4..=4).is_some()
                 && (month_and_day(second, first) || month_and_day(first, second))))
@@ -362,8 +474,8 @@ fn is_number_separator(character: char) -> bool {
 
 /// The spans of `text` written as a telephone number may be: a `+`, a
 /// digit or `(` after no letter or digit, then digits and separators,
-/// ending on a digit, with 7 to 15 digits.
-fn numbers(text: &str) -> Vec<&str> {
+/// ending on a digit, with 7 to 15 digits; each with the text after it.
+fn numbers(text: &str) -> Vec<(&str, &str)> {
     let mut found = Vec::new();
     let mut characters = text.char_indices().peekable();
     let mut previous: Option<char> = None;
@@ -399,7 +511,7 @@ fn numbers(text: &str) -> Vec<&str> {
             .is_some_and(char::is_alphanumeric)
             && end == last_digit;
         if DIGITS.contains(&digits) && !glued {
-            found.push(span);
+            found.push((span, &text[last_digit..]));
         }
     }
     found

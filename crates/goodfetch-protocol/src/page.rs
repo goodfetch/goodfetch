@@ -59,10 +59,10 @@ use self::dialog::{
     DIALOG_ACCEPT, DIALOG_ALREADY_HANDLED, DIALOG_DISMISS, DIALOG_HANDLE, PAGE_ON_DIALOG,
 };
 use self::events::{
-    BODY_UNAVAILABLE, PAGE_CLOSE, PAGE_CONSOLE, PAGE_CRASH, PAGE_DOM_CONTENT_LOADED, PAGE_LOAD,
-    PAGE_ON, PAGE_PAGE_ERROR, PAGE_REQUEST, PAGE_REQUEST_FAILED, PAGE_REQUEST_FINISHED,
-    PAGE_RESPONSE, PAGE_WAIT_FOR_REQUEST_FINISHED, PAGE_WEB_SOCKET, RESPONSE_BODY,
-    WEB_SOCKET_CLOSE, WEB_SOCKET_FRAME_RECEIVED, WEB_SOCKET_FRAME_SENT,
+    BODY_UNAVAILABLE, PAGE_CLOSE, PAGE_CONSOLE, PAGE_CRASH, PAGE_DOM_CONTENT_LOADED,
+    PAGE_EVENTS_LOST, PAGE_LOAD, PAGE_ON, PAGE_PAGE_ERROR, PAGE_REQUEST, PAGE_REQUEST_FAILED,
+    PAGE_REQUEST_FINISHED, PAGE_RESPONSE, PAGE_WAIT_FOR_REQUEST_FINISHED, PAGE_WEB_SOCKET,
+    RESPONSE_BODY, WEB_SOCKET_CLOSE, WEB_SOCKET_FRAME_RECEIVED, WEB_SOCKET_FRAME_SENT,
 };
 use self::functions::{
     LOCATOR_EVALUATE_ALL, PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE, PAGE_FUNCTION_FAILED,
@@ -1253,6 +1253,24 @@ pub struct FormatsRequest {
     pub contacts: Option<Asked>,
 }
 
+impl FormatsRequest {
+    /// Whether it names a format read from the page's main content: the
+    /// Markdown of the main content or "fit", the main content's HTML, or
+    /// `text`. Only then does its result say whether the page has main
+    /// content, so a call that asks for none costs no main-content step.
+    pub fn reads_main_content(&self) -> bool {
+        self.markdown.is_some_and(|format| {
+            matches!(
+                format.content(),
+                MarkdownContent::Main | MarkdownContent::Fit
+            )
+        }) || self
+            .html
+            .is_some_and(|format| format.kind() == HtmlKind::Main)
+            || self.text.is_some()
+    }
+}
+
 /// A link of the page: an `<a href>` or `<area href>`, in document order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1530,7 +1548,8 @@ pub enum MainContent {
 }
 
 /// What `page.formats` answers: the formats the request asked for, and
-/// none it did not, with the document's URL, its base URL and whether it
+/// none it did not, with the document's URL, its base URL and, when a
+/// format it asked for is read from the main content, whether the document
 /// has main content. Text is as the document holds it, never repaired.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PageFormats {
@@ -1541,9 +1560,11 @@ pub struct PageFormats {
     /// else its URL.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub base_url: String,
-    /// Whether it has main content.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub main_content: MainContent,
+    /// Whether it has main content, when the request asked for a format
+    /// read from it ([`FormatsRequest::reads_main_content`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "MainContent", extend("arrived_in" = "0.1"))]
+    pub main_content: Option<MainContent>,
     /// Its content as Markdown, when the request asked for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String", extend("arrived_in" = "0.1"))]
@@ -1583,8 +1604,9 @@ pub struct PageFormats {
 }
 
 /// The JSON Schema of what `page.formats` answers to `request`: the
-/// result's envelope and each format it asks for, all required, and no
-/// other property, so a code-free crawl writes its Dataset's schema from
+/// result's envelope, `main_content` when the request reads the main
+/// content, and each format it asks for, all required, and no other
+/// property, so a code-free crawl writes its Dataset's schema from
 /// the request alone (ADR 0103). Derived from [`PageFormats`]' own schema
 /// as the engine writes it, so a field that may be `null`, such as a
 /// link's URL, is still required.
@@ -1594,9 +1616,12 @@ pub fn page_formats_schema(request: &FormatsRequest) -> Value {
         .into_generator()
         .into_root_schema_for::<PageFormats>();
     let mut schema = serde_json::to_value(written).expect("invariant: a JSON Schema is JSON");
-    let Ok(Value::Object(asked)) = serde_json::to_value(request) else {
+    let Ok(Value::Object(mut asked)) = serde_json::to_value(request) else {
         unreachable!("invariant: a formats request serializes as an object");
     };
+    if request.reads_main_content() {
+        asked.insert("main_content".to_owned(), Value::Bool(true));
+    }
     let mut required: Vec<Value> = schema["required"].as_array().cloned().unwrap_or_default();
     let envelope: Vec<String> = required
         .iter()
@@ -1614,7 +1639,7 @@ pub fn page_formats_schema(request: &FormatsRequest) -> Value {
 /// `page.formats`.
 pub const PAGE_FORMATS: Operation = Operation {
     name: "page.formats",
-    description: "Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and whether it has main content. A document with no main content answers empty formats and `main_content: \"none\"`, a value. It needs neither layout nor pixels, so every tier serves it.",
+    description: "Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and, when a format it names is read from the main content (`markdown` of the main content or fit, `html` of the main content, `text`), whether the document has main content. A document with no main content answers those formats empty and `main_content: \"none\"`, a value. It needs neither layout nor pixels, so every tier serves it.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -1696,6 +1721,7 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[
         BODY_NOT_FOUND,
         BODY_UNAVAILABLE,
+        PAGE_EVENTS_LOST,
         NAVIGATION_FAILED,
         NAVIGATION_INTERRUPTED,
         PAGE_CHECK_FAILED,

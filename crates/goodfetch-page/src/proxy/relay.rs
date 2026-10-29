@@ -19,10 +19,16 @@
 //!   proxy's own credentials in place of the relay's. A proxy that cannot
 //!   be reached is answered with the relay's own `502` whose `Proxy-Status`
 //!   member is the relay's and names `connection_refused` (RFC 9209), so it
-//!   stays the proxy's failure. The relay records whether its latest
-//!   connection to the proxy failed to open, so neither that `502` nor a
-//!   tunnel it could not open counts as the proxy refusing a request: a
-//!   proxy that is down teaches its limits nothing.
+//!   stays the proxy's failure. The relay records whether each connection
+//!   to the proxy failed to open, by the authority it asked for, so neither
+//!   that `502` nor a tunnel it could not open counts as the proxy refusing
+//!   that authority's request: a proxy that is down teaches its limits
+//!   nothing.
+//!
+//! The relay dials only the addresses the Session's open judged (ADR 0017),
+//! each connection within its connect deadline, so a proxy that never
+//! answers is the proxy's failure before the navigation's deadline; and a
+//! client that sends no request head within [`HEAD_DEADLINE`] is dropped.
 //!
 //! A plain request's connection closes after one answer, so each carries
 //! the one request the relay authenticated. A Session whose proxy a Proxy
@@ -34,7 +40,7 @@
 //! yet charged, as when its Run ends mid-transfer, still has them charged
 //! in full: the provider bills every byte it carried. For a hosted
 //! provider's HTTP proxy, the relay also keeps the proxy's own answer to
-//! the latest `CONNECT` it refused ([`ProviderAnswer`]), which the browser
+//! latest `CONNECT` of each authority it refused ([`ProviderAnswer`]), which the browser
 //! reports only as a network error, so the provider's adapter can read its
 //! failure (ADR 0127). The listener binds port 0 of loopback and reports
 //! its address (ADR 0059), and it closes, with every connection it relays,
@@ -45,8 +51,7 @@
 )]
 
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use data_encoding::BASE64;
@@ -59,8 +64,10 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::party::{RELAY, relay_unreachable};
+use crate::egress_relay::deadlines::{HEAD_DEADLINE, within, within_or_none};
 use crate::egress_relay::head::{self, Head, Target, Unread};
-use crate::egress_relay::serve::socks5_request;
+use crate::egress_relay::serve::{Met, socks5_request};
+use crate::egress_relay::{ByAuthority, Outcomes, authority_of, connect_deadline};
 use crate::proxy_provider::ProxyUsage;
 use crate::proxy_provider::failure::ProviderAnswer;
 
@@ -124,39 +131,44 @@ pub(crate) fn basic(username: &str, password: &str) -> String {
 /// Where the relay sends each connection: the proxy, how, and what its
 /// bytes are charged to.
 struct Upstream {
-    address: SocketAddr,
+    /// The proxy's addresses, which the Session's open judged.
+    addresses: Vec<SocketAddr>,
     mode: Mode,
     /// The `Proxy-Authorization` value a client must give.
     client: String,
     /// Where it records a client's wrong credentials.
     refusals: Refusals,
-    /// Whether the proxy refused the credentials on the latest connection
-    /// that reached it, which a failed request then raises as
-    /// `proxy_auth_failed`.
-    refused: AtomicBool,
-    /// Whether the relay's latest connection to the proxy failed to open:
-    /// a proxy that is down, whose failures refuse nothing.
-    unreachable: AtomicBool,
-    /// Whether the relay answered its latest client itself, with its own
-    /// `502` for a SOCKS5 proxy it could not use: one that is down, that
-    /// refused the credentials or that refused the tunnel. A response the
-    /// relay wrote is the proxy's failure, never the site's answer.
-    answered: AtomicBool,
+    /// What each connection met, by the authority it asked for: whether it
+    /// reached no proxy, a proxy that is down, whose failures refuse
+    /// nothing; whether the proxy refused the credentials, which a failed
+    /// request then raises as `proxy_auth_failed`; and whether the relay
+    /// answered it itself, with its own `502` for a SOCKS5 proxy it could
+    /// not use, a response that is the proxy's failure, never the site's
+    /// answer.
+    outcomes: Outcomes,
     /// What the bytes on the connections to the proxy are charged to, for
     /// a Proxy provider's proxy.
     usage: Option<Arc<ProxyUsage>>,
     /// For a hosted provider's HTTP proxy, its answer to the latest
-    /// `CONNECT`, when it refused it; none when it took it.
-    refusal: Option<Mutex<Option<ProviderAnswer>>>,
+    /// `CONNECT` of each authority, when it refused it.
+    refusal: Option<ByAuthority<ProviderAnswer>>,
+    /// The Run's clock, which its deadlines run on.
+    clock: Clock,
+    /// How long a connection to the proxy may take to open.
+    connect_deadline: Duration,
 }
 
 impl Upstream {
-    /// A connection to the proxy, recording whether it opened.
+    /// A connection to the first of the proxy's addresses that opens, each
+    /// within the connect deadline; none when none opened.
     async fn connect(&self) -> Option<TcpStream> {
-        let connected = TcpStream::connect(self.address).await.ok();
-        self.unreachable
-            .store(connected.is_none(), Ordering::Relaxed);
-        connected
+        for address in &self.addresses {
+            let connecting = TcpStream::connect(*address);
+            if let Ok(stream) = within(&self.clock, self.connect_deadline, connecting).await {
+                return Some(stream);
+            }
+        }
+        None
     }
 }
 
@@ -170,8 +182,9 @@ pub(crate) struct Relay {
 }
 
 impl Relay {
-    /// Binds the relay on port 0 of loopback for the proxy at `proxy`, with
-    /// new client credentials, and relays every connection that gives them
+    /// Binds the relay on port 0 of loopback for the proxy at `proxy`, the
+    /// addresses the Session's open judged, with new client credentials,
+    /// and relays every connection that gives them
     /// as a task of `run`, as `mode` says, charging its bytes to `usage`
     /// when it has one, and keeping an HTTP proxy's refusals of a `CONNECT`
     /// when `keeps_refusals`.
@@ -181,7 +194,7 @@ impl Relay {
     /// The bind's failure, or the OS generator's.
     pub(crate) async fn open(
         run: &Run,
-        proxy: SocketAddr,
+        proxy: Vec<SocketAddr>,
         mode: Mode,
         usage: Option<Arc<ProxyUsage>>,
         keeps_refusals: bool,
@@ -191,15 +204,15 @@ impl Relay {
         let address = listener.local_addr()?;
         let keeps_refusals = keeps_refusals && matches!(mode, Mode::Http { .. });
         let upstream = Arc::new(Upstream {
-            address: proxy,
+            addresses: proxy,
             mode,
             client: basic(USERNAME, &password),
             refusals: run.refusals(),
-            refused: AtomicBool::new(false),
-            unreachable: AtomicBool::new(false),
-            answered: AtomicBool::new(false),
+            outcomes: Outcomes::default(),
             usage,
-            refusal: keeps_refusals.then(|| Mutex::new(None)),
+            refusal: keeps_refusals.then(ByAuthority::default),
+            clock: run.clock(),
+            connect_deadline: connect_deadline(run),
         });
         let stop = CancellationToken::new();
         run.spawn(accept(
@@ -226,31 +239,28 @@ impl Relay {
         (USERNAME, &self.password)
     }
 
-    /// Whether the proxy refused the Session's credentials.
-    pub(crate) fn refused_credentials(&self) -> bool {
-        self.upstream.refused.load(Ordering::Relaxed)
+    /// Whether the proxy refused the Session's credentials on the latest
+    /// connection for `url`.
+    pub(crate) fn refused_credentials(&self, url: &str) -> bool {
+        self.upstream.outcomes.refused(url)
     }
 
-    /// Whether the relay's latest connection to the proxy failed to open.
-    pub(crate) fn unreachable(&self) -> bool {
-        self.upstream.unreachable.load(Ordering::Relaxed)
+    /// Whether the relay's latest connection for `url` failed to open.
+    pub(crate) fn unreachable(&self, url: &str) -> bool {
+        self.upstream.outcomes.unreachable(url)
     }
 
-    /// Whether the relay answered its latest client itself, with its own
-    /// `502` for a SOCKS5 proxy it could not use.
-    pub(crate) fn answered(&self) -> bool {
-        self.upstream.answered.load(Ordering::Relaxed)
+    /// Whether the relay answered its latest client for `url` itself, with
+    /// its own `502` for a SOCKS5 proxy it could not use.
+    pub(crate) fn answered(&self, url: &str) -> bool {
+        self.upstream.outcomes.answered(url)
     }
 
-    /// The proxy's answer to the latest `CONNECT`, if it refused it and
-    /// the relay keeps refusals.
-    pub(crate) fn latest_refusal(&self) -> Option<ProviderAnswer> {
-        self.upstream
-            .refusal
-            .as_ref()?
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+    /// The proxy's answer to the latest `CONNECT` for `url`, if it refused
+    /// it and the relay keeps refusals.
+    pub(crate) fn latest_refusal(&self, url: &str) -> Option<ProviderAnswer> {
+        let authority = authority_of(url)?;
+        self.upstream.refusal.as_ref()?.get(&authority)
     }
 }
 
@@ -338,9 +348,14 @@ fn failed(status: &str, error: &str) -> String {
 }
 
 /// Relays one of its client's connections through the proxy, once the
-/// client gave the relay's credentials.
+/// client gave the relay's credentials; a client that sends no whole
+/// request head within [`HEAD_DEADLINE`] is dropped.
 async fn relay(mut client: TcpStream, upstream: &Upstream) {
-    let (head, rest) = match head::read(&mut client).await {
+    let reading = head::read(&mut client);
+    let Some(read) = within_or_none(&upstream.clock, HEAD_DEADLINE, reading).await else {
+        return;
+    };
+    let (head, rest) = match read {
         Ok(read) => read,
         Err(Unread::Closed) => return,
         Err(Unread::Malformed) => {
@@ -387,12 +402,16 @@ async fn http(
     upstream: &Upstream,
     authorization: Option<&str>,
 ) {
+    let authority = head.target.authority();
+    let met = |met| upstream.outcomes.record(&authority, met);
     let Some(proxy) = upstream.connect().await else {
+        met(Met::Unreachable);
         let _ = client.write_all(relay_unreachable().as_bytes()).await;
         return;
     };
     let mut proxy = Tallied::new(proxy, upstream.usage.clone());
     if let Target::Absolute { .. } = head.target {
+        met(Met::Reached);
         let mut forwarded = head.forwarded(true, authorization);
         let sent = proxy.write_all(&forwarded).await;
         // The buffer that held the credentials is cleared before it is
@@ -404,7 +423,6 @@ async fn http(
         let _ = carry(&mut client, &mut proxy, rest).await;
         return;
     }
-    let authority = head.target.authority();
     let mut request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n").into_bytes();
     if let Some(authorization) = authorization {
         request.extend_from_slice(b"Proxy-Authorization: ");
@@ -418,6 +436,7 @@ async fn http(
         return;
     }
     let Ok(answer) = head::answer(&mut proxy).await else {
+        met(Met::Reached);
         let _ = client
             .write_all(failed("502 Bad Gateway", "http_response_incomplete").as_bytes())
             .await;
@@ -427,17 +446,16 @@ async fn http(
         return;
     }
     let took = (200..300).contains(&answer.status);
-    upstream
-        .refused
-        .store(answer.status == 407, Ordering::Relaxed);
+    met(if answer.status == 407 {
+        Met::CredentialsRefused
+    } else {
+        Met::Reached
+    });
     if let Some(refusal) = &upstream.refusal {
-        *refusal
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = if took {
-            None
-        } else {
-            provider_answer(&answer.to_browser)
-        };
+        match provider_answer(&answer.to_browser).filter(|_| !took) {
+            Some(answer) => refusal.keep(&authority, answer),
+            None => refusal.forget(&authority),
+        }
     }
     if !took {
         let _ = client.write_all(&answer.to_browser).await;
@@ -488,22 +506,23 @@ async fn socks5(
             .await;
         return;
     };
-    // Whether the proxy refused the credentials is this connection's
-    // answer, the latest, never one a connection before met.
-    let answered = |answered: bool| upstream.answered.store(answered, Ordering::Relaxed);
+    // What the connection met is its authority's latest answer, never one
+    // another connection met.
+    let authority = head.target.authority();
+    let met = |met| upstream.outcomes.record(&authority, met);
     let Some(proxy) = upstream.connect().await else {
-        upstream.refused.store(false, Ordering::Relaxed);
-        answered(true);
+        met(Met::Unreachable);
         let _ = client.write_all(relay_unreachable().as_bytes()).await;
         return;
     };
     let mut proxy = Tallied::new(proxy, upstream.usage.clone());
     let authenticated = authenticate(&mut proxy, credentials).await;
-    upstream
-        .refused
-        .store(matches!(authenticated, Ok(false)), Ordering::Relaxed);
     if !matches!(authenticated, Ok(true)) || !proxy.charged().await {
-        answered(true);
+        met(if matches!(authenticated, Ok(false)) {
+            Met::CredentialsRefused
+        } else {
+            Met::Refused
+        });
         let _ = client
             .write_all(failed("502 Bad Gateway", "proxy_internal_error").as_bytes())
             .await;
@@ -517,13 +536,13 @@ async fn socks5(
         return;
     }
     if !matches!(opened, Ok(true)) {
-        answered(true);
+        met(Met::Refused);
         let _ = client
             .write_all(failed("502 Bad Gateway", "connection_refused").as_bytes())
             .await;
         return;
     }
-    answered(false);
+    met(Met::Reached);
     let started = match head.target {
         Target::Tunnel { .. } => client.write_all(ESTABLISHED).await,
         Target::Absolute { .. } => proxy.write_all(&head.forwarded(false, None)).await,

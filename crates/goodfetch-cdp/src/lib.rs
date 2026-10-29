@@ -22,7 +22,9 @@ mod framing;
 pub mod generated;
 mod net_error;
 
-pub use connection::{Connection, Driver, Ended, Event as RawEvent, SessionId, Subscription};
+pub use connection::{
+    Connection, Driver, Ended, Event as RawEvent, SessionId, Subscription, SubscriptionEnd,
+};
 pub use failure::{Failure, PartyText, Refusal};
 pub use framing::{Framer, FramingError, MAX_FRAME};
 pub use net_error::NetError;

@@ -91,65 +91,102 @@ impl Debug for Context<'_> {
 }
 
 /// The formats `request` names, read from `document`, and no other: a
-/// document with no main content answers each format empty and
-/// `main_content: none`, never the whole page in its place.
+/// document with no main content answers each format read from it empty
+/// and `main_content: none`, never the whole page in its place.
 pub fn formats(
     document: &Document<'_>,
     request: &FormatsRequest,
     context: &Context<'_>,
 ) -> PageFormats {
-    // `html.raw` (and links) read `document.html` as it stands; every
-    // other format reads it once the cosmetic rules took their elements
-    // out, and the Markdown and text then as a person sees it.
+    measured_formats(document, request, context).formats
+}
+
+/// What one call read: its formats, and the length of the text of the
+/// main content they were read from, as [`main_content_length`] measures
+/// it.
+#[derive(Debug)]
+pub struct Measured {
+    /// The formats the request names.
+    pub formats: PageFormats,
+    /// The length of the main content's text, in characters, white space
+    /// aside, of the document as the Clean-up rules left it; 0 when it has
+    /// none, and none when the request names no format read from it.
+    pub main_content_length: Option<usize>,
+}
+
+/// The formats `request` names, read from `document` as [`formats`] reads
+/// them, and the length of the main content they were read from, so that a
+/// caller measuring what the Clean-up rules took of it (ADR 0047) runs no
+/// second main-content step on the document they left.
+pub fn measured_formats(
+    document: &Document<'_>,
+    request: &FormatsRequest,
+    context: &Context<'_>,
+) -> Measured {
+    // `html.raw`, links and the head read `document.html` as it stands;
+    // every other format reads it once the cosmetic rules took their
+    // elements out, and the Markdown and text then as a person sees it.
     let cleaned = context
         .clean_up
         .map(|clean_up| clean_up.remove(document.html, document.url));
     let cleaned = cleaned.as_deref().unwrap_or(document.html);
     let seen = composed(cleaned);
-    let main = main_content(&seen, document.url, context.extractor);
-    let of_main = |read: fn(&str) -> String| main.as_deref().map(read).unwrap_or_default();
+    // The main-content step runs only for a format read from its answer
+    // (story 8): outside, none read; inside, none found.
+    let read_main = request
+        .reads_main_content()
+        .then(|| main_content(&seen, document.url, context.extractor));
+    let main = read_main.as_ref().and_then(Option::as_ref);
+    let main_html = main.map(|(html, _)| html.as_str());
+    let of_main = |read: fn(&str) -> String| main_html.map(read).unwrap_or_default();
     // One streaming pass over the document as it stands, its shadow roots'
-    // templates included, for whichever of them the request names.
+    // templates included, for its links and head; images and media are
+    // extracted content, read after the Clean-up rules (ADR 0047), by a
+    // second pass only when the rules changed the document.
+    let raw_read = request.links.is_some() || request.metadata.is_some();
+    let assets_read = request.images.is_some() || request.media.is_some();
+    let untouched = cleaned == document.html;
     let References {
         links,
-        images,
-        media,
+        mut images,
+        mut media,
         head,
-    } = if request.links.is_some()
-        || request.images.is_some()
-        || request.media.is_some()
-        || request.metadata.is_some()
-    {
+    } = if raw_read || (assets_read && untouched) {
         references(document.html, document.base_url)
     } else {
         References::default()
     };
+    if assets_read && !untouched {
+        let after_rules = references(cleaned, document.base_url);
+        (images, media) = (after_rules.images, after_rules.media);
+    }
     // One tree of the document as a person sees it, for the formats a
     // tree reads.
     let tree =
         (request.tables.is_some() || request.metadata.is_some() || request.contacts.is_some())
             .then(|| Html::parse_document(&seen));
     let tree = tree.as_ref();
-    PageFormats {
+    let formats = PageFormats {
         url: document.url.to_owned(),
         base_url: document.base_url.to_owned(),
-        main_content: if main.is_some() {
-            MainContent::Found
-        } else {
-            MainContent::None
-        },
+        main_content: read_main.as_ref().map(|found| {
+            if found.is_some() {
+                MainContent::Found
+            } else {
+                MainContent::None
+            }
+        }),
         markdown: request.markdown.map(|format| match format.content() {
             MarkdownContent::Main => of_main(markdown),
             MarkdownContent::Full => markdown(&body(&seen)),
-            MarkdownContent::Fit => main
-                .as_deref()
-                .map(|main| markdown(&fit(main, &seen)))
+            MarkdownContent::Fit => main_html
+                .map(|main| markdown(&fit(main, &seen, document.base_url)))
                 .unwrap_or_default(),
         }),
         html: request.html.map(|format| match format.kind() {
             HtmlKind::Raw => document.serialization.as_content(document.html),
             HtmlKind::Cleaned => document.serialization.as_content(cleaned),
-            HtmlKind::Main => main.clone().unwrap_or_default(),
+            HtmlKind::Main => main_html.map(ToOwned::to_owned).unwrap_or_default(),
         }),
         text: request.text.map(|Asked| of_main(text)),
         links: request.links.map(|Asked| links),
@@ -164,6 +201,10 @@ pub fn formats(
             .contacts
             .and(tree)
             .map(|tree| contacts(tree, document.base_url)),
+    };
+    Measured {
+        formats,
+        main_content_length: read_main.map(|found| found.map_or(0, |(_, length)| length)),
     }
 }
 

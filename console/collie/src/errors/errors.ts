@@ -61,6 +61,7 @@ const SUMMARIES: Readonly<Record<string, MessageDescriptor>> = {
   not_in_product: msg`This engine's Product does not carry what was asked.`,
   page_check_failed: msg`The page is neither the expected page nor the login page.`,
   page_crashed: msg`The page crashed.`,
+  page_events_lost: msg`The engine fell too far behind the page's events and no longer reads them.`,
   page_function_failed: msg`A page function failed in the page.`,
   page_handler_failed: msg`A handler the program gave the page failed.`,
   page_memory_exceeded: msg`The page held more memory than its cap while memory was critical, so it was ended.`,

@@ -6,6 +6,7 @@
 
 use goodfetch_protocol::page::{FormatsRequest, PageFormats};
 use proptest::prelude::*;
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{URL, read};
@@ -57,6 +58,36 @@ fn fit_markdown_leaves_out_link_dense_and_image_only_blocks_and_a_repeated_navig
         )
     );
     assert!(fit.len() < main.len());
+}
+
+/// The repeated navigation list is left out of "fit" whatever its links'
+/// form, though the main-content step makes the article's links absolute
+/// and the page's stay as written.
+/// Covers: story:6-2
+#[rstest]
+#[case::document_relative("home.html", "shop.html", "journal.html")]
+#[case::parent_relative("../", "../shop", "../journal")]
+#[case::query_only("?page=1", "?page=2", "?page=3")]
+#[case::scheme_relative("//kites.test/", "//kites.test/shop", "//kites.test/journal")]
+fn fit_markdown_leaves_out_a_repeated_navigation_list_of_relative_links(
+    #[case] home: &str,
+    #[case] shop: &str,
+    #[case] journal: &str,
+) {
+    let page = PAGE
+        .replace("href=\"/\"", &format!("href=\"{home}\""))
+        .replace("href=\"/shop\"", &format!("href=\"{shop}\""))
+        .replace("href=\"/journal\"", &format!("href=\"{journal}\""));
+
+    let fit = markdown(&page, "fit");
+
+    assert_eq!(
+        fit,
+        format!(
+            "## Choosing a kite line\n\n{}\n\n{}\n\n{}\n\n{}\n",
+            PARAGRAPHS[0], PARAGRAPHS[1], PARAGRAPHS[2], PARAGRAPHS[3]
+        )
+    );
 }
 
 /// Covers: story:6-2
@@ -205,6 +236,38 @@ fn text_is_the_main_contents_text_a_paragraph_per_block() {
             format!(
                 "Choosing a kite line\n\n{}\n\n{}\n\nRead also Setting the bridle, Reels and winders and Three knots for the field.\n\n{}\n\n{}\n\nHome (start here)\n\nShop (lines and reels)\n\nJournal (more articles)",
                 PARAGRAPHS[0], PARAGRAPHS[1], PARAGRAPHS[2], PARAGRAPHS[3]
+            )
+            .as_str()
+        )
+    );
+}
+
+/// Phrasing elements, and an element the HTML Standard does not name, run
+/// inside their paragraph; a ruby's readings are kept beside their base,
+/// and its fallback parentheses, which a browser hides, are left out.
+/// Covers: story:6-3
+#[test]
+fn text_keeps_a_paragraph_whole_across_the_phrasing_elements_inside_it() {
+    let html = format!(
+        "<!doctype html><html><head><title>Lines</title></head><body><article>\
+         <h1>Choosing a kite line</h1><p>{}</p>\
+         <p>Run <tt>reel --wind</tt> before you <big>fly</big>, read the \
+         <acronym title=\"frequently asked questions\">FAQ</acronym> \
+         <svg width=\"8\" height=\"8\"><circle r=\"4\"></circle></svg> on \
+         <kite-term>bridles</kite-term> and tie the \
+         <ruby>凧<rp>(</rp><rt>たこ</rt><rp>)</rp></ruby> knots.</p>\
+         <p>{}</p></article></body></html>",
+        PARAGRAPHS[0], PARAGRAPHS[1]
+    );
+
+    let text = read(&html, json!({ "text": true })).text;
+
+    assert_eq!(
+        text.as_deref(),
+        Some(
+            format!(
+                "Choosing a kite line\n\n{}\n\nRun reel --wind before you fly, read the FAQ on bridles and tie the 凧たこ knots.\n\n{}",
+                PARAGRAPHS[0], PARAGRAPHS[1]
             )
             .as_str()
         )

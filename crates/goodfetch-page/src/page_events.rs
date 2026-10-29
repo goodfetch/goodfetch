@@ -10,7 +10,18 @@
 //! or `page_error`, and passes over what the browser replays from before
 //! that call.
 //!
-//! A body is read on demand: kept for a response a
+//! The reader ends when the page leaves the engine or its target goes, and
+//! so do the page's waiters and body reads. A reader that fell too far
+//! behind the browser's events has lost some: the page's listeners,
+//! waiters and body reads then raise `page_events_lost`, and the Run trace
+//! records it, rather than reading the live page as gone.
+//!
+//! What the page's events keep is bounded: every request in flight, and of
+//! those that ended the latest `ENDED_LIMIT`, the main frame's document's
+//! always; and the latest `KEPT_LIMIT` bodies its waiters kept.
+//!
+//! A body is read on demand, within its call's own `timeout`, else the
+//! Run's `timeout.wait`: kept for a response a
 //! `page.wait_for_request_finished` waiter answered, read and kept as the
 //! request finishes; otherwise read from the browser once the request
 //! ended, `body_unavailable` when the browser no longer holds it, and
@@ -43,7 +54,7 @@
 //! so each event changes that state in one place, under one lock.
 #![expect(
     clippy::disallowed_types,
-    reason = "listeners and waiters are armed as their call arrives, before any `.await`: each lock guards one page's state for one step, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
+    reason = "listeners and waiters are armed as their call arrives, before any `.await`: each lock guards the open pages, one page's state or its refusals for one step, never across an `.await` or another of them (a request's refusal and its relay's error are taken before `state`), and the Tokio `watch` values updated under `state` never take one, so there is no lock order to test under loom (ADR 0060)"
 )]
 
 use std::collections::BTreeMap;
@@ -52,7 +63,7 @@ use std::time::{Duration, SystemTime};
 
 use data_encoding::BASE64;
 use goodfetch_cdp::generated::{network, page, runtime};
-use goodfetch_cdp::{NetError, Subscription};
+use goodfetch_cdp::{NetError, Subscription, SubscriptionEnd};
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
@@ -64,11 +75,11 @@ use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::events::{
-    BODY_UNAVAILABLE, BodyUnavailableDetails, PAGE_CONSOLE, PAGE_DOM_CONTENT_LOADED, PAGE_LOAD,
-    PAGE_PAGE_ERROR, PAGE_REQUEST, PAGE_REQUEST_FAILED, PAGE_REQUEST_FINISHED, PAGE_RESPONSE,
-    PAGE_WEB_SOCKET, PageEventName, PageExchange, PageFired, PageRequest, PageWebSocket,
-    RequestFailure, WEB_SOCKET_CLOSE, WEB_SOCKET_FRAME_RECEIVED, WEB_SOCKET_FRAME_SENT,
-    WebSocketClosed, WebSocketFrame,
+    BODY_UNAVAILABLE, BodyUnavailableDetails, PAGE_CONSOLE, PAGE_DOM_CONTENT_LOADED,
+    PAGE_EVENTS_LOST, PAGE_LOAD, PAGE_PAGE_ERROR, PAGE_REQUEST, PAGE_REQUEST_FAILED,
+    PAGE_REQUEST_FINISHED, PAGE_RESPONSE, PAGE_WEB_SOCKET, PageEventName, PageExchange, PageFired,
+    PageRequest, PageWebSocket, RequestFailure, WEB_SOCKET_CLOSE, WEB_SOCKET_FRAME_RECEIVED,
+    WEB_SOCKET_FRAME_SENT, WebSocketClosed, WebSocketFrame,
 };
 use goodfetch_protocol::page::{
     BodyHandle, PageId, PageResponse, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
@@ -78,12 +89,14 @@ use tokio_util::sync::CancellationToken;
 
 mod document;
 mod latest;
+mod requests;
 mod runtime_values;
 mod waiters;
 
 pub(crate) use self::document::WaitDeadline;
 use self::document::{Document, InFlight, UrlWaiter};
 use self::latest::Latest;
+use self::requests::Requests;
 use self::runtime_values::{console_message, web_error};
 use self::waiters::{Armed, answer_armed};
 use crate::driver::{Child, ChildKind, OnChild, PageDriver, response_of};
@@ -184,11 +197,12 @@ impl Table {
 
     /// Takes the pages `pages` out, as they go: their calls answer.
     pub(crate) fn close(&self, pages: &[PageId]) {
-        let mut table = lock(&self.0);
-        for page in pages {
-            if let Some(events) = table.remove(page) {
-                events.close();
-            }
+        let taken: Vec<PageEvents> = {
+            let mut table = lock(&self.0);
+            pages.iter().filter_map(|page| table.remove(page)).collect()
+        };
+        for events in taken {
+            events.close();
         }
     }
 }
@@ -218,6 +232,10 @@ struct Shared {
     /// Whether the page left the engine, closed or with its Run: its
     /// listeners' calls answer then, and a crash leaves them listening.
     closed: watch::Sender<bool>,
+    /// Whether its reader fell too far behind its target's events and
+    /// stopped while the page was open: its calls on events then raise
+    /// `page_events_lost`.
+    lost: watch::Sender<bool>,
     /// The main frame's document and the load states it reached.
     document: watch::Sender<Document>,
     /// The response observer its Session registered, and what it keeps,
@@ -230,6 +248,15 @@ struct Shared {
 /// answers `body_unavailable`.
 const REQUESTED_LIMIT: usize = 256;
 
+/// How many requests that ended a page keeps, besides its main frame's
+/// document's: the latest; an older one's body answers `body_unavailable`.
+const ENDED_LIMIT: usize = 1_024;
+
+/// How many bodies its `page.wait_for_request_finished` waiters kept a
+/// page keeps for `response.body`: the latest, each a handle to its file in
+/// the Run's folder; an older one answers `body_unavailable`.
+const KEPT_LIMIT: usize = 256;
+
 #[derive(Default)]
 struct State {
     /// How many calls listen to each event.
@@ -237,10 +264,10 @@ struct State {
     /// When the `Runtime` domain was asked for, in milliseconds since the
     /// epoch: what the browser replays from before is passed over.
     runtime_since: Option<f64>,
-    requests: BTreeMap<String, Tracked>,
-    /// The bodies kept for the responses a waiter answered, or the
+    requests: Requests<Tracked, ENDED_LIMIT>,
+    /// The bodies kept for the latest responses a waiter answered, or the
     /// `response_limit_exceeded` a body past the Run's limits raises.
-    kept: BTreeMap<String, Result<BodyHandle, CallError>>,
+    kept: Latest<Result<BodyHandle, CallError>, KEPT_LIMIT>,
     /// The bodies kept for the latest responses `page.request` answered
     /// from the page's Session, whole or cut.
     requested: Latest<Requested, REQUESTED_LIMIT>,
@@ -327,17 +354,22 @@ impl Listening {
     ///
     /// # Errors
     ///
-    /// The code of the page's failure when the browser refused `Runtime`.
+    /// The code of the page's failure when the browser refused `Runtime`,
+    /// and `page_events_lost` once the page's reader lost its events.
     pub(crate) async fn until_gone(self, runtime: bool) -> Result<(), CallError> {
+        let shared = &self.shared;
         if runtime {
-            self.shared
+            shared
                 .driver
                 .opening_command(&runtime::EnableParams {})
                 .await?;
         }
-        let mut closed = self.shared.closed.subscribe();
-        let _ = closed.wait_for(|closed| *closed).await;
-        Ok(())
+        let (mut closed, mut lost) = (shared.closed.subscribe(), shared.lost.subscribe());
+        tokio::select! {
+            biased;
+            _ = closed.wait_for(|closed| *closed) => Ok(()),
+            _ = lost.wait_for(|lost| *lost) => Err(events_lost(&shared.page_id)),
+        }
     }
 }
 
@@ -380,6 +412,7 @@ impl PageEvents {
             changed: Notify::new(),
             gone: watch::Sender::new(false),
             closed: watch::Sender::new(false),
+            lost: watch::Sender::new(false),
             document: watch::Sender::new(Document::blank()),
             observing: observer.map(|observer| {
                 let kept = observer.kept();
@@ -534,16 +567,8 @@ impl PageEvents {
 
     /// The page went: every listener's and waiter's call answers.
     pub(crate) fn close(&self) {
-        {
-            let mut state = lock(&self.shared.state);
-            state.waiters.clear();
-            state.request_waiters.clear();
-            state.response_waiters.clear();
-            state.url_waiters.clear();
-        }
-        self.shared.gone.send_replace(true);
+        answer_every_waiter(&self.shared);
         self.shared.closed.send_replace(true);
-        self.shared.changed.notify_waiters();
     }
 
     /// Arms a waiter for the next request whose URL `pattern` matches, any
@@ -566,10 +591,11 @@ impl PageEvents {
             answer,
         });
         drop(state);
+        let shared = Arc::clone(&self.shared);
         async move {
             match deadline.within("finished request", answered).await? {
                 Ok(answer) => answer,
-                Err(_) => Err(gone()),
+                Err(_) => Err(gone(&shared)),
             }
         }
     }
@@ -581,15 +607,36 @@ impl PageEvents {
         lock(&self.shared.state).requested.keep(request_id, body);
     }
 
+    /// The body the page keeps for the request `request_id`, a file in the
+    /// Run's folder that reading needs no browser for: one a waiter or
+    /// `page.request` kept, or the error it keeps instead.
+    pub(crate) fn kept(&self, request_id: &str) -> Option<Result<BodyHandle, CallError>> {
+        kept_in(&lock(&self.shared.state), request_id)
+    }
+
     /// The body of the response to the request `request_id`, once it
-    /// ended, as a page body's handle.
+    /// ended, as a page body's handle, unless `deadline` passes first.
     ///
     /// # Errors
     ///
     /// `body_unavailable` when the browser no longer holds it, or the page
-    /// never sent the request, its fix spelled for `surface`, and
-    /// `response_truncated` when it broke off.
+    /// never sent the request, its fix spelled for `surface`,
+    /// `response_truncated` when it broke off, and `deadline_exceeded` when
+    /// it had not ended by the deadline.
     pub(crate) async fn body(
+        &self,
+        request_id: &str,
+        surface: Surface,
+        deadline: WaitDeadline,
+    ) -> Result<BodyHandle, CallError> {
+        deadline
+            .within("response body", self.ended_body(request_id, surface))
+            .await?
+    }
+
+    /// The body of the response to the request `request_id`, once it
+    /// ended, as [`body`](Self::body) answers it, with no deadline.
+    async fn ended_body(
         &self,
         request_id: &str,
         surface: Surface,
@@ -599,17 +646,8 @@ impl PageEvents {
             let changed = shared.changed.notified();
             {
                 let state = lock(&shared.state);
-                if let Some(kept) = state.kept.get(request_id) {
-                    return kept.clone();
-                }
-                match state.requested.get(request_id) {
-                    Some(Requested::Whole(kept)) => return Ok(kept.clone()),
-                    Some(Requested::Cut {
-                        url,
-                        received,
-                        expected,
-                    }) => return Err(cut(url, *received, *expected)),
-                    None => {}
+                if let Some(kept) = kept_in(&state, request_id) {
+                    return kept;
                 }
                 let Some(tracked) = state.requests.get(request_id) else {
                     return Err(unavailable("", request_id, surface));
@@ -624,7 +662,7 @@ impl PageEvents {
                 }
             }
             if *shared.gone.borrow() {
-                return Err(gone());
+                return Err(gone(shared));
             }
             changed.await;
         };
@@ -648,6 +686,22 @@ impl PageEvents {
                 }
             }
         }
+    }
+}
+
+/// The body the page keeps for the request `request_id`, as
+/// [`PageEvents::body`] answers it, when it keeps one.
+fn kept_in(state: &State, request_id: &str) -> Option<Result<BodyHandle, CallError>> {
+    if let Some(kept) = state.kept.get(request_id) {
+        return Some(kept.clone());
+    }
+    match state.requested.get(request_id)? {
+        Requested::Whole(kept) => Some(Ok(kept.clone())),
+        Requested::Cut {
+            url,
+            received,
+            expected,
+        } => Some(Err(cut(url, *received, *expected))),
     }
 }
 
@@ -818,13 +872,43 @@ fn cut(url: &str, received: u64, expected: Option<u64>) -> CallError {
     )
 }
 
-/// `closed` for a call on a page that went before it answered.
-fn gone() -> CallError {
+/// `closed` for a call on a page that went before it answered, or
+/// `page_events_lost` once its reader lost its events while it was open.
+fn gone(shared: &Shared) -> CallError {
+    if *shared.lost.borrow() {
+        return events_lost(&shared.page_id);
+    }
     CallError::new(
         &goodfetch_protocol::connection::CLOSED,
         "the page closed, or its Run ended, before the call answered",
         &serde_json::json!({}),
     )
+}
+
+/// `page_events_lost` for a call on events of the page `page_id`.
+fn events_lost(page_id: &PageId) -> CallError {
+    CallError::new(
+        &PAGE_EVENTS_LOST,
+        format!(
+            "the engine fell too far behind the events of the page `{}` and no longer reads them: open another page to follow its events",
+            page_id.0
+        ),
+        &serde_json::json!({ "page_id": page_id }),
+    )
+}
+
+/// Answers every waiter of the page, which raises what [`gone`] says, and
+/// every body read waiting for its request to end.
+fn answer_every_waiter(shared: &Shared) {
+    {
+        let mut state = lock(&shared.state);
+        state.waiters.clear();
+        state.request_waiters.clear();
+        state.response_waiters.clear();
+        state.url_waiters.clear();
+    }
+    shared.gone.send_replace(true);
+    shared.changed.notify_waiters();
 }
 
 fn millis_since_epoch(wall: SystemTime) -> f64 {
@@ -834,9 +918,21 @@ fn millis_since_epoch(wall: SystemTime) -> f64 {
         * 1000.0
 }
 
-/// Reads the page's events until its target goes.
+/// Reads the page's events until the page leaves the engine or its target
+/// goes. A subscription that fell too far behind while the page was open
+/// lost events: its calls on events raise `page_events_lost` from then, and
+/// the Run trace records it.
 async fn read(mut subscription: Subscription, shared: Arc<Shared>) {
-    while let Some(event) = subscription.next().await {
+    let mut closed = shared.closed.subscribe();
+    loop {
+        let event = tokio::select! {
+            biased;
+            _ = closed.wait_for(|closed| *closed) => break,
+            event = subscription.next() => event,
+        };
+        let Some(event) = event else {
+            break;
+        };
         let published = take_in(&shared, &event);
         for (event, data) in published {
             shared
@@ -845,8 +941,20 @@ async fn read(mut subscription: Subscription, shared: Arc<Shared>) {
                 .await;
         }
     }
-    shared.gone.send_replace(true);
-    shared.changed.notify_waiters();
+    let lost = subscription.ended() == Some(SubscriptionEnd::FellBehind) && !*closed.borrow();
+    if lost {
+        tracing::warn!(
+            page_id = %shared.page_id.0,
+            "the page's events fell too far behind and some are lost: its calls on events raise `page_events_lost`"
+        );
+        // The Run trace holds the Error code no reply may carry (ADR 0072).
+        shared.run.record_outcome(PAGE_EVENTS_LOST.name);
+        shared.lost.send_replace(true);
+        answer_every_waiter(&shared);
+    } else {
+        shared.gone.send_replace(true);
+        shared.changed.notify_waiters();
+    }
 }
 
 /// Reads the network events of one of the page's out-of-process frames
@@ -897,6 +1005,12 @@ fn emit(
 /// state.
 fn take_in(shared: &Arc<Shared>, event: &goodfetch_cdp::RawEvent) -> Vec<Published> {
     let mut out = Vec::new();
+    // A failed request's refusal and its relay's error are taken before the
+    // page's state, so its lock never holds another.
+    let failed = event.read::<network::LoadingFailedEvent>().map(|failed| {
+        let how = failure_of(shared, &failed);
+        (failed, how)
+    });
     let mut guard = lock(&shared.state);
     let state = &mut *guard;
     if let Some(sent) = event.read::<network::RequestWillBeSentEvent>() {
@@ -943,10 +1057,12 @@ fn take_in(shared: &Arc<Shared>, event: &goodfetch_cdp::RawEvent) -> Vec<Publish
                 answer_waiters(shared, state, request, response);
             }
         }
+        ended(shared, state, &finished.request_id);
         document::ended(shared, state, &finished.request_id);
         shared.changed.notify_waiters();
-    } else if let Some(failed) = event.read::<network::LoadingFailedEvent>() {
-        failed_request(shared, state, &mut out, &failed);
+    } else if let Some((failed, how)) = failed {
+        failed_request(shared, state, &mut out, &failed, how);
+        ended(shared, state, &failed.request_id);
         document::ended(shared, state, &failed.request_id);
         shared.changed.notify_waiters();
     } else {
@@ -1023,6 +1139,42 @@ fn sent_request(
     );
 }
 
+/// The request `request_id` ended: the page keeps it among the latest that
+/// ended, and its main frame's document's whatever ends after it.
+fn ended(shared: &Shared, state: &mut State, request_id: &str) {
+    let document = shared.document.borrow().loader().cloned();
+    state.requests.end(request_id, document.as_deref());
+}
+
+/// What the page's other parts say of a failed request, read before its
+/// state is locked.
+struct HowItFailed {
+    /// The interception's refusal of it, and whether the Run trace records
+    /// it.
+    refusal: Option<(ErrorData, bool)>,
+    /// The site's own failure, when the Session's egress relay met it for
+    /// the browser, which sees only the relay's answer.
+    relayed: Option<&'static str>,
+}
+
+/// Takes the interception's refusal of the request `failed` names and the
+/// failure its relay met, if any.
+fn failure_of(shared: &Shared, failed: &network::LoadingFailedEvent) -> HowItFailed {
+    let url = lock(&shared.state)
+        .requests
+        .get(&failed.request_id)
+        .map(|tracked| tracked.request.url.clone());
+    HowItFailed {
+        refusal: shared.refusals.take(&failed.request_id),
+        relayed: url.and_then(|url| {
+            shared
+                .driver
+                .relay()
+                .and_then(|relay| relay.net_error(&url, &failed.error_text, None))
+        }),
+    }
+}
+
 /// A request failed: its failure carries the interception's refusal, which
 /// the Run trace records when no call waited on the request, as the Run's
 /// outcome record names its Error code.
@@ -1031,19 +1183,13 @@ fn failed_request(
     state: &mut State,
     out: &mut Vec<Published>,
     failed: &network::LoadingFailedEvent,
+    how: HowItFailed,
 ) {
-    let refusal = shared.refusals.take(&failed.request_id);
+    let HowItFailed { refusal, relayed } = how;
     let Some(tracked) = state.requests.get_mut(&failed.request_id) else {
         return;
     };
-    // The site's own failure, when the Session's egress relay met it for
-    // the browser, which sees only the relay's answer.
-    let text = shared
-        .driver
-        .relay()
-        .and_then(|relay| relay.net_error(&tracked.request.url, &failed.error_text, None))
-        .unwrap_or(&failed.error_text);
-    let error = NetError::of(text);
+    let error = NetError::of(relayed.unwrap_or(&failed.error_text));
     let mut request = tracked.request.clone();
     request.failure = Some(RequestFailure {
         error_text: error.name().to_owned(),
@@ -1205,12 +1351,12 @@ fn answer_waiters(
             Ok(handle) => {
                 lock(&shared.state)
                     .kept
-                    .insert(request_id.clone(), Ok(handle));
+                    .keep(request_id.clone(), Ok(handle));
             }
             Err(Unread::PastLimit(exceeded)) => {
                 lock(&shared.state)
                     .kept
-                    .insert(request_id.clone(), Err(exceeded));
+                    .keep(request_id.clone(), Err(exceeded));
             }
             Err(Unread::Gone) => {}
         }

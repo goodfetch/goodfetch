@@ -49,8 +49,8 @@ const WRITERS: &[(&str, usize, &str)] = &[
     ),
     (
         "crates/foxhound/goodfetch-crawl/src/work_items.rs",
-        4,
-        "masked: a handler's failure is masked as `Scope::Kept` where the delivery receives it, a refused Record's `record_invalid` too; work items and outcomes hold URLs and the program's own data, and the reserved positions only a number",
+        6,
+        "masked: a handler's failure is masked as `Scope::Kept` where the delivery receives it, a refused Record's `record_invalid` too; work items and outcomes hold URLs and the program's own data, and the reserved positions only a number; the request and Record counts hold an outcome's kind, its skip reason, Error code or Block cause (a code, never its message) and numbers",
     ),
     (
         "crates/foxhound/goodfetch-dataset/src/lib.rs",

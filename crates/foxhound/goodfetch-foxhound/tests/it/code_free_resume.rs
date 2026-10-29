@@ -96,6 +96,14 @@ fn session(home: &Path, start: SystemTime, seed: u64, calls: &[(&str, Value)]) -
         .with(goodfetch_crawl::contribution(tiers));
     let engine = Engine::new(identity, &composition).unwrap();
     goodfetch_test_support::runtime().block_on(async {
+        let clock = Clock::paused(start);
+        // The dispatch records go into the test's exercise record (ADR
+        // 0072), timed by the engine's Clock.
+        let wall = clock.clone();
+        let _subscriber =
+            tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
+                wall.wall()
+            }));
         let (network, dialer) = transport::in_memory();
         let client = async {
             let (reader, mut writer) = dialer.connect().await.unwrap().split();
@@ -134,7 +142,7 @@ fn session(home: &Path, start: SystemTime, seed: u64, calls: &[(&str, Value)]) -
             environment: std::collections::BTreeMap::new(),
             keychain: goodfetch_engine::secrets::Keychain::absent(),
             home: Home::new(home.to_owned()),
-            clock: Clock::paused(start),
+            clock,
             entropy: Entropy::seeded(seed),
             blocking: BlockingPolicy::Inline,
             run_state_location: RunStateLocation::PerMajor,

@@ -5,6 +5,8 @@
 //! fetch tier or AI verb raises the skip on Foxhound's executable yet
 //! (#1102), so this is where the reason is pinned (ADR 0107).
 
+use std::collections::BTreeMap;
+
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_frontier::{BOUNDS_TABLES, RULES_TABLES};
 use goodfetch_protocol::foxhound::outcomes::{
@@ -14,10 +16,11 @@ use goodfetch_protocol::run::{AxisReason, Completeness, PointInTime};
 use rusqlite::Connection;
 
 use super::short_of_scope;
-use crate::work_items::TABLES;
+use crate::work_items::{self, TABLES};
 
 /// A run file in memory holding the crawl's tables and, in commit order,
-/// each work item's outcome.
+/// each work item's outcome, counted as the crawl's writes count it: a
+/// later outcome of a work item takes the place of its earlier one.
 fn run_file(outcomes: &[(&str, Ending)]) -> Connection {
     let connection = Connection::open_in_memory().unwrap();
     for tables in [TABLES, BOUNDS_TABLES, RULES_TABLES] {
@@ -25,7 +28,12 @@ fn run_file(outcomes: &[(&str, Ending)]) -> Connection {
             connection.execute_batch(statement).unwrap();
         }
     }
+    let mut latest: BTreeMap<&str, &Ending> = BTreeMap::new();
     for (position, (work_item, ending)) in (1_u64..).zip(outcomes) {
+        if let Some(earlier) = latest.insert(work_item, ending) {
+            work_items::count(&connection, earlier, -1).unwrap();
+        }
+        work_items::count(&connection, ending, 1).unwrap();
         let outcome = CrawlRequestOutcome {
             position,
             request: OutcomeRequest {

@@ -36,6 +36,9 @@ serde_json.workspace = true
 # (CARGO_BIN_EXE_goodfetch-foxhound, ADRs 0059 and 0062).
 goodfetch-foxhound = { path = ".", features = ["executable"] }
 goodfetch-test-support.workspace = true
+# The test subscriber an in-process engine's dispatch records reach the
+# exercise record through (tests/it/code_free_resume.rs; ADR 0072).
+tracing.workspace = true
 # The Exports' bytes the tests decode and digest (tests/it/exports.rs).
 data-encoding.workspace = true
 sha2.workspace = true

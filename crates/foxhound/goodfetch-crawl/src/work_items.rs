@@ -969,7 +969,7 @@ fn counted_as(ending: &Ending) -> (&'static str, String) {
 
 /// Counts `ending` once more, `by` 1, or once less, `by` -1, among the
 /// ended requests and, for a request that succeeded, its Records.
-fn count(connection: &Connection, ending: &Ending, by: i64) -> rusqlite::Result<()> {
+pub(crate) fn count(connection: &Connection, ending: &Ending, by: i64) -> rusqlite::Result<()> {
     let (kind, name) = counted_as(ending);
     connection.execute(
         "INSERT INTO request_counts (kind, name, count) VALUES (?1, ?2, ?3)

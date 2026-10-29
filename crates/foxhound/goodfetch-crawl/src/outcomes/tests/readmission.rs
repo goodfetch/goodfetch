@@ -349,7 +349,7 @@ enum Order {
 /// never re-admitted after the crawl's last look, left pending in a Run
 /// that then finishes.
 ///
-/// Covers: story:6-306, operation:run.retry_failed
+/// Covers: story:6-306
 #[rstest::rstest]
 fn a_re_admission_racing_the_crawls_end_is_delivered_or_refused(
     #[values(Order::LastLookFirst, Order::ReadmissionFirst)] order: Order,
@@ -388,7 +388,7 @@ fn a_re_admission_racing_the_crawls_end_is_delivered_or_refused(
 /// admitted, so the call answers it as for an ended crawl, never added and
 /// then left pending.
 ///
-/// Covers: story:3-128, operation:run.add_seed
+/// Covers: story:3-128
 #[test]
 fn a_seed_added_after_the_crawls_last_look_is_not_admitted() {
     let connection = crawl_of(1);

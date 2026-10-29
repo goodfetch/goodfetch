@@ -1,6 +1,7 @@
 //! The kept files a Checkpoint carries (ADRs 0002 and 0085): a Checkpoint
 //! is one SQLite file, so the bytes of every file its run state records go
-//! into its `run_file_chunks` table, a chunk of at most 1 MiB a row, and
+//! into its `run_file_chunks` table, a chunk of at most 1 MiB a row and an
+//! empty file one empty chunk, and
 //! the run file a Checkpoint becomes has them written back into its Run's
 //! folder, each checked against its SHA-256, then dropped from the run
 //! file, whose live copy never holds them. Its calls block: run them under
@@ -60,10 +61,14 @@ pub(crate) fn pack(copy: &Connection, folder: &Path) -> Result<(), CarryError> {
         let mut offset: i64 = 0;
         loop {
             let read = fill(&mut kept, &mut chunk)?;
-            if read == 0 {
+            // An empty file still takes one chunk, so that it is carried.
+            if read == 0 && offset > 0 {
                 break;
             }
             insert.execute((&sha256, offset, &chunk[..read]))?;
+            if read < chunk.len() {
+                break;
+            }
             offset += i64::try_from(read).unwrap_or(i64::MAX);
         }
     }

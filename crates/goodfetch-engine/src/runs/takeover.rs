@@ -20,7 +20,7 @@ use goodfetch_protocol::run::{
 use super::folder::{Recorded, point_in_time, read_recorded, write_end};
 use super::lifecycle::{self, Next, RunEvent};
 use super::report::{self, EndFacts, ReportPart};
-use super::writer::{LockError, RETRIES, backoff, take_lock};
+use super::writer::{retried, try_lock};
 use super::{Forwarder, RUN_FILE, RunError};
 use crate::clock::Clock;
 use crate::entropy::Entropy;
@@ -191,24 +191,19 @@ impl TakeOver {
         if let Some(report) = self.forward().await {
             return Ok(Taken::Forwarded(Box::new(report)));
         }
-        for attempt in 1..=RETRIES {
-            self.clock
-                .sleep(backoff(attempt, self.entropy.next_u64()))
-                .await;
-            if let Some(lock) = self.try_lock().await? {
-                return Ok(Taken::Lock(lock));
-            }
+        let (owner, folder) = (&self.owner, &self.folder);
+        let retried = retried(&self.clock, &mut self.entropy, || try_lock(owner, folder)).await;
+        match retried {
+            Ok(Some(lock)) => Ok(Taken::Lock(lock)),
+            Ok(None) => Ok(Taken::Busy),
+            Err(error) => Err(self.unavailable(&error)),
         }
-        Ok(Taken::Busy)
     }
 
     async fn try_lock(&self) -> Result<Option<File>, RunError> {
-        let folder = self.folder.clone();
-        match self.owner.blocking(move || take_lock(&folder)).await {
-            Ok(lock) => Ok(Some(lock)),
-            Err(LockError::Held) => Ok(None),
-            Err(LockError::Io(error)) => Err(self.unavailable(&error)),
-        }
+        try_lock(&self.owner, &self.folder)
+            .await
+            .map_err(|error| self.unavailable(&error))
     }
 
     /// Asks the owner the Run index names to abort the Run: its report, or

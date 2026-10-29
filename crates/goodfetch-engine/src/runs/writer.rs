@@ -3,15 +3,19 @@
 //! writes the Run holds, so a dead engine holds none. A reader tests it with
 //! a shared lock it releases at once, and a writer that finds it held,
 //! perhaps only by such a test, retries it with backoff before it gives up.
-//! Its calls block, apart from the retries: the registry runs them under
-//! its owner's blocking policy.
+//! Every writer that takes it retries it the same way, through
+//! [`retried`]. Its calls block, apart from [`try_lock`] and the retries:
+//! the registry runs them under its owner's blocking policy.
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io;
 use std::path::Path;
 use std::time::Duration;
 
+use crate::clock::Clock;
 use crate::durable;
+use crate::entropy::Entropy;
+use crate::tasks::TaskOwner;
 
 /// The writer's lock file, beside the Run's state (ADR 0031).
 pub(super) const LOCK_FILE: &str = "run.lock";
@@ -79,6 +83,46 @@ pub(super) fn take_lock(folder: &Path) -> Result<File, LockError> {
         Err(TryLockError::WouldBlock) => Err(LockError::Held),
         Err(TryLockError::Error(error)) => Err(LockError::Io(error.to_string())),
     }
+}
+
+/// Takes the writer's lock in `folder` as [`take_lock`] does, under
+/// `owner`'s blocking policy: `None` when another holds it.
+///
+/// # Errors
+///
+/// When the OS refuses the folder or the file.
+pub(super) async fn try_lock(owner: &TaskOwner, folder: &Path) -> Result<Option<File>, String> {
+    let folder = folder.to_owned();
+    match owner.blocking(move || take_lock(&folder)).await {
+        Ok(lock) => Ok(Some(lock)),
+        Err(LockError::Held) => Ok(None),
+        Err(LockError::Io(error)) => Err(error),
+    }
+}
+
+/// Runs `attempt` again up to [`RETRIES`] times, each after its
+/// [`backoff`] on `clock` with jitter from `entropy`, until it answers
+/// something: how a writer retries what it found held, perhaps only for a
+/// reader's moment (ADR 0031). `None` when every retry answered none.
+///
+/// # Errors
+///
+/// The first error of `attempt`.
+pub(super) async fn retried<T, E, F>(
+    clock: &Clock,
+    entropy: &mut Entropy,
+    mut attempt: impl FnMut() -> F,
+) -> Result<Option<T>, E>
+where
+    F: Future<Output = Result<Option<T>, E>>,
+{
+    for retry in 1..=RETRIES {
+        clock.sleep(backoff(retry, entropy.next_u64())).await;
+        if let Some(found) = attempt().await? {
+            return Ok(Some(found));
+        }
+    }
+    Ok(None)
 }
 
 /// How long a writer waits before its `attempt`-th retry of a held lock,

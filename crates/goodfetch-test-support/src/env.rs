@@ -61,8 +61,13 @@ const LAZYFS_PARENT: &str = "/tmp";
 /// of every Daemon the test starts listens on a port the OS chooses, never
 /// on its major's fixed port (ADR 0059); and every engine process writes
 /// its JSON log into the home's log folder (ADR 0122), at the test's level
-/// (`log.level`, [`TestEnv::log_level`]).
-pub const TEST_SETTINGS: &str = "console.address = \"127.0.0.1:0\"\nlog.output = \"file\"\n";
+/// (`log.level`, [`TestEnv::log_level`]), keeping every process's files
+/// (`log.file.max_files`): a process other than the Daemon keeps only its
+/// executable's newest sets at its start, and the test's exercise record
+/// reads every engine's log when the test ends, so a test that starts more
+/// processes than the default 5 would lose the first ones' records.
+pub const TEST_SETTINGS: &str =
+    "console.address = \"127.0.0.1:0\"\nlog.output = \"file\"\nlog.file.max_files = 10000\n";
 
 /// The user configuration's file in the per-major folder.
 const USER_CONFIGURATION: &str = "configuration.toml";

@@ -25,6 +25,7 @@ mod completeness;
 mod dataset_list;
 mod delivery;
 mod enqueue;
+mod intake;
 mod labels;
 mod lease;
 mod outcomes;

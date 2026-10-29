@@ -1,7 +1,8 @@
 //! The limits on what the HTTP tiers read (ADR 0067, SC-05, pitfall H14),
 //! on Foxhound's executable against the Proving ground: under a forced
 //! `http` tier, each decompression bomb (stacked codings included), the
-//! body past 64 MiB and the endless bodies end their crawl request
+//! bodies past 64 MiB (a gzip one within the ratio included) and the
+//! endless bodies of the hostile-input limits table end their crawl request
 //! `failed` with `response_limit_exceeded` naming its setting, while the
 //! page compressed within the ratio, the positive control, succeeds; a
 //! handler's `page.request` on that page to a bomb or an endless body
@@ -11,7 +12,9 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_test_support::{
+    ExpectedError, HostileTables, LimitSetting, ProvingGround, ServedBy, TestEnv,
+};
 use serde_json::{Value, json};
 
 use crate::fetch_tiers::{engine, settings};
@@ -20,17 +23,36 @@ use crate::frontier::crawl_declaring;
 /// The Proving ground's seed.
 const SEED: u64 = 644;
 
-/// Each body page and the setting its refusal names.
-const REFUSED: [(&str, &str); 8] = [
-    ("bombs/1", "network.max_decompression_ratio"),
-    ("bombs/2", "network.max_decompression_ratio"),
-    ("bombs/3", "network.max_decompression_ratio"),
-    ("bombs/4", "network.max_decompression_ratio"),
-    ("bombs/5", "network.max_decompression_ratio"),
-    ("body-limits/1", "network.max_body_size"),
-    ("body-limits/2", "network.max_body_size"),
-    ("body-limits/3", "network.max_body_size"),
-];
+/// Each body page of the committed limits table and the setting its
+/// refusal names: every case a Proving ground page serves that names a
+/// body setting. The table's JSON depth case is no crawl request's: its
+/// page is read as text, and no JSON is parsed.
+fn refused() -> Vec<(String, LimitSetting)> {
+    let tables = HostileTables::committed().unwrap();
+    let refused: Vec<_> = tables
+        .limits
+        .cases
+        .into_iter()
+        .filter_map(|case| match (case.served_by, case.expected) {
+            (ServedBy::Page(task), ExpectedError::ResponseLimitExceeded { setting })
+                if setting != LimitSetting::MaxJsonDepth =>
+            {
+                Some((task, setting))
+            }
+            _ => None,
+        })
+        .collect();
+    for setting in [
+        LimitSetting::MaxBodySize,
+        LimitSetting::MaxDecompressionRatio,
+    ] {
+        assert!(
+            refused.iter().any(|(_, served)| *served == setting),
+            "the table serves no body case naming {setting:?}"
+        );
+    }
+    refused
+}
 
 /// The page compressed within the ratio.
 const SAFE: &str = "bombs/6";
@@ -79,9 +101,10 @@ fn every_body_past_a_limit_fails_its_request_and_its_page_request_on_the_http_ti
     ));
     let mut engine = engine(&env);
     let url = |task: &str| proving_ground.start_url(task).unwrap();
-    let seeds: Vec<Value> = REFUSED
+    let refused = refused();
+    let seeds: Vec<Value> = refused
         .iter()
-        .map(|(task, _)| *task)
+        .map(|(task, _)| task.as_str())
         .chain([SAFE])
         .map(|task| json!({ "url": url(task), "label": "page" }))
         .collect();
@@ -120,7 +143,7 @@ fn every_body_past_a_limit_fails_its_request_and_its_page_request_on_the_http_ti
     assert!(engine.finish());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
-    let mut expected: Vec<(String, Value, Value, Value)> = REFUSED
+    let mut expected: Vec<(String, Value, Value, Value)> = refused
         .iter()
         .map(|(task, setting)| {
             (

@@ -110,6 +110,7 @@ use crate::tier_choice::{AttemptPlan, Sampled, Weighed};
 use crate::tier_race::Raced;
 use crate::work_items::{Fetched, Leased};
 
+mod decoy;
 mod learning;
 mod race;
 mod site_preferences;
@@ -440,6 +441,7 @@ pub(super) async fn attempt(
         leased: &leased,
         session: &session,
         in_browser: &in_browser,
+        http: tiering.http.as_ref(),
         lease: &lease,
         gating: &gating,
         in_flight: &in_flight,
@@ -582,6 +584,9 @@ struct On<'a> {
     session: &'a ServingSession,
     /// That Session as the browser tier opens its page in it.
     in_browser: &'a PooledSession,
+    /// The Run's HTTP tier, when it could be built, whose address check
+    /// judges the request's URL before a browser tier opens it.
+    http: Option<&'a HttpTier>,
     lease: &'a WorkItemLease,
     gating: &'a Gating,
     in_flight: &'a SharedInFlight,
@@ -834,9 +839,10 @@ impl On<'_> {
     }
 
     /// One run on the `http` tier: its origin's robots.txt read and its
-    /// document fetched under the lease, the Frontier taught its page, the
-    /// tier recorded as `how` says, the page judged by its Label's Page
-    /// check, else the Run's (ADR 0093), and the handler given a page
+    /// document fetched under the lease, the tier recorded as `how` says,
+    /// the page judged by its Label's Page check, else the Run's (ADR
+    /// 0093), the Frontier then taught its page unless the run is a
+    /// sample's, and the handler given a page
     /// served from it, closed once it answered. A page failing its expected
     /// page under `auto` escalates at `session.page_check` without its
     /// handler running. Answers the run and the pending requests the page's
@@ -892,7 +898,6 @@ impl On<'_> {
         if let Some(challenged) = self.challenged(tiers, &page_id, choice, how).await {
             return challenged;
         }
-        let merged = learn(run, tiers, &page_id, leased).await;
         let encoding = tiers.encoding(&page_id);
         let certificate_exception = tiers.certificate_exception(&page_id);
         record_tier(
@@ -909,7 +914,7 @@ impl On<'_> {
             Some(Judged::Passed) | None => {}
             Some(Judged::Failed(error)) => {
                 tiers.close(&page_id);
-                return Err((failed(&error), merged));
+                return Err((failed(&error), Vec::new()));
             }
             Some(Judged::Escalated) => {
                 tiers.close(&page_id);
@@ -918,10 +923,11 @@ impl On<'_> {
                 let message = "The page failed its expected page on a tier short of the browser.";
                 return Ok((
                     escalated_unhandled(PAGE_CHECK_FAILED, message, PAGE_CHECK_CALL),
-                    merged,
+                    Vec::new(),
                 ));
             }
         }
+        let merged = self.taught(tiers, &page_id, how).await;
         self.in_flight
             .lock()
             .await
@@ -955,6 +961,24 @@ impl On<'_> {
             },
             merged,
         ))
+    }
+
+    /// What the run `how` names, its page `page_id` served and past its
+    /// Page check, teaches the Frontier ([`learn`]), answering the pending
+    /// requests a rule it taught merged. Only a run that may commit
+    /// teaches: a sample's runs on a cheaper tier are discarded for the
+    /// browser's, whatever they find, so they teach nothing (ADR 0020's
+    /// #768 note).
+    async fn taught(
+        &self,
+        tiers: &FetchTiers,
+        page_id: &PageId,
+        how: Chosen,
+    ) -> Vec<(String, String)> {
+        if matches!(how, Chosen::Sample(_)) {
+            return Vec::new();
+        }
+        learn(self.run, tiers, page_id, self.leased).await
     }
 
     /// How the run on `choice`, its page `page_id` served, ends when the
@@ -1138,7 +1162,24 @@ impl On<'_> {
             ended_at: None,
         };
         let (run, leased, lease) = (self.run, self.leased, self.lease);
-        if let Some(decoy) = reached_through_trap(leased) {
+        // The address check judges the request's URL before the browser
+        // opens anything, as on the HTTP tier (spec #565).
+        if let Some(http) = self.http {
+            let checked = tokio::select! {
+                biased;
+                checked = address_check(run, http, leased) => checked,
+                _ = lease.ended() => Err(Answer::LeaseEnded),
+            };
+            if let Err(answer) = checked {
+                return ended(answer);
+            }
+        }
+        // A sample's `http` run was already sent: its browser run is
+        // weighed like any other, so the request counts toward its Label's
+        // choice (ADR 0035's #1153 note).
+        if !matches!(how, Chosen::Sample(_))
+            && let Some(decoy) = reached_through_trap(leased)
+        {
             tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a page reached through a suspected trap link is a decoy on the browser tier");
             return ended(decoy);
         }
@@ -1362,14 +1403,9 @@ fn failed(error: &CallError) -> Answer {
         let status = details
             .get("status")
             .and_then(Value::as_u64)
+            .and_then(|status| u16::try_from(status).ok())
             .unwrap_or_default();
-        return decoy(
-            format!(
-                "The page `{url}`, answered with {status}, is marked `noindex` and failed its Page check: a decoy, which is never retried, escalated or followed."
-            ),
-            url,
-            status,
-        );
+        return decoy::noindexed(url, status);
     }
     Answer::Failed {
         code: error.code().to_owned(),
@@ -1379,38 +1415,14 @@ fn failed(error: &CallError) -> Answer {
     }
 }
 
-/// The ending of a request whose page is a decoy (ADR 0035): `blocked`
-/// with `decoy`, its document at `url` answered with `status`, which ends
-/// it at once, with none of its links followed.
-fn decoy(message: String, url: &str, status: u64) -> Answer {
-    let mut details = Map::new();
-    details.insert("cause".to_owned(), serde_json::json!(BlockCause::Decoy));
-    details.insert("url".to_owned(), Value::from(url));
-    details.insert("status".to_owned(), Value::from(status));
-    details.insert("retry_after".to_owned(), Value::Null);
-    Answer::Failed {
-        code: BLOCKED.to_owned(),
-        retryable: false,
-        message,
-        details,
-    }
-}
-
 /// The ending of `leased`'s request on a browser tier when it was added
 /// through a link its served document's markup hides (ADR 0035): a
 /// browser tier never follows a link a person cannot see, so its page,
 /// never fetched, is a decoy.
 fn reached_through_trap(leased: &Leased) -> Option<Answer> {
-    leased.trap_link_suspected.then(|| {
-        let url = &leased.crawl_request.url;
-        decoy(
-            format!(
-                "The page `{url}` was reached through a link its page's markup hides from people, a trap: a browser never follows one, so it is a decoy, never fetched."
-            ),
-            url,
-            0,
-        )
-    })
+    leased
+        .trap_link_suspected
+        .then(|| decoy::reached_through_trap(&leased.crawl_request.url))
 }
 
 /// Records in the Run's Provenance the tier `choice` names for `leased`'s

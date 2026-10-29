@@ -13,12 +13,13 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, UNIX_EPOCH};
 
-use goodfetch_engine::admission::{Ended, Gate, Gates, Waiting};
+use goodfetch_engine::admission::{Ended, Gate, Gates, Held, Waiting};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::SettingsLayer;
 use proptest::prelude::*;
+use proptest::sample::Index;
 use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -576,4 +577,223 @@ fn a_withdrawn_request_is_never_admitted() {
     queues.withdraw(&b_key, "b1");
 
     assert_eq!(admit_all(&mut queues, now), ["a1", "a3"]);
+}
+
+/// One change the queues' waits property test makes, each domain or
+/// request named by its place among those that can take it.
+#[derive(Clone, Debug)]
+enum Change {
+    /// A request of the domain `0`.
+    Enqueue(usize),
+    /// The waiting request at that place is withdrawn.
+    Withdraw(Index),
+    /// The next ready request is admitted.
+    Admit,
+    /// The domain at that place among those with waiting requests is held
+    /// for so many milliseconds, for that reason.
+    Hold(Index, u64, Held),
+    /// That domain's hold ends.
+    Wake(Index),
+    /// The request in flight at that place ended, its domain to wait so
+    /// many milliseconds, if any.
+    Ended(Index, Option<u64>),
+    /// The clock goes on so many milliseconds.
+    Advance(u64),
+}
+
+fn held() -> impl Strategy<Value = Held> {
+    prop_oneof![
+        Just(Held::Concurrency),
+        Just(Held::Delay),
+        Just(Held::BackOff),
+        Just(Held::PolitenessFile),
+    ]
+}
+
+fn change() -> impl Strategy<Value = Change> {
+    prop_oneof![
+        3 => (0..5usize).prop_map(Change::Enqueue),
+        1 => any::<Index>().prop_map(Change::Withdraw),
+        2 => Just(Change::Admit),
+        2 => (any::<Index>(), 0..5_000u64, held()).prop_map(|(at, wait, held)| Change::Hold(at, wait, held)),
+        1 => any::<Index>().prop_map(Change::Wake),
+        2 => (any::<Index>(), proptest::option::of(0..5_000u64)).prop_map(|(at, wait)| Change::Ended(at, wait)),
+        2 => (0..3_000u64).prop_map(Change::Advance),
+    ]
+}
+
+/// What the model knows of one domain: its waiting requests, its
+/// requests in flight, its hold and the moment it waits until.
+#[derive(Debug, Default)]
+struct Modeled {
+    waiting: Vec<String>,
+    in_flight: usize,
+    held: Option<(Instant, Held)>,
+    ready_at: Option<Instant>,
+}
+
+impl Modeled {
+    /// Why it waits at `now`, and until when: its hold while it lasts,
+    /// else its wait while that lasts, else nothing.
+    fn waits(&self, now: Instant) -> (Option<Held>, Option<Instant>) {
+        match (self.held, self.ready_at) {
+            (Some((until, held)), _) if until > now => (Some(held), Some(until)),
+            (_, Some(ready_at)) if ready_at > now => (Some(Held::BackOff), Some(ready_at)),
+            _ => (None, None),
+        }
+    }
+}
+
+/// Each group the queues answer at `now`, every domain in its sample: its
+/// reason, its requests, and each domain with until when it waits.
+type Groups = Vec<Group>;
+
+/// One group: its reason, its requests, and each domain with until when it
+/// waits.
+type Group = (Option<Held>, usize, Vec<(String, Option<Instant>)>);
+
+/// The groups a full walk of the model finds at `now`.
+fn walked(model: &BTreeMap<String, Modeled>, now: Instant) -> Groups {
+    let mut groups: BTreeMap<u8, Group> = BTreeMap::new();
+    for (key, domain) in model
+        .iter()
+        .filter(|(_, domain)| !domain.waiting.is_empty())
+    {
+        let (held, until) = domain.waits(now);
+        let rank = match held {
+            None => 0,
+            Some(Held::Concurrency) => 1,
+            Some(Held::Delay) => 2,
+            Some(Held::BackOff) => 3,
+            Some(Held::PolitenessFile) => 4,
+        };
+        let group = groups.entry(rank).or_insert((held, 0, Vec::new()));
+        group.1 += domain.waiting.len();
+        let shown = until.filter(|_| held != Some(Held::Concurrency));
+        group.2.push((key.clone(), shown));
+    }
+    groups.into_values().collect()
+}
+
+proptest! {
+    #![proptest_config(goodfetch_test_support::proptest_config())]
+
+    /// The waits the queues keep as each hold, wake, admission and end
+    /// changes them, which a Run's progress shows, equal a full walk of
+    /// every domain at that moment: each reason's requests and domains,
+    /// with until when each waits, and the requests waiting in all.
+    ///
+    /// Covers: story:3-131
+    #[test]
+    fn the_waits_kept_equal_a_full_walk_of_the_domains(
+        changes in proptest::collection::vec(change(), 1..60),
+    ) {
+        let start = Instant::now();
+        let mut now = start;
+        let mut queues = DomainQueues::new(DomainKeys::default(), 1_000, Entropy::seeded(1));
+        let mut model: BTreeMap<String, Modeled> = BTreeMap::new();
+        let mut in_flight: Vec<String> = Vec::new();
+        let mut order = 0;
+        let mut seen = Vec::new();
+        for change in changes {
+            match change {
+                Change::Enqueue(domain) => {
+                    order += 1;
+                    let key = queues.key(&format!("https://d{domain}.test/"));
+                    let id = format!("r{order}");
+                    let enqueued = queues.enqueue(Waiting {
+                        id: id.clone(),
+                        key: key.clone(),
+                        priority: 0,
+                        order,
+                        forefront: false,
+                    });
+                    prop_assert!(enqueued);
+                    model.entry(key).or_default().waiting.push(id);
+                }
+                Change::Withdraw(at) => {
+                    let waiting: Vec<(String, String)> = model
+                        .iter()
+                        .flat_map(|(key, domain)| domain.waiting.iter().map(|id| (key.clone(), id.clone())))
+                        .collect();
+                    if !waiting.is_empty() {
+                        let (key, id) = at.get(&waiting).clone();
+                        queues.withdraw(&key, &id);
+                        model.get_mut(&key).unwrap().waiting.retain(|waiting| *waiting != id);
+                    }
+                }
+                Change::Admit => {
+                    if let Some(admitted) = queues.admit(now) {
+                        let domain = model.get_mut(&admitted.key).unwrap();
+                        domain.waiting.retain(|waiting| *waiting != admitted.id);
+                        domain.in_flight += 1;
+                        in_flight.push(admitted.key);
+                    }
+                }
+                Change::Hold(at, wait, held) => {
+                    let keys: Vec<String> = model
+                        .iter()
+                        .filter(|(_, domain)| !domain.waiting.is_empty())
+                        .map(|(key, _)| key.clone())
+                        .collect();
+                    if !keys.is_empty() {
+                        let key = at.get(&keys).clone();
+                        let until = now + Duration::from_millis(wait);
+                        queues.hold(&key, until, held);
+                        model.get_mut(&key).unwrap().held = Some((until, held));
+                    }
+                }
+                Change::Wake(at) => {
+                    let keys: Vec<String> = model
+                        .iter()
+                        .filter(|(_, domain)| !domain.waiting.is_empty())
+                        .map(|(key, _)| key.clone())
+                        .collect();
+                    if !keys.is_empty() {
+                        let key = at.get(&keys).clone();
+                        queues.wake(&key);
+                        model.get_mut(&key).unwrap().held = None;
+                    }
+                }
+                Change::Ended(at, wait) => {
+                    if !in_flight.is_empty() {
+                        let key = in_flight.remove(at.index(in_flight.len()));
+                        let domain = model.get_mut(&key).unwrap();
+                        domain.in_flight -= 1;
+                        if let Some(wait) = wait {
+                            let until = now + Duration::from_millis(wait);
+                            queues.ended(&key, now, Ended::Until(until));
+                            domain.ready_at = Some(domain.ready_at.map_or(until, |ready_at| ready_at.max(until)));
+                        } else {
+                            queues.ended(&key, now, Ended::Done);
+                            if domain.waits(now).0.is_none() {
+                                domain.ready_at = None;
+                            }
+                        }
+                    }
+                }
+                Change::Advance(wait) => now += Duration::from_millis(wait),
+            }
+            // A domain the queues released holds nothing more: the model
+            // forgets it too, as it holds no wait that lasts.
+            model.retain(|_, domain| {
+                !(domain.waiting.is_empty() && domain.in_flight == 0 && domain.waits(now).0.is_none())
+            });
+            let groups: Groups = queues
+                .queued(now, usize::MAX)
+                .into_iter()
+                .map(|group| (group.held, group.requests, group.sample))
+                .collect();
+            seen.push((
+                (groups, queues.waiting()),
+                (
+                    walked(&model, now),
+                    model.values().map(|domain| domain.waiting.len()).sum::<usize>(),
+                ),
+            ));
+        }
+        let (kept, walked): (Vec<_>, Vec<_>) = seen.into_iter().unzip();
+
+        prop_assert_eq!(kept, walked);
+    }
 }

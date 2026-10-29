@@ -12,7 +12,9 @@
 //! write and answers its seeds in order, so a million seeds never sit in
 //! the engine's memory. Each seed added wakes the crawl's delivery, which
 //! keys it and queues it under its domain, an idle `crawl.keep_alive`
-//! crawl included. A seed whose Payload does not fit its Label's JSON
+//! crawl included. Once the crawl closed its intake to end its Run, a seed
+//! added is refused with `run_not_found`, as on an ended crawl, so it is
+//! never answered added and then left pending (#914). A seed whose Payload does not fit its Label's JSON
 //! Schema or `crawl.payload.max_size` fails `run.add_seed`, and a batch of
 //! `run.add_seeds` holding one fails the call, none of the batch admitted,
 //! with `payload_invalid` (ADR 0082).
@@ -34,6 +36,7 @@ use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{RUN_NOT_FOUND, RUN_STATE_UNAVAILABLE, RunDetails, RunId};
 use rusqlite::Connection;
 
+use crate::intake::Intake;
 use crate::serving::{Crawls, LiveCrawl};
 use crate::work_items::{self, Positions};
 
@@ -64,7 +67,7 @@ fn not_live(run_id: &RunId) -> CallError {
     CallError::new(
         &RUN_NOT_FOUND,
         format!(
-            "This engine runs no crawl `{run_id}` to add seeds to: it ended, or another engine runs it."
+            "This engine runs no crawl `{run_id}` to add seeds to: it ended or is ending, or another engine runs it."
         ),
         &RunDetails {
             run_id: run_id.clone(),
@@ -95,6 +98,7 @@ async fn add_seed(
         egress,
         seeded,
         staging,
+        intake,
     }) = crawls.live(&params.run_id).await
     else {
         return Err(not_live(&params.run_id));
@@ -107,25 +111,28 @@ async fn add_seed(
     let bound = attempt.clone();
     let answered = run
         .state()
-        .write(move |connection| match bound {
-            Some(attempt) => staging.admit(
-                connection,
-                &attempt.crawl_request_id.clone(),
-                attempt.lease_epoch,
-                move |connection, positions| {
-                    admit_within(connection, positions, &egress, &seed, Some(&attempt))
-                },
-            ),
-            None => admit_within(
-                connection,
-                &mut Positions::of(connection)?,
-                &egress,
-                &seed,
-                None,
-            ),
+        .write(move |connection| {
+            intake.admitting(|| match bound {
+                Some(attempt) => staging.admit(
+                    connection,
+                    &attempt.crawl_request_id.clone(),
+                    attempt.lease_epoch,
+                    move |connection, positions| {
+                        admit_within(connection, positions, &egress, &seed, Some(&attempt))
+                    },
+                ),
+                None => admit_within(
+                    connection,
+                    &mut Positions::of(connection)?,
+                    &egress,
+                    &seed,
+                    None,
+                ),
+            })
         })
         .await
-        .map_err(|error| unwritten(&run_id, &error))?;
+        .map_err(|error| unwritten(&run_id, &error))?
+        .ok_or_else(|| not_live(&run_id))?;
     if let Some(answer) = answered {
         seeded.notify_one();
         return answer;
@@ -191,6 +198,7 @@ async fn add_seeds(
         run,
         egress,
         seeded,
+        intake,
         ..
     }) = crawls.live(&params.run_id).await
     else {
@@ -222,7 +230,7 @@ async fn add_seeds(
             ));
         }
         credits -= taken;
-        let answers = admit_batch(&run, &egress, &params.run_id, batch.seeds).await?;
+        let answers = admit_batch(&run, (&egress, &intake), &params.run_id, batch.seeds).await?;
         seeded.notify_one();
         for answer in &answers {
             match answer {
@@ -269,10 +277,11 @@ async fn grant(context: &CallContext, credits: u32) -> bool {
 /// Admits each of `seeds` under the Run's domain policy `egress` in one
 /// write of `run`'s state, and answers each one's answer in order; none
 /// is admitted, and the call fails with `payload_invalid`, when one's
-/// Payload does not fit its Label's schema or the cap.
+/// Payload does not fit its Label's schema or the cap, and with
+/// `run_not_found` once the crawl's `intake` closed.
 async fn admit_batch(
     run: &Run,
-    egress: &Arc<Policy>,
+    (egress, intake): (&Arc<Policy>, &Intake),
     run_id: &RunId,
     seeds: Vec<Seed>,
 ) -> Result<Vec<Enqueued>, CallError> {
@@ -280,20 +289,24 @@ async fn admit_batch(
         return Ok(Vec::new());
     }
     let egress = Arc::clone(egress);
+    let intake = intake.clone();
     run.state()
         .write(move |connection| {
-            if let Err(refused) = refused(connection, &seeds)? {
-                return Ok(Err(refused));
-            }
-            work_items::admit_seeds(
-                connection,
-                &mut Positions::of(connection)?,
-                &Scope::read(connection)?,
-                &egress,
-                &seeds,
-            )
-            .map(Ok)
+            intake.admitting(|| {
+                if let Err(refused) = refused(connection, &seeds)? {
+                    return Ok(Err(refused));
+                }
+                work_items::admit_seeds(
+                    connection,
+                    &mut Positions::of(connection)?,
+                    &Scope::read(connection)?,
+                    &egress,
+                    &seeds,
+                )
+                .map(Ok)
+            })
         })
         .await
         .map_err(|error| unwritten(run_id, &error))?
+        .ok_or_else(|| not_live(run_id))?
 }

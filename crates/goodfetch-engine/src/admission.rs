@@ -13,7 +13,8 @@
 //! its key from the Politeness the Run shares with the other runs of its
 //! user, and gives it back once it ended: a key the Politeness refuses is
 //! held, until the moment it names or until a wake says a Permit came back
-//! (ADR 0053).
+//! (ADR 0053), and a key whose take the Politeness file could not answer is
+//! held for that, until the Run tries it again.
 //!
 //! What a gate's waiting requests need to survive a resume, it writes into
 //! the run file as a [`Journal`], and it opens again from it. Every rule
@@ -110,6 +111,9 @@ pub enum Held {
     Delay,
     /// It backs off, or waits for the time a site asked for.
     BackOff,
+    /// The shared Politeness file refused its take, such as one busy past
+    /// its timeout: until its Run tries it again.
+    PolitenessFile,
 }
 
 impl From<Hold> for Held {
@@ -121,16 +125,19 @@ impl From<Hold> for Held {
     }
 }
 
-/// A key whose requests wait in a gate, as [`Gate::queued`] answers it.
+/// The keys whose requests wait in a gate for one reason, as
+/// [`Gate::queued`] answers them.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Queued {
-    /// The key.
-    pub key: String,
-    /// How many of its requests wait in the gate.
+pub struct QueuedGroup {
+    /// Why the gate holds them; `None` for the keys that are ready.
+    pub held: Option<Held>,
+    /// How many of their requests wait in the gate.
     pub requests: usize,
-    /// Why the gate holds it, with until when, if it knows; `None` when it
-    /// is ready.
-    pub held: Option<(Held, Option<Instant>)>,
+    /// How many keys.
+    pub keys: usize,
+    /// The first keys, as many as were asked for at most, each with until
+    /// when the gate holds it, when it knows.
+    pub sample: Vec<(String, Option<Instant>)>,
 }
 
 /// What a gate writes into the run file, in one of its writer's commits.
@@ -165,17 +172,20 @@ pub trait Gate: Send {
     /// keeps its place.
     fn hold(&mut self, key: &str, until: Instant, held: Held);
 
-    /// Each key whose requests wait in it at `now`, with why it holds the
-    /// key, if it does: what a Run's progress says of its waits (ADR
-    /// 0102). None by default.
-    fn queued(&self, now: Instant) -> Vec<Queued> {
-        let _ = now;
+    /// The keys whose requests wait in it at `now`, one group per reason it
+    /// holds them for, the ready ones in a group of their own, each with at
+    /// most `sample` of its keys: what a Run's progress says of its waits
+    /// (ADR 0102). A gate keeps the groups as its holds, wakes, admissions
+    /// and ends change them, so the answer costs the changes since the last
+    /// one and the sample, never a walk of every key. None by default.
+    fn queued(&mut self, now: Instant, sample: usize) -> Vec<QueuedGroup> {
+        let _ = (now, sample);
         Vec::new()
     }
 
     /// How many requests wait in it, of every key, those of a key at its
     /// concurrency included: what `goodfetch.work_item.queued` counts (ADR
-    /// 0050). None by default.
+    /// 0050), kept as they come and go. None by default.
     fn waiting(&self) -> usize {
         0
     }
@@ -378,10 +388,10 @@ impl Admission {
         }
     }
 
-    /// Each key whose requests wait in its gate at `now`, as
-    /// [`Gate::queued`] says.
-    pub fn queued(&self, now: Instant) -> Vec<Queued> {
-        self.gate.queued(now)
+    /// The keys whose requests wait in its gate at `now`, by reason, each
+    /// group with at most `sample` keys, as [`Gate::queued`] says.
+    pub fn queued(&mut self, now: Instant, sample: usize) -> Vec<QueuedGroup> {
+        self.gate.queued(now, sample)
     }
 
     /// How many requests wait in its gate, as [`Gate::waiting`] says.
@@ -472,7 +482,8 @@ impl Admission {
                 }
                 Err(error) => {
                     tracing::warn!(%error, run_id = %shared.holder.run_id, "the Politeness file refused a take; its key waits");
-                    self.gate.hold(&key, now + RECLAIM_CHECK, Held::Concurrency);
+                    self.gate
+                        .hold(&key, now + RECLAIM_CHECK, Held::PolitenessFile);
                 }
             }
         }

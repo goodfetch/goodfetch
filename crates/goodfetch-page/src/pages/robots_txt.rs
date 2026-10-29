@@ -9,7 +9,9 @@
 //! it starts once the document loaded, as a task of the Run, and the Run's
 //! own copy fetches each origin's file once, through the page's Session as
 //! `page.request` sends (the browser-fetch tier), never through the copy
-//! Foxhound shares.
+//! Foxhound shares. Its body is read from the browser's stream, judged as
+//! it arrives and stopped at the Run's limits (SC-05), so a file that
+//! decodes past `network.max_body_size` is unreachable, never held whole.
 
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::robots_txt::{self, Answer, Fetched, Judgment, RobotsTxt};
@@ -98,6 +100,7 @@ async fn fetch(
         max_redirects: REDIRECTS,
         option: "robots.txt",
         limits,
+        read: browser_fetch::BodyRead::Streamed,
     };
     let fetched = browser_fetch::send(engine_page.driver(), steps, &request).await;
     engine_page.close().await;

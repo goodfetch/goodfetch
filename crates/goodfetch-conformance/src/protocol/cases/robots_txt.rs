@@ -8,7 +8,10 @@
 //!
 //! The site is the `access-policy` family's first task's host, whose robots.txt
 //! disallows `/private/` to every crawler in its `*` group and asks for a
-//! Crawl-delay of 2 s (`proving-ground/src/raw_site/policy.rs`).
+//! Crawl-delay of 2 s (`proving-ground/src/raw_site/policy.rs`). One case
+//! reads the `body-limits` family's named host instead, whose robots.txt is
+//! a gzip body within the ratio that decodes past the 256 MiB a browser's
+//! pipe frames in one message (`proving-ground/src/raw_site/body_limits.rs`).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -48,6 +51,7 @@ pub(crate) enum Case {
     DisallowedPageLoadsAndIsRecorded,
     TwoTabsAreNeitherDelayedNorRefused,
     FoxhoundsCopyIsUntouched,
+    PastTheSizeIsUnreachable,
 }
 
 impl Case {
@@ -62,6 +66,9 @@ impl Case {
             }
             "a-run-reads-robots-txt-once-per-origin-into-its-own-copy-and-leaves-foxhounds-untouched" => {
                 Self::FoxhoundsCopyIsUntouched
+            }
+            "a-robots-txt-past-max-body-size-is-recorded-unreachable-and-the-page-loads" => {
+                Self::PastTheSizeIsUnreachable
             }
             _ => return None,
         })
@@ -79,6 +86,7 @@ impl Case {
             Self::DisallowedPageLoadsAndIsRecorded => disallowed(connection, target, site, checks),
             Self::TwoTabsAreNeitherDelayedNorRefused => two_tabs(connection, site, checks),
             Self::FoxhoundsCopyIsUntouched => own_copy(connection, target, site, checks),
+            Self::PastTheSizeIsUnreachable => past_the_size(connection, target, site, checks),
         }
     }
 }
@@ -139,6 +147,58 @@ fn disallowed(
         "Provenance records the allowed page as allowed, with no group",
         of(ALLOWED)
             .is_some_and(|entry| entry["allowed"] == json!(true) && entry["group"].is_null()),
+    );
+    finish_run(connection, run_id)
+}
+
+/// The `body-limits` family's named host, whose robots.txt is past
+/// `network.max_body_size` once decoded, and past the browser pipe's frame.
+pub(super) const PAST_THE_SIZE_HOST: &str = "robots.body-limits.test";
+
+/// On a Run whose `network.max_body_size` is 1 MiB, a `goto` to a page
+/// whose site's robots.txt decodes past it loads; the reading stops at the limit and
+/// Provenance records the file unreachable, naming the setting, and the
+/// page disallowed, as RFC 9309 reads an unreachable file. The browser's
+/// connection goes on: a second `goto` loads too.
+fn past_the_size(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-robots-txt-past-the-size";
+    let Some(url) = site.named_url(PAST_THE_SIZE_HOST, "/page") else {
+        checks.check("the Proving ground serves the case's pages", false);
+        return Ok(());
+    };
+    // 1 MiB, so the read reaches the limit within a few chunks however
+    // loaded the machine.
+    let settings = json!({ "network": { "max_body_size": 1_048_576 } });
+    start_run(connection, site, run_id, &settings, checks)?;
+    let Some(page) = new_page(connection, run_id, checks)? else {
+        return finish_run(connection, run_id);
+    };
+    let page_id = json!(page.page_id);
+    let answer = call(connection, PAGE_GOTO.name, &page_id, &json!({ "url": url }))?;
+    answered(&answer, &format!("`goto` to {url}"), &url, 200, checks);
+    let entries = readings(target, run_id, 1);
+    checks.check(
+        "Provenance records the robots.txt unreachable, past `network.max_body_size`, and the page disallowed",
+        entries.first().is_some_and(|entry| {
+            entry["file"] == json!("unreachable")
+                && entry["allowed"] == json!(false)
+                && entry["reason"]
+                    .as_str()
+                    .is_some_and(|reason| reason.contains("`network.max_body_size`"))
+        }),
+    );
+    let again = call(connection, PAGE_GOTO.name, &page_id, &json!({ "url": url }))?;
+    answered(
+        &again,
+        &format!("a second `goto` to {url}"),
+        &url,
+        200,
+        checks,
     );
     finish_run(connection, run_id)
 }

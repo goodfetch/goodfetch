@@ -384,9 +384,7 @@ impl Navigation {
             return Ended::TooManyRedirects(self.chains.get(loader).cloned().unwrap_or_default());
         }
         match self.responses.get(loader) {
-            Some(response)
-                if !matches!(error, NetError::Aborted | NetError::ContentDecodingFailed) =>
-            {
+            Some(response) if *error != NetError::Aborted && !error.fails_to_decode() => {
                 Ended::Truncated {
                     received: self.received.get(loader).copied().unwrap_or_default(),
                     expected: response

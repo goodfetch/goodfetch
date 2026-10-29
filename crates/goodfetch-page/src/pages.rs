@@ -920,6 +920,7 @@ impl BrowserPages for Opener {
                 max_redirects: 0,
                 option: "fetch.redirect.max",
                 limits,
+                read: browser_fetch::BodyRead::Whole,
             };
             // A cancelled fetch closes the engine's page as it drops.
             let engine_page = self.pages.sessions.engine_page(&session, &value).await?;
@@ -1219,6 +1220,7 @@ impl Pages {
             max_redirects,
             option: max_redirects_option(surface),
             limits,
+            read: browser_fetch::BodyRead::Whole,
         };
         // A cancelled call closes the engine's page as it drops.
         // A command its lease check withheld ends the page (P31).

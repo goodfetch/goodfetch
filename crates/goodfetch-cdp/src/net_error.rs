@@ -20,6 +20,9 @@ pub enum NetError {
     TooManyRedirects,
     /// A body's listed content coding did not decode.
     ContentDecodingFailed,
+    /// A zstd body asked for a window past RFC 9659's 8 MB, which the
+    /// browser refuses to decode.
+    ZstdWindowSizeTooBig,
     /// A navigation's response, an error status with an empty body, which
     /// the browser shows as an error page of its own: the response is still
     /// the navigation's answer.
@@ -42,12 +45,16 @@ const PREFIX: &str = "net::ERR_";
 const INSPECTOR: &str = ".Inspector";
 
 /// The names of the errors with their own variant.
-const NAMED: [(&str, NetError); 5] = [
+const NAMED: [(&str, NetError); 6] = [
     ("net::ERR_ABORTED", NetError::Aborted),
     ("net::ERR_TOO_MANY_REDIRECTS", NetError::TooManyRedirects),
     (
         "net::ERR_CONTENT_DECODING_FAILED",
         NetError::ContentDecodingFailed,
+    ),
+    (
+        "net::ERR_ZSTD_WINDOW_SIZE_TOO_BIG",
+        NetError::ZstdWindowSizeTooBig,
     ),
     (
         "net::ERR_HTTP_RESPONSE_CODE_FAILURE",
@@ -78,6 +85,18 @@ impl NetError {
         }
         tracing::warn!(text, "an unrecognized network error of the browser's");
         Self::Unrecognized(PartyText::new(text))
+    }
+
+    /// Whether the error is a body's content coding that did not decode, a
+    /// zstd window too big for the browser among them: after a response
+    /// arrived, a failure of its own, never a cut body (ADR 0118's #699
+    /// note).
+    #[must_use]
+    pub fn fails_to_decode(&self) -> bool {
+        matches!(
+            self,
+            Self::ContentDecodingFailed | Self::ZstdWindowSizeTooBig
+        )
     }
 
     /// Its name as the browser gives it, `net::ERR_*`, which a failure

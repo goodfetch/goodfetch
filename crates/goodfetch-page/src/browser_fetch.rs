@@ -29,14 +29,20 @@
 //! content coding, is refused before it is read; any other once it is,
 //! by its decoded bytes against the size, and against the bytes it took on
 //! the wire under `network.max_decompression_ratio`. Each refusal is
-//! `response_limit_exceeded`. The browser decodes the body, so the engine
-//! holds at most what the browser hands over.
+//! `response_limit_exceeded`. A body read whole is one message of the
+//! browser's: one past what the connection reads in a message is refused
+//! as past the size, and the connection goes on. A caller that needs no
+//! word of how the body ended, the robots.txt read, reads it from the
+//! browser's stream instead ([`BodyRead::Streamed`]), judged as it arrives
+//! and stopped at the first limit, so neither the browser nor the engine
+//! holds more: the pinned Chromium reports no network or decoding failure
+//! of a body whose stream was taken (ADR 0067's #644 note).
 
 use std::collections::BTreeMap;
 
 use data_encoding::BASE64;
 use goodfetch_cdp::generated::{emulation, fetch, network, page};
-use goodfetch_cdp::{NetError, Subscription};
+use goodfetch_cdp::{Failure, NetError, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_protocol::page::{
@@ -47,6 +53,7 @@ use crate::driver::PageDriver;
 use crate::errors::{network_error, site_preferences_refused};
 use crate::interception::{EngineRequests, Overrides};
 use crate::page_value::{Navigation, NavigationKind, Permit};
+use crate::paused_body::{coded, declared_within_limits, streamed};
 
 /// The headers the page's copy of the response loses, so that nothing
 /// renders it or turns it into a download.
@@ -88,14 +95,16 @@ fn cut_though_finished(
     bytes: usize,
     encoded: f64,
 ) -> bool {
-    let coded = response
-        .headers
-        .get("content-encoding")
-        .is_some_and(|coding| !coding.trim().eq_ignore_ascii_case("identity"));
+    encoded_bytes(encoded).is_none() && short_of_its_length(method, response, bytes)
+}
+
+/// Whether `bytes`, the body of `response` to a request of `method`, are
+/// fewer than the `Content-Length` it declared with no content coding: the
+/// one cut the bytes alone show.
+fn short_of_its_length(method: Option<&str>, response: &PageResponse, bytes: usize) -> bool {
     let bodiless = method.is_some_and(|method| method.eq_ignore_ascii_case("HEAD"))
         || matches!(response.status, 100..=199 | 204 | 304);
-    encoded_bytes(encoded).is_none()
-        && !coded
+    !coded(&response.headers)
         && !bodiless
         && declared_length(response)
             .is_some_and(|declared| u64::try_from(bytes).unwrap_or(u64::MAX) < declared)
@@ -129,6 +138,25 @@ pub(crate) struct Request<'a> {
     pub(crate) option: &'a str,
     /// The Run's limits on the body.
     pub(crate) limits: Limits,
+    /// How its body is read.
+    pub(crate) read: BodyRead,
+}
+
+/// How a request's body is read, once its response arrived.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BodyRead {
+    /// Whole, in one message, then sent on to the page, so the browser
+    /// still reports how the body ended: whole, cut, or a content coding
+    /// that failed to decode (ADR 0118). The browser holds the whole body
+    /// meanwhile, and one past what a message carries (about 192 MiB
+    /// decoded) is refused as past `network.max_body_size`.
+    Whole,
+    /// In chunks of the browser's stream, judged by the limits as they
+    /// arrive and stopped at the first passed, so neither the browser nor
+    /// the engine holds more. The browser then reports nothing of how the
+    /// body ended: only a body shorter than its `Content-Length`, with no
+    /// content coding, is known cut.
+    Streamed,
 }
 
 /// The response a request got, and its body.
@@ -453,26 +481,31 @@ impl<'a> Load<'a> {
             .await;
             return None;
         }
-        if let Err(exceeded) = self.declared_within_limits(&response) {
+        if let Err(exceeded) =
+            declared_within_limits(&response.url, &response.headers, &self.request.limits)
+        {
             self.fail(&paused.request_id, network::ErrorReason::Aborted)
                 .await;
             return Some(Err(exceeded));
         }
-        let bytes = match self
-            .driver
-            .command(&fetch::GetResponseBodyParams {
-                request_id: paused.request_id.clone(),
-            })
-            .await
-        {
-            Ok(read) if read.base64_encoded => {
-                BASE64.decode(read.body.as_bytes()).unwrap_or_default()
-            }
-            Ok(read) => read.body.into_bytes(),
-            Err(failure) => {
-                tracing::debug!(%failure, "the response's body did not read");
-                Vec::new()
-            }
+        if self.request.read == BodyRead::Streamed {
+            let read = streamed(
+                self.driver,
+                &paused.request_id,
+                &response.url,
+                declared_length(&response),
+                &self.request.limits,
+            )
+            .await;
+            // Its body taken, the request cannot go on to the page: the
+            // load ends here.
+            self.fail(&paused.request_id, network::ErrorReason::Aborted)
+                .await;
+            return Some(read.map(|bytes| self.streamed_fetched(response, bytes)));
+        }
+        let bytes = match self.whole(&paused.request_id, &response.url).await {
+            Ok(bytes) => bytes,
+            Err(refused) => return Some(Err(refused)),
         };
         let headers = paused
             .response_headers
@@ -540,9 +573,7 @@ impl<'a> Load<'a> {
     /// failed to decode, or a request with no response, fails.
     fn failed(&mut self, error: &NetError) -> Result<Fetched, CallError> {
         match self.answered.take() {
-            Some((response, bytes)) if *error != NetError::ContentDecodingFailed => {
-                Ok(cut(response, &bytes))
-            }
+            Some((response, bytes)) if !error.fails_to_decode() => Ok(cut(response, &bytes)),
             _ => {
                 let url = self.chain.last().map_or(self.request.url, String::as_str);
                 let name = self
@@ -566,21 +597,47 @@ impl<'a> Load<'a> {
         }
     }
 
-    /// Refuses a body its `Content-Length` declares past
-    /// `network.max_body_size`, with no content coding, so the browser's
-    /// copy of it is never read.
-    fn declared_within_limits(&self, response: &PageResponse) -> Result<(), CallError> {
-        let coded = response
-            .headers
-            .get("content-encoding")
-            .is_some_and(|coding| !coding.trim().eq_ignore_ascii_case("identity"));
-        match declared_length(response) {
-            Some(length) if !coded => self
-                .request
-                .limits
-                .judge_decoded(&response.url, length, None)
-                .map_err(|exceeded| exceeded.error()),
-            _ => Ok(()),
+    /// The body of `url`'s response paused at `id`, read whole in one
+    /// message: empty, and logged why, when the browser gives none.
+    ///
+    /// # Errors
+    ///
+    /// `response_limit_exceeded` naming `network.max_body_size` when the
+    /// browser's answer was past what one message carries: the body
+    /// decoded far past what any limit reads whole, and the request fails.
+    async fn whole(&self, id: &fetch::RequestId, url: &str) -> Result<Vec<u8>, CallError> {
+        match self
+            .driver
+            .command(&fetch::GetResponseBodyParams {
+                request_id: id.clone(),
+            })
+            .await
+        {
+            Ok(read) if read.base64_encoded => {
+                Ok(BASE64.decode(read.body.as_bytes()).unwrap_or_default())
+            }
+            Ok(read) => Ok(read.body.into_bytes()),
+            Err(Failure::TooLarge { .. }) => {
+                self.fail(id, network::ErrorReason::Aborted).await;
+                Err(self.request.limits.past_the_size(url).error())
+            }
+            Err(failure) => {
+                tracing::debug!(%failure, "the response's body did not read");
+                Ok(Vec::new())
+            }
+        }
+    }
+
+    /// `response` with `bytes`, its body read from the browser's stream,
+    /// which the limits judged already: cut when shorter than its
+    /// `Content-Length` with no content coding, else whole.
+    fn streamed_fetched(&self, response: PageResponse, bytes: Vec<u8>) -> Fetched {
+        if short_of_its_length(self.request.method, &response, bytes.len()) {
+            return cut(response, &bytes);
+        }
+        Fetched {
+            response,
+            body: Body::Whole(bytes),
         }
     }
 

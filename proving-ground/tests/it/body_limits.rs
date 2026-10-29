@@ -1,9 +1,12 @@
 //! The `body-limits` family (ADR 0067, SC-05): a body one byte past 64 MiB,
 //! a chunked body and a body with no length that never end, and JSON nested
 //! one level past 128, each verified only as a refusal naming its setting;
-//! JSON nested exactly 128 deep is kept.
+//! JSON nested exactly 128 deep is kept; and a gzip body within the
+//! decompression ratio that decodes past the 256 MiB a browser's pipe
+//! frames, at a task's start page and at a named host's robots.txt.
 //! Covers: story:2-83
 
+use flate2::read::GzDecoder;
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -14,6 +17,16 @@ const SEED: u64 = 644;
 
 /// 64 MiB, `network.max_body_size`'s default.
 const MAX_BODY_SIZE: usize = 64 * 1024 * 1024;
+
+/// The 256 MiB a browser's pipe frames in one message (`MAX_FRAME`).
+const MAX_FRAME: u64 = 256 * 1024 * 1024;
+
+/// The decoded bytes per received byte `network.max_decompression_ratio`
+/// allows by default.
+const MAX_DECOMPRESSION_RATIO: u64 = 100;
+
+/// The named host whose robots.txt is the coded body.
+const ROBOTS_HOST: &str = "robots.body-limits.test";
 
 /// The host and path of a task's start URL.
 fn start(proving_ground: &ProvingGround, id: &str) -> (String, String) {
@@ -115,11 +128,57 @@ fn the_apis_json_nests_as_deep_as_its_task_says(#[case] id: &str, #[case] expect
     assert_eq!(depth(arrived.body()), expected);
 }
 
+/// How many bytes `body` decodes to through gzip, which a body whose
+/// checksum or length is wrong fails.
+fn gunzipped(body: &[u8]) -> u64 {
+    std::io::copy(&mut GzDecoder::new(body), &mut std::io::sink())
+        .expect("the body decodes, its checksum and length right")
+}
+
+#[rstest]
+#[case::start_page(None)]
+#[case::robots_txt(Some((ROBOTS_HOST, "/robots.txt")))]
+fn the_coded_body_decodes_past_the_frame_within_the_ratio(#[case] at: Option<(&str, &str)>) {
+    let proving_ground = ProvingGround::start(SEED);
+    let (host, path) = at.map_or_else(
+        || start(&proving_ground, "body-limits/6"),
+        |(host, path)| (host.to_owned(), path.to_owned()),
+    );
+
+    let arrived = raw_clients::get(&proving_ground, &host, &path, &[]);
+
+    assert_eq!(arrived.status(), Some(200));
+    assert_eq!(arrived.header("content-encoding").as_deref(), Some("gzip"));
+    let sent = u64::try_from(arrived.body().len()).unwrap();
+    let decoded = gunzipped(arrived.body());
+    assert!(decoded > MAX_FRAME, "decodes to {decoded} bytes");
+    assert!(
+        decoded < sent * MAX_DECOMPRESSION_RATIO / 2,
+        "{decoded} decoded from {sent} sent, well within the ratio"
+    );
+}
+
+#[test]
+fn the_robots_hosts_other_pages_are_small_and_plain() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let arrived = raw_clients::get(&proving_ground, ROBOTS_HOST, "/page", &[]);
+
+    assert_eq!(arrived.status(), Some(200));
+    assert_eq!(arrived.header("content-encoding"), None);
+    assert!(
+        arrived.body().len() < 1024,
+        "{} bytes",
+        arrived.body().len()
+    );
+}
+
 #[rstest]
 #[case::past_the_size("body-limits/1", "network.max_body_size")]
 #[case::endless_chunked("body-limits/2", "network.max_body_size")]
 #[case::endless_until_closed("body-limits/3", "network.max_body_size")]
 #[case::json_past_the_depth("body-limits/4", "network.max_json_depth")]
+#[case::coded_past_the_frame("body-limits/6", "network.max_body_size")]
 fn only_a_refusal_naming_the_setting_is_verified(#[case] id: &str, #[case] setting: &str) {
     let proving_ground = ProvingGround::start(SEED);
 

@@ -97,6 +97,51 @@ fn a_command_is_answered_with_what_it_returns() {
     });
 }
 
+/// An answer past the framing's limit fails its own command alone, and the
+/// connection carries the next (finding 563-1: a body read past 256 MiB
+/// ended the browser's whole connection).
+#[test]
+fn an_answer_past_the_framing_limit_fails_its_command_and_the_connection_goes_on() {
+    runtime().block_on(async {
+        let (connection, driver, mut browser) = connected();
+        let driver = driver.with_frame_limit(1024);
+        let (ended, (large, next)) = tokio::join!(driver.run(), async {
+            let answered = tokio::join!(
+                connection.send(None, &GetVersionParams {}, TIMEOUT),
+                async {
+                    let sent = browser.received().await;
+                    let mut answer = version();
+                    answer["product"] = json!("a".repeat(64 * 1024));
+                    browser
+                        .send(&json!({ "id": sent["id"], "result": answer }))
+                        .await;
+                }
+            );
+            let next = tokio::join!(
+                connection.send(None, &GetVersionParams {}, TIMEOUT),
+                async {
+                    let sent = browser.received().await;
+                    browser
+                        .send(&json!({ "id": sent["id"], "result": version() }))
+                        .await;
+                }
+            );
+            drop(connection);
+            (answered.0, next.0)
+        });
+        assert_eq!(
+            (large.err(), next.map(|version| version.product), ended),
+            (
+                Some(Failure::TooLarge {
+                    method: "Browser.getVersion"
+                }),
+                Ok("Chrome/156.0.8078.4".to_owned()),
+                Ended::Dropped
+            )
+        );
+    });
+}
+
 #[test]
 fn a_refusal_and_a_closed_pipe_fail_the_commands_in_flight() {
     runtime().block_on(async {

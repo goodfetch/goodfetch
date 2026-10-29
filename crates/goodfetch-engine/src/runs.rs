@@ -2129,6 +2129,7 @@ impl Runs {
                 environment: std::mem::take(&mut setup.environment),
                 keychain: setup.keychain.clone(),
                 home: setup.home.clone(),
+                entropy: setup.entropy.fork(),
             },
             Arc::new(
                 AuditLog::of(&setup.home, setup.ledger_vfs.clone())

@@ -24,6 +24,8 @@ use crate::daemon::DaemonOptions;
 use crate::metrics::{METER, Metrics};
 use crate::ops::{ConfiguredBrowsers, Ops};
 
+mod listener;
+
 const MINUTE: Duration = Duration::from_secs(60);
 
 /// Browsers whose installation the test fixes.

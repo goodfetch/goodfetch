@@ -14,8 +14,8 @@
 //!
 //! | Event, in the state: | `Opening` | `Open` | `Lent` | `Offline` | `Closing` | `Closed` | `Crashed` |
 //! |---|---|---|---|---|---|---|---|
-//! | `SourceReady` | `Open`, opened | bug | bug | late | late | bug | bug |
-//! | `OpenFailed` | `Closed`, the open fails | bug | bug | late | late | bug | bug |
+//! | `SourceReady` | `Open`, opened | bug | bug | late | late | late | bug |
+//! | `OpenFailed` | `Closed`, the open fails | bug | bug | late | late | late | bug |
 //! | `Call` | `Opening`, waits | `Open`, served | `Lent`, served | `Offline`, waits | `closed` | `closed` | `page_crashed` |
 //! | `Lend` | bug | `Lent`, lent | `session_reserved` | `Offline`, waits | `closed` | `closed` | `page_crashed` |
 //! | `AttachEnded` | bug | bug | `Open`, attach ended | bug | late | late | late |
@@ -31,7 +31,10 @@
 //! the pool did not open, or on a Borrowed browser or a Profile directory
 //! used in place, are bugs. A crash in `Closing` is late and does not count
 //! in Usage (decision 14). `close()` on a `Crashed` Session releases what
-//! is left and it stays `Crashed` (decision 3).
+//! is left and it stays `Crashed` (decision 3). An abandoned open that
+//! finishes once its close ended is late in `Closed`, as the catalogue's
+//! `L` has it; no open is pending in `Crashed`, which `Opening` never
+//! reaches.
 //!
 //! A page's table, its states and events those of spec #594's part 2.
 //!
@@ -39,7 +42,7 @@
 //! |---|---|---|---|---|---|---|
 //! | `Gesture` | `Open`, served | `Navigating`, waits | `Paused`, waits | `page_crashed` | `closed` | `closed` |
 //! | `Read` | `Open`, served | `Navigating`, served | `Paused`, served | `page_crashed` | `closed` | `closed` |
-//! | `Goto` | `Navigating`, served | `Navigating`, waits | `Paused`, waits | `page_crashed` | `closed` | `closed` |
+//! | `Goto` | `Navigating`, served | `Navigating`, interrupts the pending one | `Paused`, waits | `page_crashed` | `closed` | `closed` |
 //! | `ExternalNav` | `Open` | `Open`, interrupted | `Paused` | late | late | late |
 //! | `Committed` | bug | `Open`, committed | bug | late | late | late |
 //! | `NavFailed` | bug | `Open`, the navigation fails | bug | late | late | late |
@@ -49,15 +52,17 @@
 //! | `Close` | `Closing`, closes | `Closing`, closes | `Closing`, closes | `Crashed`, released | late | late |
 //! | `TargetDestroyed` | `Closed`, closed in the browser | `Closed`, closed in the browser | `Closed`, closed in the browser | late | `Closed`, confirmed | late |
 //! | `RendererCrash` | `Crashed`, renderer crash | `Crashed`, renderer crash | `Crashed`, renderer crash | late | late | late |
-//! | `BrowserQuit` | `Closed`, quit | `Closed`, quit | `Closed`, quit | late | `Closed` | late |
-//! | `BrowserCrash` | `Crashed`, browser crash | `Crashed`, browser crash | `Crashed`, browser crash | late | `Closed` | late |
+//! | `BrowserQuit` | `Closed`, quit | `Closed`, quit | `Closed`, quit | late | `Closed`, close overtaken | late |
+//! | `BrowserCrash` | `Crashed`, browser crash | `Crashed`, browser crash | `Crashed`, browser crash | late | `Closed`, close overtaken | late |
 //! | `TargetEvent` | `Open` | `Navigating` | `Paused` | late | late | late |
 //! | `LeaseEnded` | `Closing`, closes | `Closing`, closes | `Closing`, closes | `Crashed`, released | late | late |
 //! | `MemoryExceeded` | `Closing`, closes | `Closing`, closes | `Closing`, closes | `Crashed`, released | late | late |
 //!
 //! A quit or a crash racing a close (`Closing`) ends the page with nothing
 //! raised, since its calls already ended, and the crash does not count in
-//! Usage (decision 14).
+//! Usage (decision 14); the page leaves as a confirmed close does (P30). A
+//! second navigation call on a `Navigating` page interrupts the pending
+//! one, which raises `navigation_interrupted` (P37, decision 15).
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
@@ -397,16 +402,16 @@ pub(crate) fn session(
         },
         SessionState::Closed => match event {
             SessionEvent::Call | SessionEvent::Lend => refused(Refusal::Program(CLOSED.name)),
-            SessionEvent::AttachEnded
+            SessionEvent::SourceReady
+            | SessionEvent::OpenFailed
+            | SessionEvent::AttachEnded
             | SessionEvent::Close
             | SessionEvent::BrowserQuit
             | SessionEvent::BrowserCrash
             | SessionEvent::HostOffline
             | SessionEvent::HostBack { .. }
             | SessionEvent::Retire => late,
-            SessionEvent::SourceReady | SessionEvent::OpenFailed | SessionEvent::ChildrenClosed => {
-                refused(Refusal::Internal)
-            }
+            SessionEvent::ChildrenClosed => refused(Refusal::Internal),
         },
         SessionState::Crashed => match event {
             SessionEvent::Call | SessionEvent::Lend => refused(Refusal::Program(PAGE_CRASHED.name)),
@@ -532,6 +537,10 @@ pub(crate) enum PageEffect {
     BrowserCrash,
     /// The engine's own close is confirmed: it emits `close`.
     Confirm,
+    /// Its browser quit or crashed while it closed: nothing is raised,
+    /// since its calls already ended, the crash does not count in Usage,
+    /// and it leaves as a confirmed close does, emitting `close` (P30).
+    CloseOvertaken,
     /// What is left is released.
     Release,
 }
@@ -578,9 +587,8 @@ pub(crate) fn page(
             }
         },
         PageState::Navigating => match event {
-            PageEvent::Gesture | PageEvent::Goto | PageEvent::Pause => {
-                Ok((PageState::Navigating, PageEffect::Wait))
-            }
+            PageEvent::Gesture | PageEvent::Pause => Ok((PageState::Navigating, PageEffect::Wait)),
+            PageEvent::Goto => Ok((PageState::Navigating, PageEffect::Interrupt)),
             PageEvent::Read => Ok((PageState::Navigating, PageEffect::Serve)),
             PageEvent::ExternalNav => Ok((PageState::Open, PageEffect::Interrupt)),
             PageEvent::Committed => Ok((PageState::Open, PageEffect::Commit)),
@@ -638,7 +646,7 @@ pub(crate) fn page(
             }
             PageEvent::TargetDestroyed => Ok((PageState::Closed, PageEffect::Confirm)),
             PageEvent::BrowserQuit | PageEvent::BrowserCrash => {
-                Ok((PageState::Closed, PageEffect::Nothing))
+                Ok((PageState::Closed, PageEffect::CloseOvertaken))
             }
             PageEvent::ExternalNav
             | PageEvent::Committed

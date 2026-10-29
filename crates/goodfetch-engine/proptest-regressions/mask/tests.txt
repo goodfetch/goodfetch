@@ -5,3 +5,6 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 29bc5ff67aed7c60f27555a23fb16a9bfc3b7137b9b825d537c4209a25884b85 # shrinks to value = "AAaAA0aa", before = ""
+cc 89e17c927208e6a21f7b4fdfd94fcd3d42975c0904f5116b07cd0f4afa800263 # shrinks to value = "aa '0AA0", forms = [UriComponent], cuts = []
+cc f25d947c6325ff53a5c6f4a8d645c10d6abb33a7d608750647634c22f5a8c494 # shrinks to value = "'0Aa\"Aaa", form = UriComponent, before = "", after = ""
+cc 7800249ad2eeaadaced824b642f940dd3dfe18b766961610e170608c6d367082 # shrinks to inner = "®ᤀ𑶠'¡🉠 0", before = "", after = "", forms = [UriComponent], around = ""

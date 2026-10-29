@@ -46,6 +46,7 @@ fn in_every_scope(masks: &Masks, text: &str) -> [String; 3] {
 #[case::json_escaped(r#"{"p":"pa ss\"w/rd>?9~"}"#, r#"{"p":"%proxy.password%"}"#)]
 #[case::url_encoded_with_percent_20("?p=pa%20ss%22w%2Frd%3E%3F9~&q=1", "?p=%proxy.password%&q=1")]
 #[case::url_encoded_with_plus("p=pa+ss%22w%2Frd%3E%3F9~", "p=%proxy.password%")]
+#[case::form_urlencoded("u=jb&p=pa+ss%22w%2Frd%3E%3F9%7E", "u=jb&p=%proxy.password%")]
 #[case::base64("cGEgc3Midy9yZD4/OX4=", "%proxy.password%4=")]
 #[case::base64url("cGEgc3Midy9yZD4_OX4=", "%proxy.password%4=")]
 #[case::base64_one_byte_into_a_group("eHBhIHNzIncvcmQ+Pzl+eg==", "eH%proxy.password%eg==")]
@@ -170,6 +171,47 @@ fn each_runs_values_are_masked_by_their_own_names() {
     assert_eq!(applied, "%password%, %proxy.password%");
 }
 
+/// A value the Run's mask holds under its name already does not join it
+/// again: of 1,000 joins of one value, as many Sessions' opens resolve one
+/// proxy password, only the first adds it.
+#[test]
+fn a_value_the_run_holds_under_its_name_already_joins_its_mask_once() {
+    let masks = Masks::new();
+    let mask = masks.for_run(Redaction::On);
+    let value = SecretString::from(VALUE);
+
+    let joined: Vec<bool> = (0..1_000)
+        .map(|_| mask.join(NAME, &value, Reach::Value))
+        .collect();
+
+    assert_eq!(
+        (
+            joined.iter().filter(|joined| **joined).count(),
+            masks.apply(VALUE, Scope::Returned).into_owned()
+        ),
+        (1, "%proxy.password%".to_owned())
+    );
+}
+
+/// The same value under another name, or in another Run, still joins.
+#[rstest]
+#[case::another_name("proxy.providers.one.password", false)]
+#[case::another_run(NAME, true)]
+fn a_value_joins_again_under_another_name_or_in_another_run(
+    #[case] name: &str,
+    #[case] other_run: bool,
+) {
+    let masks = Masks::new();
+    let first = masks.for_run(Redaction::On);
+    let second = masks.for_run(Redaction::On);
+    let value = SecretString::from(VALUE);
+    first.join(NAME, &value, Reach::Value);
+
+    let joined = if other_run { &second } else { &first }.join(name, &value, Reach::Value);
+
+    assert!(joined);
+}
+
 #[test]
 fn every_string_of_a_json_value_is_masked_its_members_names_included() {
     let (masks, _mask) = joined(VALUE, Reach::Value, Redaction::On);
@@ -252,7 +294,15 @@ enum Form {
     Json,
     Percent,
     Plus,
-    Base64 { url: bool, before: usize },
+    /// A form's body or a GET form's query, as the WHATWG URL Standard's
+    /// `application/x-www-form-urlencoded` serializer writes it.
+    Urlencoded,
+    /// As JavaScript's `encodeURIComponent` writes it.
+    UriComponent,
+    Base64 {
+        url: bool,
+        before: usize,
+    },
     Basic,
     HexLower,
     HexUpper,
@@ -264,6 +314,8 @@ fn form() -> impl Strategy<Value = Form> {
         Just(Form::Json),
         Just(Form::Percent),
         Just(Form::Plus),
+        Just(Form::Urlencoded),
+        Just(Form::UriComponent),
         (any::<bool>(), 0..6_usize).prop_map(|(url, before)| Form::Base64 { url, before }),
         Just(Form::Basic),
         Just(Form::HexLower),
@@ -289,6 +341,17 @@ fn encoded(value: &str, form: Form) -> String {
         Form::Json => serde_json::to_string(value).expect("a string encodes"),
         Form::Percent => percent(),
         Form::Plus => percent().replace("%20", "+"),
+        Form::Urlencoded => url::form_urlencoded::byte_serialize(value.as_bytes()).collect(),
+        Form::UriComponent => value
+            .bytes()
+            .map(|byte| {
+                if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
+                    char::from(byte).to_string()
+                } else {
+                    format!("%{byte:02X}")
+                }
+            })
+            .collect(),
         Form::Base64 { url, before } => {
             let mut bytes = vec![b'x'; before];
             bytes.extend_from_slice(value.as_bytes());
@@ -311,7 +374,8 @@ fn encoded(value: &str, form: Form) -> String {
 
 /// The canary search, an oracle of its own: no form of `value` it knows
 /// (raw, JSON-escaped, URL-encoded, base64 at each alignment, hex) is in
-/// `output`, and neither is the `+` form, which it does not search.
+/// `output`, and neither are the forms it does not search: the `+` form, a
+/// form's `application/x-www-form-urlencoded` and `encodeURIComponent`'s.
 fn leaks(value: &str, output: &[u8]) -> Vec<String> {
     let mut canaries = Canaries::new(0);
     canaries.add(Canary::known("value", SecretKind::ProxyPassword, value));
@@ -324,12 +388,14 @@ fn leaks(value: &str, output: &[u8]) -> Vec<String> {
         .into_iter()
         .map(|hit| format!("{hit:?}"))
         .collect();
-    let plus = encoded(value, Form::Plus);
-    if output
-        .windows(plus.len())
-        .any(|window| window == plus.as_bytes())
-    {
-        leaks.push("the + form".to_owned());
+    for form in [Form::Plus, Form::Urlencoded, Form::UriComponent] {
+        let spelt = encoded(value, form);
+        if output
+            .windows(spelt.len())
+            .any(|window| window == spelt.as_bytes())
+        {
+            leaks.push(format!("the {form:?} form"));
+        }
     }
     leaks
 }

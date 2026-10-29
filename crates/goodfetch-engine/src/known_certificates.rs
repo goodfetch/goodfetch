@@ -19,6 +19,7 @@
 //! blocking policy.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use goodfetch_protocol::formats::{Compatibility, KNOWN_CERTIFICATES};
@@ -52,7 +53,8 @@ impl ExceptionKind {
     }
 }
 
-/// How long a write waits for another engine's.
+/// How long a write waits for another engine's, and a lookup while SQLite
+/// answers busy, as while a crashed writer's journal is recovered.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The tables of this version. A newer minor only adds tables and columns,
@@ -203,11 +205,15 @@ pub enum KnownCertificatesError {
 }
 
 /// The known-certificates store of one user: its file and the VFS it
-/// opens through.
+/// opens through. Clones share whether this engine has found the store's
+/// tables made.
 #[derive(Clone, Debug)]
 pub struct KnownCertificates {
     path: PathBuf,
     vfs: Option<String>,
+    /// Set once this engine found every table of this version in the
+    /// store, or made them: a lookup then opens the store read-only.
+    made: Arc<OnceLock<()>>,
 }
 
 /// One row as SQLite gives it, before it is read.
@@ -305,6 +311,7 @@ impl KnownCertificates {
         Self {
             path: home.known_certificates(),
             vfs,
+            made: Arc::default(),
         }
     }
 
@@ -323,7 +330,7 @@ impl KnownCertificates {
         if !self.path.exists() {
             return Ok(Found::Unpinned);
         }
-        let connection = self.open()?;
+        let connection = self.open_read()?;
         find_in(&connection, person, host).map_err(|error| self.failed(&error))
     }
 
@@ -506,7 +513,7 @@ impl KnownCertificates {
             return Ok(Vec::new());
         }
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let connection = self.open()?;
+        let connection = self.open_read()?;
         let mut statement = connection
             .prepare(&format!(
                 "{SELECT_LISTED} WHERE pins.person = ?1 ORDER BY pins.host"
@@ -548,7 +555,7 @@ impl KnownCertificates {
             return Ok(Vec::new());
         }
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let connection = self.open()?;
+        let connection = self.open_read()?;
         let mut statement = connection
             .prepare(
                 "SELECT host, spki_sha256, seen_at, run_id FROM changes WHERE person = ?1 ORDER BY host",
@@ -585,6 +592,55 @@ impl KnownCertificates {
         Ok(waiting)
     }
 
+    /// Opens the existing store for a lookup, refusing one of another major:
+    /// read-only, so it takes no write lock and, in WAL mode, never waits
+    /// for a writer. The first time this engine finds a table of this
+    /// version missing, it makes the tables through [`Self::open`] instead.
+    fn open_read(&self) -> Result<Connection, KnownCertificatesError> {
+        let failed = |error: &dyn std::fmt::Display| self.failed(error);
+        if self.made.get().is_none() {
+            let connection = self.connect(OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            let tables: i64 = connection
+                .query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('format', 'pins', 'changes')",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|error| failed(&error))?;
+            if tables < 3 {
+                drop(connection);
+                return self.open();
+            }
+            let _ = self.made.set(());
+        }
+        let connection = self.connect(OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let found: String = connection
+            .query_row(
+                "SELECT version FROM format WHERE name = ?1",
+                [KNOWN_CERTIFICATES.name],
+                |row| row.get(0),
+            )
+            .map_err(|error| failed(&error))?;
+        check_format(&found)?;
+        Ok(connection)
+    }
+
+    /// A connection to the store opened with `access`, waiting up to
+    /// [`BUSY_TIMEOUT`] where SQLite answers busy.
+    fn connect(&self, access: OpenFlags) -> Result<Connection, KnownCertificatesError> {
+        let failed = |error: &dyn std::fmt::Display| self.failed(error);
+        let flags = access | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let connection = match &self.vfs {
+            Some(vfs) => Connection::open_with_flags_and_vfs(&self.path, flags, vfs.as_str()),
+            None => Connection::open_with_flags(&self.path, flags),
+        }
+        .map_err(|error| failed(&error))?;
+        connection
+            .busy_timeout(BUSY_TIMEOUT)
+            .map_err(|error| failed(&error))?;
+        Ok(connection)
+    }
+
     /// Opens the store, creating it and its tables when it does not exist,
     /// and refuses one of another major.
     fn open(&self) -> Result<Connection, KnownCertificatesError> {
@@ -596,17 +652,8 @@ impl KnownCertificates {
             )]
             std::fs::create_dir_all(folder).map_err(|error| failed(&error))?;
         }
-        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
-            | OpenFlags::SQLITE_OPEN_CREATE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let mut connection = match &self.vfs {
-            Some(vfs) => Connection::open_with_flags_and_vfs(&self.path, flags, vfs.as_str()),
-            None => Connection::open_with_flags(&self.path, flags),
-        }
-        .map_err(|error| failed(&error))?;
-        connection
-            .busy_timeout(BUSY_TIMEOUT)
-            .map_err(|error| failed(&error))?;
+        let mut connection =
+            self.connect(OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE)?;
         connection
             .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
             .map_err(|error| failed(&error))?;
@@ -639,6 +686,7 @@ impl KnownCertificates {
             .map_err(|error| failed(&error))?;
         transaction.commit().map_err(|error| failed(&error))?;
         check_format(&found)?;
+        let _ = self.made.set(());
         Ok(connection)
     }
 

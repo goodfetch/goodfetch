@@ -14,6 +14,7 @@ use super::{payload_of, translate};
 enum Meaning {
     Missing,
     Refused,
+    Busy,
     Unrecognized,
 }
 
@@ -21,6 +22,7 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
     match failure {
         ProviderFailure::Missing => Meaning::Missing,
         ProviderFailure::Refused { .. } => Meaning::Refused,
+        ProviderFailure::Busy { .. } => Meaning::Busy,
         ProviderFailure::Unrecognized(_) => Meaning::Unrecognized,
         other => panic!("not a translation's answer: {other:?}"),
     }
@@ -32,8 +34,8 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
 #[case::a_refused_token(401, r#"{"error":{"code":401,"message":"Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential.","status":"UNAUTHENTICATED"}}"#, Meaning::Refused)]
 #[case::a_disabled_version(400, r#"{"error":{"code":400,"message":"Secret Version [projects/123/secrets/portal/versions/1] is in DISABLED state.","status":"FAILED_PRECONDITION"}}"#, Meaning::Refused)]
 #[case::an_invalid_name(400, r#"{"error":{"code":400,"message":"The provided Secret Version ID [first] does not match the expected format [[0-9]+|latest]","status":"INVALID_ARGUMENT"}}"#, Meaning::Refused)]
-#[case::throttled(429, r#"{"error":{"code":429,"message":"Quota exceeded for quota metric 'Access requests'.","status":"RESOURCE_EXHAUSTED"}}"#, Meaning::Refused)]
-#[case::unavailable(503, r#"{"error":{"code":503,"message":"The service is currently unavailable.","status":"UNAVAILABLE"}}"#, Meaning::Refused)]
+#[case::throttled(429, r#"{"error":{"code":429,"message":"Quota exceeded for quota metric 'Access requests'.","status":"RESOURCE_EXHAUSTED"}}"#, Meaning::Busy)]
+#[case::unavailable(503, r#"{"error":{"code":503,"message":"The service is currently unavailable.","status":"UNAVAILABLE"}}"#, Meaning::Busy)]
 #[case::an_unknown_failure(
     409,
     r#"{"error":{"code":409,"message":"new","status":"ABORTED"}}"#,

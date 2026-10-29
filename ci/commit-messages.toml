@@ -14,3 +14,11 @@ reason = "merged into 14 unpushed branches before the check ran; history is neve
 [[exception]]
 commit = "c3c56422ad66376302673c7ac0f0befd95cbac62" # wip(proving-ground): raw server and delivery observations
 reason = "merged into 14 unpushed branches before the check ran; history is never rewritten"
+
+[[exception]]
+commit = "57d95e0a72fb14da523ec436797e624e21506a5d" # wip(engine): 213-11 forwarded calls open a CLIENT span; 213-2 and O13 not started
+reason = "pushed as fix/deep-G2's pause backup, then merged with -s ours; f1a6fd4a6 carries its change under a Conventional subject; history is never rewritten"
+
+[[exception]]
+commit = "718e5d30f6ac715c1bf5c93631390aaee60dc326" # wip(compat): partial compat write for secrets.resolve_each_use, stopped by the pause
+reason = "pushed as fix/deep-G2's second pause backup; the build(compat) commit after it completes the write; history is never rewritten"

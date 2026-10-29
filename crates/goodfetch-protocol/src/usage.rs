@@ -57,8 +57,9 @@ pub const MODEL_TOKENS: &str = "model_tokens";
 /// 0101; area 5 charges it).
 pub const BROWSER_TIME: &str = "browser_time";
 
-/// The Usage kind of a run's pages that crashed, their renderer or their
-/// browser's process (ADR 0040; area 5 charges it).
+/// The Usage kind of a run's crashes: one per renderer that crashed and
+/// one per browser process that crashed, however many pages it held (ADR
+/// 0040; area 5 charges it).
 pub const PAGE_CRASHES: &str = "page_crashes";
 
 /// One Limit of the Usage ledger: a generic row, which a newer engine may
@@ -400,7 +401,7 @@ pub const ENTRIES: Entries = Entries {
         SharedTypeValue {
             shared_type: SharedType::UsageKind,
             name: PAGE_CRASHES,
-            description: "Pages of a run that crashed: their renderer, or their browser's process (ADR 0040). A crash racing the page's close does not count.",
+            description: "Crashes of a run: one per renderer that crashed, and one per browser process that crashed, however many pages it held (ADR 0040). A crash racing the page's close does not count.",
             arrived_in: ARRIVED_IN,
         },
         SharedTypeValue {

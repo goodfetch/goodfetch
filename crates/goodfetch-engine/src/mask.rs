@@ -19,7 +19,9 @@
 //!   `security.redaction` is off (ADR 0016).
 //!
 //! The forms masked are the raw value, JSON-escaped, URL-encoded with
-//! `%20` and with `+`, base64 and base64url at each of the three
+//! `%20` and with `+`, URL-encoded as a browser encodes a form
+//! (`application/x-www-form-urlencoded`) and as JavaScript's
+//! `encodeURIComponent` does, base64 and base64url at each of the three
 //! alignments inside a longer encoded run (which covers the Basic
 //! `Authorization` and `Proxy-Authorization` headers built from a value),
 //! and hex in either case. Each scope is one Aho-Corasick automaton over
@@ -43,6 +45,7 @@ use aho_corasick::{AhoCorasick, MatchKind};
 use secrecy::zeroize::Zeroizing;
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::Value;
+use subtle::ConstantTimeEq as _;
 
 /// The length, in characters, under which a value is masked only where it
 /// was typed and in what the engine keeps (spec #564's shape: fixed, not a
@@ -193,8 +196,9 @@ impl Automaton {
 }
 
 /// Every form of `value` the engine masks, each once: raw, JSON-escaped,
-/// URL-encoded with `%20` and with `+`, base64 and base64url at each
-/// alignment, and hex in both cases.
+/// URL-encoded with `%20` and with `+`, as a browser's form and
+/// `encodeURIComponent` encode it, base64 and base64url at each alignment,
+/// and hex in both cases.
 fn forms(value: &str) -> Vec<Zeroizing<Vec<u8>>> {
     let bytes = value.as_bytes();
     let mut forms: Vec<Zeroizing<Vec<u8>>> = Vec::new();
@@ -209,9 +213,12 @@ fn forms(value: &str) -> Vec<Zeroizing<Vec<u8>>> {
         serde_json::to_string(value).expect("invariant: a string serializes to JSON"),
     );
     add(quoted.as_bytes()[1..quoted.len() - 1].to_vec());
-    let percent = Zeroizing::new(percent_encoded(bytes));
+    let percent = Zeroizing::new(percent_encoded(bytes, RFC_3986_UNRESERVED));
     add(percent.as_bytes().to_vec());
     add(percent.replace("%20", "+").into_bytes());
+    let form = Zeroizing::new(percent_encoded(bytes, FORM_URLENCODED_KEPT));
+    add(form.replace("%20", "+").into_bytes());
+    add(percent_encoded(bytes, URI_COMPONENT_KEPT).into_bytes());
     for alphabet in [
         &data_encoding::BASE64_NOPAD,
         &data_encoding::BASE64URL_NOPAD,
@@ -225,13 +232,25 @@ fn forms(value: &str) -> Vec<Zeroizing<Vec<u8>>> {
     forms
 }
 
-/// `value` percent-encoded, every byte but RFC 3986's unreserved ones, in
-/// uppercase hex.
-fn percent_encoded(value: &[u8]) -> String {
+/// The marks RFC 3986 leaves unreserved, which Goodfetch's own URL encoding
+/// keeps beside the ASCII letters and digits.
+const RFC_3986_UNRESERVED: &[u8] = b"-._~";
+
+/// The marks the WHATWG URL Standard's `application/x-www-form-urlencoded`
+/// serializer keeps, as a browser writes a form's body or a GET form's
+/// query: `*` kept, `~` escaped, and a space written `+`.
+const FORM_URLENCODED_KEPT: &[u8] = b"*-._";
+
+/// The marks JavaScript's `encodeURIComponent` keeps.
+const URI_COMPONENT_KEPT: &[u8] = b"-_.!~*'()";
+
+/// `value` percent-encoded, every byte but the ASCII letters, digits and
+/// `kept`, in uppercase hex.
+fn percent_encoded(value: &[u8], kept: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut encoded = String::with_capacity(value.len() * 3);
     for &byte in value {
-        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+        if byte.is_ascii_alphanumeric() || kept.contains(&byte) {
             encoded.push(char::from(byte));
         } else {
             encoded.push('%');
@@ -407,9 +426,33 @@ impl Masks {
         }
     }
 
-    fn join(&self, run: u64, name: &str, value: &SecretString, reach: Reach, redaction: Redaction) {
+    /// Adds `value` under `name` for `run`, and rebuilds the automata,
+    /// unless `run` holds it under `name` already: whether it joined.
+    fn join(
+        &self,
+        run: u64,
+        name: &str,
+        value: &SecretString,
+        reach: Reach,
+        redaction: Redaction,
+    ) -> bool {
         let short = reach == Reach::OneTimeCode || value.expose_secret().chars().count() < SHORT;
         let mut state = self.write();
+        let held = state.entries.iter().any(|entry| {
+            entry.run == run
+                && entry.name == name
+                && entry.short == short
+                && bool::from(
+                    entry
+                        .value
+                        .expose_secret()
+                        .as_bytes()
+                        .ct_eq(value.expose_secret().as_bytes()),
+                )
+        });
+        if held {
+            return false;
+        }
         state.entries.push(Entry {
             run,
             name: name.to_owned(),
@@ -418,6 +461,7 @@ impl Masks {
             redaction,
         });
         state.rebuild();
+        true
     }
 
     fn leave(&self, run: u64) {
@@ -467,11 +511,13 @@ impl std::fmt::Debug for Mask {
 impl Mask {
     /// Adds `value` under `name`, a Secret placeholder's name or the
     /// setting's key where no placeholder names it, for the rest of the
-    /// Run: masked as `%name%`.
-    pub fn join(&self, name: &str, value: &SecretString, reach: Reach) {
+    /// Run: masked as `%name%`. A value the Run holds under `name` already
+    /// does not join again, so the masks are rebuilt only when a new value
+    /// joins; whether it joined.
+    pub fn join(&self, name: &str, value: &SecretString, reach: Reach) -> bool {
         self.0
             .masks
-            .join(self.0.run, name, value, reach, self.0.redaction);
+            .join(self.0.run, name, value, reach, self.0.redaction)
     }
 
     /// The engine's masks this one is part of.

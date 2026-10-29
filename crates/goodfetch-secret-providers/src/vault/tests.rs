@@ -16,6 +16,7 @@ use super::{field_of, server_url, translate};
 enum Meaning {
     Missing,
     Refused,
+    Busy,
     Unrecognized,
 }
 
@@ -23,6 +24,7 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
     match failure {
         ProviderFailure::Missing => Meaning::Missing,
         ProviderFailure::Refused { .. } => Meaning::Refused,
+        ProviderFailure::Busy { .. } => Meaning::Busy,
         ProviderFailure::Unrecognized(_) => Meaning::Unrecognized,
         other => panic!("Vault never answers {other:?}"),
     }
@@ -52,7 +54,7 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
 #[case::rate_limited(
     429,
     r#"{"errors":["request path \"secret/data/shop/portal\": rate limit quota exceeded"]}"#,
-    Meaning::Refused
+    Meaning::Busy
 )]
 #[case::an_unknown_failure(
     500,

@@ -44,6 +44,10 @@ const LOGS: &str = "logs";
 /// (spec #564).
 const SECRET_FILES: &str = "secrets";
 
+/// The lock an engine holds while it makes its own key-encryption key,
+/// outside the per-major folders (spec #564).
+const ENGINE_KEY_LOCK: &str = "engine-key.lock";
+
 /// One user's Goodfetch data folder, and the copy of the Browser cache
 /// `GOODFETCH_BROWSERS_PATH` names in place of its own, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -155,6 +159,13 @@ impl Home {
     /// which every major and both Products share (spec #564).
     pub fn secret_files(&self) -> PathBuf {
         self.root.join(SECRET_FILES)
+    }
+
+    /// The file whose lock an engine holds while it makes its own
+    /// key-encryption key in the OS keychain, so two engines of the user,
+    /// of any major and either Product, make one between them.
+    pub fn engine_key_lock(&self) -> PathBuf {
+        self.root.join(ENGINE_KEY_LOCK)
     }
 }
 

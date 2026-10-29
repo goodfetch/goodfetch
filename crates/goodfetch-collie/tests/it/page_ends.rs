@@ -22,10 +22,6 @@
     clippy::disallowed_methods,
     reason = "the test lists and signals its own browser's processes on its own thread, never an async worker"
 )]
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 
 use std::process::Command;
 use std::time::Duration;

@@ -4,7 +4,9 @@
 //! holds Records but is no longer declared, a renamed one included, fails
 //! with `dataset_unknown`, so no Record is orphaned; one whose key changed
 //! with `dataset_key_invalid`, so a Sink's upsert never mixes two
-//! identities. A Dataset that holds no Record may be dropped or keyed anew,
+//! identities. A rejected Record counts as a Record here, so a Dataset whose
+//! every Record failed its schema keeps its rejections readable under its
+//! name (#964). A Dataset that holds no Record may be dropped or keyed anew,
 //! and a changed schema is allowed: once the Run resumes, the declarations
 //! are recorded again, so the Records committed from then on are checked
 //! against the new schema and keep its hash.
@@ -20,7 +22,7 @@ use crate::declaration::Datasets;
 
 /// The Datasets a Run began with, as its run file holds them: each one's
 /// name, its key, none when it no longer reads, and whether it holds
-/// Records.
+/// Records, committed or rejected.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Began(Vec<BeganWith>);
 
@@ -39,7 +41,10 @@ impl Began {
     /// The run file's, when the rows cannot be read.
     pub fn read(connection: &Connection) -> rusqlite::Result<Self> {
         let mut select = connection.prepare(
-            "SELECT name, key, EXISTS (SELECT 1 FROM records WHERE records.dataset = datasets.name)
+            "SELECT name, key,
+                 EXISTS (SELECT 1 FROM records WHERE records.dataset = datasets.name)
+                 OR EXISTS (SELECT 1 FROM rejected_records
+                     WHERE rejected_records.dataset = datasets.name)
              FROM datasets ORDER BY position",
         )?;
         let rows = select.query_map([], |row| {
@@ -59,9 +64,9 @@ impl Datasets {
     ///
     /// # Errors
     ///
-    /// `dataset_unknown` for the first Dataset that holds Records and is no
-    /// longer declared; `dataset_key_invalid` for the first that holds
-    /// Records and whose key changed.
+    /// `dataset_unknown` for the first Dataset that holds Records, committed
+    /// or rejected, and is no longer declared; `dataset_key_invalid` for the
+    /// first that holds them and whose key changed.
     pub fn resumes(&self, began: &Began, run_id: &str) -> Result<(), CallError> {
         let declarations = self.declarations();
         for dataset in began.0.iter().filter(|dataset| dataset.holds_records) {
@@ -70,7 +75,7 @@ impl Datasets {
                 return Err(CallError::new(
                     &DATASET_UNKNOWN,
                     format!(
-                        "The Run `{run_id}` holds Records of the Dataset `{name}`, which the crawl no longer declares, so the Run did no work: declare `{name}` again, or start a new Run."
+                        "The Run `{run_id}` holds Records, committed or rejected, of the Dataset `{name}`, which the crawl no longer declares, so the Run did no work: declare `{name}` again, or start a new Run."
                     ),
                     &DatasetUnknownDetails {
                         dataset: name.clone(),
@@ -110,7 +115,8 @@ impl Datasets {
     /// Records these declarations again in the run file `connection` holds,
     /// as a Run that [`Datasets::resumes`] allowed resumes: each declared
     /// Dataset takes its new position, schema, schema hash and key, and one
-    /// no longer declared that holds no Record is dropped.
+    /// no longer declared that holds no Record, committed or rejected, is
+    /// dropped.
     ///
     /// # Errors
     ///
@@ -118,7 +124,9 @@ impl Datasets {
     pub fn record_again(&self, connection: &Connection) -> rusqlite::Result<()> {
         connection.execute(
             "DELETE FROM datasets
-             WHERE NOT EXISTS (SELECT 1 FROM records WHERE records.dataset = datasets.name)",
+             WHERE NOT EXISTS (SELECT 1 FROM records WHERE records.dataset = datasets.name)
+               AND NOT EXISTS (SELECT 1 FROM rejected_records
+                   WHERE rejected_records.dataset = datasets.name)",
             [],
         )?;
         self.record(connection)

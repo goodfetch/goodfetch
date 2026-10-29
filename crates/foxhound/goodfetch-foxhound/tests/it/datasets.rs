@@ -555,6 +555,65 @@ fn a_start_under_its_run_id_refuses_a_dataset_holding_records_dropped_or_keyed_a
     );
 }
 
+/// A start under the ID of a Run whose `books` holds only rejected
+/// Records, every pushed Record having failed its schema, refuses `books`
+/// renamed with `dataset_unknown`, as it refuses a Dataset holding Records:
+/// `run.rejected_records` still reads its rejections under its name.
+///
+/// Covers: story:6-272, operation:crawl.start, operation:run.rejected_records, error:dataset_unknown
+#[test]
+fn a_start_under_its_run_id_refuses_a_dataset_holding_only_rejected_records_renamed() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    let untitled = json!({ "isbn": "0441013597" });
+
+    let mut refused = Value::Null;
+    let report = crawl_from(
+        &mut engine,
+        &json!({
+            "run_id": "rejecting",
+            "seeds": [{ "url": "https://shop.test/book", "label": "page" }],
+            "datasets": declared(),
+        }),
+        &mut |inside, handle| {
+            refused = push(inside, handle, "books", &untitled);
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let answer = start_again(
+        &mut engine,
+        "rejecting",
+        &json!([
+            { "name": "titles", "schema": book_schema(), "key": ["isbn"] },
+            { "name": "notes", "key": ["id"] },
+        ]),
+    );
+    let rejections = engine.call(
+        "rejected",
+        "run.rejected_records",
+        &json!({ "run_id": "rejecting", "dataset": "books" }),
+        &mut |_| None,
+    );
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            &refused["code"],
+            committed(&env, "rejecting").len(),
+            answer,
+            rejections["result"]["records"].as_array().map(Vec::len),
+        ),
+        (
+            &json!("finished"),
+            &json!("record_invalid"),
+            0,
+            json!({ "code": "dataset_unknown", "details": { "dataset": "books", "declared": ["titles", "notes"] } }),
+            Some(1),
+        )
+    );
+}
+
 /// Each committed Record of the run file of `run_id`, in number order:
 /// its number, its data and the hash of the schema it was committed under.
 fn hashed(env: &TestEnv, run_id: &str) -> Vec<(i64, Value, Option<String>)> {

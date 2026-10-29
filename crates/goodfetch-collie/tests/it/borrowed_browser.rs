@@ -46,6 +46,8 @@ use serde_json::{Map, Value, json};
 use crate::attached::{Attached, hello};
 use crate::background_traffic::{chrome_for_testing, reported_debugging_port};
 use crate::page::{BROWSER_DEADLINE, opened};
+use crate::page_ends::{call_in_flight, crashes_counted};
+use crate::page_events::Exchange;
 use crate::run::call;
 
 /// What the engine resolves the site's public name to: a globally
@@ -530,9 +532,11 @@ fn a_resumed_run_reopens_a_borrowed_session_on_its_browser() {
 /// however long the Run's `timeout.close`: the engine sees no exit of a
 /// browser it did not launch, so it waits for none to name the loss (fix
 /// queue 104: a Run finished while its engine page opened waited
-/// `timeout.close` for it, twice, past the client's deadline).
+/// `timeout.close` for it, twice, past the client's deadline). The loss
+/// reads as a quit (spec #594's decision 11), so the Session, which held
+/// no page, ends, and its new page raises `closed`.
 ///
-/// Covers: error:page_crashed, operation:session.new_page
+/// Covers: error:closed, operation:session.new_page
 #[test]
 fn a_call_on_a_borrowed_browser_that_went_answers_without_waiting_for_its_exit() {
     let env = TestEnv::new();
@@ -552,7 +556,49 @@ fn a_call_on_a_borrowed_browser_that_went_answers_without_waiting_for_its_exit()
     let page = program.call("session.new_page", &json!({ "session_id": session }));
     program.finish("went");
 
-    assert_eq!(error(&page).0, json!("page_crashed"), "{page}");
+    assert_eq!(error(&page).0, json!("closed"), "{page}");
+}
+
+/// A Borrowed browser that went while a call was in flight on its page
+/// quit, since no exit of a browser the engine did not launch tells a quit
+/// from a crash (spec #594's decision 11): the call raises
+/// `call_cancelled` naming the browser, the Session ends, so its new page
+/// raises `closed`, and Usage counts no page crash.
+///
+/// Covers: story:5-28, error:call_cancelled, operation:session.new_page
+#[test]
+fn a_borrowed_browser_that_went_under_a_call_cancels_it_naming_the_browser() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let mut program = Program::start(&env, &cache, "sdk_typescript");
+    program.run("lent-quit", &[]);
+    let session = program.borrow("lent-quit", &lent.cdp_url)["result"]["session_id"].clone();
+    let page = program.new_page(&session);
+    let mut exchange = Exchange::new(program.engine);
+    exchange.subscribe();
+    exchange.listen(&page, "console");
+    let calling = call_in_flight(&mut exchange, &page);
+
+    lent.stop();
+    let called = exchange.answer(calling);
+    let new_page = exchange.call("session.new_page", &json!({ "session_id": session }));
+    let crashes = crashes_counted(&mut exchange, "lent-quit");
+    let _ = exchange.call("run.finish", &json!({ "run_id": "lent-quit" }));
+    let _ = exchange.engine.finish();
+
+    assert_eq!(
+        (error(&called), error(&new_page).0, crashes),
+        (
+            (
+                json!("call_cancelled"),
+                json!({ "by": "browser", "closed": "browser" })
+            ),
+            json!("closed"),
+            Vec::<Value>::new()
+        ),
+        "{called} {new_page}"
+    );
 }
 
 /// Writes an Operator policy whose `session.source` is the `cdp_url`

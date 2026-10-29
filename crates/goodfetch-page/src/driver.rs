@@ -662,6 +662,17 @@ pub(crate) struct SessionDriver<B> {
     opened: Mutex<Vec<target::TargetID>>,
 }
 
+impl SessionDriver<Behind> {
+    /// Whether its browser is one of the pool's whose connection ended: it
+    /// quit or crashed, whether or not its pool has heard yet.
+    pub(crate) fn browser_lost(&self) -> bool {
+        match &self.browser {
+            Behind::Launched(browser) => browser.is_lost(),
+            Behind::Borrowed(_) => false,
+        }
+    }
+}
+
 impl<B: Connect> SessionDriver<B> {
     /// The driver of a Session of `browser` whose requests leave through
     /// `egress`.

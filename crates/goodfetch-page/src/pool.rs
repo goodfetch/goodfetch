@@ -923,6 +923,11 @@ struct Place {
     at: Option<(u64, Driver)>,
     /// Set once its Session closed it: it is never seated again (#697).
     closed: bool,
+    /// The browser it was seated in, by number, once that browser quit or
+    /// crashed and left the pool: the browser took its Session with it (S8,
+    /// S9), so it is never seated in another, and it still counts as
+    /// seated there for the loss to reach its Session.
+    lost: Option<u64>,
     /// What it takes to the next browser it is seated in.
     carried: Carried,
     /// Its browser contexts in recycled browsers, which still hold pages it
@@ -1000,7 +1005,8 @@ impl Seat {
         self.shared.pool.first_crash(number)
     }
 
-    /// Whether the Session is seated in the browser `number` now.
+    /// Whether the Session is seated in the browser `number` now, or was
+    /// when that browser was lost.
     pub(crate) async fn is_in(&self, number: u64) -> bool {
         let (answer, answered) = oneshot::channel();
         if self
@@ -1086,13 +1092,19 @@ async fn keep_place(seat: Weak<SeatShared>, mut commands: mpsc::Receiver<PlaceCo
             PlaceCommand::Seated { answer, .. } if place.closed => {
                 let _ = answer.send(Err(place_ended()));
             }
+            // Its Session settles the failure into the loss once it reaches
+            // it (`SessionLife::settled`).
+            PlaceCommand::Seated { answer, .. } if place.lost.is_some() => {
+                let _ = answer.send(Err(crate::errors::browser_crashed(None)));
+            }
             PlaceCommand::Seated { moving, answer } => {
                 let seated = seat.seated_moving(&mut place, moving).await;
                 // An asker that left drops what it asked for.
                 let _ = answer.send(seated);
             }
             PlaceCommand::IsIn(number, answer) => {
-                let _ = answer.send(place.at.as_ref().is_some_and(|(at, _)| *at == number));
+                let seated = place.at.as_ref().is_some_and(|(at, _)| *at == number);
+                let _ = answer.send(seated || place.lost == Some(number));
             }
             PlaceCommand::Close(answer) => {
                 place.closed = true;
@@ -1101,7 +1113,17 @@ async fn keep_place(seat: Weak<SeatShared>, mut commands: mpsc::Receiver<PlaceCo
             }
             PlaceCommand::Evacuate(number, answer) => {
                 place.left.retain(|(left, _)| *left != number);
-                if place.at.as_ref().is_some_and(|(at, _)| *at == number) {
+                let (here, lost) = place.at.as_ref().map_or((false, false), |(at, driver)| {
+                    (*at == number, *at == number && driver.browser_lost())
+                });
+                if lost {
+                    // A lost browser hands nothing over: nothing is left
+                    // to capture, and its Session went with it.
+                    place.at = None;
+                    place.lost = Some(number);
+                    place.carried = Carried::default();
+                    seat.pool.leave(number, seat.number);
+                } else if here {
                     seat.leave(&mut place).await;
                 }
                 let _ = answer.send(());
@@ -1113,7 +1135,11 @@ async fn keep_place(seat: Weak<SeatShared>, mut commands: mpsc::Receiver<PlaceCo
 impl SeatShared {
     /// The browser the Session is seated in and its driver there, seating
     /// it as [`Self::seated_in`] does; with `moving`, it first leaves a
-    /// browser of the pool that is recycled, as often as one is.
+    /// browser of the pool that is recycled, as often as one is. A Session
+    /// seated in a browser that quit or crashed never leaves it: the browser
+    /// took the Session with it (S8, S9), so the call raises
+    /// `page_crashed`, which its caller settles into the Session's end once
+    /// the loss reaches it.
     async fn seated_moving(
         self: &Arc<Self>,
         place: &mut Place,
@@ -1121,6 +1147,9 @@ impl SeatShared {
     ) -> Result<(u64, Driver, Opening), CallError> {
         loop {
             let (number, driver, opening) = self.seated_in(place).await?;
+            if driver.browser_lost() {
+                return Err(crate::errors::browser_crashed(None));
+            }
             if !moving || self.borrowed.is_some() || !self.pool.recycled(number).await {
                 return Ok((number, driver, opening));
             }

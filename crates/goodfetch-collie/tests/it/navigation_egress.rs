@@ -27,6 +27,7 @@ use goodfetch_test_support::{
     Answer, BROWSERS_PATH_VARIABLE, Outcome, ProvingGround, Refusal, Route, Runner, SsrfCase,
     SsrfTable, TestEnv, browser_cache, robots_txt_read,
 };
+use rstest::rstest;
 use serde_json::{Map, Value, json};
 
 use crate::attached::{Attached, hello};
@@ -746,9 +747,20 @@ fn a_refused_navigation_answers_once_the_browsers_error_page_for_it_loaded() {
 const SCRIPT: &str =
     "javascript:void(document.body.innerHTML='<main><h1>Written by the script</h1></main>')";
 
+/// A `javascript:` URL in each spelling the URL Standard reads as one, a
+/// tab or a newline in its scheme or spaces before it, runs as the plain
+/// form does and answers as it does: the driver tells it apart as the
+/// egress check does (the deep review's 563-4).
+///
 /// Covers: story:4-5, operation:page.goto
-#[test]
-fn a_javascript_url_runs_in_a_frame_the_policy_allows_and_opens_no_connection() {
+#[rstest]
+#[case::plain(SCRIPT.to_owned())]
+#[case::a_tab_in_its_scheme(SCRIPT.replacen("java", "java\t", 1))]
+#[case::a_newline_in_its_scheme(SCRIPT.replacen("java", "java\n", 1))]
+#[case::spaces_before_it(format!("  {SCRIPT}"))]
+fn a_javascript_url_runs_in_a_frame_the_policy_allows_and_opens_no_connection(
+    #[case] script: String,
+) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
@@ -763,7 +775,7 @@ fn a_javascript_url_runs_in_a_frame_the_policy_allows_and_opens_no_connection() 
     robots_txt_read(&env, "scripts");
     let before = pages_requested(&proving_ground);
 
-    let ran = program.goto(&page, SCRIPT);
+    let ran = program.goto(&page, &script);
     let markdown = program.markdown(&page);
     let after = pages_requested(&proving_ground);
     program.finish(&["scripts"]);
@@ -774,7 +786,8 @@ fn a_javascript_url_runs_in_a_frame_the_policy_allows_and_opens_no_connection() 
             markdown.map(|markdown| markdown.contains("Written by the script")),
             after - before,
         ),
-        (&json!({ "response": null }), Ok(true), 0)
+        (&json!({ "response": null }), Ok(true), 0),
+        "{ran}"
     );
 }
 

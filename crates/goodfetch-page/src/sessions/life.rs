@@ -7,13 +7,15 @@
 //! ends its calls in flight with the code its effect names, and a crash
 //! leaves that code for every later call (spec #594's decision 3).
 //!
-//! A navigation is admitted through its own event (`Goto`), but the page
-//! stays `Open` while it runs: a navigation holds no place in the gesture
-//! order, so `Navigating` is never entered, as ADR 0085's note of
-//! 2026-10-24 records for the owner to decide. A later navigation
-//! supersedes one not yet committed either way: the engine's navigation
-//! code raises `navigation_interrupted` for the pending one (#698), as the
-//! table's `Navigating` row has it (P37, decision 15).
+//! A navigation holds the gesture order (P14; ADR 0085's note accepted by
+//! the owner on 2026-10-28): its call (`Goto`) leaves the page
+//! `Navigating` until its document commits or fails, and a gesture sent
+//! meanwhile waits behind it, except while one of the page's requests
+//! waits on a route handler, when the navigation gives up its turn so the
+//! handler's own gestures run. A later navigation interrupts the pending
+//! one, which the engine's navigation code raises `navigation_interrupted`
+//! for (#698; P37, decision 15), and the page leaves `Navigating` once the
+//! latest navigation ended.
 
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;

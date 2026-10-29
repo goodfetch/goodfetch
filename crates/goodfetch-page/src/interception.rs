@@ -104,6 +104,7 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::run::warning::BLOCK_RESOURCES_VISIBLE;
 use goodfetch_protocol::run::{RunId, RunWarning};
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails};
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use self::answers::Answers;
@@ -385,11 +386,13 @@ pub(crate) struct PageCleanUp {
 }
 
 /// A page the interception holds: what its Session chose of the Clean-up
-/// rules, and what the interception does with each of its children before
-/// it runs.
+/// rules, what the interception does with each of its children before it
+/// runs, and how many of its requests, its out-of-process frames'
+/// included, wait on a route handler now.
 pub(crate) struct HeldPage {
     pub(crate) clean_up: PageCleanUp,
     pub(crate) children: OnChild,
+    pub(crate) routed: watch::Receiver<usize>,
 }
 
 impl PageState {
@@ -551,9 +554,13 @@ impl Interception {
         // Chosen before the page loads anything, so no worker of its sites
         // runs before the interception holds it.
         driver.service_workers(workers).await?;
-        let children = self.children_of(
+        // The page's own requests and its frames' are counted while a route
+        // handler holds them; a worker's are not the page's.
+        let routed = Arc::new(watch::Sender::new(0));
+        let answers = self.shared.answers.counting(Arc::clone(&routed));
+        let children = Self::children_of(
             page_id,
-            &state,
+            (&state, answers.clone()),
             driver,
             run,
             (policy.clone(), lookups.clone()),
@@ -564,7 +571,7 @@ impl Interception {
                 driver.clone(),
                 Sender::Page(page_id.clone()),
                 state,
-                self.shared.answers.clone(),
+                answers,
                 policy,
                 blocking,
                 refusals,
@@ -573,11 +580,16 @@ impl Interception {
             .with_lookups(lookups),
         );
         run.spawn(pipeline::dispatch(events, context));
-        Ok(HeldPage { clean_up, children })
+        Ok(HeldPage {
+            clean_up,
+            children,
+            routed: routed.subscribe(),
+        })
     }
 
-    /// What the page `page_id`, whose side of the interception is `state`
-    /// and whose driver is `page`, does with each of its children before it
+    /// What the page `page_id`, whose side of the interception is `state`,
+    /// whose route answers count its held requests as `answers` does, and
+    /// whose driver is `page`, does with each of its children before it
     /// runs: an out-of-process frame's requests pause on its own target and
     /// pass the page's pipeline, under the page's routes, its Session's and
     /// the same steps, each refused one recorded in the Run trace, since
@@ -585,15 +597,13 @@ impl Interception {
     /// paused never runs. A dedicated worker's requests pass its page's
     /// own pipeline already.
     fn children_of(
-        &self,
         page_id: &PageId,
-        state: &Arc<PageState>,
+        (state, answers): (&Arc<PageState>, Answers),
         page: &PageDriver,
         run: &Run,
         (policy, lookups): (Policy, Option<Arc<Resolve>>),
         blocking: steps::Blocking,
     ) -> OnChild {
-        let answers = self.shared.answers.clone();
         let (page_id, state, page, run) = (
             page_id.clone(),
             Arc::clone(state),

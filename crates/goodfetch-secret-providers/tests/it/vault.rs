@@ -330,6 +330,11 @@ impl Fixture {
     /// references.
     fn driver(&self, vault: Vault) -> RunSecrets {
         let home = Home::new(self.env.home().to_path_buf());
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test's Secrets draw their retry jitter from a seeded Entropy (ADR 0059)"
+        )]
+        let entropy = goodfetch_engine::entropy::Entropy::seeded(0);
         let implementation: Arc<dyn SecretProvider> = Arc::new(vault);
         self.runtime.block_on(async {
             Secrets::new(
@@ -337,6 +342,7 @@ impl Fixture {
                     environment: BTreeMap::new(),
                     keychain: Keychain::absent(),
                     home: home.clone(),
+                    entropy,
                 },
                 Arc::new(AuditLog::of(&home, None)),
                 Arc::new(TaskOwner::root(BlockingPolicy::Inline)),

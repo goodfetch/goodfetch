@@ -36,6 +36,8 @@ use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::entropy::Entropy;
 use crate::trace::EntropyIds;
 
+mod forwarded;
+
 /// The caller's span, in W3C Trace Context's example `traceparent`.
 const TRACE_ID: &str = "0af7651916cd43dd8448eb211c80319c";
 const PARENT_ID: &str = "b7ad6b7169203331";

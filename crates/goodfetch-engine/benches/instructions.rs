@@ -80,6 +80,12 @@ fn mask_stream(
     (written, mask)
 }
 
+#[library_benchmark]
+#[bench::thousand_joins_of_one_value(1000)]
+fn mask_joins(joins: usize) -> usize {
+    black_box(scenarios::mask_joins_of_one_value(black_box(joins)))
+}
+
 library_benchmark_group!(
     name = engine,
     benchmarks = [
@@ -88,7 +94,8 @@ library_benchmark_group!(
         run_state_writes,
         egress_judge,
         egress_judge_private_ranges,
-        mask_stream
+        mask_stream,
+        mask_joins
     ]
 );
 

@@ -7145,6 +7145,28 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": [],
+      "description": "The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.",
+      "name": "secrets.resolve_each_use",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "items": {
+          "description": "A Secret reference, such as `env:NAME`.",
+          "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": true,
       "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
       "name": "security.audit_chain",
@@ -8229,7 +8251,7 @@
       "authority": "every",
       "clearable": false,
       "default": 30000,
-      "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s.",
+      "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
       "name": "timeout.secret",
       "product": "collie",
       "products": [
@@ -8817,7 +8839,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "Pages of a run that crashed: their renderer, or their browser's process (ADR 0040). A crash racing the page's close does not count.",
+      "description": "Crashes of a run: one per renderer that crashed, and one per browser process that crashed, however many pages it held (ADR 0040). A crash racing the page's close does not count.",
       "name": "page_crashes",
       "product": "collie",
       "type": "usage_kind"

@@ -263,6 +263,11 @@ const WRITERS: &[(&str, usize, &str)] = &[
         "holds no value: the writer's lock file",
     ),
     (
+        "crates/goodfetch-engine/src/secrets.rs",
+        1,
+        "holds no value: the empty lock file an engine holds while it makes its own key",
+    ),
+    (
         "crates/goodfetch-engine/src/transport.rs",
         1,
         "masked: the Attached engine's stdout carries only the lines `rpc` masked",

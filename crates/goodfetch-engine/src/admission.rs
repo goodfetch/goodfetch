@@ -455,7 +455,8 @@ impl Admission {
             if self.ready_at(now)? > now {
                 return None;
             }
-            if let Some(key) = self.gate.next_key(now)
+            if !self.refused.is_empty()
+                && let Some(key) = self.gate.next_key(now)
                 && let Some(asked) = self.refused_at(&key, now)
             {
                 let mut admitted = self.gate.admit(now)?;

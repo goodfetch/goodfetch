@@ -2045,6 +2045,16 @@
       ]
     },
     {
+      "id": "error:staging_full",
+      "kind": "error",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:target_not_unique",
       "kind": "error",
       "area": 5,
@@ -6239,6 +6249,16 @@
     },
     {
       "id": "setting:crawl.max_segment_repeats",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.max_staged_enqueues",
       "kind": "setting",
       "area": 6,
       "milestone": null,

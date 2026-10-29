@@ -14,7 +14,7 @@
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_frontier::payload::PayloadRules;
-use goodfetch_frontier::{Candidate, Declared, Narrowing, Scope, admit, document_base};
+use goodfetch_frontier::{Candidate, Declared, Narrowing, Scope, document_base};
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::frontier::{
     CRAWL_REQUEST_ENQUEUE, CrawlRequestEnqueueParams, Enqueued, HttpBody,
@@ -144,27 +144,22 @@ fn add(
         narrowing: Narrowing::none(),
         depth: depth + 1,
     };
-    admit(
+    let adding = Adding {
+        method: &params.method,
+        body: params.body.as_ref(),
+        label: &params.label,
+        payload: params.payload.as_ref(),
+        priority: params.priority,
+        forefront: params.forefront,
+        depth: depth + 1,
+    };
+    work_items::admit(
         connection,
+        positions,
         &Scope::read(connection)?,
         egress,
         candidate,
-        |url| {
-            work_items::add(
-                connection,
-                positions,
-                url,
-                Adding {
-                    method: &params.method,
-                    body: params.body.as_ref(),
-                    label: &params.label,
-                    payload: params.payload.as_ref(),
-                    priority: params.priority,
-                    forefront: params.forefront,
-                    depth: depth + 1,
-                },
-            )
-        },
+        adding,
     )
     .map(|enqueued| Some(Ok(enqueued)))
 }

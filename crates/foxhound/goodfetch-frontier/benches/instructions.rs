@@ -43,4 +43,16 @@ fn enqueue(urls: usize) -> usize {
 
 library_benchmark_group!(name = frontier, benchmarks = enqueue);
 
-main!(library_benchmark_groups = [admission, identity, frontier]);
+// An attempt's staged enqueues (ADR 0093): each runs one admission, so a
+// thousand cost about ten times a hundred, never the hundred times that
+// running the attempt's earlier ones again would.
+#[library_benchmark]
+#[bench::a_hundred_enqueues(100)]
+#[bench::a_thousand_enqueues(1_000)]
+fn stage(enqueues: usize) -> usize {
+    black_box(scenarios::stage(black_box(enqueues)))
+}
+
+library_benchmark_group!(name = staging, benchmarks = stage);
+
+main!(library_benchmark_groups = [admission, identity, frontier, staging]);

@@ -16,6 +16,7 @@ use std::sync::Arc;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
+use goodfetch_protocol::foxhound::crawl::CRAWL_MAX_STAGED_ENQUEUES;
 use goodfetch_protocol::run::RunId;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 
@@ -90,7 +91,10 @@ impl Crawls {
     pub(crate) async fn open(&self, run: &Run, egress: Policy) -> Opened {
         let (joining, joined) = mpsc::channel(JOINING);
         let seeded = Arc::new(Notify::new());
-        let staging = Staging::default();
+        let staging = run
+            .settings()
+            .and_then(|settings| settings.resolved().count(CRAWL_MAX_STAGED_ENQUEUES.name))
+            .map_or_else(Staging::default, Staging::bounded);
         run.stage_attempt_writes_through(Arc::new(staging.clone()));
         let egress = Arc::new(egress);
         let intake = Intake::default();

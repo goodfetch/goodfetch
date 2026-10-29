@@ -1325,6 +1325,11 @@ number = 6
 kind = "error"
 prefix = "effect_staging_refused"
 
+[[area]]
+number = 6
+kind = "error"
+prefix = "staging_full"
+
 # Area 6, Collection, Foxhound: Datasets and their Records (#956).
 [[area]]
 number = 6

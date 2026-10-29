@@ -183,6 +183,15 @@ export class SampleCrawlRefusedError extends RefusedError {
   }
 }
 
+/**
+ * The call would stage one more admission (an enqueue, an `enqueueLinks` call or a seed added through `ctx.run`) with an attempt that already staged `crawl.max_staged_enqueues` of them, which the attempt holds in the engine's memory until it commits. Nothing was staged. Enqueue many links with one `enqueueLinks` call, or raise the setting, which `limit` names.
+ */
+export class StagingFullError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "staging_full", group: "program", retryable: false });
+  }
+}
+
 /** The error class of each of Foxhound's Error codes. */
 export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   attempt_ended: AttemptEndedError,
@@ -205,4 +214,5 @@ export const foxhoundErrorClasses: Readonly<Record<string, ErrorClass>> = {
   response_not_ok: ResponseNotOKError,
   response_unavailable: ResponseUnavailableError,
   sample_crawl_refused: SampleCrawlRefusedError,
+  staging_full: StagingFullError,
 };

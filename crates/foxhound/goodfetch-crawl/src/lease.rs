@@ -405,9 +405,11 @@ impl WorkItemLease {
                     Ok(answered) => answered,
                     Err(refused) => return Ok(Some(Err(refused))),
                 };
-                let writes = staged.admit(connection)?;
+                let replayed = staged.admit(connection)?;
                 let suspected = staged.suspected(connection)?;
-                let files = goodfetch_engine::key_value_store::apply(connection, &folder, writes)?;
+                let files =
+                    goodfetch_engine::key_value_store::apply(connection, &folder, replayed.writes)?;
+                let not_added = replayed.not_added;
                 let fetched = staged.fetched().clone();
                 let fields = staged.fields().clone();
                 let mut records = staged.records();
@@ -418,6 +420,7 @@ impl WorkItemLease {
                     fields: &fields,
                     masks: &masks,
                     ended_at: &ended_at,
+                    not_added: &not_added,
                 };
                 Ok(
                     work_items::commit(connection, &work_item, epoch, committed)?

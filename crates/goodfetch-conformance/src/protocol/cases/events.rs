@@ -7,17 +7,21 @@
 //! credits, and a listener whose call is cancelled no longer fires; a
 //! blocked, an aborted and a failed request each fail as Playwright reports
 //! them; a body `page.wait_for_request_finished` kept reads whole, a
-//! dropped one raises `body_unavailable` and a cut one `response_truncated`.
+//! dropped one raises `body_unavailable` and a cut one `response_truncated`,
+//! and a read of a response that never ends `deadline_exceeded` at its
+//! `timeout`.
 
 use std::collections::BTreeMap;
 
-use goodfetch_protocol::connection::CANCEL;
+use goodfetch_protocol::connection::{CANCEL, DEADLINE_EXCEEDED};
 use goodfetch_protocol::events::{CREDIT, EVENTS, EVENTS_SUBSCRIBE};
 use goodfetch_protocol::page::events::{
     BODY_UNAVAILABLE, PAGE_ON, PAGE_WAIT_FOR_REQUEST_FINISHED, RESPONSE_BODY,
 };
 use goodfetch_protocol::page::route::{PAGE_ROUTE, ROUTE_ABORT, ROUTE_HANDLE};
+use goodfetch_protocol::page::waits::PAGE_WAIT_FOR_RESPONSE;
 use goodfetch_protocol::page::{PAGE_GOTO, PAGE_RELOAD, RESPONSE_TRUNCATED};
+use goodfetch_protocol::settings::TIMEOUT_WAIT;
 use serde_json::{Map, Value, json};
 
 use super::navigation::url_on;
@@ -33,6 +37,7 @@ pub(crate) enum Case {
     FailedRequests,
     Credits,
     Bodies,
+    BodyTimeout,
 }
 
 impl Case {
@@ -52,6 +57,9 @@ impl Case {
             "a-kept-body-reads-whole-a-dropped-one-is-unavailable-and-a-cut-one-is-truncated" => {
                 Self::Bodies
             }
+            "a-body-read-of-a-response-that-never-ends-raises-deadline-exceeded-at-its-timeout" => {
+                Self::BodyTimeout
+            }
             _ => return None,
         })
     }
@@ -69,6 +77,7 @@ impl Case {
             Self::FailedRequests => failed_requests(connection, site, checks),
             Self::Credits => credits(connection, site, checks),
             Self::Bodies => bodies(connection, site, checks),
+            Self::BodyTimeout => body_timeout(connection, site, checks),
         }
     }
 }
@@ -601,6 +610,61 @@ fn bodies(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
         ),
         cut_body["error"]["data"]["code"] == json!(RESPONSE_TRUNCATED.name)
             && cut_body["error"]["data"]["url"] == json!(cut),
+    );
+    exchange.end(run_id)
+}
+
+/// How long the body read of [`body_timeout`] waits, in milliseconds.
+const BODY_TIMEOUT: u64 = 500;
+
+/// A body read waits for its request to end only within its `timeout`
+/// (ADR 0080): on the live board's server-sent events stream, whose
+/// response never ends, it raises `deadline_exceeded` naming
+/// `timeout.wait` at the call's own value, at the run layer.
+fn body_timeout(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+    let run_id = "conformance-page-body-timeout";
+    let board = site.start_url("live/1").map(str::to_owned);
+    checks.check(
+        "the Proving ground serves the task `live/1`",
+        board.is_some(),
+    );
+    let Some(board) = board else {
+        return Ok(());
+    };
+    start_run(connection, site, run_id, &json!({}), checks)?;
+    let Some(page) = new_page(connection, run_id, checks)? else {
+        return Ok(());
+    };
+    let page = json!(page.page_id);
+    let mut exchange = Exchange::new(connection);
+    let streaming = exchange.connection.request(
+        PAGE_WAIT_FOR_RESPONSE.name,
+        &json!({ "page_id": page, "url": { "kind": "glob", "pattern": "**/events" } }),
+    )?;
+    exchange.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": board }))?;
+    let stream = exchange.answer(streaming)?;
+    let read = exchange.call(
+        RESPONSE_BODY.name,
+        &json!({
+            "page_id": page,
+            "request_id": stream["result"]["request"]["request_id"],
+            "timeout": BODY_TIMEOUT,
+        }),
+    )?;
+    let data = &read["error"]["data"];
+    checks.check(
+        format!(
+            "a body read of the event stream, which never ends, raises `{}` past its `timeout`",
+            DEADLINE_EXCEEDED.name
+        ),
+        data["code"] == json!(DEADLINE_EXCEEDED.name),
+    );
+    checks.check(
+        format!(
+            "its limit is `{}` at the call's own value, at the run layer",
+            TIMEOUT_WAIT.name
+        ),
+        data["limit"] == json!({ "key": TIMEOUT_WAIT.name, "value": BODY_TIMEOUT, "layer": "run" }),
     );
     exchange.end(run_id)
 }

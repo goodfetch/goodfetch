@@ -301,7 +301,7 @@ fn max_redirects_option(surface: Surface) -> &'static str {
 fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
     let table = &pages.events;
     let (listening, waiting, reading) = (table.clone(), table.clone(), table.clone());
-    let finishing = pages.clone();
+    let (finishing, reading_pages) = (pages.clone(), pages.clone());
     contribution
         .with_handler(Handler::new(
             &PAGE_ON,
@@ -331,9 +331,23 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
         .with_handler(Handler::new(
             &RESPONSE_BODY,
             move |params: ResponseBodyParams, context: CallContext| {
-                let events = reading.get(&params.page_id);
-                let surface = context.surface();
-                async move { events?.body(&params.request_id, surface).await }
+                let read = reading.get(&params.page_id).and_then(|events| {
+                    let deadline = events.wait_deadline(params.timeout)?;
+                    Ok((events, deadline))
+                });
+                let (surface, pages) = (context.surface(), reading_pages.clone());
+                // A body the engine kept reads from the Run's folder, even on
+                // a crashed page (ADR 0085); any other read is a call on the
+                // page, as its waits are: a page that ends under it raises
+                // what ended it.
+                async move {
+                    let (events, deadline) = read?;
+                    if let Some(kept) = events.kept(&params.request_id) {
+                        return kept;
+                    }
+                    let body = Box::pin(events.body(&params.request_id, surface, deadline));
+                    pages.waited(&params.page_id, body).await
+                }
             },
         ))
 }

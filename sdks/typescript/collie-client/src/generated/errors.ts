@@ -487,6 +487,15 @@ export class PageCrashedError extends UnavailableError {
 }
 
 /**
+ * The engine fell too far behind the browser's events of a page that is still open, and stopped reading them, so some are lost: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it. The page's other calls still work. Open another page to follow its events; a busy engine, as under heavy WebSocket or console traffic it publishes, falls behind sooner.
+ */
+export class PageEventsLostError extends UnavailableError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "page_events_lost", group: "unavailable", retryable: false });
+  }
+}
+
+/**
  * A page function threw in the page, or did not parse, or is an expression given an argument, which only a function takes. The details give the error's name, its message and the page's stack. A page function sees only the page and its one argument, never the program's variables, so a `ReferenceError`'s fix names the argument: pass the value in it.
  */
 export class PageFunctionFailedError extends ProgramError {
@@ -924,6 +933,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   not_in_product: NotInProductError,
   page_check_failed: PageCheckFailedError,
   page_crashed: PageCrashedError,
+  page_events_lost: PageEventsLostError,
   page_function_failed: PageFunctionFailedError,
   page_handler_failed: PageHandlerFailedError,
   page_memory_exceeded: PageMemoryExceededError,

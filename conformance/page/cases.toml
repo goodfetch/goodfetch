@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "36"
+version = "37"
 
 [[capability]]
 name = "sessions.default"
@@ -474,6 +474,10 @@ name = "bodies"
 [[capability.case]]
 id = "a-kept-body-reads-whole-a-dropped-one-is-unavailable-and-a-cut-one-is-truncated"
 covers = ["story:5-46", "operation:response.body", "operation:page.wait_for_request_finished", "error:body_unavailable", "error:response_truncated"]
+
+[[capability.case]]
+id = "a-body-read-of-a-response-that-never-ends-raises-deadline-exceeded-at-its-timeout"
+covers = ["operation:response.body", "error:deadline_exceeded", "setting:timeout.wait"]
 
 [[capability]]
 name = "clean_up.hiding"

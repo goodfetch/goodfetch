@@ -378,6 +378,14 @@ class PageCrashedError(UnavailableError):
         super().__init__(message, code="page_crashed", group="unavailable", retryable=True)
 
 
+class PageEventsLostError(UnavailableError):
+    """The engine fell too far behind the browser's events of a page that is still open, and stopped reading them, so some are lost: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it. The page's other calls still work. Open another page to follow its events; a busy engine, as under heavy WebSocket or console traffic it publishes, falls behind sooner."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="page_events_lost", group="unavailable", retryable=False)
+
+
 class PageFunctionFailedError(ProgramError):
     """A page function threw in the page, or did not parse, or is an expression given an argument, which only a function takes. The details give the error's name, its message and the page's stack. A page function sees only the page and its one argument, never the program's variables, so a `ReferenceError`'s fix names the argument: pass the value in it."""
 
@@ -771,6 +779,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "not_in_product": NotInProductError,
     "page_check_failed": PageCheckFailedError,
     "page_crashed": PageCrashedError,
+    "page_events_lost": PageEventsLostError,
     "page_function_failed": PageFunctionFailedError,
     "page_handler_failed": PageHandlerFailedError,
     "page_memory_exceeded": PageMemoryExceededError,

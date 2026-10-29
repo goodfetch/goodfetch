@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use crate::catalog::{
     Authority, Entries, ProtocolVersion, Setting, SharedType, SharedTypeValue, ValueKind,
 };
+use crate::politeness::POLITENESS_SHARING;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -106,10 +107,15 @@ fn one_second() -> Value {
 
 /// The Politeness and Site-preferences keys whose pressing-harder values
 /// Foxhound's composition records as [`POLITENESS_WEAKENED`] (ADR 0086).
-pub const PRESSING_HARDER: [PressingHarder; 7] = [
+pub const PRESSING_HARDER: [PressingHarder; 8] = [
     PressingHarder {
         setting: &POLITENESS_DOMAIN_CONCURRENCY,
         built_in: one,
+    },
+    // Anything but `shared` presses harder (ADR 0086), against `shared`.
+    PressingHarder {
+        setting: &POLITENESS_SHARING,
+        built_in: POLITENESS_SHARING.default,
     },
     PressingHarder {
         setting: &POLITENESS_DOMAIN_DELAY,

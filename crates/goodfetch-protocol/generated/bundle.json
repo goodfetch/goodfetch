@@ -15970,7 +15970,7 @@
         },
         {
           "const": "storage_critical",
-          "description": "The filesystem holding its run state is at the `critical` storage\nlevel, where a new Run's start is refused (ADR 0122).",
+          "description": "The filesystem holding its run state, or the Goodfetch home's, is\nat the `critical` storage level, where a new Run's start is refused\n(ADR 0122).",
           "type": "string"
         }
       ]

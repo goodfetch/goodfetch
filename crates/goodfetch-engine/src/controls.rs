@@ -6,7 +6,8 @@
 //! value's built-in default: Foxhound's Politeness and Site-preferences
 //! keys, as `politeness_weakened` (ADR 0086). A Run that starts with one of them switched off, which only a
 //! layer the Operator policy or the Recipe did not lock or cap can do, is
-//! reported once: one chained `security_switch_turned_off` entry per
+//! reported once, and a resume that switches off one its report does not
+//! list yet reports that one the same way: one chained `security_switch_turned_off` entry per
 //! control in the Audit log, one warning through the host's logging, and
 //! the control in its Run report's `weakened`, as every setting whose value
 //! weakens is. With `security.audit_chain` off, the Run's other entries are
@@ -133,6 +134,18 @@ impl SwitchedOff {
         self.0
             .iter()
             .any(|(switched, _)| switched.key == SECURITY_AUDIT_CHAIN.name)
+    }
+
+    /// The same, but for those `listed`, a Run report's `weakened`, already
+    /// names: what a resume reports beyond its start's (ADR 0016).
+    #[must_use]
+    pub fn beyond(self, listed: &[WeakenedSetting]) -> Self {
+        Self(
+            self.0
+                .into_iter()
+                .filter(|(switched, _)| !listed.iter().any(|weakened| weakened.key == switched.key))
+                .collect(),
+        )
     }
 
     /// Reports each one for the new Run `run_id`, once: a chained entry in

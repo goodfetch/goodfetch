@@ -220,7 +220,7 @@ fn a_generated_runs_first_entry_is_unchained_with_the_audit_chain_off() {
 /// warning and the control in the Run report's `weakened`, for each control
 /// the Run's report did not list yet; a control its start switched off, and
 /// a second resume with the same settings, add nothing.
-/// Covers: story:4-74, operation:run.resume
+/// Covers: story:4-74
 #[test]
 fn a_resume_that_switches_a_control_off_is_reported_once_as_a_start_is() {
     let env = TestEnv::new();

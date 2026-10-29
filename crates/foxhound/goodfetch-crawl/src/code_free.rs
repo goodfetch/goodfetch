@@ -11,7 +11,9 @@
 //! `enqueueLinks` does, staged with the attempt, and under `follow:
 //! sitemap` the start seeds the sitemaps each seed's site names in its
 //! robots.txt, as a sitemap seed of that robots.txt. The extraction is
-//! kept in the run file, so a resumed crawl handles its requests alike.
+//! kept in the run file, so a resumed crawl handles its requests alike; a
+//! start under the Run's ID replaces it with its own once the Run resumes,
+//! as it replaces the Dataset `pages` generated from it.
 //! Its named `fields` are read from the first element each one's locator
 //! finds and given by its Value transform (ADR 0123, the `fields`
 //! module): the Record holds each, null where the page did not give it,
@@ -90,6 +92,21 @@ pub(crate) fn record(
         params![extraction],
     )?;
     Ok(())
+}
+
+/// Records `extraction` again, a start's under the ID of the Run that
+/// resumes, in place of the one the run file holds: none takes it out, for
+/// a crawl whose program handles its requests from then on.
+///
+/// # Errors
+///
+/// The run file's, when the row cannot be written.
+pub(crate) fn record_again(
+    connection: &Connection,
+    extraction: Option<&CrawlExtraction>,
+) -> rusqlite::Result<()> {
+    connection.execute("DELETE FROM code_free_extraction", [])?;
+    record(connection, extraction)
 }
 
 /// The extraction [`record`] kept; none for a crawl whose program handles

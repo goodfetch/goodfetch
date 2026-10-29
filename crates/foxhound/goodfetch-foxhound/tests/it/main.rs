@@ -18,6 +18,7 @@ mod browser_fetch;
 mod certificates;
 mod client_conformance;
 mod code_free;
+mod code_free_resume;
 mod completeness;
 mod content_types;
 mod crawl;

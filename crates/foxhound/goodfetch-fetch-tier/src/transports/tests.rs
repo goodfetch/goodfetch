@@ -1,8 +1,14 @@
 //! Covers: story:5-128
 
+use std::net::Ipv4Addr;
+
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::dns::{ResolverConfiguration, Route};
+use goodfetch_engine::egress::Policy;
+use goodfetch_engine::tls::{CertificateExceptions, Trust};
 use url::Url;
 
-use super::{HTTP1_ORIGINS, Http1Origins, classify};
+use super::{HTTP1_ORIGINS, Http1Origins, LocalSource, Resolver, TransportConfig, classify};
 use crate::driver::TransportFailure;
 
 /// A failure no library named.
@@ -90,4 +96,39 @@ fn the_origins_kept_on_http_1_1_forget_the_oldest_past_their_bound() {
         ),
         (false, true, true)
     );
+}
+
+/// The configuration of a transport of a Session holding `local`.
+fn holding(local: Option<LocalSource>) -> TransportConfig {
+    TransportConfig {
+        trust: Trust::default_roots(),
+        exceptions: CertificateExceptions::default(),
+        client_certificates: None,
+        proxy: None,
+        resolve: Vec::new(),
+        egress: Policy::new(&["*"], &[] as &[&str]).unwrap(),
+        clock: Clock::system(),
+        resolver: ResolverConfiguration::name_servers([]),
+        local,
+    }
+}
+
+/// ADR 0044: a Session holding a local address resolves through the
+/// engine's own resolver, from that address, on every OS: its lookups take
+/// the local-address route, which asks the engine's resolver wherever the
+/// direct route would ask the system's (macOS and Windows; finding 565-2).
+/// A Session holding none takes the direct route.
+#[rstest::rstest]
+#[case::a_local_address(Some(LocalSource {
+    ipv4: Some(Ipv4Addr::new(127, 0, 0, 3)),
+    ..LocalSource::default()
+}), Route::LocalAddress)]
+#[case::none(None, Route::Direct)]
+fn a_sessions_lookups_take_the_engines_resolver_when_it_holds_a_local_address(
+    #[case] local: Option<LocalSource>,
+    #[case] route: Route,
+) {
+    let resolver = Resolver::new(&holding(local), None);
+
+    assert_eq!(resolver.route, route);
 }

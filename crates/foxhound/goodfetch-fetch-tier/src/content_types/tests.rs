@@ -52,6 +52,11 @@ fn a_value_that_is_no_list_of_media_ranges_is_refused(#[case] set: Value) {
 #[case::sniffed(None, b"%PDF-1.7".as_slice(), "application/pdf")]
 #[case::sniffed_html(None, b"<!doctype html>".as_slice(), "text/html")]
 #[case::neither_type_nor_body(None, b"".as_slice(), "text/html")]
+#[case::any_type_is_sniffed(Some("*/*"), b"%PDF-1.7".as_slice(), "application/pdf")]
+#[case::unknown_unknown_is_sniffed(Some("unknown/unknown"), b"%PDF-1.7".as_slice(), "application/pdf")]
+#[case::application_unknown_is_sniffed(Some("Application/Unknown; x=1"), b"%PDF-1.7".as_slice(), "application/pdf")]
+#[case::an_empty_type_is_sniffed(Some(" "), b"<!doctype html>".as_slice(), "text/html")]
+#[case::no_slash_is_sniffed(Some("html"), b"<!doctype html>".as_slice(), "text/html")]
 fn a_responses_type_is_its_header_else_its_sniffed_body(
     #[case] content_type: Option<&str>,
     #[case] body: &[u8],

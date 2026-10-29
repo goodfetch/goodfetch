@@ -287,6 +287,47 @@ fn an_invalid_certificate_ends_the_hop_unsent_and_passes_under_its_exception(
     );
 }
 
+/// Concurrent first hops to a host its exception covers each pass under
+/// it, on each transport: a verdict one handshake left for the host is
+/// never lost to another handshake to it at the same time (finding 565-5).
+/// Covers: story:4-104, setting:tls.accept_invalid_certs
+#[rstest]
+#[case::reqwest(Stack::Reqwest)]
+#[case::wreq(Stack::Wreq)]
+fn concurrent_first_hops_to_an_excepted_host_each_pass(#[case] stack: Stack) {
+    let fixture = fixture();
+    let excepting = fixture.excepting(stack, &json!({ "certificates.test": null }));
+    let host = "self-signed.certificates.test";
+    let hop = hop(&fixture.proving_ground, host);
+
+    // Each hop on a new connection, so their handshakes run at once.
+    let anew = || async {
+        excepting.send(&hop, Reuse::Never).await.map(|sent| {
+            (
+                sent.status,
+                sent.certificate_exception.map(|used| used.kind),
+            )
+        })
+    };
+    // Worker threads run the handshakes in parallel, as the engine's do.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test builds its own multi-threaded runtime (ADR 0060)"
+    )]
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap();
+    let answers = runtime.block_on(async {
+        let (a, b, c, d, e, f) = tokio::join!(anew(), anew(), anew(), anew(), anew(), anew());
+        vec![a, b, c, d, e, f]
+    });
+
+    let passed = Ok((200, Some(ExceptionKind::TrustOnFirstUse)));
+    assert_eq!(answers, vec![passed; 6]);
+}
+
 /// A pinned host presenting another key ends the hop with
 /// `certificate_changed` during the handshake, before any byte of the
 /// request is sent: the regenerated server saw the handshake and no

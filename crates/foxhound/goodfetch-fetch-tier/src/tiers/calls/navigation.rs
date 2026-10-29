@@ -84,7 +84,7 @@ pub(super) async fn navigate(
         // later hop's, by the chain (ADR 0118).
         let held = permit.take();
         async move {
-            let fetched = fetch(http.transport.as_ref(), &hop, &http.deadlines, &clock).await;
+            let fetched = fetch(http.transport.as_ref(), &hop, &http.bounds, &clock).await;
             drop(held);
             fetched
         }

@@ -13,7 +13,9 @@
 //!
 //! A call is in flight once the page function it runs wrote to its page's
 //! console, which the page's `console` event shows: the function never
-//! settles, so the call waits until its page or browser ends under it.
+//! settles, so the call waits until its page or browser ends under it. A
+//! body read is in flight once the engine's `$/log` at `debug` says it
+//! waits for its response to end.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -24,7 +26,6 @@
 )]
 
 use std::process::Command;
-use std::time::Duration;
 
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use serde_json::{Map, Value, json};
@@ -38,10 +39,11 @@ const SEED: u64 = 731;
 /// What the call in flight writes to its page's console once it runs.
 const IN_FLIGHT: &str = "in flight";
 
-/// How long a body read has been in flight when the test kills its page's
-/// renderer: no console line can say a `response.body` is waiting, as
-/// [`IN_FLIGHT`] says for a page function.
-const BODY_READ_IN_FLIGHT: Duration = Duration::from_millis(1500);
+/// The engine's `tracing` target of a body read that waits for its
+/// response to end, which a Connection's `$/log` at `debug` shows: no
+/// console line can say a `response.body` is in flight, as [`IN_FLIGHT`]
+/// says for a page function.
+const BODY_READ: &str = "goodfetch::page::body_read";
 
 /// The page function of the call in flight: it writes [`IN_FLIGHT`], then
 /// never settles.
@@ -124,6 +126,23 @@ pub(crate) fn call_in_flight(exchange: &mut Exchange<'_>, page: &str) -> i64 {
         data["page_id"] == json!(page) && data["text"] == json!(IN_FLIGHT)
     });
     id
+}
+
+/// Reads until the engine's `$/log` says that a body read of the request
+/// `request_id` waits for its response to end, so the page's end now ends
+/// the read in flight.
+fn body_read_waits(exchange: &mut Exchange<'_>, request_id: &Value) {
+    loop {
+        let Some(message) = exchange.read() else {
+            continue;
+        };
+        if message["method"] == json!("$/log")
+            && message["params"]["target"] == json!(BODY_READ)
+            && message["params"]["fields"]["request_id"] == *request_id
+        {
+            return;
+        }
+    }
 }
 
 /// The answers to the requests `ids`, in that order, whatever order they
@@ -226,11 +245,14 @@ fn a_renderer_killed_under_a_body_read_raises_page_crashed_for_it_and_for_later_
     let update = exchange.answer(keeping);
     exchange.subscribe();
     exchange.listen(&page.0, "crash");
+    let streamed = stream["result"]["request"]["request_id"].clone();
+    let logging = exchange.call("connection.set_log_level", &json!({ "log_level": "debug" }));
+    assert!(logging.get("result").is_some(), "{logging}");
     let reading = exchange.request(
         "response.body",
-        &json!({ "page_id": page, "request_id": stream["result"]["request"]["request_id"], "timeout": null }),
+        &json!({ "page_id": page, "request_id": streamed, "timeout": null }),
     );
-    std::thread::sleep(BODY_READ_IN_FLIGHT);
+    body_read_waits(&mut exchange, &streamed);
 
     signal("KILL", &browser_processes(&env, renderer));
     let read = exchange.answer(reading);

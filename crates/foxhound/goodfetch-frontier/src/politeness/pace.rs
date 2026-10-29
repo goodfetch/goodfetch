@@ -87,7 +87,9 @@ impl Pace {
     /// whose state is `limits` and `pacing` and whose hosts ask for
     /// `crawl_delays`: its delay after the key's last send, as the key's
     /// latency now lengthens it, and its rate's token of the key's sends;
-    /// `None` when it may go.
+    /// `None` when it may go. `now` is the whole millisecond the send falls
+    /// in, rounded down: the key's last send and theoretical send are kept
+    /// rounded up, so the send then never goes sooner than either allows.
     pub(super) fn send_waits_until(
         &self,
         limits: &Limits,

@@ -24,7 +24,7 @@ use keyring_core::api::{Credential, CredentialApi, CredentialStoreApi};
 use keyring_core::{CredentialStore, Entry, Error};
 use secrecy::ExposeSecret as _;
 
-use super::{driver_with, for_the_key, reference};
+use super::{driver, driver_with, for_the_key, reference, resolved};
 use crate::secrets::Keychain;
 
 /// How long a reader that found the item missing waits for the other
@@ -163,6 +163,14 @@ fn two_engines_that_make_the_default_key_at_once_both_use_the_one_key_stored() {
                 .to_owned()
         }
     };
+
+    // The Audit log is made before the race, so the race is the keychain's
+    // alone: two engines making a home's Audit log at once is another
+    // matter than the key.
+    let made = goodfetch_test_support::runtime().block_on(async {
+        driver(&env, &[("MADE", "audit-log")]).for_run(Duration::from_secs(30))
+    });
+    resolved(&made, "env:MADE").unwrap();
 
     let (first, second) = std::thread::scope(|scope| {
         let first = scope.spawn(engine());

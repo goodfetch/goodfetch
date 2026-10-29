@@ -143,7 +143,7 @@ pub(super) fn blocked(block: Block, response: &PageResponse, received: SystemTim
         &BlockedDetails {
             cause: block.cause,
             url: response.url.clone(),
-            status: response.status,
+            status: Some(response.status),
             retry_after,
         },
     )

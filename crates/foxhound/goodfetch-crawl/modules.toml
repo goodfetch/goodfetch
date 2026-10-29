@@ -3,7 +3,7 @@
 code_free = ["enqueue", "serving", "work_items"]
 completeness = ["report", "work_items"]
 dataset_list = ["report"]
-delivery = ["code_free", "completeness", "labels", "lease", "policy", "progress", "serving", "tier_choice", "tier_race", "work_items"]
+delivery = ["code_free", "completeness", "enqueue", "labels", "lease", "policy", "progress", "serving", "tier_choice", "tier_race", "work_items"]
 enqueue = ["labels", "serving", "staging", "work_items"]
 intake = ["work_items"]
 labels = []

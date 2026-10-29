@@ -65,6 +65,9 @@ struct Entry {
     admitted: Vec<Admitted>,
     /// The Frontier identities of the requests its admissions added.
     enqueues: BTreeSet<String>,
+    /// The requests its admissions added through a link suspected a trap,
+    /// each with its URL, as they answered when staged.
+    suspected: Vec<(String, String)>,
     records: Checked,
     writes: Vec<StagedWrite>,
     fetched: Fetched,
@@ -114,6 +117,7 @@ pub(crate) struct SetAside(Entry);
 #[derive(Default)]
 pub(crate) struct Staged {
     admitted: Vec<Admitted>,
+    suspected: Vec<(String, String)>,
     records: Checked,
     writes: Vec<StagedWrite>,
     fetched: Fetched,
@@ -131,6 +135,28 @@ impl Staged {
             (admitted.admission)(connection, &mut positions)?;
         }
         Ok(&self.writes)
+    }
+
+    /// The requests the attempt added through a link suspected a trap,
+    /// each with its URL, whose mark `connection`'s transaction holds once
+    /// [`Staged::admit`] ran in it: a request another commit added first,
+    /// or one a later link the attempt staged cleared, is left out
+    /// (ADR 0035).
+    ///
+    /// # Errors
+    ///
+    /// The run state's.
+    pub(crate) fn suspected(
+        &self,
+        connection: &Connection,
+    ) -> rusqlite::Result<Vec<(String, String)>> {
+        let mut kept = Vec::new();
+        for (id, url) in &self.suspected {
+            if goodfetch_frontier::trap_links::suspected(connection, id)? {
+                kept.push((id.clone(), url.clone()));
+            }
+        }
+        Ok(kept)
     }
 
     /// How the attempt's run fetched its document.
@@ -224,6 +250,7 @@ impl Staging {
             .remove(&AttemptKey::of(work_item, lease_epoch))
             .map(|entry| Staged {
                 admitted: entry.admitted,
+                suspected: entry.suspected,
                 records: entry.records,
                 writes: entry.writes,
                 fetched: entry.fetched,
@@ -246,6 +273,24 @@ impl Staging {
                 robots_txt,
                 ..fetched
             };
+        }
+    }
+
+    /// Notes that an admission the attempt of `work_item` under
+    /// `lease_epoch` staged added `suspected`, each request with its URL,
+    /// through links suspected traps, for the Provenance its commit writes;
+    /// nothing once the attempt ended.
+    pub(crate) fn suspected(
+        &self,
+        work_item: &str,
+        lease_epoch: u64,
+        suspected: impl IntoIterator<Item = (String, String)>,
+    ) {
+        if let Some(entry) = self
+            .entries()
+            .get_mut(&AttemptKey::of(work_item, lease_epoch))
+        {
+            entry.suspected.extend(suspected);
         }
     }
 

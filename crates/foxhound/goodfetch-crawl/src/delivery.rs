@@ -1393,9 +1393,15 @@ async fn settle(
                 )
                 .await
             {
-                Ok(files) => {
+                Ok(committed) => {
                     lease.release();
-                    goodfetch_engine::key_value_store::forget_files(run, files).await;
+                    crate::enqueue::links::mark_suspected(
+                        run,
+                        &leased.crawl_request.id,
+                        &committed.suspected,
+                    )
+                    .await;
+                    goodfetch_engine::key_value_store::forget_files(run, committed.files).await;
                     return false;
                 }
                 Err(CommitError::LeaseLost) => failure(

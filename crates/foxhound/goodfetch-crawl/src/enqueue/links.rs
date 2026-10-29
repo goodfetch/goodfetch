@@ -12,8 +12,10 @@
 //! enqueue is (ADR 0093). On the browser tier, a link a person cannot see
 //! is not added, with `trap_link` (ADR 0035; the Frontier's `trap_links`);
 //! a served document has no layout, so a link its markup hides is added,
-//! and marked as a suspected trap in its work item and in Provenance,
-//! `trap_link_suspected`: a browser tier never follows it.
+//! and marked as a suspected trap in its work item and, once its attempt
+//! commits, in Provenance, `trap_link_suspected`: a browser tier never
+//! follows it. A link that is not suspected and reaches a marked request
+//! again clears its mark.
 
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_trace;
@@ -40,7 +42,7 @@ use serde_json::Value;
 
 use crate::labels::Fragments;
 use crate::serving::{Crawls, LiveCrawl};
-use crate::staging::Answered;
+use crate::staging::{Answered, Staging};
 use crate::work_items::{self, Adding, Positions};
 
 /// The handlers of `crawl_request.links` and `crawl_request.enqueue_links`
@@ -236,7 +238,7 @@ pub(crate) async fn enqueue_links(
         .write(move |connection| {
             let (crawl_request_id, lease_epoch) =
                 (request.crawl_request_id.clone(), request.lease_epoch);
-            staging.admit(
+            let answered = staging.admit(
                 connection,
                 &crawl_request_id,
                 lease_epoch,
@@ -257,14 +259,17 @@ pub(crate) async fn enqueue_links(
                         },
                     )
                 },
-            )
+            )?;
+            note_suspected(
+                &staging,
+                (&crawl_request_id, lease_epoch),
+                answered.as_ref(),
+            );
+            Ok(answered)
         })
         .await;
     match answered {
-        Ok(Some(Ok(admitted))) => {
-            mark_suspected(&run, &params, &admitted.suspected).await;
-            Ok(admitted.links)
-        }
+        Ok(Some(Ok(admitted))) => Ok(admitted.links),
         Ok(Some(Err(refused))) => Err(refused),
         Ok(None) => Err(attempt.ended()),
         Err(error) => Err(attempt.unavailable(error)),
@@ -298,26 +303,38 @@ enum Judged {
     Suspected(Trap),
 }
 
-/// Marks in the Run's Provenance, `trap_link_suspected`, each link of
-/// `enqueued` that its served document's markup hides (ADR 0035), with
-/// the request whose page held it.
-async fn mark_suspected(
-    run: &Run,
-    params: &CrawlRequestEnqueueLinksParams,
-    suspected: &[(String, String)],
-) {
+/// Marks in the Run's Provenance, `trap_link_suspected`, each request of
+/// `suspected`, with its URL, that the attempt of the request `from`
+/// committed as added through a link its served document's markup hides
+/// (ADR 0035), once that attempt committed: a discarded attempt marks
+/// nothing.
+pub(crate) async fn mark_suspected(run: &Run, from: &str, suspected: &[(String, String)]) {
     for (id, url) in suspected {
         let entry = serde_json::json!({
             "action": trap_links::SUSPECTED_ACTION,
             "crawl_request_id": id,
             "url": url,
-            "from": params.crawl_request_id,
+            "from": from,
         });
         let written =
             run_trace::provenance(run.owner(), run.folder(), run.secrets().mask(), &entry).await;
         if let Err(error) = written {
             tracing::warn!(%error, "a suspected trap link's Provenance entry cannot be written");
         }
+    }
+}
+
+/// Notes with the staging of the attempt of `attempt`'s work item under its
+/// lease epoch the requests `answered` added through links suspected traps:
+/// their Provenance entries wait for the attempt's commit, which writes
+/// those of the marks it committed (ADR 0035).
+fn note_suspected(
+    staging: &Staging,
+    attempt: (&str, u64),
+    answered: Option<&Result<Admitted, CallError>>,
+) {
+    if let Some(Ok(admitted)) = answered {
+        staging.suspected(attempt.0, attempt.1, admitted.suspected.iter().cloned());
     }
 }
 
@@ -334,6 +351,20 @@ struct Batch<'a> {
     base: &'a Url,
     encoding: &'static goodfetch_frontier::Encoding,
     narrowing: Narrowing<'a>,
+}
+
+impl Batch<'_> {
+    /// Clears the mark of the request that the link `href`, one that is not
+    /// suspected, reaches again as a `duplicate`: a request stays marked
+    /// only while every link that reached it was suspected (ADR 0035).
+    fn seen_again(
+        &self,
+        connection: &Connection,
+        href: &str,
+        keeps_fragment: bool,
+    ) -> rusqlite::Result<()> {
+        trap_links::seen_again(connection, href, self.base, self.encoding, keeps_fragment)
+    }
 }
 
 /// Admits each of `batch`'s links through the Frontier, each added at its
@@ -429,7 +460,12 @@ fn add(
                         }
                         EnqueuedLink::Added { id, url }
                     }
-                    Enqueued::NotAdded { reason, url } => EnqueuedLink::NotAdded { reason, url },
+                    Enqueued::NotAdded { reason, url } => {
+                        if reason == NotAddedReason::Duplicate && link.trap.is_none() {
+                            batch.seen_again(connection, href, keeps_fragment)?;
+                        }
+                        EnqueuedLink::NotAdded { reason, url }
+                    }
                 }
             }
         };

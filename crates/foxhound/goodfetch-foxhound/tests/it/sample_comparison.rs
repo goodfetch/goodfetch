@@ -188,6 +188,94 @@ fn a_listing_whose_links_appear_only_after_script_enqueues_nothing_over_http_and
     );
 }
 
+/// A sample's discarded HTTP run teaches the Frontier nothing (ADR 0020's
+/// #768 note): three script-rendered shells that differ only by a query
+/// parameter serve one document over HTTP, which would teach that the
+/// parameter has no effect and merge the fourth page, still pending, as a
+/// `duplicate`. Only the browser's run commits, and it teaches nothing, so
+/// the fourth page is crawled in the browser.
+///
+/// Covers: story:5-114, story:5-116
+#[test]
+fn a_samples_discarded_http_run_teaches_the_frontier_nothing() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+
+    let report = crawl_declaring(
+        &mut engine,
+        "sample-shells",
+        &seeds(
+            &proving_ground,
+            &[
+                ("/blog/1?page=1", "list"),
+                ("/blog/1?page=2", "list"),
+                ("/blog/1?page=3", "list"),
+                ("/blog/1?page=4", "list"),
+            ],
+        ),
+        &json!({ "list": {} }),
+        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &mut |inside, handle| {
+            let items = raw_html(inside, handle)
+                .matches("<li class=\"item\">")
+                .count();
+            push(inside, handle, &json!({ "items": items }));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let read = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "sample-shells" }),
+        &mut |_| None,
+    );
+    assert!(engine.finish());
+
+    let mut outcomes: Vec<(String, Value, Value)> = read["result"]["outcomes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{read}"))
+        .iter()
+        .map(|outcome| {
+            (
+                path_of(outcome["request"]["url"].as_str().unwrap()),
+                outcome["kind"].clone(),
+                outcome["reason"].clone(),
+            )
+        })
+        .collect();
+    outcomes.sort_by(|left, right| left.0.cmp(&right.0));
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            outcomes,
+            chosen(&env, "sample-shells", &["list"]),
+        ),
+        (
+            &json!("finished"),
+            (1..=4)
+                .map(|page| (
+                    format!("/blog/1?page={page}"),
+                    json!("succeeded"),
+                    Value::Null
+                ))
+                .collect::<Vec<_>>(),
+            [
+                "list http sample",
+                "list browser sample",
+                "list http sample",
+                "list browser sample",
+                "list http sample",
+                "list browser sample",
+                "list browser compared",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+        ),
+        "{read}"
+    );
+}
+
 /// A page whose Records differ between the tiers only in whitespace
 /// matches, and its Label moves to `http`; one whose Records name their
 /// tier never matches and stays on the browser. Either way each sample

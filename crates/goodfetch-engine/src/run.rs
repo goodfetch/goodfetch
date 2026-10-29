@@ -340,6 +340,19 @@ fn draining(run_id: Option<RunId>) -> CallError {
 /// gateway when the Connection's `hello` came from it, naming the run's
 /// Product rather than an install that would not help there (ADR 0096).
 pub fn settings_error(error: &SettingsError, context: &CallContext) -> CallError {
+    translated(error, context.identity(), context.behind_gateway())
+}
+
+/// The failure a command of the executable itself answers with for a
+/// refused setting, outside any Connection: no gateway relays it, so a
+/// setting the engine's Product lacks names the install that carries it.
+pub fn local_settings_error(error: &SettingsError, identity: &Identity) -> CallError {
+    translated(error, identity, false)
+}
+
+/// [`settings_error`]'s translation, for the engine `identity` names,
+/// behind Goodfetch Cloud's gateway or not.
+fn translated(error: &SettingsError, identity: &Identity, behind_gateway: bool) -> CallError {
     let message = error.to_string();
     match error {
         SettingsError::Unknown {
@@ -389,11 +402,8 @@ pub fn settings_error(error: &SettingsError, context: &CallContext) -> CallError
             },
         ),
         SettingsError::NotInProduct { key, needs } => {
-            let (message, details) = context.identity().not_in_product(
-                Requested::Name(key),
-                *needs,
-                context.behind_gateway(),
-            );
+            let (message, details) =
+                identity.not_in_product(Requested::Name(key), *needs, behind_gateway);
             CallError::new(&NOT_IN_PRODUCT, message, &details)
         }
         SettingsError::Format {

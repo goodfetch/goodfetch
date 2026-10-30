@@ -79,8 +79,10 @@ Decided in [Redirect limits, truncated bodies and transport failures on the fetc
   - `fetch.refresh.max_delay` is 100 s by default, Scrapy's value, set down to a Label. `null` follows any delay, and `0` only an instant refresh. A longer delay usually belongs to a page with content of its own, such as a session-timeout refresh to a logout page.
   - The hop goes at once, without waiting the delay, as Scrapy's does. It counts toward `fetch.redirect.max` and goes through the gate like any hop. In the browser, the engine's own navigation replaces the stub before the stub's timer fires, so every tier hands the handler the same document (ADR 0093).
   - A refresh with no URL, or to the document's own URL, is a reload. It is never followed, and the handler gets the document.
+    > Note (agent decision, pending owner review), 2026-10-30, deep review 579-8 (G23): a refresh to a URL that is no HTTP(S) URL, such as `javascript:` or `data:`, is not followed either, and the handler gets the stub: Chromium refuses such a refresh and keeps the document, so ending the request `skipped` at the hop's scope or egress check, as before, gave the document tiers another answer than the browser. The stub's markup is read on the blocking pool (STYLE.md).
 - **A redirect by the page's own script is seen only where scripts run.** A document tier never sees one. A sample whose browser attempt ended on another URL than the document tier's attempt never matches, so that Label's tier choice stays the browser (ADR 0020).
 - **This rule is the crawl request's document's.** A handler's own `goto` and a Collie program's navigation get the page their tier gives. The browser runs a refresh itself, as a navigation the page starts, gated and counted inside a handler (ADR 0087). A document tier runs none.
+  > Note (agent decision, pending owner review), 2026-10-30, deep review 579-7 (G23): a served page's `goto`, `reload`, `goBack` and `goForward` follow their redirects with refresh following off (`Following::refresh`), so the handler is given the stub, as this rule says; before, they followed the crawl's `fetch.refresh.max_delay`.
 
 ### A body that broke off
 

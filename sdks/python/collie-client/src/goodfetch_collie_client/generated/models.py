@@ -3653,6 +3653,13 @@ class DaemonState(BaseModel):
     """Where its Console is served, or why it is not."""
     endpoint: DaemonEndpoint
     """Where it listens."""
+    heap: Annotated[int | None, Field(ge=0)] = None
+    """
+    Its live heap: the bytes its own allocations hold now, as its
+    executable's allocator counts them, without the pages that
+    allocator keeps once they are freed; none where nothing counts
+    them.
+    """
     idle_timeout: Annotated[int, Field(ge=0)]
     """Its `daemon.idle_timeout`, in milliseconds."""
     kept_alive: bool

@@ -3130,6 +3130,16 @@
           "arrived_in": "0.1",
           "description": "Where it listens."
         },
+        "heap": {
+          "arrived_in": "0.1",
+          "description": "Its live heap: the bytes its own allocations hold now, as its\nexecutable's allocator counts them, without the pages that\nallocator keeps once they are freed; none where nothing counts\nthem.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "idle_timeout": {
           "arrived_in": "0.1",
           "description": "Its `daemon.idle_timeout`, in milliseconds.",

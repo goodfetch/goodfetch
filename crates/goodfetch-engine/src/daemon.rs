@@ -440,6 +440,7 @@ impl DaemonSide for ConnectionSide {
                 kept_alive: shared.kept_alive(),
                 idle_timeout: u64::try_from(shared.idle_timeout.as_millis()).unwrap_or(u64::MAX),
                 console: shared.console.clone(),
+                heap: crate::heap::live(),
             }
         })
     }

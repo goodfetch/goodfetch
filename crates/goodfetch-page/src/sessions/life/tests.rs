@@ -12,7 +12,9 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CallCancelledDetails, ClosedValue, StoppedBy,
 };
+use goodfetch_protocol::governor::BROWSER_PAGE_MEMORY_CAP;
 use goodfetch_protocol::page::{BrowserExit, PageId, SessionId};
+use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 use goodfetch_test_support::{CapturedLog, runtime, subscriber_writing_to};
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -673,4 +675,55 @@ fn a_sessions_change_of_state_is_a_tracing_event() {
         .all(|field| change.contains(field)),
         "{change}"
     );
+}
+
+/// The Resource governor's end of a page past its memory cap.
+fn past_cap() -> Ending {
+    Ending::MemoryExceeded {
+        memory: 64 << 20,
+        limit: SettingLimit {
+            key: BROWSER_PAGE_MEMORY_CAP.name.to_owned(),
+            value: json!(32 << 20),
+            layer: SettingsLayer::Run,
+        },
+    }
+}
+
+/// A page the Resource governor ended past its memory cap stays ended past
+/// it whatever ends its close, so its later calls raise
+/// `page_memory_exceeded` again once it left; a page that ended otherwise
+/// first, the cap found later, does not.
+///
+/// Covers: story:3-59
+#[rstest]
+#[case::its_close_confirmed(vec![past_cap(), Ending::Destroyed], true)]
+#[case::its_close_overtaken_by_a_crash(
+    vec![past_cap(), Ending::BrowserCrash(Some(KILLED)), Ending::Destroyed],
+    true
+)]
+#[case::its_close_overtaken_by_a_quit(vec![past_cap(), Ending::BrowserQuit], true)]
+#[case::closed_again_by_its_session(
+    vec![past_cap(), Ending::Closed(ClosedValue::Session), Ending::Destroyed],
+    true
+)]
+#[case::closed_by_the_program_first(
+    vec![Ending::Closed(ClosedValue::Page), past_cap(), Ending::Destroyed],
+    false
+)]
+#[case::its_lease_ended_first(
+    vec![Ending::LeaseEnded(withheld()), past_cap(), Ending::Destroyed],
+    false
+)]
+#[case::its_renderer_crashed_first(vec![Ending::RendererCrash, past_cap()], false)]
+fn a_page_ended_past_its_memory_cap_stays_so_whatever_ends_its_close(
+    #[case] endings: Vec<Ending>,
+    #[case] past: bool,
+) {
+    let life = page();
+
+    for ending in &endings {
+        life.end(ending).expect("each end is one the table takes");
+    }
+
+    assert_eq!(life.ended_past_cap(), past);
 }

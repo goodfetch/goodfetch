@@ -347,7 +347,11 @@ const RUN_RETRY_FAILED: &str = "run.retry_failed";
 /// with `response_unavailable` naming the status and the time asked, as an
 /// SDK's handler does, so it ends `failed`, not retried, and
 /// `/held/after-503`, admitted while the site's time is still ahead, ends
-/// the same way unsent, with `status` null, no handler asked. Once the site
+/// the same way unsent, with `status` null, no handler asked. The engine
+/// judges the bound when the site asked, so however long it and the
+/// harness take to settle the 503, both fail; the case only needs the 503
+/// settled before the site's 2 s passed, after which sending is right
+/// (ADR 0118). Once the site
 /// is back, `run.retry_failed` re-admits both in the same Run and answers
 /// 2: each is fetched and handed to the handler under its ID, commits its
 /// one Record in `pages`, and its later `succeeded` outcome follows its
@@ -491,9 +495,10 @@ fn superseded(outcomes: &Value, urls: &[String], handled: &[(Value, Value)]) -> 
 }
 
 /// Calls `method` on the Run `run_id` and serves its crawl requests until
-/// it answers, `queued` first: a 503 asking for a time fails its attempt
-/// with `response_unavailable` naming the status and that time, as an
-/// SDK's handler does, and any other page commits one Record of `pages`.
+/// it answers, `queued` first: a 503 asking for a wait fails its attempt
+/// with `response_unavailable` naming the status and the time that wait
+/// ends, counted from when the harness was handed it ([`received_at`]), as
+/// an SDK's handler does, and any other page commits one Record of `pages`.
 /// Each request handed is noted in `handled` with its crawl request's ID.
 fn served(
     connection: &mut Connection,
@@ -519,22 +524,17 @@ fn served(
         let request = &params["crawl_request"];
         handled.push((request["url"].clone(), request["id"].clone()));
         let response = &params["response"];
-        let asked = response["headers"]["date"]
+        let asked = response["headers"]["retry-after"]
             .as_str()
-            .and_then(unix_seconds_of_http_date)
-            .zip(
-                response["headers"]["retry-after"]
-                    .as_str()
-                    .and_then(|seconds| seconds.parse::<u64>().ok()),
-            );
+            .and_then(|seconds| seconds.parse::<u64>().ok());
         match asked {
-            Some((date, seconds)) if response["status"] == json!(503) => {
+            Some(seconds) if response["status"] == json!(503) => {
                 connection.fail_with(
                     &message["id"],
                     ErrorGroup::Page,
                     "response_unavailable",
                     "the site is failing for now",
-                    &json!({ "status": 503, "retry_after": rfc3339(date + seconds) }),
+                    &json!({ "status": 503, "retry_after": rfc3339(received_at() + seconds) }),
                 )?;
             }
             _ => connection.reply(
@@ -595,18 +595,21 @@ fn unix_seconds(year: i64, month: i64, day: i64, time: &str) -> Option<u64> {
     .ok()
 }
 
-/// Seconds since the Unix epoch of an IMF-fixdate, such as a `Date`
-/// header's `Tue, 27 Oct 2026 00:30:09 GMT` (RFC 9110, §5.6.7).
-fn unix_seconds_of_http_date(date: &str) -> Option<u64> {
-    const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    let mut fields = date.split_whitespace().skip(1);
-    let day = fields.next()?.parse().ok()?;
-    let month = fields.next()?;
-    let month = MONTHS.iter().position(|name| *name == month)?;
-    let year = fields.next()?.parse().ok()?;
-    unix_seconds(year, i64::try_from(month).ok()? + 1, day, fields.next()?)
+/// The harness's clock now, in whole seconds since the Unix epoch rounded
+/// up: the moment a handler request it was handed counts a `Retry-After`
+/// in seconds from, as a site's response it carries was received no later
+/// (RFC 9110, §10.2.3), so the time it names is never sooner than the site
+/// asked. The response's `Date` names whole seconds rounded down, which
+/// would cut up to a second off the site's wait.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the harness, a handler, reads its own wall clock to name the time a site asked for"
+)]
+fn received_at() -> u64 {
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    since.as_secs() + u64::from(since.subsec_nanos() > 0)
 }
 
 /// Seconds since the Unix epoch of an RFC 3339 time in UTC, such as

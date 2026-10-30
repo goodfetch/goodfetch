@@ -5,10 +5,13 @@
 // `playwright.config.ts` on a spec file of two tests in one worker, through
 // `repository-playwright.ts`.
 // Each writes down what its fixture gave it, the Console being the one the
-// Daemon serves itself; once both have ended, while the worker still runs,
-// a worker fixture counts the distinct homes, sockets and Console ports
-// they were given and looks for what is left of each, the Daemon's process
-// among it.
+// Daemon serves itself, and signs in to that Console; once both have ended,
+// while the worker still runs, a worker fixture counts the distinct homes,
+// sockets and Console ports they were given and looks for what is left of
+// each, the Daemon's process among it. The Daemon binds its Console on port
+// 0, so another process may bind the port it freed (#1777): its listener is
+// left only if it still answers its own sign-in (`answersAs`), not when
+// anything accepts a connect there.
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,11 +21,12 @@ import { test } from "@goodfetch/test-support";
 import { runRepositoryPlaywright } from "./repository-playwright.ts";
 
 const FIXTURES = pathToFileURL(join(import.meta.dirname, "..", "src", "playwright.ts")).href;
+const IDENTITY = pathToFileURL(join(import.meta.dirname, "..", "src", "console-identity.ts")).href;
 
 const SPEC = `import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { connect } from "node:net";
 import { join } from "node:path";
 import { test } from ${JSON.stringify(FIXTURES)};
+import { answersAs, consoleIdentity } from ${JSON.stringify(IDENTITY)};
 
 const alive = (pid) => {
   try {
@@ -33,24 +37,18 @@ const alive = (pid) => {
   }
 };
 
-const answers = (port) =>
-  new Promise((resolve) => {
-    const socket = connect({ host: "127.0.0.1", port });
-    socket.on("connect", () => { socket.destroy(); resolve(true); });
-    socket.on("error", () => resolve(false));
-  });
-
 const served = test.extend({
   given: [
     async ({}, use) => {
       const given = [];
       await use(given);
       const left = [];
-      for (const { home, socket, port, pid } of given) {
+      for (const { home, socket, identity, answeredWhileServing, pid } of given) {
         left.push({
           homeLeft: existsSync(home),
           socketLeft: process.platform !== "win32" && existsSync(socket),
-          portAnswers: await answers(port),
+          answeredWhileServing,
+          consoleAnswers: await answersAs(identity),
           daemonAlive: alive(pid),
         });
       }
@@ -63,10 +61,14 @@ const served = test.extend({
 });
 
 // The Console the Daemon serves itself, so the port is the Daemon's own.
+// The check answers while the Daemon serves, so one that could never see
+// the Daemon's listener fails here rather than passing after teardown.
 for (const name of ["first", "second"]) {
-  served(name, ({ given, daemon }) => {
+  served(name, async ({ given, daemon }) => {
     const { pid } = JSON.parse(readFileSync(join(daemon.home, "0.0", "daemon.json"), "utf8"));
-    given.push({ home: daemon.home, socket: daemon.socket, port: daemon.port, pid });
+    const identity = await consoleIdentity(daemon);
+    const answeredWhileServing = await answersAs(identity);
+    given.push({ home: daemon.home, socket: daemon.socket, port: daemon.port, identity, answeredWhileServing, pid });
   });
 }
 `;
@@ -88,17 +90,18 @@ describe("the daemon fixture", () => {
 
     expect(code).toBe(0);
     const left: unknown = JSON.parse(readFileSync(record, "utf8"));
-    const nothingLeft = {
+    const eachLeftNothing = {
       homeLeft: false,
       socketLeft: false,
-      portAnswers: false,
+      answeredWhileServing: true,
+      consoleAnswers: false,
       daemonAlive: false,
     };
     expect(left).toEqual({
       homes: 2,
       sockets: 2,
       ports: 2,
-      left: [nothingLeft, nothingLeft],
+      left: [eachLeftNothing, eachLeftNothing],
     });
   });
 });

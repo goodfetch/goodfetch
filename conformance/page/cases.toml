@@ -726,3 +726,15 @@ covers = ["story:6-62", "story:6-64", "operation:run.new_page", "operation:page.
 [[capability.case]]
 id = "a-robots-txt-past-max-body-size-is-recorded-unreachable-and-the-page-loads"
 covers = ["operation:page.goto", "setting:network.max_body_size"]
+
+[[capability.case]]
+id = "a-document-a-click-or-a-script-navigated-to-is-recorded-as-a-gotos-is"
+covers = ["story:6-62", "operation:run.new_page", "operation:page.goto", "operation:locator.click", "operation:page.evaluate", "operation:page.wait_for_url"]
+
+[[capability.case]]
+id = "a-page-request-is-recorded-as-a-document-is"
+covers = ["story:6-62", "operation:run.new_page", "operation:page.request"]
+
+[[capability.case]]
+id = "a-reading-a-closed-session-cut-short-is-not-read-and-the-next-document-reads-the-file"
+covers = ["story:6-62", "story:6-64", "operation:run.new_session", "operation:session.new_page", "operation:session.close", "operation:page.goto"]

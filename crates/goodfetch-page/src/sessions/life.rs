@@ -620,6 +620,15 @@ impl SessionLife {
             .await;
     }
 
+    /// Whether the Session's table serves a program call on it now, with
+    /// no wait.
+    pub(crate) fn serves(&self) -> bool {
+        matches!(
+            lifecycle::session(self.state(), SessionEvent::Call, self.shared.attributes),
+            Ok((_, SessionEffect::Serve))
+        )
+    }
+
     /// Waits until the Session's table serves a program call on it.
     ///
     /// # Cancel safety

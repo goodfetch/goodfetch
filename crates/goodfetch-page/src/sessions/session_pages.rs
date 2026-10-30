@@ -34,9 +34,11 @@ use tokio::sync::watch;
 
 use super::life::{Ending, PageLife, session_closed};
 use super::lifecycle::PageEffect;
+use super::robots_txt;
 use super::{OpenPage, Session, Sessions, action_timeout, wait_deadline};
 use crate::driver::{OnChild, OnPopup, PageDriver, PopupHandler, SessionEgress};
 use crate::hiding::{PageHiding, Sheets};
+use crate::interception::OnDocument;
 use crate::page_events::{PageEvents, Refusals};
 use crate::page_functions::FrameScripts;
 use crate::page_value::{Observer, Reader};
@@ -321,9 +323,14 @@ impl Sessions {
         settings: &Values,
         (refusals, in_frames): (Refusals, Vec<OnChild>),
     ) -> Result<(Option<Arc<PageHiding>>, Arc<Sheets>, watch::Receiver<usize>), CallError> {
+        // A page a program opened reads robots.txt for each document its
+        // main frame receives, beside its navigation, never before it (ADR
+        // 0086).
+        let reader = robots_txt::Reader::of(self, page, session, driver.value(), run)
+            .map(|reader| Arc::new(reader) as Arc<dyn OnDocument>);
         let held = self
             .interception
-            .start(page, session, driver, run, settings, refusals)
+            .start(page, session, driver, run, settings, (refusals, reader))
             .await?;
         // Live hiding and the Consent prompt runner share each document's
         // one hiding sheet.

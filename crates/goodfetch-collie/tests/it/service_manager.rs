@@ -202,6 +202,51 @@ fn the_first_request_to_the_consoles_address_starts_the_daemon() {
     );
 }
 
+/// systemd re-reads each listening socket's path at every reload of the
+/// user's manager, which any program may ask for; the service's two
+/// sockets still listen after one, though the test home's path holds a
+/// character systemd escapes (#1781): the first connection to the
+/// service's socket and the first request to the Console both reach the
+/// Daemon. That socket's folder, of its own then, goes at `daemon
+/// uninstall`.
+///
+/// Covers: story:3-21, story:12-7, command:daemon.uninstall
+#[cfg(target_os = "linux")]
+#[test]
+fn a_reload_of_the_users_systemd_keeps_both_of_the_services_sockets() {
+    let env = TestEnv::new();
+    let _removes = RemovesTheService(&env);
+    let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
+    let console = installed["service"]["console"]
+        .as_str()
+        .expect("the service listens on the Console's address")
+        .to_owned();
+
+    let reloaded = std::process::Command::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .status()
+        .unwrap();
+    let mut client = RawClient::opened(&service_reach(&env, &installed["service"]), "collie");
+    let status = client.call(1, "daemon.status", &json!({}));
+    let page = crate::sign_in::agent()
+        .get(format!("http://{console}/"))
+        .call()
+        .unwrap();
+    drop(client);
+    json_in_session(&env, COLLIE, &["daemon", "uninstall", "--json"]);
+    let socket = PathBuf::from(installed["service"]["socket"].as_str().unwrap());
+
+    assert_eq!(
+        (
+            reloaded.success(),
+            status["result"]["product"].clone(),
+            page.status().as_u16(),
+            socket.parent().unwrap().exists(),
+        ),
+        (true, json!("collie"), 200, false)
+    );
+}
+
 /// A rotation stops the Daemon that took the old token: a Client with the
 /// old token is closed unanswered, and one with the new token starts the
 /// next Daemon.

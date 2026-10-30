@@ -31,6 +31,17 @@ const BATCH = 32;
 const GROWTH = 1.1;
 
 /**
+ * How long the screen may take to show the busy Daemon's list and to write
+ * it to the offline cache: as long as the test's own timeout gives it
+ * (`playwright.config.ts`), as Playwright reads a timeout of 0. One task of
+ * the page's parses the 10,000 runs and starts their 10,000 writes, each
+ * signed and encrypted, before the screen renders them, so how long both take
+ * follows the host's load, and no figure of the product or the test bounds
+ * them.
+ */
+const LISTED = 0;
+
+/**
  * How long the screen may take to show the last of the events streamed: each
  * credit the page grants crosses the test's WebSocket route, a few
  * milliseconds each.
@@ -248,19 +259,21 @@ test(
     await signIn.withLink(page);
     await page.goto(new URL("/runs", daemon.url).href);
 
+    // The screen has listed the runs once its table names their count.
+    await expect(page.getByRole("table", { name: "Runs" })).toHaveAttribute(
+      "aria-rowcount",
+      String(RUNS + 1),
+      { timeout: LISTED },
+    );
     await expect.poll(() => renderedRows(page)).toContain(runId(0));
     const rendered = await renderedRows(page);
     expect(rendered.length).toBeLessThan(100);
     expect(rendered).not.toContain(runId(RUNS - 1));
-    await expect(page.getByRole("table", { name: "Runs" })).toHaveAttribute(
-      "aria-rowcount",
-      String(RUNS + 1),
-    );
     // The shell's "Needs you" and the Runs screen.
     await expect.poll(() => busy.subscriptions).toBe(2);
 
     // The heap is read once the screen's own writes of the list are done.
-    await expect.poll(() => offlineRows(page), { timeout: 60_000 }).toBeGreaterThanOrEqual(RUNS);
+    await expect.poll(() => offlineRows(page), { timeout: LISTED }).toBeGreaterThanOrEqual(RUNS);
     const heap = await page.context().newCDPSession(page);
     /**
      * The JS heap's used bytes after forced garbage collections, once the

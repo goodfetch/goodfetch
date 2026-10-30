@@ -183,7 +183,7 @@ fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonSt
     record_copy(machine, &copy.executable, &copy.id)?;
     let socket = if activates_sockets(manager) {
         let socket = files
-            .service_socket()
+            .service_socket(manager)
             .map_err(unavailable("the service's socket has no folder"))?;
         remove_file(&socket)?;
         files.persistent_token().map_err(unavailable(
@@ -327,6 +327,15 @@ fn remove(
     run(machine, &unregistering.after_removal)?;
     if let Some(socket) = &service.socket {
         remove_file(socket)?;
+        // A socket outside the per-major folder had a folder of its own in
+        // `/tmp`, which goes with it once empty.
+        let own = machine.files().socket();
+        if let Some(folder) = socket
+            .parent()
+            .filter(|&folder| Some(folder) != own.parent())
+        {
+            let _ = std::fs::remove_dir(folder);
+        }
     }
     let list = machine.list();
     let entries = list.read().map_err(unavailable(

@@ -366,10 +366,8 @@ export type ExtractionFollow = "scope" | "sitemap" | "none";
 export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
 /**
  * What finds a field's element, named by `kind`: a CSS selector or an
- * `XPath` expression. A page a fetch tier serves from its document reads
- * a CSS selector; an `XPath` expression is read by the browser, to which
- * the request escalates under `fetch.tier: auto` (`browser_required`
- * under a forced cheaper tier).
+ * `XPath` expression, each read alike on every tier, a page a fetch tier
+ * serves from its document reading it as a browser reads it.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "FieldLocator".

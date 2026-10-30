@@ -632,7 +632,11 @@ class FieldLocator1(BaseModel):
 
 
 class FieldLocator2(BaseModel):
-    """An `XPath` 1.0 expression."""
+    """
+    An `XPath` 1.0 expression that finds nodes, with no namespace
+    prefix and no variable; the field reads the first node it finds in
+    document order, when that node is an element.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
@@ -646,10 +650,8 @@ class FieldLocator(RootModel[FieldLocator1 | FieldLocator2]):
     root: FieldLocator1 | FieldLocator2
     """
     What finds a field's element, named by `kind`: a CSS selector or an
-    `XPath` expression. A page a fetch tier serves from its document reads
-    a CSS selector; an `XPath` expression is read by the browser, to which
-    the request escalates under `fetch.tier: auto` (`browser_required`
-    under a forced cheaper tier).
+    `XPath` expression, each read alike on every tier, a page a fetch tier
+    serves from its document reading it as a browser reads it.
     """
 
 

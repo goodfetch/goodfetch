@@ -24,17 +24,22 @@
 //! (`goodfetch-page`'s `robots_txt`), Foxhound's gate and the reading of a
 //! Collie program's own navigation calling it over these groups.
 //! [`RunCopies`] is that reading's per-Run copy, one fetch per origin per
-//! Run (ADR 0098): Foxhound's shared copy is no part of it.
+//! Run (ADR 0098), kept in the Run's run state with a bounded cache in
+//! front; a reading that never reached the site ([`NotRead`]) is kept
+//! nowhere. Foxhound's shared copy is no part of it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{Mutex, OnceCell};
+use rusqlite::OptionalExtension as _;
+use tokio::sync::OnceCell;
 use url::Url;
+
+use crate::run_state::{RunState, RunStateTables};
 
 #[cfg(test)]
 mod tests;
@@ -344,46 +349,6 @@ impl Fetched {
     }
 }
 
-/// A Run's own copies of the robots.txt files its program's navigation read,
-/// one per origin (ADR 0098): the first reader of an origin fetches it,
-/// and every later or concurrent one waits for that fetch, so a Run fetches
-/// each origin's file once, whatever it answered. Clones share them.
-#[derive(Clone, Debug, Default)]
-pub struct RunCopies {
-    copies: Arc<Mutex<HashMap<String, OriginCopy>>>,
-}
-
-/// One origin's copy, once its fetch ended.
-type OriginCopy = Arc<OnceCell<Arc<Fetched>>>;
-
-impl RunCopies {
-    /// The copy of `location`'s file, fetched with `fetch` only when no
-    /// reader of the Run fetched it before.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future of the reader that fetches abandons its fetch,
-    /// and the next reader fetches again; a waiting reader loses only its
-    /// answer.
-    pub async fn copy<F, Fut>(&self, location: &Url, fetch: F) -> Arc<Fetched>
-    where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = Fetched>,
-    {
-        let cell = Arc::clone(
-            self.copies
-                .lock()
-                .await
-                .entry(location.as_str().to_owned())
-                .or_default(),
-        );
-        Arc::clone(
-            cell.get_or_init(|| async move { Arc::new(fetch().await) })
-                .await,
-        )
-    }
-}
-
 /// What one fetch of an origin's robots.txt was answered, as a copy keeps
 /// it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -433,11 +398,298 @@ pub trait Copies: Send + Sync + fmt::Debug {
     fn copy<'a>(&'a self, location: &'a Url, fetch: Fetch<'a>) -> Copied<'a>;
 }
 
-impl Copies for RunCopies {
+/// A reading of an origin's robots.txt that never reached the site, for
+/// the reason given: the engine failed before or while it sent it, as when
+/// the Session it read through closed, its lease ended or its browser went.
+/// It is no answer of the site's, which RFC 9309 §2.3.1.4's "unreachable"
+/// and ADR 0086's are, so no copy keeps it, and the next reader fetches.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NotRead(pub String);
+
+/// The table a Run's own copies live in ([`RunCopies`]), which every run
+/// file holds: one row per robots.txt URL, the answer of its one fetch, a
+/// response's `status` and the first [`MAX_SIZE`] bytes of its `body`, or
+/// why it was `unreachable`.
+pub const TABLES: RunStateTables = RunStateTables {
+    name: "robots-txt-copies",
+    statements: &[
+        "CREATE TABLE IF NOT EXISTS robots_txt_copies (location TEXT NOT NULL PRIMARY KEY, status INTEGER, body BLOB, unreachable TEXT, \
+         CHECK ((status IS NULL) = (body IS NULL)), \
+         CHECK ((status IS NULL) <> (unreachable IS NULL))) STRICT",
+    ],
+};
+
+/// The most copies a Run holds in memory beside its readings in flight
+/// (STYLE.md: a collection that grows with load is bounded): the latest
+/// read, each a parsed file of at most [`MAX_SIZE`] bytes. The run state
+/// holds every one.
+pub const CACHED: usize = 16;
+
+/// A Run's own copies of the robots.txt files its program's navigation and
+/// fetches read, one per origin (ADR 0098): the first reader of an origin
+/// fetches it, and every later or concurrent one reads that answer, so a
+/// Run fetches each origin's file once, whatever the site answered. The
+/// answers live in the Run's run state ([`TABLES`]); in memory are only the
+/// origins a reader is reading and the latest [`CACHED`] copies read. A
+/// reading that never reached the site ([`NotRead`]) is kept nowhere.
+/// Clones share them.
+#[derive(Clone, Debug, Default)]
+pub struct RunCopies {
+    memory: Memory,
+}
+
+/// What a Run's copies hold in memory.
+#[expect(
+    clippy::disallowed_types,
+    reason = "the memory is read or written in one step, never across an `.await` or another lock, so there is no lock order to test under loom (ADR 0060)"
+)]
+type Memory = Arc<std::sync::Mutex<InMemory>>;
+
+#[derive(Debug, Default)]
+struct InMemory {
+    /// The reading in flight of each origin a reader reads, until its last
+    /// reader ends.
+    in_flight: HashMap<String, Reading>,
+    /// The latest copies read, the latest last, at most [`CACHED`].
+    cached: VecDeque<(String, Arc<Fetched>)>,
+}
+
+/// One origin's reading: its copy, once a reader read it.
+type Reading = Arc<OnceCell<Arc<Fetched>>>;
+
+impl InMemory {
+    /// The copy of `location` it caches, made the latest read.
+    fn cached(&mut self, location: &str) -> Option<Arc<Fetched>> {
+        let at = self
+            .cached
+            .iter()
+            .position(|(cached, _)| cached == location)?;
+        let entry = self.cached.remove(at)?;
+        let copy = Arc::clone(&entry.1);
+        self.cached.push_back(entry);
+        Some(copy)
+    }
+
+    /// Caches `copy` as `location`'s, the latest read, forgetting the
+    /// earliest past [`CACHED`].
+    fn cache(&mut self, location: &str, copy: &Arc<Fetched>) {
+        if self.cached(location).is_some() {
+            return;
+        }
+        if self.cached.len() == CACHED {
+            self.cached.pop_front();
+        }
+        self.cached
+            .push_back((location.to_owned(), Arc::clone(copy)));
+    }
+}
+
+/// A reader's hold on its origin's [`Reading`]: dropped, by the reader's
+/// end or its cancellation, the origin leaves the readings in flight once
+/// no other reader holds it.
+struct Held {
+    memory: Memory,
+    location: String,
+    reading: Option<Reading>,
+}
+
+impl Held {
+    /// A hold on `location`'s reading in `in_memory`, `memory` locked, which
+    /// starts one when none is in flight.
+    fn on(memory: &Memory, in_memory: &mut InMemory, location: &str) -> Self {
+        let reading = Arc::clone(in_memory.in_flight.entry(location.to_owned()).or_default());
+        Self {
+            memory: Arc::clone(memory),
+            location: location.to_owned(),
+            reading: Some(reading),
+        }
+    }
+
+    fn reading(&self) -> &Reading {
+        self.reading
+            .as_ref()
+            .expect("invariant: a hold keeps its reading until it drops")
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        let mut in_memory = lock(&self.memory);
+        // Every hold is taken and dropped under the lock, so the count seen
+        // here is exact: the map's and this hold's.
+        if let Some(reading) = self.reading.take()
+            && in_memory
+                .in_flight
+                .get(&self.location)
+                .is_some_and(|held| Arc::ptr_eq(held, &reading))
+            && Arc::strong_count(&reading) == 2
+        {
+            in_memory.in_flight.remove(&self.location);
+        }
+    }
+}
+
+/// `memory`, locked.
+fn lock(memory: &Memory) -> std::sync::MutexGuard<'_, InMemory> {
+    memory
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl RunCopies {
+    /// The copy of `location`'s file in the Run whose run state is `state`:
+    /// the one a reader of the Run read before, else what `fetch` answers,
+    /// kept in `state`. A concurrent reader of the same origin waits for
+    /// the first one's reading and answers it. A run state that cannot be
+    /// read or written costs only a fetch.
+    ///
+    /// # Errors
+    ///
+    /// [`NotRead`] when `fetch` answered it: nothing is kept, so the next
+    /// reader fetches, and a waiting one with its own fetch.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future of the reader whose fetch runs drops that fetch
+    /// and keeps nothing: a waiting or later reader reads again with its
+    /// own.
+    pub async fn copy<Fut>(
+        &self,
+        state: &RunState,
+        location: &Url,
+        fetch: Fut,
+    ) -> Result<Arc<Fetched>, NotRead>
+    where
+        Fut: Future<Output = Result<Answer, NotRead>>,
+    {
+        let key = location.as_str();
+        let held = {
+            let mut in_memory = lock(&self.memory);
+            if let Some(copy) = in_memory.cached(key) {
+                return Ok(copy);
+            }
+            Held::on(&self.memory, &mut in_memory, key)
+        };
+        let copy = held
+            .reading()
+            .get_or_try_init(|| async {
+                if let Some(answer) = stored(state, key).await {
+                    return Ok(Arc::new(answer.fetched()));
+                }
+                let answer = fetch.await?;
+                keep(state, key, &answer).await;
+                Ok(Arc::new(answer.fetched()))
+            })
+            .await
+            .map(Arc::clone)?;
+        // Cached while the hold lasts, so a later reader finds it in memory
+        // or in the run state.
+        lock(&self.memory).cache(key, &copy);
+        drop(held);
+        Ok(copy)
+    }
+
+    /// How many origins' copies it holds in memory, those its readers are
+    /// reading included: at most [`CACHED`] beside those.
+    pub fn held(&self) -> usize {
+        let in_memory = lock(&self.memory);
+        let reading = in_memory
+            .in_flight
+            .keys()
+            .filter(|location| {
+                !in_memory
+                    .cached
+                    .iter()
+                    .any(|(cached, _)| cached == *location)
+            })
+            .count();
+        in_memory.cached.len() + reading
+    }
+}
+
+/// The answer `state` keeps for `location`, none when it keeps none or
+/// cannot be read.
+async fn stored(state: &RunState, location: &str) -> Option<Answer> {
+    let location = location.to_owned();
+    state
+        .read(move |connection| {
+            connection
+                .query_row(
+                    "SELECT status, body, unreachable FROM robots_txt_copies WHERE location = ?1",
+                    [location],
+                    |row| {
+                        let status: Option<u16> = row.get(0)?;
+                        let body: Option<Vec<u8>> = row.get(1)?;
+                        let unreachable: Option<String> = row.get(2)?;
+                        Ok(match (status, body, unreachable) {
+                            (Some(status), Some(body), _) => {
+                                Some(Answer::Response { status, body })
+                            }
+                            (_, _, Some(reason)) => Some(Answer::Unreachable(reason)),
+                            _ => None,
+                        })
+                    },
+                )
+                .optional()
+                .map(Option::flatten)
+        })
+        .await
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "the Run's robots.txt copy could not be read; it is fetched");
+            None
+        })
+}
+
+/// Keeps `answer` in `state` as `location`'s copy; a copy kept before stays.
+async fn keep(state: &RunState, location: &str, answer: &Answer) {
+    let location = location.to_owned();
+    let (status, body, unreachable) = match answer {
+        Answer::Response { status, body } => (Some(*status), Some(body.clone()), None),
+        Answer::Unreachable(reason) => (None, None, Some(reason.clone())),
+    };
+    if let Err(error) = state
+        .write(move |connection| {
+            connection
+                .execute(
+                    "INSERT INTO robots_txt_copies (location, status, body, unreachable) VALUES (?1, ?2, ?3, ?4) \
+                     ON CONFLICT (location) DO NOTHING",
+                    (location, status, body, unreachable),
+                )
+                .map(drop)
+        })
+        .await
+    {
+        tracing::warn!(%error, "the Run's robots.txt copy was not kept; a later reader may fetch it again");
+    }
+}
+
+/// The copies a Run reads through [`Copies`] when no crawl shared one: its
+/// own, in its run state.
+#[derive(Clone)]
+pub struct OwnCopies {
+    /// Its copies.
+    pub copies: RunCopies,
+    /// Its run state.
+    pub state: RunState,
+}
+
+impl fmt::Debug for OwnCopies {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OwnCopies")
+            .field("copies", &self.copies)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Copies for OwnCopies {
     fn copy<'a>(&'a self, location: &'a Url, fetch: Fetch<'a>) -> Copied<'a> {
-        Box::pin(RunCopies::copy(self, location, || async move {
-            fetch.await.fetched()
-        }))
+        Box::pin(async move {
+            self.copies
+                .copy(&self.state, location, async move { Ok(fetch.await) })
+                .await
+                .unwrap_or_else(|NotRead(reason)| Arc::new(Fetched::Unreachable(reason)))
+        })
     }
 }
 

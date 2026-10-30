@@ -37,7 +37,9 @@
 //! program opened, its default one open, another closed, with a proxy of
 //! its own, and a third closed, on a Borrowed browser, which that
 //! contribution records since no browser runs here, and a Download's file
-//! it keeps, which its Checkpoints carry, whose program sets a progress
+//! it keeps, which its Checkpoints carry, the robots.txt copies of two
+//! origins its program's navigation read, one the site answered, one it
+//! never did, whose program sets a progress
 //! message, which `run.checkpoint` checkpoints and
 //! `run.pause` pauses with a Checkpoint.
 //! It writes each Run's file, as SQL text, into the folder given as the
@@ -59,6 +61,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::robots_txt::Answer;
 use goodfetch_engine::run_files::FileKind;
 use goodfetch_engine::run_key::{self, StoredKey, Wrapped};
 use goodfetch_engine::run_state::RunStateOptions;
@@ -485,6 +488,30 @@ fn bound() -> Contribution {
                 run.charge_part("proxy_bytes", "datacenter", 4_096, None)
                     .await
                     .expect("the proxy bytes are counted");
+                // Its program's own navigation read two origins' robots.txt
+                // into the Run's own copies (ADR 0098): one the site
+                // answered, one it never did.
+                for (location, answer) in [
+                    (
+                        "https://shop.test/robots.txt",
+                        Answer::Response {
+                            status: 200,
+                            body: b"User-agent: *\nDisallow: /cart/\n".to_vec(),
+                        },
+                    ),
+                    (
+                        "https://down.test/robots.txt",
+                        Answer::Unreachable(
+                            "the navigation to https://down.test/robots.txt failed: net::ERR_CONNECTION_REFUSED"
+                                .to_owned(),
+                        ),
+                    ),
+                ] {
+                    let location = url::Url::parse(location).expect("a robots.txt URL");
+                    run.own_robots_txt(&location, async { Ok(answer) })
+                        .await
+                        .expect("the copy is read");
+                }
                 run.keep_file(
                     FileKind::Download,
                     "books.csv".to_owned(),

@@ -155,6 +155,7 @@ CREATE TABLE request_counts (
             count INTEGER NOT NULL,
             PRIMARY KEY (kind, name)
         ) STRICT;
+CREATE TABLE robots_txt_copies (location TEXT NOT NULL PRIMARY KEY, status INTEGER, body BLOB, unreachable TEXT, CHECK ((status IS NULL) = (body IS NULL)), CHECK ((status IS NULL) <> (unreachable IS NULL))) STRICT;
 CREATE TABLE rules_canonicals (
             host TEXT NOT NULL,
             form TEXT NOT NULL,

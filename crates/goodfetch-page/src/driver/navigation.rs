@@ -215,6 +215,14 @@ impl Navigation {
     /// `events`, read while the command runs too, until it ends or reaches
     /// the state `wait_until` names; `superseded` says the engine started
     /// another navigation of the page after it.
+    ///
+    /// Every event the browser sent before the command's answer is read
+    /// before the answer is taken: the connection hands an event to its
+    /// subscribers before it hands over a later answer, so the events are
+    /// polled first (#1770). Read after the answer, the main frame's stop
+    /// of the load before this navigation's, which its start then makes an
+    /// earlier load's, would end a failed navigation before the browser's
+    /// error page for it replaced the document.
     pub(super) async fn follow(
         &mut self,
         command: impl Future<Output = Result<Result<Option<Expected>, Ended>, CallError>>,
@@ -232,11 +240,7 @@ impl Navigation {
                 break outcome;
             }
             tokio::select! {
-                answered = &mut command, if expected.is_none() => match answered? {
-                    Ok(Some(answered)) => expected = Some(answered),
-                    Ok(None) => break Ok(Arrived::Document(None)),
-                    Err(ended) => break Err(ended),
-                },
+                biased;
                 event = events.next(), if reading => match event {
                     Some(event) => self.feed(&event),
                     // A target the browser detached sends nothing more, and
@@ -244,6 +248,11 @@ impl Navigation {
                     // says how the navigation ended.
                     None if expected.is_none() && super::detached(events) => reading = false,
                     None => return Ok(Followed::Disconnected),
+                },
+                answered = &mut command, if expected.is_none() => match answered? {
+                    Ok(Some(answered)) => expected = Some(answered),
+                    Ok(None) => break Ok(Arrived::Document(None)),
+                    Err(ended) => break Err(ended),
                 },
                 else => return Ok(Followed::Disconnected),
             }

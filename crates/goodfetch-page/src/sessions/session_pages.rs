@@ -65,9 +65,9 @@ pub(super) struct Adopting {
 /// fails, or its future is dropped (a tier race's navigation that lost
 /// while its page opened), its events, dialogs and interception are taken
 /// out and its target closes, as an [`EnginePage`](super::EnginePage)'s
-/// does. Each of those parts holds the page's driver, and so its browser's
-/// handle on the Run trace's CDP log, whose writer the Run's end waits
-/// for: one left behind kept the Run from ever ending.
+/// does. Each of those parts holds the page's driver, and so its browser
+/// and its Run: one left behind would keep them past the Run's end, though
+/// the end no longer waits for it (#1763).
 struct TakenIn<'a> {
     sessions: &'a Sessions,
     page: PageId,

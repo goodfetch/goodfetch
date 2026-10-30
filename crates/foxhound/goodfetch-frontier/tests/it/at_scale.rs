@@ -40,6 +40,10 @@ struct RunFile {
 impl RunFile {
     fn open(env: &TestEnv) -> Self {
         let connection = Connection::open(env.folder().join("run.sqlite")).unwrap();
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the test's own new run file, which no other connection opens"
+        )]
         connection
             .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
             .unwrap();

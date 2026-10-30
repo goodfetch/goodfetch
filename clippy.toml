@@ -51,6 +51,8 @@ disallowed-methods = [
   { path = "std::env::var_os", reason = "only main reads the environment (ADR 0059)" },
   { path = "std::env::vars", reason = "only main reads the environment (ADR 0059)" },
   { path = "std::env::vars_os", reason = "only main reads the environment (ADR 0059)" },
+  # A SQLite file switches journal mode only through goodfetch-engine's `sqlite_wal` module (#1773).
+  { path = "rusqlite::Connection::pragma_update_and_check", reason = "switch a file to WAL through goodfetch-engine's sqlite_wal::enter: SQLite answers a switch beside another connection busy at once, never waiting its busy timeout (STYLE.md)", allow-invalid = true },
   # Blocking calls in async crates go through the `tasks` module's blocking policy.
   # A synchronous crate (`xtask`) states its exception on the module that blocks.
   { path = "std::thread::sleep", reason = "never block an async worker (STYLE.md)" },

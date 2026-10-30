@@ -5576,7 +5576,8 @@ export interface Resync {
    */
   needs_you: NeedsYouItem1[];
   /**
-   * The axes of each Run the engine knows, live or ended.
+   * The axes of each live Run the engine knows. A Run it leaves out
+   * ended, and `run.list` gives its axes.
    */
   runs: RunAxes[];
 }

@@ -21,7 +21,7 @@ export interface CollieEventPayloads {
    */
   "engine.system_info": SystemInfo;
   /**
-   * The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every Run's axes and every item of "Needs you", from which the stream continues.
+   * The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every live Run's axes and every item of "Needs you", from which the stream continues.
    *
    * @experimental
    */

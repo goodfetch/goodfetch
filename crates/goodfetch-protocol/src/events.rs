@@ -154,7 +154,8 @@ pub struct EventBatch {
 /// continues.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Resync {
-    /// The axes of each Run the engine knows, live or ended.
+    /// The axes of each live Run the engine knows. A Run it leaves out
+    /// ended, and `run.list` gives its axes.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub runs: Vec<RunAxes>,
     /// Every item of "Needs you", by `since`, then by ID.
@@ -166,7 +167,7 @@ pub struct Resync {
 /// engine no longer holds (ADR 0031).
 pub const RESYNC: Event = Event {
     name: "events.resync",
-    description: "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every Run's axes and every item of \"Needs you\", from which the stream continues.",
+    description: "The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every live Run's axes and every item of \"Needs you\", from which the stream continues.",
     class: EventClass::Lossless,
     payload: schema_of::<Resync>,
     stability: Stability::Experimental,

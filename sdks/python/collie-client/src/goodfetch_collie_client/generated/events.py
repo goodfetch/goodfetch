@@ -46,7 +46,7 @@ EVENTS: Final[Mapping[str, type[BaseModel]]] = {
 
 - `browser_cache.download_progress`: A Pinned artifact the call needs is downloading into the Browser cache: the bytes received so far, out of those announced.
 - `engine.system_info`: The engine's Resource governor sampled: its Memory allowance and what set it, the memory the engine and its children use, the host's pressure, CPU and Tokio saturation, its level and what holds it there, and each kind's concurrency. Telemetry: a newer sample replaces an unsent one.
-- `events.resync`: The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every Run's axes and every item of "Needs you", from which the stream continues.
+- `events.resync`: The engine no longer holds the position the subscription resumes after: the events since are gone, and this gives the current state, every live Run's axes and every item of "Needs you", from which the stream continues.
 - `needs_you.changed`: An item of "Needs you" appeared, changed or left the list: resolved, by a person or by its Run, or dismissed. Lossless: a subscription that falls behind next takes `events.resync`, which holds every item.
 - `page.close`: The page closed: the engine closed it, or its window was closed in the browser outside every Client. Sent on each `page.on` call that listens to `close`, just before that call answers.
 - `page.console`: The page wrote a message to its console, `ConsoleMessage`: its type, text and location. Sent on each `page.on` call that listens to `console`, the only time the engine reads the page's console.

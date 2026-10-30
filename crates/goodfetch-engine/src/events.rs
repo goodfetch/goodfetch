@@ -8,9 +8,9 @@
 //! change, a "Needs you" item) is never dropped without notice: each
 //! subscription takes them in the order they were published, and one whose
 //! queue is full falls behind instead, its queued lossless events dropped,
-//! and next takes `events.resync`, the axes of every Run the stream has
-//! reported and every item of "Needs you" it lists, then the stream (ADRs
-//! 0024 and 0031). A telemetry event
+//! and next takes `events.resync`, the axes of every live Run the stream
+//! has reported and every item of "Needs you" it lists, then the stream
+//! (ADRs 0024 and 0031). A telemetry event
 //! (progress, logs) replaces the unsent one of the same kind and scope in
 //! each queue, which the one sent counts as `dropped`. A subscription that
 //! names the position its Client last read resumes after it from the kept
@@ -28,7 +28,7 @@ use goodfetch_protocol::connection::EngineInstance;
 use goodfetch_protocol::events::{EventEnvelope, LastRead, Position, RESYNC, Resync};
 use goodfetch_protocol::governor::SYSTEM_INFO;
 use goodfetch_protocol::needs_you::{NEEDS_YOU_CHANGED, NeedsYouChange, NeedsYouItem};
-use goodfetch_protocol::run::{RUN_AXES_CHANGED, RunAxes, RunId};
+use goodfetch_protocol::run::{Lifecycle, RUN_AXES_CHANGED, RunAxes, RunId};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::{Semaphore, mpsc, oneshot};
@@ -113,8 +113,10 @@ enum Fold {
     NeedsYou(Box<NeedsYouChange>),
 }
 
-/// The state a resync gives: every Run's axes the stream has reported, and
-/// every item of "Needs you" it lists.
+/// The state a resync gives: the axes of every live Run the stream has
+/// reported, and every item of "Needs you" it lists. A Run leaves it as it
+/// ends, its axes in the Run index, so an engine that runs Run after Run
+/// keeps none of theirs for its life (#1768).
 #[derive(Default)]
 struct Snapshot {
     runs: BTreeMap<RunId, RunAxes>,
@@ -124,8 +126,11 @@ struct Snapshot {
 impl Snapshot {
     fn fold(&mut self, fold: Fold) {
         match fold {
-            Fold::Axes(axes) => {
+            Fold::Axes(axes) if axes.lifecycle == Lifecycle::Running => {
                 self.runs.insert(axes.run_id.clone(), axes);
+            }
+            Fold::Axes(axes) => {
+                self.runs.remove(&axes.run_id);
             }
             Fold::NeedsYou(change) => match *change {
                 NeedsYouChange::Listed { item } => {
@@ -598,7 +603,7 @@ fn next_position(last: &mut u64) -> Position {
 
 /// Answers the queue's waiting take, if any, once it has an event; a queue
 /// behind first takes `events.resync`, at the next position, with the axes
-/// of every Run and every item of "Needs you" in `snapshot`.
+/// of every live Run and every item of "Needs you" in `snapshot`.
 fn serve(queue: &mut Queue, last: &mut u64, snapshot: &Snapshot) {
     if queue.is_empty() {
         return;

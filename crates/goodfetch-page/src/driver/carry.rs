@@ -287,6 +287,9 @@ async fn commit(
     let mut committed = false;
     let mut reading = true;
     while !(navigated && committed) {
+        // Both the answer and the commit are waited for, and a refused
+        // navigation ends the wait whatever came before it, so the order
+        // the two are polled in cannot change how it ends (#1770).
         tokio::select! {
             answered = &mut navigate, if !navigated => {
                 if answered?.error_text.is_some() {
@@ -336,3 +339,6 @@ async fn commit(
     }
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests;

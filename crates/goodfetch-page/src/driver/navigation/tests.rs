@@ -1,7 +1,14 @@
-use goodfetch_cdp::RawEvent;
+use std::cell::Cell;
+use std::time::Duration;
+
+use goodfetch_cdp::generated::page;
+use goodfetch_cdp::{NetError, RawEvent, SessionId};
+use goodfetch_protocol::page::WaitUntil;
+use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
 
-use super::Navigation;
+use super::{Arrived, Ended, Expected, Followed, Navigation};
+use crate::driver::replay::{self, SESSION};
 
 /// The page's main frame.
 const FRAME: &str = "main";
@@ -134,4 +141,177 @@ fn a_javascript_url_is_told_apart_as_the_egress_check_reads_it(
     #[case] runs: bool,
 ) {
     assert_eq!(super::runs_a_script(url), runs);
+}
+
+/// Where the replayed `page.goto` goes.
+const URL: &str = "https://site.test/b";
+
+/// The navigation `Page.navigate` named.
+const LOADER: &str = "loader-b";
+
+/// How many times the browser's order is replayed: the wait read the events
+/// before the answer in each, never by chance.
+const REPLAYS: usize = 64;
+
+/// The main frame's stop of the load before the replayed navigation's.
+fn stopped_message() -> Value {
+    replay::event("Page.frameStoppedLoading", json!({ "frameId": FRAME }))
+}
+
+/// The browser's start of the navigation of `loader` in the main frame.
+fn started_message(loader: &str) -> Value {
+    replay::event(
+        "Page.frameStartedNavigating",
+        json!({
+            "frameId": FRAME,
+            "url": URL,
+            "loaderId": loader,
+            "navigationType": "differentDocument",
+        }),
+    )
+}
+
+/// The browser's error page for the navigation of `loader`, committed in
+/// the main frame under its loader and loaded.
+fn error_page_messages(loader: &str) -> Vec<Value> {
+    vec![
+        replay::event(
+            "Page.frameNavigated",
+            json!({
+                "frame": {
+                    "id": FRAME,
+                    "loaderId": loader,
+                    "url": "chrome-error://chromewebdata/",
+                    "domainAndRegistry": "",
+                    "securityOrigin": "://",
+                    "mimeType": "text/html",
+                    "secureContextType": "InsecureScheme",
+                    "crossOriginIsolatedContextType": "NotIsolated",
+                    "gatedAPIFeatures": [],
+                },
+                "type": "Navigation",
+            }),
+        ),
+        replay::event(
+            "Page.lifecycleEvent",
+            json!({ "frameId": FRAME, "loaderId": loader, "name": "load", "timestamp": 1.0 }),
+        ),
+    ]
+}
+
+/// One replay of a `page.goto` whose `Page.navigate` the browser answers
+/// with `navigated`, in one write after the events `before`, and after
+/// which it sends the events `after` once a second of the paused clock
+/// passed: how the wait ended, and whether the browser had sent `after`
+/// by then.
+async fn followed_once(
+    before: &[Value],
+    navigated: &Value,
+    after: &[Value],
+    wait_until: WaitUntil,
+) -> (Followed, bool) {
+    let ((connection, driver), mut browser) = replay::connected();
+    let session = SessionId(SESSION.to_owned());
+    let mut events = connection.subscribe(Some(&session));
+    let mut navigation = Navigation::of(FRAME.to_owned());
+    let after_sent = Cell::new(false);
+    let (_, followed, ()) = tokio::join!(
+        driver.run(),
+        async {
+            let command = async {
+                let answered = connection
+                    .send(
+                        Some(&session),
+                        &page::NavigateParams {
+                            url: URL.to_owned(),
+                            referrer: None,
+                            transition_type: None,
+                            frame_id: None,
+                            referrer_policy: None,
+                        },
+                        Duration::from_secs(30),
+                    )
+                    .await
+                    .expect("invariant: the played browser answers");
+                Ok(super::navigated(URL, answered, false))
+            };
+            let followed = navigation
+                .follow(command, &mut events, wait_until, || false)
+                .await
+                .expect("invariant: the command answered");
+            let read_after = after_sent.get();
+            drop((events, connection));
+            (followed, read_after)
+        },
+        async {
+            let command = browser.command().await;
+            let mut messages = before.to_vec();
+            messages.push(replay::answer(&command, navigated.clone()));
+            assert!(browser.send(&messages).await, "the client left");
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            after_sent.set(true);
+            // The client may be gone: the wait ended without these.
+            let _ = browser.send(after).await;
+            browser.hold().await;
+        }
+    );
+    followed
+}
+
+/// A `page.goto` decides how its navigation ended only once it read every
+/// event the browser sent before `Page.navigate`'s answer, as the browser's
+/// pipe orders them, whichever of the two the wait could poll first
+/// (#1770):
+/// - a failure the browser answers with the navigation's loader waits for
+///   the error page it then commits under that loader, though the main
+///   frame's stop of the load before came first: the navigation's start,
+///   which the browser sent next, makes that stop an earlier load's;
+/// - an answer within the document, and a failure with no loader, end at
+///   the answer, whatever the browser sent before it.
+#[rstest::rstest]
+#[case::a_failure_with_its_loader_after_a_stop_of_the_load_before(
+    vec![stopped_message(), started_message(LOADER)],
+    json!({ "frameId": FRAME, "loaderId": LOADER, "errorText": "net::ERR_CONNECTION_REFUSED" }),
+    error_page_messages(LOADER),
+    Followed::Ended {
+        outcome: Err(Ended::Failed(NetError::of("net::ERR_CONNECTION_REFUSED"))),
+        expected: Some(Expected::Failed(
+            LOADER.to_owned(),
+            NetError::of("net::ERR_CONNECTION_REFUSED"),
+        )),
+    },
+    true
+)]
+#[case::within_the_document_after_the_page_started_another_navigation(
+    vec![started_message("loader-c")],
+    json!({ "frameId": FRAME }),
+    vec![],
+    Followed::Ended { outcome: Ok(Arrived::Document(None)), expected: None },
+    false
+)]
+#[case::a_failure_with_no_loader_after_a_stop(
+    vec![stopped_message(), started_message("loader-c")],
+    json!({ "frameId": FRAME, "errorText": "net::ERR_ABORTED" }),
+    vec![],
+    Followed::Ended { outcome: Err(Ended::Failed(NetError::Aborted)), expected: None },
+    false
+)]
+fn a_goto_reads_the_events_sent_before_its_answer_before_it_decides(
+    #[case] before: Vec<Value>,
+    #[case] navigated: Value,
+    #[case] after: Vec<Value>,
+    #[case] expected: Followed,
+    #[case] read_after: bool,
+) {
+    runtime().block_on(async {
+        let mut differing = Vec::new();
+        for _ in 0..REPLAYS {
+            let followed = followed_once(&before, &navigated, &after, WaitUntil::Load).await;
+            if followed.0 != expected || followed.1 != read_after {
+                differing.push(followed);
+            }
+        }
+
+        assert_eq!(differing, [], "replays that ended otherwise, of {REPLAYS}");
+    });
 }

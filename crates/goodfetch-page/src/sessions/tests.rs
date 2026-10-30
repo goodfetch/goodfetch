@@ -1,10 +1,13 @@
 //! The Sessions table against a Run that stops while a Session opens
-//! (#1763): an in-process engine of the engine's operations, the page
-//! crate's and the test's own, on the test `Clock` and `Entropy` with
-//! blocking work inline, whose test operation opens a Run's default Session
-//! itself, step by step, and stops the Run while the open waits for its
-//! record in run state. A Session left in the table past its Run's clean-up
-//! would hold the Run, its browsers and its egress relay forever.
+//! (#1763), and a page that ends past its memory cap: an in-process engine
+//! of the engine's operations, the page crate's and the test's own, on the
+//! test `Clock` and `Entropy` with blocking work inline, whose test
+//! operations drive the table themselves, step by step. One opens a Run's
+//! default Session and stops the Run while the open waits for its record in
+//! run state: a Session left in the table past its Run's clean-up would
+//! hold the Run, its browsers and its egress relay forever. The other ends
+//! a page past its memory cap as its watch does: a page found in neither
+//! the open pages nor the ended ones would answer `closed`.
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
@@ -18,7 +21,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::runs::{EndedBy, Start, Started};
+use goodfetch_engine::runs::{EndedBy, Run, Start, Started};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
@@ -29,11 +32,16 @@ use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::governor::BROWSER_PAGE_MEMORY_CAP;
+use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::run::{RunId, RunKind, Tags};
+use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+use tokio::sync::watch;
 
+use super::life::{Ending, PageLife};
 use super::{Opener, Sessions};
 use crate::dialogs::Dialogs;
 use crate::interception::Interception;
@@ -57,13 +65,16 @@ const STOPPED_OPEN: Operation = Operation {
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
 };
 
-/// `test.stopped_open`: starts the Run `run_id`, reaches it in a Sessions
-/// table of its own and opens its default Session, polled by hand until it
-/// took its position and waits; then stops the Run and lets the table's
-/// clean-up take the Run out before the open goes on. Answers whether the
-/// open succeeded, and how many Sessions of the Run the table holds after.
-async fn stopped_open(params: Value, context: CallContext) -> Result<Value, CallError> {
-    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+/// Ends a page past its memory cap and confirms its close, as the page's
+/// watch does when its target's end arrives first.
+const ENDED_PAST_CAP: Operation = Operation {
+    name: "test.ended_past_cap",
+    description: "Ends a page past its memory cap and reads it after.",
+    ..STOPPED_OPEN
+};
+
+/// The Run `run_id`, started for the test's own operation.
+async fn started(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
     let started = context
         .runs()
         .start(Start {
@@ -87,13 +98,63 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
     let Started::New(run) = started else {
         panic!("the Run began before");
     };
-    let sessions = Sessions::new(
+    Ok(run)
+}
+
+/// A Sessions table of its own for the test's operation.
+fn table() -> Sessions {
+    Sessions::new(
         Vec::new(),
         Interception::default(),
         page_events::Table::default(),
         Dialogs::default(),
         Arc::new(ProgramPages),
-    );
+    )
+}
+
+/// `test.ended_past_cap`: starts the Run `run_id` and reaches it in a
+/// Sessions table of its own, then ends one of its pages past its memory
+/// cap, confirms the close and acts on its end, as the page's watch does
+/// when its target's end comes before the closing call's answer. Answers
+/// the code a call on the page raises after.
+async fn ended_past_cap(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+    let run = started(&run_id, &context).await?;
+    let sessions = table();
+    sessions.reach(&run, &context).await?;
+    let page_id = PageId("page-1".to_owned());
+    let life = PageLife::new(page_id.clone(), None, watch::channel(0).1);
+    let limit = SettingLimit {
+        key: BROWSER_PAGE_MEMORY_CAP.name.to_owned(),
+        value: json!(32 << 20),
+        layer: SettingsLayer::Run,
+    };
+    life.end(&Ending::MemoryExceeded {
+        memory: 64 << 20,
+        limit,
+    })?;
+    let confirmed = life.end(&Ending::Destroyed)?;
+
+    sessions.page_ended(&page_id, &run, &life, confirmed).await;
+
+    let raised = sessions
+        .page(&page_id)
+        .await
+        .err()
+        .map(|error| error.code());
+    run.cancellation().cancel();
+    Ok(json!({ "raised": raised }))
+}
+
+/// `test.stopped_open`: starts the Run `run_id`, reaches it in a Sessions
+/// table of its own and opens its default Session, polled by hand until it
+/// took its position and waits; then stops the Run and lets the table's
+/// clean-up take the Run out before the open goes on. Answers whether the
+/// open succeeded, and how many Sessions of the Run the table holds after.
+async fn stopped_open(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+    let run = started(&run_id, &context).await?;
+    let sessions = table();
     sessions.reach(&run, &context).await?;
     let positioned = async || {
         sessions
@@ -141,7 +202,11 @@ fn engine() -> Engine {
     let composition = Composition::default()
         .with(goodfetch_engine::contribution())
         .with(crate::contribution(Vec::new()))
-        .with(Contribution::new("test").with_handler(Handler::new(&STOPPED_OPEN, stopped_open)));
+        .with(
+            Contribution::new("test")
+                .with_handler(Handler::new(&STOPPED_OPEN, stopped_open))
+                .with_handler(Handler::new(&ENDED_PAST_CAP, ended_past_cap)),
+        );
     Engine::new(identity, &composition).unwrap()
 }
 
@@ -225,4 +290,22 @@ fn a_default_session_whose_run_stops_while_it_opens_is_never_left_in_the_table()
     );
 
     assert_eq!(reply["result"], json!({ "opened": false, "left": 0 }));
+}
+
+/// A page the Resource governor ended past its memory cap, whose close is
+/// confirmed, leaves the open pages straight for the ended ones its later
+/// calls read, under one lock: a call on it raises `page_memory_exceeded`
+/// again, never `closed`.
+/// Covers: story:3-59
+#[test]
+fn a_page_ended_past_its_memory_cap_answers_page_memory_exceeded_once_its_close_is_confirmed() {
+    let env = TestEnv::new();
+
+    let reply = call(
+        &env,
+        "test.ended_past_cap",
+        json!({ "run_id": "ended-past-cap" }),
+    );
+
+    assert_eq!(reply["result"], json!({ "raised": "page_memory_exceeded" }));
 }

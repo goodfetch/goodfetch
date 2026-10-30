@@ -202,6 +202,16 @@ impl PageLife {
         self.shared.past_cap.set(()).is_ok()
     }
 
+    /// Whether the Resource governor ended the page past its memory cap:
+    /// its later calls raise `page_memory_exceeded` again once it left.
+    pub(crate) fn ended_past_cap(&self) -> bool {
+        self.shared
+            .ended
+            .borrow()
+            .as_ref()
+            .is_some_and(|ended| ended.code() == PAGE_MEMORY_EXCEEDED.name)
+    }
+
     /// Waits until no call on the page is in flight: its safe point, where
     /// the Resource governor ends it (ADR 0040).
     ///

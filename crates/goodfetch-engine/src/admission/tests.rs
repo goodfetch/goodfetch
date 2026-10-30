@@ -1,10 +1,15 @@
 //! A Run's rate cap through its interface (spec #213's Seam 4): a pure
 //! function of the monotonic readings the tests give it; and the room a
 //! second copy of an admitted request takes, from an in-memory Politeness
-//! on the paused test runtime.
+//! on the paused test runtime; and a key its Run refuses until the time its
+//! site asked for.
 #![expect(
     clippy::disallowed_methods,
     reason = "a pure rule's readings may start from any moment (ADR 0059)"
+)]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
 use std::sync::{Arc, Mutex};

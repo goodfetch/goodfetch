@@ -32,8 +32,11 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
 
-use goodfetch_test_support::{Canaries, Output, ProvingGround, SecretKind, TestEnv, browser_cache};
+use goodfetch_test_support::{
+    Canaries, Output, ProvingGround, SecretKind, TestEnv, browser_cache, chrome_for_testing_files,
+};
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use prost::Message as _;
 use rstest::rstest;
@@ -480,10 +483,34 @@ fn a_key_read_through_each_provider_and_an_endpoint_token_are_in_no_output(
 /// The Proving ground's own seed for the Session cookie's test.
 const SEED: u64 = 649;
 
+/// Every file and folder of `folder`, at any depth, as few as cover them,
+/// but `left_out` and what it holds.
+fn paths_but(folder: &Path, left_out: &Path) -> Vec<PathBuf> {
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(folder)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    entries.sort();
+    let mut paths = Vec::new();
+    for entry in entries {
+        if entry == left_out {
+            continue;
+        }
+        if left_out.starts_with(&entry) {
+            paths.extend(paths_but(&entry, left_out));
+        } else {
+            paths.push(entry);
+        }
+    }
+    paths
+}
+
 /// A login on the Proving ground's `canaries` flow sets a Session cookie,
 /// a Secret canary, in a page of the Run's default Session; the browser
 /// sends it only where its flow does, and it is in no reply and no file of
-/// the test's folder once the Run finished.
+/// the test's folder once the Run finished, but the Chrome for Testing
+/// build the test copied in, Playwright's own files, which no engine
+/// writes.
 ///
 /// Covers: story:4-91
 #[test]
@@ -548,14 +575,14 @@ fn a_session_cookie_a_login_sets_is_in_no_output() {
     replies.extend(rest);
 
     let replies_bytes = serde_json::to_vec(&replies).unwrap();
+    let searched = paths_but(env.folder(), &chrome_for_testing_files(&cache));
+    let mut outputs = vec![Output::Bytes {
+        name: "replies",
+        bytes: &replies_bytes,
+    }];
+    outputs.extend(searched.iter().map(|path| Output::Path(path)));
     let leaks: Vec<String> = canaries
-        .leaks(&[
-            Output::Bytes {
-                name: "replies",
-                bytes: &replies_bytes,
-            },
-            Output::Path(env.folder()),
-        ])
+        .leaks(&outputs)
         .unwrap()
         .into_iter()
         .map(|hit| format!("{:?} in {}", hit.encoding, hit.output))

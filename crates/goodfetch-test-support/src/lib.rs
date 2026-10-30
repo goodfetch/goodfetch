@@ -98,7 +98,8 @@ mod variables;
 pub use browsers::{
     BROWSERS_PATH_VARIABLE, BrowserCacheError, CHROME_FOR_TESTING_BUILD, LIGHTPANDA_BUILD,
     LIGHTPANDA_DOWNLOADS_VARIABLE, browser_cache, browser_cache_in_home,
-    browser_cache_with_lightpanda, lay_out_browser_entry, lightpanda_copy,
+    browser_cache_with_lightpanda, chrome_for_testing_files, lay_out_browser_entry,
+    lightpanda_copy,
 };
 pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SHORT_VALUE,

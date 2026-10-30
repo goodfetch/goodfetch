@@ -19,8 +19,13 @@
 //! chunked body without its last chunk, a reset or closed stream), unless
 //! it is the browser's own cancel or a content coding that failed to
 //! decode, which is `net::ERR_CONTENT_DECODING_FAILED`. Chromium fires no
-//! `load` for a cut document. A gzip stream cut within a whole transfer
-//! gives no signal at all: Chromium decodes its prefix and fires `load`.
+//! `load` for a cut document. A document from the network whose load the
+//! browser reported finished with no bytes counted is cut too: the network
+//! counts every load it finishes, and the interception that read the body
+//! at its response stage then went on before the failure arrived, which
+//! it lost (ADR 0118's #1732 note); Chromium fires `load` for it. A gzip
+//! stream cut within a whole transfer gives no signal at all: Chromium
+//! decodes its prefix and fires `load`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -30,6 +35,8 @@ use goodfetch_cdp::{NetError, RawEvent, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_protocol::page::{PageResponse, WaitUntil};
+
+use crate::paused_body::{bodiless, from_the_network, lost_its_failure};
 
 /// The event of a target whose renderer crashed.
 pub(super) const CRASHED: &str = "Inspector.targetCrashed";
@@ -151,6 +158,12 @@ pub(super) struct Navigation {
     /// The bytes of each document's body that arrived, decoded.
     received: BTreeMap<LoaderId, u64>,
     failed: BTreeMap<LoaderId, NetError>,
+    /// The documents whose response came from the network.
+    from_the_network: BTreeSet<LoaderId>,
+    /// The documents from the network whose load the browser reported
+    /// finished with no bytes counted: their body broke off, the failure
+    /// lost on its way to the page (ADR 0118's #1732 note).
+    cut_though_finished: BTreeSet<LoaderId>,
     /// The documents whose navigation failed once they had committed, such
     /// as a body that broke off: the browser shows no error page for them.
     failed_committed: BTreeSet<LoaderId>,
@@ -198,6 +211,8 @@ impl Navigation {
             responses: BTreeMap::new(),
             received: BTreeMap::new(),
             failed: BTreeMap::new(),
+            from_the_network: BTreeSet::new(),
+            cut_though_finished: BTreeSet::new(),
             failed_committed: BTreeSet::new(),
             committed: Vec::new(),
             content_loaded: BTreeSet::new(),
@@ -303,10 +318,26 @@ impl Navigation {
                     .chains
                     .get(&received.loader_id)
                     .map_or(0, |chain| chain.len().saturating_sub(1));
+                if from_the_network(&received.response) {
+                    self.from_the_network.insert(received.loader_id.clone());
+                } else {
+                    self.from_the_network.remove(&received.loader_id);
+                }
                 self.responses.insert(
                     received.loader_id,
                     response_of(&hop_id(&received.request_id, redirects), &received.response),
                 );
+            }
+        } else if let Some(finished) = event.read::<network::LoadingFinishedEvent>() {
+            if let Some(loader) = self.requests.get(&finished.request_id)
+                && let Some(response) = self.responses.get(loader)
+                && lost_its_failure(
+                    self.from_the_network.contains(loader),
+                    bodiless(None, response.status),
+                    finished.encoded_data_length,
+                )
+            {
+                self.cut_though_finished.insert(loader.clone());
             }
         } else if let Some(data) = event.read::<network::DataReceivedEvent>() {
             if let Some(loader) = self.requests.get(&data.request_id) {
@@ -494,6 +525,11 @@ impl Navigation {
         if let Some(error) = self.failed.get(loader) {
             return Some(Err(self.ended(loader, error, superseded)));
         }
+        if let Some(response) = response
+            && self.cut_though_finished.contains(loader)
+        {
+            return Some(Err(self.truncated(loader, response)));
+        }
         if !self.committed.contains(loader) {
             let overtaken = self
                 .committed
@@ -536,15 +572,20 @@ impl Navigation {
         }
         match self.responses.get(loader) {
             Some(response) if *error != NetError::Aborted && !error.fails_to_decode() => {
-                Ended::Truncated {
-                    received: self.received.get(loader).copied().unwrap_or_default(),
-                    expected: response
-                        .headers
-                        .get("content-length")
-                        .and_then(|length| length.trim().parse().ok()),
-                }
+                self.truncated(loader, response)
             }
             _ => Ended::Failed(error.clone()),
+        }
+    }
+
+    /// The document of `loader`, answered `response`, whose body broke off.
+    fn truncated(&self, loader: &LoaderId, response: &PageResponse) -> Ended {
+        Ended::Truncated {
+            received: self.received.get(loader).copied().unwrap_or_default(),
+            expected: response
+                .headers
+                .get("content-length")
+                .and_then(|length| length.trim().parse().ok()),
         }
     }
 }

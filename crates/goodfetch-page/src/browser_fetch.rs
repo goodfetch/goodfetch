@@ -18,10 +18,11 @@
 //! nothing renders it or downloads it, while the browser still reports how
 //! its body ended: whole, cut (a length mismatch, a chunked stream or a
 //! connection ending early), or a content coding that failed to decode
-//! (ADR 0118's note on the pinned Chromium's signals), and a body with no
-//! content coding shorter than its `Content-Length` is cut even when the
-//! browser lost that failure and finished the load with no bytes counted
-//! (ADR 0118's note on fix-queue NEW-2). The Set-Cookie
+//! (ADR 0118's note on the pinned Chromium's signals). A body is cut too,
+//! whatever its framing or content coding, when the browser lost that
+//! failure and finished the load with no bytes counted, as the network
+//! never finishes a whole one so (ADR 0118's notes on fix-queue NEW-2 and
+//! #1732). The Set-Cookie
 //! headers it carries are the browser's to keep, in the Session's context.
 //!
 //! The body is judged by the Run's limits on what the engine reads (SC-05):
@@ -53,7 +54,10 @@ use crate::driver::PageDriver;
 use crate::errors::{network_error, site_preferences_refused};
 use crate::interception::{EngineRequests, Overrides};
 use crate::page_value::{Navigation, NavigationKind, Permit};
-use crate::paused_body::{coded, declared_within_limits, streamed};
+use crate::paused_body::{
+    bodiless, coded, declared_within_limits, encoded_bytes, from_the_network, lost_its_failure,
+    streamed,
+};
 
 /// The headers the page's copy of the response loses, so that nothing
 /// renders it or turns it into a download.
@@ -67,45 +71,27 @@ fn declared_length(response: &PageResponse) -> Option<u64> {
         .and_then(|length| length.trim().parse().ok())
 }
 
-/// The browser's count of a body's encoded bytes, when it counted any.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "CDP counts bytes in a double; a count is whole and far below 2^53"
-)]
-fn encoded_bytes(encoded: f64) -> Option<u64> {
-    (encoded.is_finite() && encoded >= 1.0).then_some(encoded as u64)
-}
-
 /// Whether a load the browser reported finished, of `response` to a
-/// request of `method`, holding `bytes` decoded after `encoded` bytes the
-/// browser counted, broke off all the same: one with no content coding,
-/// whose body is shorter than its `Content-Length`, which the browser
-/// finished with no bytes counted.
-///
-/// The pinned Chromium finishes so a load whose body broke off when the
-/// network's failure reaches the paused response only after the response
-/// went on: its interception then ends the load itself, counting no bytes,
-/// and the failure is lost (fix-queue NEW-2). A load the network finished
-/// counts its headers at least, and one the cache answered is whole. A
-/// chunked or coded body cut so cannot be told from a whole one.
+/// request of `method`, after `encoded` bytes the browser counted, broke
+/// off all the same: one the network answered (`from_the_network`), with
+/// a body, which the browser finished with no bytes counted, whatever its
+/// framing or content coding ([`lost_its_failure`]; fix-queue NEW-2 and
+/// #1732). One the cache answered counts none, and is whole.
 fn cut_though_finished(
     method: Option<&str>,
     response: &PageResponse,
-    bytes: usize,
+    from_the_network: bool,
     encoded: f64,
 ) -> bool {
-    encoded_bytes(encoded).is_none() && short_of_its_length(method, response, bytes)
+    lost_its_failure(from_the_network, bodiless(method, response.status), encoded)
 }
 
 /// Whether `bytes`, the body of `response` to a request of `method`, are
 /// fewer than the `Content-Length` it declared with no content coding: the
 /// one cut the bytes alone show.
 fn short_of_its_length(method: Option<&str>, response: &PageResponse, bytes: usize) -> bool {
-    let bodiless = method.is_some_and(|method| method.eq_ignore_ascii_case("HEAD"))
-        || matches!(response.status, 100..=199 | 204 | 304);
     !coded(&response.headers)
-        && !bodiless
+        && !bodiless(method, response.status)
         && declared_length(response)
             .is_some_and(|declared| u64::try_from(bytes).unwrap_or(u64::MAX) < declared)
 }
@@ -242,6 +228,9 @@ struct Load<'a> {
     relay_mark: Option<u64>,
     /// The response, once it arrived, and its bytes, once read.
     answered: Option<(PageResponse, Vec<u8>)>,
+    /// Whether the page was handed the response from the network, not
+    /// from the cache: so until the browser says otherwise.
+    from_the_network: bool,
     /// The permit the page's navigation gate gave the hop under way, held
     /// until its response arrives.
     permit: Option<Permit>,
@@ -258,6 +247,7 @@ impl<'a> Load<'a> {
             authenticated: false,
             relay_mark: driver.relay().map(crate::egress_relay::EgressRelay::mark),
             answered: None,
+            from_the_network: true,
             permit: None,
         }
     }
@@ -309,9 +299,13 @@ impl<'a> Load<'a> {
                         }
                     } else if let Some(required) = event.read::<fetch::AuthRequiredEvent>() {
                         self.authenticate(required).await;
+                    } else if let Some(received) = event.read::<network::ResponseReceivedEvent>() {
+                        if self.ours(&received.request_id) {
+                            self.from_the_network = from_the_network(&received.response);
+                        }
                     } else if let Some(finished) = event.read::<network::LoadingFinishedEvent>() {
                         if self.ours(&finished.request_id) && let Some((response, bytes)) = self.answered.take() {
-                            if cut_though_finished(self.request.method, &response, bytes.len(), finished.encoded_data_length) {
+                            if cut_though_finished(self.request.method, &response, self.from_the_network, finished.encoded_data_length) {
                                 return Ok(cut(response, &bytes));
                             }
                             return self.within_limits(&response, &bytes, finished.encoded_data_length)

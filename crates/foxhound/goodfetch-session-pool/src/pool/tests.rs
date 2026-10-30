@@ -642,3 +642,35 @@ fn a_pool_read_again_from_run_state_keeps_its_addresses_and_blocked_blocks() {
         ([127, 0, 0, 4], [127, 0, 0, 4], [127, 0, 0, 4])
     );
 }
+
+/// A block met by an attempt whose Session the pool retired while it was
+/// in flight, here for its uses, still blocks that Session's block on the
+/// domain: the replacement for the domain skips the address round robin
+/// would give it there.
+///
+/// Covers: story:4-109
+#[test]
+fn a_block_met_after_its_session_was_retired_still_blocks_its_block() {
+    let settings = PoolSettings {
+        max_uses: 1,
+        ..ROOMY
+    };
+    let mut pool = pool(1).with_local_addresses(local(&[[127, 0, 0, 2], [127, 0, 0, 4]], false));
+    let blocked = pool.draw(&PoolKey::Run, "shop.test", &settings, start());
+    let other = pool.draw(&PoolKey::Run, "books.test", &settings, start());
+    pool.settle(
+        &blocked,
+        "shop.test",
+        Effect::Blocked(BlockCause::IpBlock),
+        &settings,
+    );
+    let other_address = address_of(&pool, &other);
+    pool.settle(&other, "books.test", Effect::Success, &settings);
+
+    let replacement = pool.draw(&PoolKey::Run, "shop.test", &settings, start());
+
+    assert_eq!(
+        (other_address, address_of(&pool, &replacement)),
+        ([127, 0, 0, 4], [127, 0, 0, 4])
+    );
+}

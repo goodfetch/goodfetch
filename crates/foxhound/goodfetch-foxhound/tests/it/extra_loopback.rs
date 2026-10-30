@@ -8,17 +8,23 @@
 //! `egress.local_addresses`, each Session from its own; a Session a block
 //! retired is replaced by one outside every `/30` block blocked on its
 //! domain, and, with every block blocked, by one within a block, which the
-//! Run report warns of. Until the engine detects blocks itself (area 5),
-//! the test's handler names the Block cause of the pages it is told to.
+//! Run report warns of. A Run that sets a proxy blocks the block all the
+//! same while its `http` tier sends direct, and a replacement serving its
+//! domain on the browser tier binds its relay to the pool's address too.
+//! Until the engine detects blocks itself (area 5), the test's handler
+//! names the Block cause of the pages it is told to.
 
 use std::collections::BTreeSet;
 use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 
-use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
+use goodfetch_test_support::{
+    BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
+};
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
-use crate::frontier::crawl_with;
+use crate::frontier::{crawl_declaring, crawl_with};
 
 /// The Proving ground's seed.
 const SEED: u64 = 682;
@@ -216,5 +222,98 @@ fn a_replacement_after_a_block_reaches_the_site_from_an_unblocked_block() {
             vec![json!(["session-3"])],
         ),
         "{within}"
+    );
+}
+
+/// A Run that sets a proxy, while its `http` tier sends direct from its
+/// Sessions' addresses, still blocks the address the site saw: the
+/// replacement after a block leaves from outside the blocked `/30`, as
+/// without a proxy, since the proxy is no route its requests take (ADR
+/// 0044's #682 note).
+///
+/// Covers: story:4-109, setting:proxy.server
+#[test]
+fn a_replacement_after_a_block_on_the_http_tier_leaves_an_unblocked_block_though_the_run_sets_a_proxy()
+ {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let seeds: Vec<Value> = ["/consistency/1", "/consistency/2", "/version"]
+        .iter()
+        .map(|path| json!({ "url": proving_ground.url("access.test", path), "label": "page" }))
+        .collect();
+    let mut settings = settings(&proving_ground, &["127.0.0.2", "127.0.0.3", "127.0.0.4"]);
+    settings["proxy"] = json!({
+        "server": format!("http://{}", proving_ground.description().fixtures.proxies["datacenter"]),
+    });
+    let mut engine = Attached::start(&env);
+
+    let report = crawl_with(
+        &mut engine,
+        "proxied-direct",
+        &seeds,
+        &settings,
+        &mut |_, handle| answer(handle, &["/consistency/1"]),
+    );
+    let observations = proving_ground.observations().unwrap();
+    assert!(engine.finish());
+
+    assert_eq!(
+        ["/consistency/1", "/consistency/2", "/version"]
+            .map(|page| sources_of(&observations, page)),
+        [
+            vec![ip("127.0.0.2")],
+            vec![ip("127.0.0.4")],
+            vec![ip("127.0.0.4")],
+        ],
+        "{report}"
+    );
+}
+
+/// A replacement that serves its domain on the browser tier, after a block
+/// its Session met on the `http` tier, binds its browser's relay to the
+/// address the pool gave it, outside the blocked `/30`, not to the one its
+/// browser context's own count would draw (ADR 0044; #682).
+///
+/// Covers: story:4-109
+#[test]
+fn a_replacement_on_the_browser_tier_reaches_the_site_from_the_pools_unblocked_address() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = Attached::start_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let seeds = [
+        json!({ "url": proving_ground.url("access.test", "/consistency/1"), "label": "http" }),
+        json!({ "url": proving_ground.url("access.test", "/corpus/article?n=1"), "label": "browser" }),
+    ];
+    let mut settings = settings(&proving_ground, &["127.0.0.2", "127.0.0.5"]);
+    settings["fetch"] = json!({});
+    settings["session"] = json!({ "pool": { "max_size": 1 } });
+
+    let report = crawl_declaring(
+        &mut engine,
+        "browser-replacement",
+        &seeds,
+        &json!({
+            "http": { "settings": { "fetch": { "tier": "http" } } },
+            "browser": { "settings": { "fetch": { "tier": "browser" } } },
+        }),
+        &settings,
+        &mut |_, handle| answer(handle, &["/consistency/1"]),
+    );
+    let observations = proving_ground.observations().unwrap();
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            ["/consistency/1", "/corpus/article?n=1"].map(|page| sources_of(&observations, page)),
+        ),
+        (
+            &json!("finished"),
+            [vec![ip("127.0.0.2")], vec![ip("127.0.0.5")]],
+        ),
+        "{report}"
     );
 }

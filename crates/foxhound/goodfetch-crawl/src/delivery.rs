@@ -36,8 +36,10 @@
 //! (`politeness.retry_after.max`), the request whose response asked ends
 //! `failed` with no retry spent, and each request of the domain admitted
 //! meanwhile ends `failed` with `response_unavailable`, unsent: no handler
-//! request goes for it. Once every work item
-//! is done, it finishes the Run; with `crawl.keep_alive` (RT-12) it waits
+//! request goes for it. That time is measured from when the request's
+//! handler request went out, and the Run refuses the domain until then,
+//! so however late the failure arrives, nothing waits for it. Once every
+//! work item is done, it finishes the Run; with `crawl.keep_alive` (RT-12) it waits
 //! for new work instead until `run.finish` lets the Run finish, so its idle
 //! time counts toward its `timeout.run`. A seed added to the running crawl
 //! (`run.add_seed`, `run.add_seeds`) wakes it, idle or not, to key the new
@@ -63,7 +65,6 @@
 //! passes through one loop.
 
 use std::collections::BTreeSet;
-use std::time::Duration;
 
 use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
@@ -1052,21 +1053,24 @@ async fn settled(
     fetching
         .retire(run, pool, &servers[attempt.server].context)
         .await;
+    let held = held_past_bound(
+        &attempt.answer,
+        attempt.handed_at.unwrap_or_else(|| run.clock().wall()),
+        goodfetch_frontier::longest_wait(&resolved),
+    );
     let retried = match attempt.answer {
         Answer::SitemapRead(_) => {
             read_sitemap(run, &resolved, attempt).await;
             false
         }
-        _ => {
-            settle(
-                run,
-                CrawlPolicy::of(&resolved),
-                goodfetch_frontier::longest_wait(&resolved),
-                attempt,
-            )
-            .await
-        }
+        _ => settle(run, CrawlPolicy::of(&resolved), held.is_some(), attempt).await,
     };
+    if let Some(asked) = held {
+        let clock = run.clock();
+        if let Ok(wait) = asked.duration_since(clock.wall()) {
+            admission.refuse(&waiting.key, clock.now() + wait, asked);
+        }
+    }
     admission
         .ended(&waiting.id, &waiting.key, run.clock().now(), domain)
         .await;
@@ -1356,15 +1360,11 @@ fn count_retry(run: &Run) {
 }
 
 /// Commits an attempt's outcome: its Records once while its lease holds,
-/// its handler's skip, its block, or its work item retried or failed; then
-/// releases its lease. Answers whether its work item waits again for a
-/// retry.
-async fn settle(
-    run: &Run,
-    policy: CrawlPolicy,
-    longest_wait: Option<Duration>,
-    attempt: Attempt,
-) -> bool {
+/// its handler's skip, its block, or its work item retried or failed, with
+/// no retry when its failure's site asked for a time further away than the
+/// Run waits (`held`); then releases its lease. Answers whether its work
+/// item waits again for a retry.
+async fn settle(run: &Run, policy: CrawlPolicy, held: bool, attempt: Attempt) -> bool {
     let Attempt {
         leased,
         lease,
@@ -1444,7 +1444,6 @@ async fn settle(
             message,
             details,
         } => {
-            let held = held_past_bound(&details, run.clock().wall(), longest_wait).is_some();
             let failed = kept_failure(run, code, &message, details);
             match block_cause(&failed.code, &failed.details) {
                 Some(cause) => Unsuccessful::Blocked(cause),

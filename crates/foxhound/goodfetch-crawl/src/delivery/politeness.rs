@@ -147,21 +147,27 @@ fn at(until: SystemTime, now: Instant, wall: SystemTime) -> Instant {
     now + until.duration_since(wall).unwrap_or_default()
 }
 
-/// The time a failure's `retry_after` names when it is further away from
-/// `wall` than the Run waits, `longest_wait`; `None` when the Run waits for
-/// nothing.
+/// The time the `retry_after` of the handler's failure `answer` names when
+/// it is further away than the Run waits, `longest_wait`, from `asked`, the
+/// moment the site asked: when its handler request went out, never when
+/// the failure arrived, so the time the handler and the engine took to
+/// report it never shortens the site's wait (ADR 0118). `None` for any
+/// other answer, and when the Run waits for nothing.
 pub(super) fn held_past_bound(
-    details: &Map<String, Value>,
-    wall: SystemTime,
+    answer: &Answer,
+    asked: SystemTime,
     longest_wait: Option<Duration>,
 ) -> Option<SystemTime> {
     let longest_wait = longest_wait?;
+    let Answer::Failed { details, .. } = answer else {
+        return None;
+    };
     details
         .get(RETRY_AFTER)
         .and_then(retry_after::of_detail)
-        .filter(|asked| {
-            asked
-                .duration_since(wall)
+        .filter(|until| {
+            until
+                .duration_since(asked)
                 .is_ok_and(|wait| wait > longest_wait)
         })
 }

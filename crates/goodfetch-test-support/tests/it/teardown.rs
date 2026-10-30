@@ -90,6 +90,27 @@ fn an_in_memory_folder_a_killed_test_left_is_moved_to_disk_by_the_next_setup() {
     assert_eq!(evidence.unwrap(), "kept");
 }
 
+/// A child that ignores `SIGINT` is killed at the deadline and reaped, so a
+/// teardown that interrupts its process first still leaves none alive.
+#[cfg(unix)]
+#[test]
+fn a_child_that_ignores_sigint_is_killed_at_the_deadline_and_reaped() {
+    let env = TestEnv::new();
+    let mut command = env.process_command("/bin/sh");
+    command.args(["-c", "trap '' INT; read line"]);
+    let process = env.spawn(&mut command).unwrap();
+
+    let stopped = process.interrupt_and_wait(std::time::Duration::from_millis(300));
+
+    assert_eq!(
+        (
+            stopped.map_err(|error| error.kind()).err(),
+            process.child().try_wait().unwrap().is_some()
+        ),
+        (Some(std::io::ErrorKind::TimedOut), true)
+    );
+}
+
 #[test]
 fn a_child_left_alive_after_teardown_fails_the_test() {
     let outer = TestEnv::new();

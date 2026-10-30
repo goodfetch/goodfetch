@@ -333,12 +333,14 @@ fn a_429_a_handler_met_backs_its_domain_off_while_the_others_go() {
     assert!(a_first_backoff(handled[2].1), "{handled:?}");
 }
 
-/// Crawls `seeds` one request at a time, the handler failing `heavy.test/1`
-/// once as `failure` says, then finishes the crawl; answers the requests
-/// sent, the Run report and what `run.failed_requests` lists.
+/// Crawls `seeds` one request at a time under `settings`, the handler
+/// failing `heavy.test/1` once as `failure` says after `took` of the
+/// paused clock, then finishes the crawl; answers the requests sent, the
+/// Run report and what `run.failed_requests` lists.
 fn crawled_with(
     env: &TestEnv,
     run_id: &str,
+    (settings, took): (&Value, Duration),
     failure: &(&'static str, bool, Value),
 ) -> (Vec<(String, Duration)>, Value, Value) {
     let seeds = json!([
@@ -346,6 +348,8 @@ fn crawled_with(
         seed("https://heavy.test/2"),
         seed("https://a.test/1"),
     ]);
+    let mut settings = settings.clone();
+    settings["crawl"] = json!({ "handler": { "concurrency": 1 } });
     let mut failed = false;
     crawl(
         || dependencies(env, RunStateOptions::default()),
@@ -353,7 +357,7 @@ fn crawled_with(
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": run_id, "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 1 } } } }),
+                    json!({ "run_id": run_id, "seeds": seeds, "settings": settings }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -361,7 +365,10 @@ fn crawled_with(
                 if page_of(params) == "https://heavy.test/1" && !failed {
                     failed = true;
                     let (code, retryable, details) = failure.clone();
-                    return Reply::FailsWith(code, retryable, details);
+                    return Reply::After(
+                        took,
+                        Box::new(Reply::FailsWith(code, retryable, details)),
+                    );
                 }
                 Reply::Records(vec![json!({ "page": page_of(params) })])
             };
@@ -394,7 +401,7 @@ fn a_retry_after_a_handler_met_holds_its_domain_until_the_time_the_site_asked(
 ) {
     let env = TestEnv::new();
 
-    let (sent, _, _) = crawled_with(&env, "asked", &failure);
+    let (sent, _, _) = crawled_with(&env, "asked", (&json!({}), Duration::ZERO), &failure);
 
     let to_heavy: Vec<Duration> = sent
         .iter()
@@ -430,6 +437,7 @@ fn a_retry_after_past_the_bound_ends_its_domains_requests_failed_unsent() {
     let (sent, report, failed_requests) = crawled_with(
         &env,
         "maintenance",
+        (&json!({}), Duration::ZERO),
         &(
             "response_unavailable",
             true,
@@ -480,6 +488,59 @@ fn a_retry_after_past_the_bound_ends_its_domains_requests_failed_unsent() {
                     json!("2026-01-05T10:00:00Z"),
                     true
                 ),
+            ]
+        )
+    );
+}
+
+/// A site that asks for 2 s, past a bound of 1 s, is judged when it asked,
+/// never when its handler's failure arrived: a handler that took 1.5 s to
+/// report the 503 still ends its request `failed` with no retry spent, and
+/// the domain's other request, admitted once that failure came, ends
+/// `failed` unsent, though the site's time is by then within the bound,
+/// while the other domains go (ADR 0118).
+///
+/// Covers: story:3-160, setting:politeness.retry_after.max, error:response_unavailable, operation:run.failed_requests
+#[test]
+fn a_retry_after_past_the_bound_is_judged_when_the_site_asked_however_late_its_failure_comes() {
+    let env = TestEnv::new();
+    let bound = json!({
+        "politeness": {
+            "retry_after": { "max": 1_000 },
+            "backoff": { "initial": 500, "max": 1_000 },
+        },
+    });
+
+    let (sent, report, failed_requests) = crawled_with(
+        &env,
+        "slow-handler",
+        (&bound, Duration::from_millis(1_500)),
+        &(
+            "response_unavailable",
+            true,
+            json!({ "status": 503, "retry_after": "2026-01-05T09:00:02Z" }),
+        ),
+    );
+
+    let failed: Vec<(Value, Value)> = failed_requests["result"]["requests"]
+        .as_array()
+        .expect("failed requests are listed")
+        .iter()
+        .map(|request| {
+            (
+                request["request"]["url"].clone(),
+                request["error"]["details"]["status"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        (urls(&sent), &report["result"]["completeness"], failed),
+        (
+            vec!["https://heavy.test/1", "https://a.test/1"],
+            &json!("incomplete"),
+            vec![
+                (json!("https://heavy.test/1"), json!(503)),
+                (json!("https://heavy.test/2"), Value::Null),
             ]
         )
     );

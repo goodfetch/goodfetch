@@ -278,6 +278,21 @@ fn a_stopped_daemon_leaves_no_runtime_file_in_the_home() {
     assert_eq!((published, runtime_file.exists()), (true, false));
 }
 
+/// A Daemon the test drops without stopping it is stopped with its own
+/// `daemon stop` all the same, so it ends its Runs and its children before
+/// it exits, and leaves no runtime file, where a kill would leave one.
+#[test]
+fn a_dropped_daemon_is_stopped_with_its_own_stop_and_leaves_no_runtime_file() {
+    let env = TestEnv::new();
+    let daemon = Daemon::start(&env, Product::Collie).unwrap();
+    let runtime_file = RuntimeFile::path(env.home(), env!("CARGO_PKG_VERSION"));
+    let published = runtime_file.is_file();
+
+    drop(daemon);
+
+    assert_eq!((published, runtime_file.exists()), (true, false));
+}
+
 #[cfg(unix)]
 #[test]
 fn stopping_a_daemon_that_leaves_its_runtime_file_fails() {

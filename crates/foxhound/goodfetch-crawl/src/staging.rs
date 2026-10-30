@@ -137,6 +137,18 @@ pub(crate) struct SoFar {
     pub(crate) enqueues: BTreeSet<String>,
 }
 
+/// A request an attempt added through a link suspected a trap, as its
+/// commit kept it marked (ADR 0035).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Marked {
+    /// Its crawl request's ID.
+    pub(crate) id: String,
+    /// Its URL.
+    pub(crate) url: String,
+    /// How it is marked.
+    pub(crate) mark: goodfetch_frontier::trap_links::Mark,
+}
+
 /// What an attempt staged, set aside while another run of it stages.
 pub(crate) struct SetAside(Entry);
 
@@ -179,22 +191,23 @@ impl Staged {
     }
 
     /// The requests the attempt added through a link suspected a trap,
-    /// each with its URL, whose mark `connection`'s transaction holds once
-    /// [`Staged::admit`] ran in it: a request another commit added first,
-    /// or one a later link the attempt staged cleared, is left out
+    /// each with its URL and the mark `connection`'s transaction holds for
+    /// it once [`Staged::admit`] ran in it: a request another commit added
+    /// first, or one a later link the attempt staged cleared, is left out
     /// (ADR 0035).
     ///
     /// # Errors
     ///
     /// The run state's.
-    pub(crate) fn suspected(
-        &self,
-        connection: &Connection,
-    ) -> rusqlite::Result<Vec<(String, String)>> {
+    pub(crate) fn suspected(&self, connection: &Connection) -> rusqlite::Result<Vec<Marked>> {
         let mut kept = Vec::new();
         for (id, url) in &self.suspected {
-            if goodfetch_frontier::trap_links::suspected(connection, id)? {
-                kept.push((id.clone(), url.clone()));
+            if let Some(mark) = goodfetch_frontier::trap_links::suspected(connection, id)? {
+                kept.push(Marked {
+                    id: id.clone(),
+                    url: url.clone(),
+                    mark,
+                });
             }
         }
         Ok(kept)

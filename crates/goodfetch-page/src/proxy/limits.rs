@@ -211,10 +211,36 @@ impl PermitRule for ProxyRule {
     }
 }
 
-/// The key a proxy's Permits count under: its endpoint and the credential
-/// it is used with, so two accounts with one vendor are two keys.
-fn key(server: &ProxyServer, username: Option<&str>) -> String {
-    format!("proxy {server} {}", username.unwrap_or_default())
+/// The account a proxy's Permits count under, since a vendor's plan caps
+/// the whole account (ADR 0088), so two accounts with one vendor are two
+/// keys and every Session of one account shares one.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Account<'a> {
+    /// A proxy the Session names, or a `list` server: its endpoint and the
+    /// credential it is used with.
+    Proxy {
+        server: &'a ProxyServer,
+        username: Option<&'a str>,
+    },
+    /// A hosted Proxy provider's: the provider and the account's own
+    /// username as configuration names it, never the sticky username each
+    /// Session builds on it (the deep review's 599-4 and D18).
+    Provider {
+        name: &'a str,
+        username: Option<&'a str>,
+    },
+}
+
+/// The key `account`'s Permits count under.
+fn key(account: Account<'_>) -> String {
+    match account {
+        Account::Proxy { server, username } => {
+            format!("proxy {server} {}", username.unwrap_or_default())
+        }
+        Account::Provider { name, username } => {
+            format!("provider {name} {}", username.unwrap_or_default())
+        }
+    }
 }
 
 /// A Session's proxy's limits: the Politeness its Run shares, under the
@@ -237,9 +263,9 @@ impl std::fmt::Debug for ProxyLimits {
 }
 
 impl ProxyLimits {
-    /// The limits of `server` used as `username` by a Session of `run`
-    /// under `settings`; none, with a warning, when the Politeness its Run
-    /// shares cannot be opened, so the Session goes on unlimited.
+    /// The limits of `account`'s proxy, used by a Session of `run` under
+    /// `settings`; none, with a warning, when the Politeness its Run shares
+    /// cannot be opened, so the Session goes on unlimited.
     ///
     /// # Errors
     ///
@@ -247,8 +273,7 @@ impl ProxyLimits {
     pub(crate) async fn open(
         settings: &Resolved,
         run: &Run,
-        server: &ProxyServer,
-        username: Option<&str>,
+        account: Account<'_>,
     ) -> Result<Option<Arc<Self>>, String> {
         let rule = ProxyRule::of(settings)?;
         Ok(match run.politeness(settings).await {
@@ -256,7 +281,7 @@ impl ProxyLimits {
                 run: run.clone(),
                 politeness,
                 holder,
-                key: key(server, username),
+                key: key(account),
                 rule: Arc::new(rule),
             })),
             Err(error) => {

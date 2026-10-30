@@ -80,6 +80,9 @@ expectrl = { version = "0.9.0", default-features = false }
 dom_smoothie = { version = "0.18.2", default-features = false }
 # dom-smoothie's own tree, on which the main-content step reads what it found.
 dom_query = { version = "0.28.0", default-features = false }
+# Its CSS tokenizer, on which the fetch tiers find the selector extensions
+# dom_query reads and a browser refuses; the version dom_query links.
+cssparser = { version = "0.37.0", default-features = false }
 htmd = { version = "0.5.6", default-features = false }
 # Chrome's `<meta>` prescan of a crawl page's document tokenizes it as
 # Blink's HTMLMetaCharsetParser does, with the HTML standard's tokenizer

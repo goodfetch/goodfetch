@@ -1244,7 +1244,7 @@ impl FetchTiers {
             .read(
                 page_id,
                 goodfetch_frontier::trap_links::READ,
-                serde_json::json!({ "selector": selector }),
+                goodfetch_frontier::trap_links::read_params(selector),
                 CRAWL_REQUEST_LINKS.name,
             )
             .await

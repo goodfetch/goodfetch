@@ -34,11 +34,13 @@
 //! the one request the relay authenticated. A Session whose proxy a Proxy
 //! provider gave relays every connection, so every byte on its connections
 //! to the proxy, the handshakes included, is charged to its Run, under its
-//! proxy kind, before the browser or the proxy is given it
-//! ([`ProxyUsage`]); once a Limit refuses a charge, the connection closes.
-//! A connection that closes while a charge is under way, or with bytes not
-//! yet charged, as when its Run ends mid-transfer, still has them charged
-//! in full: the provider bills every byte it carried. For a hosted
+//! proxy kind, before it is sent to the proxy or read from it: each
+//! direction of a connection reserves an allowance ahead ([`Ahead`]), and
+//! reads and writes no more than it covers, so no byte passes uncharged,
+//! and a Limit's refusal closes the connection before the bytes it refused
+//! pass (the deep review's 599-7 and 599-12). What a connection carried of
+//! its allowances is settled when it closes, as when its Run ends
+//! mid-transfer: the provider bills every byte it carried. For a hosted
 //! provider's HTTP proxy, the relay also keeps the proxy's own answer to
 //! latest `CONNECT` of each authority it refused ([`ProviderAnswer`]), which the browser
 //! reports only as a network error, so the provider's adapter can read its
@@ -65,11 +67,11 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::party::{RELAY, relay_unreachable};
 use crate::egress_relay::deadlines::{HEAD_DEADLINE, within, within_or_none};
-use crate::egress_relay::head::{self, Head, Target, Unread};
+use crate::egress_relay::head::{self, HEAD_LIMIT, Head, Target, Unread};
 use crate::egress_relay::serve::{Met, socks5_request};
 use crate::egress_relay::{ByAuthority, Outcomes, authority_of, connect_deadline};
-use crate::proxy_provider::ProxyUsage;
 use crate::proxy_provider::failure::ProviderAnswer;
+use crate::proxy_provider::{Ahead, ProxyUsage};
 
 /// The relay's name in the endpoint table and in its refusals' Audit log
 /// entries.
@@ -85,6 +87,11 @@ const ACCEPT_BACKOFF: Duration = Duration::from_millis(250);
 
 /// The most bytes relayed at once, in each direction.
 const CHUNK: usize = 16 * 1024;
+
+/// The most a SOCKS5 proxy's answers to the greeting, the credentials and
+/// the request take: two bytes, two bytes, and a reply naming a domain
+/// of at most 255 bytes (RFC 1928, RFC 1929).
+const SOCKS5_ANSWERS: u64 = 2 + 2 + 4 + 1 + 255 + 2;
 
 /// The answer to a client without the relay's credentials.
 const AUTHENTICATE: &[u8] = b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"goodfetch\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
@@ -409,18 +416,18 @@ async fn http(
         let _ = client.write_all(relay_unreachable().as_bytes()).await;
         return;
     };
-    let mut proxy = Tallied::new(proxy, upstream.usage.clone());
+    let mut proxy = Tallied::new(proxy, upstream.usage.as_ref());
     if let Target::Absolute { .. } = head.target {
         met(Met::Reached);
         let mut forwarded = head.forwarded(true, authorization);
-        let sent = proxy.write_all(&forwarded).await;
+        let sent = proxy.send(&forwarded).await;
         // The buffer that held the credentials is cleared before it is
         // dropped.
         forwarded.fill(0);
-        if sent.is_err() || !proxy.charged().await {
+        if sent.is_err() {
             return;
         }
-        let _ = carry(&mut client, &mut proxy, rest).await;
+        let _ = carry(client, proxy, rest).await;
         return;
     }
     let mut request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n").into_bytes();
@@ -430,9 +437,9 @@ async fn http(
         request.extend_from_slice(b"\r\n");
     }
     request.extend_from_slice(b"\r\n");
-    let sent = proxy.write_all(&request).await;
+    let sent = proxy.send(&request).await;
     request.fill(0);
-    if sent.is_err() || !proxy.charged().await {
+    if sent.is_err() || !proxy.cover_down(HEAD_LIMIT as u64).await {
         return;
     }
     let Ok(answer) = head::answer(&mut proxy).await else {
@@ -442,9 +449,6 @@ async fn http(
             .await;
         return;
     };
-    if !proxy.charged().await {
-        return;
-    }
     let took = (200..300).contains(&answer.status);
     met(if answer.status == 407 {
         Met::CredentialsRefused
@@ -464,7 +468,7 @@ async fn http(
     if client.write_all(ESTABLISHED).await.is_err() {
         return;
     }
-    let _ = carry(&mut client, &mut proxy, rest).await;
+    let _ = carry(client, proxy, rest).await;
 }
 
 /// The proxy's answer in `bytes`, its status and headers, if they start
@@ -515,9 +519,12 @@ async fn socks5(
         let _ = client.write_all(relay_unreachable().as_bytes()).await;
         return;
     };
-    let mut proxy = Tallied::new(proxy, upstream.usage.clone());
+    let mut proxy = Tallied::new(proxy, upstream.usage.as_ref());
+    if !proxy.cover_down(SOCKS5_ANSWERS).await {
+        return;
+    }
     let authenticated = authenticate(&mut proxy, credentials).await;
-    if !matches!(authenticated, Ok(true)) || !proxy.charged().await {
+    if !matches!(authenticated, Ok(true)) {
         met(if matches!(authenticated, Ok(false)) {
             Met::CredentialsRefused
         } else {
@@ -528,13 +535,10 @@ async fn socks5(
             .await;
         return;
     }
-    if proxy.write_all(&request).await.is_err() || !proxy.charged().await {
+    if proxy.send(&request).await.is_err() {
         return;
     }
     let opened = read_reply(&mut proxy).await;
-    if !proxy.charged().await {
-        return;
-    }
     if !matches!(opened, Ok(true)) {
         met(Met::Refused);
         let _ = client
@@ -545,12 +549,12 @@ async fn socks5(
     met(Met::Reached);
     let started = match head.target {
         Target::Tunnel { .. } => client.write_all(ESTABLISHED).await,
-        Target::Absolute { .. } => proxy.write_all(&head.forwarded(false, None)).await,
+        Target::Absolute { .. } => proxy.send(&head.forwarded(false, None)).await,
     };
     if started.is_err() {
         return;
     }
-    let _ = carry(&mut client, &mut proxy, rest).await;
+    let _ = carry(client, proxy, rest).await;
 }
 
 /// Reads a SOCKS5 reply: whether the proxy opened the tunnel.
@@ -573,88 +577,109 @@ async fn read_reply(proxy: &mut (impl AsyncRead + Unpin)) -> std::io::Result<boo
 
 /// Carries `rest`, the client's bytes read past its head, to the proxy,
 /// then bytes both ways.
-async fn carry(client: &mut TcpStream, proxy: &mut Tallied, rest: &[u8]) -> std::io::Result<()> {
+async fn carry(client: TcpStream, mut proxy: Tallied, rest: &[u8]) -> std::io::Result<()> {
     if !rest.is_empty() {
-        proxy.write_all(rest).await?;
-        if !proxy.charged().await {
-            return Err(std::io::Error::other("a Limit refused the proxy's bytes"));
-        }
+        proxy.send(rest).await?;
     }
     pass(client, proxy).await
 }
 
-/// The proxy's end of a relayed connection, which tallies every byte read
-/// from it or written to it; its owner charges them at [`Tallied::charged`],
-/// and what is left uncharged when it is dropped is charged then.
+/// The error of bytes a Limit refused, which closes the connection.
+fn refused() -> std::io::Error {
+    std::io::Error::other("a Limit refused the proxy's bytes")
+}
+
+/// The proxy's end of a relayed connection and, for a Proxy provider's
+/// proxy, what each direction of it reserved ahead: its owner covers what
+/// it sends with [`Tallied::send`] and what it reads with
+/// [`Tallied::cover_down`], and it reads and writes no byte they did not
+/// cover.
 struct Tallied {
     stream: TcpStream,
-    usage: Option<Arc<ProxyUsage>>,
-    /// The bytes carried since the last charge.
-    uncharged: u64,
+    /// What the bytes sent to the proxy are charged ahead to.
+    up: Option<Ahead>,
+    /// What the bytes read from the proxy are charged ahead to.
+    down: Option<Ahead>,
 }
 
 impl Tallied {
-    fn new(stream: TcpStream, usage: Option<Arc<ProxyUsage>>) -> Self {
+    fn new(stream: TcpStream, usage: Option<&Arc<ProxyUsage>>) -> Self {
         Self {
             stream,
-            usage,
-            uncharged: 0,
+            up: usage.map(ProxyUsage::ahead),
+            down: usage.map(ProxyUsage::ahead),
         }
     }
 
-    /// Charges the bytes carried since the last charge, to the end even if
-    /// the relay stops waiting: whether the connection may carry more,
-    /// false once a Limit refused them.
-    async fn charged(&mut self) -> bool {
-        let bytes = std::mem::take(&mut self.uncharged);
-        match &self.usage {
-            Some(usage) => usage.charge_to_the_end(bytes).await.unwrap_or(false),
+    /// Sends `bytes` to the proxy once they are charged ahead.
+    async fn send(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        if let Some(up) = &mut self.up
+            && !up.cover(length(bytes.len())).await
+        {
+            return Err(refused());
+        }
+        self.write_all(bytes).await
+    }
+
+    /// Charges ahead up to `bytes` the proxy is about to answer, read one
+    /// at a time: whether they may be read, false once a Limit refused
+    /// them.
+    async fn cover_down(&mut self, bytes: u64) -> bool {
+        match &mut self.down {
+            Some(down) => down.cover(bytes).await,
             None => true,
         }
     }
-
-    fn tally(&mut self, bytes: usize) {
-        self.uncharged = self
-            .uncharged
-            .saturating_add(u64::try_from(bytes).unwrap_or(u64::MAX));
-    }
 }
 
-impl Drop for Tallied {
-    /// Charges what the connection carried since its last charge: a write
-    /// its Run's end or a failure cut short.
-    fn drop(&mut self) {
-        if let Some(usage) = &self.usage {
-            drop(usage.charge_to_the_end(self.uncharged));
-        }
-    }
+/// `bytes` as a count of bytes charged.
+fn length(bytes: usize) -> u64 {
+    u64::try_from(bytes).unwrap_or(u64::MAX)
+}
+
+/// The bytes `ahead` still covers, all of them when nothing is charged.
+fn covered(ahead: Option<&Ahead>) -> usize {
+    ahead.map_or(usize::MAX, |ahead| {
+        usize::try_from(ahead.left()).unwrap_or(usize::MAX)
+    })
 }
 
 impl AsyncRead for Tallied {
+    /// Reads no more than what is charged ahead: a read it does not cover
+    /// fails, and nothing is read.
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
         context: &mut std::task::Context<'_>,
         buffer: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
         let this = self.get_mut();
+        if buffer.remaining() > covered(this.down.as_ref()) {
+            return std::task::Poll::Ready(Err(refused()));
+        }
         let before = buffer.filled().len();
         let polled = std::pin::Pin::new(&mut this.stream).poll_read(context, buffer);
-        let read = buffer.filled().len() - before;
-        this.tally(read);
+        if let Some(down) = &mut this.down {
+            down.carried(length(buffer.filled().len() - before));
+        }
         polled
     }
 }
 
 impl AsyncWrite for Tallied {
+    /// Writes no more than what is charged ahead.
     fn poll_write(
         self: std::pin::Pin<&mut Self>,
         context: &mut std::task::Context<'_>,
         bytes: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
         let this = self.get_mut();
-        let polled = std::pin::Pin::new(&mut this.stream).poll_write(context, bytes);
-        if let std::task::Poll::Ready(Ok(written)) = &polled {
-            this.tally(*written);
+        let allowed = bytes.len().min(covered(this.up.as_ref()));
+        if allowed == 0 && !bytes.is_empty() {
+            return std::task::Poll::Ready(Err(refused()));
+        }
+        let polled = std::pin::Pin::new(&mut this.stream).poll_write(context, &bytes[..allowed]);
+        if let (std::task::Poll::Ready(Ok(written)), Some(up)) = (&polled, &mut this.up) {
+            up.carried(length(*written));
         }
         polled
     }
@@ -675,42 +700,65 @@ impl AsyncWrite for Tallied {
 }
 
 /// Relays bytes both ways between the browser and the proxy until both
-/// ends close, charging what the proxy sends before the browser is given
-/// it and what the browser sends once the proxy took it; it stops at the
-/// first refused charge.
-async fn pass(browser: &mut TcpStream, proxy: &mut Tallied) -> std::io::Result<()> {
-    let mut up = vec![0; CHUNK];
-    let mut down = vec![0; CHUNK];
-    let (mut browser_open, mut proxy_open) = (true, true);
-    while browser_open || proxy_open {
-        tokio::select! {
-            read = browser.read(&mut up), if browser_open => {
-                let read = read?;
-                if read == 0 {
-                    browser_open = false;
-                    proxy.shutdown().await?;
-                } else {
-                    proxy.write_all(&up[..read]).await?;
-                }
-                if !proxy.charged().await {
-                    return Err(std::io::Error::other("a Limit refused the proxy's bytes"));
-                }
+/// ends close, each direction on its own, charging ahead what the browser
+/// sends before the proxy is given it and what the proxy sends before it
+/// is read; it stops at the first refused charge.
+async fn pass(browser: TcpStream, proxy: Tallied) -> std::io::Result<()> {
+    let Tallied {
+        stream,
+        mut up,
+        mut down,
+    } = proxy;
+    let (mut from_proxy, mut to_proxy) = stream.into_split();
+    let (mut from_browser, mut to_browser) = browser.into_split();
+    let upload = async {
+        let mut chunk = vec![0; CHUNK];
+        loop {
+            let read = from_browser.read(&mut chunk).await?;
+            if read == 0 {
+                return to_proxy.shutdown().await;
             }
-            read = proxy.read(&mut down), if proxy_open => {
-                let read = read?;
-                if !proxy.charged().await {
-                    return Err(std::io::Error::other("a Limit refused the proxy's bytes"));
+            if let Some(up) = &mut up
+                && !up.cover(length(read)).await
+            {
+                return Err(refused());
+            }
+            // Each write is counted as it is taken, so a connection its
+            // Run's end cuts short mid-chunk counts what the proxy took.
+            let mut unsent = &chunk[..read];
+            while !unsent.is_empty() {
+                let written = to_proxy.write(unsent).await?;
+                if written == 0 {
+                    return Err(std::io::ErrorKind::WriteZero.into());
                 }
-                if read == 0 {
-                    proxy_open = false;
-                    browser.shutdown().await?;
-                } else {
-                    browser.write_all(&down[..read]).await?;
+                if let Some(up) = &mut up {
+                    up.carried(length(written));
                 }
+                unsent = &unsent[written..];
             }
         }
-    }
-    Ok(())
+    };
+    let download = async {
+        let mut chunk = vec![0; CHUNK];
+        loop {
+            let room = match &mut down {
+                Some(down) => {
+                    let room = down.room(length(CHUNK)).await.ok_or_else(refused)?;
+                    usize::try_from(room).unwrap_or(CHUNK)
+                }
+                None => CHUNK,
+            };
+            let read = from_proxy.read(&mut chunk[..room]).await?;
+            if let Some(down) = &mut down {
+                down.carried(length(read));
+            }
+            if read == 0 {
+                return to_browser.shutdown().await;
+            }
+            to_browser.write_all(&chunk[..read]).await?;
+        }
+    };
+    tokio::try_join!(upload, download).map(drop)
 }
 
 /// Greets the proxy offering `credentials`' method, or none, and
@@ -724,7 +772,7 @@ async fn authenticate(
     } else {
         NO_AUTHENTICATION
     };
-    proxy.write_all(&[VERSION, 1, method]).await?;
+    proxy.send(&[VERSION, 1, method]).await?;
     let mut chosen = [0; 2];
     proxy.read_exact(&mut chosen).await?;
     let credentials = match (chosen, credentials) {
@@ -746,7 +794,7 @@ async fn authenticate(
     message.extend_from_slice(username);
     message.push(password_length);
     message.extend_from_slice(password);
-    let sent = proxy.write_all(&message).await;
+    let sent = proxy.send(&message).await;
     // The buffer that held the password is cleared before it is dropped.
     message.fill(0);
     sent?;

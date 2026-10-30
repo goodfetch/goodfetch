@@ -449,7 +449,8 @@ CREATE TABLE tier_choices (
             PRIMARY KEY (label, domain_key)
         ) STRICT;
 CREATE TABLE trap_link_suspected (
-            work_item TEXT NOT NULL PRIMARY KEY
+            work_item TEXT NOT NULL PRIMARY KEY,
+            revealable INTEGER NOT NULL
         ) STRICT, WITHOUT ROWID;
 CREATE TABLE url_fragments (
             scope TEXT NOT NULL PRIMARY KEY,

@@ -286,6 +286,17 @@ fn finished_waiter(exchange: &mut Exchange<'_>, page: &str, glob: &str) -> i64 {
     )
 }
 
+/// Whether `request` names its headers in lowercase, as Playwright gives
+/// them, its `user-agent` among them.
+fn lowercase_headers(request: &Value) -> bool {
+    request["headers"].as_object().is_some_and(|headers| {
+        headers.contains_key("user-agent")
+            && headers
+                .keys()
+                .all(|name| *name == name.to_ascii_lowercase())
+    })
+}
+
 /// The first of `requests` to `url`.
 fn with_url(requests: &[Value], url: &str) -> Value {
     requests
@@ -387,12 +398,7 @@ fn a_pages_network_and_load_events_carry_their_data_and_a_cancelled_listener_no_
                 document["method"].clone(),
                 document["resource_type"].clone(),
                 document["is_navigation_request"].clone(),
-                document["headers"].as_object().is_some_and(|headers| {
-                    headers.contains_key("user-agent")
-                        && headers
-                            .keys()
-                            .all(|name| *name == name.to_ascii_lowercase())
-                }),
+                lowercase_headers(&document),
             ),
             (
                 fetched["resource_type"].clone(),

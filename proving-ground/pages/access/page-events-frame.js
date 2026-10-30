@@ -4,12 +4,12 @@
 // then throws an exception it does not catch.
 (() => {
   "use strict";
-  void fetch("/page-events/data.json")
-    .then((response) => response.text())
-    .then(() => {
-      console.log("page-events frame");
-      setTimeout(() => {
-        throw new TypeError("page-events frame uncaught");
-      }, 0);
-    });
+  void (async () => {
+    const response = await fetch("/page-events/data.json");
+    await response.text();
+    console.log("page-events frame");
+    setTimeout(() => {
+      throw new TypeError("page-events frame uncaught");
+    }, 0);
+  })();
 })();

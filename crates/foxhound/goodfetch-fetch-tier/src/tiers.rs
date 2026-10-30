@@ -388,11 +388,6 @@ pub enum Judged {
 /// in place of a call: the setting.
 pub const PAGE_CHECK_CALL: &str = "session.page_check";
 
-/// What Provenance names as the call that escalated a code-free crawl's
-/// page to the browser by a field's `XPath` locator, which a served
-/// document does not read (ADR 0123).
-pub const XPATH_FIELD_CALL: &str = "crawl.extraction.fields";
-
 /// The first element each of a code-free crawl's field locators found in
 /// a page, in order, with the document's base URL (ADR 0123).
 #[derive(Clone, Debug)]
@@ -1153,16 +1148,15 @@ impl FetchTiers {
     }
 
     /// The first element each of `locators` finds in the page `page_id`'s
-    /// document: a served page's, read on its Run's blocking owner, which
-    /// reads CSS selectors alone, an `XPath` locator escalating the page
-    /// under `auto` (refused with `browser_required` under a forced tier);
+    /// document: a served page's, read on its Run's blocking owner, by CSS
+    /// selectors and `XPath` 1.0 expressions alike, as a browser reads them;
     /// a browser page's, read by the page itself (ADR 0123). `None` when no
     /// tier serves that page, as a closed one.
     ///
     /// # Errors
     ///
-    /// The escalation's, `invalid_params` for a CSS selector the engine
-    /// does not read, and those of the browser page's read.
+    /// `invalid_params` for a CSS selector or an `XPath` expression the
+    /// engine does not read, and those of the browser page's read.
     ///
     /// # Cancel safety
     ///
@@ -1182,20 +1176,12 @@ impl FetchTiers {
         let Some(served) = served else {
             return self.browser_field_elements(page_id, locators).await;
         };
-        let mut selectors = Vec::with_capacity(locators.len());
-        for locator in locators {
-            match locator {
-                FieldLocator::Css { selector } => selectors.push(selector.clone()),
-                FieldLocator::Xpath { .. } => {
-                    return Some(Err(self.unserved(page_id, XPATH_FIELD_CALL, false)));
-                }
-            }
-        }
+        let locators = locators.to_vec();
         let run = served.run.clone();
         let read = run
             .owner()
             .blocking(move || {
-                document::first_elements(&served.html, &selectors).map(|elements| FieldElements {
+                document::first_elements(&served.html, &locators).map(|elements| FieldElements {
                     base_url: served.base_url.clone(),
                     elements,
                 })

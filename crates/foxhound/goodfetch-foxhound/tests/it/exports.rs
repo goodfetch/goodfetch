@@ -23,7 +23,7 @@
 
 use std::path::{Path, PathBuf};
 
-use goodfetch_test_support::{TestEnv, unicode_record};
+use goodfetch_test_support::{DISPATCH_TARGET, TestEnv, unicode_record};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 
@@ -372,10 +372,7 @@ fn an_export_answered_is_whole_after_the_engine_is_killed_during_the_next_call()
         .filter(|name| !name.starts_with('.'))
         .map(|name| sha256(&std::fs::read(exports.join(&name)).unwrap()) == name)
         .collect();
-    // The same Export again, on the engine that exits as it should: the
-    // killed engine's log loses what its writer's thread had not written
-    // yet, the record of the answered `run.export` among it, which the
-    // exercise audit reads (fix-queue NEW-1).
+    // The same Export again, on the engine that exits as it should.
     let again = export(&mut later, "killed", "json");
     assert!(later.finish());
     let file = std::fs::read(&saved_to).unwrap();
@@ -394,6 +391,43 @@ fn an_export_answered_is_whole_after_the_engine_is_killed_during_the_next_call()
             200,
             true,
             &held["result"]["sha256"]
+        )
+    );
+}
+
+/// An Export the engine answered stays in the test's exercise record when
+/// the engine is killed next, whatever its log kept: this engine's log
+/// keeps nothing (`log.output = "none"`), the worst a kill leaves of the
+/// lines its log writer's thread had not written yet (ADR 0122, #1779). The
+/// record holds each call the Client read answered, in its order.
+///
+/// Covers: operation:run.export
+#[test]
+fn an_export_answered_before_the_engine_is_killed_stays_in_the_tests_exercise_record() {
+    let env = TestEnv::new();
+    env.user_configuration("log.output = \"none\"");
+    let mut engine = Attached::start(&env);
+    crawl(&mut engine, "killed", 1);
+    finish(&mut engine, "killed", book);
+    let exported = export(&mut engine, "killed", "jsonl");
+    engine.kill();
+
+    let dispatched: Vec<Value> = env
+        .exercise_lines()
+        .into_iter()
+        .filter(|line| line["target"] == DISPATCH_TARGET)
+        .map(|line| line["fields"]["method"].clone())
+        .collect();
+    assert_eq!(
+        (&exported["result"]["records"], dispatched),
+        (
+            &json!(1),
+            vec![
+                json!("hello"),
+                json!("crawl.start"),
+                json!("run.finish"),
+                json!("run.export")
+            ]
         )
     );
 }

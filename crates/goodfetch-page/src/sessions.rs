@@ -42,6 +42,7 @@ mod ends;
 mod life;
 mod lifecycle;
 mod memory;
+pub(crate) mod robots_txt;
 mod session_pages;
 #[cfg(test)]
 mod tests;
@@ -898,6 +899,21 @@ impl Sessions {
             in_browser: Some(in_browser),
             run: open.run.clone(),
         })
+    }
+
+    /// Whether the open Session `session` serves the engine's own page for
+    /// a page carrying `value` now, with no wait: it is open and serves
+    /// calls, and `value`'s lease holds. A fetch from its engine's page that
+    /// failed while it no longer did failed in the engine, not at the site.
+    pub(crate) async fn serves(&self, session: &SessionId, value: &PageValue) -> bool {
+        let serving = self
+            .state
+            .lock()
+            .await
+            .sessions
+            .get(session)
+            .is_some_and(|open| open.reopen_failed.is_none() && open.life.serves());
+        serving && lease_holds(value).is_ok()
     }
 
     /// The page `page_id` this engine holds; `page_crashed` again for a

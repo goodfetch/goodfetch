@@ -1,7 +1,38 @@
 use goodfetch_frontier::trap_links::{Seen, Sight};
 use rstest::rstest;
 
-use super::{Matched, SelectorInvalid, check_selector, first_elements, matched};
+use goodfetch_protocol::foxhound::crawl::FieldLocator;
+
+use super::{
+    FieldElement, LocatorInvalid, Matched, SelectorInvalid, check_selector, check_xpath,
+    first_elements, matched,
+};
+
+/// The value page's article, as a served document holds it.
+const ARTICLE: &str = r#"<!doctype html><html><body>
+<nav><h1>Shop</h1></nav>
+<article><h1 class="title">Delta-Drachen</h1>
+<p class="sku">Artikelnummer: <b>DK-0042</b></p>
+<!-- price below --><span class="price" data-value="1099.98">1.099,98 €</span>
+<a class="manual" href="manuals/delta.pdf">Handbuch</a></article>
+</body></html>"#;
+
+fn xpath(selector: &str) -> FieldLocator {
+    FieldLocator::Xpath {
+        selector: selector.to_owned(),
+    }
+}
+
+fn field(tag: &str, text: &str, attributes: &[(&str, &str)]) -> FieldElement {
+    FieldElement {
+        tag: tag.to_owned(),
+        text: text.to_owned(),
+        attributes: attributes
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect(),
+    }
+}
 
 fn element(href: Option<&str>, text: &str, attributes: &[(&str, &str)]) -> Matched {
     Matched {
@@ -92,8 +123,13 @@ fn a_selector_a_browser_refuses_is_refused_on_both_tiers(
     if !accepted {
         assert_eq!(check_selector(selector), refused);
         assert_eq!(
-            first_elements("<p>x</p>", &[selector.to_owned()]),
-            refused.map(|()| Vec::new())
+            first_elements(
+                "<p>x</p>",
+                &[FieldLocator::Css {
+                    selector: selector.to_owned()
+                }]
+            ),
+            refused.map(|()| Vec::new()).map_err(LocatorInvalid::Css)
         );
     }
 }
@@ -122,4 +158,70 @@ fn a_link_hidden_in_what_a_button_controls_reads_revealable() {
         .collect();
 
     assert_eq!(revealable, [true, false]);
+}
+
+/// A field's `XPath` locator reads, in the served document, the first node
+/// in document order it finds, as a browser's `document.evaluate` reads
+/// it: the element's tag name, text and attributes; a locator whose first
+/// node is no element (an attribute) or that finds none gives no element.
+///
+/// Covers: story:6-304
+#[test]
+fn an_xpath_locator_reads_the_first_element_it_finds_in_the_served_document() {
+    let price = field(
+        "span",
+        "1.099,98 €",
+        &[("class", "price"), ("data-value", "1099.98")],
+    );
+    let locators = [
+        xpath("//article/h1"),
+        xpath("//*[contains(@class, 'sku')]"),
+        xpath("(//a | //span)[@data-value > 1000]"),
+        xpath("//a[@class='manual']/@href"),
+        xpath("//comment()/following-sibling::*[1]"),
+        xpath("//table"),
+    ];
+
+    assert_eq!(
+        first_elements(ARTICLE, &locators),
+        Ok(vec![
+            Some(field("h1", "Delta-Drachen", &[("class", "title")])),
+            Some(field("p", "Artikelnummer: DK-0042", &[("class", "sku")])),
+            Some(price.clone()),
+            None,
+            Some(price),
+            None,
+        ])
+    );
+}
+
+/// An `XPath` expression a browser refuses with no namespace resolver and
+/// no variables, or one that answers a value rather than nodes, is refused
+/// before any page is read, and by a served page's read alike.
+///
+/// Covers: story:6-304
+#[rstest]
+#[case::unclosed_predicate("//h1[")]
+#[case::empty("")]
+#[case::stray_token("//h1 h2")]
+#[case::unclosed_literal("//a[@href='x]")]
+#[case::prefix("//svg:rect")]
+#[case::variable("//a[@id=$id]")]
+#[case::unknown_function("//a[matches(., 'x')]")]
+#[case::wrong_arity("//a[contains(.)]")]
+#[case::unknown_axis("//a/sibling::b")]
+#[case::number("count(//a)")]
+#[case::string("string(//h1)")]
+#[case::union_of_a_value("//a | 'b'")]
+#[case::path_from_a_value("string(//h1)/b")]
+#[case::count_of_a_value("//a[count('b') = 1]")]
+fn an_xpath_a_browser_refuses_or_that_answers_a_value_is_refused(#[case] expression: &str) {
+    assert!(check_xpath(expression).is_err(), "{expression}");
+    assert!(
+        matches!(
+            first_elements(ARTICLE, &[xpath(expression)]),
+            Err(LocatorInvalid::Xpath(_))
+        ),
+        "{expression}"
+    );
 }

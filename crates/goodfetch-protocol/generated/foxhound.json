@@ -4167,7 +4167,7 @@
       "type": "object"
     },
     "FieldLocator": {
-      "description": "What finds a field's element, named by `kind`: a CSS selector or an\n`XPath` expression. A page a fetch tier serves from its document reads\na CSS selector; an `XPath` expression is read by the browser, to which\nthe request escalates under `fetch.tier: auto` (`browser_required`\nunder a forced cheaper tier).",
+      "description": "What finds a field's element, named by `kind`: a CSS selector or an\n`XPath` expression, each read alike on every tier, a page a fetch tier\nserves from its document reading it as a browser reads it.",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -4191,7 +4191,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "An `XPath` 1.0 expression.",
+          "description": "An `XPath` 1.0 expression that finds nodes, with no namespace\nprefix and no variable; the field reads the first node it finds in\ndocument order, when that node is an element.",
           "properties": {
             "kind": {
               "const": "xpath",

@@ -213,6 +213,11 @@ const WRITERS: &[(&str, usize, &str)] = &[
         "holds no value: per-domain Politeness state",
     ),
     (
+        "crates/goodfetch-engine/src/robots_txt.rs",
+        1,
+        "holds no value: the robots.txt files sites published, read for a Run's own navigation, each by its origin's robots.txt URL without credentials, or the browser's or the engine's reason one never answered",
+    ),
+    (
         "crates/goodfetch-engine/src/run_files.rs",
         2,
         "holds no value: the program's own files, content-addressed",

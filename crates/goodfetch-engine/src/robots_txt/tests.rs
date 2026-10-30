@@ -314,31 +314,147 @@ fn a_response_reads_as_rfc_9309_says(
     assert_eq!(Fetched::of_response(status, body), expected);
 }
 
-#[test]
-fn a_runs_copies_fetch_each_origin_once() {
-    goodfetch_test_support::runtime().block_on(fetch_each_origin_once());
+/// Runs `body` on a Run's own copies over a fresh run file in `env`'s
+/// folder, then closes the file.
+fn with_copies<F, Fut>(env: &goodfetch_test_support::TestEnv, body: F)
+where
+    F: FnOnce(RunCopies, crate::run_state::RunState) -> Fut,
+    Fut: Future<Output = ()>,
+{
+    use crate::run_state::{RunState, RunStateOptions};
+    use crate::tasks::{BlockingPolicy, TaskOwner};
+
+    goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let state = RunState::open(
+            env.folder().join("run.sqlite"),
+            &RunStateOptions::default(),
+            vec![TABLES],
+            1,
+            &owner,
+        )
+        .await
+        .unwrap();
+        body(RunCopies::default(), state).await;
+        owner.wait().await;
+    });
 }
 
-async fn fetch_each_origin_once() {
-    let copies = RunCopies::default();
-    let fetches = std::cell::Cell::new(0);
-    let fetch = || async {
-        fetches.set(fetches.get() + 1);
-        tokio::task::yield_now().await;
-        Fetched::Unreachable("answered 503".to_owned())
-    };
-    let first = url::Url::parse("https://example.com/robots.txt").unwrap();
-    let second = url::Url::parse("https://example.org/robots.txt").unwrap();
+/// The robots.txt of the origin `https://site-<n>.test`.
+fn location_of(origin: usize) -> url::Url {
+    url::Url::parse(&format!("https://site-{origin}.test/robots.txt")).unwrap()
+}
 
-    let shared = copies.clone();
-    let (one, two) = tokio::join!(copies.copy(&first, fetch), shared.copy(&first, fetch));
-    let three = copies.copy(&first, fetch).await;
-    let other = copies.copy(&second, fetch).await;
+#[test]
+fn a_runs_copies_fetch_each_origin_once() {
+    let env = goodfetch_test_support::TestEnv::new();
+    with_copies(&env, |copies, state| async move {
+        let fetches = std::cell::Cell::new(0);
+        let fetch = || async {
+            fetches.set(fetches.get() + 1);
+            tokio::task::yield_now().await;
+            Ok(Answer::Response {
+                status: 503,
+                body: Vec::new(),
+            })
+        };
+        let first = location_of(1);
+        let second = location_of(2);
 
-    assert_eq!(
-        (fetches.get(), one == two && two == three, other.as_ref()),
-        (2, true, &Fetched::Unreachable("answered 503".to_owned()))
-    );
+        let shared = copies.clone();
+        let (one, two) = tokio::join!(
+            copies.copy(&state, &first, fetch()),
+            shared.copy(&state, &first, fetch())
+        );
+        let three = copies.copy(&state, &first, fetch()).await;
+        let other = copies.copy(&state, &second, fetch()).await;
+
+        assert_eq!(
+            (fetches.get(), one == two && two == three, other),
+            (
+                2,
+                true,
+                Ok(Arc::new(Fetched::Unreachable("answered 503".to_owned())))
+            )
+        );
+    });
+}
+
+/// Covers: story:6-62
+#[test]
+fn a_reading_that_never_reached_the_site_is_kept_nowhere_and_the_next_reader_fetches() {
+    let env = goodfetch_test_support::TestEnv::new();
+    with_copies(&env, |copies, state| async move {
+        let location = location_of(1);
+        let closed = NotRead("the Session `run.session-1` is closed".to_owned());
+        let file = b"User-agent: *\nDisallow: /private/\n".to_vec();
+
+        let first = copies
+            .copy(&state, &location, async { Err(closed.clone()) })
+            .await;
+        let second = copies
+            .copy(&state, &location, async {
+                Ok(Answer::Response {
+                    status: 200,
+                    body: file.clone(),
+                })
+            })
+            .await;
+        let third = copies
+            .copy(&state, &location, async {
+                panic!("a third reader of the origin fetched it again")
+            })
+            .await;
+
+        assert_eq!(
+            (first, second, third.as_deref()),
+            (
+                Err(closed),
+                Ok(Arc::new(Fetched::File(parse(&file)))),
+                Ok(&Fetched::File(parse(&file)))
+            )
+        );
+    });
+}
+
+/// Covers: story:6-62
+#[test]
+fn a_run_across_many_origins_holds_at_most_its_cache_in_memory_and_fetches_each_origin_once() {
+    let env = goodfetch_test_support::TestEnv::new();
+    with_copies(&env, |copies, state| async move {
+        let origins = CACHED * 4;
+        let fetches = std::cell::Cell::new(0);
+        let fetch = |origin: usize| {
+            let fetches = &fetches;
+            async move {
+                fetches.set(fetches.get() + 1);
+                Ok(Answer::Response {
+                    status: 200,
+                    body: format!("User-agent: *\nDisallow: /{origin}/\n").into_bytes(),
+                })
+            }
+        };
+        let mut most_held = 0;
+
+        // Every origin twice, the second time after every other origin was
+        // read, so its copy left memory meanwhile.
+        for _ in 0..2 {
+            for origin in 0..origins {
+                let copy = copies
+                    .copy(&state, &location_of(origin), fetch(origin))
+                    .await;
+                assert_eq!(
+                    copy,
+                    Ok(Arc::new(Fetched::File(parse(
+                        format!("User-agent: *\nDisallow: /{origin}/\n").as_bytes()
+                    ))))
+                );
+                most_held = most_held.max(copies.held());
+            }
+        }
+
+        assert_eq!((most_held, fetches.get()), (CACHED, origins));
+    });
 }
 
 /// A pattern the generator writes: path segments of letters, a `*` or a

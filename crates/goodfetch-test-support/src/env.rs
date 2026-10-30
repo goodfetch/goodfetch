@@ -17,7 +17,7 @@ use std::process::Stdio;
 use std::time::{Duration, SystemTime};
 
 use crate::crash_dumps::{self, CRASH_DUMP_VARIABLE, CrashDumps};
-use crate::exercise::{DISPATCH_TARGET, ExerciseRecord, OUTCOME_TARGET};
+use crate::exercise::{self, DISPATCH_TARGET, ExerciseRecord, OUTCOME_TARGET};
 use crate::locales::{LocaleTableError, table_lang, table_zone};
 use crate::process::{Process, ProcessTracker, ProcessesAlive};
 use crate::runtime_file::{
@@ -316,6 +316,25 @@ impl TestEnv {
         set_log_level(&self.home, filter).unwrap_or_else(|error| {
             panic!("the test's user configuration cannot be written: {error}")
         });
+    }
+
+    /// The lines its teardown copies into the test's exercise record, as
+    /// they stand: its command record's, its answer record's, then those of
+    /// the engines' logs in its home (ADR 0072), under any runner.
+    ///
+    /// # Panics
+    ///
+    /// If a record or a log file cannot be read, or holds a line that is no
+    /// JSON.
+    pub fn exercise_lines(&self) -> Vec<serde_json::Value> {
+        exercise::taken_lines(self.folder(), &self.home)
+            .unwrap_or_else(|error| panic!("the test's exercise lines cannot be read: {error}"))
+            .iter()
+            .map(|line| {
+                serde_json::from_str(line)
+                    .unwrap_or_else(|error| panic!("an exercise line is no JSON ({error}): {line}"))
+            })
+            .collect()
     }
 
     /// `<home>/crash-dumps`, which the map names in

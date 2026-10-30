@@ -16,6 +16,7 @@ use std::time::Duration;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
 };
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::crawl::Attached;
@@ -422,13 +423,19 @@ fn a_crawl_with_fields_fills_each_by_its_value_transform_and_provenance_names_it
     assert_eq!(records[0]["provenance"]["tier"]["tier"], json!("http"));
 }
 
-/// An `XPath` field is the browser's to read: under `auto` the served
-/// page escalates to the browser, whose page reads every field alike, and
-/// the Record holds the same values and Provenance as the `http` tier's.
+/// An `XPath` field reads alike on every tier: the `http` tier reads it
+/// from the served document; under `auto` the page's sample reads it from
+/// the served document with no escalation, then on the browser, whose run
+/// commits; the browser tier's page reads it itself. Each Record holds the
+/// same values and Provenance as the CSS fields' crawl, and names no call
+/// that escalated it.
 ///
 /// Covers: story:6-304, operation:crawl.start, operation:run.records
-#[test]
-fn an_xpath_field_escalates_the_page_to_the_browser_which_reads_every_field() {
+#[rstest]
+#[case::http("http", json!("http"))]
+#[case::auto_sampled_with_no_escalation("auto", json!("browser"))]
+#[case::browser("browser", json!("browser"))]
+fn an_xpath_field_reads_alike_on_every_tier(#[case] tier: &str, #[case] read_on: Value) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
@@ -439,13 +446,15 @@ fn an_xpath_field_escalates_the_page_to_the_browser_which_reads_every_field() {
     let origin = proving_ground.url("extraction.test", "");
     let mut fields = value_fields();
     fields["name"]["locator"] = json!({ "kind": "xpath", "selector": "//article/h1" });
+    fields["manual"]["locator"] =
+        json!({ "kind": "xpath", "selector": "//a[contains(@class, 'manual')]" });
 
     let (started, records) = crawl_read(
         &mut engine,
         &proving_ground,
         ("xpath", &[json!({ "url": page, "label": "page" })]),
         &json!({ "formats": { "markdown": true }, "follow": "none", "fields": fields }),
-        &json!({ "fetch": { "tier": "auto" } }),
+        &json!({ "fetch": { "tier": tier } }),
     );
     assert!(engine.finish());
 
@@ -456,10 +465,36 @@ fn an_xpath_field_escalates_the_page_to_the_browser_which_reads_every_field() {
             records[0]["provenance"]["tier"]["tier"].clone(),
             records[0]["provenance"]["tier"]["call"].clone(),
         ),
-        (
-            value_record(&origin),
-            json!("browser"),
-            json!("crawl.extraction.fields"),
-        )
+        (value_record(&origin), read_on, Value::Null)
+    );
+}
+
+/// An `XPath` field the engine does not read to nodes fails the start
+/// with `invalid_params` before its Run begins.
+///
+/// Covers: story:6-304, operation:crawl.start
+#[test]
+fn a_code_free_start_with_an_xpath_the_engine_refuses_is_refused() {
+    let env = TestEnv::new();
+    let mut engine = Attached::start(&env);
+    let refused = engine.call(
+        "start",
+        "crawl.start",
+        &json!({
+            "run_id": "refused-xpath",
+            "seeds": [{ "url": "http://example.test/", "label": "page" }],
+            "datasets": [],
+            "extraction": {
+                "formats": { "markdown": true },
+                "fields": { "count": { "locator": { "kind": "xpath", "selector": "count(//h1)" } } },
+            },
+        }),
+        &mut |handle| panic!("a refused crawl sent its program {handle}"),
+    );
+    assert!(engine.finish());
+    assert_eq!(
+        refused["error"]["data"]["code"],
+        json!("invalid_params"),
+        "{refused}"
     );
 }

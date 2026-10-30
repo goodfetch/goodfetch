@@ -12,11 +12,18 @@
 //! reads the `body-limits` family's named host instead, whose robots.txt is
 //! a gzip body within the ratio that decodes past the 256 MiB a browser's
 //! pipe frames in one message (`proving-ground/src/raw_site/body_limits.rs`).
+//! Another reads the family's slow host, whose robots.txt answers 1.5 s
+//! late, so a Session closed right after its page loaded closes while that
+//! page's reading is under way.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use goodfetch_protocol::page::PAGE_GOTO;
+use goodfetch_protocol::page::functions::PAGE_EVALUATE;
+use goodfetch_protocol::page::request::PAGE_REQUEST;
+use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
+use goodfetch_protocol::page::waits::PAGE_WAIT_FOR_URL;
+use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO, PageOpened};
 use serde_json::{Value, json};
 
 use super::clean_up::provenance;
@@ -52,6 +59,9 @@ pub(crate) enum Case {
     TwoTabsAreNeitherDelayedNorRefused,
     FoxhoundsCopyIsUntouched,
     PastTheSizeIsUnreachable,
+    EveryDocumentIsRecorded,
+    PageRequestIsRecorded,
+    NotReadIsNotKept,
 }
 
 impl Case {
@@ -70,6 +80,13 @@ impl Case {
             "a-robots-txt-past-max-body-size-is-recorded-unreachable-and-the-page-loads" => {
                 Self::PastTheSizeIsUnreachable
             }
+            "a-document-a-click-or-a-script-navigated-to-is-recorded-as-a-gotos-is" => {
+                Self::EveryDocumentIsRecorded
+            }
+            "a-page-request-is-recorded-as-a-document-is" => Self::PageRequestIsRecorded,
+            "a-reading-a-closed-session-cut-short-is-not-read-and-the-next-document-reads-the-file" => {
+                Self::NotReadIsNotKept
+            }
             _ => return None,
         })
     }
@@ -87,6 +104,9 @@ impl Case {
             Self::TwoTabsAreNeitherDelayedNorRefused => two_tabs(connection, site, checks),
             Self::FoxhoundsCopyIsUntouched => own_copy(connection, target, site, checks),
             Self::PastTheSizeIsUnreachable => past_the_size(connection, target, site, checks),
+            Self::EveryDocumentIsRecorded => every_document(connection, target, site, checks),
+            Self::PageRequestIsRecorded => page_request(connection, target, site, checks),
+            Self::NotReadIsNotKept => not_read(connection, target, site, checks),
         }
     }
 }
@@ -257,7 +277,8 @@ fn two_tabs(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Re
 
 /// Two Runs each read the site's robots.txt once, however many pages
 /// they load from it, and once each Run ended no file of the Goodfetch
-/// home outside their folders holds the robots.txt.
+/// home outside the Runs' folders, where each keeps its own copy in its run
+/// state, holds the robots.txt.
 fn own_copy(
     connection: &mut Connection,
     target: &EngineTarget,
@@ -303,12 +324,264 @@ fn own_copy(
         );
         finish_run(connection, run_id)?;
     }
-    let held = holding_the_file(target, &run_ids);
+    let held = holding_the_file(target);
     checks.check(
         "no file of the Goodfetch home outside the Runs' folders holds the robots.txt",
         held.is_empty(),
     );
     Ok(())
+}
+
+/// Pages robots.txt disallows that a click and a script reach.
+const CLICKED: &str = "/private/clicked";
+const SCRIPTED: &str = "/private/scripted";
+
+/// After a `goto`, a click on a link and a script's `location.assign` each
+/// navigate the page to a page robots.txt disallows: Provenance records
+/// each of the two documents disallowed, naming the rule, as it does a
+/// `goto`'s, however its navigation started.
+fn every_document(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-robots-txt-every-document";
+    let (Some(allowed), Some(clicked), Some(scripted)) = (
+        site.named_url(HOST, ALLOWED),
+        site.named_url(HOST, CLICKED),
+        site.named_url(HOST, SCRIPTED),
+    ) else {
+        checks.check("the Proving ground serves the case's pages", false);
+        return Ok(());
+    };
+    start_run(connection, site, run_id, &json!({}), checks)?;
+    let Some(page) = new_page(connection, run_id, checks)? else {
+        return finish_run(connection, run_id);
+    };
+    let page_id = json!(page.page_id);
+    let answer = call(
+        connection,
+        PAGE_GOTO.name,
+        &page_id,
+        &json!({ "url": allowed }),
+    )?;
+    answered(
+        &answer,
+        &format!("`goto` to {allowed}"),
+        &allowed,
+        200,
+        checks,
+    );
+    call(
+        connection,
+        PAGE_EVALUATE.name,
+        &page_id,
+        &json!({
+            "function": "(url) => { const link = document.createElement('a'); link.id = 'away'; link.href = url; link.textContent = 'away'; document.body.prepend(link); }",
+            "arg": clicked,
+        }),
+    )?;
+    let id = connection.request(
+        LOCATOR_CLICK.name,
+        &json!({ "locator": { "page_id": page.page_id, "selector": "#away" } }),
+    )?;
+    let click = connection.browser_answer(id)?.message;
+    let reached = wait_for(connection, &page_id, CLICKED)?;
+    checks.check(
+        "a click on a link navigates the page to the page it names",
+        click.get("result").is_some() && reached,
+    );
+    call(
+        connection,
+        PAGE_EVALUATE.name,
+        &page_id,
+        &json!({
+            "function": "(url) => { setTimeout(() => location.assign(url), 0); }",
+            "arg": scripted,
+        }),
+    )?;
+    let reached = wait_for(connection, &page_id, SCRIPTED)?;
+    checks.check(
+        "a script's `location.assign` navigates the page to the page it names",
+        reached,
+    );
+    let entries = readings(target, run_id, 3);
+    for path in [CLICKED, SCRIPTED] {
+        checks.check(
+            format!("Provenance records {path} not allowed by robots.txt, naming its rule"),
+            reading_of(&entries, path).is_some_and(|entry| {
+                entry["page_id"] == page_id
+                    && entry["file"] == json!("found")
+                    && entry["allowed"] == json!(false)
+                    && entry["rule"]["text"] == json!(RULE)
+            }),
+        );
+    }
+    finish_run(connection, run_id)
+}
+
+/// A page robots.txt disallows that a `page.request` fetches.
+const REQUESTED: &str = "/private/requested";
+
+/// A `page.request` of a page robots.txt disallows answers its response,
+/// and Provenance records it disallowed, naming the rule, as it records a
+/// document.
+fn page_request(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-robots-txt-page-request";
+    let Some(requested) = site.named_url(HOST, REQUESTED) else {
+        checks.check("the Proving ground serves the case's pages", false);
+        return Ok(());
+    };
+    start_run(connection, site, run_id, &json!({}), checks)?;
+    let Some(page) = new_page(connection, run_id, checks)? else {
+        return finish_run(connection, run_id);
+    };
+    let page_id = json!(page.page_id);
+    let answer = call(
+        connection,
+        PAGE_REQUEST.name,
+        &page_id,
+        &json!({ "url": requested }),
+    )?;
+    checks.check(
+        "the `page.request` answers its response",
+        answer["result"]["url"] == json!(requested),
+    );
+    let entries = readings(target, run_id, 1);
+    checks.check(
+        "Provenance records the requested page not allowed by robots.txt, naming its rule",
+        reading_of(&entries, REQUESTED).is_some_and(|entry| {
+            entry["page_id"] == page_id
+                && entry["file"] == json!("found")
+                && entry["allowed"] == json!(false)
+                && entry["rule"]["text"] == json!(RULE)
+        }),
+    );
+    finish_run(connection, run_id)
+}
+
+/// The `access-policy` family's host whose robots.txt answers 1.5 s late.
+pub(super) const SLOW_ROBOTS_HOST: &str = "slow-robots.access-policy.test";
+
+/// A Session closed as soon as its page's `goto` answered cuts that page's
+/// reading short before the site's robots.txt answered: Provenance records
+/// it `not_read`, with its reason and no verdict, and the Run keeps
+/// nothing of it, so a later Session's page of the same origin fetches the
+/// file and is recorded allowed by it.
+fn not_read(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-robots-txt-not-read";
+    let Some(allowed) = site.named_url(SLOW_ROBOTS_HOST, ALLOWED) else {
+        checks.check("the Proving ground serves the case's pages", false);
+        return Ok(());
+    };
+    start_run(connection, site, run_id, &json!({}), checks)?;
+    let Some(first) = page_in_new_session(connection, run_id, checks)? else {
+        return finish_run(connection, run_id);
+    };
+    let answer = call(
+        connection,
+        PAGE_GOTO.name,
+        &json!(first.page_id),
+        &json!({ "url": allowed }),
+    )?;
+    answered(
+        &answer,
+        &format!("`goto` to {allowed}"),
+        &allowed,
+        200,
+        checks,
+    );
+    let id = connection.request(
+        SESSION_CLOSE.name,
+        &json!({ "session_id": first.session_id }),
+    )?;
+    let closed = connection.browser_answer(id)?.message;
+    checks.check("the first Session closes", closed.get("result").is_some());
+    let Some(second) = page_in_new_session(connection, run_id, checks)? else {
+        return finish_run(connection, run_id);
+    };
+    let answer = call(
+        connection,
+        PAGE_GOTO.name,
+        &json!(second.page_id),
+        &json!({ "url": allowed }),
+    )?;
+    answered(
+        &answer,
+        &format!("a later Session's `goto` to {allowed}"),
+        &allowed,
+        200,
+        checks,
+    );
+    let entries = readings(target, run_id, 2);
+    let of = |page: &PageOpened| {
+        entries
+            .iter()
+            .find(|entry| entry["page_id"] == json!(page.page_id))
+    };
+    checks.check(
+        "Provenance records the reading the close cut short `not_read`, with its reason and no verdict",
+        of(&first).is_some_and(|entry| {
+            entry["file"] == json!("not_read")
+                && entry["reason"].is_string()
+                && entry.get("allowed").is_none()
+        }),
+    );
+    checks.check(
+        "the later Session's page is recorded allowed by the site's robots.txt",
+        of(&second).is_some_and(|entry| {
+            entry["file"] == json!("found") && entry["allowed"] == json!(true)
+        }),
+    );
+    finish_run(connection, run_id)
+}
+
+/// Opens a page in a new Session of the Run `run_id`.
+fn page_in_new_session(
+    connection: &mut Connection,
+    run_id: &str,
+    checks: &mut Checks,
+) -> Result<Option<PageOpened>, Gone> {
+    let id = connection.request(RUN_NEW_SESSION.name, &json!({ "run_id": run_id }))?;
+    let opened = connection.browser_answer(id)?.message;
+    let id = connection.request(
+        SESSION_NEW_PAGE.name,
+        &json!({ "session_id": opened["result"]["session_id"] }),
+    )?;
+    let paged = connection.browser_answer(id)?.message;
+    let page = serde_json::from_value::<PageOpened>(paged["result"].clone()).ok();
+    checks.check("a new Session opens a page", page.is_some());
+    Ok(page)
+}
+
+/// Whether the page `page_id` reached a URL ending with `path`, waiting
+/// for it under the Run's `timeout.wait`.
+fn wait_for(connection: &mut Connection, page_id: &Value, path: &str) -> Result<bool, Gone> {
+    let waited = call(
+        connection,
+        PAGE_WAIT_FOR_URL.name,
+        page_id,
+        &json!({ "url": { "kind": "glob", "pattern": format!("**{path}") } }),
+    )?;
+    Ok(waited.get("result").is_some())
+}
+
+/// The reading among `entries` of the URL ending with `path`.
+fn reading_of<'a>(entries: &'a [Value], path: &str) -> Option<&'a Value> {
+    entries
+        .iter()
+        .find(|entry| entry["url"].as_str().is_some_and(|url| url.ends_with(path)))
 }
 
 /// The Run `run_id`'s robots.txt readings in Provenance, once there are
@@ -356,24 +629,24 @@ fn robots_txt_requests(site: &Site) -> usize {
         .count()
 }
 
-/// The files of the Goodfetch home `target` names, outside the folders of
-/// the Runs `run_ids`, that hold the robots.txt's [`MARKER`] line.
-fn holding_the_file(target: &EngineTarget, run_ids: &[&str]) -> Vec<PathBuf> {
+/// The files of the Goodfetch home `target` names, outside the Runs'
+/// folders, that hold the robots.txt's [`MARKER`] line.
+fn holding_the_file(target: &EngineTarget) -> Vec<PathBuf> {
     let Some(home) = target.environment.get("GOODFETCH_HOME") else {
         return Vec::new();
     };
     let mut files = Vec::new();
-    walk(Path::new(home), run_ids, &mut files);
+    walk(Path::new(home), &mut files);
     files
 }
 
-/// Adds to `found` each regular file under `folder`, no Run folder of
-/// `run_ids` and no symbolic link followed, that holds [`MARKER`].
+/// Adds to `found` each regular file under `folder`, no Run's folder and
+/// no symbolic link followed, that holds [`MARKER`].
 #[expect(
     clippy::disallowed_methods,
     reason = "the harness is synchronous and runs no async worker"
 )]
-fn walk(folder: &Path, run_ids: &[&str], found: &mut Vec<PathBuf>) {
+fn walk(folder: &Path, found: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(folder) else {
         return;
     };
@@ -382,10 +655,9 @@ fn walk(folder: &Path, run_ids: &[&str], found: &mut Vec<PathBuf>) {
         let Ok(kind) = entry.file_type() else {
             continue;
         };
-        let is_run_folder = folder.file_name().is_some_and(|name| name == "runs")
-            && run_ids.iter().any(|run_id| entry.file_name() == **run_id);
+        let is_run_folder = folder.file_name().is_some_and(|name| name == "runs");
         if kind.is_dir() && !is_run_folder {
-            walk(&path, run_ids, found);
+            walk(&path, found);
         } else if kind.is_file()
             && std::fs::read(&path).is_ok_and(|bytes| {
                 bytes

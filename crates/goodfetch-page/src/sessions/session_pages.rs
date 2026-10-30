@@ -505,10 +505,12 @@ impl Sessions {
                 page.driver.close().await;
                 // The close the engine sent is confirmed (P29).
                 let effect = page.life.end(&Ending::Destroyed)?;
-                self.page_ended(page_id, &page.run, effect).await;
+                self.page_ended(page_id, &page.run, &page.life, effect)
+                    .await;
             }
             effect => {
-                self.page_ended(page_id, &page.run, effect).await;
+                self.page_ended(page_id, &page.run, &page.life, effect)
+                    .await;
             }
         }
         Ok(())

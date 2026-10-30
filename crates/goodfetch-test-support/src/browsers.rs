@@ -119,6 +119,24 @@ pub fn browser_cache_in_home(env: &TestEnv) -> Result<PathBuf, BrowserCacheError
     chrome_for_testing_at(env.home().join(HOME_BROWSERS))
 }
 
+/// The folder of the Browser cache at `cache` where [`browser_cache`] lays
+/// out the pinned Chrome for Testing build's files, Playwright's own: a
+/// test that searches its folder for what the engine wrote may leave them
+/// out, since no engine writes there, and the cache's own records beside
+/// them stay searched.
+pub fn chrome_for_testing_files(cache: &Path) -> PathBuf {
+    chrome_for_testing_entry(cache).join("files")
+}
+
+/// The pinned Chrome for Testing build's entry in the Browser cache at
+/// `cache`.
+fn chrome_for_testing_entry(cache: &Path) -> PathBuf {
+    cache
+        .join("browser")
+        .join("chrome-for-testing")
+        .join(CHROME_FOR_TESTING_BUILD)
+}
+
 /// A Browser cache at `root` holding the pinned Chrome for Testing build,
 /// as [`browser_cache`] describes it; `root`.
 fn chrome_for_testing_at(root: PathBuf) -> Result<PathBuf, BrowserCacheError> {
@@ -130,12 +148,8 @@ fn chrome_for_testing_at(root: PathBuf) -> Result<PathBuf, BrowserCacheError> {
     if !source.is_dir() {
         return Err(BrowserCacheError::NotInstalled(source));
     }
-    let entry = root
-        .join("browser")
-        .join("chrome-for-testing")
-        .join(CHROME_FOR_TESTING_BUILD);
-    let files = entry.join("files").join(platform);
-    link_tree(&source, &files)?;
+    let entry = chrome_for_testing_entry(&root);
+    link_tree(&source, &chrome_for_testing_files(&root).join(platform))?;
     fs::write(entry.join("lock"), "")?;
     let installed = serde_json::json!({
         "format_version": "0.1",

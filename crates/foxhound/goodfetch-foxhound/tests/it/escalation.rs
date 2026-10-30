@@ -300,3 +300,131 @@ fn a_challenge_the_programs_code_names_moves_its_request_to_the_browser_as_a_det
         )
     );
 }
+
+/// A Challenge a handler's own `goto` meets on its page served over HTTP,
+/// under `auto`, takes the same way as one its request's own document
+/// met: the attempt runs again in the browser, in the same Session, its
+/// HTTP run discarded, and the domain's next request starts on the browser
+/// (spec #600; #1130).
+///
+/// Covers: story:8-209, operation:page.goto
+#[test]
+fn a_challenge_a_handlers_goto_meets_over_http_moves_its_request_to_the_browser() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let challenge = proving_ground.url(HOST, "/corpus/interstitial");
+
+    let (mut handled_by, mut went) = (Vec::new(), Value::Null);
+    let finished = crawl_declaring(
+        &mut engine,
+        "navigated",
+        &seeds(
+            &proving_ground,
+            &[SAMPLED, "/corpus/article?n=2", "/corpus/article?n=3"],
+        ),
+        &json!({ "page": {} }),
+        &crawl_settings(&proving_ground, "auto"),
+        &mut |inside, handle| {
+            let (path, session, tier) = seen(handle);
+            handled_by.push((path.clone(), session, tier.clone()));
+            if path == "/corpus/article?n=2" && tier == "http" {
+                went = inside.call(
+                    "page.goto",
+                    &json!({ "page_id": handle["page_id"], "url": challenge }),
+                );
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let ended = ended(&mut engine, "navigated");
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            &finished["result"]["lifecycle"],
+            &went["error"]["data"]["code"],
+            handled_by,
+            tiers(&env, "navigated"),
+            ended
+                .iter()
+                .map(|(_, kind, _)| kind.clone())
+                .collect::<Vec<_>>(),
+        ),
+        (
+            &json!("finished"),
+            &json!("attempt_ended"),
+            vec![
+                handled(SAMPLED, "session-1", "http"),
+                handled(SAMPLED, "session-1", "browser"),
+                handled("/corpus/article?n=2", "session-1", "http"),
+                handled("/corpus/article?n=2", "session-1", "browser"),
+                handled("/corpus/article?n=3", "session-1", "browser"),
+            ],
+            vec![
+                json!(["page", "http", "sample", null, null]),
+                json!(["page", "browser", "sample", null, null]),
+                json!(["page", "http", "compared", null, null]),
+                json!(["page", "browser", "escalation", null, "blocked"]),
+                json!(["page", "browser", "compared", null, null]),
+            ],
+            vec![json!("succeeded"); 3],
+        ),
+        "{went}"
+    );
+}
+
+/// Under `fetch.tier: http` forced, the same `goto` raises `blocked` with
+/// the Challenge's cause, and a handler that lets it escape ends its
+/// request `blocked`, never moved: the browser never loads the page.
+///
+/// Covers: story:8-210, error:blocked, operation:page.goto
+#[test]
+fn a_challenge_a_handlers_goto_meets_under_a_forced_http_tier_raises_blocked() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let challenge = proving_ground.url(HOST, "/corpus/interstitial");
+
+    let (mut handled_by, mut went) = (Vec::new(), Value::Null);
+    let finished = crawl_declaring(
+        &mut engine,
+        "navigated-forced",
+        &seeds(&proving_ground, &["/corpus/article?n=2"]),
+        &json!({ "page": {} }),
+        &crawl_settings(&proving_ground, "http"),
+        &mut |inside, handle| {
+            handled_by.push(seen(handle));
+            went = inside.call(
+                "page.goto",
+                &json!({ "page_id": handle["page_id"], "url": challenge }),
+            );
+            json!({ "error": went["error"] })
+        },
+    );
+    let ended = ended(&mut engine, "navigated-forced");
+    assert!(engine.finish());
+
+    assert_eq!(
+        (
+            &finished["result"]["lifecycle"],
+            (
+                &went["error"]["data"]["code"],
+                &went["error"]["data"]["cause"]
+            ),
+            handled_by,
+            ended,
+        ),
+        (
+            &json!("finished"),
+            (&json!("blocked"), &json!("challenge")),
+            vec![handled("/corpus/article?n=2", "session-1", "http")],
+            vec![(
+                "/corpus/article?n=2".to_owned(),
+                json!("blocked"),
+                json!("challenge")
+            )],
+        ),
+        "{went}"
+    );
+}

@@ -924,6 +924,279 @@ fn a_handlers_goto_to_a_reserved_document_loads_unless_the_signals_are_honoured_
     );
 }
 
+/// The `access-policy` family's Content-Signal task's host, whose
+/// robots.txt says `Content-Signal: … ai-train=no` to every crawler.
+const CONTENT_SIGNAL_HOST: &str = "3.access-policy.test";
+
+/// The `access-policy` family's TDMRep-file task's host, whose
+/// `/.well-known/tdmrep.json` reserves `/catalog*`.
+const TDMREP_FILE_HOST: &str = "4.access-policy.test";
+
+/// What a handler's calls on the page its tier serves, the request's own
+/// on `fetch.tier: http`, answered, under `site_preferences`: each of the
+/// `calls` made for the Proving ground, a method and its params beside the
+/// page's ID, then whether the
+/// page then holds no element at all, a blank document, as
+/// `locator.wait_for_count` answers it, and the paths of `host` the site
+/// received that are no robots.txt or signal file.
+fn on_the_served_page(
+    seed: (&str, &str),
+    calls: &dyn Fn(&ProvingGround) -> Vec<(&'static str, Value)>,
+    site_preferences: &Value,
+    host: &str,
+) -> (Vec<Value>, Value, Vec<String>) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let more = json!({ "site_preferences": site_preferences });
+    let calls = calls(&proving_ground);
+
+    let (mut answers, mut blank) = (Vec::new(), Value::Null);
+    let report = crawl_with(
+        &mut engine,
+        "served",
+        &[json!({ "url": proving_ground.url(seed.0, seed.1), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            let page_id = &handle["page_id"];
+            for (method, params) in &calls {
+                let mut params = params.clone();
+                params["page_id"] = page_id.clone();
+                answers.push(inside.call(method, &params));
+            }
+            let counted = inside.call(
+                "locator.wait_for_count",
+                &json!({
+                    "locator": { "page_id": page_id, "selector": "body *" },
+                    "count": { "max": 0 },
+                }),
+            );
+            blank = json!(counted["result"]["count"] == json!(0));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    let mut sent: Vec<String> = proving_ground
+        .received_requests()
+        .unwrap()
+        .of_the_case()
+        .filter(|request| {
+            request["host"]
+                .as_str()
+                .is_some_and(|seen| seen.split(':').next() == Some(host))
+        })
+        .filter_map(|request| request["target"].as_str().map(str::to_owned))
+        .filter(|target| target != "/robots.txt" && !target.starts_with("/.well-known/"))
+        .collect();
+    sent.sort();
+    (answers, blank, sent)
+}
+
+/// The code and the reason of a call's refusal, or its response's status.
+fn refused_or_status(answer: &Value) -> Value {
+    match answer.get("error") {
+        Some(error) => json!([error["data"]["code"], error["data"]["reason"]]),
+        None => answer["result"]["response"]["status"].clone(),
+    }
+}
+
+/// On a page a document tier serves, the request's own on `http`, the
+/// document a handler's `goto` reaches is judged as a browser page's is
+/// (ADR 0093): one whose response's `TDMRep` header refuses the Purpose
+/// raises `site_preferences_refused` with `use_signals` and leaves the page
+/// blank, and a `page.request` its response refuses raises the same.
+///
+/// Covers: story:5-134, error:site_preferences_refused, setting:site_preferences.respect_use_signals, setting:site_preferences.purpose, operation:page.goto, operation:page.request, operation:locator.wait_for_count
+#[test]
+fn a_served_pages_goto_to_a_document_whose_use_signals_refuse_the_purpose_is_refused_blank() {
+    let reserved = |method: &'static str| {
+        move |proving_ground: &ProvingGround| {
+            vec![(
+                method,
+                json!({ "url": proving_ground.url(TDMREP_HOST, "/catalog/2") }),
+            )]
+        }
+    };
+    let honoured = json!({ "respect_use_signals": true, "purpose": "ai-input" });
+    let (requested, _, _) = on_the_served_page(
+        (TDMREP_HOST, "/catalog/1"),
+        &reserved("page.request"),
+        &honoured,
+        TDMREP_HOST,
+    );
+    let (went, blank, _) = on_the_served_page(
+        (TDMREP_HOST, "/catalog/1"),
+        &reserved("page.goto"),
+        &honoured,
+        TDMREP_HOST,
+    );
+
+    let refused = json!(["site_preferences_refused", "use_signals"]);
+    assert_eq!(
+        (
+            refused_or_status(&went[0]),
+            blank,
+            refused_or_status(&requested[0])
+        ),
+        (refused.clone(), json!(true), refused),
+        "{went:?} {requested:?}"
+    );
+}
+
+/// A handler's `goto` to a host that declared, before any request, that
+/// the Purpose is refused, its robots.txt's `Content-Signal` line or
+/// `TDMRep`'s well-known file, is refused with `use_signals` before it is
+/// sent, as a crawl request is (ADR 0093), on a served page as on a
+/// browser page.
+///
+/// Covers: story:5-134, error:site_preferences_refused, setting:site_preferences.respect_use_signals, setting:site_preferences.purpose, operation:page.goto
+#[rstest::rstest]
+#[case::a_content_signal_on_a_served_page(CONTENT_SIGNAL_HOST, "ai-train", false)]
+#[case::a_tdmrep_file_on_a_served_page(TDMREP_FILE_HOST, "collect", false)]
+/// Covers: operation:run.new_page
+#[case::a_content_signal_on_a_browser_page(CONTENT_SIGNAL_HOST, "ai-train", true)]
+fn a_handlers_goto_to_a_host_whose_declared_signals_refuse_the_purpose_is_never_sent(
+    #[case] host: &str,
+    #[case] purpose: &str,
+    #[case] browser: bool,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let more = json!({ "site_preferences": { "respect_use_signals": true, "purpose": purpose } });
+    let target = proving_ground.url(host, "/catalog/1");
+
+    let mut went = Value::Null;
+    let report = crawl_with(
+        &mut engine,
+        "declared",
+        &[json!({ "url": proving_ground.url(TDMREP_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            let page_id = if browser {
+                json!(new_page(inside, handle))
+            } else {
+                handle["page_id"].clone()
+            };
+            went = inside.call("page.goto", &json!({ "page_id": page_id, "url": target }));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+
+    assert_eq!(
+        (
+            refused_or_status(&went),
+            requested(&proving_ground, host, "/catalog/1")
+        ),
+        (json!(["site_preferences_refused", "use_signals"]), 0),
+        "{went}"
+    );
+}
+
+/// With `site_preferences.respect_use_signals` off, the default, a
+/// handler's `goto` to a host whose `TDMRep` file reserves the page loads
+/// and the gate reads no signal file; with robots.txt not respected either,
+/// the page's own request is all the host receives, counted once the Run
+/// finished, so a later robots.txt read could not be missed.
+///
+/// Covers: story:5-134, setting:site_preferences.respect_use_signals, setting:site_preferences.respect_robots_txt, operation:page.goto
+#[rstest::rstest]
+#[case::a_served_page_respecting_robots_txt(true, false, 1)]
+#[case::a_served_page(false, false, 0)]
+/// Covers: operation:run.new_page
+#[case::a_browser_page(false, true, 0)]
+fn with_use_signals_not_honoured_a_handlers_goto_reads_no_signal_file(
+    #[case] respect_robots_txt: bool,
+    #[case] browser: bool,
+    #[case] robots_txt_reads: usize,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let more = json!({ "site_preferences": { "respect_robots_txt": respect_robots_txt } });
+    let target = proving_ground.url(TDMREP_FILE_HOST, "/catalog/1");
+
+    let mut went = Value::Null;
+    let report = crawl_with(
+        &mut engine,
+        "unhonoured",
+        &[json!({ "url": proving_ground.url(TDMREP_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            let page_id = if browser {
+                json!(new_page(inside, handle))
+            } else {
+                handle["page_id"].clone()
+            };
+            went = inside.call("page.goto", &json!({ "page_id": page_id, "url": target }));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+
+    assert_eq!(
+        (
+            refused_or_status(&went),
+            requested(&proving_ground, TDMREP_FILE_HOST, "/catalog/1"),
+            proving_ground
+                .received_requests()
+                .unwrap()
+                .every()
+                .filter(|request| request["host"] == TDMREP_FILE_HOST
+                    && request["target"] == "/robots.txt")
+                .count(),
+            requested(
+                &proving_ground,
+                TDMREP_FILE_HOST,
+                "/.well-known/tdmrep.json"
+            ),
+        ),
+        (json!(200), 1, robots_txt_reads, 0),
+        "{went}"
+    );
+}
+
+/// A handler's `goto` on a served page to a refresh stub is given the
+/// stub, its tier running no refresh (ADR 0118): only the browser runs one,
+/// and the stub's target is never requested.
+///
+/// Covers: story:5-125, operation:page.goto
+#[test]
+fn a_served_pages_goto_to_a_refresh_stub_is_given_the_stub() {
+    let (went, _, sent) = on_the_served_page(
+        (FETCH_EDGE, "/redirect/hops/0"),
+        &|proving_ground| {
+            vec![(
+                "page.goto",
+                json!({ "url": proving_ground.url(FETCH_EDGE, "/refresh/meta/0") }),
+            )]
+        },
+        &json!({}),
+        FETCH_EDGE,
+    );
+
+    let url = went[0]["result"]["response"]["url"]
+        .as_str()
+        .unwrap_or_default();
+    assert_eq!(
+        (
+            refused_or_status(&went[0]),
+            url.ends_with("/refresh/meta/0"),
+            sent
+        ),
+        (
+            json!(200),
+            true,
+            vec!["/redirect/hops/0".to_owned(), "/refresh/meta/0".to_owned()]
+        ),
+        "{went:?}"
+    );
+}
+
 /// How many handlers run at once in the eight-handler case.
 const HANDLERS: usize = 8;
 

@@ -780,7 +780,7 @@ impl FetchTiers {
         };
         let clock = run.clock();
         let mut first = true;
-        let fetched = follow(hop, &tier.following, &gate, &clock, |hop| {
+        let fetched = follow(hop, &tier.following, &gate, (&clock, run.owner()), |hop| {
             let lead = std::mem::replace(&mut first, false);
             let (accepts, clock) = (&accepts, &clock);
             async move {
@@ -817,6 +817,7 @@ impl FetchTiers {
             }));
         }
         self.open_served(tier, run, choice, fetched, (hand_over, hand_over.encoding))
+            .await
     }
 
     /// Opens a page served from `fetched` on `tier` for `run`, its calls
@@ -829,7 +830,12 @@ impl FetchTiers {
     /// `browser_required` under a forced tier for a document only a guess
     /// could read, which under `auto` opens a page already escalated at
     /// `fetch.encoding` instead (ADR 0119).
-    fn open_served(
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future opens no page; the document's read, on the
+    /// blocking pool, runs to its end.
+    async fn open_served(
         &self,
         tier: &HttpTier,
         run: &Run,
@@ -844,7 +850,14 @@ impl FetchTiers {
             fetched.body.clone(),
         );
         let certificate_exception = fetched.certificate_exception.as_ref().map(mark);
-        let opened = Opened::of(run, fetched, (forced, hand_over.extractor));
+        // The document is decoded and parsed on the blocking pool, never on
+        // an async worker (STYLE.md).
+        let opened = {
+            let (reading, extractor) = (run.clone(), hand_over.extractor);
+            run.owner()
+                .blocking(move || Opened::of(&reading, fetched, (forced, extractor)))
+                .await
+        };
         // A document only a guess could read is never served: under a
         // forced tier it fails, and under `auto` its page escalates before
         // its handler runs (ADR 0119). A page holding no document is never
@@ -976,6 +989,7 @@ impl FetchTiers {
             certificate_exception: None,
         };
         self.open_served(tier, run, choice, fetched, (hand_over, None))
+            .await
     }
 
     /// Whether a Run's resolved `settings` let its crawl take the
@@ -1338,14 +1352,28 @@ impl FetchTiers {
         if page.not_document.is_some() {
             return None;
         }
-        let pages = Arc::clone(self.served.browser.get()?);
         let response = page.own.map(|(response, _)| response)?;
         let run = page.document.run.clone();
+        self.classified(&run, response, page.document).await
+    }
+
+    /// The Block cause of `document`, which `response` answered for
+    /// `run`, as the Product's Block classification tells it (ADR 0035),
+    /// with the `blocked` its crawl request ends with when nothing moves
+    /// it, read on the blocking pool. `None` for a document no rule
+    /// classifies, or before the engine's pages were handed over.
+    async fn classified(
+        &self,
+        run: &Run,
+        response: PageResponse,
+        document: Arc<ServedDocument>,
+    ) -> Option<(Block, CallError)> {
+        let pages = Arc::clone(self.served.browser.get()?);
         let received = run.clock().wall();
         let (block, response) = run
             .owner()
             .blocking(move || {
-                let block = pages.classify(&response, &page.document.html);
+                let block = pages.classify(&response, &document.html);
                 block.map(|block| (block, response))
             })
             .await?;

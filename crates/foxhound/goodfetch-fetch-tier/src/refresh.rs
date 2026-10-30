@@ -39,13 +39,26 @@ pub(crate) fn directive(
     body: &[u8],
     html: bool,
 ) -> Option<Refresh> {
-    let header = headers
-        .iter()
-        .filter(|(name, _)| name == "refresh")
-        .find_map(|(_, value)| parse(value, url));
+    let header = in_header(url, headers);
     if header.is_some() || !html {
         return header;
     }
+    in_markup(url, body)
+}
+
+/// The first `Refresh` header among `headers` (names lower-cased) of the
+/// document at `url` that parses.
+pub(crate) fn in_header(url: &Url, headers: &[(String, String)]) -> Option<Refresh> {
+    headers
+        .iter()
+        .filter(|(name, _)| name == "refresh")
+        .find_map(|(_, value)| parse(value, url))
+}
+
+/// The first `<meta http-equiv="refresh">` outside `<noscript>` of the
+/// HTML document `body` at `url` that parses: a whole parse of the
+/// document, which blocks.
+pub(crate) fn in_markup(url: &Url, body: &[u8]) -> Option<Refresh> {
     let document = dom_query::Document::from(String::from_utf8_lossy(body).as_ref());
     document
         .select("meta[http-equiv][content]")

@@ -204,6 +204,7 @@ fn the_pages_schema_holds_each_fields_type() {
 #[case::status(json!({ "status": { "locator": { "kind": "css", "selector": "p" } } }))]
 #[case::fetched_at(json!({ "fetched_at": { "locator": { "kind": "css", "selector": "p" } } }))]
 #[case::an_unreadable_field(json!({ "name": { "locator": { "kind": "css", "selector": "h1[" } } }))]
+#[case::an_xpath_the_engine_refuses(json!({ "name": { "locator": { "kind": "xpath", "selector": "//h1[" } } }))]
 fn the_start_refuses_a_field_it_cannot_hold_or_read(#[case] fields: Value) {
     let extraction = extraction(json!({ "formats": { "markdown": true }, "fields": fields }));
 

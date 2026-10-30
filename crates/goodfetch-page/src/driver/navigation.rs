@@ -298,7 +298,55 @@ impl Navigation {
             {
                 self.requested = Some(requested.url);
             }
-        } else if let Some(sent) = event.read::<network::RequestWillBeSentEvent>() {
+        } else if event.method.starts_with("Network.") {
+            self.feed_network(event);
+        } else if let Some(navigated) = event.read::<page::FrameNavigatedEvent>() {
+            if navigated.frame.id == self.frame && navigated.frame.parent_id.is_none() {
+                if navigated.r#type == page::NavigationType::BackForwardCacheRestore {
+                    // Its requests never passed the interception or the
+                    // navigation gate this time (ADR 0121).
+                    tracing::info!(
+                        url.origin = goodfetch_engine::log::origin(&navigated.frame.url),
+                        "the browser's back/forward cache restored the page's document"
+                    );
+                    self.restored = Some(navigated.frame.loader_id.clone());
+                }
+                self.committed.push(navigated.frame.loader_id);
+            }
+        } else if let Some(stopped) = event.read::<page::FrameStoppedLoadingEvent>() {
+            if stopped.frame_id == self.frame {
+                self.stopped = true;
+            }
+        } else if let Some(within) = event.read::<page::NavigatedWithinDocumentEvent>() {
+            if within.frame_id == self.frame {
+                self.within_document = true;
+            }
+        } else if let Some(download) = event.read::<page::DownloadWillBeginEvent>() {
+            if download.frame_id == self.frame {
+                self.download = Some((download.url, download.suggested_filename));
+            }
+        } else if event.method.starts_with("Page.javascriptDialog") {
+            self.feed_dialog(event);
+        } else if let Some(lifecycle) = event.read::<page::LifecycleEventEvent>()
+            && lifecycle.frame_id == self.frame
+        {
+            match lifecycle.name.as_str() {
+                "DOMContentLoaded" => {
+                    self.content_loaded.insert(lifecycle.loader_id);
+                }
+                "load" => {
+                    self.loaded.insert(lifecycle.loader_id);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Takes in one network event of the page's target: the main frame's
+    /// document requests, their responses, their bodies' bytes and how
+    /// each load ended.
+    fn feed_network(&mut self, event: &RawEvent) {
+        if let Some(sent) = event.read::<network::RequestWillBeSentEvent>() {
             if sent.frame_id.as_ref() == Some(&self.frame)
                 && sent.r#type == Some(ResourceType::Document)
             {
@@ -344,53 +392,14 @@ impl Navigation {
                 *self.received.entry(loader.clone()).or_default() +=
                     u64::try_from(data.data_length).unwrap_or_default();
             }
-        } else if let Some(failed) = event.read::<network::LoadingFailedEvent>() {
-            if let Some(loader) = self.requests.get(&failed.request_id) {
-                if self.committed.contains(loader) {
-                    self.failed_committed.insert(loader.clone());
-                }
-                self.failed
-                    .insert(loader.clone(), NetError::of(&failed.error_text));
-            }
-        } else if let Some(navigated) = event.read::<page::FrameNavigatedEvent>() {
-            if navigated.frame.id == self.frame && navigated.frame.parent_id.is_none() {
-                if navigated.r#type == page::NavigationType::BackForwardCacheRestore {
-                    // Its requests never passed the interception or the
-                    // navigation gate this time (ADR 0121).
-                    tracing::info!(
-                        url.origin = goodfetch_engine::log::origin(&navigated.frame.url),
-                        "the browser's back/forward cache restored the page's document"
-                    );
-                    self.restored = Some(navigated.frame.loader_id.clone());
-                }
-                self.committed.push(navigated.frame.loader_id);
-            }
-        } else if let Some(stopped) = event.read::<page::FrameStoppedLoadingEvent>() {
-            if stopped.frame_id == self.frame {
-                self.stopped = true;
-            }
-        } else if let Some(within) = event.read::<page::NavigatedWithinDocumentEvent>() {
-            if within.frame_id == self.frame {
-                self.within_document = true;
-            }
-        } else if let Some(download) = event.read::<page::DownloadWillBeginEvent>() {
-            if download.frame_id == self.frame {
-                self.download = Some((download.url, download.suggested_filename));
-            }
-        } else if event.method.starts_with("Page.javascriptDialog") {
-            self.feed_dialog(event);
-        } else if let Some(lifecycle) = event.read::<page::LifecycleEventEvent>()
-            && lifecycle.frame_id == self.frame
+        } else if let Some(failed) = event.read::<network::LoadingFailedEvent>()
+            && let Some(loader) = self.requests.get(&failed.request_id)
         {
-            match lifecycle.name.as_str() {
-                "DOMContentLoaded" => {
-                    self.content_loaded.insert(lifecycle.loader_id);
-                }
-                "load" => {
-                    self.loaded.insert(lifecycle.loader_id);
-                }
-                _ => {}
+            if self.committed.contains(loader) {
+                self.failed_committed.insert(loader.clone());
             }
+            self.failed
+                .insert(loader.clone(), NetError::of(&failed.error_text));
         }
     }
 

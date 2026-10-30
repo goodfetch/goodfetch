@@ -3,8 +3,9 @@
 //! its console, requests a body, a missing page, a path a route may abort,
 //! a page on another site and a host that does not resolve, opens a
 //! WebSocket and throws an exception it does not catch: `page.on` listens
-//! to each event of the page, which the event stream carries under its
-//! credits, and a listener whose call is cancelled no longer fires; a
+//! to each event of the page, which the listening call itself carries
+//! under its credits, never the engine's shared event stream, and a
+//! listener whose call is cancelled no longer fires; a
 //! blocked, an aborted and a failed request each fail as Playwright reports
 //! them; a body `page.wait_for_request_finished` kept reads whole, a
 //! dropped one raises `body_unavailable` and a cut one `response_truncated`,
@@ -21,6 +22,7 @@ use goodfetch_protocol::page::events::{
 use goodfetch_protocol::page::route::{PAGE_ROUTE, ROUTE_ABORT, ROUTE_HANDLE};
 use goodfetch_protocol::page::waits::PAGE_WAIT_FOR_RESPONSE;
 use goodfetch_protocol::page::{PAGE_GOTO, PAGE_RELOAD, RESPONSE_TRUNCATED};
+use goodfetch_protocol::run::{RUN_AXES_CHANGED, RUN_FINISH};
 use goodfetch_protocol::settings::TIMEOUT_WAIT;
 use serde_json::{Map, Value, json};
 
@@ -36,6 +38,7 @@ pub(crate) enum Case {
     ConsoleAndPageErrors,
     FailedRequests,
     Credits,
+    OnlyItsCall,
     Bodies,
     BodyTimeout,
 }
@@ -53,7 +56,10 @@ impl Case {
             "a-blocked-an-aborted-and-a-failed-request-each-fail-as-playwright-reports-them" => {
                 Self::FailedRequests
             }
-            "a-slow-reader-holds-the-page-events-stream-one-event-per-credit" => Self::Credits,
+            "a-slow-listener-holds-its-page-events-and-reads-one-per-credit" => Self::Credits,
+            "a-pages-events-go-only-to-the-call-that-listens-never-the-event-stream" => {
+                Self::OnlyItsCall
+            }
             "a-kept-body-reads-whole-a-dropped-one-is-unavailable-and-a-cut-one-is-truncated" => {
                 Self::Bodies
             }
@@ -76,26 +82,32 @@ impl Case {
             Self::ConsoleAndPageErrors => console_and_page_errors(connection, site, checks),
             Self::FailedRequests => failed_requests(connection, site, checks),
             Self::Credits => credits(connection, site, checks),
+            Self::OnlyItsCall => only_its_call(connection, site, checks),
             Self::Bodies => bodies(connection, site, checks),
             Self::BodyTimeout => body_timeout(connection, site, checks),
         }
     }
 }
 
-/// The credits a subscription grants at once, more than a case's events.
+/// The credits a listening call grants at once, more than a case's events.
 const CREDITS: u32 = 10_000;
 
 /// The Connection as these cases read it: the events the case's own
-/// subscription delivered so far, never another case's, the answers read
+/// listening calls delivered so far, never another case's, those of the
+/// case's subscription to the shared event stream apart, the answers read
 /// while waiting for another, as a Client matches each answer to its call
 /// by ID, and every `route.handle` request answered by aborting the
 /// request, as a handler calling `route.abort()` does.
 struct Exchange<'connection> {
     connection: &'connection mut Connection,
     events: Vec<Value>,
+    /// The events of the case's subscription to the shared event stream.
+    streamed: Vec<Value>,
     /// The answers read before their call was waited for, by its ID.
     answers: BTreeMap<i64, Value>,
-    /// The case's subscription's call.
+    /// The case's listening calls.
+    listeners: Vec<i64>,
+    /// The case's subscription's call, if it has one.
     subscription: Option<i64>,
 }
 
@@ -104,7 +116,9 @@ impl<'connection> Exchange<'connection> {
         Self {
             connection,
             events: Vec::new(),
+            streamed: Vec::new(),
             answers: BTreeMap::new(),
+            listeners: Vec::new(),
             subscription: None,
         }
     }
@@ -121,18 +135,16 @@ impl<'connection> Exchange<'connection> {
             return Ok(None);
         }
         if message["method"] == json!(EVENTS) {
-            if self
-                .subscription
-                .is_none_or(|id| message["params"]["id"] != json!(id))
-            {
-                return Ok(None);
+            let events = message["params"]["events"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            let id = &message["params"]["id"];
+            if self.subscription.is_some_and(|ours| *id == json!(ours)) {
+                self.streamed.extend(events);
+            } else if self.listeners.iter().any(|ours| *id == json!(ours)) {
+                self.events.extend(events);
             }
-            self.events.extend(
-                message["params"]["events"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default(),
-            );
             return Ok(None);
         }
         if message.get("method").is_none()
@@ -180,14 +192,12 @@ impl<'connection> Exchange<'connection> {
             .collect()
     }
 
-    /// Subscribes to the event stream, granting `credits` at once.
-    fn subscribe(&mut self, credits: u32) -> Result<i64, Gone> {
+    /// Subscribes to the shared event stream, granting it every credit.
+    fn subscribe(&mut self) -> Result<i64, Gone> {
         let id = self.connection.request(EVENTS_SUBSCRIBE.name, &json!({}))?;
         self.subscription = Some(id);
-        if credits > 0 {
-            self.connection
-                .notify(CREDIT, &json!({ "id": id, "credits": credits }))?;
-        }
+        self.connection
+            .notify(CREDIT, &json!({ "id": id, "credits": CREDITS }))?;
         Ok(id)
     }
 
@@ -201,10 +211,23 @@ impl<'connection> Exchange<'connection> {
         finish_run(self.connection, run_id)
     }
 
-    /// Listens to `event` of `page`, answering the listening call's id.
+    /// Listens to `event` of `page`, granting the listening call `credits`
+    /// at once, and answers its id.
+    fn listen_with(&mut self, page: &Value, event: &str, credits: u32) -> Result<i64, Gone> {
+        let id = self
+            .connection
+            .request(PAGE_ON.name, &json!({ "page_id": page, "event": event }))?;
+        self.listeners.push(id);
+        if credits > 0 {
+            self.connection
+                .notify(CREDIT, &json!({ "id": id, "credits": credits }))?;
+        }
+        Ok(id)
+    }
+
+    /// Listens to `event` of `page` with credits for every event.
     fn listen(&mut self, page: &Value, event: &str) -> Result<i64, Gone> {
-        self.connection
-            .request(PAGE_ON.name, &json!({ "page_id": page, "event": event }))
+        self.listen_with(page, event, CREDITS)
     }
 }
 
@@ -229,6 +252,17 @@ fn opened(
     Ok(new_page(connection, run_id, checks)?.map(|page| (json!(page.page_id), url)))
 }
 
+/// Whether `request` names its headers in lowercase, its `user-agent`
+/// among them.
+fn lowercase_headers(request: &Value) -> bool {
+    request["headers"].as_object().is_some_and(|headers| {
+        headers.contains_key("user-agent")
+            && headers
+                .keys()
+                .all(|name| *name == name.to_ascii_lowercase())
+    })
+}
+
 fn url_of(data: &Value) -> &str {
     data["url"].as_str().unwrap_or_default()
 }
@@ -245,7 +279,6 @@ fn network_and_load(
         return Ok(());
     };
     let mut exchange = Exchange::new(connection);
-    exchange.subscribe(CREDITS)?;
     let mut request_listener = 0;
     for event in [
         "request",
@@ -266,19 +299,23 @@ fn network_and_load(
     let requests = exchange.data("page.request");
     let document = requests.iter().find(|request| url_of(request) == url);
     checks.check(
-        "the document's request is a navigation request of the page, a `GET` of a `Document`",
+        "the document's request is a navigation request of the page, a `GET` of a `document`",
         document.is_some_and(|request| {
             request["page_id"] == page
                 && request["method"] == json!("GET")
-                && request["resource_type"] == json!("Document")
+                && request["resource_type"] == json!("document")
                 && request["is_navigation_request"] == json!(true)
         }),
     );
     checks.check(
-        "the body's request is a `Fetch` that no redirect led to",
+        "the document's request names its headers in lowercase, as Playwright gives them",
+        document.is_some_and(lowercase_headers),
+    );
+    checks.check(
+        "the body's request is a `fetch` that no redirect led to",
         requests.iter().any(|request| {
             url_of(request).ends_with("/page-events/data.json")
-                && request["resource_type"] == json!("Fetch")
+                && request["resource_type"] == json!("fetch")
                 && request["redirect_chain"] == json!([])
         }),
     );
@@ -381,7 +418,6 @@ fn console_and_page_errors(
         return Ok(());
     };
     let mut exchange = Exchange::new(connection);
-    exchange.subscribe(CREDITS)?;
     exchange.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": url }))?;
     exchange.listen(&page, "console")?;
     exchange.listen(&page, "page_error")?;
@@ -447,7 +483,6 @@ fn failed_requests(
         return Ok(());
     };
     let mut exchange = Exchange::new(connection);
-    exchange.subscribe(CREDITS)?;
     exchange.listen(&page, "request_failed")?;
     exchange.connection.request(
         PAGE_ROUTE.name,
@@ -482,16 +517,16 @@ fn failed_requests(
     exchange.end(run_id)
 }
 
-/// A subscriber that grants no credits holds its stream: the page loads and
-/// its events wait; each credit then sends one, in position order.
+/// A listener whose call grants no credits holds its events: the page
+/// loads and they wait; each credit then sends one, in position order, the
+/// positions the call's own from 1.
 fn credits(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-page-credits";
     let Some((page, url)) = opened(connection, site, run_id, &json!({}), checks)? else {
         return Ok(());
     };
     let mut exchange = Exchange::new(connection);
-    let subscription = exchange.subscribe(0)?;
-    exchange.listen(&page, "request")?;
+    let listener = exchange.listen_with(&page, "request", 0)?;
     let went = exchange.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": url }))?;
     checks.check(
         "the page loads while its events wait",
@@ -501,7 +536,7 @@ fn credits(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
     for _ in 0..2 {
         exchange
             .connection
-            .notify(CREDIT, &json!({ "id": subscription, "credits": 1 }))?;
+            .notify(CREDIT, &json!({ "id": listener, "credits": 1 }))?;
         let before = exchange.events.len();
         while exchange.events.len() == before {
             exchange.read()?;
@@ -511,7 +546,7 @@ fn credits(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
     checks.check("each credit sends one event", batches == [1, 1]);
     exchange
         .connection
-        .notify(CREDIT, &json!({ "id": subscription, "credits": CREDITS }))?;
+        .notify(CREDIT, &json!({ "id": listener, "credits": CREDITS }))?;
     exchange.until("page.request", |request| {
         url_of(request).contains("nowhere.invalid")
     })?;
@@ -521,14 +556,66 @@ fn credits(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
         .filter_map(|event| event["position"].as_u64())
         .collect();
     checks.check(
-        "the events arrive in the order of their positions, the document's request first",
-        positions.windows(2).all(|pair| pair[0] < pair[1])
+        "the events arrive in the order of their positions, the call's own from 1, the document's request first",
+        positions.first() == Some(&1)
+            && positions.windows(2).all(|pair| pair[0] + 1 == pair[1])
             && exchange
                 .data("page.request")
                 .first()
                 .is_some_and(|request| url_of(request) == url),
     );
     exchange.end(run_id)
+}
+
+/// A page's events go to the `page.on` call that listens to them alone:
+/// a subscription to the engine's shared event stream on the same
+/// Connection, which another Client's would be too, gets none of them,
+/// while it gets the Run's own events.
+fn only_its_call(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-page-only-its-call";
+    let Some((page, url)) = opened(connection, site, run_id, &json!({}), checks)? else {
+        return Ok(());
+    };
+    let mut exchange = Exchange::new(connection);
+    exchange.subscribe()?;
+    exchange.listen(&page, "request")?;
+    exchange.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": url }))?;
+    exchange.until("page.request", |request| {
+        url_of(request).contains("nowhere.invalid")
+    })?;
+    checks.check(
+        "the listening call carries the page's requests",
+        exchange
+            .data("page.request")
+            .iter()
+            .any(|request| url_of(request) == url),
+    );
+    // Through the exchange, which keeps the stream's events read meanwhile.
+    exchange.call(RUN_FINISH.name, &json!({ "run_id": run_id }))?;
+    while !exchange.streamed.iter().any(|event| {
+        event["event"] == json!(RUN_AXES_CHANGED.name)
+            && event["data"]["lifecycle"] == json!("finished")
+    }) {
+        exchange.read()?;
+    }
+    checks.check(
+        "the shared event stream carries the Run's end and none of the page's events",
+        !exchange.streamed.iter().any(|event| {
+            event["event"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("page.") || name.starts_with("web_socket."))
+        }),
+    );
+    let subscription = exchange.subscription.unwrap_or_default();
+    exchange
+        .connection
+        .notify(CANCEL, &json!({ "id": subscription }))?;
+    exchange.answer(subscription)?;
+    Ok(())
 }
 
 /// A body `page.wait_for_request_finished` kept reads whole after the page

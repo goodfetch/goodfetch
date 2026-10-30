@@ -26,6 +26,8 @@ mod handshake;
 mod stream;
 mod websocket;
 
+pub use self::stream::send_events;
+
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::jsonrpc::{

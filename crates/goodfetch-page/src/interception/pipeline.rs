@@ -23,6 +23,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::{self, Policy, Refused, RequestKind};
 use goodfetch_engine::http_client::{self, Resolve};
+use goodfetch_engine::mask::Masks;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
@@ -49,7 +50,7 @@ use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, lock};
 use crate::driver::PageDriver;
 use crate::errors::{site_preferences_failure, site_preferences_refused};
-use crate::page_events::{Refusals, post_data};
+use crate::page_events::{self, Refusals, is_navigation, post_data, resource_type};
 use crate::page_value::{
     DocumentResponse, Navigation, NavigationKind, Permit, ReadDocument, Reader, Reading, Refusal,
     SiteResponse,
@@ -352,28 +353,26 @@ impl Held {
         self.overrides = std::mem::take(&mut self.overrides).then(overrides);
     }
 
-    /// The request as a route sees it: without the Session's cookies.
-    fn view(&self) -> RouteRequest {
+    /// The request as a route sees it, with Playwright's values (ADR
+    /// 0085's #703 note): without the Session's cookies, its body masked
+    /// with `masks` as the page's events mask it.
+    fn view(&self, masks: &Masks) -> RouteRequest {
         let headers = self.overrides.headers.clone().unwrap_or_else(|| {
-            self.paused
-                .request
-                .headers
-                .iter()
-                .filter(|(name, _)| !name.eq_ignore_ascii_case(COOKIE))
-                .map(|(name, value)| (name.clone(), header_value(value)))
-                .collect()
+            let mut headers = page_events::headers(&self.paused.request.headers);
+            headers.remove(COOKIE);
+            headers
         });
         RouteRequest {
             url: self.url().to_owned(),
             method: self.method().to_owned(),
             headers,
             resource_type: resource_type(self.paused.resource_type),
-            is_navigation_request: self.navigation,
+            is_navigation_request: is_navigation(Some(self.paused.resource_type)),
             post_data: self
                 .overrides
                 .post_data
                 .clone()
-                .or_else(|| post_data(&self.paused.request)),
+                .or_else(|| post_data(&self.paused.request, masks)),
         }
     }
 }
@@ -396,21 +395,6 @@ fn answer_auth(
         username: credentials.map(|(username, _)| username.to_owned()),
         password: credentials.map(|(_, password)| password.to_owned()),
     }
-}
-
-/// A header's value as the browser gives it.
-fn header_value(value: &serde_json::Value) -> String {
-    value
-        .as_str()
-        .map_or_else(|| value.to_string(), str::to_owned)
-}
-
-/// The name the browser gives `resource_type`, such as `Document`.
-fn resource_type(resource_type: network::ResourceType) -> String {
-    serde_json::to_value(resource_type)
-        .ok()
-        .and_then(|name| name.as_str().map(str::to_owned))
-        .unwrap_or_else(|| "Other".to_owned())
 }
 
 /// What a route did with a request.
@@ -547,7 +531,7 @@ impl PageContext {
             id: route.call.clone(),
             route_id: route_id.clone(),
             page_id: self.sender.page_id().cloned(),
-            request: held.view(),
+            request: held.view(self.run.secrets().mask().masks()),
         };
         let Ok(mut sent) = route
             .client
@@ -798,7 +782,11 @@ impl PageContext {
     /// Watches the handler that answered `held` until it ends: one that
     /// fails then still loses its route and leaves its failure.
     fn watch(&self, route: &Arc<Route>, held: &Held, mut sent: Sent<RouteHandled>) {
-        let (route, state, url) = (Arc::clone(route), Arc::clone(&self.state), held.view().url);
+        let (route, state, url) = (
+            Arc::clone(route),
+            Arc::clone(&self.state),
+            held.url().to_owned(),
+        );
         self.run.spawn(async move {
             if let Err(ClientRequestError::Failed { message, .. }) = sent.answer().await {
                 route.fail(handler_failed(&url, &message));
@@ -812,7 +800,7 @@ impl PageContext {
     /// `route`'s handler failed on `held`: its route goes, its subscription
     /// ends, and its failure waits for the page's next call.
     fn handler_failed(&self, route: &Arc<Route>, held: &Held, message: &str) {
-        let url = held.view().url;
+        let url = held.url().to_owned();
         route.fail(handler_failed(&url, message));
         self.remove(route);
         self.state.leave(handler_failed(&url, message));

@@ -15,6 +15,11 @@
       "kind": "sink_credential",
       "value": "fixture-sink-credential-3\"\\",
       "planted_in": ["vault.json"]
+    },
+    {
+      "id": "answer",
+      "kind": "caller_answer",
+      "value": "fixture-caller-answer-4 !*~"
     }
   ],
   "outputs": [
@@ -61,6 +66,14 @@
     {
       "name": "other-canary.log",
       "text": "seen fixture-other-canary-9 Zml4dHVyZS1vdGhlci1jYW5hcnktOQ== 666978747572652d6f746865722d63616e6172792d39\n"
+    },
+    {
+      "name": "form-urlencoded.log",
+      "text": "user=jb&answer=fixture-caller-answer-4+%21*%7E\n"
+    },
+    {
+      "name": "uri-component.log",
+      "text": "fetch(\"/ask?answer=fixture-caller-answer-4%20!*~\")\n"
     }
   ],
   "hits": [
@@ -143,6 +156,22 @@
       "output": "vault.json",
       "offset": 9,
       "placement": "planted"
+    },
+    {
+      "canary": "answer",
+      "kind": "caller_answer",
+      "encoding": "url_encoded",
+      "output": "form-urlencoded.log",
+      "offset": 15,
+      "placement": "leaked"
+    },
+    {
+      "canary": "answer",
+      "kind": "caller_answer",
+      "encoding": "url_encoded",
+      "output": "uri-component.log",
+      "offset": 19,
+      "placement": "leaked"
     }
   ]
 }

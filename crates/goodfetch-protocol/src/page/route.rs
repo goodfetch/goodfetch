@@ -99,14 +99,17 @@ pub struct RouteRequest {
     /// Its method, such as `GET`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub method: String,
-    /// Its headers, as the page sent them.
+    /// Its headers, as the page sent them, their names in lowercase, as
+    /// Playwright gives them; as a route before replaced them.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub headers: BTreeMap<String, String>,
-    /// What the page loads with it, as the browser names it, such as
-    /// `Document`, `Script` or `XHR`.
+    /// What the page loads with it, as Playwright's `resourceType()` names
+    /// it: the browser's name in lowercase, such as `document`, `script`
+    /// or `xhr`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub resource_type: String,
-    /// Whether it loads the document of the page's main frame.
+    /// Whether it loads the document of one of the page's frames, its main
+    /// frame's or an iframe's, as Playwright's `isNavigationRequest()`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub is_navigation_request: bool,
     /// Its body, in Base64 (RFC 4648, with padding), when it has one: as

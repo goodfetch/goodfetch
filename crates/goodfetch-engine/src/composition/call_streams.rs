@@ -82,6 +82,11 @@ impl CallStream {
         self.credits.spend(most).await
     }
 
+    /// Gives back `credits` it spent on nothing.
+    pub fn refund(&self, credits: usize) {
+        self.credits.refund(credits);
+    }
+
     /// Sends the Client the notification `method` with `params`; `false`
     /// once the Connection's writer is gone.
     ///

@@ -72,7 +72,12 @@ struct Matcher<'a> {
 impl CleanUp for Matcher<'_> {
     fn remove(&self, html: &str, url: &str) -> String {
         let removal = match self.cosmetic {
-            Some(cosmetic) => removal::remove(html, url, &cosmetic.lists, &cosmetic.choices),
+            Some(cosmetic) => removal::remove(
+                html,
+                url,
+                (&cosmetic.lists, &cosmetic.choices),
+                &cosmetic.selectors,
+            ),
             None => removal::Removal {
                 html: html.to_owned(),
                 removed: Vec::new(),

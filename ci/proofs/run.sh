@@ -23,8 +23,9 @@
 #     OSV-Scanner over the pinned advisory snapshot (ci/audit.sh, which
 #     downloads it on its first run, so this runs before the egress deny);
 #     cargo-hack over feature
-#     combinations; the MSRV build; cargo-shear on an unused dependency; the
-#     Console packages (ADR 0087).
+#     combinations; the MSRV build; Miri on a use after free (STYLE.md,
+#     `unsafe`); cargo-shear on an unused dependency; the Console packages
+#     (ADR 0087).
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 2
 
@@ -164,6 +165,17 @@ elif ! CARGO_TARGET_DIR=target/proofs cargo build --quiet --manifest-path ci/pro
   fail msrv "the fixture does not build with the pinned toolchain either"
 else
   pass "the MSRV build refuses code that needs a newer Rust"
+fi
+
+# Miri (STYLE.md, `unsafe`): under ci/miri.toml's toolchain, as `just miri`
+# runs it, a test that reads memory it freed fails as undefined behaviour.
+miri_toolchain=$(sed -n 's/^toolchain = "\(.*\)"$/\1/p' ci/miri.toml)
+if output=$(CARGO_TARGET_DIR=target/proofs cargo "+$miri_toolchain" miri test --manifest-path ci/proofs/miri/Cargo.toml 2>&1); then
+  fail miri "the test that reads freed memory passed under Miri"
+elif ! grep -q 'Undefined Behavior: .* has been freed' <<<"$output"; then
+  fail miri "Miri failed for another reason"
+else
+  pass "Miri refuses a test that reads memory it freed"
 fi
 
 # cargo-shear (#133): a dependency a crate declares and never uses fails.

@@ -2034,6 +2034,13 @@ export interface DaemonState {
         tcp: string;
       };
   /**
+   * Its live heap: the bytes its own allocations hold now, as its
+   * executable's allocator counts them, without the pages that
+   * allocator keeps once they are freed; none where nothing counts
+   * them.
+   */
+  heap?: number | null;
+  /**
    * Its `daemon.idle_timeout`, in milliseconds.
    */
   idle_timeout: number;

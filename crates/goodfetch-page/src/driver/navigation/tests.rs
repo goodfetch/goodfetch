@@ -43,16 +43,24 @@ fn started() -> RawEvent {
 
 /// A `frameStoppedLoading` of the load before a gesture's navigation, read
 /// once the watch started, never ends the wait for the navigation the
-/// gesture requested.
-#[test]
-fn a_stop_before_the_requested_navigation_started_does_not_end_it() {
+/// gesture requested, after any of the events: the wait reads them one at
+/// a time, and the browser's start of the navigation can come after the
+/// renderer's request, which can come before the stop or after it (#1766).
+#[rstest::rstest]
+#[case::before_the_request(vec![stopped(), requested(), started()])]
+#[case::after_the_request(vec![requested(), stopped(), started()])]
+fn a_stop_before_the_requested_navigation_started_does_not_end_it(#[case] events: Vec<RawEvent>) {
     let mut navigation = Navigation::of(FRAME.to_owned());
 
-    for event in [stopped(), requested(), started()] {
-        navigation.feed(&event);
-    }
+    let ended: Vec<bool> = events
+        .iter()
+        .map(|event| {
+            navigation.feed(event);
+            navigation.requested_ended()
+        })
+        .collect();
 
-    assert!(!navigation.requested_ended());
+    assert_eq!(ended, [false, false, false]);
 }
 
 /// The main frame stopping once the requested navigation started ends it.

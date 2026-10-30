@@ -265,14 +265,17 @@ impl Navigation {
 
     /// Whether the navigation the main frame was asked for reached a
     /// document that committed, or ended without one: within its document,
-    /// as a download, cancelled, with the main frame stopped loading, or
-    /// with its renderer crashed. One the browser failed otherwise ends once
-    /// its error page committed under its loader.
+    /// as a download, cancelled, with the main frame stopped loading once
+    /// it started, or with its renderer crashed. One the browser failed
+    /// otherwise ends once its error page committed under its loader. A
+    /// stop read before the browser started a navigation to another
+    /// document belongs to an earlier load, whatever came between: the
+    /// browser's start comes after the renderer's request (#1766).
     pub(super) fn requested_ended(&self) -> bool {
         self.crashed
             || self.within_document
             || self.download.is_some()
-            || self.stopped
+            || (self.stopped && self.started.iter().any(|(_, within)| !within))
             || self.started.iter().any(|(loader, within)| {
                 !within
                     && (self.committed.contains(loader)

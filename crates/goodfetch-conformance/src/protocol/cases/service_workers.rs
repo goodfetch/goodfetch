@@ -17,7 +17,7 @@
 //! the build shows with a window, as its pages' do (ticket #696).
 
 use goodfetch_protocol::connection::CANCEL;
-use goodfetch_protocol::events::{CREDIT, EVENTS, EVENTS_SUBSCRIBE};
+use goodfetch_protocol::events::{CREDIT, EVENTS};
 use goodfetch_protocol::page::events::PAGE_ON;
 use goodfetch_protocol::page::route::{PAGE_ROUTE, ROUTE_HANDLE, SESSION_ROUTE};
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
@@ -91,13 +91,14 @@ const IDLE_TIMEOUT_MS: u64 = 20_000;
 const SERVICE_WORKER_REQUEST: &str = "service_worker.request";
 
 /// The Connection as these cases read it: the events of the case's own
-/// subscription, every `route.handle` request the engine sent, each
+/// listening calls, every `route.handle` request the engine sent, each
 /// answered by the handler ending without an answer, so the request falls
 /// through, and the answers read before their call's was asked for.
 struct Watch<'connection> {
     connection: &'connection mut Connection,
     events: Vec<Value>,
-    subscription: Option<i64>,
+    /// The case's `page.on` calls, which carry its events.
+    listeners: Vec<i64>,
     /// The params of each `route.handle` request, in arrival order.
     handled: Vec<Value>,
     answers: Vec<Value>,
@@ -108,7 +109,7 @@ impl<'connection> Watch<'connection> {
         Self {
             connection,
             events: Vec::new(),
-            subscription: None,
+            listeners: Vec::new(),
             handled: Vec::new(),
             answers: Vec::new(),
         }
@@ -130,8 +131,9 @@ impl<'connection> Watch<'connection> {
         }
         if message["method"] == json!(EVENTS) {
             if self
-                .subscription
-                .is_some_and(|id| message["params"]["id"] == json!(id))
+                .listeners
+                .iter()
+                .any(|id| message["params"]["id"] == json!(id))
             {
                 self.events.extend(
                     message["params"]["events"]
@@ -230,19 +232,22 @@ impl<'connection> Watch<'connection> {
         Ok(false)
     }
 
-    /// Subscribes to the event stream with credits to spare.
-    fn subscribe(&mut self) -> Result<(), Gone> {
-        let id = self.connection.request(EVENTS_SUBSCRIBE.name, &json!({}))?;
-        self.subscription = Some(id);
+    /// Listens to `event` of the page `page_id`, granting the listening
+    /// call credits to spare.
+    fn listen(&mut self, page_id: &Value, event: &str) -> Result<(), Gone> {
+        let id = self
+            .connection
+            .request(PAGE_ON.name, &json!({ "page_id": page_id, "event": event }))?;
+        self.listeners.push(id);
         self.connection
             .notify(CREDIT, &json!({ "id": id, "credits": CREDITS }))
     }
 
-    /// Cancels the case's subscription and its `calls` in flight, whose
-    /// calls the Run would otherwise wait on, and finishes the Run
-    /// `run_id`, serving every route's request until it answers.
+    /// Cancels the case's `calls` in flight, whose calls the Run would
+    /// otherwise wait on, and finishes the Run `run_id`, serving every
+    /// route's request until it answers.
     fn end(mut self, run_id: &str, calls: &[i64]) -> Result<(), Gone> {
-        for id in self.subscription.iter().chain(calls) {
+        for id in calls {
             self.connection.notify(CANCEL, &json!({ "id": id }))?;
         }
         self.call(RUN_FINISH.name, &json!({ "run_id": run_id }))
@@ -316,12 +321,8 @@ fn under_the_interception(
         return finish_run(connection, run_id);
     };
     let mut watch = Watch::new(connection);
-    watch.subscribe()?;
     for event in ["request", "response"] {
-        watch.connection.request(
-            PAGE_ON.name,
-            &json!({ "page_id": page.page_id, "event": event }),
-        )?;
+        watch.listen(&json!(page.page_id), event)?;
     }
     let session_route = watch.connection.request(
         SESSION_ROUTE.name,

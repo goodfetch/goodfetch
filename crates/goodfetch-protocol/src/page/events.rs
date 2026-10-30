@@ -2,15 +2,18 @@
 //! and 0121): `page.on` listens to one of a page's events under Playwright's
 //! name, spelled in `snake_case` words on the wire (ADR 0099), as a call that
 //! stays in flight until the Client cancels it, as a `Subscription`'s close
-//! does, or the page goes. While one listens, the engine publishes that
-//! event of the page on its event stream, lossless, under the credits each
-//! subscription grants (ADR 0024); once none does, it publishes none, and
-//! the page's console and uncaught exceptions are read only while one
-//! listens to them. A `Request` names its page and the browser's ID for it,
-//! which `response.body` takes: the body is read on demand, kept already
-//! for a response `page.wait_for_request_finished` answered, and otherwise
-//! read from the browser, which may have dropped it (`body_unavailable`);
-//! a body that broke off raises `response_truncated`, never returned as a
+//! does, or the page goes. While it listens, the engine sends that event of
+//! the page on the call itself, in `$/events` batches naming it, under the
+//! credits its Client grants it (ADR 0024): only to the Connection that
+//! armed it, never on the engine's shared event stream, and lossless, or
+//! the call raises `page_events_lost`. The page's console and uncaught
+//! exceptions are read only while one listens to them. A `Request` is one
+//! hop of a redirect chain, named by its page and the engine's ID for that
+//! hop, which `response.body` takes: the body is read on demand, kept
+//! already for a response `page.wait_for_request_finished` answered, and
+//! otherwise read from the browser, which may have dropped it
+//! (`body_unavailable`, as for a redirect's response, which has none); a
+//! body that broke off raises `response_truncated`, never returned as a
 //! whole one. A service worker's own requests are never a page's events;
 //! the Run trace records them (ADR 0121).
 
@@ -146,13 +149,16 @@ pub struct RequestFailure {
 }
 
 /// A request of a page, ADR 0085's `Request`: one per hop of a redirect
-/// chain, each hop under the same `request_id`.
+/// chain, each hop under its own `request_id`, as Playwright's
+/// `redirectedFrom()` and `redirectedTo()` tell them apart.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PageRequest {
     /// The page that sent it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub page_id: PageId,
-    /// The browser's ID for it, which `response.body` takes.
+    /// The engine's ID for this hop, which `response.body` takes: the
+    /// browser's ID for the request at its first hop, and that ID with
+    /// `#` and the hop's number after each redirect.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub request_id: String,
     /// Its URL.
@@ -161,24 +167,31 @@ pub struct PageRequest {
     /// Its method, such as `GET`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub method: String,
-    /// Its headers as the browser sent them.
+    /// Its headers as the browser sent them, their names in lowercase, as
+    /// Playwright gives them.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub headers: BTreeMap<String, String>,
     /// Its body, in Base64 (RFC 4648, with padding), when it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub post_data: Option<String>,
-    /// The browser's name for what it loads, such as `Document` or
-    /// `Fetch`.
+    /// What it loads, as Playwright's `resourceType()` names it: the
+    /// browser's name in lowercase, such as `document`, `fetch` or `xhr`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub resource_type: String,
-    /// Whether it loads the document of the page's main frame.
+    /// Whether it loads the document of one of the page's frames, its main
+    /// frame's or an iframe's, as Playwright's `isNavigationRequest()`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub is_navigation_request: bool,
     /// The URLs of the hops a redirect led from before it, the first first;
     /// empty when no redirect led to it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub redirect_chain: Vec<String>,
+    /// The `request_id` of the hop whose redirect led to it, Playwright's
+    /// `redirectedFrom()`; none at a request's first hop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub redirected_from: Option<String>,
     /// Why it failed, for `page.request_failed`; none otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -259,7 +272,7 @@ pub struct ResponseBodyParams {
     /// The page.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub page_id: PageId,
-    /// The request, by the browser's ID.
+    /// The request's hop, by the engine's ID for it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub request_id: String,
     /// How long the read may wait for its request to end and its body to
@@ -317,7 +330,7 @@ pub struct BodyUnavailableDetails {
 /// A response body the browser no longer holds (ADR 0085).
 pub const BODY_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "body_unavailable",
-    description: "The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say \"Request content was evicted from inspector cache\". A retry finds the body gone all the same.",
+    description: "The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none, as a redirect's: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say \"Request content was evicted from inspector cache\". A retry finds the body gone all the same.",
     group: ErrorGroup::Unavailable,
     retryable: false,
     exit_code: None,
@@ -327,7 +340,7 @@ pub const BODY_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
 /// A page whose events the engine fell too far behind and stopped reading.
 pub const PAGE_EVENTS_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "page_events_lost",
-    description: "The engine fell too far behind the browser's events of a page that is still open, and stopped reading them, so some are lost: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it. The page's other calls still work. Open another page to follow its events; a busy engine, as under heavy WebSocket or console traffic it publishes, falls behind sooner.",
+    description: "Some of a page's events are lost. Either the engine fell too far behind the browser's events of a page that is still open and stopped reading them: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it, while the page's other calls still work; open another page to follow its events. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call raises this once it sent them; listen again and grant credits as events are read.",
     group: ErrorGroup::Unavailable,
     retryable: false,
     exit_code: None,
@@ -354,49 +367,49 @@ const fn lossless(
 /// Playwright's `console`.
 pub const PAGE_CONSOLE: Event = lossless(
     "page.console",
-    "The page wrote a message to its console, `ConsoleMessage`: its type, text and location. Published while `page.on` listens to `console`, the only time the engine reads the page's console.",
+    "The page wrote a message to its console, `ConsoleMessage`: its type, text and location. Sent on each `page.on` call that listens to `console`, the only time the engine reads the page's console.",
     schema_of::<ConsoleMessage>,
 );
 
 /// Playwright's `pageerror`.
 pub const PAGE_PAGE_ERROR: Event = lossless(
     "page.page_error",
-    "An exception the page did not catch, `WebError`: its name, message and stack. Published while `page.on` listens to `page_error`.",
+    "An exception the page did not catch, `WebError`: its name, message and stack. Sent on each `page.on` call that listens to `page_error`.",
     schema_of::<WebError>,
 );
 
 /// Playwright's `request`.
 pub const PAGE_REQUEST: Event = lossless(
     "page.request",
-    "The page sent a request, `Request`, once per hop of a redirect chain: its URL, method, headers, body, resource type, navigation flag and the hops before it. Published while `page.on` listens to `request`; a service worker's own requests are never a page's.",
+    "The page sent a request, `Request`, once per hop of a redirect chain: its URL, method, headers, body, resource type, navigation flag and the hops before it. Sent on each `page.on` call that listens to `request`; a service worker's own requests are never a page's.",
     schema_of::<PageRequest>,
 );
 
 /// Playwright's `requestfinished`.
 pub const PAGE_REQUEST_FINISHED: Event = lossless(
     "page.request_finished",
-    "A request of the page got its whole response, its body included. Published while `page.on` listens to `request_finished`.",
+    "A request of the page got its whole response, its body included. Sent on each `page.on` call that listens to `request_finished`.",
     schema_of::<PageRequest>,
 );
 
 /// Playwright's `requestfailed` (ADRs 0081 and 0085).
 pub const PAGE_REQUEST_FAILED: Event = lossless(
     "page.request_failed",
-    "A request of the page failed, `Request` with its `failure`, as Playwright reports one: the browser's network error, such as `net::ERR_FAILED` for one a route aborted or `net::ERR_NAME_NOT_RESOLVED`, and the Error code when the engine blocked it, such as `egress_refused`, so a refusal is never a timeout. A response whose body broke off fails too. Published while `page.on` listens to `request_failed`; the Run trace records each request the engine refused that no call waited on.",
+    "A request of the page failed, `Request` with its `failure`, as Playwright reports one: the browser's network error, such as `net::ERR_FAILED` for one a route aborted or `net::ERR_NAME_NOT_RESOLVED`, and the Error code when the engine blocked it, such as `egress_refused`, so a refusal is never a timeout. A response whose body broke off fails too. Sent on each `page.on` call that listens to `request_failed`; the Run trace records each request the engine refused that no call waited on.",
     schema_of::<PageRequest>,
 );
 
 /// Playwright's `response`.
 pub const PAGE_RESPONSE: Event = lossless(
     "page.response",
-    "A request of the page got its response's head: the request and its response, whose body `response.body` reads, and which says whether a site's service worker supplied it. Published while `page.on` listens to `response`.",
+    "A request of the page got its response's head: the request and its response, whose body `response.body` reads, and which says whether a site's service worker supplied it. Sent on each `page.on` call that listens to `response`.",
     schema_of::<PageExchange>,
 );
 
 /// Playwright's `websocket`.
 pub const PAGE_WEB_SOCKET: Event = lossless(
     "page.web_socket",
-    "The page opened a WebSocket, whose frames and close follow as `web_socket.frame_sent`, `web_socket.frame_received` and `web_socket.close`. Published, with those, while `page.on` listens to `web_socket`.",
+    "The page opened a WebSocket, whose frames and close follow as `web_socket.frame_sent`, `web_socket.frame_received` and `web_socket.close`. Sent, with those, on each `page.on` call that listens to `web_socket`.",
     schema_of::<PageWebSocket>,
 );
 
@@ -424,35 +437,35 @@ pub const WEB_SOCKET_CLOSE: Event = lossless(
 /// Playwright's `load`.
 pub const PAGE_LOAD: Event = lossless(
     "page.load",
-    "The document of the page's main frame fired `load`. Published while `page.on` listens to `load`.",
+    "The document of the page's main frame fired `load`. Sent on each `page.on` call that listens to `load`.",
     schema_of::<PageFired>,
 );
 
 /// Playwright's `domcontentloaded`.
 pub const PAGE_DOM_CONTENT_LOADED: Event = lossless(
     "page.dom_content_loaded",
-    "The document of the page's main frame fired `DOMContentLoaded`. Published while `page.on` listens to `dom_content_loaded`.",
+    "The document of the page's main frame fired `DOMContentLoaded`. Sent on each `page.on` call that listens to `dom_content_loaded`.",
     schema_of::<PageFired>,
 );
 
 /// Playwright's `crash`.
 pub const PAGE_CRASH: Event = lossless(
     "page.crash",
-    "The page crashed: its renderer, or its browser's process, which exited abnormally. Its calls in flight raised `page_crashed`, and so does each later call. Published while `page.on` listens to `crash`.",
+    "The page crashed: its renderer, or its browser's process, which exited abnormally. Its calls in flight raised `page_crashed`, and so does each later call. Sent on each `page.on` call that listens to `crash`.",
     schema_of::<PageFired>,
 );
 
 /// Playwright's `close`.
 pub const PAGE_CLOSE: Event = lossless(
     "page.close",
-    "The page closed: the engine closed it, or its window was closed in the browser outside every Client. Published while `page.on` listens to `close`, just before that call answers.",
+    "The page closed: the engine closed it, or its window was closed in the browser outside every Client. Sent on each `page.on` call that listens to `close`, just before that call answers.",
     schema_of::<PageFired>,
 );
 
 /// `page.on`.
 pub const PAGE_ON: Operation = Operation {
     name: "page.on",
-    description: "Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the page on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call, as closing its `Subscription` does, removes the listener, and once no call listens the event is no longer published; it answers when the page closes or its Run ends. The page's console and uncaught exceptions are read only while a call listens to `console` or `page_error`.",
+    description: "Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.",
     class: OperationClass::Read,
     kind: OperationKind::Event,
     reach: Reach::AllSurfaces,
@@ -485,7 +498,7 @@ pub const PAGE_ON: Operation = Operation {
 /// `response.body`.
 pub const RESPONSE_BODY: Operation = Operation {
     name: "response.body",
-    description: "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.",
+    description: "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -501,7 +514,7 @@ pub const RESPONSE_BODY: Operation = Operation {
 /// `page.wait_for_request_finished`.
 pub const PAGE_WAIT_FOR_REQUEST_FINISHED: Operation = Operation {
     name: "page.wait_for_request_finished",
-    description: "Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
+    description: "Waits, armed when the call arrives, until a request of the page whose URL matches has finished, a hop that a redirect ended included, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it but for a redirect's, which has none. A request that fails is not waited for. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
     class: OperationClass::Read,
     kind: OperationKind::Waiter,
     reach: Reach::AllSurfaces,

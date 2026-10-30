@@ -1,10 +1,12 @@
 //! The streaming calls (ADRs 0024 and 0031): `events.subscribe`, which
 //! sends a subscription's events in `$/events` batches, and `page.body`,
 //! which sends a body's file in `$/chunk` notifications. Each sends no more
-//! than the credits its Client granted it, and waits for more.
+//! than the credits its Client granted it, and waits for more. A streaming
+//! call of another module that sends its own events, such as `page.on`,
+//! sends them with [`send_events`].
 
 use goodfetch_protocol::events::{
-    EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventsSubscribeParams, SubscriptionEnded,
+    EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventEnvelope, EventsSubscribeParams, SubscriptionEnded,
 };
 use goodfetch_protocol::page::{
     BODY_NOT_FOUND, BodyNotFoundDetails, PAGE_BODY, PageBodyParams, PageBodyRead,
@@ -12,7 +14,7 @@ use goodfetch_protocol::page::{
 
 use super::record_event;
 use crate::body;
-use crate::composition::{CallContext, CallError, Handler};
+use crate::composition::{CallContext, CallError, CallStream, Handler};
 
 /// The most events one `$/events` batch carries.
 const MAX_BATCH: usize = 256;
@@ -43,17 +45,28 @@ async fn subscribe(
             return Ok(SubscriptionEnded {});
         };
         stream.credits.refund(credits.saturating_sub(events.len()));
-        for event in &events {
-            record_event(&event.event);
-        }
-        let batch = EventBatch {
-            id: stream.id().clone(),
-            events,
-        };
-        if !stream.notify(EVENTS, &batch).await {
+        if !send_events(stream, events).await {
             return Ok(SubscriptionEnded {});
         }
     }
+}
+
+/// Sends `events`, the streaming call `stream`'s own, in one `$/events`
+/// batch naming the call, each recorded as sent (ADR 0072); `false` once
+/// the Connection's writer is gone. The caller spent a credit for each.
+///
+/// # Cancel safety
+///
+/// As [`CallStream::notify`]'s.
+pub async fn send_events(stream: &CallStream, events: Vec<EventEnvelope>) -> bool {
+    for event in &events {
+        record_event(&event.event);
+    }
+    let batch = EventBatch {
+        id: stream.id().clone(),
+        events,
+    };
+    stream.notify(EVENTS, &batch).await
 }
 
 async fn read_body(

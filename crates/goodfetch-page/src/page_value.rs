@@ -463,7 +463,8 @@ pub struct ObservedResponse<'a> {
     /// The URL that answered.
     pub url: &'a str,
     /// The length of its whole body, after any content coding: more than
-    /// the observer receives when its byte cap cut it.
+    /// the observer receives when its byte cap cut it; 0 for a body
+    /// unavailable.
     pub body_length: usize,
     /// Its status.
     pub status: u16,
@@ -491,8 +492,10 @@ pub trait ResponseObserver: Debug + Send + Sync {
     /// What it keeps, read once when its page opens.
     fn kept(&self) -> Kept;
 
-    /// Receives `response` and its `body`, cut at [`Kept::byte_cap`].
-    fn on_response(&self, response: &ObservedResponse<'_>, body: &[u8]);
+    /// Receives `response` and its `body`, cut at [`Kept::byte_cap`]: none
+    /// when the browser no longer held it, or it was past the Run's
+    /// `network.max_body_size` or `network.max_decompression_ratio`.
+    fn on_response(&self, response: &ObservedResponse<'_>, body: Option<&[u8]>);
 }
 
 /// A registered [`ResponseObserver`], which every page of its Session
@@ -511,8 +514,9 @@ impl Observer {
         self.0.kept()
     }
 
-    /// Passes it `response` and its `body`, cut at [`Kept::byte_cap`].
-    pub(crate) fn on_response(&self, response: &ObservedResponse<'_>, body: &[u8]) {
+    /// Passes it `response` and its `body`, cut at [`Kept::byte_cap`], or
+    /// none when it is unavailable.
+    pub(crate) fn on_response(&self, response: &ObservedResponse<'_>, body: Option<&[u8]>) {
         self.0.on_response(response, body);
     }
 }

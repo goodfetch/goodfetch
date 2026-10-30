@@ -988,12 +988,12 @@ Arguments:
   <PAGE_ID>  The page
 
 Options:
-      --run-before-unload  Runs the page's `beforeunload` handlers first, whose dialog goes to the page's dialog handlers; false when absent
-      --json               Prints the result as JSON
-      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
-      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
-      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
-  -h, --help               Print help
+      --run-before-unload <true|false>  Runs the page's `beforeunload` handlers first, whose dialog goes to the page's dialog handlers; false when absent [possible values: true, false]
+      --json                            Prints the result as JSON
+      --attached                        Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                          Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>                    When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                            Print help
 
 $ goodfetch-collie locator --help
 Calls the catalog's `locator` operations

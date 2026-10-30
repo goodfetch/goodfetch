@@ -53,6 +53,12 @@ pub fn line(text: &str) {
     print_stdout(format!("{text}\n").as_bytes());
 }
 
+/// Writes `bytes` on stdout for a command's own output, as they are, such
+/// as part of the one JSON value it writes as its items arrive.
+pub fn raw(bytes: &[u8]) {
+    print_stdout(bytes);
+}
+
 /// Writes `bytes` on stdout as they are, such as a file's that a command
 /// streams there.
 ///

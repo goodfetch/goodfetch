@@ -1,0 +1,14 @@
+---
+source: crates/foxhound/goodfetch-foxhound/tests/it/crawl_commands.rs
+expression: output.to_string()
+---
+exit: 0
+----- stdout -----
+compression: none
+export_id: cli-crawl.export-[SHA256]
+format: jsonl
+last_number: 1
+records: 1
+sha256: [SHA256]
+size: [SIZE]
+----- stderr -----

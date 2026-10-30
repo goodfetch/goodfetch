@@ -1,0 +1,21 @@
+---
+source: crates/foxhound/goodfetch-foxhound/tests/it/crawl_commands.rs
+expression: output.to_string()
+---
+exit: 0
+----- stdout -----
+{
+  "columns": [
+    {
+      "name": "records",
+      "type": "BIGINT"
+    }
+  ],
+  "rows": [
+    [
+      1
+    ]
+  ],
+  "total": 1
+}
+----- stderr -----

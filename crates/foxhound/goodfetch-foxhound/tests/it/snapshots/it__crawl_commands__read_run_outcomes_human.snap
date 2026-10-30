@@ -1,0 +1,8 @@
+---
+source: crates/foxhound/goodfetch-foxhound/tests/it/crawl_commands.rs
+expression: output.to_string()
+---
+exit: 0
+----- stdout -----
+attempts=1 ended_at=[INSTANT] errors=[] kind=succeeded position=1 records=[{"committed":1,"dataset":"pages","dropped":0,"rejected":0}] request={"depth":0,"id":"1","label":"page","url":"http://7.extraction.test:[PORT]/markdown"}
+----- stderr -----

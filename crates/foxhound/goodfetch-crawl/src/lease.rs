@@ -179,9 +179,9 @@ pub(crate) struct Committed {
     /// writes took out, which the caller forgets.
     pub(crate) files: Vec<String>,
     /// The requests the attempt added through a link suspected a trap and
-    /// kept marked, each with its URL, whose `trap_link_suspected`
+    /// kept marked, each with its URL and mark, whose `trap_link_suspected`
     /// Provenance entries the caller writes (ADR 0035).
-    pub(crate) suspected: Vec<(String, String)>,
+    pub(crate) suspected: Vec<crate::staging::Marked>,
 }
 
 /// Why an attempt's commit did not count.

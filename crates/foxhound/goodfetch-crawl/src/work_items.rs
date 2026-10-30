@@ -143,7 +143,8 @@ pub(crate) struct Leased {
     pub(crate) sitemap: bool,
     /// Whether it was added through a link its served document's markup
     /// hides, a suspected trap, which a browser tier never follows (ADR
-    /// 0035).
+    /// 0035); a link a person reveals in a menu, a tab or a disclosure
+    /// leaves it unmarked here.
     pub(crate) trap_link_suspected: bool,
 }
 
@@ -702,7 +703,8 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
         if let Some(mut row) = row {
             row.crawl_request.payload = payload::of_request(connection, &row.crawl_request.id)?;
             row.sitemap = sitemap::is_fetch(connection, &row.crawl_request.id)?;
-            row.trap_link_suspected = trap_links::suspected(connection, &row.crawl_request.id)?;
+            row.trap_link_suspected = trap_links::suspected(connection, &row.crawl_request.id)?
+                == Some(trap_links::Mark::Hidden);
             leased.push(row);
         }
     }

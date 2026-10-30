@@ -510,7 +510,11 @@ fn bound() -> Contribution {
                             .map(drop)?;
                         // A request added through a link its served
                         // document's markup hides (#1153).
-                        goodfetch_frontier::trap_links::suspect(connection, "2")
+                        goodfetch_frontier::trap_links::suspect(
+                            connection,
+                            "2",
+                            goodfetch_frontier::trap_links::Mark::Hidden,
+                        )
                     })
                     .await
                     .expect("the Sessions, a tier choice and a suspected trap link are kept");

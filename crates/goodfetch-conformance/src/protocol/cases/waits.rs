@@ -15,6 +15,7 @@
 use std::time::Duration;
 
 use goodfetch_protocol::connection::{CALL_CANCELLED, DEADLINE_EXCEEDED};
+use goodfetch_protocol::page::events::PAGE_WAIT_FOR_REQUEST_FINISHED;
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::route::PAGE_ROUTE;
 use goodfetch_protocol::page::session_pages::PAGE_CLOSE;
@@ -532,7 +533,7 @@ fn deadlines(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> R
 /// Each wait, with what it waits for on `page`, the live board, where none
 /// passes: its operation, its params and the `waited_for` its deadline
 /// names.
-fn never_passing(page: &Value) -> [(&'static str, Value, &'static str); 8] {
+fn never_passing(page: &Value) -> [(&'static str, Value, &'static str); 9] {
     let never = json!({ "kind": "glob", "pattern": "**/never" });
     let locator = |selector: &str| json!({ "page_id": page, "selector": selector });
     [
@@ -550,6 +551,11 @@ fn never_passing(page: &Value) -> [(&'static str, Value, &'static str); 8] {
             PAGE_WAIT_FOR_RESPONSE.name,
             json!({ "page_id": page, "url": never }),
             "response",
+        ),
+        (
+            PAGE_WAIT_FOR_REQUEST_FINISHED.name,
+            json!({ "page_id": page, "url": never }),
+            "finished request",
         ),
         (
             PAGE_WAIT_FOR_LOAD_STATE.name,

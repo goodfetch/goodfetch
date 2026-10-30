@@ -4559,7 +4559,7 @@
         "id": {
           "$ref": "#/$defs/RequestId",
           "arrived_in": "0.1",
-          "description": "The id of the subscription's `events.subscribe` call."
+          "description": "The id of the streaming call whose events it carries: a\nsubscription's `events.subscribe` call, or a `page.on` call, whose\npage's events go only to it."
         }
       },
       "required": [
@@ -9290,7 +9290,7 @@
       "type": "object"
     },
     "PageRequest": {
-      "description": "A request of a page, ADR 0085's `Request`: one per hop of a redirect\nchain, each hop under the same `request_id`.",
+      "description": "A request of a page, ADR 0085's `Request`: one per hop of a redirect\nchain, each hop under its own `request_id`, as Playwright's\n`redirectedFrom()` and `redirectedTo()` tell them apart.",
       "properties": {
         "failure": {
           "anyOf": [
@@ -9309,12 +9309,12 @@
             "type": "string"
           },
           "arrived_in": "0.1",
-          "description": "Its headers as the browser sent them.",
+          "description": "Its headers as the browser sent them, their names in lowercase, as\nPlaywright gives them.",
           "type": "object"
         },
         "is_navigation_request": {
           "arrived_in": "0.1",
-          "description": "Whether it loads the document of the page's main frame.",
+          "description": "Whether it loads the document of one of the page's frames, its main\nframe's or an iframe's, as Playwright's `isNavigationRequest()`.",
           "type": "boolean"
         },
         "method": {
@@ -9343,14 +9343,22 @@
           },
           "type": "array"
         },
+        "redirected_from": {
+          "arrived_in": "0.1",
+          "description": "The `request_id` of the hop whose redirect led to it, Playwright's\n`redirectedFrom()`; none at a request's first hop.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "request_id": {
           "arrived_in": "0.1",
-          "description": "The browser's ID for it, which `response.body` takes.",
+          "description": "The engine's ID for this hop, which `response.body` takes: the\nbrowser's ID for the request at its first hop, and that ID with\n`#` and the hop's number after each redirect.",
           "type": "string"
         },
         "resource_type": {
           "arrived_in": "0.1",
-          "description": "The browser's name for what it loads, such as `Document` or\n`Fetch`.",
+          "description": "What it loads, as Playwright's `resourceType()` names it: the\nbrowser's name in lowercase, such as `document`, `fetch` or `xhr`.",
           "type": "string"
         },
         "url": {
@@ -9459,7 +9467,7 @@
         },
         "request_id": {
           "arrived_in": "0.1",
-          "description": "The browser's ID for its request, which `response.body` takes.",
+          "description": "The engine's ID for its request's hop, which `response.body` takes:\nits request's `request_id`.",
           "type": "string"
         },
         "status": {
@@ -10004,7 +10012,7 @@
       "type": "object"
     },
     "Position": {
-      "description": "An event's position among every event of one engine, which only goes up.",
+      "description": "An event's position among every event of one engine, which only goes up; for a `page.on` call's own events, among that call's, from 1.",
       "minimum": 0,
       "type": "integer"
     },
@@ -11171,7 +11179,7 @@
         },
         "request_id": {
           "arrived_in": "0.1",
-          "description": "The request, by the browser's ID.",
+          "description": "The request's hop, by the engine's ID for it.",
           "type": "string"
         },
         "timeout": {
@@ -11565,12 +11573,12 @@
             "type": "string"
           },
           "arrived_in": "0.1",
-          "description": "Its headers, as the page sent them.",
+          "description": "Its headers, as the page sent them, their names in lowercase, as\nPlaywright gives them; as a route before replaced them.",
           "type": "object"
         },
         "is_navigation_request": {
           "arrived_in": "0.1",
-          "description": "Whether it loads the document of the page's main frame.",
+          "description": "Whether it loads the document of one of the page's frames, its main\nframe's or an iframe's, as Playwright's `isNavigationRequest()`.",
           "type": "boolean"
         },
         "method": {
@@ -11588,7 +11596,7 @@
         },
         "resource_type": {
           "arrived_in": "0.1",
-          "description": "What the page loads with it, as the browser names it, such as\n`Document`, `Script` or `XHR`.",
+          "description": "What the page loads with it, as Playwright's `resourceType()` names\nit: the browser's name in lowercase, such as `document`, `script`\nor `xhr`.",
           "type": "string"
         },
         "url": {

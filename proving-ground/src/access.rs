@@ -6,7 +6,9 @@
 //! block-detection corpus; and pages no task names, which the engine's own
 //! tests read: the identity a page reads of its browser, every client hint
 //! asked for, and a 100 ms timer that reports whether a page behind another
-//! tab kept it (spec #577, ticket #696); a page's events (#703); a page
+//! tab kept it (spec #577, ticket #696); a page's events (#703), with its
+//! forms page, whose sign-in posts to a redirect, and its page holding an
+//! iframe on another site; a page
 //! a service worker controls (#707); and a page that opens each JavaScript
 //! dialog and one that opens a popup (#719); and a page whose own script
 //! defines a global and records an init script's mark (#704); and one page
@@ -63,6 +65,22 @@ const PAGE_EVENTS: &str = "/page-events";
 const PAGE_EVENTS_DATA: [&str; 2] = ["/page-events/data.json", "/page-events/aborted"];
 /// The WebSocket the page events page opens.
 const PAGE_EVENTS_SOCKET: &str = "/page-events/socket";
+/// The page events forms page: a sign-in form posting to
+/// [`PAGE_EVENTS_SESSION`], which redirects to [`PAGE_EVENTS_HOME`], and a
+/// search form getting [`PAGE_EVENTS_SEARCH`].
+const PAGE_EVENTS_FORMS: &str = "/page-events/forms";
+const PAGE_EVENTS_SESSION: &str = "/page-events/session";
+const PAGE_EVENTS_HOME: &str = "/page-events/home";
+const PAGE_EVENTS_SEARCH: &str = "/page-events/search";
+/// The body of the redirect [`PAGE_EVENTS_SESSION`] answers, which no read
+/// of the page's events returns.
+const PAGE_EVENTS_REDIRECT_BODY: &str = "page-events redirect";
+/// The page events page holding an iframe on `access.localhost`, another
+/// site, which the browser runs out of process, and that frame's document.
+const PAGE_EVENTS_FRAMED: &str = "/page-events/framed";
+const PAGE_EVENTS_FRAME: &str = "/page-events/frame";
+/// A JSON body of 64 KiB, past a small `network.max_body_size`.
+const PAGE_EVENTS_LARGE: &str = "/page-events/large.json";
 /// The dialogs page, the popup page and the page its popup loads.
 const DIALOGS: &str = "/dialogs";
 const POPUP: &str = "/popup";
@@ -117,6 +135,8 @@ const CDP_PROBE_SCRIPT: &str = include_str!("../pages/access/cdp-probe.js");
 const IDENTITY_SCRIPT: &str = include_str!("../pages/access/identity.js");
 const TIMER_SCRIPT: &str = include_str!("../pages/access/timer.js");
 const PAGE_EVENTS_SCRIPT: &str = include_str!("../pages/access/page-events.js");
+const PAGE_EVENTS_FORMS_SCRIPT: &str = include_str!("../pages/access/page-events-forms.js");
+const PAGE_EVENTS_FRAME_SCRIPT: &str = include_str!("../pages/access/page-events-frame.js");
 const DIALOGS_SCRIPT: &str = include_str!("../pages/access/dialogs.js");
 const POPUP_SCRIPT: &str = include_str!("../pages/access/popup.js");
 const PAGE_FUNCTIONS_SCRIPT: &str = include_str!("../pages/access/page-functions.js");
@@ -220,6 +240,7 @@ pub(crate) fn respond(
             ),
             None,
         ),
+        _ if let Some(reply) = page_events_more(seed, request.method, path) => (reply, None),
         Method::GET if path == DIALOGS => (
             Reply::html(page(seed, "dialogs", &reporting(DIALOGS_SCRIPT))),
             None,
@@ -260,6 +281,45 @@ pub(crate) fn respond(
             ),
         },
         _ => (Reply::not_found(), None),
+    })
+}
+
+/// The page events page's forms page and the pages its forms reach, its
+/// page holding an out-of-process frame and that frame, or its large body,
+/// for `method` and `path`.
+fn page_events_more(seed: u64, method: &Method, path: &str) -> Option<Reply> {
+    if *method == Method::POST {
+        return (path == PAGE_EVENTS_SESSION).then(|| Reply {
+            body: PAGE_EVENTS_REDIRECT_BODY.into(),
+            ..Reply::found(PAGE_EVENTS_HOME)
+        });
+    }
+    if *method != Method::GET {
+        return None;
+    }
+    Some(match path {
+        PAGE_EVENTS_FORMS => Reply::html(page(
+            seed,
+            "page-events-forms",
+            &format!(
+                "<form id=\"sign-in\" method=\"post\" action=\"{PAGE_EVENTS_SESSION}\">\n<input name=\"user\" value=\"jb\">\n<input name=\"password\" type=\"password\">\n<button type=\"submit\" id=\"sign-in-submit\">Sign in</button>\n</form>\n<form id=\"search\" method=\"get\" action=\"{PAGE_EVENTS_SEARCH}\">\n<input name=\"q\">\n<button type=\"submit\" id=\"search-submit\">Search</button>\n</form>\n<button type=\"button\" id=\"away\">Sign in elsewhere</button>\n<script>\n{PAGE_EVENTS_FORMS_SCRIPT}</script>\n"
+            ),
+        )),
+        PAGE_EVENTS_HOME => Reply::html(page(seed, "page-events-home", "")),
+        PAGE_EVENTS_SEARCH => Reply::html(page(seed, "page-events-search", "")),
+        PAGE_EVENTS_FRAMED => Reply::html(page(
+            seed,
+            "page-events-framed",
+            &format!(
+                "<iframe title=\"Another site\"></iframe>\n<script>\ndocument.querySelector(\"iframe\").src = `http://{LOCAL_HOST}:${{location.port}}{PAGE_EVENTS_FRAME}`;\n</script>\n"
+            ),
+        )),
+        PAGE_EVENTS_FRAME => scripted(seed, "page-events-frame", PAGE_EVENTS_FRAME_SCRIPT),
+        PAGE_EVENTS_LARGE => Reply::json(
+            StatusCode::OK,
+            &serde_json::json!({ "large": "x".repeat(64 * 1024) }),
+        ),
+        _ => return None,
     })
 }
 

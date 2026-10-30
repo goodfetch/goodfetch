@@ -598,7 +598,7 @@ fn the_response_observer_receives_each_kept_response_with_its_body_a_service_wor
                     path_of(Some(&observed.url)),
                     observed.status,
                     observed.from_service_worker,
-                    observed.body.len(),
+                    observed.body.as_ref().map_or(0, Vec::len),
                 )
             })
             .collect();
@@ -636,6 +636,56 @@ fn the_response_observer_receives_each_kept_response_with_its_body_a_service_wor
                 // `{"cached":true}`, whole, though its body arrives cut.
                 Some(15),
             )
+        );
+    });
+}
+
+/// A response the engine observes is a body it reads itself (ticket #644):
+/// past the Run's `network.max_body_size` its body is never read and the
+/// observer receives it as unavailable, while one under the limit arrives
+/// cut at the byte cap as ever.
+/// Covers: setting:network.max_body_size
+#[test]
+fn an_observed_response_past_network_max_body_size_is_passed_as_unavailable() {
+    let gate = RecordingGate::new();
+    gate.observe(Kept {
+        urls: vec![
+            UrlPattern::glob("**/page-events/large.json").unwrap(),
+            UrlPattern::glob("**/page-events/data.json").unwrap(),
+        ],
+        byte_cap: 8,
+    });
+    let mut settings = Map::new();
+    settings.insert("network".to_owned(), json!({ "max_body_size": 16_384 }));
+    with_handler_page(&gate, settings, async |program| {
+        program.goto("access.test", "/page-events/large.json").await;
+        program.goto("access.test", "/page-events").await;
+        let observed_both = |gate: &RecordingGate| {
+            let observed = gate.observed();
+            ["/large.json", "/data.json"]
+                .iter()
+                .all(|path| observed.iter().any(|response| response.url.contains(path)))
+        };
+        settled(|| observed_both(&gate)).await;
+
+        let mut observed: Vec<(Option<String>, bool, Option<usize>)> = gate
+            .observed()
+            .into_iter()
+            .map(|observed| {
+                (
+                    path_of(Some(&observed.url)),
+                    observed.body_length > 8,
+                    observed.body.as_ref().map(Vec::len),
+                )
+            })
+            .collect();
+        observed.sort();
+        assert_eq!(
+            observed,
+            vec![
+                (Some("/page-events/data.json".to_owned()), true, Some(8)),
+                (Some("/page-events/large.json".to_owned()), false, None),
+            ]
         );
     });
 }

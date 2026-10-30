@@ -7251,7 +7251,7 @@
       "type": "object"
     },
     "PageRequest": {
-      "description": "A request of a page, ADR 0085's `Request`: one per hop of a redirect\nchain, each hop under the same `request_id`.",
+      "description": "A request of a page, ADR 0085's `Request`: one per hop of a redirect\nchain, each hop under its own `request_id`, as Playwright's\n`redirectedFrom()` and `redirectedTo()` tell them apart.",
       "properties": {
         "failure": {
           "anyOf": [
@@ -7270,12 +7270,12 @@
             "type": "string"
           },
           "arrived_in": "0.1",
-          "description": "Its headers as the browser sent them.",
+          "description": "Its headers as the browser sent them, their names in lowercase, as\nPlaywright gives them.",
           "type": "object"
         },
         "is_navigation_request": {
           "arrived_in": "0.1",
-          "description": "Whether it loads the document of the page's main frame.",
+          "description": "Whether it loads the document of one of the page's frames, its main\nframe's or an iframe's, as Playwright's `isNavigationRequest()`.",
           "type": "boolean"
         },
         "method": {
@@ -7304,14 +7304,22 @@
           },
           "type": "array"
         },
+        "redirected_from": {
+          "arrived_in": "0.1",
+          "description": "The `request_id` of the hop whose redirect led to it, Playwright's\n`redirectedFrom()`; none at a request's first hop.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "request_id": {
           "arrived_in": "0.1",
-          "description": "The browser's ID for it, which `response.body` takes.",
+          "description": "The engine's ID for this hop, which `response.body` takes: the\nbrowser's ID for the request at its first hop, and that ID with\n`#` and the hop's number after each redirect.",
           "type": "string"
         },
         "resource_type": {
           "arrived_in": "0.1",
-          "description": "The browser's name for what it loads, such as `Document` or\n`Fetch`.",
+          "description": "What it loads, as Playwright's `resourceType()` names it: the\nbrowser's name in lowercase, such as `document`, `fetch` or `xhr`.",
           "type": "string"
         },
         "url": {
@@ -7420,7 +7428,7 @@
         },
         "request_id": {
           "arrived_in": "0.1",
-          "description": "The browser's ID for its request, which `response.body` takes.",
+          "description": "The engine's ID for its request's hop, which `response.body` takes:\nits request's `request_id`.",
           "type": "string"
         },
         "status": {
@@ -7873,7 +7881,7 @@
       "type": "object"
     },
     "Position": {
-      "description": "An event's position among every event of one engine, which only goes up.",
+      "description": "An event's position among every event of one engine, which only goes up; for a `page.on` call's own events, among that call's, from 1.",
       "minimum": 0,
       "type": "integer"
     },
@@ -8782,7 +8790,7 @@
         },
         "request_id": {
           "arrived_in": "0.1",
-          "description": "The request, by the browser's ID.",
+          "description": "The request's hop, by the engine's ID for it.",
           "type": "string"
         },
         "timeout": {
@@ -9143,12 +9151,12 @@
             "type": "string"
           },
           "arrived_in": "0.1",
-          "description": "Its headers, as the page sent them.",
+          "description": "Its headers, as the page sent them, their names in lowercase, as\nPlaywright gives them; as a route before replaced them.",
           "type": "object"
         },
         "is_navigation_request": {
           "arrived_in": "0.1",
-          "description": "Whether it loads the document of the page's main frame.",
+          "description": "Whether it loads the document of one of the page's frames, its main\nframe's or an iframe's, as Playwright's `isNavigationRequest()`.",
           "type": "boolean"
         },
         "method": {
@@ -9166,7 +9174,7 @@
         },
         "resource_type": {
           "arrived_in": "0.1",
-          "description": "What the page loads with it, as the browser names it, such as\n`Document`, `Script` or `XHR`.",
+          "description": "What the page loads with it, as Playwright's `resourceType()` names\nit: the browser's name in lowercase, such as `document`, `script`\nor `xhr`.",
           "type": "string"
         },
         "url": {
@@ -13862,7 +13870,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say \"Request content was evicted from inspector cache\". A retry finds the body gone all the same.",
+      "description": "The browser no longer holds the response's body, as after the page navigated away or once its buffer evicted it, or the response has none, as a redirect's: the engine keeps a body only for a response obtained through `page.wait_for_request_finished`, `route.fetch` or `page.request`, which the fix names. Where Playwright and Puppeteer say \"Request content was evicted from inspector cache\". A retry finds the body gone all the same.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -14332,7 +14340,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The engine fell too far behind the browser's events of a page that is still open, and stopped reading them, so some are lost: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it. The page's other calls still work. Open another page to follow its events; a busy engine, as under heavy WebSocket or console traffic it publishes, falls behind sooner.",
+      "description": "Some of a page's events are lost. Either the engine fell too far behind the browser's events of a page that is still open and stopped reading them: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it, while the page's other calls still work; open another page to follow its events. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call raises this once it sent them; listen again and grant credits as events are read.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
@@ -14988,7 +14996,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The page closed: the engine closed it, or its window was closed in the browser outside every Client. Published while `page.on` listens to `close`, just before that call answers.",
+      "description": "The page closed: the engine closed it, or its window was closed in the browser outside every Client. Sent on each `page.on` call that listens to `close`, just before that call answers.",
       "name": "page.close",
       "payload": {
         "$ref": "#/$defs/PageFired"
@@ -15000,7 +15008,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The page wrote a message to its console, `ConsoleMessage`: its type, text and location. Published while `page.on` listens to `console`, the only time the engine reads the page's console.",
+      "description": "The page wrote a message to its console, `ConsoleMessage`: its type, text and location. Sent on each `page.on` call that listens to `console`, the only time the engine reads the page's console.",
       "name": "page.console",
       "payload": {
         "$ref": "#/$defs/ConsoleMessage"
@@ -15012,7 +15020,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The page crashed: its renderer, or its browser's process, which exited abnormally. Its calls in flight raised `page_crashed`, and so does each later call. Published while `page.on` listens to `crash`.",
+      "description": "The page crashed: its renderer, or its browser's process, which exited abnormally. Its calls in flight raised `page_crashed`, and so does each later call. Sent on each `page.on` call that listens to `crash`.",
       "name": "page.crash",
       "payload": {
         "$ref": "#/$defs/PageFired"
@@ -15024,7 +15032,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The document of the page's main frame fired `DOMContentLoaded`. Published while `page.on` listens to `dom_content_loaded`.",
+      "description": "The document of the page's main frame fired `DOMContentLoaded`. Sent on each `page.on` call that listens to `dom_content_loaded`.",
       "name": "page.dom_content_loaded",
       "payload": {
         "$ref": "#/$defs/PageFired"
@@ -15048,7 +15056,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The document of the page's main frame fired `load`. Published while `page.on` listens to `load`.",
+      "description": "The document of the page's main frame fired `load`. Sent on each `page.on` call that listens to `load`.",
       "name": "page.load",
       "payload": {
         "$ref": "#/$defs/PageFired"
@@ -15060,7 +15068,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "An exception the page did not catch, `WebError`: its name, message and stack. Published while `page.on` listens to `page_error`.",
+      "description": "An exception the page did not catch, `WebError`: its name, message and stack. Sent on each `page.on` call that listens to `page_error`.",
       "name": "page.page_error",
       "payload": {
         "$ref": "#/$defs/WebError"
@@ -15084,7 +15092,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The page sent a request, `Request`, once per hop of a redirect chain: its URL, method, headers, body, resource type, navigation flag and the hops before it. Published while `page.on` listens to `request`; a service worker's own requests are never a page's.",
+      "description": "The page sent a request, `Request`, once per hop of a redirect chain: its URL, method, headers, body, resource type, navigation flag and the hops before it. Sent on each `page.on` call that listens to `request`; a service worker's own requests are never a page's.",
       "name": "page.request",
       "payload": {
         "$ref": "#/$defs/PageRequest"
@@ -15096,7 +15104,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "A request of the page failed, `Request` with its `failure`, as Playwright reports one: the browser's network error, such as `net::ERR_FAILED` for one a route aborted or `net::ERR_NAME_NOT_RESOLVED`, and the Error code when the engine blocked it, such as `egress_refused`, so a refusal is never a timeout. A response whose body broke off fails too. Published while `page.on` listens to `request_failed`; the Run trace records each request the engine refused that no call waited on.",
+      "description": "A request of the page failed, `Request` with its `failure`, as Playwright reports one: the browser's network error, such as `net::ERR_FAILED` for one a route aborted or `net::ERR_NAME_NOT_RESOLVED`, and the Error code when the engine blocked it, such as `egress_refused`, so a refusal is never a timeout. A response whose body broke off fails too. Sent on each `page.on` call that listens to `request_failed`; the Run trace records each request the engine refused that no call waited on.",
       "name": "page.request_failed",
       "payload": {
         "$ref": "#/$defs/PageRequest"
@@ -15108,7 +15116,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "A request of the page got its whole response, its body included. Published while `page.on` listens to `request_finished`.",
+      "description": "A request of the page got its whole response, its body included. Sent on each `page.on` call that listens to `request_finished`.",
       "name": "page.request_finished",
       "payload": {
         "$ref": "#/$defs/PageRequest"
@@ -15120,7 +15128,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "A request of the page got its response's head: the request and its response, whose body `response.body` reads, and which says whether a site's service worker supplied it. Published while `page.on` listens to `response`.",
+      "description": "A request of the page got its response's head: the request and its response, whose body `response.body` reads, and which says whether a site's service worker supplied it. Sent on each `page.on` call that listens to `response`.",
       "name": "page.response",
       "payload": {
         "$ref": "#/$defs/PageExchange"
@@ -15132,7 +15140,7 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
-      "description": "The page opened a WebSocket, whose frames and close follow as `web_socket.frame_sent`, `web_socket.frame_received` and `web_socket.close`. Published, with those, while `page.on` listens to `web_socket`.",
+      "description": "The page opened a WebSocket, whose frames and close follow as `web_socket.frame_sent`, `web_socket.frame_received` and `web_socket.close`. Sent, with those, on each `page.on` call that listens to `web_socket`.",
       "name": "page.web_socket",
       "payload": {
         "$ref": "#/$defs/PageWebSocket"
@@ -16860,7 +16868,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the page on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call, as closing its `Subscription` does, removes the listener, and once no call listens the event is no longer published; it answers when the page closes or its Run ends. The page's console and uncaught exceptions are read only while a call listens to `console` or `page_error`.",
+      "description": "Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.",
       "events": [
         "page.console",
         "page.page_error",
@@ -17029,7 +17037,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Waits, armed when the call arrives, until a request of the page whose URL matches has finished, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it. A request that fails is not waited for. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
+      "description": "Waits, armed when the call arrives, until a request of the page whose URL matches has finished, a hop that a redirect ended included, and answers it with its response, whose body the engine reads and keeps, so `response.body` never fails for it but for a redirect's, which has none. A request that fails is not waited for. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.",
       "events": [],
       "kind": "waiter",
       "name": "page.wait_for_request_finished",
@@ -17086,7 +17094,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser. A body the browser no longer holds raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.",
+      "description": "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.",
       "events": [],
       "kind": "round_trip",
       "name": "response.body",

@@ -311,7 +311,8 @@ pub struct PageResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub encoding: Option<String>,
-    /// The browser's ID for its request, which `response.body` takes.
+    /// The engine's ID for its request's hop, which `response.body` takes:
+    /// its request's `request_id`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub request_id: String,
     /// Whether a site's service worker supplied it, from its own cache or
@@ -1056,8 +1057,8 @@ pub struct ServiceWorkerRequest {
     /// Its method, such as `GET`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub method: String,
-    /// What the worker loads with it, as the browser names it, such as
-    /// `Fetch`.
+    /// What the worker loads with it, as Playwright's `resourceType()`
+    /// names it, such as `fetch`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub resource_type: String,
     /// Why the interception refused it, when it did.

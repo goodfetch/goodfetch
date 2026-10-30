@@ -406,19 +406,17 @@ impl Sessions {
             .await;
         match adopted {
             Ok(popup) => {
-                opener_events
-                    .publish(
-                        PageEventName::Popup,
-                        &PAGE_POPUP,
-                        &PagePopup {
-                            page_id: opener_id,
-                            popup: PageOpened {
-                                page_id: popup,
-                                session_id: session.clone(),
-                            },
+                opener_events.publish(
+                    PageEventName::Popup,
+                    &PAGE_POPUP,
+                    &PagePopup {
+                        page_id: opener_id,
+                        popup: PageOpened {
+                            page_id: popup,
+                            session_id: session.clone(),
                         },
-                    )
-                    .await;
+                    },
+                );
                 true
             }
             Err(error) => {

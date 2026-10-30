@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "38"
+version = "39"
 
 [[capability]]
 name = "sessions.default"
@@ -465,8 +465,12 @@ id = "a-blocked-an-aborted-and-a-failed-request-each-fail-as-playwright-reports-
 covers = ["story:5-48", "operation:page.on", "event:page.request_failed", "error:egress_refused"]
 
 [[capability.case]]
-id = "a-slow-reader-holds-the-page-events-stream-one-event-per-credit"
-covers = ["story:5-48", "operation:page.on", "operation:events.subscribe", "event:page.request"]
+id = "a-slow-listener-holds-its-page-events-and-reads-one-per-credit"
+covers = ["story:5-48", "operation:page.on", "event:page.request"]
+
+[[capability.case]]
+id = "a-pages-events-go-only-to-the-call-that-listens-never-the-event-stream"
+covers = ["operation:page.on", "operation:events.subscribe", "event:page.request"]
 
 [[capability]]
 name = "bodies"
@@ -694,15 +698,15 @@ covers = ["story:5-43", "error:pattern_unsupported", "operation:page.route", "op
 
 [[capability.case]]
 id = "each-wait-ends-at-timeout-wait-naming-what-it-waited-for"
-covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_request_finished", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
 
 [[capability.case]]
 id = "a-waits-own-timeout-is-its-deadline-at-the-run-layer-and-null-is-none"
-covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+covers = ["story:5-19", "error:deadline_exceeded", "setting:timeout.wait", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_request_finished", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
 
 [[capability.case]]
 id = "a-wait-in-flight-when-its-page-closes-raises-call-cancelled-naming-the-page"
-covers = ["story:5-19", "error:call_cancelled", "operation:page.close", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
+covers = ["story:5-19", "error:call_cancelled", "operation:page.close", "operation:page.wait_for_url", "operation:page.wait_for_request", "operation:page.wait_for_response", "operation:page.wait_for_request_finished", "operation:page.wait_for_load_state", "operation:page.wait_for_function", "operation:locator.wait_for_function", "operation:locator.wait_for", "operation:locator.wait_for_count"]
 
 [[capability]]
 name = "robots_txt"

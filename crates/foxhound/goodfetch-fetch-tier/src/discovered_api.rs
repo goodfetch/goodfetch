@@ -79,7 +79,7 @@ impl ResponseObserver for Capture {
         }
     }
 
-    fn on_response(&self, response: &ObservedResponse<'_>, body: &[u8]) {
+    fn on_response(&self, response: &ObservedResponse<'_>, body: Option<&[u8]>) {
         let json = response.headers.iter().any(|(name, value)| {
             name.eq_ignore_ascii_case("content-type") && value.to_ascii_lowercase().contains("json")
         });
@@ -89,13 +89,15 @@ impl ResponseObserver for Capture {
         let Ok(url) = Url::parse(response.url) else {
             return;
         };
-        // A body the browser no longer held, or one past the cap, is
-        // captured without its answer: its URL still tells a page number,
-        // and the same call made again may bring its answer.
-        let json = if response.body_length > body.len() {
-            Value::Null
-        } else {
-            serde_json::from_slice::<Value>(body).unwrap_or(Value::Null)
+        // A body the browser no longer held, one past the Run's limits or
+        // one past the cap, is captured without its answer: its URL still
+        // tells a page number, and the same call made again may bring its
+        // answer.
+        let json = match body {
+            Some(body) if response.body_length <= body.len() => {
+                serde_json::from_slice::<Value>(body).unwrap_or(Value::Null)
+            }
+            Some(_) | None => Value::Null,
         };
         self.calls
             .lock()

@@ -71,7 +71,7 @@ pub(crate) use self::children::{Child, ChildKind, OnChild};
 use self::encoding::{encoding_of, encoding_read, isolated_world};
 pub(crate) use self::ending::Lost;
 use self::functions::{evaluation, page_function_world};
-pub(crate) use self::navigation::{Arrived, response_of};
+pub(crate) use self::navigation::{Arrived, browser_id, hop_id, response_of};
 use self::navigation::{Ended, Expected, Navigation};
 use self::permit_waits::PermitWaits;
 pub(crate) use self::popups::{OnPopup, PopupHandler};

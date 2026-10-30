@@ -6,14 +6,18 @@
 //! of whether a person sees it (the Frontier's `trap_links`). On the
 //! browser tier, the page itself reads them, with what its layout shows.
 //! A code-free crawl's fields (ADR 0123) read the first element each
-//! field's locator finds, alike: its tag name, text and attributes; on the
-//! browser tier the page reads them with [`FIELDS_READ`], CSS selectors and
-//! `XPath` expressions alike.
+//! field's locator finds, alike: its tag name, text and attributes, by a
+//! CSS selector or an `XPath` 1.0 expression (the `xpath` module) in the
+//! served document; on the browser tier the page reads them with
+//! [`FIELDS_READ`].
 
 use std::collections::HashSet;
 
 use goodfetch_frontier::trap_links::{Markup, Seen, Sight};
+use goodfetch_protocol::foxhound::crawl::FieldLocator;
 use serde_json::Value;
+
+use crate::xpath::{self, XpathInvalid};
 
 /// One element a locator matched.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -190,23 +194,47 @@ fn attributes(element: &dom_query::NodeRef<'_>) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The first element of `html` that each of `selectors`, CSS selectors,
-/// matches, in order; `None` for one that matches none.
+/// A field's locator the engine does not read.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum LocatorInvalid {
+    #[error(transparent)]
+    Css(#[from] SelectorInvalid),
+    #[error(transparent)]
+    Xpath(#[from] XpathInvalid),
+}
+
+/// The first element of `html` that each of `locators` finds, in order:
+/// a CSS selector's first match, or an `XPath` expression's first node in
+/// document order when it is an element, as a browser reads both; `None`
+/// for one that finds none.
 ///
 /// # Errors
 ///
-/// When one of `selectors` is no CSS selector.
+/// When one of `locators` is no CSS selector or `XPath` expression the
+/// engine reads.
 pub(crate) fn first_elements(
     html: &str,
-    selectors: &[String],
-) -> Result<Vec<Option<FieldElement>>, SelectorInvalid> {
+    locators: &[FieldLocator],
+) -> Result<Vec<Option<FieldElement>>, LocatorInvalid> {
     let document = dom_query::Document::from(html);
-    selectors
+    // Built once, at the first `XPath` locator.
+    let mut held: Option<xpath::Document> = None;
+    locators
         .iter()
-        .map(|selector| {
-            let matcher = matcher(selector)?;
-            let selection = document.select_matcher(&matcher);
-            Ok(selection.nodes().first().map(|node| FieldElement {
+        .map(|locator| {
+            let found = match locator {
+                FieldLocator::Css { selector } => {
+                    let matcher = matcher(selector)?;
+                    document.select_matcher(&matcher).nodes().first().copied()
+                }
+                FieldLocator::Xpath { selector } => {
+                    let expression = xpath::Expression::parse(selector)?;
+                    held.get_or_insert_with(|| xpath::Document::of(&document))
+                        .first_element(&expression)
+                        .and_then(|id| document.tree.get(&id))
+                }
+            };
+            Ok(found.map(|node| FieldElement {
                 tag: node
                     .node_name()
                     .map(|name| name.to_ascii_lowercase())
@@ -265,6 +293,17 @@ pub(crate) fn browser_fields(answer: &Value) -> Option<(String, Vec<Option<Field
 /// When `selector` is no CSS selector a browser reads.
 pub fn check_selector(selector: &str) -> Result<(), SelectorInvalid> {
     matcher(selector).map(drop)
+}
+
+/// Refuses `expression` when it is no `XPath` 1.0 expression the engine
+/// reads to nodes on both tiers.
+///
+/// # Errors
+///
+/// When a browser refuses `expression` with no namespace resolver and no
+/// variables, or it answers a value rather than nodes.
+pub fn check_xpath(expression: &str) -> Result<(), XpathInvalid> {
+    xpath::Expression::parse(expression).map(drop)
 }
 
 /// What a browser page answered the Frontier's `trap_links::READ`: its

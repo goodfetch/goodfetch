@@ -10,6 +10,7 @@ use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{AppliedLimit, ReachedLimit};
 use goodfetch_protocol::usage::Limit;
 use jiff::Timestamp;
+use rusqlite::Connection;
 
 use super::{
     Holder, Ledger, LedgerError, LimitId, Placement, SliceId, SliceSizing, StoredLimit, TARGET,
@@ -93,7 +94,7 @@ struct Held {
 }
 
 /// One run's Slices and the Limits it charges.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Charging {
     ledger: Ledger,
     holder: Holder,
@@ -101,6 +102,10 @@ pub struct Charging {
     sizing: SliceSizing,
     held: Vec<Held>,
     uncapped: bool,
+    /// The connection each charge reads the Limits on, kept between
+    /// charges, so a charge out of the Slices held opens no file; the
+    /// Limits are still read on each, so one set meanwhile holds the next.
+    reader: Option<Connection>,
 }
 
 impl Charging {
@@ -113,6 +118,7 @@ impl Charging {
             sizing,
             held: Vec::new(),
             uncapped: false,
+            reader: None,
         }
     }
 
@@ -323,7 +329,7 @@ impl Charging {
         amount: u64,
         now: Timestamp,
     ) -> Result<(Vec<(SliceId, u64)>, Charged), Refusal> {
-        let limits = self.ledger.limits()?;
+        let limits = self.ledger.limits_on(&mut self.reader)?;
         let holding: Vec<StoredLimit> = self
             .placement
             .holding(&limits)

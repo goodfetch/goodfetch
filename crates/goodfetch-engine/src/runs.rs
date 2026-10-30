@@ -609,6 +609,26 @@ pub enum ChargeError {
     State(#[from] RunStateError),
 }
 
+/// What a Run reserved ahead of a part of a Usage kind it is about to use,
+/// such as a Session's proxy bytes under its proxy kind (ADRs 0021 and
+/// 0041): the amount it grants, and that amount's cost when priced, each a
+/// reservation settled at what was used ([`Run::settle_part`]).
+#[derive(Debug)]
+#[must_use = "an allowance is settled once its use is known"]
+pub struct Allowance {
+    granted: u64,
+    amount: Reservation,
+    price: Option<Reservation>,
+    part: String,
+}
+
+impl Allowance {
+    /// The amount it grants.
+    pub fn granted(&self) -> u64 {
+        self.granted
+    }
+}
+
 /// What a live Run resolves its Secret references through, and its data
 /// key once unwrapped.
 struct Keys {
@@ -2021,6 +2041,122 @@ impl Run {
                 charged.counted.extend(priced.counted);
             }
             Ok(((), charged))
+        })
+        .await
+        .map(drop)
+    }
+
+    /// Reserves ahead an amount of `usage_kind` the Run is about to use, as
+    /// [`Run::reserve`] reserves a worst case, counted under `part` of the
+    /// kind, and with `currency` its `cost` too, in one ledger transaction:
+    /// `wanted` when every Limit holding the Run allows it, else the
+    /// largest of its halves down to `least` that they allow, so a large
+    /// allowance that a nearly spent Limit refuses gives way to what is
+    /// left of it, and only `least`'s refusal refuses it and asks the Run
+    /// to stop as [`Run::charge`]'s does. What the Run then uses of it is
+    /// settled with [`Run::settle_part`], so its Usage counts what it used:
+    /// an amount charged before it is used, with one ledger and journal
+    /// write per allowance instead of one per use (the deep review's
+    /// 599-12). None once the Run ended.
+    ///
+    /// # Errors
+    ///
+    /// As [`Run::charge`]: none of it may be used then.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Run::charge`]'s: an allowance dropped unsettled stays charged
+    /// in full.
+    pub async fn reserve_part(
+        &self,
+        usage_kind: &str,
+        part: &str,
+        currency: Option<&str>,
+        cost: impl Fn(u64) -> u64 + Send + 'static,
+        wanted: u64,
+        least: u64,
+    ) -> Result<Option<Allowance>, ChargeError> {
+        let (kind, part) = (usage_kind.to_owned(), part.to_owned());
+        let currency = currency.map(str::to_owned);
+        self.charged(move |charging, now| {
+            let reserve = |charging: &mut Charging, amount: u64| {
+                let cost = cost(amount);
+                let (reserved, mut charged) = charging.reserve(&kind, None, amount, now)?;
+                for counted in &mut charged.counted {
+                    counted.part = Some(part.clone());
+                }
+                let price = match &currency {
+                    Some(currency) => match charging.reserve(&kind, Some(currency), cost, now) {
+                        Ok((price, priced)) => {
+                            charged.used.extend(priced.used);
+                            charged.counted.extend(priced.counted);
+                            Some(price)
+                        }
+                        Err(refusal) => {
+                            // Nothing was used: the amount is given back.
+                            let _ = charging.settle(reserved, 0);
+                            return Err(refusal);
+                        }
+                    },
+                    None => None,
+                };
+                let allowance = Allowance {
+                    granted: amount,
+                    amount: reserved,
+                    price,
+                    part: part.clone(),
+                };
+                Ok((allowance, charged))
+            };
+            let least = least.min(wanted);
+            let mut amount = wanted;
+            loop {
+                match reserve(charging, amount) {
+                    Err(Refusal::Reached(_)) if amount > least => {
+                        amount = (amount / 2).max(least);
+                    }
+                    reserved => break reserved,
+                }
+            }
+        })
+        .await
+    }
+
+    /// Settles `allowance` at `used` of its amount and `cost` of its
+    /// price, which its grant bounds: the rest is the Run's to use again,
+    /// and its Usage then counts what it used.
+    ///
+    /// # Errors
+    ///
+    /// `State` when the run state could not journal it: the allowance then
+    /// stays charged in full.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Run::charge`]'s.
+    pub async fn settle_part(
+        &self,
+        allowance: Allowance,
+        used: u64,
+        cost: u64,
+    ) -> Result<(), ChargeError> {
+        self.charged(move |charging, _| {
+            let Allowance {
+                amount,
+                price,
+                part,
+                ..
+            } = allowance;
+            let mut settled = charging.settle(amount, used);
+            for counted in &mut settled.counted {
+                counted.part = Some(part.clone());
+            }
+            if let Some(price) = price {
+                let priced = charging.settle(price, cost);
+                settled.used.extend(priced.used);
+                settled.counted.extend(priced.counted);
+            }
+            Ok(((), settled))
         })
         .await
         .map(drop)

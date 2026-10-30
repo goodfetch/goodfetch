@@ -4,7 +4,8 @@
 //! offers, the sticky lifetime (the provider's longest unless
 //! `proxy.sticky_lifetime` asks for less), one proxy per Session for its
 //! life, the `proxy_exit_may_change` warning, and the bytes per proxy kind
-//! and their price that a Session's proxy charges ([`Tally`], [`priced`]).
+//! and their price that a Session's proxy charges ahead ([`ProxyUsage`],
+//! [`Ahead`], [`priced`]).
 //! A provider fills only the two primitives of [`ProxyProvider`],
 //! `username` and `format_lifetime`, beside the [`Offer`] it describes
 //! itself with. [`list`] is the provider of the user's own servers;
@@ -29,7 +30,7 @@ use sha2::{Digest as _, Sha256};
 use goodfetch_engine::CallError;
 use goodfetch_engine::ledger::Refusal as LedgerRefusal;
 use goodfetch_engine::run::{limit_not_understood, limit_reached};
-use goodfetch_engine::runs::{ChargeError, Run};
+use goodfetch_engine::runs::{Allowance, ChargeError, Run};
 use goodfetch_protocol::catalog::PriceValue;
 use goodfetch_protocol::page::proxy::{CountryCode, ProxyKind, ProxyServer};
 use goodfetch_protocol::run::RunWarning;
@@ -188,7 +189,9 @@ pub(crate) enum Refusal {
     Unpriced { provider: String, currency: String },
 }
 
-/// The driver of one Proxy provider.
+/// The driver of one Proxy provider, whichever source fills its
+/// primitives: the trait object stays inside it (STYLE.md; the deep
+/// review's 599-11).
 pub(crate) struct ProxyDriver {
     name: String,
     provider: Box<dyn ProxyProvider>,
@@ -196,10 +199,10 @@ pub(crate) struct ProxyDriver {
 
 impl ProxyDriver {
     /// The driver of `provider`, named `name`.
-    pub(crate) fn new(name: &str, provider: Box<dyn ProxyProvider>) -> Self {
+    pub(crate) fn new(name: &str, provider: impl ProxyProvider + 'static) -> Self {
         Self {
             name: name.to_owned(),
-            provider,
+            provider: Box::new(provider),
         }
     }
 
@@ -346,51 +349,54 @@ pub(crate) fn priced(
     }
 }
 
-/// What a Session's proxy carried, and what of it was charged.
-#[derive(Clone, Debug)]
-pub(crate) struct Tally {
-    price: Option<PriceValue>,
+/// The first allowance one direction of a connection reserves: no more than
+/// one relayed chunk asked, so a connection that carries little holds back
+/// little of a Limit.
+const FIRST_ALLOWANCE: u64 = 16 * 1024;
+
+/// The largest allowance one direction of a connection reserves, which
+/// each allowance doubles towards, so a transfer pays one ledger and run
+/// state write per MiB at most (the deep review's 599-12).
+const LARGEST_ALLOWANCE: u64 = 1024 * 1024;
+
+/// The most `bytes` can cost at `millionths` a GB, rounded up: an
+/// allowance's worst case.
+fn worst(bytes: u64, millionths: u64) -> u64 {
+    let worst = (u128::from(bytes) * u128::from(millionths)).div_ceil(GB);
+    u64::try_from(worst).unwrap_or(u64::MAX)
+}
+
+/// What a Session's proxy carried, and the price charged for it: so the
+/// price charged in all is that of every byte so far, rounded up once per
+/// Session, never once per allowance.
+#[derive(Debug, Default)]
+struct Tally {
     bytes: u128,
     charged: u64,
 }
 
 impl Tally {
-    /// A Session's tally, its bytes priced at `price` per GB.
-    pub(crate) fn new(price: Option<PriceValue>) -> Self {
-        Self {
-            price,
-            bytes: 0,
-            charged: 0,
-        }
-    }
-
-    /// Adds `bytes` the proxy carried: the bytes to charge, and the price
-    /// to charge for them in millionths of the price's currency, so that
-    /// the price charged in all is that of every byte so far, rounded up.
-    pub(crate) fn add(&mut self, bytes: u64) -> (u64, Option<u64>) {
+    /// Adds `bytes` the proxy carried, priced at `millionths` a GB: what
+    /// they owe, in millionths of the price's currency.
+    fn add(&mut self, bytes: u64, millionths: u64) -> u64 {
         self.bytes += u128::from(bytes);
-        let Some(price) = &self.price else {
-            return (bytes, None);
-        };
-        let due = (self.bytes * u128::from(price.millionths)).div_ceil(GB);
+        let due = (self.bytes * u128::from(millionths)).div_ceil(GB);
         let due = u64::try_from(due).unwrap_or(u64::MAX);
         let owed = due.saturating_sub(self.charged);
         self.charged = due;
-        (bytes, Some(owed))
-    }
-
-    /// The price's currency, if it has one.
-    pub(crate) fn currency(&self) -> Option<&str> {
-        self.price.as_ref().map(|price| price.currency.as_str())
+        owed
     }
 }
 
 /// What a Session's provider proxy charges its Run (ADRs 0021, 0041 and
 /// 0101): every byte on its connections, as `proxy_bytes` under its proxy
-/// kind, and their price, reserved as paid, in its currency.
+/// kind, and their price, reserved as paid, in its currency. Each
+/// direction of each connection reserves an allowance before its bytes
+/// pass ([`Ahead`]), settled at what passed.
 pub(crate) struct ProxyUsage {
     run: Run,
     kind: ProxyKind,
+    price: Option<PriceValue>,
     tally: Mutex<Tally>,
     /// The Limit's refusal that stopped the proxy, which the Session's
     /// failed calls raise in place of the browser's network error.
@@ -404,7 +410,8 @@ impl ProxyUsage {
         Self {
             run,
             kind,
-            tally: Mutex::new(Tally::new(price)),
+            price,
+            tally: Mutex::new(Tally::default()),
             refusal: OnceLock::new(),
         }
     }
@@ -412,6 +419,17 @@ impl ProxyUsage {
     /// The Limit's refusal that stopped the proxy, once one did.
     pub(crate) fn refusal(&self) -> Option<&CallError> {
         self.refusal.get()
+    }
+
+    /// What one direction of one connection reserves ahead of its bytes.
+    pub(crate) fn ahead(self: &Arc<Self>) -> Ahead {
+        Ahead {
+            usage: Arc::clone(self),
+            held: None,
+            left: 0,
+            used: 0,
+            next: FIRST_ALLOWANCE,
+        }
     }
 
     /// Keeps `error`'s refusal, a Limit's, for the Session's failed calls.
@@ -426,61 +444,153 @@ impl ProxyUsage {
         let _ = self.refusal.set(refusal);
     }
 
-    /// Charges `bytes` the proxy carried on a task of the Run, which runs
-    /// to its end even when the caller stops waiting for its answer, as a
-    /// relayed connection does when its Session's proxy closes or its Run
-    /// ends: the provider bills those bytes all the same, and the Run waits
-    /// for its tasks before it writes its report. Answers whether the
-    /// connection may carry more, false once a Limit refused them, when it
-    /// must carry no more.
-    pub(crate) fn charge_to_the_end(self: &Arc<Self>, bytes: u64) -> oneshot::Receiver<bool> {
+    /// Reserves `wanted` bytes ahead, or else as many down to `least` as
+    /// the Limits allow, on a task of the Run, which runs to its end even
+    /// when the caller stops waiting, as a relayed connection does when its
+    /// Session's proxy closes or its Run ends: an allowance no one took is
+    /// given back in full. None when a Limit refused it, or once the Run
+    /// ended: no byte may pass then.
+    async fn reserve(self: &Arc<Self>, wanted: u64, least: u64) -> Option<Allowance> {
         let (answer, answered) = oneshot::channel();
-        if bytes == 0 {
-            let _ = answer.send(true);
-            return answered;
-        }
         let usage = Arc::clone(self);
         self.run.spawn(async move {
-            let _ = answer.send(usage.charge(bytes).await);
+            let reserved = usage.reserved(wanted, least).await;
+            if let Err(Some(allowance)) = answer.send(reserved) {
+                usage.settled(allowance, 0).await;
+            }
         });
-        answered
+        answered.await.ok().flatten()
     }
 
-    /// Charges `bytes` the proxy carried: whether it may carry more, false
-    /// once a Limit refused them. Dropping the future may leave them
-    /// uncounted ([`Run::charge`]'s cancel safety), so only
-    /// [`ProxyUsage::charge_to_the_end`]'s task awaits it.
-    async fn charge(&self, bytes: u64) -> bool {
-        if bytes == 0 {
-            return true;
-        }
-        // The tally counts the bytes and what they owe under its lock, which
-        // is let go before the charge is awaited (STYLE.md: no lock across
-        // an `.await`); charges add up whatever order they land in.
-        let (bytes, price) = {
-            let mut tally = self.tally.lock().await;
-            let (bytes, owed) = tally.add(bytes);
-            let price = match (owed, tally.currency()) {
-                (Some(owed), Some(currency)) if owed > 0 => Some((currency.to_owned(), owed)),
-                _ => None,
-            };
-            (bytes, price)
-        };
-        let price = price
-            .as_ref()
-            .map(|(currency, owed)| (currency.as_str(), *owed));
+    /// Reserves `wanted` bytes ahead, or else as many down to `least` as
+    /// the Limits allow, with their price at its worst. Dropping the future
+    /// may leave the allowance charged in full ([`Run::reserve_part`]'s
+    /// cancel safety), so only [`ProxyUsage::reserve`]'s task awaits it.
+    async fn reserved(&self, wanted: u64, least: u64) -> Option<Allowance> {
+        let currency = self.price.as_ref().map(|price| price.currency.as_str());
+        let millionths = self.price.as_ref().map_or(0, |price| price.millionths);
         match self
             .run
-            .charge_part(PROXY_BYTES, self.kind.as_str(), bytes, price)
+            .reserve_part(
+                PROXY_BYTES,
+                self.kind.as_str(),
+                currency,
+                move |bytes| worst(bytes, millionths),
+                wanted,
+                least,
+            )
             .await
         {
-            Ok(()) => true,
+            Ok(allowance) => allowance,
             Err(error) => {
                 tracing::debug!(%error, "a Session's proxy bytes were refused");
                 self.refused(&error);
-                false
+                None
             }
         }
+    }
+
+    /// Settles `allowance` at `used` bytes on a task of the Run, to its end
+    /// even when the connection is gone: the provider bills every byte it
+    /// carried, and the Run waits for its tasks before it writes its report.
+    fn settle_to_the_end(self: &Arc<Self>, allowance: Allowance, used: u64) {
+        let usage = Arc::clone(self);
+        self.run
+            .spawn(async move { usage.settled(allowance, used).await });
+    }
+
+    /// Settles `allowance` at `used` bytes and what they owe of the
+    /// Session's price.
+    async fn settled(&self, allowance: Allowance, used: u64) {
+        let cost = match &self.price {
+            Some(price) => self.tally.lock().await.add(used, price.millionths),
+            None => 0,
+        };
+        if let Err(error) = self.run.settle_part(allowance, used, cost).await {
+            tracing::warn!(%error, "what a Session's proxy carried of an allowance was not settled: the allowance stays charged in full");
+        }
+    }
+}
+
+/// What one direction of one relayed connection reserved ahead of its Run,
+/// so every byte is charged before it passes, the browser's to the proxy
+/// and the proxy's to the browser alike (the deep review's 599-7 and
+/// 599-12): an allowance taken when its room runs out, each twice the last
+/// up to [`LARGEST_ALLOWANCE`], and settled at what passed when the next is
+/// taken or the direction ends.
+pub(crate) struct Ahead {
+    usage: Arc<ProxyUsage>,
+    held: Option<Allowance>,
+    /// What the allowance held still lets pass.
+    left: u64,
+    /// What passed of it.
+    used: u64,
+    /// The size of the next allowance.
+    next: u64,
+}
+
+impl Ahead {
+    /// Makes room for `bytes` to pass now, reserving another allowance when
+    /// the one held has less left: whether they may, false once a Limit
+    /// refused them, when the connection must carry no more.
+    pub(crate) async fn cover(&mut self, bytes: u64) -> bool {
+        bytes <= self.left || self.reserve(bytes, bytes).await
+    }
+
+    /// The room for at most `wanted` bytes to pass now, an allowance
+    /// reserved when none is left, as much of it as the Limits allow; none
+    /// once a Limit refused even one byte.
+    pub(crate) async fn room(&mut self, wanted: u64) -> Option<u64> {
+        if self.left == 0 && !self.reserve(wanted, 1).await {
+            return None;
+        }
+        Some(self.left.min(wanted))
+    }
+
+    /// Settles the allowance held and reserves the next, of at least
+    /// `bytes` and the size it has grown to, or as many down to `least` as
+    /// the Limits allow: whether one was.
+    async fn reserve(&mut self, bytes: u64, least: u64) -> bool {
+        self.settle();
+        let Some(allowance) = self.usage.reserve(bytes.max(self.next), least).await else {
+            return false;
+        };
+        let granted = allowance.granted();
+        self.next = granted
+            .saturating_mul(2)
+            .clamp(FIRST_ALLOWANCE, LARGEST_ALLOWANCE)
+            .max(self.next);
+        self.left = granted;
+        self.held = Some(allowance);
+        true
+    }
+
+    /// What the allowance held still lets pass.
+    pub(crate) fn left(&self) -> u64 {
+        self.left
+    }
+
+    /// Counts `bytes` that passed, within the room made for them.
+    pub(crate) fn carried(&mut self, bytes: u64) {
+        self.left = self.left.saturating_sub(bytes);
+        self.used = self.used.saturating_add(bytes);
+    }
+
+    /// Settles the allowance held at what passed of it.
+    fn settle(&mut self) {
+        if let Some(held) = self.held.take() {
+            self.usage.settle_to_the_end(held, self.used);
+        }
+        self.left = 0;
+        self.used = 0;
+    }
+}
+
+impl Drop for Ahead {
+    /// Settles what the direction carried of its last allowance: an end
+    /// its Run's end or a failure cut short included.
+    fn drop(&mut self) {
+        self.settle();
     }
 }
 

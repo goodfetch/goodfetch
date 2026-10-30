@@ -483,6 +483,78 @@ fn a_key_read_through_each_provider_and_an_endpoint_token_are_in_no_output(
 /// The Proving ground's own seed for the Session cookie's test.
 const SEED: u64 = 649;
 
+/// An Attached engine's calls, matched to their answers by ID in whatever
+/// order those come, and the requests a route's handler is asked about,
+/// held until the test lets them go on.
+struct Calls<'env> {
+    engine: Attached<'env>,
+    answers: BTreeMap<i64, Value>,
+    held: Vec<Value>,
+}
+
+impl<'env> Calls<'env> {
+    fn new(engine: Attached<'env>) -> Self {
+        Self {
+            engine,
+            answers: BTreeMap::new(),
+            held: Vec::new(),
+        }
+    }
+
+    /// Sends the call `id`, waiting for no answer.
+    fn send(&mut self, id: i64, method: &str, params: &Value) {
+        self.engine
+            .send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
+    }
+
+    /// Takes in the engine's next message: an answer, kept by its ID, or a
+    /// `route.handle` request, kept unanswered.
+    fn read(&mut self) {
+        let message = self.engine.next().expect("the engine answered");
+        if message["method"] == json!("route.handle") {
+            self.held.push(message);
+        } else if let Some(id) = message["id"].as_i64() {
+            self.answers.insert(id, message);
+        }
+    }
+
+    /// The answer to the call `id`, whenever it came.
+    fn answer(&mut self, id: i64) -> Value {
+        loop {
+            if let Some(answer) = self.answers.remove(&id) {
+                return answer;
+            }
+            self.read();
+        }
+    }
+
+    fn call(&mut self, id: i64, method: &str, params: &Value) -> Value {
+        self.send(id, method, params);
+        self.answer(id)
+    }
+
+    /// The first `route.handle` request not yet let go on, once one came.
+    fn held(&mut self) -> Value {
+        while self.held.is_empty() {
+            self.read();
+        }
+        self.held.remove(0)
+    }
+
+    /// Lets the held request `handle` go on as the page sent it, through
+    /// the call `id`, whose answer it returns, and ends the handler's turn.
+    fn go_on(&mut self, id: i64, handle: &Value) -> Value {
+        let answer = self.call(
+            id,
+            "route.continue",
+            &json!({ "route_id": handle["params"]["route_id"] }),
+        );
+        self.engine
+            .send(&json!({ "jsonrpc": "2.0", "id": handle["id"], "result": {} }));
+        answer
+    }
+}
+
 /// Every file and folder of `folder`, at any depth, as few as cover them,
 /// but `left_out` and what it holds.
 fn paths_but(folder: &Path, left_out: &Path) -> Vec<PathBuf> {
@@ -526,53 +598,54 @@ fn a_session_cookie_a_login_sets_is_in_no_output() {
         .unwrap()
         .clone();
     let login = proving_ground.start_url("canaries/3").unwrap();
-    let mut engine = started(&env, &cache, &proving_ground, "cookie");
+    let mut calls = Calls::new(started(&env, &cache, &proving_ground, "cookie"));
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "cookie" }),
-    ))
-    .page_id;
-    let mut replies = vec![call(
-        &mut engine,
-        3,
-        "page.goto",
-        &json!({ "page_id": page, "url": login }),
-    )];
+    let page = opened(&calls.call(2, "run.new_page", &json!({ "run_id": "cookie" }))).page_id;
+    let mut replies = vec![calls.call(3, "page.goto", &json!({ "page_id": page, "url": login }))];
     for (id, (selector, value)) in (4..).zip([
         ("input[name=username]", account.username.as_str()),
         ("input[name=password]", account.password.as_str()),
     ]) {
-        replies.push(call(
-            &mut engine,
+        replies.push(calls.call(
             id,
             "locator.fill",
             &json!({ "locator": { "page_id": page, "selector": selector }, "value": value }),
         ));
     }
-    replies.push(call(
-        &mut engine,
+    // The login form's request is held until the wait for the account page
+    // is armed: the account page's call goes once the login's navigation
+    // reached that page and loaded it, however early the click answers and
+    // however loaded the host (#1764).
+    calls.send(
         6,
+        "page.route",
+        &json!({ "page_id": page, "url": { "kind": "glob", "pattern": "**/login" } }),
+    );
+    calls.send(
+        7,
         "locator.click",
         &json!({ "locator": { "page_id": page, "selector": "button[type=submit]" } }),
-    ));
-    let account_page = call(
-        &mut engine,
-        7,
+    );
+    let form = calls.held();
+    calls.send(
+        8,
+        "page.wait_for_url",
+        &json!({ "page_id": page, "url": { "kind": "glob", "pattern": "**/account" } }),
+    );
+    replies.push(calls.go_on(9, &form));
+    replies.push(form);
+    replies.push(calls.answer(7));
+    replies.push(calls.answer(8));
+    let account_page = calls.call(
+        10,
         "page.goto",
         &json!({ "page_id": page, "url": login.replace("/login", "/account") }),
     );
     replies.push(account_page.clone());
-    replies.push(call(
-        &mut engine,
-        8,
-        "run.finish",
-        &json!({ "run_id": "cookie" }),
-    ));
-    let (rest, _) = engine.finish();
+    replies.push(calls.call(11, "run.finish", &json!({ "run_id": "cookie" })));
+    let (rest, _) = calls.engine.finish();
     replies.extend(rest);
+    replies.extend(calls.answers.into_values());
 
     let replies_bytes = serde_json::to_vec(&replies).unwrap();
     let searched = paths_but(env.folder(), &chrome_for_testing_files(&cache));

@@ -1700,7 +1700,7 @@
     },
     {
       "description": "Read the start page as one Record with `id` and `word`. Its body is a Brotli decompression bomb that decodes to far more than it sends, past the engine's decompression-ratio limit. A correct tool refuses it at the limit.",
-      "digest": "51f6dc4941df2f3d357a6d10eabb947019a778cae844c25763efb4830595d855",
+      "digest": "c98fffff10d642037d11403516df2690991265e34198ad36e8410f097e958226",
       "family": "bombs",
       "id": "bombs/3",
       "kind": "extract",

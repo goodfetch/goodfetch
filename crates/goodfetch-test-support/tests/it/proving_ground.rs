@@ -61,6 +61,20 @@ fn a_dropped_proving_ground_is_gone() {
     );
 }
 
+/// Stopped, it is interrupted as Ctrl-C does, so it ends its connections
+/// and undoes any network shaping before it exits, where a kill would
+/// leave the shaping in place.
+#[cfg(unix)]
+#[test]
+fn a_stopped_proving_ground_exits_of_its_own_once_interrupted() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, 341).unwrap();
+
+    let status = proving_ground.stop().unwrap();
+
+    assert!(status.success(), "{status}");
+}
+
 #[test]
 fn a_program_that_never_prints_its_line_fails_at_the_deadline() {
     let env = TestEnv::new();

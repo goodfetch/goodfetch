@@ -43,6 +43,8 @@ mod life;
 mod lifecycle;
 mod memory;
 mod session_pages;
+#[cfg(test)]
+mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -414,7 +416,12 @@ impl Sessions {
             context,
         )
         .await?;
-        let (position, seat) = {
+        let attributes = if borrowed.is_some() { BORROWED } else { FRESH };
+        // It takes its position and goes into the table under one lock,
+        // while its Run is there: once the Run stops, its clean-up has
+        // taken the Run out, and a Session put in after it would hold the
+        // Run forever (#1763).
+        let (position, session, life, open) = {
             let mut state = self.state.lock().await;
             let runs = reached(&mut state, &run)?;
             runs.last += 1;
@@ -424,32 +431,28 @@ impl Sessions {
                     .pool
                     .seat(Placement::Shared, egress(proxy.as_ref(), relay.as_ref())),
             };
-            (runs.last, seat)
+            let position = runs.last;
+            let session = session_id(run.id(), position);
+            let life = SessionLife::new(session.clone(), attributes, SessionState::Opening);
+            let open = Arc::new(Session {
+                run: run.clone(),
+                position,
+                seat,
+                settings: settings.clone(),
+                life: life.clone(),
+                proxy,
+                egress_marked: OnceCell::new(),
+                relay,
+                reopen_failed: None,
+                held_frames: borrowed
+                    .as_ref()
+                    .map(|_| session_pages::HeldFrames::default()),
+                injections: Injections::default(),
+            });
+            state.sessions.insert(session.clone(), Arc::clone(&open));
+            self.open_in_interception(&session, &run, borrowed.is_some());
+            (position, session, life, open)
         };
-        let session = session_id(run.id(), position);
-        let attributes = if borrowed.is_some() { BORROWED } else { FRESH };
-        let life = SessionLife::new(session.clone(), attributes, SessionState::Opening);
-        let open = Arc::new(Session {
-            run: run.clone(),
-            position,
-            seat,
-            settings: settings.clone(),
-            life: life.clone(),
-            proxy,
-            egress_marked: OnceCell::new(),
-            relay,
-            reopen_failed: None,
-            held_frames: borrowed
-                .as_ref()
-                .map(|_| session_pages::HeldFrames::default()),
-            injections: Injections::default(),
-        });
-        self.state
-            .lock()
-            .await
-            .sessions
-            .insert(session.clone(), Arc::clone(&open));
-        self.open_in_interception(&session, &run, borrowed.is_some());
         if let Err(error) = open.seat.open().await {
             life.open_failed(error.clone())?;
             self.state.lock().await.sessions.remove(&session);
@@ -553,7 +556,12 @@ impl Sessions {
             (Opener::Pool, true) => POOL_BORROWED,
         };
         let session = session_id(run.id(), position);
-        self.state.lock().await.sessions.insert(
+        // The Run may have stopped while its record was written: a Session
+        // goes into the table only while its Run is there, under the lock
+        // its clean-up takes it out under (#1763).
+        let mut state = self.state.lock().await;
+        reached(&mut state, run)?;
+        state.sessions.insert(
             session.clone(),
             Arc::new(Session {
                 run: run.clone(),

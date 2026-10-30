@@ -53,7 +53,9 @@ mod cdp_url;
 mod proxy_script;
 
 pub use address::{AddressClass, classify, classify_socket};
-pub use cdp_url::{CdpUrlOrigin, CdpUrlRefused, cdp_url_address, judge_cdp_url};
+pub use cdp_url::{
+    BrowserLocation, CdpUrlOrigin, CdpUrlRefused, cdp_url_address, judge_cdp_url, judge_unresolved,
+};
 
 #[cfg(test)]
 mod tests;

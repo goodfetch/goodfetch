@@ -1833,3 +1833,38 @@ fn a_proxy_providers_price_comes_only_from_user_configuration_and_the_operator_p
         ),
     }
 }
+
+/// O8 of the deep review (accepted by the owner on 2026-10-28): a value
+/// keeps who gave it, so a `session.source` from the project configuration
+/// a Client acting for a model sent is the model's wherever the Run reads
+/// it, whoever opens the Session; the same value from the program's own
+/// project configuration, from user configuration and from the Operator
+/// policy is not (positive controls).
+/// Covers: story:4-15, setting:session.source
+#[rstest]
+#[case::a_models_project_configuration(SettingsLayer::ProjectConfiguration, true, true)]
+#[case::a_models_run_layer(SettingsLayer::Run, true, true)]
+#[case::the_programs_project_configuration(SettingsLayer::ProjectConfiguration, false, false)]
+#[case::the_programs_run_layer(SettingsLayer::Run, false, false)]
+#[case::user_configuration_in_a_models_run(SettingsLayer::UserConfiguration, true, false)]
+#[case::the_operator_policy_in_a_models_run(SettingsLayer::OperatorPolicy, true, false)]
+fn an_effective_value_names_whether_a_model_gave_it(
+    #[case] layer: SettingsLayer,
+    #[case] models_run: bool,
+    #[case] for_model: bool,
+) {
+    let source = json!({ "kind": "cdp_url", "url": "ws://127.0.0.1:9222/devtools/browser/1" });
+    let mut layers = only(layer, "session.source", &source);
+    if models_run {
+        layers.run = layers.run.from_model();
+        layers.project_configuration = layers.project_configuration.from_model();
+    }
+
+    let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
+
+    let effective = resolved.get("session.source").unwrap();
+    assert_eq!(
+        (effective.layer, &effective.value, effective.for_model),
+        (layer, &source, for_model)
+    );
+}

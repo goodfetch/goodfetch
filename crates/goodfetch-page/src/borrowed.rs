@@ -20,7 +20,7 @@ use futures_util::{Sink, SinkExt as _, Stream, StreamExt as _};
 use goodfetch_cdp::{Connection, Framer, MAX_FRAME};
 use goodfetch_engine::CallError;
 use goodfetch_engine::egress::{
-    CdpUrlOrigin, EndpointPolicy, Policy, cdp_url_address, judge_cdp_url,
+    BrowserLocation, CdpUrlOrigin, EndpointPolicy, Policy, cdp_url_address, judge_cdp_url,
 };
 use goodfetch_engine::http_client::{self, Resolve};
 use goodfetch_engine::runs::Run;
@@ -32,6 +32,7 @@ use goodfetch_protocol::settings::{
 };
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, DuplexStream};
 use tokio::net::TcpStream;
+use tokio::sync::OnceCell;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Bytes, Error as WsError, Message, Utf8Bytes};
@@ -59,6 +60,67 @@ impl CdpUrl {
     pub(crate) fn address(&self) -> String {
         cdp_url_address(&self.url)
     }
+
+    /// The host and port the engine reaches it at, a `ws://` address's
+    /// alone.
+    fn host_and_port(&self) -> Option<(String, u16)> {
+        let parsed = Url::parse(&self.url)
+            .ok()
+            .filter(|parsed| parsed.scheme() == WEBSOCKET)?;
+        let host = match parsed.host()? {
+            Host::Ipv6(ip) => ip.to_string(),
+            host => host.to_string(),
+        };
+        Some((host, parsed.port_or_known_default().unwrap_or(80)))
+    }
+}
+
+/// How the engine resolves the hosts of a Borrowed browser's requests
+/// (ADR 0056): through the Run's `network.resolve` mapping, and, for a
+/// name it cannot resolve, by where the browser is, which the addresses of
+/// its `cdp_url` tell, looked up once, when such a name first comes.
+pub(crate) struct Lookups {
+    resolve: Resolve,
+    cdp_url: CdpUrl,
+    location: OnceCell<BrowserLocation>,
+}
+
+impl Lookups {
+    /// The lookups of the browser at `cdp_url`, under the mapping `resolve`.
+    pub(crate) fn new(resolve: Resolve, cdp_url: CdpUrl) -> Self {
+        Self {
+            resolve,
+            cdp_url,
+            location: OnceCell::new(),
+        }
+    }
+
+    /// The Run's `network.resolve` mapping.
+    pub(crate) fn resolve(&self) -> &Resolve {
+        &self.resolve
+    }
+
+    /// Where the browser is: on the engine's machine when its `cdp_url`
+    /// resolves, as the engine connected to it, to loopback alone; else,
+    /// or when it no longer resolves, elsewhere.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future abandons the lookup; the next call makes it.
+    pub(crate) async fn location(&self) -> BrowserLocation {
+        *self
+            .location
+            .get_or_init(|| async {
+                let Some((host, port)) = self.cdp_url.host_and_port() else {
+                    return BrowserLocation::Elsewhere;
+                };
+                match http_client::lookup(&host, port, &self.resolve).await {
+                    Ok(addresses) => BrowserLocation::of(&addresses),
+                    Err(_) => BrowserLocation::Elsewhere,
+                }
+            })
+            .await
+    }
 }
 
 /// The `network.resolve` mapping of `settings`.
@@ -84,16 +146,9 @@ pub(crate) fn resolve_of(settings: Option<&Resolved>) -> Resolve {
 /// answers there as a browser (#743 gives each case its own code).
 pub(crate) async fn connect(run: &Run, cdp_url: &CdpUrl) -> Result<Connection, CallError> {
     let address = cdp_url.address();
-    let parsed = Url::parse(&cdp_url.url)
-        .ok()
-        .filter(|parsed| parsed.scheme() == WEBSOCKET)
+    let (host, port) = cdp_url
+        .host_and_port()
         .ok_or_else(|| unsupported(cdp_url))?;
-    let host = match parsed.host() {
-        Some(Host::Ipv6(ip)) => ip.to_string(),
-        Some(host) => host.to_string(),
-        None => return Err(unsupported(cdp_url)),
-    };
-    let port = parsed.port_or_known_default().unwrap_or(80);
     let settings = run.settings().map(RunSettings::resolved);
     let addresses = http_client::lookup(&host, port, &resolve_of(settings))
         .await

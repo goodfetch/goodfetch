@@ -167,6 +167,9 @@ pub struct Effective {
     pub layer: SettingsLayer,
     /// For the run layer, where it came from.
     pub origin: Option<RunOrigin>,
+    /// Whether a Client acting for a model gave it: in the run layer, or
+    /// in the project configuration it sent (ADR 0092).
+    pub for_model: bool,
     /// The layer that locked it.
     pub locked_by: Option<SettingsLayer>,
     /// The Operator policy's cap on it.
@@ -349,6 +352,7 @@ impl Resolved {
                 effective.value = cap.clone();
                 effective.layer = SettingsLayer::OperatorPolicy;
                 effective.origin = None;
+                effective.for_model = false;
             }
         }
         capped.policy_version.clone_from(&policy.version);
@@ -527,6 +531,7 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
             value: default.clone(),
             layer: SettingsLayer::Default,
             origin: None,
+            for_model: false,
             locked_by: None,
             cap: None,
             product: key.product,
@@ -711,6 +716,7 @@ fn take(
     state.effective.value = value.clone();
     state.effective.layer = layer;
     state.effective.origin = given.origin;
+    state.effective.for_model = given.for_model;
     Ok(())
 }
 

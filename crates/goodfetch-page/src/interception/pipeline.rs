@@ -22,7 +22,7 @@ use goodfetch_cdp::{NetError, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::{self, Policy, Refused, RequestKind};
-use goodfetch_engine::http_client::{self, Resolve};
+use goodfetch_engine::http_client;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run_trace::RequestLog;
@@ -48,6 +48,7 @@ use super::hops;
 use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, lock};
+use crate::borrowed::Lookups;
 use crate::driver::PageDriver;
 use crate::errors::{site_preferences_failure, site_preferences_refused};
 use crate::page_events::{self, Refusals, is_navigation, post_data, resource_type};
@@ -128,10 +129,11 @@ pub(super) struct PageContext {
     /// navigation for its latest hop, a program's own included, and that
     /// navigation's network ID, held as `permit` is (ADRs 0053 and 0088).
     proxy_permit: Mutex<Option<(Option<network::RequestId>, ProxyPermit)>>,
-    /// On a Borrowed browser, the Run's `network.resolve` mapping, through
-    /// which the engine resolves each request's host itself and judges its
-    /// answers, since no relay is under that browser (ADR 0056).
-    lookups: Option<Arc<Resolve>>,
+    /// On a Borrowed browser, its lookups, through which the engine
+    /// resolves each request's host itself, the Run's `network.resolve`
+    /// mapping first, and judges its answers, since no relay is under that
+    /// browser (ADR 0056).
+    lookups: Option<Arc<Lookups>>,
     /// The Run trace's request log, where a refusal no page's event
     /// reports is recorded.
     log: Arc<RequestLog>,
@@ -224,7 +226,7 @@ impl PageContext {
 
     /// The same, on a Borrowed browser whose requests' hosts the engine
     /// resolves through `lookups`, when it is one.
-    pub(super) fn with_lookups(self, lookups: Option<Arc<Resolve>>) -> Self {
+    pub(super) fn with_lookups(self, lookups: Option<Arc<Lookups>>) -> Self {
         Self { lookups, ..self }
     }
 }
@@ -1038,12 +1040,15 @@ impl PageContext {
     /// host of `url` to, as the browser would connect to them (ADR 0056):
     /// the browser resolves names itself, so an answer that changes after
     /// this lookup reaches it, the rebinding gap Provenance records. A
-    /// name the engine cannot resolve is left to the browser, which
-    /// resolves it itself.
+    /// name the engine cannot resolve is left to a browser on the engine's
+    /// machine, which resolves it as the engine would, and refused on one
+    /// elsewhere, whose network may resolve it to an intranet host or a
+    /// cloud's metadata service (O9 of the deep review).
     ///
     /// # Errors
     ///
-    /// [`Refused`] naming the first address a page may not reach.
+    /// [`Refused`] naming the first address a page may not reach, or
+    /// `network.resolve` for a name the engine cannot resolve.
     async fn judged_addresses(&self, url: &str) -> Result<(), Refused> {
         let Some(lookups) = &self.lookups else {
             return Ok(());
@@ -1059,14 +1064,16 @@ impl PageContext {
         let Some(port) = parsed.port_or_known_default() else {
             return Ok(());
         };
-        match http_client::lookup(&host, port, lookups).await {
+        match http_client::lookup(&host, port, lookups.resolve()).await {
             Ok(addresses) => egress::judge_addresses(url, &addresses, &self.policy),
             Err(failure) => {
+                let location = lookups.location().await;
                 tracing::debug!(
                     ?failure,
+                    ?location,
                     "the engine resolved no address for a Borrowed browser's request"
                 );
-                Ok(())
+                egress::judge_unresolved(url, &self.policy, location)
             }
         }
     }

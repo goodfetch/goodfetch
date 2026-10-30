@@ -14,6 +14,7 @@
 //! proxy that refuses the Session's credentials with a 407 raises
 //! `proxy_auth_failed` (ADR 0053).
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use schemars::JsonSchema;
@@ -402,18 +403,45 @@ impl fmt::Display for ProxyKind {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CountryCode(String);
 
+/// ISO 3166-1's officially assigned alpha-2 codes, the 249 countries and
+/// territories, in order. A code it reserves without assigning, such as
+/// `EU` or `UK`, or one it never assigned, such as `ZZ`, names no country
+/// a proxy exit is in.
+const ASSIGNED_COUNTRIES: [&str; 249] = [
+    "AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ",
+    "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN", "BO", "BQ", "BR", "BS",
+    "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD", "CF", "CG", "CH", "CI", "CK", "CL", "CM", "CN",
+    "CO", "CR", "CU", "CV", "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE",
+    "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD", "GE", "GF",
+    "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM",
+    "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM",
+    "JO", "JP", "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC",
+    "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK",
+    "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", "NA",
+    "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA", "PE", "PF", "PG",
+    "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW",
+    "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS",
+    "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO",
+    "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI",
+    "VN", "VU", "WF", "WS", "YE", "YT", "ZA", "ZM", "ZW",
+];
+
 impl CountryCode {
-    /// Reads `text`: two ASCII letters, kept in upper case.
+    /// Reads `text`: one of ISO 3166-1's assigned alpha-2 codes, in either
+    /// case, kept in upper case (the deep review's 599-3: a hosted Proxy
+    /// provider offers every country, so no other check stands between a
+    /// code that names none and the provider's own refusal).
     ///
     /// # Errors
     ///
     /// What is wrong with it, for `setting_invalid`.
     pub fn parse(text: &str) -> Result<Self, String> {
-        if text.len() == 2 && text.bytes().all(|byte| byte.is_ascii_alphabetic()) {
-            Ok(Self(text.to_ascii_uppercase()))
+        let code = text.to_ascii_uppercase();
+        if ASSIGNED_COUNTRIES.binary_search(&code.as_str()).is_ok() {
+            Ok(Self(code))
         } else {
             Err(format!(
-                "expected an ISO 3166-1 alpha-2 country code such as `US`, found `{text}`"
+                "expected an assigned ISO 3166-1 alpha-2 country code such as `US` or `GB`, found `{text}`"
             ))
         }
     }
@@ -476,10 +504,15 @@ pub struct ProxyProviderConfiguration {
     pub servers: Vec<ListServer>,
     /// The price of a GB (10^9 bytes) through it, for a metered proxy.
     pub price: Option<PriceValue>,
+    /// The zone of each proxy kind, for `bright_data`, whose customers name
+    /// their zones; a kind it leaves out is the zone of the kind's own name.
+    pub zones: BTreeMap<ProxyKind, String>,
 }
 
 /// The fields an entry of `proxy.providers` takes.
-const PROVIDER_FIELDS: [&str; 5] = ["username", "password", "endpoint", "servers", "price"];
+const PROVIDER_FIELDS: [&str; 6] = [
+    "username", "password", "endpoint", "servers", "price", "zones",
+];
 
 /// The fields a `list` server takes.
 const SERVER_FIELDS: [&str; 3] = ["server", "kind", "country"];
@@ -539,6 +572,18 @@ impl ProxyProviderConfiguration {
                 })
             })
             .transpose()?;
+        let zones = match entry.get("zones") {
+            None | Some(Value::Null) => BTreeMap::new(),
+            Some(Value::Object(zones)) => zones
+                .iter()
+                .map(|(kind, zone)| zone_of(kind, zone))
+                .collect::<Result<_, _>>()?,
+            Some(other) => {
+                return Err(format!(
+                    "`zones` is a table of a zone name by proxy kind, such as `{{ residential = \"residential_proxy1\" }}`, found `{other}`"
+                ));
+            }
+        };
         let servers = match entry.get("servers") {
             None | Some(Value::Null) => Vec::new(),
             Some(Value::Array(servers)) => servers
@@ -553,7 +598,34 @@ impl ProxyProviderConfiguration {
             endpoint,
             servers,
             price,
+            zones,
         })
+    }
+}
+
+/// One entry of a provider's `zones`: the proxy kind `kind` names, and its
+/// zone's name `zone`, letters, digits and `_`, since a `-` parts Bright
+/// Data's username.
+fn zone_of(kind: &str, zone: &Value) -> Result<(ProxyKind, String), String> {
+    let kind = ProxyKind::named(kind).ok_or_else(|| {
+        format!(
+            "a key of `zones` is a proxy kind, one of {}, found `{kind}`",
+            PROXY_KINDS.join(", ")
+        )
+    })?;
+    match zone.as_str() {
+        Some(name)
+            if !name.is_empty()
+                && name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') =>
+        {
+            Ok((kind, name.to_owned()))
+        }
+        Some(name) => Err(format!(
+            "a zone's name in `zones` is letters, digits and `_`, as Bright Data names zones, found `{name}`"
+        )),
+        None => Err(format!("a zone's name in `zones` is text, found `{zone}`")),
     }
 }
 
@@ -645,6 +717,12 @@ pub const PROXY_PROVIDER_SHAPE: ValueShape = ValueShape {
                     "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)? [A-Z]{3}$",
                     "description": "The price of a GB (10^9 bytes) through it, as an amount and its currency.",
                 },
+                "zones": {
+                    "type": "object",
+                    "description": "The zone of each proxy kind, for `bright_data` only: a kind left out is the zone of its own name.",
+                    "propertyNames": { "enum": PROXY_KINDS },
+                    "additionalProperties": { "type": "string", "pattern": "^[A-Za-z0-9_]+$" },
+                },
             },
         })
     },
@@ -657,6 +735,7 @@ pub const PROXY_PROVIDER_SHAPE: ValueShape = ValueShape {
                 { "server": "http://203.0.113.7:3128", "kind": "datacenter", "country": "US" },
             ],
             "price": "5 USD",
+            "zones": { "residential": "residential_proxy1" },
         })]
     },
 };
@@ -676,11 +755,11 @@ pub const PROXY_PROVIDER: Setting = Setting {
 /// `proxy.kind` (ADR 0021).
 pub const PROXY_KIND: Setting = Setting {
     name: "proxy.kind",
-    description: "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it.",
+    description: "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it; a Client acting for a model is refused with `setting_locked`, since the kinds' prices differ by an order of magnitude and the person pays.",
     kind: ValueKind::Choice(PROXY_KINDS),
     default: none,
     clearable: true,
-    authority: Authority::Every,
+    authority: Authority::NotByModel,
     weakens: None,
     arrived_in: ARRIVED_IN,
 };
@@ -713,14 +792,25 @@ fn no_providers() -> Value {
     json!({})
 }
 
+/// Whether `value`, a `proxy.providers` table, names no provider's
+/// `price`: the only values project configuration gives it (O12 of the
+/// deep review, accepted by the owner on 2026-10-28).
+fn names_no_price(value: &Value) -> bool {
+    value
+        .as_object()
+        .into_iter()
+        .flat_map(|providers| providers.values())
+        .all(|entry| entry.get("price").is_none_or(Value::is_null))
+}
+
 /// `proxy.providers` (ADRs 0021, 0041 and 0101).
 pub const PROXY_PROVIDERS: Setting = Setting {
     name: "proxy.providers",
-    description: "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`), an `http://`, `socks5://` or `socks5h://` URL, never `https://`, which the Session's loopback relay speaks no TLS to; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price.",
+    description: "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`), an `http://`, `socks5://` or `socks5h://` URL, never `https://`, which the Session's loopback relay speaks no TLS to; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; `zones`, for `bright_data` only, the name of each proxy kind's zone as its customer named it, such as `{ residential = \"residential_proxy1\" }`, a kind it leaves out being the zone of the kind's own name, and the entry's `password` every zone's; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price, and so is a project configuration's entry that names a `price`, which only user configuration and an Operator policy set, since a currency Limit trusts it.",
     kind: ValueKind::Map(&ValueKind::Shape(&PROXY_PROVIDER_SHAPE)),
     default: no_providers,
     clearable: false,
-    authority: Authority::Configuration,
+    authority: Authority::ConfigurationProjectLimited(names_no_price),
     weakens: None,
     arrived_in: ARRIVED_IN,
 };
@@ -753,3 +843,6 @@ pub const ENTRIES: Entries = Entries {
     hook_stages: &[],
     shared_type_values: &[],
 };
+
+#[cfg(test)]
+mod tests;

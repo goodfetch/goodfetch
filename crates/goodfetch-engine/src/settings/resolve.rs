@@ -751,9 +751,23 @@ fn authority(
             current.clone(),
             format!("`{name}` is set only in an Operator policy"),
         )),
-        Authority::Configuration if above_configuration => Err(configuration_only()),
+        Authority::Configuration | Authority::ConfigurationProjectLimited(_)
+            if above_configuration =>
+        {
+            Err(configuration_only())
+        }
         Authority::ConfigurationExcept(allowed) if above_configuration && !allowed(value) => {
             Err(configuration_only())
+        }
+        Authority::ConfigurationProjectLimited(allowed)
+            if layer == SettingsLayer::ProjectConfiguration && !allowed(value) =>
+        {
+            Err(refused(
+                current.clone(),
+                format!(
+                    "a project's configuration gives `{name}` without what only the machine's own layers set, such as a Proxy provider's `price`, which a currency Limit trusts: set the provider's entry, its `price` included, in user configuration or an Operator policy"
+                ),
+            ))
         }
         Authority::NotByRecipe | Authority::NotByRecipeOrModel
             if layer == SettingsLayer::Recipe =>
@@ -763,7 +777,11 @@ fn authority(
                 format!("a Recipe never sets `{name}`; it may only expose it"),
             ))
         }
-        Authority::NotByRecipeOrModel | Authority::NotByModelRecipeAllowedBy(_) if for_model => {
+        Authority::NotByRecipeOrModel
+        | Authority::NotByModel
+        | Authority::NotByModelRecipeAllowedBy(_)
+            if for_model =>
+        {
             Err(refused(
                 current.clone(),
                 format!(
@@ -795,8 +813,10 @@ fn authority(
         | Authority::OperatorPolicy
         | Authority::Configuration
         | Authority::ConfigurationExcept(_)
+        | Authority::ConfigurationProjectLimited(_)
         | Authority::NotByRecipe
         | Authority::NotByRecipeOrModel
+        | Authority::NotByModel
         | Authority::NotByModelRecipeAllowedBy(_)
         | Authority::Narrowed => Ok(()),
     }

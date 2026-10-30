@@ -289,6 +289,12 @@ pub enum Authority {
     /// give the values this accepts, as `tls.accept_invalid_certs`'s entries
     /// without a pin, which ask for trust on first use (ADR 0042).
     ConfigurationExcept(fn(&Value) -> bool),
+    /// As [`Authority::Configuration`], except that project configuration
+    /// gives only the values this accepts, as `proxy.providers`, whose
+    /// prices only the machine's own layers set since a currency Limit
+    /// trusts them (O12 of the deep review); another project value is
+    /// `setting_locked`.
+    ConfigurationProjectLimited(fn(&Value) -> bool),
     /// Only Operator policy, as `wall.denied_domains` (ADR 0052).
     OperatorPolicy,
     /// Only Operator policy and user configuration, the machine's own
@@ -303,6 +309,10 @@ pub enum Authority {
     /// credentials, which send a Secret reference's value to a destination
     /// they also name (ADR 0092).
     NotByRecipeOrModel,
+    /// Every layer but a Client acting for a model, whose value is
+    /// `setting_locked`, as `proxy.kind`, whose kinds' prices the person
+    /// pays (O11 of the deep review).
+    NotByModel,
     /// Every layer but a Client acting for a model, whose value is
     /// `setting_locked`, and a Recipe, unless the Operator policy sets the
     /// boolean setting this names to `true`, as `egress.private_ranges`
@@ -328,10 +338,12 @@ impl Authority {
             Self::Narrowed => "narrowed",
             Self::Configuration => "configuration",
             Self::ConfigurationExcept(_) => "configuration_except",
+            Self::ConfigurationProjectLimited(_) => "configuration_project_limited",
             Self::OperatorPolicy => "operator_policy",
             Self::Machine => "machine",
             Self::NotByRecipe => "not_by_recipe",
             Self::NotByRecipeOrModel => "not_by_recipe_or_model",
+            Self::NotByModel => "not_by_model",
             Self::NotByModelRecipeAllowedBy(_) => "not_by_model_recipe_allowed_by_operator_policy",
             Self::HostsNarrowedByRecipeOrModel(_) => "hosts_narrowed_by_recipe_or_model",
             Self::Fixed => "fixed",

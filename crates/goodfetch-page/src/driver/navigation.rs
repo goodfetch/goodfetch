@@ -128,7 +128,21 @@ pub(super) struct Navigation {
     /// which fires no `load` and has no response: only a Borrowed browser,
     /// whose launch the engine never chose, keeps the cache on (ADR 0121).
     restored: Option<LoaderId>,
+    /// What the main frame's `beforeunload` dialog asked.
+    unload: Unload,
     crashed: bool,
+}
+
+/// What the main frame's `beforeunload` dialog asked since its events
+/// started.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Unload {
+    /// None closed unaccepted, nor is one open.
+    Unasked,
+    /// One is open.
+    Asking,
+    /// One was dismissed, which cancels the navigation that opened it.
+    Stayed,
 }
 
 impl Navigation {
@@ -152,6 +166,7 @@ impl Navigation {
             requested: None,
             stopped: false,
             restored: None,
+            unload: Unload::Unasked,
             crashed: false,
         }
     }
@@ -242,6 +257,8 @@ impl Navigation {
             if download.frame_id == self.frame {
                 self.download = Some((download.url, download.suggested_filename));
             }
+        } else if event.method.starts_with("Page.javascriptDialog") {
+            self.feed_dialog(event);
         } else if let Some(lifecycle) = event.read::<page::LifecycleEventEvent>()
             && lifecycle.frame_id == self.frame
         {
@@ -254,6 +271,28 @@ impl Navigation {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// Takes in one dialog event of the page's target: the main frame's
+    /// `beforeunload` dialog opening, and closing accepted or not.
+    fn feed_dialog(&mut self, event: &RawEvent) {
+        if let Some(opening) = event.read::<page::JavascriptDialogOpeningEvent>() {
+            if opening.frame_id == self.frame
+                && opening.r#type == page::DialogType::Beforeunload
+                && self.unload == Unload::Unasked
+            {
+                self.unload = Unload::Asking;
+            }
+        } else if let Some(closed) = event.read::<page::JavascriptDialogClosedEvent>()
+            && closed.frame_id == self.frame
+            && self.unload == Unload::Asking
+        {
+            self.unload = if closed.result {
+                Unload::Unasked
+            } else {
+                Unload::Stayed
+            };
         }
     }
 
@@ -270,14 +309,19 @@ impl Navigation {
 
     /// Whether the navigation the main frame was asked for reached a
     /// document that committed, or ended without one: within its document,
-    /// as a download, cancelled, with the main frame stopped loading, or
+    /// as a download, cancelled, by the page's `beforeunload` dialog
+    /// dismissed, with the main frame stopped loading once it started, or
     /// with its renderer crashed. One the browser failed otherwise ends once
-    /// its error page committed under its loader.
+    /// its error page committed under its loader. A stop read before the
+    /// browser started a navigation to another document belongs to an
+    /// earlier load, whatever came between: the browser's start comes after
+    /// the renderer's request (#1766).
     pub(super) fn requested_ended(&self) -> bool {
         self.crashed
             || self.within_document
             || self.download.is_some()
-            || self.stopped
+            || self.unload == Unload::Stayed
+            || (self.stopped && self.started.iter().any(|(_, within)| !within))
             || self.started.iter().any(|(loader, within)| {
                 !within
                     && (self.committed.contains(loader)

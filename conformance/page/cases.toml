@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "38"
+version = "39"
 
 [[capability]]
 name = "sessions.default"

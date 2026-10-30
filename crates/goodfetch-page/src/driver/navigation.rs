@@ -128,6 +128,11 @@ pub(super) struct Navigation {
     /// which fires no `load` and has no response: only a Borrowed browser,
     /// whose launch the engine never chose, keeps the cache on (ADR 0121).
     restored: Option<LoaderId>,
+    /// Whether the main frame's `beforeunload` dialog is open.
+    unloading: bool,
+    /// Whether the main frame's `beforeunload` dialog was dismissed, which
+    /// cancels the navigation that opened it.
+    stayed: bool,
     crashed: bool,
 }
 
@@ -152,6 +157,8 @@ impl Navigation {
             requested: None,
             stopped: false,
             restored: None,
+            unloading: false,
+            stayed: false,
             crashed: false,
         }
     }
@@ -237,6 +244,15 @@ impl Navigation {
             if download.frame_id == self.frame {
                 self.download = Some((download.url, download.suggested_filename));
             }
+        } else if let Some(opening) = event.read::<page::JavascriptDialogOpeningEvent>() {
+            if opening.frame_id == self.frame && opening.r#type == page::DialogType::Beforeunload {
+                self.unloading = true;
+            }
+        } else if let Some(closed) = event.read::<page::JavascriptDialogClosedEvent>() {
+            if closed.frame_id == self.frame && self.unloading {
+                self.unloading = false;
+                self.stayed |= !closed.result;
+            }
         } else if let Some(lifecycle) = event.read::<page::LifecycleEventEvent>()
             && lifecycle.frame_id == self.frame
         {
@@ -265,16 +281,18 @@ impl Navigation {
 
     /// Whether the navigation the main frame was asked for reached a
     /// document that committed, or ended without one: within its document,
-    /// as a download, cancelled, with the main frame stopped loading once
-    /// it started, or with its renderer crashed. One the browser failed
-    /// otherwise ends once its error page committed under its loader. A
-    /// stop read before the browser started a navigation to another
-    /// document belongs to an earlier load, whatever came between: the
-    /// browser's start comes after the renderer's request (#1766).
+    /// as a download, cancelled, by the page's `beforeunload` dialog
+    /// dismissed, with the main frame stopped loading once it started, or
+    /// with its renderer crashed. One the browser failed otherwise ends once
+    /// its error page committed under its loader. A stop read before the
+    /// browser started a navigation to another document belongs to an
+    /// earlier load, whatever came between: the browser's start comes after
+    /// the renderer's request (#1766).
     pub(super) fn requested_ended(&self) -> bool {
         self.crashed
             || self.within_document
             || self.download.is_some()
+            || self.stayed
             || (self.stopped && self.started.iter().any(|(_, within)| !within))
             || self.started.iter().any(|(loader, within)| {
                 !within

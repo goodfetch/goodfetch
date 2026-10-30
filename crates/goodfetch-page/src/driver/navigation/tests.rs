@@ -75,6 +75,49 @@ fn a_stop_after_the_requested_navigation_started_ends_it() {
     assert!(navigation.requested_ended());
 }
 
+/// The main frame's `beforeunload` dialog, as the browser opens it before
+/// it starts the requested navigation.
+fn before_unload() -> RawEvent {
+    event(
+        "Page.javascriptDialogOpening",
+        json!({
+            "url": "https://site.test/",
+            "frameId": FRAME,
+            "message": "",
+            "type": "beforeunload",
+            "hasBrowserHandler": false,
+            "defaultPrompt": "",
+        }),
+    )
+}
+
+/// The main frame's dialog closing, accepted or not.
+fn dialog_closed(accepted: bool) -> RawEvent {
+    event(
+        "Page.javascriptDialogClosed",
+        json!({ "frameId": FRAME, "result": accepted, "userInput": "" }),
+    )
+}
+
+/// The page's `beforeunload` dialog dismissed cancels the navigation the
+/// gesture requested, which ends the wait for it with the page left as it
+/// was; accepted, the navigation goes on, and the wait with it.
+#[rstest::rstest]
+#[case::dismissed(false, true)]
+#[case::accepted(true, false)]
+fn a_before_unload_dialog_dismissed_ends_the_requested_navigation(
+    #[case] accepted: bool,
+    #[case] ended: bool,
+) {
+    let mut navigation = Navigation::of(FRAME.to_owned());
+
+    for event in [requested(), before_unload(), dialog_closed(accepted)] {
+        navigation.feed(&event);
+    }
+
+    assert_eq!(navigation.requested_ended(), ended);
+}
+
 /// A URL the URL Standard reads as `javascript:` runs a script in the
 /// frame, in every spelling the engine's egress check accepts: tabs and
 /// newlines anywhere and leading spaces dropped, its scheme in any case

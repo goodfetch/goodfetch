@@ -219,3 +219,67 @@ fn a_dialog_a_click_opens_does_not_stall_its_wait(#[case] script: &str) {
         },
     );
 }
+
+/// A `beforeunload` dialog a dialog handler dismisses cancels the form's
+/// navigation, which ends the click's wait for it: the click answers on the
+/// document it left in place.
+/// Covers: operation:locator.click
+/// Covers: operation:dialog.dismiss
+#[test]
+fn a_navigation_a_dismissed_beforeunload_cancels_ends_the_clicks_wait() {
+    let gate = RecordingGate::new();
+    with_handler_page(
+        &gate,
+        navigation_past_the_call_deadline(),
+        async |program| {
+            program.goto(HISTORY, "/").await;
+            program
+                .on_page(
+                    "page.evaluate",
+                    json!({
+                        "function": "() => {
+                            document.body.innerHTML = '<form action=\"/b\"><button id=\"send\" style=\"width:160px;height:40px\">Send</button></form>';
+                            addEventListener('beforeunload', event => { event.preventDefault(); event.returnValue = ''; });
+                        }",
+                    }),
+                )
+                .await;
+            let page = program.page.clone();
+            program
+                .request("page.on_dialog", &json!({ "page_id": page }))
+                .await;
+            let click = program
+                .request(
+                    "locator.click",
+                    &json!({ "locator": { "page_id": page, "selector": "#send" } }),
+                )
+                .await;
+            let asked = program.until_request("dialog.handle").await;
+            let dismissed = program
+                .call(
+                    "dialog.dismiss",
+                    &json!({ "dialog_id": asked["params"]["dialog_id"] }),
+                )
+                .await;
+            program.reply(&asked, json!({})).await;
+            let acted = program.answer(click).await;
+            let path = program
+                .on_page(
+                    "page.evaluate",
+                    json!({ "function": "() => location.pathname" }),
+                )
+                .await;
+
+            assert_eq!(
+                (
+                    &asked["params"]["dialog"]["type"],
+                    dismissed.get("result").is_some(),
+                    acted.get("result").is_some(),
+                    &path["result"]["value"],
+                ),
+                (&json!("beforeunload"), true, true, &json!("/")),
+                "{asked} {dismissed} {acted} {path}"
+            );
+        },
+    );
+}

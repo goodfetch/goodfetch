@@ -664,6 +664,58 @@ fn a_body_cut_mid_transfer_raises_response_truncated() {
     );
 }
 
+/// The fetch edge pages a late cut breaks off: half the body, then the
+/// connection closed 75 ms later, once the browser reads the body as it
+/// arrives (#1732). A chunked body and a gzip one, which no length tells
+/// cut: a plain body short of its `Content-Length` is the unit tests'.
+const LATE_CUTS: [&str; 2] = ["/cut/late/chunked", "/cut/late/gzip-content-length"];
+
+/// How many times each late cut is read each way: the pinned Chromium lost
+/// the failure of 4 of 30 such browser-tier crawls before the fix.
+const COPIES: usize = 10;
+
+/// A body broken off once the browser was reading it, chunked or coded,
+/// which no length tells cut, is never read as whole: a navigation waiting
+/// for `load` raises `response_truncated`, its document never read at the
+/// response stage on a Collie page, so the browser reports the failure as
+/// it came; and the body of `page.request`'s response, which the engine
+/// reads at the response stage, where the pinned Chromium's interception
+/// loses the failure of such loads, raises it too (#1732).
+/// Covers: story:5-29, story:5-45, operation:page.goto, operation:page.request, operation:response.body, error:response_truncated
+#[test]
+fn a_body_cut_once_the_browser_read_it_raises_response_truncated_every_time() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let (mut exchange, page) = page_of(&env, &proving_ground, "late-cuts", &Map::new());
+
+    let mut otherwise = Vec::new();
+    for path in LATE_CUTS {
+        for copy in 1..=COPIES {
+            let url = proving_ground.url("fetch-edge.test", &format!("{path}?copy={copy}"));
+            let went = exchange.call("page.goto", &json!({ "page_id": page, "url": url }));
+            let requested = exchange.call("page.request", &json!({ "page_id": page, "url": url }));
+            let read = exchange.call(
+                "response.body",
+                &json!({ "page_id": page, "request_id": requested["result"]["request_id"] }),
+            );
+            for (how, answer) in [("page.goto", went), ("page.request", read)] {
+                if answer["error"]["data"]["code"] != json!("response_truncated") {
+                    otherwise.push((how, url.clone(), answer));
+                }
+            }
+        }
+    }
+    let _ = exchange.call("run.finish", &json!({ "run_id": "late-cuts" }));
+    let _ = exchange.engine.finish();
+
+    assert_eq!(
+        otherwise,
+        [],
+        "of {} late cuts each way",
+        LATE_CUTS.len() * COPIES
+    );
+}
+
 /// A response's body is one the engine itself reads (ticket #644): past
 /// the Run's `network.max_body_size`, `response.body` raises
 /// `response_limit_exceeded` naming the URL, the setting and its value,

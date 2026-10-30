@@ -6,7 +6,9 @@
 //! Proving ground receives no request for one, robots.txt not obeyed, so
 //! nothing else keeps them away; a visible link, `nofollow` or not, is
 //! added, and so is the link in an ad that EasyList's cosmetic rule
-//! `##.ad-slot` hides, left out of the judgement (ADR 0047).
+//! `##.ad-slot` hides, left out of the judgement (ADR 0047), and each link
+//! hidden in a menu, a tab or a disclosure a person opens, marked as a
+//! suspected trap a person reveals.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -47,10 +49,18 @@ fn answers(answered: &Value) -> Vec<(String, String)> {
 }
 
 /// On the honeypot links page in the browser, the four honeypots of every
-/// page, the transparent one, the clipped one and the two invisible
-/// `nofollow` ones are each answered `trap_link` and never fetched; the
-/// plain, the `nofollow` and the ad's links are added and fetched, the ad's
-/// though live hiding hides it when the links are read.
+/// page, the transparent one, the clipped one, the two invisible
+/// `nofollow` ones, the one `aria-hidden` spaced and in capitals, the one a
+/// cut overflow hides and the invisible `nofollow` one in a navigation
+/// menu are each answered `trap_link` and never fetched; the plain, the
+/// `nofollow` and the ad's links are added and fetched, the ad's though
+/// live hiding hides it when the links are read; so are the links a person
+/// reaches by scrolling a container or the page, under a sideways overflow
+/// that goes to the viewport, the fixed and the absolutely positioned
+/// links a cut overflow does not hold, and a `display: contents` link
+/// (finding 600-2); and the hover menu's, the hidden tab's and the closed
+/// disclosure's links, which a person reveals, are added, fetched and
+/// marked `trap_link_suspected` as `revealable` (owner decision O26).
 ///
 /// Covers: story:8-226, story:8-229, operation:crawl_request.enqueue_links
 #[test]
@@ -100,28 +110,17 @@ fn the_browser_tier_never_follows_a_link_a_person_cannot_see() {
             json!({ "result": { "records": [] } })
         },
     );
+    let suspected = provenance(&env, "trap-links", "trap_link_suspected");
     let observations = proving_ground.observations().unwrap();
     assert!(engine.finish());
 
     let trap = || ("not_added".to_owned(), "trap_link".to_owned());
-    let added = |path: &str| ("added".to_owned(), path.to_owned());
-    assert_eq!(
-        answers(&answered),
-        [
-            trap(),
-            trap(),
-            trap(),
-            trap(),
-            trap(),
-            trap(),
-            trap(),
-            trap(),
-            added("/items/I-0001"),
-            added("/items/I-0002"),
-            added("/items/I-0003"),
-        ],
-        "{answered}"
-    );
+    let added = |number: u32| ("added".to_owned(), format!("/items/I-{number:04}"));
+    let mut expected = vec![trap(); 8];
+    expected.extend([added(1), added(2), added(3)]);
+    expected.extend([trap(), trap(), trap()]);
+    expected.extend((4..=13).map(added));
+    assert_eq!(answers(&answered), expected, "{answered}");
     let mut fetched: Vec<String> = ReceivedRequests::of(&observations)
         .of_the_case()
         .filter(|request| request["host"] == HOST)
@@ -130,14 +129,26 @@ fn the_browser_tier_never_follows_a_link_a_person_cannot_see() {
         .collect();
     fetched.sort();
     fetched.dedup();
+    let mut every = vec!["/hidden-links".to_owned()];
+    every.extend((1..=13).map(|number| format!("/items/I-{number:04}")));
+    assert_eq!(fetched, every);
+    // The menu's, the tab's and the disclosure's links, marked as links a
+    // person reveals.
+    let revealed: Vec<(String, Value)> = suspected
+        .iter()
+        .map(|entry| {
+            let url = entry["url"].as_str().unwrap();
+            let path = url.split_once("://").unwrap().1;
+            (
+                path[path.find('/').unwrap()..].to_owned(),
+                entry["revealable"].clone(),
+            )
+        })
+        .collect();
     assert_eq!(
-        fetched,
-        [
-            "/hidden-links",
-            "/items/I-0001",
-            "/items/I-0002",
-            "/items/I-0003"
-        ]
+        revealed,
+        [10, 11, 12].map(|number| (format!("/items/I-{number:04}"), json!(true))),
+        "{suspected:?}"
     );
 }
 
@@ -210,10 +221,12 @@ fn honeypots_fetched(observations: &Value) -> usize {
 /// sees: on the honeypot links page it adds every link, and marks in
 /// Provenance, `trap_link_suspected`, each one whose markup hides it (the
 /// `hidden`, `display:none`, `visibility:hidden`, `aria-hidden` holder,
-/// `opacity:0` and invisible `display:none` `nofollow` honeypots); a link
-/// only layout hides (placed off the page, clipped) and every link a
-/// person sees go unmarked. robots.txt, obeyed, keeps the honeypots from
-/// being fetched.
+/// `opacity:0`, `aria-hidden` spaced and in capitals and the invisible
+/// `display:none` `nofollow` honeypots, the one in a menu among them), the
+/// hidden tab's and the closed disclosure's links as `revealable`; a link
+/// only layout or a style sheet hides (placed off the page, clipped, cut
+/// off, in a hover menu) and every link a person sees go unmarked.
+/// robots.txt, obeyed, keeps the honeypots from being fetched.
 ///
 /// Covers: story:8-228, operation:crawl_request.enqueue_links
 #[test]
@@ -240,7 +253,7 @@ fn the_http_tier_adds_the_links_it_cannot_judge_and_marks_the_suspected_ones() {
         .into_iter()
         .map(|(kind, _)| kind)
         .collect();
-    assert_eq!(kinds, vec!["added".to_owned(); 11], "{answered}");
+    assert_eq!(kinds, vec!["added".to_owned(); 24], "{answered}");
     let added: Vec<(Value, Value)> = answered["links"]
         .as_array()
         .unwrap()
@@ -249,17 +262,32 @@ fn the_http_tier_adds_the_links_it_cannot_judge_and_marks_the_suspected_ones() {
         .collect();
     // The page's links in order: the four honeypots of every page, the
     // transparent one, the clipped one, the two invisible `nofollow` ones
-    // (`display:none`, then off the top), then the three items.
-    let mut marked: Vec<(Value, Value)> = suspected
+    // (`display:none`, then off the top), the first three items, the
+    // `aria-hidden` one spaced and in capitals, the one a cut overflow
+    // hides, the invisible `nofollow` one in a menu, then items 4 to 13:
+    // the tab's, 11, and the disclosure's, 12, are hidden by their markup
+    // in what a person opens.
+    let mut marked: Vec<(Value, Value, Value)> = suspected
         .iter()
-        .map(|entry| (entry["crawl_request_id"].clone(), entry["url"].clone()))
+        .map(|entry| {
+            (
+                entry["crawl_request_id"].clone(),
+                entry["url"].clone(),
+                entry["revealable"].clone(),
+            )
+        })
         .collect();
-    marked.sort_by_key(|(id, _)| id.to_string());
-    let mut expected: Vec<(Value, Value)> = [0, 1, 2, 3, 4, 6]
+    marked.sort_by_key(|(id, _, _)| id.to_string());
+    let mark = |at: usize, revealable: bool| {
+        let (id, url) = added[at].clone();
+        (id, url, json!(revealable))
+    };
+    let mut expected: Vec<(Value, Value, Value)> = [0, 1, 2, 3, 4, 6, 11, 13]
         .iter()
-        .map(|at| added[*at].clone())
+        .map(|at| mark(*at, false))
+        .chain([mark(21, true), mark(22, true)])
         .collect();
-    expected.sort_by_key(|(id, _)| id.to_string());
+    expected.sort_by_key(|(id, _, _)| id.to_string());
     assert_eq!(marked, expected, "{suspected:?}");
     assert_eq!(honeypots_fetched(&observations), 0);
 }

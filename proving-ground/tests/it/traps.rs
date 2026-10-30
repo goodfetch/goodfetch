@@ -176,10 +176,10 @@ fn records_once(pages: &[Fetched]) -> Vec<Value> {
 }
 
 /// `/hidden-links`, which no page links, holds a honeypot under `/hp/` for
-/// each way a link hides from people, eight, beside the three links a
-/// person sees: a plain one, a `nofollow` one and one in an ad.
+/// each way a link hides from people, eleven, beside the links a person
+/// sees, reaches by scrolling or reveals, to items 1 to 13 in order.
 #[test]
-fn the_hidden_links_page_hides_eight_honeypots_beside_three_shown_links() {
+fn the_hidden_links_page_hides_eleven_honeypots_beside_thirteen_items() {
     let proving_ground = ProvingGround::start(SEED);
     let start = start_url(&proving_ground);
 
@@ -189,7 +189,7 @@ fn the_hidden_links_page_hides_eight_honeypots_beside_three_shown_links() {
     assert_eq!(page.status, 200);
     assert_eq!(
         every.iter().filter(|link| link.starts_with("/hp/")).count(),
-        8,
+        11,
         "{}",
         page.body
     );
@@ -197,8 +197,11 @@ fn the_hidden_links_page_hides_eight_honeypots_beside_three_shown_links() {
         every
             .iter()
             .filter(|link| !link.starts_with("/hp/"))
+            .cloned()
             .collect::<Vec<_>>(),
-        ["/items/I-0001", "/items/I-0002", "/items/I-0003"]
+        (1..=13)
+            .map(|number| format!("/items/I-{number:04}"))
+            .collect::<Vec<_>>()
     );
     assert!(!links(&proving_ground.get(&start).body, true).contains(&"/hidden-links".to_owned()));
 }

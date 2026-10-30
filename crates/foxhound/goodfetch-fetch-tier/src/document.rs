@@ -10,7 +10,9 @@
 //! browser tier the page reads them with [`FIELDS_READ`], CSS selectors and
 //! `XPath` expressions alike.
 
-use goodfetch_frontier::trap_links::{Seen, Sight};
+use std::collections::HashSet;
+
+use goodfetch_frontier::trap_links::{Markup, Seen, Sight};
 use serde_json::Value;
 
 /// One element a locator matched.
@@ -56,31 +58,122 @@ pub struct SelectorInvalid(pub String);
 ///
 /// When `selector` is no CSS selector.
 pub(crate) fn matched(html: &str, selector: &str) -> Result<Vec<Matched>, SelectorInvalid> {
-    let matcher =
-        dom_query::Matcher::new(selector).map_err(|_| SelectorInvalid(selector.to_owned()))?;
+    let matcher = matcher(selector)?;
     let document = dom_query::Document::from(html);
+    // The ids an element names in `aria-controls`: what a button or a tab
+    // shows and hides.
+    let controlled: HashSet<String> = document
+        .select("[aria-controls]")
+        .nodes()
+        .iter()
+        .filter_map(|control| control.attr("aria-controls"))
+        .flat_map(|ids| {
+            ids.split_ascii_whitespace()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .collect();
     let selection = document.select_matcher(&matcher);
     Ok(selection
         .nodes()
         .iter()
         .map(|node| {
             // The element, then each element holding it outward.
-            let held_by: Vec<Vec<(String, String)>> = node
-                .ancestors_it(None)
-                .map(|holder| attributes(&holder))
+            let chain: Vec<Held> = std::iter::once(*node)
+                .chain(node.ancestors_it(None))
+                .map(|element| Held {
+                    name: element
+                        .node_name()
+                        .map(|name| name.to_ascii_lowercase())
+                        .unwrap_or_default(),
+                    attributes: attributes(&element),
+                    controlled: element
+                        .attr("id")
+                        .is_some_and(|id| controlled.contains(id.as_ref())),
+                })
                 .collect();
-            let own = attributes(node);
-            let markup = Seen::in_markup(
-                std::iter::once(own.as_slice()).chain(held_by.iter().map(Vec::as_slice)),
-            );
+            let markup = Seen::in_markup(chain.iter().map(|held| Markup {
+                name: &held.name,
+                attributes: &held.attributes,
+                controlled: held.controlled,
+            }));
             Matched {
                 href: node.attr("href").map(|href| href.to_string()),
                 text: node.text().to_string(),
-                attributes: own,
+                attributes: chain
+                    .into_iter()
+                    .next()
+                    .map(|own| own.attributes)
+                    .unwrap_or_default(),
                 sight: Sight::Markup(markup),
             }
         })
         .collect())
+}
+
+/// One element of a served document as its markup states it: its tag name,
+/// lower-cased, its attributes, and whether an element names it in
+/// `aria-controls`.
+struct Held {
+    name: String,
+    attributes: Vec<(String, String)>,
+    controlled: bool,
+}
+
+/// The pseudo-classes `dom_query` reads beyond CSS, which a browser
+/// refuses: `:contains()`, `:has-text()` and `:only-text`.
+const EXTENSIONS: [&str; 3] = ["contains", "has-text", "only-text"];
+
+/// The matcher of `selector`, refused when a browser refuses it too: one
+/// naming one of `dom_query`'s [`EXTENSIONS`], so both tiers read one set
+/// of selectors.
+///
+/// # Errors
+///
+/// When `selector` is no CSS selector a browser reads.
+fn matcher(selector: &str) -> Result<dom_query::Matcher, SelectorInvalid> {
+    let invalid = || SelectorInvalid(selector.to_owned());
+    let matcher = dom_query::Matcher::new(selector).map_err(|_| invalid())?;
+    let mut input = cssparser::ParserInput::new(selector);
+    if extended(&mut cssparser::Parser::new(&mut input)) {
+        return Err(invalid());
+    }
+    Ok(matcher)
+}
+
+/// Whether what `parser` reads, a selector `dom_query` parsed, names one
+/// of [`EXTENSIONS`] after a `:`, at any depth: a string, an attribute's
+/// value or an escaped `:` names none, and an escaped name reads
+/// unescaped, as `dom_query` reads it.
+fn extended(parser: &mut cssparser::Parser<'_, '_>) -> bool {
+    let mut found = false;
+    let mut after_colon = false;
+    while let Ok(token) = parser.next_including_whitespace_and_comments() {
+        let named = match token {
+            cssparser::Token::Ident(name) | cssparser::Token::Function(name) => Some(name),
+            _ => None,
+        };
+        found |= after_colon
+            && named.is_some_and(|name| {
+                EXTENSIONS
+                    .iter()
+                    .any(|extension| extension.eq_ignore_ascii_case(name))
+            });
+        after_colon = matches!(token, cssparser::Token::Colon);
+        let block = matches!(
+            token,
+            cssparser::Token::Function(_)
+                | cssparser::Token::ParenthesisBlock
+                | cssparser::Token::SquareBracketBlock
+                | cssparser::Token::CurlyBracketBlock
+        );
+        if block {
+            let nested: Result<bool, cssparser::ParseError<'_, ()>> =
+                parser.parse_nested_block(|inner| Ok(extended(inner)));
+            found |= nested.unwrap_or(false);
+        }
+    }
+    found
 }
 
 /// The attributes of `element`, in document order.
@@ -111,8 +204,7 @@ pub(crate) fn first_elements(
     selectors
         .iter()
         .map(|selector| {
-            let matcher =
-                dom_query::Matcher::new(selector).map_err(|_| SelectorInvalid(selector.clone()))?;
+            let matcher = matcher(selector)?;
             let selection = document.select_matcher(&matcher);
             Ok(selection.nodes().first().map(|node| FieldElement {
                 tag: node
@@ -165,15 +257,14 @@ pub(crate) fn browser_fields(answer: &Value) -> Option<(String, Vec<Option<Field
     Some((text(answer, "baseUrl")?, elements))
 }
 
-/// Refuses `selector` when it is no CSS selector the engine reads.
+/// Refuses `selector` when it is no CSS selector the engine reads on both
+/// tiers.
 ///
 /// # Errors
 ///
-/// When `selector` is no CSS selector.
+/// When `selector` is no CSS selector a browser reads.
 pub fn check_selector(selector: &str) -> Result<(), SelectorInvalid> {
-    dom_query::Matcher::new(selector)
-        .map(|_| ())
-        .map_err(|_| SelectorInvalid(selector.to_owned()))
+    matcher(selector).map(drop)
 }
 
 /// What a browser page answered the Frontier's `trap_links::READ`: its

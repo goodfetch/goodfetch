@@ -2593,6 +2593,7 @@ dependencies = [
  "brotli-decompressor 6.0.1",
  "btls",
  "bytes",
+ "cssparser 0.37.0",
  "data-encoding",
  "dom_query 0.28.0",
  "encoding_rs",

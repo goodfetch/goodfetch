@@ -1096,6 +1096,70 @@ fn a_handlers_goto_to_a_host_whose_declared_signals_refuse_the_purpose_is_never_
     );
 }
 
+/// With `site_preferences.respect_use_signals` off, the default, a
+/// handler's `goto` to a host whose `TDMRep` file reserves the page loads
+/// and the gate reads no signal file; with robots.txt not respected either,
+/// the page's own request is all the host receives, counted once the Run
+/// finished, so a later robots.txt read could not be missed.
+///
+/// Covers: story:5-134, setting:site_preferences.respect_use_signals, setting:site_preferences.respect_robots_txt, operation:page.goto
+#[rstest::rstest]
+#[case::a_served_page_respecting_robots_txt(true, false, 1)]
+#[case::a_served_page(false, false, 0)]
+/// Covers: operation:run.new_page
+#[case::a_browser_page(false, true, 0)]
+fn with_use_signals_not_honoured_a_handlers_goto_reads_no_signal_file(
+    #[case] respect_robots_txt: bool,
+    #[case] browser: bool,
+    #[case] robots_txt_reads: usize,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let more = json!({ "site_preferences": { "respect_robots_txt": respect_robots_txt } });
+    let target = proving_ground.url(TDMREP_FILE_HOST, "/catalog/1");
+
+    let mut went = Value::Null;
+    let report = crawl_with(
+        &mut engine,
+        "unhonoured",
+        &[json!({ "url": proving_ground.url(TDMREP_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            let page_id = if browser {
+                json!(new_page(inside, handle))
+            } else {
+                handle["page_id"].clone()
+            };
+            went = inside.call("page.goto", &json!({ "page_id": page_id, "url": target }));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finish());
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+
+    assert_eq!(
+        (
+            refused_or_status(&went),
+            requested(&proving_ground, TDMREP_FILE_HOST, "/catalog/1"),
+            proving_ground
+                .received_requests()
+                .unwrap()
+                .every()
+                .filter(|request| request["host"] == TDMREP_FILE_HOST
+                    && request["target"] == "/robots.txt")
+                .count(),
+            requested(
+                &proving_ground,
+                TDMREP_FILE_HOST,
+                "/.well-known/tdmrep.json"
+            ),
+        ),
+        (json!(200), 1, robots_txt_reads, 0),
+        "{went}"
+    );
+}
+
 /// A handler's `goto` on a served page to a refresh stub is given the
 /// stub, its tier running no refresh (ADR 0118): only the browser runs one,
 /// and the stub's target is never requested.

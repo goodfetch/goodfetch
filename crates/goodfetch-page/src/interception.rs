@@ -286,6 +286,19 @@ pub(super) struct PageState {
     lists_blocked: AtomicU64,
     /// The domains its Run learned blocking off for.
     learned: Arc<Learned>,
+    /// What it does with each document its main frame receives, when a
+    /// program opened it; none for a service worker's own.
+    on_document: Option<Arc<dyn OnDocument>>,
+}
+
+/// What a page a program opened does with each document its main frame
+/// receives from the site, whatever started its navigation: its Session's
+/// side reads its origin's robots.txt for it (ADR 0086). A handler's page
+/// has none: its navigation gate judges its documents (ADR 0087).
+pub(crate) trait OnDocument: Send + Sync {
+    /// The main frame received the document at `url`, its response arrived;
+    /// `steps` are its Session's steps 3 to 8 for the engine's own requests.
+    fn received(&self, url: &str, steps: &EngineRequests);
 }
 
 /// Steps 3 to 8 of a page's pipeline, as its Session chose them, for a
@@ -463,8 +476,9 @@ impl Interception {
     /// drives for `run`, under the interception: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
     /// rules chosen by `own`, the Session's own settings, over the Run's,
-    /// each refusal left in `refusals` for the request's failure to carry.
-    /// It answers what the Session chose of the Clean-up rules beside its
+    /// each refusal left in `refusals` for the request's failure to carry,
+    /// each document its main frame receives handed to `on_document`. It
+    /// answers what the Session chose of the Clean-up rules beside its
     /// requests' blocking, and what becomes of the page's children: each
     /// out-of-process frame's requests pass the page's pipeline too, from
     /// before it runs. The responses a response observer keeps are the
@@ -486,7 +500,7 @@ impl Interception {
         driver: &PageDriver,
         run: &Run,
         own: &Values,
-        refusals: Refusals,
+        (refusals, on_document): (Refusals, Option<Arc<dyn OnDocument>>),
     ) -> Result<HeldPage, CallError> {
         let policy = policy_of(run)?;
         let resolved = run.settings().map(RunSettings::resolved);
@@ -527,6 +541,7 @@ impl Interception {
                     policy: policy.clone(),
                     blocking: blocking.clone(),
                 },
+                on_document,
             });
             tables.pages.insert(page_id.clone(), Arc::clone(&state));
             (state, lookups)
@@ -734,6 +749,7 @@ impl Interception {
                         policy: policy.clone(),
                         blocking: blocking.clone(),
                     },
+                    on_document: None,
                 });
                 let context = Arc::new(
                     PageContext::new(

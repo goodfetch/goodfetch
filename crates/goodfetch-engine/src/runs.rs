@@ -128,7 +128,7 @@ use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
 use crate::needs_you::NeedsYou;
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
-use crate::robots_txt::{Copies, RunCopies};
+use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies, RunCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport};
 use crate::run_index;
 use crate::run_key::{self, KeyError, RunKey, StoredKey};
@@ -1756,8 +1756,33 @@ impl Run {
     pub fn robots_txt(&self) -> Arc<dyn Copies> {
         match self.shared.crawls_robots_txt.get() {
             Some(shared) => Arc::clone(shared),
-            None => Arc::new(self.shared.robots_txt.clone()),
+            None => Arc::new(OwnCopies {
+                copies: self.shared.robots_txt.clone(),
+                state: self.state.clone(),
+            }),
         }
+    }
+
+    /// The robots.txt at `location` as its own copies hold it, sending
+    /// `fetch` only when no reader of the Run read it before: what its
+    /// program's own navigation and fetches read (ADRs 0086 and 0098),
+    /// never the copy a crawl shares, kept in its run state.
+    ///
+    /// # Errors
+    ///
+    /// [`NotRead`] when `fetch` answered it, which nothing keeps.
+    pub async fn own_robots_txt<Fut>(
+        &self,
+        location: &url::Url,
+        fetch: Fut,
+    ) -> Result<Arc<Fetched>, NotRead>
+    where
+        Fut: Future<Output = Result<Answer, NotRead>>,
+    {
+        self.shared
+            .robots_txt
+            .copy(&self.state, location, fetch)
+            .await
     }
 
     /// Reads robots.txt from the copies `copies` makes from now on, in

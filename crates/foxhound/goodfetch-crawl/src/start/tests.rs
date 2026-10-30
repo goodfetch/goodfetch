@@ -128,6 +128,39 @@ impl Client {
         Some(serde_json::from_str(&line).unwrap())
     }
 
+    /// The reply a handler request gets once `reply`'s calls were sent,
+    /// each waiting for its own reply, and its waits waited.
+    async fn answering(&mut self, mut reply: Reply) -> Reply {
+        loop {
+            reply = match reply {
+                Reply::Calls(calls, then) => {
+                    for (method, params) in calls {
+                        let inside = format!("inside-{}", self.replies.len());
+                        self.send(&json!({ "jsonrpc": "2.0", "id": inside, "method": method, "params": params }))
+                            .await;
+                        loop {
+                            let message = self
+                                .read()
+                                .await
+                                .expect("the engine closed before replying");
+                            if message["id"] == json!(inside) {
+                                self.replies.push(message);
+                                break;
+                            }
+                            self.early.push_back(message);
+                        }
+                    }
+                    *then
+                }
+                Reply::After(took, then) => {
+                    tokio::time::sleep(took).await;
+                    *then
+                }
+                reply => return reply,
+            };
+        }
+    }
+
     /// Sends the call `method` and answers the engine's handler requests
     /// with `handler` until the call's reply arrives, which it answers. A
     /// `crawl.start` that declares no Dataset declares `pages`, which the
@@ -166,30 +199,7 @@ impl Client {
             } else if message.get("method").and_then(Value::as_str) == Some("crawl_request.handle")
             {
                 self.handled.push(message["params"].clone());
-                let mut reply = handler(&message["params"]);
-                while let Reply::Calls(calls, then) = reply {
-                    for (method, params) in calls {
-                        let inside = format!("inside-{}", self.replies.len());
-                        self.send(&json!({ "jsonrpc": "2.0", "id": inside, "method": method, "params": params }))
-                            .await;
-                        loop {
-                            let message = self
-                                .read()
-                                .await
-                                .expect("the engine closed before replying");
-                            if message["id"] == json!(inside) {
-                                self.replies.push(message);
-                                break;
-                            }
-                            self.early.push_back(message);
-                        }
-                    }
-                    reply = *then;
-                }
-                while let Reply::After(took, then) = reply {
-                    tokio::time::sleep(took).await;
-                    reply = *then;
-                }
+                let reply = self.answering(handler(&message["params"])).await;
                 match reply {
                     Reply::Records(records) => {
                         let records: Vec<Value> = records

@@ -437,11 +437,11 @@ pub(super) async fn attempt(
     in_flight: SharedInFlight,
 ) -> Attempt {
     let document = Mutex::new(None);
-    let handed = Mutex::new(None);
+    let sent_at = Mutex::new(None);
     let moved = OnceLock::new();
     let on = On {
         document: &document,
-        handed: &handed,
+        sent_at: &sent_at,
         moved: &moved,
         run: &run,
         context: &context,
@@ -473,7 +473,7 @@ pub(super) async fn attempt(
                 &run,
                 &context,
                 gating.code_free.as_deref(),
-                (&params, &handed),
+                (&params, &sent_at),
                 &lease,
             )
             .await;
@@ -521,7 +521,7 @@ pub(super) async fn attempt(
     };
     Attempt {
         document: document.into_inner(),
-        handed_at: handed.into_inner(),
+        handed_at: sent_at.into_inner(),
         moved: moved.into_inner().is_some(),
         server,
         leased,
@@ -609,7 +609,7 @@ struct On<'a> {
     /// `backoff_classes` rule).
     document: &'a Mutex<Option<PageResponse>>,
     /// When its handler request last went out ([`Attempt::handed_at`]).
-    handed: &'a Mutex<Option<SystemTime>>,
+    sent_at: &'a Mutex<Option<SystemTime>>,
     /// Whether a Challenge met on a tier short of the browser moved the
     /// request to the browser, set once it did.
     moved: &'a OnceLock<()>,
@@ -960,7 +960,7 @@ impl On<'_> {
             run,
             self.context,
             self.gating.code_free.as_deref(),
-            (&params, self.handed),
+            (&params, self.sent_at),
             lease,
         )
         .await;
@@ -1147,7 +1147,7 @@ impl On<'_> {
             self.run,
             self.context,
             self.gating.code_free.as_deref(),
-            (&params, self.handed),
+            (&params, self.sent_at),
             self.lease,
         )
         .await
@@ -1258,7 +1258,7 @@ impl On<'_> {
             run,
             self.context,
             self.gating.code_free.as_deref(),
-            (&params, self.handed),
+            (&params, self.sent_at),
             lease,
         )
         .await;
@@ -1476,15 +1476,15 @@ async fn record_tier(
 /// The handler request of one attempt, bounded by its lease: sent to the
 /// program's handler through `context`'s Client, or, for a code-free crawl,
 /// handled by the engine itself with `code_free` (ADR 0103). The moment it
-/// goes out is kept in `handed`.
+/// goes out is kept in `sent_at`.
 async fn handled(
     run: &Run,
     context: &CallContext,
     code_free: Option<&CodeFree>,
-    (params, handed): (&CrawlRequestHandleParams, &Mutex<Option<SystemTime>>),
+    (params, sent_at): (&CrawlRequestHandleParams, &Mutex<Option<SystemTime>>),
     lease: &WorkItemLease,
 ) -> Answer {
-    *handed.lock().await = Some(run.clock().wall());
+    *sent_at.lock().await = Some(run.clock().wall());
     if let Some(code_free) = code_free {
         return tokio::select! {
             biased;

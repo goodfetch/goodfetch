@@ -188,7 +188,9 @@ impl Attached {
 
 impl Drop for Attached {
     fn drop(&mut self) {
-        if self.exited {
+        // A folder already gone means the test's teardown ran, copying the
+        // record that nothing can add to any more.
+        if self.exited || !self.folder.is_dir() {
             return;
         }
         if let Err(error) = self.answered.record_in(&self.folder)

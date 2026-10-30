@@ -38,3 +38,6 @@ pub(crate) fn enter(connection: &Connection, timeout: Duration) -> rusqlite::Res
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests;

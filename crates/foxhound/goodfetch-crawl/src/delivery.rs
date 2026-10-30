@@ -809,6 +809,7 @@ async fn lease_to_servers(
                     let in_browser = PooledSession {
                         id: session.id.clone(),
                         source: labels.source(&key),
+                        address_ordinal: pooled.pool.address_ordinal(&session.id),
                     };
                     let to_browser = pooled.pool.browser(&leased.waiting.key);
                     let local = pooled.pool.local_addresses(&session.id);
@@ -1134,7 +1135,10 @@ async fn open(run: &Run, settings: &RunSettings) -> Result<(Admission, SessionPo
             rotation,
             BlockSizes::of(&resolved),
             std::sync::Arc::new(System),
-            proxied(&resolved),
+            // No Session's every request leaves through the Run's proxy
+            // yet: the HTTP tiers send direct from its addresses, so a block
+            // always blocks the address the site saw (ADR 0044's #682 note).
+            false,
         )),
         None => pool,
     };
@@ -1173,8 +1177,8 @@ fn run_source(
     Ok(Some(LocalSource::new(addresses, interface.cloned())))
 }
 
-/// Whether the Run's Sessions send through a proxy, whose exit rotates in
-/// place of their local address (ADRs 0021 and 0044).
+/// Whether the Run sets a proxy, which forwards an `http:` URL itself on
+/// the routes that take it (ADR 0053).
 fn proxied(resolved: &Resolved) -> bool {
     [PROXY_SERVER.name, PROXY_PROVIDER.name]
         .iter()

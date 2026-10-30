@@ -184,7 +184,7 @@ fn a_client_acting_for_a_model_sets_no_proxy_through_the_project_configuration_i
 const SEED: u64 = 708;
 
 /// The variable the engine's environment holds a proxy password in.
-const PASSWORD_VARIABLE: &str = "PROVING_GROUND_PROXY_PASSWORD";
+pub(crate) const PASSWORD_VARIABLE: &str = "PROVING_GROUND_PROXY_PASSWORD";
 
 /// The address of the Proving ground's proxy `name`.
 fn proxy_address(proving_ground: &ProvingGround, name: &str) -> String {
@@ -1624,7 +1624,7 @@ fn the_robots_txt_read_and_page_request_each_send_one_request_through_the_sessio
 /// User configuration declaring the adapter `name` on the Proving ground's
 /// proxy account, its `endpoint` the Proving ground's residential proxy,
 /// which reads every provider's sticky username.
-fn adapter_configuration(proving_ground: &ProvingGround, name: &str) -> String {
+pub(crate) fn adapter_configuration(proving_ground: &ProvingGround, name: &str) -> String {
     let credentials = &proving_ground.description().fixtures.proxy_credentials;
     format!(
         "[settings.proxy.providers.{name}]\nusername = \"{}\"\npassword = \"env:{PASSWORD_VARIABLE}\"\nendpoint = \"http://{}\"\n",
@@ -1655,7 +1655,7 @@ fn session_page(engine: &mut Attached, position: i64, run_id: &str, own: &Value)
 
 /// Visits `/storage?mark=<mark>` of `scope.test` in `page`, as the
 /// `position`-th call.
-fn visit_marked(
+pub(crate) fn visit_marked(
     engine: &mut Attached,
     proving_ground: &ProvingGround,
     position: i64,
@@ -1674,7 +1674,7 @@ fn visit_marked(
 
 /// The relayed requests whose target holds `marker`: each one's sticky
 /// session as the proxy read it, and the exit it left from.
-fn sticky_relays(proving_ground: &ProvingGround, marker: &str) -> Vec<(Value, Value)> {
+pub(crate) fn sticky_relays(proving_ground: &ProvingGround, marker: &str) -> Vec<(Value, Value)> {
     proving_ground.observations().unwrap()["relays"]
         .as_array()
         .unwrap()
@@ -1821,6 +1821,85 @@ fn a_session_that_outlives_its_sticky_lifetime_is_named_by_proxy_exit_may_change
     assert_eq!(
         (warned, lifetimes),
         (vec![json!([short])], vec![json!(1), json!(1440)]),
+        "{finished}"
+    );
+}
+
+/// The Sessions a Run's end closes, its default Session and one the program
+/// left open, are named by `proxy_exit_may_change` once they outlived their
+/// sticky lifetime, though no page opened or Session closed after it: the
+/// check runs as the Run stops.
+///
+/// Covers: story:8-90, setting:proxy.sticky_lifetime, operation:run.finish
+#[cfg(unix)]
+#[test]
+fn sessions_that_outlive_their_sticky_lifetime_and_end_with_their_run_are_named_by_proxy_exit_may_change()
+ {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let configuration = adapter_configuration(&proving_ground, "oxylabs");
+    let lifetime = std::time::Duration::from_secs(2);
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "ended-with-run",
+        &configuration,
+        &json!({ "proxy": {
+            "provider": "oxylabs",
+            "sticky_lifetime": u64::try_from(lifetime.as_millis()).unwrap(),
+        } }),
+        &[],
+    );
+
+    let default = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "ended-with-run" }),
+    ));
+    let (left_open, left_open_page) = session_page(&mut engine, 3, "ended-with-run", &json!({}));
+    visit_marked(
+        &mut engine,
+        &proving_ground,
+        5,
+        &json!(default.page_id.0),
+        "default",
+    );
+    visit_marked(
+        &mut engine,
+        &proving_ground,
+        6,
+        &left_open_page,
+        "left-open",
+    );
+    // Both Sessions outlive their lifetime before the Run finishes; a
+    // navigation is no check (ADR 0021's #891 note).
+    std::thread::sleep(lifetime + std::time::Duration::from_millis(500));
+    visit_marked(&mut engine, &proving_ground, 7, &left_open_page, "again");
+    let finished = call(
+        &mut engine,
+        10,
+        "run.finish",
+        &json!({ "run_id": "ended-with-run" }),
+    );
+    let _ = engine.finish();
+
+    let warned: BTreeSet<String> = finished["result"]["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|warning| warning["code"] == json!("proxy_exit_may_change"))
+        .flat_map(|warning| warning["sessions"].as_array().cloned().unwrap_or_default())
+        .filter_map(|session| session.as_str().map(str::to_owned))
+        .collect();
+    assert_eq!(
+        warned,
+        BTreeSet::from([
+            default.session_id.0,
+            left_open.as_str().unwrap_or_default().to_owned()
+        ]),
         "{finished}"
     );
 }

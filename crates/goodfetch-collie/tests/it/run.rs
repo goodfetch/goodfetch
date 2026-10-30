@@ -21,6 +21,26 @@ pub(crate) fn call(engine: &mut Attached, id: i64, method: &str, params: &Value)
     engine.next().unwrap()
 }
 
+/// Sends each of `calls`, its ID, its method's name and its params, before
+/// reading any answer, so the engine runs them at the same time; answers
+/// each one's reply, in the order of `calls`.
+pub(crate) fn at_once(engine: &mut Attached, calls: &[(i64, &str, Value)]) -> Vec<Value> {
+    for (id, method, params) in calls {
+        engine.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
+    }
+    let mut replies = std::collections::BTreeMap::new();
+    while replies.len() < calls.len() {
+        let message = engine.next().expect("the engine answers every call");
+        if let Some(id) = message["id"].as_i64() {
+            replies.insert(id, message);
+        }
+    }
+    calls
+        .iter()
+        .map(|(id, ..)| replies.remove(id).expect("one reply per call"))
+        .collect()
+}
+
 /// Starts and finishes the Run `run_id`, and answers its report.
 fn start_and_finish(engine: &mut Attached, run_id: &str) -> Value {
     engine.send(&hello("collie", "0.1"));

@@ -820,7 +820,7 @@ impl BrowserPages for Opener {
             let opened = self
                 .pages
                 .sessions
-                .new_pool_page(run_id, &pooled.id, pooled.source.clone(), context)
+                .new_pool_page(run_id, pooled, context)
                 .await?;
             let page_id = opened.page_id;
             let page = self.pages.sessions.page(&page_id).await?;
@@ -896,7 +896,7 @@ impl BrowserPages for Opener {
             let session = self
                 .pages
                 .sessions
-                .pool_session(run_id, &pooled.id, pooled.source.clone(), context)
+                .pool_session(run_id, pooled, context)
                 .await?;
             let (run, own) = self.pages.sessions.own_settings(&session).await?;
             let steps = self

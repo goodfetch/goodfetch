@@ -382,11 +382,11 @@ impl Pool {
         }
     }
 
-    /// The local addresses the Session at `position` of the Run holds for
-    /// its life, and the engine's resolution its relay resolves through
-    /// from them; none when the Run sets no `egress.local_addresses`. The
-    /// same position draws the same addresses again, as a Session reopened
-    /// from run state does.
+    /// The local addresses of the `ordinal`-th position of the Run's
+    /// rotation, which the Session binding it holds for its life, and the
+    /// engine's resolution its relay resolves through from them; none when
+    /// the Run sets no `egress.local_addresses`. The same position draws
+    /// the same addresses again, as a Session reopened from run state does.
     ///
     /// # Errors
     ///
@@ -397,13 +397,12 @@ impl Pool {
     /// # Cancel safety
     ///
     /// Dropping the future leaves a started read of the host to finish.
-    pub(crate) async fn local(&self, position: u32) -> Result<Option<Local>, LocalFailure> {
+    pub(crate) async fn local(&self, ordinal: u64) -> Result<Option<Local>, LocalFailure> {
         let shared = &self.shared;
         let Some(rotation) = &shared.rotation else {
             return Ok(None);
         };
         let rotation = Arc::clone(rotation);
-        let ordinal = u64::from(position.saturating_sub(1));
         let addresses = shared
             .run
             .owner()

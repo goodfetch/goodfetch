@@ -12,8 +12,8 @@ use goodfetch_protocol::security::SECURITY_CONTROLS;
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::{
     audit_operations, certs_operations, config, daemon, key_value_store, needs_you,
-    needs_you_operations, people_operations, rpc, run, run_files, run_files_operations, runs,
-    usage,
+    needs_you_operations, people_operations, robots_txt, rpc, run, run_files, run_files_operations,
+    runs, usage,
 };
 
 /// What the engine adds to every composition.
@@ -35,6 +35,7 @@ pub fn contribution() -> Contribution {
                 .with_handler(Handler::new(&ENGINE_INFO, engine_info))
                 .with_run_state_tables(key_value_store::TABLES)
                 .with_run_state_tables(run_files::TABLES)
+                .with_run_state_tables(robots_txt::TABLES)
                 .with_needs_you_source(needs_you::storage::levels())
                 .with_needs_you_source(needs_you::storage::runs_stopped())
                 .with_needs_you_source(needs_you::limits::runs_stopped())

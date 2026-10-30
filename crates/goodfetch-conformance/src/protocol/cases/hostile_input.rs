@@ -10,6 +10,11 @@
 //! `route.fetch` refuse naming `network.max_body_size` while the browser's
 //! connection goes on. Each refusal pairs with its positive control: a
 //! plain value is sent, and a page compressed within the ratio is kept.
+//! Over TLS, where a browser offers `br` and `zstd`, `page.request` refuses
+//! the Brotli and zstd bombs at the ratio, and fails a zstd frame whose
+//! window is past RFC 9659's 8 MB as a decoding failure.
+
+use std::path::Path;
 
 use goodfetch_protocol::hostile_input::HEADER_VALUE_INVALID;
 use goodfetch_protocol::page::request::PAGE_REQUEST;
@@ -19,11 +24,23 @@ use goodfetch_protocol::page::route::{
 use goodfetch_protocol::response_limits::RESPONSE_LIMIT_EXCEEDED;
 use serde_json::{Value, json};
 
-use super::navigation::call;
+use super::consent::walls;
+use super::navigation::{call, failed_with};
 use super::robots_txt::PAST_THE_SIZE_HOST;
 use super::routes::{Act, Routes, glob, goto};
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::target::EngineTarget;
+
+/// The `bombs` family's own host, which serves the zstd frame whose window
+/// is past 8 MB at [`PAST_THE_WINDOW`] and belongs to no task.
+pub(super) const BOMBS_HOST: &str = "bombs.test";
+
+/// The path of that frame.
+const PAST_THE_WINDOW: &str = "/past-the-window";
+
+/// The browser's network error for a zstd frame whose window is past 8 MB.
+const ZSTD_WINDOW_SIZE_TOO_BIG: &str = "net::ERR_ZSTD_WINDOW_SIZE_TOO_BIG";
 
 /// One hostile-input case of the page suite.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +49,7 @@ pub(crate) enum Case {
     RouteHeaders,
     RequestLimits,
     CodedPastTheFrame,
+    CodedBombsOverTls,
 }
 
 impl Case {
@@ -50,14 +68,18 @@ impl Case {
             "a-coded-body-past-the-browsers-frame-is-refused-at-max-body-size-and-the-browser-goes-on" => {
                 Self::CodedPastTheFrame
             }
+            "over-tls-page-request-refuses-the-brotli-and-zstd-bombs-at-the-ratio-and-a-zstd-window-past-8-mb-as-undecodable" => {
+                Self::CodedBombsOverTls
+            }
             _ => return None,
         })
     }
 
-    /// Runs the case on the open Connection against `site`.
+    /// Runs the case on the open Connection to `target` against `site`.
     pub(crate) fn run(
         self,
         connection: &mut Connection,
+        target: &EngineTarget,
         site: &Site,
         checks: &mut Checks,
     ) -> Result<(), Gone> {
@@ -66,6 +88,7 @@ impl Case {
             Self::RouteHeaders => route_headers(connection, site, checks),
             Self::RequestLimits => request_limits(connection, site, checks),
             Self::CodedPastTheFrame => coded_past_the_frame(connection, site, checks),
+            Self::CodedBombsOverTls => coded_bombs_over_tls(connection, target, site, checks),
         }
     }
 }
@@ -391,6 +414,124 @@ fn coded_past_the_frame(
     checks.check(
         "the browser's connection goes on: a later `page.request` answers 200",
         kept["result"]["status"] == json!(200),
+    );
+    finish_run(connection, run_id)
+}
+
+/// The name, in the engine's per-major folder, of the copy of the Proving
+/// ground's authority that user configuration trusts for [`BOMBS_HOST`].
+const AUTHORITY_FILE: &str = "conformance-bombs-authority.pem";
+
+/// Writes `pem` to `file`, or removes `file` when `pem` is `None`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the harness is synchronous and runs no async worker"
+)]
+fn place(file: &Path, pem: Option<&str>) -> bool {
+    match pem {
+        Some(pem) => std::fs::write(file, pem).is_ok(),
+        None => std::fs::remove_file(file).is_ok(),
+    }
+}
+
+/// Over `https://`, where a browser offers `br` and `zstd` (it offers
+/// neither over `http://` to a host other than localhost), `page.request`
+/// to the Brotli and zstd bombs (`bombs/3`, `bombs/4`) raises
+/// `response_limit_exceeded` naming `network.max_decompression_ratio`, and
+/// to a zstd frame whose window is past RFC 9659's 8 MB fails as a decoding
+/// failure, `navigation_failed` naming the browser's
+/// `net::ERR_ZSTD_WINDOW_SIZE_TOO_BIG`, never as a cut body. User
+/// configuration trusts the Proving ground's authority for `bombs.test`
+/// (`tls.trusted_cas`, which no Run sets; ADR 0042), so the engine's relay
+/// terminates its hosts, while the case's Run goes.
+fn coded_bombs_over_tls(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let (Some(brotli), Some(zstd), Some(past_the_window)) = (
+        site.start_url("bombs/3").map(str::to_owned),
+        site.start_url("bombs/4").map(str::to_owned),
+        site.named_secure_url(BOMBS_HOST, PAST_THE_WINDOW),
+    ) else {
+        checks.check("the Proving ground serves the case's pages", false);
+        return Ok(());
+    };
+    checks.check(
+        "the Brotli and zstd bombs start over `https://`",
+        brotli.starts_with("https://") && zstd.starts_with("https://"),
+    );
+    let first = "conformance-hostile-coded-bombs-home";
+    start_run(connection, site, first, &json!({}), checks)?;
+    finish_run(connection, first)?;
+    let major = target
+        .environment
+        .get("GOODFETCH_HOME")
+        .and_then(|home| walls::major_of(home, first));
+    let authority = site.proving_ground.certificate_authority().ok();
+    let (Some(major), Some(authority)) = (major, authority) else {
+        checks.check(
+            "the engine's per-major folder and the Proving ground's authority are found",
+            false,
+        );
+        return Ok(());
+    };
+    let file = major.join(AUTHORITY_FILE);
+    checks.check(
+        "the Proving ground's authority is written beside the user configuration",
+        place(&file, Some(&authority)),
+    );
+    let before = walls::configure(
+        &major,
+        Some(&format!(
+            "version = \"0.1\"\n\n[settings.tls.trusted_cas]\n\"{BOMBS_HOST}\" = [{}]\n",
+            json!(file.display().to_string())
+        )),
+    );
+    let outcome = coded_bombs_on(connection, site, [&brotli, &zstd], &past_the_window, checks);
+    walls::configure(&major, before.as_deref());
+    place(&file, None);
+    outcome
+}
+
+/// [`coded_bombs_over_tls`]'s Run, once user configuration trusts the
+/// Proving ground's authority for `bombs.test`.
+fn coded_bombs_on(
+    connection: &mut Connection,
+    site: &Site,
+    bombs: [&str; 2],
+    past_the_window: &str,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-hostile-coded-bombs";
+    start_run(connection, site, run_id, &json!({}), checks)?;
+    let Some(page) = new_page(connection, run_id, checks)?.map(|page| json!(page.page_id)) else {
+        return finish_run(connection, run_id);
+    };
+    for url in bombs {
+        let refused = call(connection, PAGE_REQUEST.name, &page, &json!({ "url": url }))?;
+        checks.check(
+            format!(
+                "`page.request` to {url} raises `{}` naming `network.max_decompression_ratio`",
+                RESPONSE_LIMIT_EXCEEDED.name
+            ),
+            code_of(&refused) == &json!(RESPONSE_LIMIT_EXCEEDED.name)
+                && refused["error"]["data"]["setting"] == json!("network.max_decompression_ratio")
+                && refused["error"]["data"]["limit"] == json!(100),
+        );
+    }
+    let undecodable = call(
+        connection,
+        PAGE_REQUEST.name,
+        &page,
+        &json!({ "url": past_the_window }),
+    )?;
+    failed_with(
+        &undecodable,
+        "`page.request` of a zstd frame whose window is past 8 MB",
+        ZSTD_WINDOW_SIZE_TOO_BIG,
+        checks,
     );
     finish_run(connection, run_id)
 }

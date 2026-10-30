@@ -603,6 +603,10 @@ id = "a-coded-body-past-the-browsers-frame-is-refused-at-max-body-size-and-the-b
 covers = ["operation:page.request", "operation:route.fetch", "error:response_limit_exceeded", "setting:network.max_body_size"]
 
 [[capability.case]]
+id = "over-tls-page-request-refuses-the-brotli-and-zstd-bombs-at-the-ratio-and-a-zstd-window-past-8-mb-as-undecodable"
+covers = ["operation:page.request", "error:response_limit_exceeded", "error:navigation_failed"]
+
+[[capability.case]]
 id = "no-service-worker-answers-a-page-request"
 covers = ["story:5-44", "operation:page.request", "operation:response.body"]
 

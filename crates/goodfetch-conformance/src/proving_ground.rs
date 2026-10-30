@@ -235,6 +235,19 @@ impl ProvingGround {
         serde_json::from_str(&body).map_err(|source| ProvingGroundError::Unreadable { url, source })
     }
 
+    /// Its seed's certificate authority as PEM (`GET
+    /// /certificate-authority`), which signs every host name's leaf: a
+    /// client that trusts it reaches the host names over TLS.
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot be reached or answers another status
+    /// than 200.
+    pub fn certificate_authority(&self) -> Result<String, ProvingGroundError> {
+        let url = format!("http://{}/certificate-authority", self.address);
+        Self::answer(&url, self.agent.get(&url).call())
+    }
+
     /// The requests of its [`observations`](Self::observations).
     ///
     /// # Errors

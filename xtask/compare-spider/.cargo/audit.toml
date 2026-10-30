@@ -1,0 +1,13 @@
+# cargo-audit's ignores for Spider's side of `just compare-spider`: the IDs
+# of `../deny.toml`'s `[advisories] ignore`, each with its reason and what
+# removes it there, and one cargo-deny never meets.
+[advisories]
+ignore = [
+  "RUSTSEC-2024-0436",
+  # rsa, the Marvin timing side channel, which has no fixed release. The lock
+  # file lists it for sqlx-mysql, which Spider's sqlx (its `disk` feature,
+  # SQLite alone) never builds, so cargo-deny, which reads the resolved
+  # graph, does not meet it; cargo-audit reads every locked crate. Removed
+  # with the Spider bump whose lock drops sqlx-mysql.
+  "RUSTSEC-2023-0071",
+]

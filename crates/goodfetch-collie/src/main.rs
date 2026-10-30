@@ -7,10 +7,12 @@ mod console_build;
 use std::process::ExitCode;
 
 use goodfetch_collie::executable::{Start, main as start};
+use goodfetch_engine::heap::Counting;
 use goodfetch_protocol::catalog::Product;
 
+// mimalloc, counted, so that `daemon.status` answers the live heap (#1734).
 #[global_allocator]
-static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+static ALLOCATOR: Counting<mimalloc::MiMalloc> = Counting::new(mimalloc::MiMalloc);
 
 #[expect(
     clippy::disallowed_methods,

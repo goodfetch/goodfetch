@@ -2323,7 +2323,7 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
-      "description": "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.",
+      "description": "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, when it stops idle, and its live heap.",
       "events": [],
       "kind": "round_trip",
       "name": "daemon.status",

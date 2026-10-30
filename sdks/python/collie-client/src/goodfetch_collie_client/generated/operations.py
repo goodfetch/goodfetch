@@ -78,7 +78,7 @@ class AsyncCollieOperations:
         return DaemonHealth.model_construct(**_fields(await self._caller.call("daemon.health", params)))
 
     async def daemon_status(self, params: DaemonParams) -> DaemonState:
-        """Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle."""
+        """Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, when it stops idle, and its live heap."""
         return DaemonState.model_construct(**_fields(await self._caller.call("daemon.status", params)))
 
     async def daemon_stop(self, params: DaemonParams) -> DaemonStopping:
@@ -613,7 +613,7 @@ class CollieOperations:
         return DaemonHealth.model_construct(**_fields(self._caller.call("daemon.health", params)))
 
     def daemon_status(self, params: DaemonParams) -> DaemonState:
-        """Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle."""
+        """Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, when it stops idle, and its live heap."""
         return DaemonState.model_construct(**_fields(self._caller.call("daemon.status", params)))
 
     def daemon_stop(self, params: DaemonParams) -> DaemonStopping:

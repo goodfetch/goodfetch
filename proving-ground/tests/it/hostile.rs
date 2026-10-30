@@ -1,7 +1,7 @@
-//! ADR 0067's hostile input beside SSRF: the `redirects`, `headers` and
-//! `downloads` families, each page served with its expected result, which
-//! names what a correct tool refuses, with which typed error where one is
-//! decided, or keeps.
+//! ADR 0067's hostile input beside SSRF: the `redirects`, `headers`,
+//! `downloads` and `bombs` families, each page served with its expected
+//! result, which names what a correct tool refuses, with which typed error
+//! where one is decided, or keeps.
 //!
 //! A refusing tool is played by a submission that reports the failure the
 //! expected result names; a non-refusing tool by one that follows the page
@@ -283,9 +283,13 @@ fn a_tool_that_follows_a_chain_of_20_and_keeps_its_record_is_a_false_success() {
 
 /// The whole response to a `GET` of `url` over a new HTTP/1.1 connection,
 /// as its bytes arrive, read to the connection's end: what a client reads
-/// of a head no HTTP library parses.
+/// of a head no HTTP library parses. An `https` URL is read over plain
+/// HTTP/1.1 too, which the Proving ground's one address also serves.
 fn raw_get(proving_ground: &ProvingGround, url: &str) -> Vec<u8> {
-    let rest = url.strip_prefix("http://").expect("an http URL");
+    let rest = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+        .expect("an http or https URL");
     let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
     let mut stream =
         TcpStream::connect(proving_ground.address()).expect("the Proving ground listens");

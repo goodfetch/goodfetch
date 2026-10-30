@@ -1,0 +1,23 @@
+# cargo-deny's advisory configuration for Spider's side of `just
+# compare-spider` (ADR 0134's #1574 note), which `just audit` reads through
+# ci/audit.sh in place of the workspace's `deny.toml`, so its exceptions
+# never reach the workspace's. Its licenses are checked against the
+# workspace's `deny.toml` by `just lint`. The rules are the workspace's;
+# only the ignores are its own.
+
+[advisories]
+db-path = "${GOODFETCH_ADVISORY_DBS:-target/advisories/rustsec}"
+maximum-db-staleness = "P36500D"
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+# `.cargo/audit.toml` beside this file lists these IDs for cargo-audit, and
+# one more it alone meets. Each comes with Spider 2.53.9 and has no release
+# that removes it; each is removed with the Spider bump that drops the
+# crate. Agent decision of the deep review's group G19, pending owner
+# review.
+ignore = [
+  # paste, unmaintained: a proc-macro run at build time, through Spider's
+  # statrs, nalgebra and simba.
+  { id = "RUSTSEC-2024-0436", reason = "build-time proc-macro, through Spider's statrs, nalgebra and simba" },
+]

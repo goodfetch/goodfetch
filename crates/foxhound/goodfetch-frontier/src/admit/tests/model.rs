@@ -440,13 +440,13 @@ impl StateMachineTest for Subject {
                             body.as_deref(),
                         )?;
                         if hop == Hop::Follow {
-                            identity::redirect_reached(
+                            return identity::redirect_reached(
                                 connection,
                                 &crawl_request,
                                 &url,
                                 &method,
                                 body.as_deref(),
-                            )?;
+                            );
                         }
                         Ok(hop)
                     }))

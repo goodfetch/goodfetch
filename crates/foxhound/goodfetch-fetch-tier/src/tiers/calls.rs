@@ -19,11 +19,14 @@
 //! - `page.goto`, `page.reload`, `page.go_back` and `page.go_forward`,
 //!   fetched over the same tier through the gate (the `navigation`
 //!   module);
-//! - `page.request`, sent through the Session's HTTP transport, through
-//!   the navigation gate of the attempt the page belongs to, each redirect
-//!   it follows taking its own permit and Fetch's method, body and header
-//!   rules (the `redirects` module), and never escalated; its response's
-//!   body is kept for `response.body`;
+//! - `page.request`, its headers judged as Collie's are (ADR 0067), sent
+//!   through the Session's HTTP transport, through the navigation gate of
+//!   the attempt the page belongs to, each hop judged by the Run's egress
+//!   policy first and each redirect it follows taking its own permit and
+//!   Fetch's method, body and header rules (the `redirects` module), and
+//!   never escalated; a response whose AI-use signals refuse the Run's
+//!   Purpose raises `site_preferences_refused`, as a navigation's document
+//!   does, and any other's body is kept for `response.body`;
 //! - `page.close`, which closes the page;
 //! - on `discovered_api`, `page.wait_for_response` and
 //!   `page.wait_for_request_finished`, answered from the calls the page's
@@ -46,8 +49,10 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use data_encoding::BASE64;
+use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallError, GuardAnswer};
+use goodfetch_page::page_value::{DocumentResponse, NavigationGate};
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::foxhound::fetch::{RESPONSE_NOT_DOCUMENT, ResponseNotDocumentDetails};
 use goodfetch_protocol::page::events::{
@@ -435,7 +440,11 @@ async fn request(
 ///
 /// # Errors
 ///
-/// As [`request`]'s, and `attempt_ended` once the attempt's lease ended.
+/// As [`request`]'s: `header_value_invalid` for a header no request may
+/// send, `egress_refused` for a hop the Run's egress policy refuses,
+/// `site_preferences_refused` for a hop the gate refuses or a response
+/// whose AI-use signals refuse the Run's Purpose, and `attempt_ended` once
+/// the attempt's lease ended.
 async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, CallError> {
     let max_redirects = params.max_redirects.unwrap_or(MAX_REDIRECTS);
     if max_redirects > MAX_REDIRECTS {
@@ -470,6 +479,12 @@ async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, 
     let mut chain = vec![hop.url.to_string()];
     loop {
         leased(hand_over, PAGE_REQUEST.name)?;
+        // The Run's egress policy judges the hop before anything is sent
+        // for it, robots.txt included (spec #565).
+        hand_over
+            .address_check(&hop.url)
+            .await
+            .map_err(|refused| refused.error())?;
         let permit = {
             let _waiting = hand_over.lease.permit_wait(hop.url.as_str());
             gate.admitted(&hop.url)
@@ -507,6 +522,14 @@ async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, 
             }
             None => {}
         }
+        gate.judge_document(&DocumentResponse {
+            url: fetched.url.as_str(),
+            status: fetched.status,
+            headers: &fetched.headers,
+            body: &fetched.body,
+        })
+        .await
+        .map_err(|refusal| refused(fetched.url.as_str(), &refusal))?;
         return Ok(fetched);
     }
 }
@@ -539,9 +562,19 @@ struct Asked {
 ///
 /// # Errors
 ///
-/// `navigation_failed` for a URL, a method or a body that does not read.
+/// `navigation_failed` for a URL, a method or a body that does not read,
+/// and `header_value_invalid` for a header value holding a CR, an LF or a
+/// NUL, before anything is sent (ADR 0067).
 fn asked(params: &PageRequestParams) -> Result<Asked, CallError> {
     let url = Url::parse(&params.url).map_err(|error| failed(&params.url, &error))?;
+    check_headers(
+        params
+            .headers
+            .iter()
+            .flatten()
+            .map(|(name, value)| (name.as_str(), value.as_str())),
+    )
+    .map_err(|refused| refused.error())?;
     let method = params
         .method
         .as_deref()

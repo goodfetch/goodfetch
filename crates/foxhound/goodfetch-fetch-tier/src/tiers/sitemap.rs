@@ -41,7 +41,7 @@ impl HttpTier {
             Hop::get(url.clone()),
             &self.following,
             &gate,
-            &clock,
+            (&clock, hand_over.run.owner()),
             |hop| async move { fetch(self.transport.as_ref(), &hop, &self.bounds, &clock).await },
         )
         .await
@@ -108,7 +108,7 @@ impl HopGate for SitemapHops<'_> {
         Box::pin(self.0.answered(hop, latency))
     }
 
-    fn reached<'a>(&'a self, _hop: &'a Hop) -> Gating<'a, ()> {
-        Box::pin(async {})
+    fn reached<'a>(&'a self, _hop: &'a Hop) -> Gating<'a, Result<(), Stop>> {
+        Box::pin(async { Ok(()) })
     }
 }

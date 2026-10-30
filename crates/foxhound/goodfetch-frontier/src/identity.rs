@@ -568,7 +568,13 @@ pub fn rewrite(
 
 /// Records the final URL `url` a redirect led the crawl request
 /// `crawl_request` to, sent with `method` and `body`, under its key as
-/// visited, so a later enqueue of it is a `duplicate` (ADR 0120).
+/// visited, so a later enqueue of it is a `duplicate` (ADR 0120), and
+/// answers whether the request goes on: `Duplicate` when another request
+/// was admitted for, or reached, that key meanwhile, between the hop's
+/// check ([`redirect_hop`]) and its document's arrival, which leaves the
+/// key that request's, else `Follow`. The check and the record are one
+/// write, so of two chains reaching one key at once, only the first
+/// records it (ADR 0120's #832 note).
 ///
 /// # Errors
 ///
@@ -579,7 +585,7 @@ pub fn redirect_reached(
     url: &Url,
     method: &HttpMethod,
     body: Option<&[u8]>,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<Hop> {
     let reached = identities(
         connection,
         &Key::of(url, false),
@@ -590,7 +596,17 @@ pub fn redirect_reached(
             keeps_fragment: false,
         },
     )?;
-    visit_all(connection, &reached, crawl_request)
+    if let Seen::Visited(visitor)
+    | Seen::Merged {
+        crawl_request: visitor,
+        ..
+    } = seen(connection, &reached, None)?
+        && visitor != crawl_request
+    {
+        return Ok(Hop::Duplicate);
+    }
+    visit_all(connection, &reached, crawl_request)?;
+    Ok(Hop::Follow)
 }
 
 /// The query parameters a key drops by name: `Crawl4AI`'s click IDs.

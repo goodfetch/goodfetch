@@ -635,6 +635,20 @@ impl On<'_> {
         action
     }
 
+    /// The call that escalated the served page `page_id` once its handler
+    /// answered, if one did: `blocked` names a Challenge or a captcha the
+    /// handler's own navigation met under `auto`, which moved the request
+    /// to the browser, a move noted as [`On::on_block`] notes one, for its
+    /// domain to learn (spec #600).
+    fn escalated(&self, tiers: &FetchTiers, page_id: &PageId) -> Option<&'static str> {
+        let escalated = tiers.escalated(page_id);
+        if escalated == Some(BLOCKED) {
+            // Set once: a second move says nothing more.
+            let _ = self.moved.set(());
+        }
+        escalated
+    }
+
     /// Whether `answer`, a handler's on a run as `choice` says, names a
     /// block that moves the request to the browser ([`On::on_block`]).
     fn moves(&self, answer: &Answer, choice: &TierChoice) -> bool {
@@ -965,7 +979,7 @@ impl On<'_> {
         )
         .await;
         drop(handed_over);
-        let escalated = tiers.escalated(&page_id);
+        let escalated = self.escalated(tiers, &page_id);
         tiers.close(&page_id);
         Ok((
             HttpRun {

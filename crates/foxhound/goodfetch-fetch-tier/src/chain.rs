@@ -6,9 +6,13 @@
 //!   rules (the `redirects` module); any other 3xx fails with
 //!   `response_not_ok`, and a status `crawl.handle_statuses` lists is the
 //!   document, unfollowed.
-//! - **A refresh stub** (the `refresh` module) to another URL, with a delay
-//!   up to `fetch.refresh.max_delay`, is one more hop, a `GET` made at
-//!   once; one with no URL or to the document's own is never followed.
+//! - **A refresh stub** (the `refresh` module) to another HTTP(S) URL, with
+//!   a delay up to `fetch.refresh.max_delay`, is one more hop, a `GET` made
+//!   at once; one with no URL, to the document's own or to a URL of another
+//!   scheme, such as `javascript:` or `data:`, is the document, unfollowed,
+//!   as the browser keeps it. A handler's own navigation follows none
+//!   ([`Following::refresh`]), its tier giving the stub (ADR 0118). Its
+//!   markup is read on the blocking pool, never on an async worker.
 //! - **At most `fetch.redirect.max` hops** after the first: one more fails
 //!   with `too_many_redirects`, so a loop costs a site `fetch.redirect.max`
 //!   + 1 requests.
@@ -19,7 +23,10 @@
 //! - **Each hop after the first goes through a [`HopGate`]**, which takes
 //!   its permit, held until its answer's head arrived, or ends the request
 //!   [skipped](Stop::Skipped). The first hop's permit is its admission's.
-//!   The gate is told as each hop, the first included, is sent.
+//!   The gate is told as each hop, the first included, is sent, and the
+//!   hop a chain of redirects ends on is recorded through it: one another
+//!   request's chain reached first ends the request `skipped` with
+//!   `duplicate` (ADR 0120).
 //! - **A hop that the transport's egress check refuses**, the first
 //!   included, its URL or the address it would connect to (ADRs 0017 and
 //!   0118), ends the request `skipped` with `domain_policy`: a redirect is
@@ -35,6 +42,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_page::page_value::Permit;
 use goodfetch_protocol::egress::EGRESS_REFUSED;
 use goodfetch_protocol::foxhound::crawl::{
@@ -54,6 +62,10 @@ use crate::refresh;
 pub struct Following {
     /// `fetch.redirect.max`: the hops followed after the first.
     pub max: u32,
+    /// Whether refresh stubs are followed at all: a crawl request's own
+    /// fetch follows them, a handler's own navigation none, its document
+    /// tier giving the stub as the page (ADR 0118).
+    pub refresh: bool,
     /// `fetch.refresh.max_delay`: `None` follows a refresh of any delay.
     pub refresh_max_delay: Option<Duration>,
     /// `crawl.handle_statuses`.
@@ -78,6 +90,7 @@ impl Following {
                 .count(FETCH_REDIRECT_MAX.name)
                 .and_then(|max| u32::try_from(max).ok())
                 .unwrap_or(19),
+            refresh: true,
             refresh_max_delay: settings.duration(FETCH_REFRESH_MAX_DELAY.name),
             handled,
             retry_after_max: goodfetch_frontier::longest_wait(settings),
@@ -130,20 +143,27 @@ pub trait HopGate: Send + Sync {
 
     /// Records that the chain ended on `hop`, one after its first, whose
     /// answer is its document.
-    fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()>;
+    ///
+    /// # Errors
+    ///
+    /// [`Stop::Skipped`] with `duplicate` when another request's chain or
+    /// admission reached `hop`'s key first (ADR 0120).
+    fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<(), Stop>>;
 }
 
 /// Follows the chain from `first` under `following`, each hop fetched with
 /// `fetch` and each after the first admitted by `gate`, on `clock`, each
-/// told to `gate` as it is sent and once its answer arrived; answers the
-/// document the chain ends on.
+/// told to `gate` as it is sent and once its answer arrived, a document's
+/// markup read on `owner`'s blocking pool; answers the document the chain
+/// ends on.
 ///
 /// # Errors
 ///
 /// [`Stop::Failed`] with `fetch`'s error, `too_many_redirects`,
 /// `response_not_ok` or `response_unavailable`; [`Stop::Skipped`] when
-/// `gate` skips a hop, and with `domain_policy` when `fetch` fails a hop,
-/// the first included, with `egress_refused`.
+/// `gate` skips a hop or the hop its chain ends on, and with
+/// `domain_policy` when `fetch` fails a hop, the first included, with
+/// `egress_refused`.
 ///
 /// # Cancel safety
 ///
@@ -152,7 +172,7 @@ pub async fn follow<F, Fut>(
     first: Hop,
     following: &Following,
     gate: &dyn HopGate,
-    clock: &Clock,
+    (clock, owner): (&Clock, &TaskOwner),
     mut fetch: F,
 ) -> Result<Fetched, Stop>
 where
@@ -187,9 +207,9 @@ where
         gate.answered(&hop, clock.now().duration_since(sent)).await;
         // The hop's answer arrived: its permit is released (ADR 0118).
         drop(permit.take());
-        let Some(next) = next_hop(&hop, &fetched, following)? else {
+        let Some(next) = next_hop(&hop, &fetched, following, owner).await? else {
             if !hops.is_empty() {
-                gate.reached(&hop).await;
+                gate.reached(&hop).await?;
             }
             return Ok(fetched);
         };
@@ -209,10 +229,16 @@ where
     }
 }
 
-/// The hop `fetched`, the answer of `hop`, leads to: a redirect's, or a
-/// refresh stub's within `fetch.refresh.max_delay`; `None` when it is the
-/// chain's document.
-fn next_hop(hop: &Hop, fetched: &Fetched, following: &Following) -> Result<Option<Hop>, Stop> {
+/// The hop `fetched`, the answer of `hop`, leads to: a redirect's, or,
+/// while `following` follows refresh stubs, an HTTP(S) refresh stub's
+/// within `fetch.refresh.max_delay`, its markup read on `owner`'s blocking
+/// pool; `None` when it is the chain's document.
+async fn next_hop(
+    hop: &Hop,
+    fetched: &Fetched,
+    following: &Following,
+    owner: &TaskOwner,
+) -> Result<Option<Hop>, Stop> {
     // A response its Label does not take is the chain's end, unread.
     if following.handled.contains(&fetched.status) || fetched.unaccepted.is_some() {
         return Ok(None);
@@ -223,6 +249,9 @@ fn next_hop(hop: &Hop, fetched: &Fetched, following: &Following) -> Result<Optio
         Next::NotOk(reason) => return Err(Stop::Failed(not_ok(fetched, &reason))),
         Next::Answer => {}
     }
+    if !following.refresh {
+        return Ok(None);
+    }
     let html = header(&fetched.headers, "content-type").is_none_or(|content_type| {
         let essence = content_type
             .split(';')
@@ -232,14 +261,26 @@ fn next_hop(hop: &Hop, fetched: &Fetched, following: &Following) -> Result<Optio
             .to_ascii_lowercase();
         essence == "text/html" || essence == "application/xhtml+xml"
     });
-    let Some(refresh) = refresh::directive(&fetched.url, &fetched.headers, &fetched.body, html)
-    else {
+    let refresh = match refresh::in_header(&fetched.url, &fetched.headers) {
+        Some(refresh) => Some(refresh),
+        None if html => {
+            let (url, body) = (fetched.url.clone(), fetched.body.clone());
+            owner
+                .blocking(move || refresh::in_markup(&url, &body))
+                .await
+        }
+        None => None,
+    };
+    let Some(refresh) = refresh else {
         return Ok(None);
     };
     let within = following
         .refresh_max_delay
         .is_none_or(|max| refresh.delay <= max);
-    if !within || refresh.reloads(&fetched.url) {
+    // The browser refreshes only to an HTTP(S) URL: to `javascript:`,
+    // `data:` or another scheme, it keeps the stub as the document.
+    let fetchable = matches!(refresh.url.scheme(), "http" | "https");
+    if !within || !fetchable || refresh.reloads(&fetched.url) {
         return Ok(None);
     }
     let from = Hop {
@@ -341,3 +382,6 @@ fn too_many_redirects(url: &str, hops: Vec<String>, max: u32) -> CallError {
         },
     )
 }
+
+#[cfg(test)]
+mod tests;

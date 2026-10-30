@@ -5980,10 +5980,16 @@ struct Closing {
 
 impl Closing {
     /// Stops the Run's tasks, gives back its Slices, writes its end into
-    /// run state with its report, assembled there (ADR 0102), a stop's
-    /// Checkpoint after it, closes its writer and frees its lock. An end
-    /// whose commit meets a full disk or an I/O error is unrecorded (ADR
-    /// 0122).
+    /// run state with its report, assembled there (ADR 0102), as its
+    /// writer's last write, a stop's Checkpoint after it, waits for its
+    /// writer and frees its lock. An end whose commit meets a full disk or
+    /// an I/O error is unrecorded (ADR 0122).
+    ///
+    /// The end waits for the Run's tasks and for the writes queued before
+    /// its record, never for the handles on the Run left anywhere else: its
+    /// record closes the writer, which then refuses each of their later
+    /// writes as `Closed`, so none can keep the Run from ending or reach
+    /// the run file after its end (#1763, #1736).
     async fn end(self) -> Ended {
         let Self {
             run,
@@ -6034,7 +6040,7 @@ impl Closing {
         drop(run);
         let bare = report::masked(facts.bare(), mask.masks());
         let ended = state
-            .write(move |connection| {
+            .write_last(move |connection| {
                 let report =
                     report::masked(report::assemble(connection, &facts, &parts)?, mask.masks());
                 write_end(connection, &report)?;

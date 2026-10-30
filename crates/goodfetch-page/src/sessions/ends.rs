@@ -26,18 +26,26 @@ use tokio::sync::mpsc;
 
 use super::life::Ending;
 use super::lifecycle::{PageEffect, SessionEffect, SessionEvent};
-use super::{OpenPage, Session, Sessions};
+use super::{OpenPage, PageLife, Session, Sessions};
 use crate::driver::Lost;
 use crate::errors::cancelled;
 use crate::pool::BrowserLoss;
 
 impl Sessions {
-    /// Acts on what a page's end did (`effect`): a crash emits `crash`, a
-    /// renderer's counting in Usage (ADR 0040); a page that closed emits
-    /// `close`, then leaves with its events and routes, so later calls raise
-    /// `closed`; a page whose browser crashed leaves its browser, as a
-    /// released one does.
-    pub(super) async fn page_ended(&self, page_id: &PageId, run: &Run, effect: PageEffect) {
+    /// Acts on what the end of the page `page_id`, whose state `life` is,
+    /// did (`effect`): a crash emits `crash`, a renderer's counting in Usage
+    /// (ADR 0040); a page that closed emits `close`, then leaves with its
+    /// events and routes, so later calls raise `closed`, or
+    /// `page_memory_exceeded` again for one ended past its memory cap; a
+    /// page whose browser crashed leaves its browser, as a released one
+    /// does.
+    pub(super) async fn page_ended(
+        &self,
+        page_id: &PageId,
+        run: &Run,
+        life: &PageLife,
+        effect: PageEffect,
+    ) {
         let pages = std::slice::from_ref(page_id);
         match effect {
             PageEffect::RendererCrash | PageEffect::BrowserCrash => {
@@ -61,7 +69,19 @@ impl Sessions {
                 {
                     events.publish_end(PageEventName::Close, &PAGE_CLOSE);
                 }
-                self.state.lock().await.pages.remove(page_id);
+                let mut state = self.state.lock().await;
+                state.pages.remove(page_id);
+                // One the Resource governor ended past its memory cap goes
+                // straight to the ended pages under the same lock, so a
+                // call finds it in one or the other and raises
+                // `page_memory_exceeded` again until its Run stops; once
+                // the Run's clean-up took it out, nothing keeps it.
+                if life.ended_past_cap() && state.runs.contains_key(run.id()) {
+                    state
+                        .crashed
+                        .insert(page_id.clone(), (run.id().clone(), life.clone()));
+                }
+                drop(state);
                 self.events.close(pages);
                 self.dialogs.close(pages);
                 self.interception.close_pages(pages);
@@ -206,7 +226,7 @@ impl Sessions {
                     // whatever the lease, and the close is confirmed (P29).
                     driver.close().await;
                     match life.end(&Ending::Destroyed) {
-                        Ok(effect) => sessions.page_ended(&page_id, &run, effect).await,
+                        Ok(effect) => sessions.page_ended(&page_id, &run, &life, effect).await,
                         Err(error) => tracing::error!(%error, "a page's end was refused"),
                     }
                     return;
@@ -217,7 +237,7 @@ impl Sessions {
                 Lost::Destroyed => {
                     // The program's close confirmed, or one in the browser.
                     match life.destroyed() {
-                        Ok(effect) => sessions.page_ended(&page_id, &run, effect).await,
+                        Ok(effect) => sessions.page_ended(&page_id, &run, &life, effect).await,
                         Err(error) => tracing::error!(%error, "a page's end was refused"),
                     }
                     return;
@@ -231,7 +251,7 @@ impl Sessions {
             let quit = open.seat.is_in(browser).await
                 && sessions.session_lost(&open, browser, &lost).await;
             match life.end(&ending) {
-                Ok(effect) => sessions.page_ended(&page_id, &run, effect).await,
+                Ok(effect) => sessions.page_ended(&page_id, &run, &life, effect).await,
                 Err(error) => tracing::error!(%error, "a page's end was refused"),
             }
             if quit && let Err(error) = sessions.session_ended(&open, &session).await {

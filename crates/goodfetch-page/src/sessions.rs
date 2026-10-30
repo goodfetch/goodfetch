@@ -786,7 +786,10 @@ impl Sessions {
         for (page_id, page) in self.pages_of(session).await {
             match page.life.end(&Ending::Closed(ClosedValue::Session))? {
                 PageEffect::Close => closing.push((page_id, page)),
-                effect => self.page_ended(&page_id, &open.run, effect).await,
+                effect => {
+                    self.page_ended(&page_id, &open.run, &page.life, effect)
+                        .await;
+                }
             }
         }
         open.seat.close().await;
@@ -794,7 +797,8 @@ impl Sessions {
             // The context's disposal destroyed each target: the close the
             // engine sent is confirmed (P29).
             let effect = page.life.end(&Ending::Destroyed)?;
-            self.page_ended(page_id, &open.run, effect).await;
+            self.page_ended(page_id, &open.run, &page.life, effect)
+                .await;
         }
         if crashed {
             self.hiding.close(session).await;

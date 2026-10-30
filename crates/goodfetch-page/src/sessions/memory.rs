@@ -84,19 +84,17 @@ impl Sessions {
         match page.life.end(&Ending::MemoryExceeded { memory, limit }) {
             Ok(PageEffect::Close) => {
                 page.driver.close().await;
-                // The close the engine sent is confirmed (P29).
+                // The close the engine sent is confirmed (P29), unless the
+                // page's watch saw its target's end first. Whichever acts
+                // on the end, the page leaves for the ended pages, whose
+                // later calls raise `page_memory_exceeded` again.
                 match page.life.end(&Ending::Destroyed) {
                     Ok(effect) => {
-                        self.page_ended(&page_id, &page.run, effect).await;
+                        self.page_ended(&page_id, &page.run, &page.life, effect)
+                            .await;
                     }
                     Err(error) => tracing::error!(%error, "a page's end was refused"),
                 }
-                // Its later calls raise `page_memory_exceeded` again.
-                self.state
-                    .lock()
-                    .await
-                    .crashed
-                    .insert(page_id, (page.run.id().clone(), page.life.clone()));
             }
             Ok(_) => {}
             Err(error) => tracing::error!(%error, "a page past its memory cap did not end"),

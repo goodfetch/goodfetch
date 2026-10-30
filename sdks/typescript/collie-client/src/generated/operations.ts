@@ -166,7 +166,7 @@ export class CollieOperations {
   }
 
   /**
-   * Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.
+   * Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, when it stops idle, and its live heap.
    */
   daemonStatus(params: DaemonParams): Promise<DaemonState> {
     return this.#caller.call("daemon.status", params, {});

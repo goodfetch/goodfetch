@@ -48,12 +48,16 @@ fn framed(message: &Value) -> Vec<u8> {
 
 /// The page's event `method`, with its `params`.
 pub(super) fn event(method: &str, params: Value) -> Value {
-    json!({ "method": method, "sessionId": SESSION, "params": params })
+    let mut event = json!({ "method": method, "sessionId": SESSION });
+    event["params"] = params;
+    event
 }
 
 /// The answer to `command`, its `result`.
 pub(super) fn answer(command: &Value, result: Value) -> Value {
-    json!({ "id": command["id"], "sessionId": SESSION, "result": result })
+    let mut answer = json!({ "id": command["id"], "sessionId": SESSION });
+    answer["result"] = result;
+    answer
 }
 
 impl Played {

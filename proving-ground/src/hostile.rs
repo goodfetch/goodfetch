@@ -5,8 +5,9 @@
 //! loopback address, chains around ADR 0118's limit of 20 and a loop), the
 //! `headers` family (oversized, repeated and malformed heads, and attempts to
 //! inject a header), the `downloads` family (page-suggested download names
-//! that try to leave the download folder). A page a correct tool keeps
-//! shows one Record, `id` and `word`, drawn from the seed.
+//! that try to leave the download folder) and the `bombs` family
+//! (decompression bombs past the engine's ratio limit). A page a correct
+//! tool keeps shows one Record, `id` and `word`, drawn from the seed.
 
 mod bombs;
 mod downloads;

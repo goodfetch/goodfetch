@@ -71,6 +71,13 @@ impl CommandLog {
         Ok(Self { methods })
     }
 
+    /// A log that writes nothing, for a test's browser that no Run holds.
+    #[cfg(test)]
+    pub(crate) fn unwritten() -> Self {
+        let (methods, _) = mpsc::channel(1);
+        Self { methods }
+    }
+
     /// Records that `method` is being sent.
     ///
     /// # Cancel safety

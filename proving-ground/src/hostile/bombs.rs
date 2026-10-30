@@ -632,7 +632,7 @@ mod tests {
 
     /// The family's own host serves no bomb at a task's path.
     #[test]
-    fn the_familys_own_host_serves_nothing_at_the_tasks_path() {
+    fn the_bombs_host_serves_nothing_at_the_tasks_path() {
         assert_eq!(
             respond(SEED, HOST, &get(PATH)).status,
             StatusCode::NOT_FOUND

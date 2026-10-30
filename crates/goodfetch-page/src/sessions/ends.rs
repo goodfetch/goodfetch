@@ -42,7 +42,7 @@ impl Sessions {
         match effect {
             PageEffect::RendererCrash | PageEffect::BrowserCrash => {
                 if let Ok(events) = self.events.get(page_id) {
-                    events.publish_end(PageEventName::Crash, &PAGE_CRASH).await;
+                    events.publish_end(PageEventName::Crash, &PAGE_CRASH);
                 }
                 if effect == PageEffect::RendererCrash {
                     charge_a_crash(run).await;
@@ -59,7 +59,7 @@ impl Sessions {
                 if effect != PageEffect::Quit
                     && let Ok(events) = self.events.get(page_id)
                 {
-                    events.publish_end(PageEventName::Close, &PAGE_CLOSE).await;
+                    events.publish_end(PageEventName::Close, &PAGE_CLOSE);
                 }
                 self.state.lock().await.pages.remove(page_id);
                 self.events.close(pages);

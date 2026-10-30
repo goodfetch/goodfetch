@@ -80,9 +80,7 @@ fn armed_before(connection: &mut Connection, site: &Site, checks: &mut Checks) -
         "the popup page loads",
         went["result"]["response"]["status"] == json!(200),
     );
-    let listening = exchange
-        .connection
-        .request(PAGE_ON.name, &json!({ "page_id": page, "event": "popup" }))?;
+    let listening = exchange.listen(PAGE_ON.name, &json!({ "page_id": page, "event": "popup" }))?;
     let session_listening = exchange.connection.request(
         SESSION_ON.name,
         &json!({ "session_id": session, "event": "page" }),
@@ -109,9 +107,7 @@ fn armed_before(connection: &mut Connection, site: &Site, checks: &mut Checks) -
         .notify(CANCEL, &json!({ "id": listening }))?;
     exchange.answer(listening)?;
     let popups_before = exchange.count("page.popup");
-    let late = exchange
-        .connection
-        .request(PAGE_ON.name, &json!({ "page_id": page, "event": "popup" }))?;
+    let late = exchange.listen(PAGE_ON.name, &json!({ "page_id": page, "event": "popup" }))?;
     exchange.idle(QUIET)?;
     checks.check(
         "a listener armed after the popup opened gets no popup",
@@ -154,7 +150,7 @@ fn drive_and_close(
         "the popup navigates as any page",
         popup_went["result"]["response"]["status"] == json!(200),
     );
-    let close_listening = exchange.connection.request(
+    let close_listening = exchange.listen(
         PAGE_ON.name,
         &json!({ "page_id": popup_page, "event": "close" }),
     )?;

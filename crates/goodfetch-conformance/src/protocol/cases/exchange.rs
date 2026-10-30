@@ -1,11 +1,11 @@
 //! The Connection as a case with several calls in flight reads it: every
 //! message read while waiting for another is kept for whoever waits for it,
-//! so no call's answer is lost to another's wait, and the events one
-//! subscription delivers are gathered apart.
+//! so no call's answer is lost to another's wait, and the events the
+//! case's subscription and its listening calls deliver are gathered apart.
 
 use std::time::Duration;
 
-use goodfetch_protocol::events::EVENTS;
+use goodfetch_protocol::events::{CREDIT, EVENTS};
 use serde_json::{Value, json};
 
 use crate::protocol::connection::{Connection, Gone};
@@ -16,9 +16,10 @@ pub(super) struct Exchange<'connection> {
     pub(super) connection: &'connection mut Connection,
     /// The messages read while waiting for another, in order.
     kept: Vec<Value>,
-    /// The subscription whose events are gathered, if any.
-    subscription: Option<i64>,
-    /// The events it delivered so far.
+    /// The calls whose events are gathered: a subscription to the event
+    /// stream and the listening calls, such as `page.on`'s.
+    gathered: Vec<i64>,
+    /// The events they delivered so far.
     events: Vec<Value>,
 }
 
@@ -27,15 +28,26 @@ impl<'connection> Exchange<'connection> {
         Self {
             connection,
             kept: Vec::new(),
-            subscription: None,
+            gathered: Vec::new(),
             events: Vec::new(),
         }
     }
 
     /// Gathers the events the subscription `subscription` delivers.
     pub(super) fn with_events(mut self, subscription: i64) -> Self {
-        self.subscription = Some(subscription);
+        self.gathered.push(subscription);
         self
+    }
+
+    /// Calls the listening operation `method`, such as `page.on`, whose
+    /// events come on the call itself, granting it every credit it needs,
+    /// and gathers its events; answers the call's id.
+    pub(super) fn listen(&mut self, method: &str, params: &Value) -> Result<i64, Gone> {
+        let id = self.connection.request(method, params)?;
+        self.connection
+            .notify(CREDIT, &json!({ "id": id, "credits": 10_000 }))?;
+        self.gathered.push(id);
+        Ok(id)
     }
 
     pub(super) fn request(&mut self, method: &str, params: &Value) -> Result<i64, Gone> {
@@ -43,13 +55,14 @@ impl<'connection> Exchange<'connection> {
     }
 
     /// The next message the Connection reads within `deadline`, unless it is
-    /// a batch of the gathered subscription's events, which is gathered.
+    /// a batch of a gathered call's events, which is gathered.
     fn read(&mut self, deadline: Duration) -> Result<Option<Value>, Gone> {
         let message = self.connection.next_within(deadline)?;
         if message["method"] == json!(EVENTS)
             && self
-                .subscription
-                .is_some_and(|subscription| message["params"]["id"] == json!(subscription))
+                .gathered
+                .iter()
+                .any(|call| message["params"]["id"] == json!(call))
         {
             self.events.extend(
                 message["params"]["events"]

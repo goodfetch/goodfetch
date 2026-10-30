@@ -296,26 +296,30 @@ fn max_redirects_option(surface: Surface) -> &'static str {
 }
 
 /// Adds the handlers of `page.on`, each listening from when its call
-/// arrives until the call goes, of `page.wait_for_request_finished`, armed
-/// when its call arrives, and of `response.body`.
+/// arrives until the call goes and sending its events on the call itself,
+/// of `page.wait_for_request_finished`, armed when its call arrives, and
+/// of `response.body`.
 fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
     let table = &pages.events;
     let (listening, waiting, reading) = (table.clone(), table.clone(), table.clone());
     let (finishing, reading_pages) = (pages.clone(), pages.clone());
     contribution
-        .with_handler(Handler::new(
-            &PAGE_ON,
-            move |params: PageOnParams, _context: CallContext| {
-                let listened = listening
-                    .get(&params.page_id)
-                    .map(|events| events.listen(params.event, Clock::system().wall()));
-                async move {
-                    let (armed, runtime) = listened?;
-                    armed.until_gone(runtime).await?;
-                    Ok::<PageOnEnded, CallError>(PageOnEnded {})
-                }
-            },
-        ))
+        .with_handler(
+            Handler::new(
+                &PAGE_ON,
+                move |params: PageOnParams, context: CallContext| {
+                    let listened = listening
+                        .get(&params.page_id)
+                        .map(|events| events.listen(params.event, Clock::system().wall()));
+                    async move {
+                        let (armed, runtime) = listened?;
+                        armed.serve(context.stream(), runtime).await?;
+                        Ok::<PageOnEnded, CallError>(PageOnEnded {})
+                    }
+                },
+            )
+            .streaming(),
+        )
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_REQUEST_FINISHED,
             move |params: WaitForRequestFinishedParams, context: CallContext| {

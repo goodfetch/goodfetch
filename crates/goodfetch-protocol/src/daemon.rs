@@ -240,6 +240,13 @@ pub struct DaemonState {
     /// Where its Console is served, or why it is not.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub console: ConsoleState,
+    /// Its live heap: the bytes its own allocations hold now, as its
+    /// executable's allocator counts them, without the pages that
+    /// allocator keeps once they are freed; none where nothing counts
+    /// them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub heap: Option<u64>,
 }
 
 /// What `daemon.stop` answers, before the Daemon stops.
@@ -253,7 +260,7 @@ pub struct DaemonStopping {
 /// `daemon.status`.
 pub const STATUS: Operation = Operation {
     name: "daemon.status",
-    description: "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, and when it stops idle.",
+    description: "Says what the Daemon runs as, where it listens, how many Clients and live Runs it has, when it stops idle, and its live heap.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,

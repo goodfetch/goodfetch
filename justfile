@@ -1214,7 +1214,7 @@ feature-combinations:
     ci/tool.sh cargo-hack ci/feature-combinations.sh
 
 # Miri over the pure-Rust `unsafe` modules that opt in through ci/miri.toml
-# (STYLE.md, `unsafe`); none does yet, so it runs nothing.
+# (STYLE.md, `unsafe`).
 miri:
     #!/usr/bin/env bash
     set -euo pipefail

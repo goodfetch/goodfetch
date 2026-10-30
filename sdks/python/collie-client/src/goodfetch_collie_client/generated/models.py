@@ -1442,7 +1442,10 @@ class PageResponse(BaseModel):
     headers: dict[str, str]
     """Its headers, their names lower-cased, as the browser received them."""
     request_id: str
-    """The browser's ID for its request, which `response.body` takes."""
+    """
+    The engine's ID for its request's hop, which `response.body` takes:
+    its request's `request_id`.
+    """
     status: Annotated[int, Field(ge=0, le=65535)]
     """Its HTTP status."""
     status_text: str
@@ -1604,7 +1607,7 @@ class PolicyTable(StrEnum):
 
 class Position(RootModel[int]):
     root: Annotated[int, Field(ge=0)]
-    """An event's position among every event of one engine, which only goes up."""
+    """An event's position among every event of one engine, which only goes up; for a `page.on` call's own events, among that call's, from 1."""
 
 
 class Presence(StrEnum):
@@ -1830,7 +1833,7 @@ class ResponseBodyParams(BaseModel):
     page_id: PageId
     """The page."""
     request_id: str
-    """The request, by the browser's ID."""
+    """The request's hop, by the engine's ID for it."""
     timeout: Annotated[int | None, Field(ge=0)] = None
     """
     How long the read may wait for its request to end and its body to
@@ -1968,9 +1971,15 @@ class RouteRequest(BaseModel):
         extra="allow",
     )
     headers: dict[str, str]
-    """Its headers, as the page sent them."""
+    """
+    Its headers, as the page sent them, their names in lowercase, as
+    Playwright gives them; as a route before replaced them.
+    """
     is_navigation_request: bool
-    """Whether it loads the document of the page's main frame."""
+    """
+    Whether it loads the document of one of the page's frames, its main
+    frame's or an iframe's, as Playwright's `isNavigationRequest()`.
+    """
     method: str
     """Its method, such as `GET`."""
     post_data: str | None = None
@@ -1980,8 +1989,9 @@ class RouteRequest(BaseModel):
     """
     resource_type: str
     """
-    What the page loads with it, as the browser names it, such as
-    `Document`, `Script` or `XHR`.
+    What the page loads with it, as Playwright's `resourceType()` names
+    it: the browser's name in lowercase, such as `document`, `script`
+    or `xhr`.
     """
     url: str
     """Its URL."""
@@ -3643,6 +3653,13 @@ class DaemonState(BaseModel):
     """Where its Console is served, or why it is not."""
     endpoint: DaemonEndpoint
     """Where it listens."""
+    heap: Annotated[int | None, Field(ge=0)] = None
+    """
+    Its live heap: the bytes its own allocations hold now, as its
+    executable's allocator counts them, without the pages that
+    allocator keeps once they are freed; none where nothing counts
+    them.
+    """
     idle_timeout: Annotated[int, Field(ge=0)]
     """Its `daemon.idle_timeout`, in milliseconds."""
     kept_alive: bool
@@ -4619,7 +4636,8 @@ class PagePopup(BaseModel):
 class PageRequest(BaseModel):
     """
     A request of a page, ADR 0085's `Request`: one per hop of a redirect
-    chain, each hop under the same `request_id`.
+    chain, each hop under its own `request_id`, as Playwright's
+    `redirectedFrom()` and `redirectedTo()` tell them apart.
     """
 
     model_config = ConfigDict(
@@ -4628,9 +4646,15 @@ class PageRequest(BaseModel):
     failure: RequestFailure | None = None
     """Why it failed, for `page.request_failed`; none otherwise."""
     headers: dict[str, str]
-    """Its headers as the browser sent them."""
+    """
+    Its headers as the browser sent them, their names in lowercase, as
+    Playwright gives them.
+    """
     is_navigation_request: bool
-    """Whether it loads the document of the page's main frame."""
+    """
+    Whether it loads the document of one of the page's frames, its main
+    frame's or an iframe's, as Playwright's `isNavigationRequest()`.
+    """
     method: str
     """Its method, such as `GET`."""
     page_id: PageId
@@ -4642,12 +4666,21 @@ class PageRequest(BaseModel):
     The URLs of the hops a redirect led from before it, the first first;
     empty when no redirect led to it.
     """
+    redirected_from: str | None = None
+    """
+    The `request_id` of the hop whose redirect led to it, Playwright's
+    `redirectedFrom()`; none at a request's first hop.
+    """
     request_id: str
-    """The browser's ID for it, which `response.body` takes."""
+    """
+    The engine's ID for this hop, which `response.body` takes: the
+    browser's ID for the request at its first hop, and that ID with
+    `#` and the hop's number after each redirect.
+    """
     resource_type: str
     """
-    The browser's name for what it loads, such as `Document` or
-    `Fetch`.
+    What it loads, as Playwright's `resourceType()` names it: the
+    browser's name in lowercase, such as `document`, `fetch` or `xhr`.
     """
     url: str
     """Its URL."""
@@ -5536,7 +5569,11 @@ class EventBatch(BaseModel):
     events: list[EventEnvelope]
     """Its events."""
     id: RequestId
-    """The id of the subscription's `events.subscribe` call."""
+    """
+    The id of the streaming call whose events it carries: a
+    subscription's `events.subscribe` call, or a `page.on` call, whose
+    page's events go only to it.
+    """
 
 
 class EventsSubscribeParams(BaseModel):

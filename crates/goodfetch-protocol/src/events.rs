@@ -35,7 +35,7 @@ pub const CREDIT: &str = "$/credit";
 pub const EVENTS: &str = "$/events";
 
 /// The position of an event among every event of one engine, which only
-/// goes up.
+/// goes up; for a `page.on` call's own events, among that call's, from 1.
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
@@ -51,7 +51,7 @@ impl JsonSchema for Position {
         schemars::json_schema!({
             "type": "integer",
             "minimum": 0,
-            "description": "An event's position among every event of one engine, which only goes up.",
+            "description": "An event's position among every event of one engine, which only goes up; for a `page.on` call's own events, among that call's, from 1.",
         })
     }
 }
@@ -140,7 +140,9 @@ fn is_zero(count: &u64) -> bool {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EventBatch {
-    /// The id of the subscription's `events.subscribe` call.
+    /// The id of the streaming call whose events it carries: a
+    /// subscription's `events.subscribe` call, or a `page.on` call, whose
+    /// page's events go only to it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub id: RequestId,
     /// Its events.

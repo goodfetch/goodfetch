@@ -722,7 +722,7 @@ export type PlanStatus = "unchanged" | "promoted" | "pending_review" | "frozen";
  */
 export type PolicyTable = "settings" | "lock" | "cap";
 /**
- * An event's position among every event of one engine, which only goes up.
+ * An event's position among every event of one engine, which only goes up; for a `page.on` call's own events, among that call's, from 1.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "Position".
@@ -2034,6 +2034,13 @@ export interface DaemonState {
         tcp: string;
       };
   /**
+   * Its live heap: the bytes its own allocations hold now, as its
+   * executable's allocator counts them, without the pages that
+   * allocator keeps once they are freed; none where nothing counts
+   * them.
+   */
+  heap?: number | null;
+  /**
    * Its `daemon.idle_timeout`, in milliseconds.
    */
   idle_timeout: number;
@@ -2637,7 +2644,9 @@ export interface EventBatch {
    */
   events: EventEnvelope[];
   /**
-   * The id of the subscription's `events.subscribe` call.
+   * The id of the streaming call whose events it carries: a
+   * subscription's `events.subscribe` call, or a `page.on` call, whose
+   * page's events go only to it.
    */
   id: number | string;
 }
@@ -4053,7 +4062,8 @@ export interface PageResponse {
     [k: string]: string;
   };
   /**
-   * The browser's ID for its request, which `response.body` takes.
+   * The engine's ID for its request's hop, which `response.body` takes:
+   * its request's `request_id`.
    */
   request_id: string;
   /**
@@ -4560,13 +4570,15 @@ export interface PageRequest {
    */
   failure?: RequestFailure | null;
   /**
-   * Its headers as the browser sent them.
+   * Its headers as the browser sent them, their names in lowercase, as
+   * Playwright gives them.
    */
   headers: {
     [k: string]: string;
   };
   /**
-   * Whether it loads the document of the page's main frame.
+   * Whether it loads the document of one of the page's frames, its main
+   * frame's or an iframe's, as Playwright's `isNavigationRequest()`.
    */
   is_navigation_request: boolean;
   /**
@@ -4587,12 +4599,19 @@ export interface PageRequest {
    */
   redirect_chain: string[];
   /**
-   * The browser's ID for it, which `response.body` takes.
+   * The `request_id` of the hop whose redirect led to it, Playwright's
+   * `redirectedFrom()`; none at a request's first hop.
+   */
+  redirected_from?: string | null;
+  /**
+   * The engine's ID for this hop, which `response.body` takes: the
+   * browser's ID for the request at its first hop, and that ID with
+   * `#` and the hop's number after each redirect.
    */
   request_id: string;
   /**
-   * The browser's name for what it loads, such as `Document` or
-   * `Fetch`.
+   * What it loads, as Playwright's `resourceType()` names it: the
+   * browser's name in lowercase, such as `document`, `fetch` or `xhr`.
    */
   resource_type: string;
   /**
@@ -4642,7 +4661,8 @@ export interface PageResponse1 {
     [k: string]: string;
   };
   /**
-   * The browser's ID for its request, which `response.body` takes.
+   * The engine's ID for its request's hop, which `response.body` takes:
+   * its request's `request_id`.
    */
   request_id: string;
   /**
@@ -4922,7 +4942,8 @@ export interface PageOpened1 {
 }
 /**
  * A request of a page, ADR 0085's `Request`: one per hop of a redirect
- * chain, each hop under the same `request_id`.
+ * chain, each hop under its own `request_id`, as Playwright's
+ * `redirectedFrom()` and `redirectedTo()` tell them apart.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "PageRequest".
@@ -4933,13 +4954,15 @@ export interface PageRequest1 {
    */
   failure?: RequestFailure | null;
   /**
-   * Its headers as the browser sent them.
+   * Its headers as the browser sent them, their names in lowercase, as
+   * Playwright gives them.
    */
   headers: {
     [k: string]: string;
   };
   /**
-   * Whether it loads the document of the page's main frame.
+   * Whether it loads the document of one of the page's frames, its main
+   * frame's or an iframe's, as Playwright's `isNavigationRequest()`.
    */
   is_navigation_request: boolean;
   /**
@@ -4960,12 +4983,19 @@ export interface PageRequest1 {
    */
   redirect_chain: string[];
   /**
-   * The browser's ID for it, which `response.body` takes.
+   * The `request_id` of the hop whose redirect led to it, Playwright's
+   * `redirectedFrom()`; none at a request's first hop.
+   */
+  redirected_from?: string | null;
+  /**
+   * The engine's ID for this hop, which `response.body` takes: the
+   * browser's ID for the request at its first hop, and that ID with
+   * `#` and the hop's number after each redirect.
    */
   request_id: string;
   /**
-   * The browser's name for what it loads, such as `Document` or
-   * `Fetch`.
+   * What it loads, as Playwright's `resourceType()` names it: the
+   * browser's name in lowercase, such as `document`, `fetch` or `xhr`.
    */
   resource_type: string;
   /**
@@ -5522,7 +5552,7 @@ export interface ResponseBodyParams {
    */
   page_id: string;
   /**
-   * The request, by the browser's ID.
+   * The request's hop, by the engine's ID for it.
    */
   request_id: string;
   /**
@@ -5693,13 +5723,15 @@ export interface RouteHandleParams {
  */
 export interface RouteRequest {
   /**
-   * Its headers, as the page sent them.
+   * Its headers, as the page sent them, their names in lowercase, as
+   * Playwright gives them; as a route before replaced them.
    */
   headers: {
     [k: string]: string;
   };
   /**
-   * Whether it loads the document of the page's main frame.
+   * Whether it loads the document of one of the page's frames, its main
+   * frame's or an iframe's, as Playwright's `isNavigationRequest()`.
    */
   is_navigation_request: boolean;
   /**
@@ -5712,8 +5744,9 @@ export interface RouteRequest {
    */
   post_data?: string | null;
   /**
-   * What the page loads with it, as the browser names it, such as
-   * `Document`, `Script` or `XHR`.
+   * What the page loads with it, as Playwright's `resourceType()` names
+   * it: the browser's name in lowercase, such as `document`, `script`
+   * or `xhr`.
    */
   resource_type: string;
   /**
@@ -5772,13 +5805,15 @@ export interface RouteOverridesParams {
  */
 export interface RouteRequest1 {
   /**
-   * Its headers, as the page sent them.
+   * Its headers, as the page sent them, their names in lowercase, as
+   * Playwright gives them; as a route before replaced them.
    */
   headers: {
     [k: string]: string;
   };
   /**
-   * Whether it loads the document of the page's main frame.
+   * Whether it loads the document of one of the page's frames, its main
+   * frame's or an iframe's, as Playwright's `isNavigationRequest()`.
    */
   is_navigation_request: boolean;
   /**
@@ -5791,8 +5826,9 @@ export interface RouteRequest1 {
    */
   post_data?: string | null;
   /**
-   * What the page loads with it, as the browser names it, such as
-   * `Document`, `Script` or `XHR`.
+   * What the page loads with it, as Playwright's `resourceType()` names
+   * it: the browser's name in lowercase, such as `document`, `script`
+   * or `xhr`.
    */
   resource_type: string;
   /**

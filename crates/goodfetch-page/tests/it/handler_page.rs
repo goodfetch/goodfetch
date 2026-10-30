@@ -179,14 +179,14 @@ impl Program {
             .unwrap_or_else(|| panic!("`page.goto` to {url} failed: {went}"))
     }
 
-    /// Subscribes to the event stream with credits for every event, and
-    /// listens to `event` of the test's page.
+    /// Listens to `event` of the test's page, granting the listening call
+    /// credits for every event it sends.
     pub(crate) async fn listen(&mut self, event: &str) {
-        let id = self.request("events.subscribe", &json!({})).await;
-        self.notify("$/credit", &json!({ "id": id, "credits": 10_000 }))
-            .await;
         let page = self.page.clone();
-        self.request("page.on", &json!({ "page_id": page, "event": event }))
+        let id = self
+            .request("page.on", &json!({ "page_id": page, "event": event }))
+            .await;
+        self.notify("$/credit", &json!({ "id": id, "credits": 10_000 }))
             .await;
     }
 
@@ -416,7 +416,13 @@ pub(crate) fn with_handler_page(
                 "egress".to_owned(),
                 json!({ "private_ranges": resolve.keys().collect::<Vec<_>>() }),
             );
-            settings.insert("network".to_owned(), json!({ "resolve": resolve }));
+            // The test's own `network` settings keep theirs beside it.
+            let network = settings
+                .entry("network".to_owned())
+                .or_insert_with(|| json!({}));
+            if let Some(network) = network.as_object_mut() {
+                network.insert("resolve".to_owned(), json!(resolve));
+            }
             let started = program
                 .call("run.start", &json!({ "run_id": RUN, "settings": settings }))
                 .await;

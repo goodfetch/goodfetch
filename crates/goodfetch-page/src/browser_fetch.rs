@@ -50,14 +50,11 @@ use goodfetch_protocol::page::{
     PageResponse, RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
 };
 
-use crate::driver::PageDriver;
+use crate::driver::{PageDriver, bodiless, encoded_bytes, from_the_network, lost_its_failure};
 use crate::errors::{network_error, site_preferences_refused};
 use crate::interception::{EngineRequests, Overrides};
 use crate::page_value::{Navigation, NavigationKind, Permit};
-use crate::paused_body::{
-    bodiless, coded, declared_within_limits, encoded_bytes, from_the_network, lost_its_failure,
-    streamed,
-};
+use crate::paused_body::{coded, declared_within_limits, streamed};
 
 /// The headers the page's copy of the response loses, so that nothing
 /// renders it or turns it into a download.

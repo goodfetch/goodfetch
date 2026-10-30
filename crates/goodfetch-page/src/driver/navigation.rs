@@ -36,7 +36,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_protocol::page::{PageResponse, WaitUntil};
 
-use crate::paused_body::{bodiless, from_the_network, lost_its_failure};
+use super::cut_loads::{bodiless, from_the_network, lost_its_failure};
 
 /// The event of a target whose renderer crashed.
 pub(super) const CRASHED: &str = "Inspector.targetCrashed";

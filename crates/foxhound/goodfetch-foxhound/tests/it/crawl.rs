@@ -11,11 +11,12 @@
 )]
 
 use std::io::Write as _;
+use std::path::PathBuf;
 use std::process::{ChildStdin, Command, Stdio};
 use std::time::Duration;
 
 use goodfetch_protocol::jsonrpc::Message;
-use goodfetch_test_support::{Process, StrictStdout, TestEnv};
+use goodfetch_test_support::{AnsweredCalls, Process, StrictStdout, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -24,13 +25,22 @@ use serde_json::{Value, json};
 /// schema or key.
 const PUSHED_INTO: [&str; 4] = ["pages", "books", "items", "links"];
 
-/// A running Attached engine of Foxhound's executable.
+/// A running Attached engine of Foxhound's executable. When it ends
+/// without exiting by itself, killed or left to the test's teardown, it
+/// records the calls it read answered in the test's answer record: the
+/// killed engine's log loses the dispatch records its writer's thread had
+/// not written yet (ADR 0122), which the exercise audit reads (#1779).
 pub(crate) struct Attached {
     process: Process,
     stdin: Option<ChildStdin>,
     stdout: StrictStdout,
     /// The engine instance its `hello` named.
     engine_instance: Value,
+    /// The test's folder, which holds its answer record.
+    folder: PathBuf,
+    answered: AnsweredCalls,
+    /// Whether the engine exited by itself, its log written whole.
+    exited: bool,
 }
 
 impl Attached {
@@ -75,6 +85,9 @@ impl Attached {
             stdin,
             stdout,
             engine_instance: Value::Null,
+            folder: env.folder().to_owned(),
+            answered: AnsweredCalls::default(),
+            exited: false,
         };
         engine.send(&json!({
             "jsonrpc": "2.0", "id": "hello", "method": "hello",
@@ -96,6 +109,7 @@ impl Attached {
                 .map(|name| json!({ "name": name }))
                 .collect();
         }
+        self.answered.sent(&message);
         let stdin = self.stdin.as_mut().unwrap();
         let mut line = serde_json::to_vec(&message).unwrap();
         line.push(b'\n');
@@ -106,6 +120,7 @@ impl Attached {
     pub(crate) fn next(&mut self) -> Option<Value> {
         let message = self.stdout.try_next().unwrap()?;
         serde_json::from_value::<Message>(message.clone()).unwrap();
+        self.answered.read(&message);
         Some(message)
     }
 
@@ -156,7 +171,8 @@ impl Attached {
     }
 
     /// Kills the engine (`kill -9`, `TerminateProcess` on Windows) and
-    /// waits for it to exit.
+    /// waits for it to exit; the calls it answered go to the test's answer
+    /// record.
     pub(crate) fn kill(self) {
         self.process.stop().unwrap();
     }
@@ -165,7 +181,23 @@ impl Attached {
     pub(crate) fn finish(mut self) -> bool {
         drop(self.stdin.take());
         while self.next().is_some() {}
-        self.process.child().wait().unwrap().success()
+        self.exited = self.process.child().wait().unwrap().success();
+        self.exited
+    }
+}
+
+impl Drop for Attached {
+    fn drop(&mut self) {
+        // A folder already gone means the test's teardown ran, copying the
+        // record that nothing can add to any more.
+        if self.exited || !self.folder.is_dir() {
+            return;
+        }
+        if let Err(error) = self.answered.record_in(&self.folder)
+            && !std::thread::panicking()
+        {
+            panic!("the test's answer record cannot be written: {error}");
+        }
     }
 }
 

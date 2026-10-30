@@ -5,7 +5,12 @@
 //! context, so the cookies a page set in the browser are sent by the HTTP
 //! tier's next request in the same Session and by no other Session (the
 //! tier parity of cookies, Foxhound's half), and the site sees one TLS
-//! fingerprint across both tiers.
+//! fingerprint across both tiers. A body cut once the browser read it fails
+//! each attempt on the browser-fetch tier and the browser tier (#1732).
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -540,9 +545,8 @@ fn ended(engine: &mut Attached, run_id: &str) -> BTreeMap<String, Value> {
 }
 
 /// A body broken off once the browser was reading it, chunked or coded,
-/// which no length tells cut, fails
-/// each attempt with `response_truncated` on the browser-fetch tier and on
-/// the browser tier alike, though the pinned Chromium's interception, which
+/// which no length tells cut, fails each attempt with `response_truncated`
+/// on the browser-fetch tier and on the browser tier alike, though the pinned Chromium's interception, which
 /// reads the body at its response stage, loses the network's failure of a
 /// few such loads (#1732): each is retried once under `crawl.retry.max`,
 /// then ends `failed`, never handed to the handler. The site processed

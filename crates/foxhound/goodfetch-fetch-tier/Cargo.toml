@@ -14,6 +14,7 @@ autobenches = false
 brotli-decompressor.workspace = true
 btls.workspace = true
 bytes.workspace = true
+cssparser.workspace = true
 data-encoding.workspace = true
 dom_query.workspace = true
 encoding_rs.workspace = true

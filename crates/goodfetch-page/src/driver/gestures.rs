@@ -9,7 +9,10 @@
 //!
 //! The pinned Chromium's signals: the input's acknowledgement can come
 //! before the main frame's `Page.frameRequestedNavigation`, which a round
-//! trip into the renderer after the input orders before its answer; and the
+//! trip into the renderer after the input orders before its answer, a
+//! form's submission's included (Blink sends its request as it queues the
+//! submission's task, in the input's own task), so the watch reads every
+//! event the connection holds before it takes that answer; and the
 //! renderer's `Page.frameNavigated` can come before the browser made the
 //! new document the page's active one, which a round trip into the renderer
 //! after the commit waits for, since the browser holds the commands it
@@ -32,16 +35,20 @@ pub(crate) struct GestureWatch {
 impl GestureWatch {
     /// Runs `gesture`, the input and what follows it in the page, while
     /// reading the main frame's events, so that the browser's connection
-    /// never waits on this watch's unread ones.
+    /// never waits on this watch's unread ones. Every event the browser
+    /// sent before the answer that ends `gesture` is read before it
+    /// returns: the connection hands an event to its subscribers before it
+    /// hands over a later answer, so the events are polled first (#1766).
     pub(crate) async fn during<T>(&mut self, gesture: impl Future<Output = T>) -> T {
         let mut gesture = std::pin::pin!(gesture);
         loop {
             tokio::select! {
-                done = &mut gesture => return done,
+                biased;
                 event = self.events.next(), if !self.ended => match event {
                     Some(event) => self.navigation.feed(&event),
                     None => self.ended = true,
                 },
+                done = &mut gesture => return done,
             }
         }
     }
@@ -106,3 +113,6 @@ impl PageDriver {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -2128,3 +2128,113 @@ fn a_provider_sessions_upload_is_charged_ahead_in_few_allowances_and_priced_once
         "{charges} ledger charges of proxy_bytes: {used}"
     );
 }
+
+/// A `list` provider's SOCKS5 server: the relay charges its handshake, its
+/// tunnel and the page's bytes ahead and lets every one pass, so the page
+/// loads and `proxy_bytes` counts what the proxy carried.
+///
+/// Covers: story:8-92, setting:proxy.providers, operation:run.usage
+#[cfg(unix)]
+#[test]
+fn a_socks5_list_servers_handshake_and_bytes_are_charged_ahead_and_all_pass() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let credentials = &proving_ground.description().fixtures.proxy_credentials;
+    let configuration = format!(
+        "[settings.proxy.providers.list]\nusername = \"{}\"\npassword = \"env:{PASSWORD_VARIABLE}\"\nservers = [{{ server = \"socks5://{}\", kind = \"isp\" }}]\n",
+        credentials.username,
+        proxy_address(&proving_ground, "socks5"),
+    );
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "socks-counted",
+        &configuration,
+        &json!({ "proxy": { "provider": "list", "kind": "isp" } }),
+        &[a_bytes_limit()],
+    );
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "socks-counted" }),
+    ));
+    let navigated = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=socks-counted") }),
+    );
+    tunnels_settled(&proving_ground);
+    let _ = call(
+        &mut engine,
+        4,
+        "run.finish",
+        &json!({ "run_id": "socks-counted" }),
+    );
+    let used = call(
+        &mut engine,
+        5,
+        "run.usage",
+        &json!({ "run_id": "socks-counted" }),
+    );
+    let _ = engine.finish();
+
+    let carried = carried_by_every_relay(&proving_ground);
+    assert_eq!(
+        (
+            navigated["result"]["response"]["status"].clone(),
+            carried > 0,
+            &used["result"]["proxy_bytes"],
+        ),
+        (json!(200), true, &json!(carried)),
+        "{navigated} {used}"
+    );
+}
+
+/// Waits until the site received the page, its robots.txt and the icon
+/// Chromium asks for, a minute at most, and the SOCKS5 proxy ended a relay
+/// for each: the site answers each with `Connection: close`, so a relay
+/// ends once the browser read its whole answer, and no byte is under way
+/// when the Run ends. A SOCKS5 tunnel names no path, so the relays alone
+/// cannot tell the page's last request, as [`page_load_relayed`] does.
+fn tunnels_settled(proving_ground: &ProvingGround) {
+    for _ in 0..600 {
+        let observations = proving_ground.observations().unwrap();
+        let requests = ReceivedRequests::of(&observations);
+        let targets: BTreeSet<String> = requests
+            .every()
+            .filter_map(|request| request["target"].as_str())
+            .map(|target| target.split('?').next().unwrap_or_default().to_owned())
+            .collect();
+        let relays = observations["relays"].as_array().unwrap().len();
+        if ["/storage", "/robots.txt", "/favicon.ico"]
+            .iter()
+            .all(|target| targets.contains(*target))
+            && relays == requests.every().count()
+        {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!(
+        "the page's tunnels had not all ended after a minute: {}",
+        proving_ground.observations().unwrap()
+    );
+}
+
+/// What the Proving ground's proxies carried, in bytes, on every relay
+/// that ended.
+fn carried_by_every_relay(proving_ground: &ProvingGround) -> u64 {
+    proving_ground.observations().unwrap()["relays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|relay| {
+            relay["bytes"]["received"].as_u64().unwrap() + relay["bytes"]["sent"].as_u64().unwrap()
+        })
+        .sum()
+}

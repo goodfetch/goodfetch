@@ -158,6 +158,8 @@ fn a_canarys_debug_form_never_shows_its_value() {
 #[case::raw("raw.log")]
 #[case::json_escaped("json-escaped.log")]
 #[case::url_encoded("url-encoded.log")]
+#[case::url_encoded_as_a_browser_encodes_a_form("form-urlencoded.log")]
+#[case::url_encoded_as_encode_uri_component_does("uri-component.log")]
 #[case::base64("base64.log")]
 #[case::base64url("base64url.log")]
 #[case::hex("hex.log")]

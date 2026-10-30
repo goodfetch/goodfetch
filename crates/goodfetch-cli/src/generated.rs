@@ -44,9 +44,11 @@
 //! output share the entry's schemas, and splitting them would only pass
 //! those schemas between modules.
 
+use std::cell::{Cell, RefCell};
 use std::fmt::Write as _;
 use std::marker::PhantomData;
 use std::process::ExitCode;
+use std::sync::{Arc, OnceLock};
 
 use clap::error::ErrorKind;
 use clap::{Arg, ArgAction, ArgMatches, Args as _, Command, FromArgMatches, Subcommand};
@@ -60,11 +62,11 @@ use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::run::RunReport;
 use schemars::generate::SchemaSettings;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::engine_choice::{
     self, Answer, Choice, CommandCall, Daemons, EngineChoice, Follower, Input, Lifetime, Next,
-    Pager,
+    Pager, ReadValues, Values,
 };
 use crate::output::{ColourFlag, Human};
 use crate::settings_flags::{self, SettingsFlags};
@@ -93,11 +95,21 @@ impl Own {
         }
     }
 
-    /// The params its own flags give, which get no generated flag.
+    /// The params its own flags give, or it leaves out, which get no
+    /// generated flag.
     fn replaces(self) -> &'static [&'static str] {
         match self {
             Self::CrawlStart => crawl_start::REPLACES,
             Self::RunExport => run_export::REPLACES,
+        }
+    }
+
+    /// Its own help, in place of its operation's description, if it has
+    /// one.
+    fn about(self) -> Option<&'static str> {
+        match self {
+            Self::CrawlStart => Some(crawl_start::ABOUT),
+            Self::RunExport => None,
         }
     }
 
@@ -576,10 +588,13 @@ fn command(operation: &'static Operation) -> Command {
     } else {
         command
     };
+    let about = own
+        .and_then(Own::about)
+        .map_or_else(|| sentence(operation.description), str::to_owned);
     let command = command
         // After the settings flags, whose derived arguments set an `about`
         // of their own.
-        .about(sentence(operation.description));
+        .about(about);
     match operation.deprecated {
         Some(deprecated) => command.after_help(deprecation(deprecated)),
         None => command,
@@ -641,6 +656,8 @@ enum Form {
     Value,
     /// A flag with no value: `true` when given.
     Switch,
+    /// A flag of an optional boolean, which takes `true` or `false`.
+    Boolean,
     /// A flag with a text.
     Text,
     /// A flag with a value read as JSON when it parses as JSON, as text
@@ -663,6 +680,12 @@ impl Parameter {
         match self.form {
             Form::Value => arg.required(true),
             Form::Switch => arg.long(spelled(&self.name)).action(ArgAction::SetTrue),
+            Form::Boolean => arg
+                .long(spelled(&self.name))
+                .value_name("true|false")
+                .required(self.required)
+                .action(ArgAction::Set)
+                .value_parser(clap::builder::BoolValueParser::new()),
             Form::Text | Form::Json => arg
                 .long(spelled(&self.name))
                 .required(self.required)
@@ -691,6 +714,10 @@ impl Parameter {
         };
         match self.form {
             Form::Switch => matches.get_flag(&self.name).then_some(Value::Bool(true)),
+            Form::Boolean => matches
+                .get_one::<bool>(&self.name)
+                .copied()
+                .map(Value::Bool),
             Form::Value | Form::Text => matches
                 .get_one::<String>(&self.name)
                 .map(|text| read(text, false)),
@@ -738,6 +765,10 @@ fn parameters(operation: &Operation) -> Vec<Parameter> {
                 Form::Settings
             } else {
                 match type_name(type_of) {
+                    // An optional boolean has three states, so its flag
+                    // takes `true` or `false`, and its absence leaves the
+                    // param out.
+                    Some("boolean") if nullable(schema, &definitions) => Form::Boolean,
                     Some("boolean") => Form::Switch,
                     Some("string") => Form::Text,
                     Some("array") => Form::Repeated {
@@ -816,6 +847,26 @@ fn resolved<'a>(schema: &'a Value, definitions: &'a Value) -> &'a Value {
         }
     }
     schema
+}
+
+/// Whether `schema`, followed through its references, allows `null`
+/// beside its value: an optional value's.
+fn nullable(schema: &Value, definitions: &Value) -> bool {
+    if let Some(reference) = schema["$ref"].as_str()
+        && let Some(name) = reference.strip_prefix("#/$defs/")
+    {
+        return nullable(&definitions[name], definitions);
+    }
+    let named_null = match &schema["type"] {
+        Value::Array(names) => names.iter().any(|name| name == "null"),
+        _ => false,
+    };
+    named_null
+        || schema["anyOf"].as_array().is_some_and(|alternatives| {
+            alternatives
+                .iter()
+                .any(|alternative| alternative["type"] == "null")
+        })
 }
 
 /// The JSON type a schema names, an optional value's `null` aside.
@@ -911,6 +962,10 @@ impl Call {
     /// an Attached engine in this process, `engine` on `dependencies`;
     /// prints what it answered as `human` shows it, or under `--follow`
     /// what it sent, and answers the exit code.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the call's follower, pager and input are closures over the state its end reads; splitting them would pass that state between functions"
+    )]
     pub fn run(
         mut self,
         engine: &Engine,
@@ -933,14 +988,24 @@ impl Call {
         }
         let json = self.json;
         let offered = offer(self.operation);
-        let params = Value::Object(std::mem::take(&mut self.params));
+        let mut params = Value::Object(std::mem::take(&mut self.params));
+        // Without `--follow` or `--through`, a sequence of what a crawl
+        // committed reads through the last Record committed when it began,
+        // which its first call reads; it prints each Record as it arrives.
+        let bounded =
+            offered == Some(Offer::Committed) && !self.follow && params.get(THROUGH).is_none();
+        let array = RefCell::new(JsonArray::default());
         let mut print_sent = |method: &str, sent: &Value| Some(follow(json, method, sent));
-        let mut kept = Vec::new();
-        let mut keep_sent = |method: &str, sent: &Value| {
+        let mut print_committed = |method: &str, sent: &Value| {
             let items = items(method, sent);
-            let count = u32::try_from(items.len()).unwrap_or(u32::MAX);
-            kept.extend(items.into_iter().cloned());
-            Some(count)
+            for item in &items {
+                if json {
+                    array.borrow_mut().item(item);
+                } else {
+                    output::line(&fields(item));
+                }
+            }
+            Some(u32::try_from(items.len()).unwrap_or(u32::MAX))
         };
         let mut print_answers = |method: &str, sent: &Value| {
             follow(json, method, sent);
@@ -948,7 +1013,7 @@ impl Call {
         };
         let follower: Option<Follower<'_>> = match (offered, self.follow) {
             (Some(Offer::Follow | Offer::Committed), true) => Some(&mut print_sent),
-            (Some(Offer::Committed), false) => Some(&mut keep_sent),
+            (Some(Offer::Committed), false) => Some(&mut print_committed),
             (Some(Offer::Input), _) => Some(&mut print_answers),
             _ => None,
         };
@@ -969,22 +1034,55 @@ impl Call {
                 followed: false,
             })
         };
-        let pager: Option<Pager<'_>> =
-            (offered == Some(Offer::Pages) && self.follow).then_some(&mut next_page);
-        let mut stdin = StdinValues::default();
-        let mut next_values = |most: u32| stdin.next(most);
+        // The bound's read is the first call; the sequence, through its
+        // `through`, the next.
+        let bounding = Cell::new(bounded);
+        let mut sequence = params.clone();
+        let mut read_through = |page: &Value| {
+            if !bounding.replace(false) {
+                return None;
+            }
+            sequence[THROUGH] = page[THROUGH].clone();
+            Some(Next {
+                method: self.operation.name,
+                params: sequence.clone(),
+                cancellable: self.operation.cancellable,
+                followed: true,
+            })
+        };
+        let (method, cancellable) = if bounded {
+            params = json!({
+                "run_id": params["run_id"],
+                "dataset": params["dataset"],
+                "limit": 1,
+                "columns": [],
+            });
+            (BOUND.name, BOUND.cancellable)
+        } else {
+            (self.operation.name, self.operation.cancellable)
+        };
+        let pager: Option<Pager<'_>> = if bounded {
+            Some(&mut read_through)
+        } else {
+            (offered == Some(Offer::Pages) && self.follow).then_some(&mut next_page)
+        };
+        let refused = Arc::new(OnceLock::new());
+        let mut stdin = ReadValues::new({
+            let refused = Arc::clone(&refused);
+            move |sender| read_stdin(&sender, &refused)
+        });
         let input = INPUTS
             .iter()
             .find(|(name, _, _)| *name == self.operation.name)
             .map(|(_, method, field)| Input {
                 method,
                 field,
-                next: &mut next_values,
+                values: Values::Read(&mut stdin),
             });
         let call = CommandCall {
-            method: self.operation.name,
+            method,
             params,
-            cancellable: self.operation.cancellable,
+            cancellable,
             follower,
             pager,
             input,
@@ -992,24 +1090,52 @@ impl Call {
         };
         // A followed call prints as it runs, so only a call that prints at
         // its end shows its words as progress until then.
-        let prints_at_its_end = !self.follow && offered != Some(Offer::Input);
+        let prints_at_its_end =
+            !self.follow && !matches!(offered, Some(Offer::Input | Offer::Committed));
         let progress = prints_at_its_end.then(|| human.progress(&words));
         let warn = |text: &str| human.warning(text);
         let reach = self.reach(daemons, &warn);
         let answer = engine_choice::call(engine, dependencies, self.product, &reach, call);
         drop(progress);
+        // Once the array of Records is open on stdout, it closes whatever
+        // ends the call, and a failure goes to stderr alone (ADR 0069).
+        let opened = array.borrow_mut().close();
+        if let Some(problem) = refused.get() {
+            human.failure(problem, &[]);
+            return ExitCode::from(goodfetch_protocol::cli::USAGE.code);
+        }
+        let failing = if bounding.get() {
+            BOUND.name
+        } else {
+            self.operation.name
+        };
+        self.answered(answer, opened, failing, human)
+    }
+
+    /// Prints what the call answered, `answer`, and answers the exit code:
+    /// a failure of the call `failing` printed on stderr alone once
+    /// stdout's array of Records was `opened`.
+    fn answered(&self, answer: Answer, opened: bool, failing: &str, human: &Human) -> ExitCode {
+        let (json, offered) = (self.json, offer(self.operation));
         match answer {
             Answer::Result(result) => {
                 match offered {
                     _ if self.follow => {}
-                    // What a crawl committed is what such a command prints.
-                    Some(Offer::Committed) => print_kept(json, &kept),
+                    // What a crawl committed is what such a command
+                    // printed, an empty array under `--json` when nothing.
+                    Some(Offer::Committed) if json && !opened => output::raw(b"[]\n"),
+                    Some(Offer::Committed) => {}
                     Some(Offer::Input) if json => {}
                     _ => self.print(&result, human),
                 }
                 ExitCode::from(self.exit_of(result))
             }
-            Answer::Error(error) => self.fail(error, human),
+            Answer::Error(error) if opened => {
+                let exit = exit_codes::of_error(&error.data.code, exit_codes::group(&error));
+                output::failed_after(&output::command_failed(error, Some(failing)), json, human);
+                ExitCode::from(exit)
+            }
+            Answer::Error(error) => output::fail(error, Some(failing), json, human),
             Answer::Refused(error) => self.fail_exiting(error, exit_codes::DAEMON_REFUSED, human),
             Answer::Unanswered(error) => output::fail(error, None, json, human),
             Answer::Interrupted(interrupt) => ExitCode::from(interrupt.exit_code()),
@@ -1104,17 +1230,46 @@ fn print_item(json: bool, item: &Value) {
     }
 }
 
-/// Prints what a sequence of what a crawl committed sent, once its call
-/// ended: one JSON array under `--json`, else one item per line.
-fn print_kept(json: bool, kept: &[Value]) {
-    if json {
-        output::json(&kept);
-    } else {
-        for item in kept {
-            output::line(&fields(item));
+/// The JSON array a sequence of what a crawl committed prints under
+/// `--json`, written as its items arrive, so the command keeps none: `[`
+/// before the first, each item on a line of its own, `]` once its call
+/// ended, however it ended.
+#[derive(Default)]
+struct JsonArray {
+    /// Whether `[` is out.
+    opened: bool,
+}
+
+impl JsonArray {
+    /// Writes `item`, opening the array first.
+    fn item(&mut self, item: &Value) {
+        let mut bytes = if self.opened {
+            b",\n".to_vec()
+        } else {
+            b"[\n".to_vec()
+        };
+        self.opened = true;
+        bytes.extend(serde_json::to_vec(item).expect("invariant: a JSON value serializes"));
+        output::raw(&bytes);
+    }
+
+    /// Ends the array once it is open, and answers whether it was.
+    fn close(&mut self) -> bool {
+        if self.opened {
+            output::raw(b"\n]\n");
         }
+        self.opened
     }
 }
+
+/// The read whose `through` bounds a sequence of what a crawl committed
+/// without `--follow`: the last Record committed when the command began,
+/// which `dataset.page` answers.
+const BOUND: Operation = goodfetch_protocol::foxhound::dataset_view::DATASET_PAGE;
+
+/// The param of such a sequence, and the field of [`BOUND`]'s answer, that
+/// names the last Record it reads.
+const THROUGH: &str = "through";
 
 /// The param of a call that answers page by page that names where its
 /// page starts.
@@ -1171,38 +1326,55 @@ fn page_items(operation: &Operation) -> String {
     }
 }
 
-/// The values a command reads from stdin for a call that takes a stream:
-/// one per line, a line read as JSON when it parses as JSON, as text
-/// otherwise, a blank line passed over.
-#[derive(Default)]
-struct StdinValues {
-    ended: bool,
+/// Reads the values a command takes from stdin for a call that takes a
+/// stream, on the blocking thread the call starts it on, sending each to
+/// `sender` as soon as its line is read: one per line, a line read as JSON
+/// when it parses as JSON, as text otherwise, a blank line passed over. It
+/// stops at stdin's end, or at a line that is not UTF-8 or does not read,
+/// which it names, with its number, in `refused`: the stream ends there,
+/// and the command then fails as a usage error.
+fn read_stdin(sender: &tokio::sync::mpsc::Sender<Value>, refused: &OnceLock<String>) {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a command reads its stream's values from stdin on a tracked blocking thread, never an async worker (STYLE.md)"
+    )]
+    let stdin = std::io::stdin();
+    read_values(&mut stdin.lock(), sender, refused);
 }
 
-impl StdinValues {
-    /// At most `most` values, and whether stdin has ended.
-    fn next(&mut self, most: u32) -> (Vec<Value>, bool) {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "a command reads its stream's values from stdin, outside any async worker's hot path, a line per value"
-        )]
-        let stdin = std::io::stdin();
-        let mut values = Vec::new();
-        let mut line = String::new();
-        while !self.ended && values.len() < usize::try_from(most).unwrap_or(usize::MAX) {
-            line.clear();
-            match std::io::BufRead::read_line(&mut stdin.lock(), &mut line) {
-                Ok(0) | Err(_) => self.ended = true,
-                Ok(_) => {
-                    let text = line.trim();
-                    if !text.is_empty() {
-                        values
-                            .push(serde_json::from_str(text).unwrap_or_else(|_| Value::from(text)));
-                    }
-                }
+/// Reads `input`'s values as [`read_stdin`] reads stdin's.
+fn read_values(
+    input: &mut impl std::io::BufRead,
+    sender: &tokio::sync::mpsc::Sender<Value>,
+    refused: &OnceLock<String>,
+) {
+    let mut line = Vec::new();
+    for number in 1_u64.. {
+        line.clear();
+        match input.read_until(b'\n', &mut line) {
+            Ok(0) => return,
+            Ok(_) => {}
+            Err(error) => {
+                let _ = refused.set(format!(
+                    "line {number} of standard input does not read: {error}"
+                ));
+                return;
             }
         }
-        (values, self.ended)
+        let Ok(text) = std::str::from_utf8(&line) else {
+            let _ = refused.set(format!(
+                "line {number} of standard input is not UTF-8: give one value per line in UTF-8"
+            ));
+            return;
+        };
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        let value = serde_json::from_str(text).unwrap_or_else(|_| Value::from(text));
+        if sender.blocking_send(value).is_err() {
+            return;
+        }
     }
 }
 

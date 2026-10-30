@@ -456,6 +456,162 @@ fn crawl_start_reads_seeds_and_fields_from_files() {
     );
 }
 
+/// A seeds file whose seeds would pass the engine's message limit in
+/// `crawl.start` leaves the seeds past half of it to `run.add_seeds`,
+/// after the URLs given: no message carries every seed.
+///
+/// Covers: story:11-1132
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test writes the seeds file the flag reads"
+)]
+fn a_seeds_file_past_half_the_message_limit_leaves_its_last_seeds_to_run_add_seeds() {
+    let folder = tempfile::tempdir().unwrap();
+    let seeds = folder.path().join("seeds.txt");
+    let url = |n: usize| format!("https://a.test/{n}?{}", "q".repeat(1000));
+    let lines: Vec<String> = (0..20_000).map(url).collect();
+    std::fs::write(&seeds, lines.join("\n")).unwrap();
+
+    let call = asked(
+        Product::Foxhound,
+        &[
+            "crawl",
+            "start",
+            "https://first.test/",
+            "--seeds-file",
+            seeds.to_str().unwrap(),
+        ],
+    )
+    .unwrap();
+
+    let Some(OwnFlags::CrawlStart(flags)) = &call.own else {
+        panic!("crawl start takes flags of its own");
+    };
+    let started = call.params["seeds"].as_array().unwrap();
+    let start_bytes = call.params["seeds"].to_string().len();
+    let urls: Vec<&str> = started
+        .iter()
+        .chain(&flags.added)
+        .map(|seed| seed["url"].as_str().unwrap())
+        .collect();
+    let mut expected = vec!["https://first.test/".to_owned()];
+    expected.extend(lines);
+    // Compared whole but shown short: the seeds hold 20 MB.
+    assert_eq!(
+        (
+            start_bytes <= goodfetch_engine::rpc::framing::MAX_MESSAGE_BYTES / 2,
+            !flags.added.is_empty(),
+            urls == expected.iter().map(String::as_str).collect::<Vec<_>>(),
+        ),
+        (true, true, true),
+        "{start_bytes} bytes in crawl.start, {} seeds left to run.add_seeds",
+        flags.added.len()
+    );
+}
+
+/// A seeds file within half the message limit goes whole into
+/// `crawl.start`, which then leaves nothing to `run.add_seeds`.
+///
+/// Covers: story:11-1132
+#[test]
+fn a_small_seeds_list_goes_whole_into_crawl_start() {
+    let call = asked(Product::Foxhound, &["crawl", "start", "https://a.test/"]).unwrap();
+
+    let Some(OwnFlags::CrawlStart(flags)) = &call.own else {
+        panic!("crawl start takes flags of its own");
+    };
+    assert_eq!(flags.added, Vec::<Value>::new());
+}
+
+/// `crawl start` offers no `--datasets`, which a code-free crawl refuses,
+/// and has a help of its own, not `crawl.start`'s of a handler's crawl.
+///
+/// Covers: story:11-1132
+#[test]
+fn crawl_start_offers_no_datasets_flag_and_tells_of_a_code_free_crawl() {
+    let (mut command, _) = command_line(Product::Foxhound);
+    command.build();
+    let start = command
+        .find_subcommand_mut("crawl")
+        .and_then(|crawl| {
+            crawl.build();
+            crawl.find_subcommand("start").cloned()
+        })
+        .unwrap();
+
+    let flags: Vec<String> = start
+        .get_arguments()
+        .filter_map(|argument| argument.get_long().map(str::to_owned))
+        .collect();
+    let about = start
+        .get_about()
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    assert_eq!(
+        (
+            flags.contains(&"datasets".to_owned()),
+            about.contains("code-free"),
+            about.contains("handler")
+        ),
+        (false, true, false),
+        "{flags:?}\n{about}"
+    );
+}
+
+/// An optional boolean's flag takes `true` or `false`, so `run records
+/// --wall false` reads only the Records read past no Wall, and its absence
+/// leaves the param out.
+///
+/// Covers: story:11-1131
+#[rstest]
+#[case::only_the_others(&["--wall", "false"], Some(json!(false)))]
+#[case::only_the_walled(&["--wall=true"], Some(json!(true)))]
+#[case::absent(&[], None)]
+fn an_optional_booleans_flag_takes_true_or_false(
+    #[case] wall: &[&str],
+    #[case] expected: Option<Value>,
+) {
+    let mut arguments = vec!["run", "records", "r1", "--dataset", "pages"];
+    arguments.extend(wall);
+
+    let call = asked(Product::Foxhound, &arguments).unwrap();
+
+    assert_eq!(call.params.get("wall").cloned(), expected);
+}
+
+/// The values a command reads from stdin go one per line, each sent as
+/// its line is read, a line that is no JSON as text and a blank line
+/// passed over; a line that is not UTF-8 ends them, its number named as
+/// the command's usage error, after the values before it.
+///
+/// Covers: story:11-1130
+#[test]
+fn stdin_values_stop_at_a_line_that_is_not_utf8_naming_its_number() {
+    let input: &[u8] =
+        b"{\"url\":\"https://a.test/\"}\n\nplain\n\xff\xfe\n{\"url\":\"https://b.test/\"}\n";
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
+    let refused = std::sync::OnceLock::new();
+
+    super::read_values(&mut std::io::BufReader::new(input), &sender, &refused);
+    drop(sender);
+
+    let mut sent = Vec::new();
+    while let Ok(value) = receiver.try_recv() {
+        sent.push(value);
+    }
+    assert_eq!(
+        (sent, refused.get().cloned()),
+        (
+            vec![json!({ "url": "https://a.test/" }), json!("plain")],
+            Some(
+                "line 4 of standard input is not UTF-8: give one value per line in UTF-8"
+                    .to_owned()
+            )
+        )
+    );
+}
+
 /// What `crawl start` cannot read is a usage error before any engine call:
 /// no seed, a format `page.formats` does not take, a `--links` value
 /// `extraction.follow` does not take, a field with no name or locator, and

@@ -196,15 +196,12 @@ fn a_followed_crawl_exits_by_how_its_run_ended(
 }
 
 /// A first interrupt of a followed crawl stops its Run with a Checkpoint,
-/// resumable by its Run ID, and exits `130` once it stopped; a second one
-/// exits `130` at once.
+/// resumable by its Run ID, and exits `130` once it stopped.
 ///
 /// Covers: story:11-1132, command:crawl.start, command:run.report, exit:interrupted
 #[cfg(unix)]
-#[rstest]
-#[case::once(1)]
-#[case::twice(2)]
-fn an_interrupt_checkpoints_a_followed_crawl_and_exits_130(#[case] interrupts: usize) {
+#[test]
+fn an_interrupt_checkpoints_a_followed_crawl_and_exits_130() {
     let env = TestEnv::new();
     short_idle(&env);
     let _stops = StopsTheDaemon(&env);
@@ -212,9 +209,7 @@ fn an_interrupt_checkpoints_a_followed_crawl_and_exits_130(#[case] interrupts: u
     let (process, arguments) = followed_keep_alive_crawl(&env, &proving_ground, "followed", &[]);
     let _ = printed_run_id(&process);
 
-    for _ in 0..interrupts {
-        process.interrupt().unwrap();
-    }
+    process.interrupt().unwrap();
     let status = process.child().wait().unwrap();
     record_command(&env, &arguments, status.code()).unwrap();
     let report = cli(&env, FOXHOUND)
@@ -227,6 +222,192 @@ fn an_interrupt_checkpoints_a_followed_crawl_and_exits_130(#[case] interrupts: u
         (Some(130), json!("stopped")),
         "{}",
         report.output
+    );
+}
+
+/// A second interrupt of a followed crawl, sent once the first one's
+/// `run.stop` is in flight, ends the command at once, exit `130`, while
+/// that stop is still unanswered (ADR 0069's #1180 note). The Scripted
+/// engine plays the Daemon that holds `run.stop` open: a real one's
+/// `run.stop` abandons the attempts in flight and answers within
+/// milliseconds, so no page holds it open, while the first interrupt's
+/// test shows that it stops the Run with its Checkpoint.
+///
+/// Covers: story:11-1132, command:crawl.start, exit:interrupted
+#[cfg(unix)]
+#[test]
+fn a_second_interrupt_ends_the_command_while_the_first_ones_stop_waits() {
+    const ARGUMENTS: [&str; 8] = [
+        "crawl",
+        "start",
+        "https://example.com/",
+        "--run-id",
+        "held",
+        "--follow",
+        "--json",
+        "--daemon",
+    ];
+    let env = TestEnv::new();
+    // The command's wire records show when it sent `run.stop`.
+    env.log_level("info,goodfetch::cli::wire=trace");
+    let scripted = scripted_daemon(&env, "daemon/cli-crawl-follow-stop-held.json");
+    let mut command = env.process_command(FOXHOUND);
+    command.args(ARGUMENTS).stderr(Stdio::piped());
+    let process = env.spawn(&mut command).unwrap();
+    let _ = printed_run_id(&process);
+
+    process.interrupt().unwrap();
+    let mut stderr = BufReader::new(process.child().stderr.take().unwrap());
+    let mut line = String::new();
+    while !(line.contains("goodfetch::cli::wire")
+        && line.contains(r#"direction="sent""#)
+        && line.contains(r#"method="run.stop""#))
+    {
+        line.clear();
+        assert_ne!(
+            stderr.read_line(&mut line).unwrap(),
+            0,
+            "the command never sent run.stop"
+        );
+    }
+    let status = process.interrupt_and_wait(SECOND_INTERRUPT_DEADLINE);
+    let code = status
+        .as_ref()
+        .ok()
+        .and_then(std::process::ExitStatus::code);
+    record_command(&env, &ARGUMENTS, code).unwrap();
+    let played = scripted.child().wait().unwrap();
+
+    assert_eq!((code, played.success()), (Some(130), true), "{status:?}");
+}
+
+/// How long a command may take to exit after a second interrupt: far
+/// less than it would wait for the unanswered `run.stop`, which is for
+/// ever.
+const SECOND_INTERRUPT_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Without `--follow`, `run records` prints each Record as it arrives,
+/// before its call ends, so it keeps none of them; an interrupt then
+/// cancels the call and closes the JSON array, so stdout still holds one
+/// JSON value, and exits `130`.
+///
+/// Covers: story:11-1131, command:run.records, exit:interrupted
+#[cfg(unix)]
+#[test]
+fn run_records_prints_each_record_as_it_arrives() {
+    use std::io::Read as _;
+
+    const ARGUMENTS: [&str; 7] = [
+        "run",
+        "records",
+        "first",
+        "--dataset",
+        "pages",
+        "--json",
+        "--daemon",
+    ];
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-run-records-streamed.json");
+    let mut command = env.process_command(FOXHOUND);
+    command.args(ARGUMENTS).stderr(Stdio::null());
+    let process = env.spawn(&mut command).unwrap();
+    let mut stdout = process.child().stdout.take().unwrap();
+    let mut printed = Vec::new();
+    let mut chunk = [0_u8; 4096];
+    while !String::from_utf8_lossy(&printed).contains(r#""number":1"#) {
+        let read = stdout.read(&mut chunk).unwrap();
+        assert_ne!(read, 0, "the command ended before it printed the Record");
+        printed.extend(&chunk[..read]);
+    }
+
+    process.interrupt().unwrap();
+    let status = process.child().wait().unwrap();
+    record_command(&env, &ARGUMENTS, status.code()).unwrap();
+    stdout.read_to_end(&mut printed).unwrap();
+    let played = scripted.child().wait().unwrap();
+
+    let array: Value = serde_json::from_slice(&printed).unwrap_or(Value::Null);
+    assert_eq!(
+        (
+            status.code(),
+            array.as_array().map(Vec::len),
+            array[0]["record"]["number"].clone(),
+            played.success(),
+        ),
+        (Some(130), Some(1), json!(1), true),
+        "{}",
+        String::from_utf8_lossy(&printed)
+    );
+}
+
+/// `run records --through` reads through the number given: the command
+/// calls `run.records` with it at once, without reading the last committed
+/// number first, and ends once the call answers.
+///
+/// Covers: story:11-1131, command:run.records
+#[test]
+fn run_records_given_through_reads_through_it_alone() {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-run-records-through.json");
+
+    let read = cli(&env, FOXHOUND)
+        .args(["run", "records", "first", "--dataset", "pages"])
+        .args(["--through", "1", "--json", "--daemon"])
+        .json_array("RecordRead")
+        .unwrap();
+    let played = scripted.child().wait().unwrap();
+
+    assert_eq!(
+        (
+            read.output.exit,
+            read.documents[0].as_array().map(Vec::len),
+            played.success(),
+        ),
+        (Some(0), Some(1), true),
+        "{}",
+        read.output
+    );
+}
+
+/// An error whose id is null, the engine's answer to a message it could
+/// not read, such as a `crawl.start` past its message limit, ends the
+/// command with that error, `message_too_large`, exit `1`, rather than
+/// leave it waiting for an answer that never comes.
+///
+/// Covers: story:11-1132, command:crawl.start, exit:internal
+#[test]
+fn an_error_whose_id_is_null_ends_the_command_with_it() {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-crawl-start-unreadable.json");
+
+    let output = cli(&env, FOXHOUND)
+        .args([
+            "crawl",
+            "start",
+            "https://example.com/",
+            "--run-id",
+            "first",
+        ])
+        .args(["--json", "--daemon"])
+        .run()
+        .unwrap();
+    let played = scripted.child().wait().unwrap();
+    let failed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            output.exit,
+            failed["error"]["code"].clone(),
+            failed["error"]["operation"].clone(),
+            played.success(),
+        ),
+        (
+            Some(1),
+            json!("message_too_large"),
+            json!("crawl.start"),
+            true
+        ),
+        "{output}"
     );
 }
 

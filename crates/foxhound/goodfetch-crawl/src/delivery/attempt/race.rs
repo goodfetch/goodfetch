@@ -169,7 +169,7 @@ impl On<'_> {
                 .await;
                 let response = tiers.response(&page_id);
                 let answer = self.handle(&page_id, FetchTier::Http, response).await;
-                let escalated = tiers.escalated(&page_id);
+                let escalated = self.escalated(tiers, &page_id);
                 tiers.close(&page_id);
                 let answer = match escalated {
                     Some(call) if !matches!(answer, Answer::LeaseEnded | Answer::ClientGone) => {

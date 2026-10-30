@@ -24,7 +24,14 @@
 //!   (ADR 0090). A URL they disallow is refused with `robots_txt`, and a
 //!   host whose Crawl-delay is above `site_preferences.max_crawl_delay`
 //!   with `crawl_delay`. With `site_preferences.respect_robots_txt` off,
-//!   robots.txt is neither read nor applied.
+//!   its rules are not applied, and it is read only for its use signals.
+//! - **Its host's declared use signals.** While
+//!   `site_preferences.respect_use_signals` is on, a request whose host
+//!   declared, before it is sent, that the Run's `site_preferences.purpose`
+//!   is refused is refused with `use_signals` and never leaves: the
+//!   `Content-Signal` lines of its robots.txt's groups that apply, and
+//!   `TDMRep`'s well-known file, fetched once per origin for the Run, as a
+//!   crawl request is judged before it is sent (ADR 0093).
 //! - **Its document's use signals.** While
 //!   `site_preferences.respect_use_signals` is on, a main-frame document
 //!   whose response's AI-use signals refuse the Run's
@@ -33,7 +40,8 @@
 //!   `<meta>`, aipref's `Content-Usage` header, and the RSL license its
 //!   `Link` header or `<link>` element names, fetched once for the Run
 //!   through its shared signal files, as the crawl request's own document
-//!   is judged.
+//!   is judged. A page a document tier serves is judged the same way, its
+//!   navigations' documents and its `page.request`s' responses alike.
 //! - **The delay between starts.** The request waits until the domain's
 //!   last start, by any sharing run, is its Crawl-delay ago, and on its
 //!   own domain key, or after a robots.txt it fetched, also
@@ -65,7 +73,7 @@ use std::time::{Duration, SystemTime};
 use bytes::Bytes;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Room, SecondCopies};
-use goodfetch_engine::egress::Policy;
+use goodfetch_engine::egress::{Policy, Refused};
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::politeness::Politeness;
 use goodfetch_engine::robots_txt::{self, Fetch, Fetched, Judgment, Rule};
@@ -88,7 +96,10 @@ use crate::content_types::ContentTypes;
 use crate::discovered_api::Capture;
 use crate::driver::{Hop, judged};
 use crate::transports::AddressCheck;
-use crate::use_signals::{Purpose, SignalFiles, UseSignals, rsl_refusing};
+use crate::use_signals::{
+    Purpose, SignalFiles, TDMREP_FILE, UseSignals, content_signals_refusing, rsl_refusing,
+    tdmrep_file_refusing,
+};
 
 /// Fetches the robots.txt at a location for a Run, as the crawl's HTTP
 /// tier does (`HttpTier::robots_txt_fetch`).
@@ -211,6 +222,40 @@ impl HandOver {
                 }
             }
         }
+    }
+
+    /// Judges `url` by the Run's egress policy as its HTTP tier's
+    /// connection to it would be judged: the URL, then the addresses its
+    /// name resolves to (ADR 0017), the URL alone without the tier.
+    ///
+    /// # Errors
+    ///
+    /// The policy's refusal, whose `egress_refused` names the URL.
+    pub(crate) async fn address_check(&self, url: &Url) -> Result<(), Refused> {
+        match &self.addresses {
+            Some(addresses) => addresses.check(url).await,
+            None => judged(url, &self.egress),
+        }
+    }
+
+    /// The body at `location`, an AI-use signal file, fetched with
+    /// [`HandOver::robots`] once for the Run through its signal files; none
+    /// for a fetch that answers no 2xx, or without the fetch.
+    async fn signal_file(&self, location: &Url) -> Option<Arc<[u8]>> {
+        let fetch = self.robots.as_ref()?;
+        let run = self.run.clone();
+        self.signal_files
+            .read(location, async {
+                match fetch(run, location.clone()).await {
+                    robots_txt::Answer::Response { status, body }
+                        if (200..300).contains(&status) =>
+                    {
+                        Some(body)
+                    }
+                    _ => None,
+                }
+            })
+            .await
     }
 
     /// Records `hop`'s `latency` for its domain key, for every run sharing
@@ -349,24 +394,10 @@ impl NavigationGate for Gate {
             if let Some(signal) = signals.refusing(purpose) {
                 return Err(refused(signal));
             }
-            let (Some(license), Some(fetch)) = (signals.license(), &self.0.robots) else {
+            let Some(license) = signals.license() else {
                 return Ok(());
             };
-            let run = self.0.run.clone();
-            let file = self
-                .0
-                .signal_files
-                .read(&license, async {
-                    match fetch(run, license.clone()).await {
-                        robots_txt::Answer::Response { status, body }
-                            if (200..300).contains(&status) =>
-                        {
-                            Some(body)
-                        }
-                        _ => None,
-                    }
-                })
-                .await;
+            let file = self.0.signal_file(&license).await;
             match file.and_then(|file| rsl_refusing(&file, purpose)) {
                 Some(signal) => Err(refused(signal)),
                 None => Ok(()),
@@ -388,14 +419,18 @@ struct Applying {
     disallowed: Option<String>,
     /// The largest Crawl-delay of the groups that apply.
     crawl_delay: Option<Duration>,
+    /// The `Content-Signal` lines of the groups that apply, in file order.
+    content_signals: Vec<(String, bool)>,
 }
 
 impl Applying {
-    /// Nothing: no rule disallows the URL and no Crawl-delay is asked.
+    /// Nothing: no rule disallows the URL, no Crawl-delay is asked and no
+    /// Content Signal declared.
     fn nothing() -> Self {
         Self {
             disallowed: None,
             crawl_delay: None,
+            content_signals: Vec::new(),
         }
     }
 }
@@ -413,11 +448,18 @@ impl Gate {
         } else {
             self.beside(&key).await
         };
-        let (applying, read) = if hand_over.respect_robots_txt {
-            self.robots_txt(url, &key).await
-        } else {
-            (Applying::nothing(), None)
-        };
+        // robots.txt is read for its rules while they are respected, and
+        // for its `Content-Signal` lines while the use signals are honoured.
+        let (mut applying, read) =
+            if hand_over.respect_robots_txt || hand_over.use_signals.is_some() {
+                self.robots_txt(url, &key).await
+            } else {
+                (Applying::nothing(), None)
+            };
+        if !hand_over.respect_robots_txt {
+            applying.disallowed = None;
+            applying.crawl_delay = None;
+        }
         if let Some(rule) = applying.disallowed {
             return Err(Refusal {
                 reason: SitePreference::RobotsTxt,
@@ -441,6 +483,14 @@ impl Gate {
                 message: format!(
                     "The site's robots.txt asks for a Crawl-delay of {} s, more than `site_preferences.max_crawl_delay` waits out ({most}), so the request to `{url}` never left.",
                     crawl_delay.as_secs_f64()
+                ),
+            });
+        }
+        if let Some(signal) = self.declared(url, &applying.content_signals).await {
+            return Err(Refusal {
+                reason: SitePreference::UseSignals,
+                message: format!(
+                    "{signal} refuses the run's Purpose for `{url}`, so the request never left."
                 ),
             });
         }
@@ -597,6 +647,26 @@ impl Gate {
             Some(Read { location, fetched }),
         )
     }
+
+    /// The AI-use signal `url`'s host declared before any request to it,
+    /// which refuses the Run's Purpose, named, while the Run honours the
+    /// signals (ADRs 0016, 0086 and 0093): of `content_signals`, the
+    /// `Content-Signal` lines of its robots.txt groups that apply, then of
+    /// `TDMRep`'s well-known file, fetched once per origin for the Run, as
+    /// a crawl request's own document is judged before it is sent.
+    async fn declared(
+        &self,
+        url: &Url,
+        content_signals: &[(String, bool)],
+    ) -> Option<&'static str> {
+        let purpose = self.0.use_signals?;
+        if let Some(signal) = content_signals_refusing(content_signals, purpose) {
+            return Some(signal);
+        }
+        let location = url.join(TDMREP_FILE).ok()?;
+        let file = self.0.signal_file(&location).await?;
+        tdmrep_file_refusing(&file, url, purpose)
+    }
 }
 
 /// Whether the robots.txt `fetched` disallows `url` to a crawl whose
@@ -635,7 +705,11 @@ pub fn content_signals(fetched: &Fetched, operator_token: Option<&str>) -> Vec<(
         return Vec::new();
     };
     let operator = operator_token.and_then(|token| ProductToken::new(token).ok());
-    let mut groups = applying_groups(file, operator.as_ref());
+    signals_of(applying_groups(file, operator.as_ref()))
+}
+
+/// The `Content-Signal` lines of `groups`, in file order.
+fn signals_of(mut groups: Vec<&robots_txt::Group>) -> Vec<(String, bool)> {
     groups.sort_by_key(|group| group.line());
     groups
         .into_iter()
@@ -672,6 +746,7 @@ fn applying(fetched: &Fetched, operator: Option<&ProductToken>, url: &Url) -> Ap
         Fetched::Unreachable(reason) => Applying {
             disallowed: Some(format!("robots.txt unreachable: {reason}")),
             crawl_delay: None,
+            content_signals: Vec::new(),
         },
         Fetched::File(file) => {
             let applying = applying_groups(file, operator);
@@ -684,9 +759,11 @@ fn applying(fetched: &Fetched, operator: Option<&ProductToken>, url: &Url) -> Ap
                 Judgment::Disallowed(rule) => Some(rule.to_string()),
                 Judgment::Allowed(_) => None,
             };
+            let content_signals = signals_of(applying);
             Applying {
                 disallowed,
                 crawl_delay,
+                content_signals,
             }
         }
     }
@@ -771,11 +848,7 @@ impl HopGate for ChainGate {
                 }
                 goodfetch_frontier::Hop::Follow => {}
             }
-            let checked = match &self.hand_over.addresses {
-                Some(addresses) => addresses.check(&hop.url).await,
-                None => judged(&hop.url, &self.hand_over.egress),
-            };
-            if let Err(refused) = checked {
+            if let Err(refused) = self.hand_over.address_check(&hop.url).await {
                 return skipped(
                     SkipReason::DomainPolicy,
                     format!(
@@ -823,7 +896,11 @@ impl HopGate for ChainGate {
         Box::pin(self.hand_over.answered(hop, latency))
     }
 
-    fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
+    /// Records the chain's final URL under its key, unless another request
+    /// was admitted for that key, or reached it, since the hop was checked:
+    /// the request then ends `skipped` with `duplicate` (ADR 0120). A run
+    /// file that cannot answer lets the chain end on its document.
+    fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<(), Stop>> {
         Box::pin(async move {
             let run = &self.hand_over.run;
             let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
@@ -839,8 +916,19 @@ impl HopGate for ChainGate {
                     )
                 })
                 .await;
-            if let Err(error) = recorded {
-                tracing::warn!(%error, run_id = %run.id(), "a redirect's final URL was not recorded");
+            match recorded {
+                Ok(goodfetch_frontier::Hop::Duplicate) => Err(Stop::Skipped(Skip {
+                    reason: SkipReason::Duplicate,
+                    message: format!(
+                        "A redirect to `{}` reaches a page the crawl reached for another request meanwhile.",
+                        hop.url
+                    ),
+                })),
+                Ok(_) => Ok(()),
+                Err(error) => {
+                    tracing::warn!(%error, run_id = %run.id(), "a redirect's final URL was not recorded");
+                    Ok(())
+                }
             }
         })
     }

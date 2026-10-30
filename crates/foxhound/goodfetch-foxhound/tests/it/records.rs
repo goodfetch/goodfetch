@@ -5,7 +5,9 @@
 //! answers once the Run ended and every Record is read; `after` resumes a
 //! reader from the last number it handled, so a reader that disconnects
 //! and reconnects sees each Record once; and a reader that grants no
-//! credit never holds the crawl back, which commits and ends without it.
+//! credit never holds the crawl back, which commits and ends without it;
+//! `through` bounds a reader of a live Run, which answers once it read
+//! through that number.
 //! Each crawl's handler answers with one Record of `pages` per request,
 //! so no call of its own interleaves with the reader's notifications.
 #![expect(
@@ -268,6 +270,58 @@ fn a_reader_that_reconnects_after_a_number_reads_each_record_once() {
             (
                 vec![page(3, 3), page(4, 4)],
                 json!({ "count": 2, "last": 4 })
+            ),
+        )
+    );
+}
+
+/// A reader given `through` on a live Run answers once it sent every
+/// Record numbered through it, without waiting for the Run's end: through
+/// what is committed at once, and through a number not committed yet once
+/// that Record commits.
+///
+/// Covers: story:6-271, operation:run.records
+#[test]
+fn a_reader_given_through_answers_once_it_read_through_that_number_while_the_run_is_live() {
+    let env = TestEnv::new();
+    let mut session = Session::new(Attached::start(&env));
+
+    session.crawl("bounded", 4);
+    session.answer_next();
+    session.answer_next();
+    session.until(|session| !session.requests.is_empty());
+    session.send(
+        "committed",
+        "run.records",
+        &json!({ "run_id": "bounded", "dataset": "pages", "through": 2 }),
+    );
+    session.credit("committed", 10);
+    session.until(|session| session.replies.contains_key("committed"));
+    session.send(
+        "ahead",
+        "run.records",
+        &json!({ "run_id": "bounded", "dataset": "pages", "after": 2, "through": 3 }),
+    );
+    session.credit("ahead", 10);
+    session.answer_next();
+    session.until(|session| session.replies.contains_key("ahead"));
+    session.answer_next();
+    let finished = session.finish("bounded", &[]);
+    let read = (session.records_of("committed"), session.records_of("ahead"));
+    let replies = (
+        session.replies["committed"]["result"].clone(),
+        session.replies["ahead"]["result"].clone(),
+    );
+    assert!(session.engine.finish());
+
+    assert_eq!(
+        (&finished["result"]["lifecycle"], read, replies),
+        (
+            &json!("finished"),
+            (vec![page(1, 1), page(2, 2)], vec![page(3, 3)]),
+            (
+                json!({ "count": 2, "last": 2 }),
+                json!({ "count": 1, "last": 3 })
             ),
         )
     );

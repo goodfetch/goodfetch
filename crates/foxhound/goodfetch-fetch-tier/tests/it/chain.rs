@@ -25,6 +25,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::Refused;
 use goodfetch_engine::response_limits::Limits;
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_fetch_tier::{
     FetchBounds, Fetched, Following, Gating, Hop, HopGate, Skip, Stop, Transport, fetch, follow,
 };
@@ -57,6 +58,7 @@ fn deadlines() -> FetchBounds {
 fn defaults() -> Following {
     Following {
         max: 19,
+        refresh: true,
         refresh_max_delay: Some(Duration::from_secs(100)),
         handled: BTreeSet::new(),
         retry_after_max: Some(Duration::from_mins(15)),
@@ -68,6 +70,9 @@ fn defaults() -> Following {
 #[derive(Default)]
 struct Recording {
     skipped: Option<&'static str>,
+    /// Whether the hop a chain ends on is a duplicate: another request's
+    /// chain reached its key first.
+    duplicate: bool,
     admitted: Mutex<Vec<String>>,
     released: Arc<Mutex<usize>>,
     waits: Mutex<Vec<(String, Duration)>>,
@@ -110,9 +115,16 @@ impl HopGate for Recording {
         })
     }
 
-    fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, ()> {
+    fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<(), Stop>> {
         Box::pin(async move {
             self.reached.lock().unwrap().push(hop.url.path().to_owned());
+            if self.duplicate {
+                return Err(Stop::Skipped(Skip {
+                    reason: SkipReason::Duplicate,
+                    message: "reached first by another request".to_owned(),
+                }));
+            }
+            Ok(())
         })
     }
 
@@ -147,7 +159,7 @@ fn followed(
         first,
         following,
         gate,
-        &Clock::system(),
+        (&Clock::system(), &TaskOwner::root(BlockingPolicy::Threads)),
         |hop| async move { fetch(transport, &hop, &deadlines(), &Clock::system()).await },
     ))
 }
@@ -639,6 +651,55 @@ fn a_hop_the_gate_skips_is_never_sent() {
     );
 }
 
+/// A chain whose document another request's chain reached first, its key
+/// recorded meanwhile, ends `skipped` with `duplicate` once that document
+/// arrived, never answered as its own (ADR 0120); a chain with no redirect
+/// records nothing.
+///
+/// Covers: story:6-220
+#[test]
+fn a_chain_ending_on_a_key_another_request_reached_first_ends_skipped_duplicate() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let gate = Recording {
+        duplicate: true,
+        ..Recording::default()
+    };
+
+    let redirected = followed(
+        &transport,
+        hop(&proving_ground, "/redirect/hops/1"),
+        &defaults(),
+        &gate,
+    );
+    let direct = followed(
+        &transport,
+        hop(&proving_ground, "/redirect/hops/0"),
+        &defaults(),
+        &gate,
+    );
+
+    assert!(
+        matches!(
+            &redirected,
+            Err(Stop::Skipped(Skip {
+                reason: SkipReason::Duplicate,
+                ..
+            }))
+        ),
+        "{:?}",
+        redirected.map(|fetched| fetched.url)
+    );
+    assert_eq!(
+        (
+            direct.map(|fetched| fetched.status).ok(),
+            gate.reached.lock().unwrap().clone()
+        ),
+        (Some(200), vec!["/redirect/hops/0".to_owned()])
+    );
+}
+
 /// A chain whose first hop the transport refuses at its connection, its
 /// name having turned private since the address check let it through,
 /// ends `skipped` with `domain_policy`, the policy's refusal, as a later
@@ -658,7 +719,7 @@ fn a_first_hop_refused_at_its_connection_ends_skipped_with_domain_policy() {
             Hop::get(Url::parse("http://rebound.test/").unwrap()),
             &defaults(),
             &Recording::default(),
-            &Clock::system(),
+            (&Clock::system(), &TaskOwner::root(BlockingPolicy::Inline)),
             |_| {
                 let error = error.clone();
                 async move { Err::<Fetched, _>(error) }

@@ -11,13 +11,14 @@ use goodfetch_frontier::sitemap;
 use goodfetch_protocol::foxhound::crawl::RESPONSE_NOT_OK;
 use serde_json::{Map, Value};
 
-use super::{Answer, On, failed, read_robots_txt, robots_txt_refusal};
+use super::{Answer, On, address_check, failed, read_robots_txt, robots_txt_refusal};
 
 impl On<'_> {
     /// The fetch of a sitemap seed's sitemap, or of the robots.txt whose
     /// `Sitemap:` lines it reads (ADR 0093), under the lease, on the Run's
-    /// HTTP tier, whatever `fetch.tier` says: its origin's robots.txt read
-    /// first, which may refuse it as it refuses a page, and the sitemap
+    /// HTTP tier, whatever `fetch.tier` says: its URL judged by the address
+    /// check first, then its origin's robots.txt read, which may refuse it
+    /// as it refuses a page, and the sitemap
     /// read, plain or gzip, within sitemaps.org's limits and the Run's
     /// response limits, no handler run, each hop's send recorded as its
     /// domain's start and its latency for the adaptive delay, for every run sharing
@@ -29,6 +30,14 @@ impl On<'_> {
         tokio::select! {
             biased;
             answer = async {
+                // The address check judges the seed's URL before anything is
+                // sent for it, its robots.txt included, as a page's (spec
+                // #565): a refused address ends it `skipped` with
+                // `domain_policy`, never retried and never backing its
+                // domain off.
+                if let Err(refused) = address_check(run, http, leased).await {
+                    return refused;
+                }
                 let hand_over = self.gating.hand_over(run, leased, lease, self.in_flight).await;
                 let read = read_robots_txt(run, http, leased, &*hand_over.lease).await;
                 if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {

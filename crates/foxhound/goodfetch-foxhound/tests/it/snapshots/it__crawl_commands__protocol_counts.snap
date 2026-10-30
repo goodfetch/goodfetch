@@ -16,7 +16,8 @@ run outcomes --follow
 
 run records
 1 x sent request hello
-2 x received response
+3 x received response
+1 x sent request dataset.page
 1 x sent request run.records
 2 x sent notification $/credit
 1 x received notification $/record

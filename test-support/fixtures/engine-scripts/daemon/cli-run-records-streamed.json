@@ -1,0 +1,115 @@
+{
+  "description": "Foxhound's CLI built from this commit runs run records without --follow on the Daemon: it reads the last Record committed through dataset.page, then calls run.records through it; the Daemon sends one Record and answers nothing more, so the CLI prints it before the call ends; an interrupt then cancels run.records, which the Daemon answers call_cancelled.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "cli",
+          "token": "scripted-daemon-token",
+          "needs": "foxhound",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "dataset.page",
+        "params": {
+          "run_id": "first",
+          "dataset": "pages",
+          "limit": 1,
+          "columns": []
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "records": [],
+          "through": 2
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.records",
+        "params": {
+          "run_id": "first",
+          "dataset": "pages",
+          "through": 2
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/record",
+          "params": {
+            "id": 2,
+            "record": {
+              "number": 1,
+              "value": { "markdown": "# First" },
+              "request_id": "1",
+              "url": "https://example.com/",
+              "committed_at": "2026-10-30T12:00:00Z",
+              "provenance": { "request_id": "1" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 1
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 2
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "The call was cancelled.",
+          "data": {
+            "code": "call_cancelled",
+            "retryable": true
+          }
+        }
+      }
+    },
+    {
+      "close": {}
+    }
+  ]
+}

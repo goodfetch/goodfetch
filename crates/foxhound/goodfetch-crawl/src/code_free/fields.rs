@@ -19,7 +19,7 @@
 //! relative time (`currency`, `relative_time`) are the Value transforms'
 //! parsers' (#844, #848).
 
-use goodfetch_fetch_tier::{FieldElement, check_selector};
+use goodfetch_fetch_tier::{FieldElement, check_selector, check_xpath};
 use goodfetch_frontier::Url;
 use goodfetch_protocol::foxhound::crawl::{ExtractionField, FieldLocator, FieldTransform};
 use goodfetch_protocol::foxhound::provenance::{
@@ -123,17 +123,23 @@ enum Form {
 }
 
 /// Refuses the field `name` when the engine could never read it: a CSS
-/// selector it does not read, a regular expression that does not compile
-/// or has no such group, a locale that is no BCP 47 tag, or a time zone it
-/// has no rules for. An `XPath` expression is the browser's to read.
+/// selector or an `XPath` expression it does not read on every tier, a
+/// regular expression that does not compile or has no such group, a locale
+/// that is no BCP 47 tag, or a time zone it has no rules for.
 ///
 /// # Errors
 ///
 /// What is wrong with it, in a sentence naming the field.
 pub(crate) fn check(name: &str, field: &ExtractionField) -> Result<(), String> {
-    if let FieldLocator::Css { selector } = &field.locator {
-        check_selector(selector).map_err(|invalid| format!("The field `{name}`'s {invalid}."))?;
+    match &field.locator {
+        FieldLocator::Css { selector } => {
+            check_selector(selector).map_err(|invalid| invalid.to_string())
+        }
+        FieldLocator::Xpath { selector } => {
+            check_xpath(selector).map_err(|invalid| invalid.to_string())
+        }
     }
+    .map_err(|invalid| format!("The field `{name}`'s {invalid}."))?;
     if let Some(matched) = &field.matched {
         let regex = Regex::new(&matched.pattern).map_err(|error| {
             format!("The field `{name}`'s `match` pattern does not compile: {error}")

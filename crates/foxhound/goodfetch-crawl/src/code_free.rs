@@ -315,8 +315,8 @@ impl CodeFree {
     /// # Errors
     ///
     /// `closed` when the attempt has no page, and those of `page.formats`,
-    /// of [`FetchTiers::field_elements`] (an `XPath` field escalating a
-    /// served page under `auto`) and of `crawl_request.enqueue_links`.
+    /// of [`FetchTiers::field_elements`] and of
+    /// `crawl_request.enqueue_links`.
     ///
     /// # Cancel safety
     ///

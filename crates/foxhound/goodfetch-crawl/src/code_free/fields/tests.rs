@@ -225,16 +225,19 @@ fn a_fields_schema_is_its_transforms_type_or_null(#[case] transform: Value, #[ca
 }
 
 /// A field the engine could never read is refused at the start: a CSS
-/// selector it does not read, a regular expression that does not compile
-/// or lacks the group named, a locale that is no BCP 47 tag, and a time
-/// zone it has no rules for.
+/// selector it does not read, an `XPath` expression it does not read to
+/// nodes, a regular expression that does not compile or lacks the group
+/// named, a locale that is no BCP 47 tag, and a time zone it has no rules
+/// for.
 #[rstest]
 #[case::css(json!({ "locator": { "kind": "css", "selector": "p[" } }), true)]
+#[case::xpath(json!({ "locator": { "kind": "xpath", "selector": "//h1[" } }), true)]
+#[case::xpath_answering_a_value(json!({ "locator": { "kind": "xpath", "selector": "count(//h1)" } }), true)]
+#[case::xpath_read_on_every_tier(json!({ "locator": { "kind": "xpath", "selector": "//article/h1" } }), false)]
 #[case::regex(json!({ "locator": { "kind": "css", "selector": "p" }, "match": { "pattern": "(" } }), true)]
 #[case::group(json!({ "locator": { "kind": "css", "selector": "p" }, "match": { "pattern": "(a)", "group": 2 } }), true)]
 #[case::locale(json!({ "locator": { "kind": "css", "selector": "p" }, "transform": { "kind": "number", "locale": "not a tag" } }), true)]
 #[case::time_zone(json!({ "locator": { "kind": "css", "selector": "p" }, "transform": { "kind": "date_time", "locale": "de-DE", "time_zone": "Europe/Nowhere" } }), true)]
-#[case::xpath_left_to_the_browser(json!({ "locator": { "kind": "xpath", "selector": "//h1" } }), false)]
 #[case::whole_match(json!({ "locator": { "kind": "css", "selector": "p" }, "match": { "pattern": "a+", "group": 0 } }), false)]
 fn a_field_the_engine_could_never_read_is_refused(#[case] declared: Value, #[case] refused: bool) {
     assert_eq!(check("name", &field(declared)).is_err(), refused);

@@ -95,10 +95,20 @@ fn an_in_memory_folder_a_killed_test_left_is_moved_to_disk_by_the_next_setup() {
 #[cfg(unix)]
 #[test]
 fn a_child_that_ignores_sigint_is_killed_at_the_deadline_and_reaped() {
+    use std::io::BufRead as _;
+
     let env = TestEnv::new();
     let mut command = env.process_command("/bin/sh");
-    command.args(["-c", "trap '' INT; read line"]);
+    command.args(["-c", "trap '' INT; echo ignoring; read line"]);
     let process = env.spawn(&mut command).unwrap();
+    // The interrupt waits for the child's word that its `trap` is set: one
+    // sent before it would stop the shell, not reach the deadline.
+    let stdout = process.child().stdout.take().unwrap();
+    let mut said = String::new();
+    std::io::BufReader::new(stdout)
+        .read_line(&mut said)
+        .unwrap();
+    assert_eq!(said, "ignoring\n");
 
     let stopped = process.interrupt_and_wait(std::time::Duration::from_millis(300));
 

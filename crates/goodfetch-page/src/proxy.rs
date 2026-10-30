@@ -49,7 +49,7 @@ use goodfetch_protocol::politeness::POLITENESS_PROXY_CONCURRENCY;
 use goodfetch_protocol::settings::{NETWORK_RESOLVE, SETTING_INVALID, SettingInvalidDetails};
 use secrecy::{ExposeSecret as _, SecretString};
 
-use self::limits::ProxyLimits;
+use self::limits::{Account, ProxyLimits};
 pub(crate) use self::limits::{ProxyPermit, TABLES};
 pub use self::party::{Answer, Party, party};
 pub(crate) use self::party::{PROXY_STATUS, proxy_error, refusal};
@@ -58,8 +58,7 @@ use crate::egress_relay::serve::{Met, Upstream};
 use crate::egress_relay::{Chain, Outcomes};
 use crate::proxy_provider::failure::{ProviderAnswer, ProviderFailure};
 use crate::proxy_provider::{
-    Chosen, ProxyDriver, ProxyProvider, ProxyUsage, Refusal, Wanted, apify, bright_data, list,
-    oxylabs, priced,
+    Chosen, ProxyDriver, ProxyUsage, Refusal, Wanted, apify, bright_data, list, oxylabs, priced,
 };
 
 /// A hosted provider adapter's translation point (ADR 0127): its reading of
@@ -231,31 +230,61 @@ fn fits_socks5(
     }
 }
 
-/// The built-in Proxy provider `name` of `configuration`, and its adapter's
-/// reading of its failures for a hosted provider.
+/// The proxy kind, country and sticky lifetime `settings` ask a Proxy
+/// provider for.
+fn wanted(settings: &Resolved) -> Wanted {
+    Wanted {
+        kind: settings
+            .value(PROXY_KIND.name)
+            .as_str()
+            .and_then(ProxyKind::named),
+        country: settings
+            .value(PROXY_COUNTRY.name)
+            .as_str()
+            .map(CountryCode::parse)
+            .transpose()
+            .expect("invariant: `proxy.country`'s value was checked against its kind"),
+        sticky_lifetime: settings
+            .value(PROXY_STICKY_LIFETIME.name)
+            .as_u64()
+            .map(Duration::from_millis),
+    }
+}
+
+/// The driver of the built-in Proxy provider `name` of `configuration`, and
+/// its adapter's reading of its failures for a hosted provider.
 ///
 /// # Errors
 ///
-/// `setting_invalid` for a name no built-in provider has, or an account
-/// its adapter cannot build on.
+/// `setting_invalid` for a name no built-in provider has, an account its
+/// adapter cannot build on, or `zones` beside a provider other than
+/// `bright_data`, which names no zone.
 fn adapter(
     settings: &Resolved,
     name: &str,
     configuration: &ProxyProviderConfiguration,
-) -> Result<(Box<dyn ProxyProvider>, Option<Translation>), CallError> {
+) -> Result<(ProxyDriver, Option<Translation>), CallError> {
     let account = |reason: String| invalid(settings, PROXY_PROVIDERS.name, reason);
+    if name != bright_data::NAME && !configuration.zones.is_empty() {
+        return Err(account(format!(
+            "`proxy.providers.{name}.zones` names zones, which only `bright_data` has: leave it out"
+        )));
+    }
     Ok(match name {
-        list::NAME => (Box::new(list::List::new(configuration)), None),
+        list::NAME => (ProxyDriver::new(name, list::List::new(configuration)), None),
         bright_data::NAME => (
-            Box::new(bright_data::BrightData::new(configuration).map_err(account)?),
+            ProxyDriver::new(
+                name,
+                bright_data::BrightData::new(configuration).map_err(account)?,
+            ),
             Some(bright_data::failure),
         ),
         oxylabs::NAME => (
-            Box::new(oxylabs::Oxylabs::new(configuration).map_err(account)?),
+            ProxyDriver::new(name, oxylabs::Oxylabs::new(configuration).map_err(account)?),
             Some(oxylabs::failure),
         ),
         apify::NAME => (
-            Box::new(apify::Apify::new(configuration)),
+            ProxyDriver::new(name, apify::Apify::new(configuration)),
             Some(apify::failure),
         ),
         _ => {
@@ -404,7 +433,11 @@ impl SessionProxy {
             }
             _ => None,
         };
-        let limits = ProxyLimits::open(settings, run, &server, username.as_deref())
+        let account = Account::Proxy {
+            server: &server,
+            username: username.as_deref(),
+        };
+        let limits = ProxyLimits::open(settings, run, account)
             .await
             .map_err(|reason| invalid(settings, POLITENESS_PROXY_CONCURRENCY.name, reason))?;
         Ok(Some(Self {
@@ -436,26 +469,9 @@ impl SessionProxy {
             .transpose()
             .expect("invariant: `proxy.providers`' entries were checked against their kind")
             .unwrap_or_default();
-        let (provider, translation) = adapter(settings, name, &configuration)?;
-        let driver = ProxyDriver::new(name, provider);
-        let wanted = Wanted {
-            kind: settings
-                .value(PROXY_KIND.name)
-                .as_str()
-                .and_then(ProxyKind::named),
-            country: settings
-                .value(PROXY_COUNTRY.name)
-                .as_str()
-                .map(CountryCode::parse)
-                .transpose()
-                .expect("invariant: `proxy.country`'s value was checked against its kind"),
-            sticky_lifetime: settings
-                .value(PROXY_STICKY_LIFETIME.name)
-                .as_u64()
-                .map(Duration::from_millis),
-        };
+        let (driver, translation) = adapter(settings, name, &configuration)?;
         let chosen = driver
-            .choose(&wanted, &opening.session.0, opening.ordinal)
+            .choose(&wanted(settings), &opening.session.0, opening.ordinal)
             .map_err(|refusal| refused(settings, &refusal))?;
         let currencies: Vec<&str> = opening.currencies.iter().map(String::as_str).collect();
         let price = priced(driver.name(), &currencies, configuration.price.as_ref())
@@ -496,7 +512,20 @@ impl SessionProxy {
         )
         .await
         .map_err(|error| relay_unavailable(&chosen.server, &error))?;
-        let limits = ProxyLimits::open(settings, run, &chosen.server, chosen.username.as_deref())
+        // A hosted provider's sticky username names the Session, so its
+        // limits are its account's: the provider and the configured
+        // username, which every Session of the account shares (ADR 0088).
+        let account = match translation {
+            Some(_) => Account::Provider {
+                name,
+                username: configuration.username.as_deref(),
+            },
+            None => Account::Proxy {
+                server: &chosen.server,
+                username: chosen.username.as_deref(),
+            },
+        };
+        let limits = ProxyLimits::open(settings, run, account)
             .await
             .map_err(|reason| invalid(settings, POLITENESS_PROXY_CONCURRENCY.name, reason))?;
         Ok(Self {
@@ -617,18 +646,28 @@ impl SessionProxy {
     }
 
     /// `proxy_auth_failed` for a request to `url` the proxy answered with
-    /// a 407.
+    /// a 407: its fix names the keys the Session's credentials come from, a
+    /// Proxy provider's own beside `proxy.provider`, where `proxy.username`
+    /// and `proxy.password` are refused (the deep review's 599-6).
     pub(crate) fn auth_failed(&self, url: &str) -> CallError {
         let given = match &self.username {
             Some(username) => format!("refused the credentials of `{username}`"),
             None => "asked for credentials the Session does not have".to_owned(),
         };
+        let fix = match &self.provided {
+            Some(provided) if provided.provider == bright_data::NAME => format!(
+                "set `proxy.providers.{0}.username` and `proxy.providers.{0}.password`, and `proxy.providers.{0}.zones` for a zone its customer named otherwise than its proxy kind",
+                provided.provider
+            ),
+            Some(provided) => format!(
+                "set `proxy.providers.{0}.username` and `proxy.providers.{0}.password`",
+                provided.provider
+            ),
+            None => "set `proxy.username` and `proxy.password`".to_owned(),
+        };
         CallError::new(
             &PROXY_AUTH_FAILED,
-            format!(
-                "the proxy {} {given}: set `proxy.username` and `proxy.password`",
-                self.server
-            ),
+            format!("the proxy {} {given}: {fix}", self.server),
             &ProxyAuthFailedDetails {
                 proxy: self.server.to_string(),
                 url: url.to_owned(),

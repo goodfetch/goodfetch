@@ -34,6 +34,7 @@ mod paused_body;
 mod pool;
 mod proxy;
 mod proxy_provider;
+mod proxy_status;
 mod recovery;
 pub mod robots_txt;
 mod sessions;

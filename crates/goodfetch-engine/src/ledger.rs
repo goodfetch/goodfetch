@@ -473,6 +473,25 @@ impl Ledger {
         stored_limits(&connection).map_err(|error| self.failed(&error))
     }
 
+    /// Every Limit, as [`Ledger::limits`] reads them, on `kept`, a
+    /// connection its caller keeps between reads, opened now when it holds
+    /// none and let go when a read fails, so the next one opens afresh
+    /// (the deep review's 599-12: a run's every charge reopened the file).
+    ///
+    /// # Errors
+    ///
+    /// When the ledger cannot be read.
+    fn limits_on(&self, kept: &mut Option<Connection>) -> Result<Vec<StoredLimit>, LedgerError> {
+        let read = match kept {
+            Some(connection) => stored_limits(connection),
+            None => stored_limits(kept.insert(self.open()?)),
+        };
+        read.map_err(|error| {
+            *kept = None;
+            self.failed(&error)
+        })
+    }
+
     /// Every Limit, with what `product`'s engine makes of it and the Usage
     /// counted against it in the period that holds `now`, by scope.
     ///

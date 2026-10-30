@@ -27,8 +27,8 @@ use std::collections::BTreeSet;
 use std::sync::mpsc;
 
 use goodfetch_test_support::{
-    Canaries, Canary, Hit, Output, ProvingGround, ReceivedRequests, SecretKind, TestEnv,
-    browser_cache, cli, pty, robots_txt_read,
+    Canaries, Canary, DISPATCH_TARGET, Hit, OUTCOME_TARGET, Output, ProvingGround,
+    ReceivedRequests, SecretKind, TestEnv, browser_cache, cli, pty, robots_txt_read,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -1902,4 +1902,339 @@ fn sessions_that_outlive_their_sticky_lifetime_and_end_with_their_run_are_named_
         ]),
         "{finished}"
     );
+}
+
+/// Two Sessions of one hosted provider's account each build their own
+/// sticky username, yet hold the account's one limit, under the provider
+/// and the configured username (ADR 0088; the deep review's 599-4).
+///
+/// Covers: story:5-90, setting:proxy.provider, setting:proxy.providers
+#[cfg(unix)]
+#[test]
+fn the_sessions_of_one_providers_account_share_its_proxy_limit() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let configuration = adapter_configuration(&proving_ground, "oxylabs");
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "one-account",
+        &configuration,
+        &json!({ "proxy": { "provider": "oxylabs" } }),
+        &[],
+    );
+
+    let (_, first) = session_page(&mut engine, 2, "one-account", &json!({}));
+    let (_, second) = session_page(&mut engine, 4, "one-account", &json!({}));
+    visit_marked(&mut engine, &proving_ground, 6, &first, "first");
+    visit_marked(&mut engine, &proving_ground, 7, &second, "second");
+    let _ = call(
+        &mut engine,
+        8,
+        "run.finish",
+        &json!({ "run_id": "one-account" }),
+    );
+    let _ = engine.finish();
+
+    let stickies: BTreeSet<String> = sticky_relays(&proving_ground, "mark=")
+        .iter()
+        .map(|(sticky, _)| sticky["session"].to_string())
+        .collect();
+    let username = &proving_ground
+        .description()
+        .fixtures
+        .proxy_credentials
+        .username;
+    assert_eq!(
+        (
+            stickies.len(),
+            crate::proxy_limits::ceilings(&env.home().join("politeness.sqlite")),
+        ),
+        (
+            2,
+            BTreeSet::from([(format!("provider oxylabs {username}"), None)]),
+        )
+    );
+}
+
+/// A hosted provider that refuses the account's credentials raises
+/// `proxy_auth_failed` naming the provider's own keys, never `proxy.username`
+/// and `proxy.password`, which are refused beside `proxy.provider` (the
+/// deep review's 599-6).
+///
+/// Covers: story:8-89, setting:proxy.providers, error:proxy_auth_failed
+#[cfg(unix)]
+#[test]
+fn a_provider_refusing_the_accounts_credentials_names_its_own_keys() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    env.user_configuration(&adapter_configuration(&proving_ground, "oxylabs"));
+    let settings = json!({ "proxy": { "provider": "oxylabs" } });
+    let mut engine = crate::page::started_after(
+        &env,
+        &cache,
+        &proving_ground,
+        "refused",
+        settings.as_object().unwrap(),
+        |command| {
+            command.env(PASSWORD_VARIABLE, "not-the-accounts-password");
+        },
+        &[],
+    );
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "refused" }),
+    ));
+    let navigated = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=refused") }),
+    );
+    let _ = call(
+        &mut engine,
+        4,
+        "run.finish",
+        &json!({ "run_id": "refused" }),
+    );
+    let _ = engine.finish();
+
+    let message = navigated["error"]["message"].as_str().unwrap_or_default();
+    assert_eq!(
+        (
+            &navigated["error"]["data"]["code"],
+            message.contains("`proxy.providers.oxylabs.username`")
+                && message.contains("`proxy.providers.oxylabs.password`"),
+            message.contains("`proxy.username`"),
+        ),
+        (&json!("proxy_auth_failed"), true, false),
+        "{navigated}"
+    );
+}
+
+/// An install Limit on `proxy_bytes` far above what the test carries, so
+/// the Run holds Slices of it and the ledger traces every charge.
+fn a_bytes_limit() -> (&'static str, Value) {
+    (
+        "usage.set",
+        json!({ "scope": "install", "usage_kind": "proxy_bytes", "amount": 1_000_000_000_000_u64 }),
+    )
+}
+
+/// The ledger's trace lines, in `stderr`, that charged or reserved
+/// `proxy_bytes`: one per charge before, one per allowance (two when
+/// priced) since.
+fn proxy_bytes_charges(stderr: &str) -> usize {
+    stderr
+        .lines()
+        .filter(|line| {
+            line.contains("goodfetch::ledger")
+                && line.contains("proxy_bytes")
+                && (line.contains("reserve") || line.contains("charge"))
+        })
+        .count()
+}
+
+/// A provider Session's upload is charged ahead, in allowances that grow to
+/// a MiB, so 8 MiB costs a few dozen ledger writes rather than one per
+/// 16 KiB, and its bytes all count; their price, a millionth of a dollar a
+/// GB, is rounded up once for the Session, not once per allowance (the deep
+/// review's 599-12 and 599-10).
+///
+/// Covers: story:8-92, setting:proxy.providers, operation:run.usage
+#[cfg(unix)]
+#[test]
+fn a_provider_sessions_upload_is_charged_ahead_in_few_allowances_and_priced_once() {
+    let env = TestEnv::new();
+    env.log_level(&format!(
+        "info,{DISPATCH_TARGET}=trace,{OUTCOME_TARGET}=trace,goodfetch::ledger=trace"
+    ));
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let (address, sunk) = sink();
+    let configuration = format!(
+        "[settings.proxy.providers.list]\nprice = \"0.000001 USD\"\nservers = [{{ server = \"http://{address}\", kind = \"isp\" }}]\n"
+    );
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "allowances",
+        &configuration,
+        &json!({ "proxy": { "provider": "list", "kind": "isp" } }),
+        &[a_bytes_limit()],
+    );
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "allowances" }),
+    ));
+    let zeros = "A".repeat(usize::try_from(UPLOAD / 3 * 4).unwrap());
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 3, "method": "page.request",
+        "params": {
+            "page_id": page.page_id,
+            "url": proving_ground.url("scope.test", "/upload"),
+            "method": "POST",
+            "post_data": zeros,
+        },
+    }));
+    // The sink never answers: the Run's end answers the request once the
+    // whole upload reached it.
+    let mut read = 0;
+    while read < UPLOAD {
+        match sunk.recv_timeout(BROWSER_DEADLINE).unwrap() {
+            Sunk::Read(bytes) => read += bytes,
+            Sunk::Opened(_) | Sunk::Ended => {}
+        }
+    }
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": 4, "method": "run.finish", "params": { "run_id": "allowances" },
+    }));
+    let finished = std::iter::from_fn(|| engine.next())
+        .find(|answer| answer["id"] == json!(4))
+        .unwrap();
+    let used = call(
+        &mut engine,
+        5,
+        "run.usage",
+        &json!({ "run_id": "allowances" }),
+    );
+    let (_, stderr) = engine.finish_with_stderr();
+    let read = sunk_once_ended(address, &sunk, read);
+
+    let charges = proxy_bytes_charges(&stderr);
+    assert_eq!(
+        (
+            finished.get("result").is_some(),
+            &used["result"]["proxy_bytes"],
+            &used["result"]["proxy_price"],
+            charges > 0 && charges < 64,
+        ),
+        (
+            true,
+            &json!(read),
+            &json!([{ "currency": "USD", "amount": 1 }]),
+            true
+        ),
+        "{charges} ledger charges of proxy_bytes: {used}"
+    );
+}
+
+/// A `list` provider's SOCKS5 server: the relay charges its handshake, its
+/// tunnel and the page's bytes ahead and lets every one pass, so the page
+/// loads and `proxy_bytes` counts what the proxy carried.
+///
+/// Covers: story:8-92, setting:proxy.providers, operation:run.usage
+#[cfg(unix)]
+#[test]
+fn a_socks5_list_servers_handshake_and_bytes_are_charged_ahead_and_all_pass() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let credentials = &proving_ground.description().fixtures.proxy_credentials;
+    let configuration = format!(
+        "[settings.proxy.providers.list]\nusername = \"{}\"\npassword = \"env:{PASSWORD_VARIABLE}\"\nservers = [{{ server = \"socks5://{}\", kind = \"isp\" }}]\n",
+        credentials.username,
+        proxy_address(&proving_ground, "socks5"),
+    );
+    let mut engine = started_listing(
+        &env,
+        &cache,
+        &proving_ground,
+        "socks-counted",
+        &configuration,
+        &json!({ "proxy": { "provider": "list", "kind": "isp" } }),
+        &[a_bytes_limit()],
+    );
+
+    let page = opened(&call(
+        &mut engine,
+        2,
+        "run.new_page",
+        &json!({ "run_id": "socks-counted" }),
+    ));
+    let navigated = call(
+        &mut engine,
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/storage?mark=socks-counted") }),
+    );
+    tunnels_settled(&proving_ground);
+    let _ = call(
+        &mut engine,
+        4,
+        "run.finish",
+        &json!({ "run_id": "socks-counted" }),
+    );
+    let used = call(
+        &mut engine,
+        5,
+        "run.usage",
+        &json!({ "run_id": "socks-counted" }),
+    );
+    let _ = engine.finish();
+
+    let carried = carried_by_every_relay(&proving_ground);
+    assert_eq!(
+        (
+            navigated["result"]["response"]["status"].clone(),
+            carried > 0,
+            &used["result"]["proxy_bytes"],
+        ),
+        (json!(200), true, &json!(carried)),
+        "{navigated} {used}"
+    );
+}
+
+/// Waits until the site received the page, its robots.txt and the icon
+/// Chromium asks for, a minute at most, and the SOCKS5 proxy ended a relay
+/// for each: the site answers each with `Connection: close`, so a relay
+/// ends once the browser read its whole answer, and no byte is under way
+/// when the Run ends. A SOCKS5 tunnel names no path, so the relays alone
+/// cannot tell the page's last request, as [`page_load_relayed`] does.
+fn tunnels_settled(proving_ground: &ProvingGround) {
+    for _ in 0..600 {
+        let observations = proving_ground.observations().unwrap();
+        let requests = ReceivedRequests::of(&observations);
+        let targets: BTreeSet<String> = requests
+            .every()
+            .filter_map(|request| request["target"].as_str())
+            .map(|target| target.split('?').next().unwrap_or_default().to_owned())
+            .collect();
+        let relays = observations["relays"].as_array().unwrap().len();
+        if ["/storage", "/robots.txt", "/favicon.ico"]
+            .iter()
+            .all(|target| targets.contains(*target))
+            && relays == requests.every().count()
+        {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!(
+        "the page's tunnels had not all ended after a minute: {}",
+        proving_ground.observations().unwrap()
+    );
+}
+
+/// What the Proving ground's proxies carried, in bytes, on every relay
+/// that ended.
+fn carried_by_every_relay(proving_ground: &ProvingGround) -> u64 {
+    proving_ground.observations().unwrap()["relays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|relay| {
+            relay["bytes"]["received"].as_u64().unwrap() + relay["bytes"]["sent"].as_u64().unwrap()
+        })
+        .sum()
 }

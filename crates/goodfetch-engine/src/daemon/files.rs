@@ -28,7 +28,8 @@
 //! mode `0700`, which the runtime file names.
 //!
 //! A service's socket must stay where its service manager listens, so one
-//! too long for the OS moves instead into `/tmp/goodfetch-daemon-<digest>`,
+//! too long for the OS, or under systemd one whose path holds a byte that
+//! systemd escapes, moves instead into `/tmp/goodfetch-daemon-<digest>`,
 //! named by the per-major folder's path, mode `0700` and refused unless it
 //! is the user's own. A socket-activated Daemon starts before any Client
 //! could read a runtime file it writes, so its Clients' `hello` carries a
@@ -51,7 +52,9 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, InstalledService};
+use goodfetch_protocol::daemon::{
+    DaemonEndpoint, DaemonRuntimeFile, InstalledService, ServiceManager,
+};
 
 use sha2::{Digest as _, Sha256};
 
@@ -368,16 +371,27 @@ impl DaemonFiles {
         remove(&self.folder.join(SERVICE_FILE))
     }
 
-    /// Where a service's socket goes, the same at every start: in the
-    /// per-major folder, or, when that path is too long for the OS, in
-    /// `/tmp/goodfetch-daemon-<digest>`, the user's own, mode `0700`.
+    /// Where the socket of a service that `manager` runs goes, the same at
+    /// every start: in the per-major folder, or, when that path is too long
+    /// for the OS, or `manager` is systemd and the path holds a byte it
+    /// escapes, in `/tmp/goodfetch-daemon-<digest>`, the user's own, mode
+    /// `0700`. systemd writes each listening socket's path with C escapes
+    /// when its manager reloads, and reads back the escaped text as the
+    /// path, so that socket would stop listening at the first reload any
+    /// program asks for (#1781).
     ///
     /// # Errors
     ///
     /// When that folder cannot be made, or is not the user's own.
-    pub fn service_socket(&self) -> io::Result<PathBuf> {
+    pub fn service_socket(&self, manager: ServiceManager) -> io::Result<PathBuf> {
         let socket = self.socket();
-        if socket.as_os_str().len() <= LONGEST_SOCKET_PATH {
+        let kept = manager != ServiceManager::Systemd
+            || !socket
+                .as_os_str()
+                .as_encoded_bytes()
+                .iter()
+                .any(|&byte| systemd_escapes(byte));
+        if kept && socket.as_os_str().len() <= LONGEST_SOCKET_PATH {
             return Ok(socket);
         }
         fs::create_dir_all(&self.folder)?;
@@ -441,6 +455,12 @@ impl DaemonFiles {
         let folder = transport::socket_folder("goodfetch-daemon-", SOCKET)?;
         Ok((folder.path().join(SOCKET), Some(folder)))
     }
+}
+
+/// Whether systemd's C escaping (`cescape`) changes `byte`: a control or
+/// non-ASCII byte, `\`, `"` or `'`.
+fn systemd_escapes(byte: u8) -> bool {
+    !(b' '..=b'~').contains(&byte) || matches!(byte, b'\\' | b'"' | b'\'')
 }
 
 fn remove(path: &Path) -> io::Result<()> {

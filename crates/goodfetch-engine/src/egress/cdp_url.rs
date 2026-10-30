@@ -1,11 +1,12 @@
 //! ADR 0056's address rules for a `cdp_url` Session source (ADR 0115),
 //! judged on every address it resolves to before any connection: one set
-//! in Operator policy or user or project configuration is an
-//! Operator-configured endpoint, which reaches private addresses unless
-//! `egress.no_private_endpoints` refuses them; one from the program's own
-//! code or the CLI may also use loopback; any other, a Client acting for a
-//! model's or a Recipe's, is an address a page can reach. A refusal raises
-//! `cdp_url_not_allowed`. ADR 0056's Exposed Daemon row, where even the
+//! in Operator policy or user configuration, or in project configuration
+//! a Client acting for no model sends, is an Operator-configured endpoint,
+//! which reaches private addresses unless `egress.no_private_endpoints`
+//! refuses them; one from the program's own code or the CLI may also use
+//! loopback; any other, a Client acting for a model's (its project
+//! configuration's included, O8 of the deep review) or a Recipe's, is an
+//! address a page can reach. A refusal raises `cdp_url_not_allowed`. ADR 0056's Exposed Daemon row, where even the
 //! program's own `cdp_url` may not use loopback, comes with the Exposed
 //! Daemon (A04-56).
 
@@ -13,15 +14,18 @@ use std::net::{IpAddr, SocketAddr};
 
 use goodfetch_protocol::egress::{
     CDP_URL_NOT_ALLOWED, CdpUrlNotAllowedDetails, CdpUrlRule, ConfiguredKind, EgressClass,
+    EgressRule,
 };
-use goodfetch_protocol::settings::SettingsLayer;
+use goodfetch_protocol::settings::{NETWORK_RESOLVE, SettingsLayer};
 use url::Url;
 
 use super::{EndpointPolicy, Policy, judge_endpoint_addresses, judge_reachable};
 use crate::composition::CallError;
 
-/// What `cdp_url_not_allowed` asks for.
-const FIX: &str = "set the address in Operator policy or in user or project configuration, or give a public address";
+/// What `cdp_url_not_allowed` asks for: the layers whose value is
+/// Operator-configured for every Client, a model's included.
+const FIX: &str =
+    "set the address in Operator policy or in user configuration, or give a public address";
 
 /// Who gave a `cdp_url`, as ADR 0056's address rules read it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,6 +51,13 @@ enum Treated {
 impl CdpUrlOrigin {
     fn treated(self) -> Treated {
         match ConfiguredKind::CdpUrl.classed().class(self.layer) {
+            // A Client acting for a model sends the project configuration
+            // itself, so its value there is the model's (O8).
+            EgressClass::OperatorConfigured
+                if self.layer == SettingsLayer::ProjectConfiguration && self.acting_for_model =>
+            {
+                Treated::PageReachable
+            }
             EgressClass::OperatorConfigured => Treated::Configured,
             EgressClass::PageReachable
                 if self.layer == SettingsLayer::Run && !self.acting_for_model =>
@@ -170,6 +181,60 @@ pub fn judge_cdp_url(
         })?;
     }
     Ok(())
+}
+
+/// Where a Borrowed browser is, as ADR 0056's rule for a name the engine
+/// cannot resolve reads it (O9 of the deep review).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrowserLocation {
+    /// On the engine's machine: its `cdp_url` resolves to loopback alone,
+    /// so it resolves names on the network the engine sees.
+    EnginesMachine,
+    /// Elsewhere, whose network may resolve names the engine's cannot,
+    /// such as an intranet's or a cloud's metadata service's.
+    Elsewhere,
+}
+
+impl BrowserLocation {
+    /// Where the browser whose `cdp_url` resolves to `addresses` is: on
+    /// the engine's machine only when every address is loopback.
+    pub fn of(addresses: &[SocketAddr]) -> Self {
+        if !addresses.is_empty() && addresses.iter().all(|address| is_loopback(address.ip())) {
+            Self::EnginesMachine
+        } else {
+            Self::Elsewhere
+        }
+    }
+}
+
+/// Judges a request of a Borrowed browser at `browser` to `url`, whose
+/// host the engine cannot resolve, so it judges no address of it: a
+/// browser elsewhere may resolve the name on its own network, to an
+/// intranet host or a cloud's metadata service, so the request is refused
+/// there; one on the engine's machine resolves it as the engine would, and
+/// gets it (ADR 0056's #633 note, amended by O9). With
+/// `security.resolved_ip_check` off, the Run judges no address, and none
+/// is refused.
+///
+/// # Errors
+///
+/// [`Refused`](super::Refused) with [`EgressRule::DomainPolicy`], a request
+/// that could not be judged, naming `network.resolve`, which maps the name
+/// to addresses the engine judges.
+pub fn judge_unresolved(
+    url: &str,
+    session: &Policy,
+    browser: BrowserLocation,
+) -> Result<(), super::Refused> {
+    if !session.resolved_ip_check || browser == BrowserLocation::EnginesMachine {
+        return Ok(());
+    }
+    Err(super::Refused {
+        url: url.to_owned(),
+        rule: EgressRule::DomainPolicy,
+        address: None,
+        setting: Some(NETWORK_RESOLVE.name),
+    })
 }
 
 /// Whether `address` is a loopback address, an IPv4-mapped one included.

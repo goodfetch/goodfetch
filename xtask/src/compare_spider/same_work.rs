@@ -66,17 +66,17 @@ pub(crate) fn work_of(observations: &Value, host: &str, site: &str) -> Result<Wo
     Ok(work)
 }
 
-/// The paths of the site whose first page is `site`, `/sites/<n>/1`:
+/// The paths of the site whose first page is `first`, `/sites/<n>/1`:
 /// `/sites/<n>/1` to `/sites/<n>/<n>`.
-fn site_pages(site: &str) -> Option<BTreeSet<String>> {
-    let size: u64 = site
+fn site_pages(first: &str) -> Option<BTreeSet<String>> {
+    let pages: u64 = first
         .strip_prefix("/sites/")?
         .strip_suffix("/1")?
         .parse()
         .ok()?;
     Some(
-        (1..=size)
-            .map(|page| format!("/sites/{size}/{page}"))
+        (1..=pages)
+            .map(|page| format!("/sites/{pages}/{page}"))
             .collect(),
     )
 }

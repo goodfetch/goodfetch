@@ -30,6 +30,11 @@
 //! such as a followed crawl, makes the call that stops it and waits for its
 //! answer; a second one, or one during a call that cannot be cancelled,
 //! ends the command at once (ADRs 0069, 0080 and 0093).
+//!
+//! Size: one concern, a command's Link to its engine: the choice of
+//! engine, `hello`, and the one call loop that interleaves the call's
+//! answers, its credits, the stream it sends and the interrupts, kept
+//! whole so a change to one of them is checked against the others.
 #![expect(
     clippy::disallowed_methods,
     reason = "the CLI builds its runtime before and outside any async worker, as main does (ADR 0060)"

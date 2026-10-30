@@ -39,13 +39,14 @@ RUN apt-get update \
 RUN rustup component add rustfmt clippy \
  && rustup toolchain install 1.97 --profile minimal
 
-# The nightly toolchain fuzzing and the AddressSanitizer run share, with the
-# standard library's source the run rebuilds, and cargo-fuzz for `cargo fuzz
+# The nightly toolchain fuzzing, the AddressSanitizer run and Miri share
+# (ci/miri.toml pins the same one), with the standard library's source the
+# run and Miri's sysroot rebuild, Miri itself, and cargo-fuzz for `cargo fuzz
 # check` (ADR 0067), at ci/sanitizer-toolchain.toml's versions
 # (ci/tool-versions.sh checks they agree).
 ARG SANITIZER_TOOLCHAIN=nightly-2026-10-05
 ARG CARGO_FUZZ_VERSION=0.13.2
-RUN rustup toolchain install "${SANITIZER_TOOLCHAIN}" --profile minimal --component rust-src \
+RUN rustup toolchain install "${SANITIZER_TOOLCHAIN}" --profile minimal --component rust-src --component miri \
  && cargo "+${SANITIZER_TOOLCHAIN}" install --locked --root /usr/local "cargo-fuzz@${CARGO_FUZZ_VERSION}" \
  && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
 

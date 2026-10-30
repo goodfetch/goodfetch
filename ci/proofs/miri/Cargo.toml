@@ -1,0 +1,5 @@
+# The fixture of Miri's proof (just proofs): a test that reads memory it
+# freed, undefined behaviour that a native run may well pass.
+[workspace]
+resolver = "3"
+members = ["reads-freed-memory"]

@@ -171,6 +171,28 @@ fn a_run_file_copied_out_of_the_install_database_is_a_file_of_its_own() {
     assert_eq!(items(&opened).unwrap(), vec![4, 5]);
 }
 
+/// The install database opens on a new file another connection writes once
+/// that write ends: its switch of the file to WAL waits, as SQLite answers
+/// that switch busy at once (#1773's class).
+///
+/// Covers: story:3-29, setting:run_state.layout
+#[test]
+fn the_install_database_opens_beside_another_write_of_its_new_file() {
+    let env = TestEnv::new();
+    let path = env.folder().join(INSTALL_FILE);
+
+    let opened = crate::sqlite_wal::tests::opened_beside_a_write(&path, || {
+        InstallDatabase::open(
+            &path,
+            &env.folder().join("runs"),
+            &RunStateOptions::default(),
+        )
+        .map(drop)
+    });
+
+    assert_eq!(opened, Ok(()));
+}
+
 /// A second install database on the same run folders in one process is
 /// refused, so one writer keeps them.
 #[test]

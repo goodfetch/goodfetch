@@ -439,6 +439,32 @@ fn each_change_is_in_the_audit_log_by_the_os_user_through_the_console() {
     });
 }
 
+/// An engine that makes the new accounts store while another connection
+/// writes the new file adds its sign-in once that write ends: its switch of
+/// the file to WAL waits, as SQLite answers that switch busy at once
+/// (#1773's class).
+///
+/// Covers: format:accounts-store
+#[test]
+fn an_engine_making_the_accounts_store_beside_another_write_adds_its_sign_in() {
+    let env = TestEnv::new();
+    let home = Home::new(env.home().to_path_buf());
+    let store = AccountsStore::at(home.accounts_store(&version("1.0.0")));
+
+    let inserted = crate::sqlite_wal::tests::opened_beside_a_write(store.path(), || {
+        store.insert(&goodfetch_protocol::people::SignInRow {
+            id: "a".to_owned(),
+            verifier: "b".to_owned(),
+            person: "ada".to_owned(),
+            created: "2026-01-05T09:00:00Z".to_owned(),
+            last_used: "2026-01-05T09:00:00Z".to_owned(),
+            wrapping_key: "c".to_owned(),
+        })
+    });
+
+    assert_eq!(inserted, Ok(()));
+}
+
 /// Covers: format:accounts-store
 #[test]
 fn the_accounts_store_keeps_no_cookie() {

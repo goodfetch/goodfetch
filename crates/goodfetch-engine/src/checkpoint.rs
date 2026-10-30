@@ -275,6 +275,10 @@ fn copy_into(reader: &Connection, source: &Path, into: &Path) -> Result<(u64, u6
             }
         }
     }
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the copy is this call's own new file, which no other connection opens"
+    )]
     copy.pragma_update_and_check(None, "journal_mode", "DELETE", |_| Ok(()))
         .map_err(failed)?;
     if let Some(folder) = source.parent() {

@@ -23,7 +23,12 @@ const PAUSE: Duration = Duration::from_millis(5);
 pub(crate) fn enter(connection: &Connection, timeout: Duration) -> rusqlite::Result<()> {
     let mut waited = Duration::ZERO;
     loop {
-        match connection.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(())) {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "this module is where a file switches to WAL, waiting while it is busy"
+        )]
+        let switched = connection.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()));
+        match switched {
             Err(rusqlite::Error::SqliteFailure(error, _))
                 if error.code == rusqlite::ErrorCode::DatabaseBusy && waited < timeout =>
             {
@@ -38,3 +43,6 @@ pub(crate) fn enter(connection: &Connection, timeout: Duration) -> rusqlite::Res
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests;

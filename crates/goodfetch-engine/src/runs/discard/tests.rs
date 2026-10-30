@@ -28,6 +28,10 @@ fn keyed_run(env: &TestEnv) -> PathBuf {
     let folder = env.folder().join("runs").join("r");
     drop(take_lock(&folder).ok().unwrap());
     let run_file = Connection::open(folder.join(RUN_FILE)).unwrap();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test's own new run file, which no other connection opens yet"
+    )]
     run_file
         .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
         .unwrap();

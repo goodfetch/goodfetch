@@ -105,6 +105,36 @@ fn a_run_file_opens_in_wal_mode_with_full_synchronous_commits() {
     assert_eq!(pragmas, ("wal".to_owned(), "2".to_owned()));
 }
 
+/// A writer opens a new run file another connection writes once that write
+/// ends: its switch of the file to WAL waits, as SQLite answers that switch
+/// busy at once (#1773's class).
+///
+/// Covers: story:3-25
+#[test]
+fn a_writer_opens_a_new_run_file_beside_another_write_of_it() {
+    let env = TestEnv::new();
+    let path = env.folder().join("run.sqlite");
+
+    let opened = crate::sqlite_wal::tests::opened_beside_a_write(&path, || {
+        goodfetch_test_support::runtime().block_on(async {
+            let owner = TaskOwner::root(BlockingPolicy::Inline);
+            let opened = RunState::open(
+                path.clone(),
+                &RunStateOptions::default(),
+                vec![ITEMS],
+                1,
+                &owner,
+            )
+            .await
+            .map(drop);
+            owner.wait().await;
+            opened
+        })
+    });
+
+    assert_eq!(opened, Ok(()));
+}
+
 /// `run_state.durability = fast` trades the power-cut guarantee for speed:
 /// the file commits with `synchronous=NORMAL`, still in WAL mode.
 ///

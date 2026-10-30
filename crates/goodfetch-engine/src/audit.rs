@@ -629,9 +629,7 @@ impl AuditLog {
         connection
             .busy_timeout(BUSY_TIMEOUT)
             .map_err(|error| failed(&error))?;
-        connection
-            .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-            .map_err(|error| failed(&error))?;
+        crate::sqlite_wal::enter(&connection, BUSY_TIMEOUT).map_err(|error| failed(&error))?;
         connection
             .pragma_update(None, "synchronous", "FULL")
             .map_err(|error| failed(&error))?;

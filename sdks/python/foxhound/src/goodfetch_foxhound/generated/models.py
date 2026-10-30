@@ -1271,6 +1271,14 @@ class RunRecordsParams(BaseModel):
     """The Dataset's name."""
     run_id: RunId
     """The crawl's Run."""
+    through: Annotated[int | None, Field(ge=0)] = None
+    """
+    The number of the last Record to read, such as the last one
+    committed when the reader began (`dataset.page`'s `through`): the
+    call answers once it sent every Record numbered through it, waiting
+    on a live Run for those not committed yet. Absent, it follows a live
+    Run until the Run ends.
+    """
     wall: bool | None = None
     """
     `true` reads only the Records whose page was read past a Wall,

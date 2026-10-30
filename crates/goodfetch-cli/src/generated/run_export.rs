@@ -115,7 +115,7 @@ impl Flags {
 }
 
 /// Where the bytes that arrive go.
-enum Sink {
+enum Destination {
     Stdout,
     File(Saving),
 }
@@ -130,7 +130,7 @@ pub(super) fn run(
     daemons: &dyn Daemons,
     human: &Human,
 ) -> ExitCode {
-    let mut sink = match &flags.out {
+    let mut destination = match &flags.out {
         Out::Stdout if call.json => {
             human.failure(
                 "`--json` prints the Export on standard output, which `--out -` gives to its bytes: give `--out` a path",
@@ -138,9 +138,9 @@ pub(super) fn run(
             );
             return ExitCode::from(cli::USAGE.code);
         }
-        Out::Stdout => Sink::Stdout,
+        Out::Stdout => Destination::Stdout,
         Out::Path(path) => match Saving::create(path) {
-            Ok(saving) => Sink::File(saving),
+            Ok(saving) => Destination::File(saving),
             Err(error) => return call.fail(save_failed(error, path), human),
         },
     };
@@ -170,9 +170,9 @@ pub(super) fn run(
             .as_str()
             .and_then(|data| data_encoding::BASE64.decode(data.as_bytes()).ok())
             .unwrap_or_default();
-        match &mut sink {
+        match &mut destination {
             // A stdout that takes no more stops the call at once.
-            Sink::Stdout => match output::bytes(&bytes) {
+            Destination::Stdout => match output::bytes(&bytes) {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => {
                     reader_left = true;
@@ -183,12 +183,12 @@ pub(super) fn run(
                     return None;
                 }
             },
-            Sink::File(saving) if failed.is_none() => {
+            Destination::File(saving) if failed.is_none() => {
                 failed = saving.write(&bytes).err();
             }
             // Once a write failed, the bytes left are read and dropped, so
             // the engine ends the call.
-            Sink::File(_) => {}
+            Destination::File(_) => {}
         }
         Some(1)
     };
@@ -217,7 +217,13 @@ pub(super) fn run(
         }
     }
     match answer {
-        Answer::Result(_) => finished(call, &flags.out, (failed, sink), export.as_ref(), human),
+        Answer::Result(_) => finished(
+            call,
+            &flags.out,
+            (failed, destination),
+            export.as_ref(),
+            human,
+        ),
         Answer::Error(error) => call.fail(error, human),
         Answer::Refused(error) => call.fail_exiting(error, exit_codes::DAEMON_REFUSED, human),
         Answer::Unanswered(error) => output::fail(error, None, call.json, human),
@@ -226,20 +232,20 @@ pub(super) fn run(
 }
 
 /// The exit code of `call` once `export.stream` ended: for a path, the
-/// file `sink` wrote finished, unless a write `failed`, and the Export
+/// file `destination` wrote finished, unless a write `failed`, and the Export
 /// `export` printed.
 fn finished(
     call: &Call,
     out: &Out,
-    (failed, sink): (Option<SaveError>, Sink),
+    (failed, destination): (Option<SaveError>, Destination),
     export: Option<&Value>,
     human: &Human,
 ) -> ExitCode {
     if let Out::Path(path) = out {
-        let written = match (failed, sink) {
+        let written = match (failed, destination) {
             (Some(error), _) => Err(error),
-            (None, Sink::File(saving)) => saving.finish(),
-            (None, Sink::Stdout) => Ok(()),
+            (None, Destination::File(saving)) => saving.finish(),
+            (None, Destination::Stdout) => Ok(()),
         };
         if let Err(error) = written {
             return call.fail(save_failed(error, path), human);

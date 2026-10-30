@@ -1,0 +1,66 @@
+{
+  "description": "Foxhound's CLI built from this commit runs crawl start --follow on the Daemon: the Daemon answers crawl.start with the Run ID and leaves run.progress.read waiting; a first interrupt makes the CLI send run.stop, which the Daemon holds open, answering nothing more, so only a second interrupt can end the command, at once.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "cli",
+          "token": "scripted-daemon-token",
+          "needs": "foxhound",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "run_id": "held",
+          "seeds": [{ "url": "https://example.com/", "label": "page" }],
+          "extraction": { "formats": { "markdown": true } }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "held",
+          "lifecycle": "running",
+          "needs": "foxhound",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.progress",
+        "params": {
+          "run_id": "held"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.stop",
+        "params": {
+          "run_id": "held"
+        }
+      }
+    },
+    {
+      "stall": {}
+    }
+  ]
+}

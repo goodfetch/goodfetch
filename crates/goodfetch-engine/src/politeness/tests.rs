@@ -123,6 +123,42 @@ fn run<T>(test: impl AsyncFnOnce(&TaskOwner) -> T) -> T {
     })
 }
 
+/// An engine whose first Run opens the user's new Politeness file while
+/// another engine writes it opens the file once that write ends and takes
+/// its Permit (#1774): its switch of the file to WAL waits, as SQLite
+/// answers that switch busy at once, where a Run starting beside another
+/// on a new home failed `database is locked`.
+///
+/// Covers: story:3-80
+#[test]
+fn an_engine_opening_the_new_file_beside_another_engines_write_takes_its_permit() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+
+    let taken = crate::sqlite_wal::tests::opened_beside_a_write(
+        &env.home().join("politeness.sqlite"),
+        || {
+            run(async |owner| {
+                let politeness = Politeness::open(
+                    env.home().join("politeness.sqlite"),
+                    &PolitenessOptions::default(),
+                    Vec::new(),
+                    gone_unless_live,
+                    "second".to_owned(),
+                    owner,
+                )
+                .await?;
+                politeness
+                    .take("shop.test", &holder(&env, "second"), cap(1), now)
+                    .await
+                    .map(|taken| matches!(taken, Taken::Granted(_)))
+            })
+        },
+    );
+
+    assert_eq!(taken, Ok(true));
+}
+
 /// Covers: story:3-80, story:3-81
 #[test]
 fn a_run_admits_only_while_the_combined_count_under_its_key_is_below_its_own_cap() {

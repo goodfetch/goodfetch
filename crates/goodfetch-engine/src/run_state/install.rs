@@ -276,9 +276,7 @@ fn open_database(path: &Path, vfs: Option<&str>) -> Result<Connection, RunStateE
         None => Connection::open_with_flags(path, flags),
     }
     .map_err(failed)?;
-    connection
-        .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-        .map_err(failed)?;
+    crate::sqlite_wal::enter(&connection, super::SWITCH_TIMEOUT).map_err(failed)?;
     connection
         .pragma_update(None, "synchronous", "NORMAL")
         .map_err(failed)?;

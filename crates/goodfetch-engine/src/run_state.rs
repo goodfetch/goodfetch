@@ -39,6 +39,10 @@ pub mod install;
 /// How many writes wait for the writer before their callers wait.
 const MAILBOX: usize = 1024;
 
+/// How long the writer's switch of a new file to WAL waits while another
+/// connection holds the file.
+const SWITCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The engine's own tables, which every run file holds.
 const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT",
@@ -619,9 +623,7 @@ fn open_file(
         None => Connection::open_with_flags(path, flags),
     }
     .map_err(failed)?;
-    connection
-        .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-        .map_err(failed)?;
+    crate::sqlite_wal::enter(&connection, SWITCH_TIMEOUT).map_err(failed)?;
     connection
         .pragma_update(None, "synchronous", options.durability.synchronous())
         .map_err(failed)?;

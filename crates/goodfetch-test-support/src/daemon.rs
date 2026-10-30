@@ -7,7 +7,10 @@
 //! the test runs. Its runtime file, which it prints once ready, is read
 //! back from the home and gives the socket and token a Client needs.
 //! Stopping it runs the executable's own `daemon stop`, then checks that
-//! the process ended and that no runtime file is left in the home.
+//! the process ended and that no runtime file is left in the home. Dropping
+//! a Daemon the test did not stop stops it the same way, so it ends its
+//! Runs and its children before it exits, and kills it only when that
+//! fails or outlasts the deadline; either way it is reaped.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support reads the Daemon's runtime file, runs `daemon stop` and waits for the Daemon outside any async worker (ADR 0062)"
@@ -50,10 +53,13 @@ pub struct DaemonDescription {
 }
 
 /// The Daemon of one test's Goodfetch home. Its process joins the test's
-/// record; [`Daemon::stop`] stops it, and dropping it kills it.
+/// record; [`Daemon::stop`] stops it, and dropping it stops it too,
+/// killing it when it does not end.
 pub struct Daemon {
     process: Process,
-    program: PathBuf,
+    /// Its executable's `daemon stop`, under the test's environment, for
+    /// its drop, which has no `TestEnv` to build it from.
+    stop_command: std::process::Command,
     runtime_file: PathBuf,
     description: DaemonDescription,
 }
@@ -81,7 +87,7 @@ impl Daemon {
         match Self::read(env, &process, deadline) {
             Ok((runtime_file, description)) => Ok(Self {
                 process,
-                program: program.to_owned(),
+                stop_command: stop_command(env, program),
                 runtime_file,
                 description,
             }),
@@ -143,13 +149,25 @@ impl Daemon {
     /// Stops it with its executable's `daemon stop`, under the test's
     /// environment, and checks that its process ended and that it left no
     /// runtime file in the home.
-    pub fn stop(self, env: &TestEnv) -> Result<(), DaemonError> {
-        let output = env
-            .process_command(&self.program)
-            .args(["daemon", "stop", "--json"])
-            .stdin(Stdio::null())
-            .output()
-            .map_err(DaemonError::Stop)?;
+    pub fn stop(mut self, env: &TestEnv) -> Result<(), DaemonError> {
+        self.stop_command = stop_command(env, &self.program());
+        self.own_stop()?;
+        if self.runtime_file.exists() {
+            return Err(DaemonError::RuntimeFileLeft(self.runtime_file.clone()));
+        }
+        Ok(())
+    }
+}
+
+impl Daemon {
+    /// The executable its `daemon stop` runs.
+    fn program(&self) -> PathBuf {
+        PathBuf::from(self.stop_command.get_program())
+    }
+
+    /// Runs its `daemon stop` and waits until its process ends.
+    fn own_stop(&mut self) -> Result<(), DaemonError> {
+        let output = self.stop_command.output().map_err(DaemonError::Stop)?;
         if !output.status.success() {
             return Err(DaemonError::StopFailed {
                 status: output.status,
@@ -165,24 +183,34 @@ impl Daemon {
                 .map_err(DaemonError::Stop)?
                 .is_some()
             {
-                break;
+                return Ok(());
             }
             if started.elapsed() >= STOP_DEADLINE {
                 return Err(DaemonError::StillRunning(STOP_DEADLINE));
             }
             std::thread::sleep(STOP_POLL);
         }
-        if self.runtime_file.exists() {
-            return Err(DaemonError::RuntimeFileLeft(self.runtime_file.clone()));
-        }
-        Ok(())
     }
 }
 
 impl Drop for Daemon {
     fn drop(&mut self) {
+        if matches!(self.process.child().try_wait(), Ok(None)) {
+            // Best effort: a stop that fails or outlasts its deadline leaves
+            // the kill below.
+            let _ = self.own_stop();
+        }
         kill(&self.process);
     }
+}
+
+/// `program`'s `daemon stop`, under the test's environment.
+fn stop_command(env: &TestEnv, program: &Path) -> std::process::Command {
+    let mut command = env.process_command(program);
+    command
+        .args(["daemon", "stop", "--json"])
+        .stdin(Stdio::null());
+    command
 }
 
 /// Kills a process that may already have exited, and reaps it.

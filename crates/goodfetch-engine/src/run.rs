@@ -228,6 +228,7 @@ pub fn start_error(error: StartError) -> CallError {
             }
         }
         StartError::Draining { run_id } => draining(run_id),
+        StartError::Discarding { run_id, folder } => discarding(run_id, &folder),
         StartError::ResourcesExhausted(exhausted) => storage_exhausted(&exhausted),
         StartError::Secret(error) => secret_error(&error),
         StartError::Stopped => stopped(),
@@ -594,6 +595,7 @@ pub fn run_error_of(error: RunError, identity: &Identity, operation: &'static st
         RunError::ResourcesExhausted(exhausted) => storage_exhausted(&exhausted),
         RunError::Live(run_id) => live(run_id),
         RunError::Interrupted(run_id) => interrupted(run_id),
+        RunError::Discarding { run_id, folder } => discarding(run_id, &folder),
         RunError::Forwarded(failure) => forwarded(*failure),
         RunError::Stopped => stopped(),
     }
@@ -618,6 +620,20 @@ fn forwarded(failure: goodfetch_protocol::jsonrpc::ErrorObject) -> CallError {
         Some(definition) => CallError::new(definition, failure.message, &failure.data.details),
         None => internal(format!("{}: {}", failure.data.code, failure.message)),
     }
+}
+
+/// `run_in_use`: this engine discards the Run `run_id`, holding its lock.
+fn discarding(run_id: RunId, folder: &std::path::Path) -> CallError {
+    CallError::new(
+        &RUN_IN_USE,
+        format!(
+            "This engine is discarding the Run `{run_id}`; once the discard ends, the Run is gone."
+        ),
+        &RunDetails {
+            run_id,
+            path: Some(folder.display().to_string()),
+        },
+    )
 }
 
 /// `run_interrupted`: `run_id` has no live writer and has not ended.
@@ -952,7 +968,9 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
         .await
         .map_err(|error| run_error_of(error, context.identity(), RUN_RESUME.name))?;
     Ok(match resumed {
-        Resumed::New { run, kind, needs } => {
+        Resumed::New {
+            run, kind, needs, ..
+        } => {
             let started = RunStarted {
                 run_id: run.id().clone(),
                 started_as: StartedAs::Resumed,

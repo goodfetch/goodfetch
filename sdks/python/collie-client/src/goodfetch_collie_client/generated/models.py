@@ -2966,8 +2966,9 @@ class Unready(StrEnum):
     """
     storage_critical = "storage_critical"
     """
-    The filesystem holding its run state is at the `critical` storage
-    level, where a new Run's start is refused (ADR 0122).
+    The filesystem holding its run state, or the Goodfetch home's, is
+    at the `critical` storage level, where a new Run's start is refused
+    (ADR 0122).
     """
 
 

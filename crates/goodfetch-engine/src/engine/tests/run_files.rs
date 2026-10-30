@@ -9,8 +9,9 @@
 //! no temporary file left beside it; a Daemon writes no path of the
 //! program's and sends the file in `$/chunk` notifications, one per
 //! credit; a file kept while the Run folder's filesystem is at `critical`
-//! fails with `file_write_failed`, side `engine`; and a discarded Run's
-//! files are gone from the Goodfetch home in either layout.
+//! fails with `file_write_failed`, side `engine`; a file kept beside a
+//! `forget` of the same bytes is kept; and a discarded Run's files are
+//! gone from the Goodfetch home in either layout.
 
 use std::collections::BTreeSet;
 use std::io::Cursor;
@@ -36,7 +37,7 @@ use super::storage::configure;
 use super::{attached_on, engine_with, hello};
 use crate::composition::{CallContext, CallError, Contribution, Handler};
 use crate::engine::Engine;
-use crate::run_files::FileKind;
+use crate::run_files::{self, FileKind};
 use crate::run_files_operations::keep_error;
 
 /// Keeps a Download's file in a live Run, as the page's downloads will.
@@ -78,8 +79,87 @@ async fn keep_download(params: Value, context: CallContext) -> Result<Value, Cal
     }))
 }
 
+/// Keeps the tests' file in a live Run beside a `forget` of the same bytes
+/// ordered before its record, as a Key-value store key's replaced file is
+/// forgotten: the writer runs the `forget` once the keep has written its
+/// bytes, then the keep's record.
+const KEEP_BESIDE_FORGET: Operation = Operation {
+    name: "test.keep_beside_forget",
+    description: "Keeps the tests' file twice, the first record dropped and its file forgotten in the writer just before the second's record.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<Value>,
+    result: schema_of::<Value>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+/// A source of `bytes` that says, as it drops, that the keep reading it
+/// has written them.
+struct Signalling {
+    bytes: Cursor<Vec<u8>>,
+    written: Option<std::sync::mpsc::Sender<()>>,
+}
+
+impl std::io::Read for Signalling {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.bytes.read(buffer)
+    }
+}
+
+impl Drop for Signalling {
+    fn drop(&mut self) {
+        if let Some(written) = self.written.take() {
+            let _ = written.send(());
+        }
+    }
+}
+
+async fn keep_beside_forget(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+    let run = context.runs().live(run_id).await.unwrap();
+    let first = run
+        .keep_file(
+            FileKind::Download,
+            "first.csv".to_owned(),
+            Cursor::new(bytes(1)),
+        )
+        .await
+        .unwrap();
+    let (written, wait) = std::sync::mpsc::channel::<()>();
+    let held = run.state().write(move |_| {
+        let _ = wait.recv();
+        Ok(())
+    });
+    let (folder, sha256, position) = (run.folder().to_owned(), first.sha256, first.position);
+    let forgotten = run.state().write(move |connection| {
+        run_files::unrecord(connection, position)?;
+        run_files::forget(connection, &folder, &sha256)
+    });
+    let source = Signalling {
+        bytes: Cursor::new(bytes(1)),
+        written: Some(written),
+    };
+    let (held, forgotten, kept) = tokio::join!(
+        held,
+        forgotten,
+        run.keep_file(FileKind::Download, "second.csv".to_owned(), source)
+    );
+    held.unwrap();
+    forgotten.unwrap();
+    let kept = kept.unwrap();
+    let file = run_files::file(run.folder(), &kept.sha256).unwrap();
+    Ok(json!({ "kept": file.exists() }))
+}
+
 fn keeping() -> Contribution {
-    Contribution::new("test-run-files").with_handler(Handler::new(&KEEP_DOWNLOAD, keep_download))
+    Contribution::new("test-run-files")
+        .with_handler(Handler::new(&KEEP_DOWNLOAD, keep_download))
+        .with_handler(Handler::new(&KEEP_BESIDE_FORGET, keep_beside_forget))
 }
 
 fn engine() -> Engine {
@@ -162,6 +242,33 @@ fn a_download_kept_with_its_run_is_saved_whole_after_the_run_ended() {
         ),
         "{saved}"
     );
+}
+
+/// A file kept while a `forget` of the same bytes, ordered before its
+/// record, deletes the file those bytes had is kept all the same: the
+/// record never names a file that is gone (deep review 580-8).
+///
+/// Covers: story:6-17
+#[test]
+fn a_file_kept_beside_a_forget_of_the_same_bytes_is_kept() {
+    let env = TestEnv::new();
+
+    let kept = attached_on(&engine(), &env, |mut client| async move {
+        client.send(&[hello("collie", "0.1")]).await;
+        client.next().await;
+        call(&mut client, 1, "run.start", json!({ "run_id": "kept" })).await;
+        let kept = call(
+            &mut client,
+            2,
+            "test.keep_beside_forget",
+            json!({ "run_id": "kept" }),
+        )
+        .await;
+        call(&mut client, 3, "run.finish", json!({ "run_id": "kept" })).await;
+        kept
+    });
+
+    assert_eq!(kept["result"], json!({ "kept": true }), "{kept}");
 }
 
 /// A save over a file the path held replaces it.

@@ -100,7 +100,7 @@ const SPECS: [Spec; (SAFE - 1) as usize] = [
     },
     Spec {
         content_encodings: &["br"],
-        compressed_bytes: 27,
+        compressed_bytes: 26,
         description: "Read the start page as one Record with `id` and `word`. Its body is a \
             Brotli decompression bomb that decodes to far more than it sends, past the engine's \
             decompression-ratio limit. A correct tool refuses it at the limit.",
@@ -122,22 +122,16 @@ const SPECS: [Spec; (SAFE - 1) as usize] = [
     },
 ];
 
-/// Every bomb's body, in [`SPECS`]' order, built once at the first request
-/// for a bomb's page: the bytes are generated here, never committed, so the
-/// source file stays small.
-static BOMBS: OnceLock<Vec<Vec<u8>>> = OnceLock::new();
+/// Each bomb's body, in [`SPECS`]' order, built once at the first request
+/// for its own page: the bytes are generated here, never committed, so the
+/// source file stays small, and a request for one bomb builds no other.
+static BOMBS: [OnceLock<Vec<u8>>; SPECS.len()] = [const { OnceLock::new() }; SPECS.len()];
 
 /// The body of the bomb at `index` in [`SPECS`].
 fn bomb_body(index: usize) -> Option<&'static [u8]> {
-    BOMBS
-        .get_or_init(|| {
-            SPECS
-                .iter()
-                .map(|spec| body_for(spec.content_encodings))
-                .collect()
-        })
-        .get(index)
-        .map(Vec::as_slice)
+    let spec = SPECS.get(index)?;
+    let body = BOMBS.get(index)?;
+    Some(body.get_or_init(|| body_for(spec.content_encodings)))
 }
 
 /// The chunk [`write_filler`] streams filler in, kept small so its buffer
@@ -215,8 +209,10 @@ fn encode(coding: &str, bytes: &[u8]) -> Vec<u8> {
 /// `EXPANDED_BYTES` of filler compressed with Brotli, streamed through the
 /// encoder so its expanded size is never held at once.
 fn brotli_filler() -> Vec<u8> {
-    // Quality 11, window 2^22: the encoder's own defaults for the best ratio.
-    let mut encoder = brotli::CompressorWriter::new(Vec::new(), 4096, 11, 22);
+    // Quality 5, window 2^22: one filler byte compresses as far at quality 5
+    // as at the encoder's best, 11 (26 bytes against 27), and an
+    // unoptimized build takes 0.2 s to do it, where quality 11 took 2.7 s.
+    let mut encoder = brotli::CompressorWriter::new(Vec::new(), 4096, 5, 22);
     write_filler(&mut encoder, EXPANDED_BYTES);
     encoder.into_inner()
 }
@@ -490,7 +486,10 @@ mod tests {
         let tasks = tasks(SEED, None);
 
         assert_eq!(tasks.len(), TASKS as usize);
-        assert!(BOMBS.get().is_none(), "the bombs were built to list them");
+        assert!(
+            BOMBS.iter().all(|body| body.get().is_none()),
+            "the bombs were built to list them"
+        );
     }
 
     /// Each task declares the size of the body its page really sends.

@@ -202,3 +202,48 @@ fn a_path_outside_the_run_folders_does_not_open_through_its_vfs() {
 
     assert!(outside.is_err());
 }
+
+/// Erasing a Run's files deletes those of its run folder only, a Run ID
+/// that begins with another's included, and finds them by a range on the
+/// primary key, so the erase holds the database for what the erased Run
+/// keeps, not for every Run's files (deep review 213-3).
+#[test]
+fn erasing_a_runs_files_searches_their_names_and_leaves_every_other_run() {
+    let env = TestEnv::new();
+    let install = install(&env);
+    for run_id in ["a", "a_b", "b"] {
+        install.write(run_id, &[1]);
+    }
+
+    let erased = install.database.erase("a").unwrap();
+
+    let connection = Connection::open_with_flags(
+        &install.path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .unwrap();
+    let plans: Vec<String> = ["chunks", "files"]
+        .into_iter()
+        .map(|table| {
+            connection
+                .query_row(
+                    &format!(
+                        "EXPLAIN QUERY PLAN DELETE FROM {table} WHERE {}",
+                        super::ERASED
+                    ),
+                    ["a/", "a0"],
+                    |row| row.get::<_, String>(3),
+                )
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(
+        (
+            erased,
+            install.database.runs().unwrap(),
+            plans.iter().all(|plan| plan.starts_with("SEARCH")),
+        ),
+        (true, vec!["a_b".to_owned(), "b".to_owned()], true),
+        "{plans:?}"
+    );
+}

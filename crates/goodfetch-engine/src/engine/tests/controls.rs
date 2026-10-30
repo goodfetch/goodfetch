@@ -215,6 +215,77 @@ fn a_generated_runs_first_entry_is_unchained_with_the_audit_chain_off() {
     );
 }
 
+/// A resume whose settings switch a control off is reported as a start's
+/// are (ADR 0016): one chained `security_switch_turned_off` entry, one
+/// warning and the control in the Run report's `weakened`, for each control
+/// the Run's report did not list yet; a control its start switched off, and
+/// a second resume with the same settings, add nothing.
+/// Covers: story:4-74
+#[test]
+fn a_resume_that_switches_a_control_off_is_reported_once_as_a_start_is() {
+    let env = TestEnv::new();
+    let started =
+        json!({ "run_id": "resumed", "settings": { "security": { "redaction": false } } });
+    let resumed = json!({
+        "run_id": "resumed",
+        "settings": { "security": { "redaction": false, "resolved_ip_check": false } },
+    });
+    let paused = json!({ "run_id": "resumed" });
+    let warnings = Warnings::default();
+    let subscriber = tracing_subscriber::registry().with(warnings.clone());
+
+    let finished = tracing::subscriber::with_default(subscriber, || {
+        attached_with(
+            &engine_with(Product::Collie, None),
+            || dependencies(&env),
+            |mut client| async move {
+                client.send(&[hello("collie", "0.1")]).await;
+                client.next().await;
+                call(&mut client, 1, "run.start", started).await;
+                call(&mut client, 2, "run.pause", paused.clone()).await;
+                call(&mut client, 3, "run.resume", resumed.clone()).await;
+                call(&mut client, 4, "run.pause", paused.clone()).await;
+                call(&mut client, 5, "run.resume", resumed).await;
+                call(&mut client, 6, "run.finish", paused).await
+            },
+        )
+    });
+
+    let switched: Vec<Value> = recorded(&env);
+    assert_eq!(
+        (
+            &finished["result"]["weakened"],
+            warnings.0.lock().unwrap().clone(),
+            switched,
+        ),
+        (
+            &json!([
+                { "key": "security.redaction", "value": false, "layer": "run", "origin": "settings" },
+                { "key": "security.resolved_ip_check", "value": false, "layer": "run", "origin": "settings" },
+            ]),
+            vec![
+                "security.redaction".to_owned(),
+                "security.resolved_ip_check".to_owned()
+            ],
+            vec![
+                json!([
+                    "security_switch_turned_off",
+                    "resumed",
+                    "run",
+                    { "setting": "security.redaction", "value": false },
+                ]),
+                json!([
+                    "security_switch_turned_off",
+                    "resumed",
+                    "run",
+                    { "setting": "security.resolved_ip_check", "value": false },
+                ]),
+            ],
+        ),
+        "{finished}"
+    );
+}
+
 /// The positive control: with every control on, nothing is reported, the
 /// report has no `weakened`, and the Run's entries are chained.
 /// Covers: story:4-74, setting:security.audit_chain

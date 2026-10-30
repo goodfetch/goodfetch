@@ -26,7 +26,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use goodfetch_cdp::generated::network::{self, LoaderId, RequestId, ResourceType};
 use goodfetch_cdp::generated::page::{self, FrameId, FrameStartedNavigatingNavigationType};
-use goodfetch_cdp::{NetError, RawEvent};
+use goodfetch_cdp::{NetError, RawEvent, Subscription};
+use goodfetch_engine::CallError;
 use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_protocol::page::{PageResponse, WaitUntil};
 
@@ -43,6 +44,32 @@ pub(super) fn runs_a_script(url: &str) -> bool {
         egress::navigation(url, Navigator::default()),
         Ok(egress::Destination::JavaScript)
     )
+}
+
+/// What `Page.navigate`'s answer, `navigated`, says the call to `url`
+/// waits for: the navigation it named, or none when no document loads;
+/// else how it ended. `superseded` says the engine started another
+/// navigation of the page after it.
+pub(super) fn navigated(
+    url: &str,
+    navigated: page::NavigateReturns,
+    superseded: bool,
+) -> Result<Option<Expected>, Ended> {
+    match (navigated.error_text, navigated.loader_id) {
+        // A `javascript:` URL runs in the document, which the browser
+        // answers as an aborted navigation: no document loads.
+        (Some(_), None) if runs_a_script(url) => Ok(None),
+        (Some(error), loader) => refused(
+            &NetError::of(&error),
+            loader,
+            navigated.is_download == Some(true),
+            superseded,
+        )
+        .map(Some),
+        (None, Some(loader)) => Ok(Some(Expected::Loader(loader))),
+        // Within the document: no document loads.
+        (None, None) => Ok(None),
+    }
 }
 
 /// Which navigation is the call's.
@@ -94,6 +121,19 @@ pub(super) enum Ended {
     },
     /// The page's renderer crashed.
     Crashed,
+}
+
+/// How a navigation's command and the main frame's events left it.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Followed {
+    /// It reached this end; `expected` is the navigation the command's
+    /// answer named, when it named one.
+    Ended {
+        outcome: Result<Arrived, Ended>,
+        expected: Option<Expected>,
+    },
+    /// The browser's connection ended before it did.
+    Disconnected,
 }
 
 /// What the main frame's events said so far.
@@ -169,6 +209,55 @@ impl Navigation {
             unload: Unload::Unasked,
             crashed: false,
         }
+    }
+
+    /// Follows the navigation `command` starts through the page's
+    /// `events`, read while the command runs too, until it ends or reaches
+    /// the state `wait_until` names; `superseded` says the engine started
+    /// another navigation of the page after it.
+    ///
+    /// Every event the browser sent before the command's answer is read
+    /// before the answer is taken: the connection hands an event to its
+    /// subscribers before it hands over a later answer, so the events are
+    /// polled first (#1770). Read after the answer, the main frame's stop
+    /// of the load before this navigation's, which its start then makes an
+    /// earlier load's, would end a failed navigation before the browser's
+    /// error page for it replaced the document.
+    pub(super) async fn follow(
+        &mut self,
+        command: impl Future<Output = Result<Result<Option<Expected>, Ended>, CallError>>,
+        events: &mut Subscription,
+        wait_until: WaitUntil,
+        superseded: impl Fn() -> bool,
+    ) -> Result<Followed, CallError> {
+        let mut command = std::pin::pin!(command);
+        let mut expected = None;
+        let mut reading = true;
+        let outcome = loop {
+            if let Some(expected) = &expected
+                && let Some(outcome) = self.outcome(expected, wait_until, superseded())
+            {
+                break outcome;
+            }
+            tokio::select! {
+                biased;
+                event = events.next(), if reading => match event {
+                    Some(event) => self.feed(&event),
+                    // A target the browser detached sends nothing more, and
+                    // the command in flight on it failed with it: its answer
+                    // says how the navigation ended.
+                    None if expected.is_none() && super::detached(events) => reading = false,
+                    None => return Ok(Followed::Disconnected),
+                },
+                answered = &mut command, if expected.is_none() => match answered? {
+                    Ok(Some(answered)) => expected = Some(answered),
+                    Ok(None) => break Ok(Arrived::Document(None)),
+                    Err(ended) => break Err(ended),
+                },
+                else => return Ok(Followed::Disconnected),
+            }
+        };
+        Ok(Followed::Ended { outcome, expected })
     }
 
     /// Takes in one event of the page's target.
